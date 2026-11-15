@@ -64,6 +64,7 @@
     "./web-route-config": "./web-route-config.ts",
     "./web-server": "./web-server.ts",
     "./work-signal-store": "./work-signal-store.ts",
+    "./worker-jobs": "./worker-jobs.ts",
     "./worker": "./worker.ts",
     "./worker-observer": "./worker-observer.ts",
     "./worker-capacity": "./worker-capacity.ts",

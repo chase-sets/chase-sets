@@ -43,6 +43,7 @@ import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-s
 import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateContextRegistries } from "./context-registry-guard.mjs";
+import { validateScheduledJobs } from "./scheduled-jobs.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
@@ -99,6 +100,7 @@ const placeholderFieldTokens = new Set([
   "unknown",
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
+const registeredWorkerFactoryFiles = new Set();
 const nonPackageWorkspaceDirectoryExceptions = new Set([
   // A Rust (Corten) app; its scripts run with the root workspace's tools.
   "deployables/corten-pilot",
@@ -1489,6 +1491,7 @@ export function findDeployableBoundaryViolation(relativeFile, content) {
 
 function isAllowedServerSurfaceConsumer(relativeFile) {
   return (
+    registeredWorkerFactoryFiles.has(relativeFile) ||
     relativeFile.includes("/auth-api/") ||
     relativeFile.includes("/support/api-support/") ||
     relativeFile.includes("/routes/") ||
@@ -2048,6 +2051,7 @@ export async function runStructureCheck(options = {}) {
   warnings.length = 0;
   clientSurfaceConsumers.clear();
   supportFileConsumers.clear();
+  registeredWorkerFactoryFiles.clear();
 
   const sqlExecutionSurface = runSqlExecutionSurfaceGuard({ repoRoot });
   violations.push(...sqlExecutionSurface.violations);
@@ -2076,6 +2080,9 @@ export async function runStructureCheck(options = {}) {
   const jsonImportAttributesResult = await validateJsonImportAttributes({ repoRoot });
   violations.push(...jsonImportAttributesResult.violations);
   violations.push(...validateContextRegistries({ repoRoot }).violations);
+  const scheduledJobsValidation = validateScheduledJobs({ repoRoot });
+  violations.push(...scheduledJobsValidation.violations);
+  for (const file of scheduledJobsValidation.factoryFiles) registeredWorkerFactoryFiles.add(file);
   const channelConnectionContractProvenance = await validateChannelConnectionContractProvenance({ repoRoot });
   violations.push(...channelConnectionContractProvenance.violations);
   const cancellationProducerUniqueness = validateCancellationProducerUniqueness({ repoRoot });

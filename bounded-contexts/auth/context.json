@@ -1,4 +1,34 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "auth.agent-webhook-dispatcher",
+      "runnerExport": "createAgentWebhookDispatchRunners",
+      "group": "dispatch",
+      "order": 80,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "schedule": {
+        "kind": "dispatch"
+      },
+      "lockScope": "job:auth.agent-webhook-dispatcher"
+    },
+    {
+      "id": "auth.agent-grant-revocation-recovery",
+      "runnerExport": "createAgentWebhookDispatchRunners",
+      "group": "dispatch",
+      "order": 80,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "schedule": {
+        "kind": "dispatch"
+      },
+      "lockScope": "job:auth.agent-grant-revocation-recovery"
+    }
+  ],
   "contextName": "auth",
   "packageName": "@chase-sets/auth",
   "localeCatalogs": ["contracts/localization/locales/en/auth.ts"],

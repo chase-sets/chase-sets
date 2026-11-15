@@ -1,4 +1,69 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "catalog.provider-scope-refresh",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "catalogProviderScopeRefreshIntervalMs"
+      },
+      "runnerExport": "createCatalogProviderScopeRefreshRunners",
+      "group": "scheduled",
+      "order": 117,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:catalog.provider-scope-refresh"
+    },
+    {
+      "id": "catalog.source-observation-bulk-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "sourceObservationBulkJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.source-observation-bulk-jobs.lane-{lane}"
+    },
+    {
+      "id": "catalog.source-observation-integration-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "sourceObservationIntegrationJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.source-observation-integration-jobs.lane-{lane}"
+    },
+    {
+      "id": "catalog.authoring-bulk-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "catalogAuthoringBulkJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.authoring-bulk-jobs.lane-{lane}"
+    }
+  ],
   "contextName": "catalog",
   "packageName": "@chase-sets/catalog",
   "localeCatalogs": ["contracts/localization/locales/en/catalog.ts"],

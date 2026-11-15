@@ -1,4 +1,21 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "discovery.search-embedding-enrichment",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "discoverySearchEmbeddings.intervalMs"
+      },
+      "runnerExport": "createDiscoverySearchEmbeddingEnrichmentRunners",
+      "group": "scheduled",
+      "order": 128,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:discovery.search-embedding-enrichment"
+    }
+  ],
   "contextName": "discovery",
   "packageName": "@chase-sets/discovery",
   "localeCatalogs": ["contracts/localization/locales/en/discovery.ts"],

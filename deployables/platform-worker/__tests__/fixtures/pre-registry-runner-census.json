@@ -1,0 +1,1538 @@
+{
+  "head": "7102e3d56ac12516cde7ee3ef8638c4afd38bfa5",
+  "sources": [
+    "main.ts",
+    "scheduled-runners.ts",
+    "inventory-job-runners.ts",
+    "channels-outbound-runners.ts",
+    "channels-reconciliation-runners.ts",
+    "agent-webhook-runners.ts"
+  ],
+  "profiles": {
+    "landing:disabled": {
+      "inventory-jobs": [],
+      "jobs": [
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-2",
+          "intervalMs": null
+        }
+      ],
+      "dispatch": [],
+      "scheduled": []
+    },
+    "landing:enabled": {
+      "inventory-jobs": [],
+      "jobs": [
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-2",
+          "intervalMs": null
+        }
+      ],
+      "dispatch": [],
+      "scheduled": []
+    },
+    "proof:disabled": {
+      "inventory-jobs": [
+        {
+          "name": "job:inventory.import-batch-jobs.lane-1",
+          "lease": "job:job:inventory.import-batch-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-batch-jobs.lane-2",
+          "lease": "job:job:inventory.import-batch-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-product-resolution-maintenance.lane-1",
+          "lease": "job:job:inventory.import-product-resolution-maintenance.lane-1",
+          "intervalMs": null
+        }
+      ],
+      "jobs": [
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-1",
+          "lease": "job:job:pricing.recommendation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-2",
+          "lease": "job:job:pricing.recommendation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-1",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-2",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-1",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-2",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-1",
+          "lease": "job:job:channels.outbound-operations.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-2",
+          "lease": "job:job:channels.outbound-operations.lane-2",
+          "intervalMs": null
+        }
+      ],
+      "dispatch": [
+        {
+          "name": "auth.notification-dispatcher",
+          "lease": "job:auth.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "discovery.notification-dispatcher",
+          "lease": "job:discovery.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "fulfillment.notification-dispatcher",
+          "lease": "job:fulfillment.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "marketplace.notification-dispatcher",
+          "lease": "job:marketplace.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "notifications.notification-dispatcher",
+          "lease": "job:notifications.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "ordering.notification-dispatcher",
+          "lease": "job:ordering.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "payments.notification-dispatcher",
+          "lease": "job:payments.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "platform-operations.notification-dispatcher",
+          "lease": "job:platform-operations.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "public-presence.notification-dispatcher",
+          "lease": "job:public-presence.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "settlement.notification-dispatcher",
+          "lease": "job:settlement.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-webhook-dispatcher",
+          "lease": "job:auth.agent-webhook-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-grant-revocation-recovery",
+          "lease": "job:auth.agent-grant-revocation-recovery",
+          "intervalMs": null
+        }
+      ],
+      "scheduled": [
+        {
+          "name": "channels.ebay-account-deletion-receipt-expiry",
+          "lease": "job:channels.ebay-account-deletion-receipt-expiry",
+          "intervalMs": null
+        },
+        {
+          "name": "marketplace.review-opportunity-publication",
+          "lease": "job:marketplace.review-opportunity-publication",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.review-opportunity-backfill",
+          "lease": "job:marketplace.review-opportunity-backfill",
+          "intervalMs": 60000
+        },
+        {
+          "name": "marketplace.managed-offer-work",
+          "lease": "job:marketplace.managed-offer-work",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.managed-offer-recovery",
+          "lease": "job:marketplace.managed-offer-recovery",
+          "intervalMs": 60000
+        },
+        {
+          "name": "platform-operations.seller-compliance-cohort-sweep",
+          "lease": "job:platform-operations.seller-compliance-cohort-sweep",
+          "intervalMs": 60000
+        },
+        {
+          "name": "fulfillment.postage-operation-reconciliation",
+          "lease": "job:fulfillment.postage-operation-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.postage-label-void-reconciliation",
+          "lease": "job:fulfillment.postage-label-void-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-shipment-deadline-sweep",
+          "lease": "job:fulfillment.return-shipment-deadline-sweep",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-label-purchase-reconciliation",
+          "lease": "job:fulfillment.return-label-purchase-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "discovery.search-embedding-enrichment",
+          "lease": "job:discovery.search-embedding-enrichment",
+          "intervalMs": 1000
+        },
+        {
+          "name": "inventory.import-product-resolution-maintenance.enqueue",
+          "lease": "job:inventory.import-product-resolution-maintenance.enqueue",
+          "intervalMs": 86400000
+        },
+        {
+          "name": "durable-jobs.retention",
+          "lease": "job:durable-jobs.retention",
+          "intervalMs": 3600000
+        },
+        {
+          "name": "work-signals.cleanup",
+          "lease": "job:work-signals.cleanup",
+          "intervalMs": null
+        },
+        {
+          "name": "retention-sweeps",
+          "lease": "job:retention-sweeps",
+          "intervalMs": null
+        },
+        {
+          "name": "channels-drift-reconciliation",
+          "lease": "job:channels-drift-reconciliation",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-tcgplayer-orders",
+          "lease": "job:channels-tcgplayer-orders",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-live-export-snapshots",
+          "lease": "job:channels-live-export-snapshots",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-order-fulfillment-observations",
+          "lease": "job:channels-order-fulfillment-observations",
+          "intervalMs": 60000
+        }
+      ]
+    },
+    "proof:enabled": {
+      "inventory-jobs": [
+        {
+          "name": "job:inventory.import-batch-jobs.lane-1",
+          "lease": "job:job:inventory.import-batch-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-batch-jobs.lane-2",
+          "lease": "job:job:inventory.import-batch-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-product-resolution-maintenance.lane-1",
+          "lease": "job:job:inventory.import-product-resolution-maintenance.lane-1",
+          "intervalMs": null
+        }
+      ],
+      "jobs": [
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-1",
+          "lease": "job:job:pricing.recommendation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-2",
+          "lease": "job:job:pricing.recommendation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-1",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-2",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-1",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-2",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-1",
+          "lease": "job:job:channels.outbound-operations.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-2",
+          "lease": "job:job:channels.outbound-operations.lane-2",
+          "intervalMs": null
+        }
+      ],
+      "dispatch": [
+        {
+          "name": "auth.notification-dispatcher",
+          "lease": "job:auth.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "discovery.notification-dispatcher",
+          "lease": "job:discovery.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "fulfillment.notification-dispatcher",
+          "lease": "job:fulfillment.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "marketplace.notification-dispatcher",
+          "lease": "job:marketplace.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "notifications.notification-dispatcher",
+          "lease": "job:notifications.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "ordering.notification-dispatcher",
+          "lease": "job:ordering.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "payments.notification-dispatcher",
+          "lease": "job:payments.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "platform-operations.notification-dispatcher",
+          "lease": "job:platform-operations.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "public-presence.notification-dispatcher",
+          "lease": "job:public-presence.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "settlement.notification-dispatcher",
+          "lease": "job:settlement.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-webhook-dispatcher",
+          "lease": "job:auth.agent-webhook-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-grant-revocation-recovery",
+          "lease": "job:auth.agent-grant-revocation-recovery",
+          "intervalMs": null
+        }
+      ],
+      "scheduled": [
+        {
+          "name": "channels.ebay-account-deletion-receipt-expiry",
+          "lease": "job:channels.ebay-account-deletion-receipt-expiry",
+          "intervalMs": null
+        },
+        {
+          "name": "channels.connector-liveness-sweep",
+          "lease": "job:channels.connector-liveness-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.review-opportunity-publication",
+          "lease": "job:marketplace.review-opportunity-publication",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.review-opportunity-backfill",
+          "lease": "job:marketplace.review-opportunity-backfill",
+          "intervalMs": 60000
+        },
+        {
+          "name": "marketplace.managed-offer-work",
+          "lease": "job:marketplace.managed-offer-work",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.managed-offer-recovery",
+          "lease": "job:marketplace.managed-offer-recovery",
+          "intervalMs": 60000
+        },
+        {
+          "name": "payments.wallet-funding-reconciliation",
+          "lease": "job:payments.wallet-funding-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "payments.reconciliation",
+          "lease": "job:payments.reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "ordering.payment-deadline-sweep",
+          "lease": "job:ordering.payment-deadline-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "platform-operations.seller-compliance-cohort-sweep",
+          "lease": "job:platform-operations.seller-compliance-cohort-sweep",
+          "intervalMs": 60000
+        },
+        {
+          "name": "platform-operations.support-request-deadline-sweep",
+          "lease": "job:platform-operations.support-request-deadline-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "support-evidence-operation-cleanup",
+          "lease": "job:support-evidence-operation-cleanup",
+          "intervalMs": 43210
+        },
+        {
+          "name": "customer-feedback.attention-digest",
+          "lease": "job:customer-feedback.attention-digest",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.review-window-sweep",
+          "lease": "job:marketplace.review-window-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.review-opportunity-reminder-sweep",
+          "lease": "job:marketplace.review-opportunity-reminder-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.seller-availability-restore-sweep",
+          "lease": "job:marketplace.seller-availability-restore-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.seller-away-window-start-sweep",
+          "lease": "job:marketplace.seller-away-window-start-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "pricing.market-rollups-closer",
+          "lease": "job:pricing.market-rollups-closer",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.account-linkage-closer",
+          "lease": "job:settlement.account-linkage-closer",
+          "intervalMs": 43210
+        },
+        {
+          "name": "platform-operations.gmv-reconciliation",
+          "lease": "job:platform-operations.gmv-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "catalog.provider-scope-refresh",
+          "lease": "job:catalog.provider-scope-refresh",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.seller-funds-release",
+          "lease": "job:settlement.seller-funds-release",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.spend-hold-sweep",
+          "lease": "job:settlement.spend-hold-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.payout-reconciliation",
+          "lease": "job:settlement.payout-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.liability-reconciliation",
+          "lease": "job:settlement.liability-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "fulfillment.postage-operation-reconciliation",
+          "lease": "job:fulfillment.postage-operation-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.postage-label-void-reconciliation",
+          "lease": "job:fulfillment.postage-label-void-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-shipment-deadline-sweep",
+          "lease": "job:fulfillment.return-shipment-deadline-sweep",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-label-purchase-reconciliation",
+          "lease": "job:fulfillment.return-label-purchase-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "discovery.google-shopping-maintenance",
+          "lease": "job:discovery.google-shopping-maintenance",
+          "intervalMs": 43210
+        },
+        {
+          "name": "discovery.google-shopping-diagnostics",
+          "lease": "job:discovery.google-shopping-diagnostics",
+          "intervalMs": 43210
+        },
+        {
+          "name": "discovery.search-embedding-enrichment",
+          "lease": "job:discovery.search-embedding-enrichment",
+          "intervalMs": 1000
+        },
+        {
+          "name": "inventory.import-product-resolution-maintenance.enqueue",
+          "lease": "job:inventory.import-product-resolution-maintenance.enqueue",
+          "intervalMs": 86400000
+        },
+        {
+          "name": "durable-jobs.retention",
+          "lease": "job:durable-jobs.retention",
+          "intervalMs": 3600000
+        },
+        {
+          "name": "work-signals.cleanup",
+          "lease": "job:work-signals.cleanup",
+          "intervalMs": null
+        },
+        {
+          "name": "retention-sweeps",
+          "lease": "job:retention-sweeps",
+          "intervalMs": null
+        },
+        {
+          "name": "channels-drift-reconciliation",
+          "lease": "job:channels-drift-reconciliation",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-tcgplayer-orders",
+          "lease": "job:channels-tcgplayer-orders",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-live-export-snapshots",
+          "lease": "job:channels-live-export-snapshots",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-order-fulfillment-observations",
+          "lease": "job:channels-order-fulfillment-observations",
+          "intervalMs": 60000
+        }
+      ]
+    },
+    "public:disabled": {
+      "inventory-jobs": [
+        {
+          "name": "job:inventory.import-batch-jobs.lane-1",
+          "lease": "job:job:inventory.import-batch-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-batch-jobs.lane-2",
+          "lease": "job:job:inventory.import-batch-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-product-resolution-maintenance.lane-1",
+          "lease": "job:job:inventory.import-product-resolution-maintenance.lane-1",
+          "intervalMs": null
+        }
+      ],
+      "jobs": [
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-1",
+          "lease": "job:job:pricing.recommendation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-2",
+          "lease": "job:job:pricing.recommendation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-1",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-2",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-1",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-2",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-1",
+          "lease": "job:job:channels.outbound-operations.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-2",
+          "lease": "job:job:channels.outbound-operations.lane-2",
+          "intervalMs": null
+        }
+      ],
+      "dispatch": [
+        {
+          "name": "auth.notification-dispatcher",
+          "lease": "job:auth.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "discovery.notification-dispatcher",
+          "lease": "job:discovery.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "fulfillment.notification-dispatcher",
+          "lease": "job:fulfillment.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "marketplace.notification-dispatcher",
+          "lease": "job:marketplace.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "notifications.notification-dispatcher",
+          "lease": "job:notifications.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "ordering.notification-dispatcher",
+          "lease": "job:ordering.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "payments.notification-dispatcher",
+          "lease": "job:payments.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "platform-operations.notification-dispatcher",
+          "lease": "job:platform-operations.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "public-presence.notification-dispatcher",
+          "lease": "job:public-presence.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "settlement.notification-dispatcher",
+          "lease": "job:settlement.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-webhook-dispatcher",
+          "lease": "job:auth.agent-webhook-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-grant-revocation-recovery",
+          "lease": "job:auth.agent-grant-revocation-recovery",
+          "intervalMs": null
+        }
+      ],
+      "scheduled": [
+        {
+          "name": "channels.ebay-account-deletion-receipt-expiry",
+          "lease": "job:channels.ebay-account-deletion-receipt-expiry",
+          "intervalMs": null
+        },
+        {
+          "name": "marketplace.review-opportunity-publication",
+          "lease": "job:marketplace.review-opportunity-publication",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.review-opportunity-backfill",
+          "lease": "job:marketplace.review-opportunity-backfill",
+          "intervalMs": 60000
+        },
+        {
+          "name": "marketplace.managed-offer-work",
+          "lease": "job:marketplace.managed-offer-work",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.managed-offer-recovery",
+          "lease": "job:marketplace.managed-offer-recovery",
+          "intervalMs": 60000
+        },
+        {
+          "name": "platform-operations.seller-compliance-cohort-sweep",
+          "lease": "job:platform-operations.seller-compliance-cohort-sweep",
+          "intervalMs": 60000
+        },
+        {
+          "name": "fulfillment.postage-operation-reconciliation",
+          "lease": "job:fulfillment.postage-operation-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.postage-label-void-reconciliation",
+          "lease": "job:fulfillment.postage-label-void-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-shipment-deadline-sweep",
+          "lease": "job:fulfillment.return-shipment-deadline-sweep",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-label-purchase-reconciliation",
+          "lease": "job:fulfillment.return-label-purchase-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "discovery.search-embedding-enrichment",
+          "lease": "job:discovery.search-embedding-enrichment",
+          "intervalMs": 1000
+        },
+        {
+          "name": "inventory.import-product-resolution-maintenance.enqueue",
+          "lease": "job:inventory.import-product-resolution-maintenance.enqueue",
+          "intervalMs": 86400000
+        },
+        {
+          "name": "durable-jobs.retention",
+          "lease": "job:durable-jobs.retention",
+          "intervalMs": 3600000
+        },
+        {
+          "name": "work-signals.cleanup",
+          "lease": "job:work-signals.cleanup",
+          "intervalMs": null
+        },
+        {
+          "name": "retention-sweeps",
+          "lease": "job:retention-sweeps",
+          "intervalMs": null
+        },
+        {
+          "name": "channels-drift-reconciliation",
+          "lease": "job:channels-drift-reconciliation",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-tcgplayer-orders",
+          "lease": "job:channels-tcgplayer-orders",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-live-export-snapshots",
+          "lease": "job:channels-live-export-snapshots",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-order-fulfillment-observations",
+          "lease": "job:channels-order-fulfillment-observations",
+          "intervalMs": 60000
+        }
+      ]
+    },
+    "public:enabled": {
+      "inventory-jobs": [
+        {
+          "name": "job:inventory.import-batch-jobs.lane-1",
+          "lease": "job:job:inventory.import-batch-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-batch-jobs.lane-2",
+          "lease": "job:job:inventory.import-batch-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:inventory.import-product-resolution-maintenance.lane-1",
+          "lease": "job:job:inventory.import-product-resolution-maintenance.lane-1",
+          "intervalMs": null
+        }
+      ],
+      "jobs": [
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-1",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.source-observation-integration-jobs.lane-2",
+          "lease": "job:job:catalog.source-observation-integration-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-1",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:catalog.authoring-bulk-jobs.lane-2",
+          "lease": "job:job:catalog.authoring-bulk-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-full-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-incremental-sync-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "lease": "job:job:discovery.google-shopping-diagnostics-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-dry-run-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-dry-run-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-1",
+          "lease": "job:job:pricing.recommendation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.recommendation-jobs.lane-2",
+          "lease": "job:job:pricing.recommendation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-1",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.repricing-evaluation-jobs.lane-2",
+          "lease": "job:job:pricing.repricing-evaluation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-1",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:pricing.bulk-reprice-jobs.lane-2",
+          "lease": "job:job:pricing.bulk-reprice-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-1",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:settlement.payout-reconciliation-jobs.lane-2",
+          "lease": "job:job:settlement.payout-reconciliation-jobs.lane-2",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-1",
+          "lease": "job:job:channels.outbound-operations.lane-1",
+          "intervalMs": null
+        },
+        {
+          "name": "job:channels.outbound-operations.lane-2",
+          "lease": "job:job:channels.outbound-operations.lane-2",
+          "intervalMs": null
+        }
+      ],
+      "dispatch": [
+        {
+          "name": "auth.notification-dispatcher",
+          "lease": "job:auth.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "discovery.notification-dispatcher",
+          "lease": "job:discovery.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "fulfillment.notification-dispatcher",
+          "lease": "job:fulfillment.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "marketplace.notification-dispatcher",
+          "lease": "job:marketplace.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "notifications.notification-dispatcher",
+          "lease": "job:notifications.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "ordering.notification-dispatcher",
+          "lease": "job:ordering.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "payments.notification-dispatcher",
+          "lease": "job:payments.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "platform-operations.notification-dispatcher",
+          "lease": "job:platform-operations.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "public-presence.notification-dispatcher",
+          "lease": "job:public-presence.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "settlement.notification-dispatcher",
+          "lease": "job:settlement.notification-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-webhook-dispatcher",
+          "lease": "job:auth.agent-webhook-dispatcher",
+          "intervalMs": null
+        },
+        {
+          "name": "auth.agent-grant-revocation-recovery",
+          "lease": "job:auth.agent-grant-revocation-recovery",
+          "intervalMs": null
+        }
+      ],
+      "scheduled": [
+        {
+          "name": "channels.ebay-account-deletion-receipt-expiry",
+          "lease": "job:channels.ebay-account-deletion-receipt-expiry",
+          "intervalMs": null
+        },
+        {
+          "name": "channels.connector-liveness-sweep",
+          "lease": "job:channels.connector-liveness-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.review-opportunity-publication",
+          "lease": "job:marketplace.review-opportunity-publication",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.review-opportunity-backfill",
+          "lease": "job:marketplace.review-opportunity-backfill",
+          "intervalMs": 60000
+        },
+        {
+          "name": "marketplace.managed-offer-work",
+          "lease": "job:marketplace.managed-offer-work",
+          "intervalMs": 1000
+        },
+        {
+          "name": "marketplace.managed-offer-recovery",
+          "lease": "job:marketplace.managed-offer-recovery",
+          "intervalMs": 60000
+        },
+        {
+          "name": "payments.wallet-funding-reconciliation",
+          "lease": "job:payments.wallet-funding-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "payments.reconciliation",
+          "lease": "job:payments.reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "ordering.payment-deadline-sweep",
+          "lease": "job:ordering.payment-deadline-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "platform-operations.seller-compliance-cohort-sweep",
+          "lease": "job:platform-operations.seller-compliance-cohort-sweep",
+          "intervalMs": 60000
+        },
+        {
+          "name": "platform-operations.support-request-deadline-sweep",
+          "lease": "job:platform-operations.support-request-deadline-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "support-evidence-operation-cleanup",
+          "lease": "job:support-evidence-operation-cleanup",
+          "intervalMs": 43210
+        },
+        {
+          "name": "customer-feedback.attention-digest",
+          "lease": "job:customer-feedback.attention-digest",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.review-window-sweep",
+          "lease": "job:marketplace.review-window-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.review-opportunity-reminder-sweep",
+          "lease": "job:marketplace.review-opportunity-reminder-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.seller-availability-restore-sweep",
+          "lease": "job:marketplace.seller-availability-restore-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "marketplace.seller-away-window-start-sweep",
+          "lease": "job:marketplace.seller-away-window-start-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "pricing.market-rollups-closer",
+          "lease": "job:pricing.market-rollups-closer",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.account-linkage-closer",
+          "lease": "job:settlement.account-linkage-closer",
+          "intervalMs": 43210
+        },
+        {
+          "name": "platform-operations.gmv-reconciliation",
+          "lease": "job:platform-operations.gmv-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "catalog.provider-scope-refresh",
+          "lease": "job:catalog.provider-scope-refresh",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.seller-funds-release",
+          "lease": "job:settlement.seller-funds-release",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.spend-hold-sweep",
+          "lease": "job:settlement.spend-hold-sweep",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.payout-reconciliation",
+          "lease": "job:settlement.payout-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "settlement.liability-reconciliation",
+          "lease": "job:settlement.liability-reconciliation",
+          "intervalMs": 43210
+        },
+        {
+          "name": "fulfillment.postage-operation-reconciliation",
+          "lease": "job:fulfillment.postage-operation-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.postage-label-void-reconciliation",
+          "lease": "job:fulfillment.postage-label-void-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-shipment-deadline-sweep",
+          "lease": "job:fulfillment.return-shipment-deadline-sweep",
+          "intervalMs": 300000
+        },
+        {
+          "name": "fulfillment.return-label-purchase-reconciliation",
+          "lease": "job:fulfillment.return-label-purchase-reconciliation",
+          "intervalMs": 300000
+        },
+        {
+          "name": "discovery.google-shopping-maintenance",
+          "lease": "job:discovery.google-shopping-maintenance",
+          "intervalMs": 43210
+        },
+        {
+          "name": "discovery.google-shopping-diagnostics",
+          "lease": "job:discovery.google-shopping-diagnostics",
+          "intervalMs": 43210
+        },
+        {
+          "name": "discovery.search-embedding-enrichment",
+          "lease": "job:discovery.search-embedding-enrichment",
+          "intervalMs": 1000
+        },
+        {
+          "name": "inventory.import-product-resolution-maintenance.enqueue",
+          "lease": "job:inventory.import-product-resolution-maintenance.enqueue",
+          "intervalMs": 86400000
+        },
+        {
+          "name": "durable-jobs.retention",
+          "lease": "job:durable-jobs.retention",
+          "intervalMs": 3600000
+        },
+        {
+          "name": "work-signals.cleanup",
+          "lease": "job:work-signals.cleanup",
+          "intervalMs": null
+        },
+        {
+          "name": "retention-sweeps",
+          "lease": "job:retention-sweeps",
+          "intervalMs": null
+        },
+        {
+          "name": "channels-drift-reconciliation",
+          "lease": "job:channels-drift-reconciliation",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-tcgplayer-orders",
+          "lease": "job:channels-tcgplayer-orders",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-live-export-snapshots",
+          "lease": "job:channels-live-export-snapshots",
+          "intervalMs": 60000
+        },
+        {
+          "name": "channels-order-fulfillment-observations",
+          "lease": "job:channels-order-fulfillment-observations",
+          "intervalMs": 60000
+        }
+      ]
+    }
+  },
+  "classification": {
+    "job:catalog.source-observation-bulk-jobs.lane-1": "context-owned migration",
+    "job:catalog.source-observation-bulk-jobs.lane-2": "context-owned migration",
+    "job:catalog.source-observation-integration-jobs.lane-1": "context-owned migration",
+    "job:catalog.source-observation-integration-jobs.lane-2": "context-owned migration",
+    "job:catalog.authoring-bulk-jobs.lane-1": "context-owned migration",
+    "job:catalog.authoring-bulk-jobs.lane-2": "context-owned migration",
+    "job:inventory.import-batch-jobs.lane-1": "context-owned migration",
+    "job:inventory.import-batch-jobs.lane-2": "context-owned migration",
+    "job:inventory.import-product-resolution-maintenance.lane-1": "context-owned migration",
+    "job:discovery.google-shopping-full-sync-jobs.lane-1": "Google deferred in worker",
+    "job:discovery.google-shopping-incremental-sync-jobs.lane-1": "Google deferred in worker",
+    "job:discovery.google-shopping-diagnostics-jobs.lane-1": "Google deferred in worker",
+    "job:pricing.repricing-dry-run-jobs.lane-1": "context-owned migration",
+    "job:pricing.repricing-dry-run-jobs.lane-2": "context-owned migration",
+    "job:pricing.recommendation-jobs.lane-1": "context-owned migration",
+    "job:pricing.recommendation-jobs.lane-2": "context-owned migration",
+    "job:pricing.repricing-evaluation-jobs.lane-1": "context-owned migration",
+    "job:pricing.repricing-evaluation-jobs.lane-2": "context-owned migration",
+    "job:pricing.bulk-reprice-jobs.lane-1": "context-owned migration",
+    "job:pricing.bulk-reprice-jobs.lane-2": "context-owned migration",
+    "job:settlement.payout-reconciliation-jobs.lane-1": "context-owned migration",
+    "job:settlement.payout-reconciliation-jobs.lane-2": "context-owned migration",
+    "job:channels.outbound-operations.lane-1": "context-owned migration",
+    "job:channels.outbound-operations.lane-2": "context-owned migration",
+    "auth.notification-dispatcher": "context-owned migration",
+    "discovery.notification-dispatcher": "context-owned migration",
+    "fulfillment.notification-dispatcher": "context-owned migration",
+    "marketplace.notification-dispatcher": "context-owned migration",
+    "notifications.notification-dispatcher": "context-owned migration",
+    "ordering.notification-dispatcher": "context-owned migration",
+    "payments.notification-dispatcher": "context-owned migration",
+    "platform-operations.notification-dispatcher": "context-owned migration",
+    "public-presence.notification-dispatcher": "context-owned migration",
+    "settlement.notification-dispatcher": "context-owned migration",
+    "auth.agent-webhook-dispatcher": "context-owned migration",
+    "auth.agent-grant-revocation-recovery": "context-owned migration",
+    "channels.ebay-account-deletion-receipt-expiry": "context-owned migration",
+    "marketplace.review-opportunity-publication": "context-owned migration",
+    "marketplace.review-opportunity-backfill": "context-owned migration",
+    "marketplace.managed-offer-work": "context-owned migration",
+    "marketplace.managed-offer-recovery": "context-owned migration",
+    "platform-operations.seller-compliance-cohort-sweep": "context-owned migration",
+    "fulfillment.postage-operation-reconciliation": "context-owned migration",
+    "fulfillment.postage-label-void-reconciliation": "context-owned migration",
+    "fulfillment.return-shipment-deadline-sweep": "context-owned migration",
+    "fulfillment.return-label-purchase-reconciliation": "context-owned migration",
+    "discovery.search-embedding-enrichment": "context-owned migration",
+    "inventory.import-product-resolution-maintenance.enqueue": "context-owned migration",
+    "durable-jobs.retention": "generic infrastructure retained",
+    "work-signals.cleanup": "generic infrastructure retained",
+    "retention-sweeps": "generic infrastructure retained",
+    "channels-drift-reconciliation": "context-owned migration",
+    "channels-tcgplayer-orders": "context-owned migration",
+    "channels-live-export-snapshots": "context-owned migration",
+    "channels-order-fulfillment-observations": "context-owned migration",
+    "channels.connector-liveness-sweep": "context-owned migration",
+    "payments.wallet-funding-reconciliation": "context-owned migration",
+    "payments.reconciliation": "context-owned migration",
+    "ordering.payment-deadline-sweep": "context-owned migration",
+    "platform-operations.support-request-deadline-sweep": "context-owned migration",
+    "support-evidence-operation-cleanup": "context-owned migration",
+    "customer-feedback.attention-digest": "context-owned migration",
+    "marketplace.review-window-sweep": "context-owned migration",
+    "marketplace.review-opportunity-reminder-sweep": "context-owned migration",
+    "marketplace.seller-availability-restore-sweep": "context-owned migration",
+    "marketplace.seller-away-window-start-sweep": "context-owned migration",
+    "pricing.market-rollups-closer": "context-owned migration",
+    "settlement.account-linkage-closer": "context-owned migration",
+    "platform-operations.gmv-reconciliation": "context-owned migration",
+    "catalog.provider-scope-refresh": "context-owned migration",
+    "settlement.seller-funds-release": "context-owned migration",
+    "settlement.spend-hold-sweep": "context-owned migration",
+    "settlement.payout-reconciliation": "context-owned migration",
+    "settlement.liability-reconciliation": "context-owned migration",
+    "discovery.google-shopping-maintenance": "Google deferred in worker",
+    "discovery.google-shopping-diagnostics": "Google deferred in worker"
+  },
+  "retainedInfrastructure": [
+    {
+      "caller": "collectWorkerRunners",
+      "source": "infrastructure/platform-runtime/worker.ts",
+      "group": "projections",
+      "profiles": ["landing", "proof", "public"],
+      "identity": "context projection/subscription identities; unchanged"
+    },
+    {
+      "caller": "collectProjectionOperationRunners",
+      "source": "infrastructure/platform-runtime/worker.ts",
+      "group": "operations",
+      "profiles": ["landing", "proof", "public"],
+      "identity": "projection-operation lane identities; unchanged"
+    },
+    {
+      "caller": "createProjectionWakeSchedulerRunners",
+      "source": "infrastructure/platform-runtime/projection-wake-scheduler.ts",
+      "group": "projection-wake",
+      "profiles": ["landing", "proof", "public"],
+      "identity": "configured cohort-scoped wake lane lease identities; unchanged"
+    }
+  ]
+}

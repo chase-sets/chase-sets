@@ -1,3 +1,9 @@
+import {
+  createPlatformOperationsSellerComplianceCohortSweepRunners,
+  createPlatformOperationsSupportRequestDeadlineSweepRunners,
+  createPlatformOperationsSupportEvidenceCleanupRunners,
+  createPlatformOperationsGmvReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -63,7 +69,7 @@ import {
 
 const platformOperationsContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<
+const contextModule = defineBoundedContextModule<
   PlatformOperationsServices,
   PgTransactionalPool,
   PlatformOperationsHostPorts
@@ -172,3 +178,13 @@ export const module = defineBoundedContextModule<
   seed: seedPlatformOperationsDatabase,
   inspectSeedState: (pool) => inspectPlatformOperationsSeedState(pool),
 });
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createPlatformOperationsSellerComplianceCohortSweepRunners,
+    createPlatformOperationsSupportRequestDeadlineSweepRunners,
+    createPlatformOperationsSupportEvidenceCleanupRunners,
+    createPlatformOperationsGmvReconciliationRunners,
+  },
+};

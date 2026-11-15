@@ -30,3 +30,12 @@ export {
 } from "./features/shipments/read-model/support-lookup";
 export type { FulfillmentSupportLookupRow } from "./features/shipments/read-model/support-lookup";
 export { createShipByAttentionSourceFromReadModel } from "./features/shipments/read-model/seller-attention-source";
+
+export type { FulfillmentServices } from "./support/runtime-support/services";
+
+export {
+  createFulfillmentPostageOperationReconciliationRunners,
+  createFulfillmentPostageLabelVoidReconciliationRunners,
+  createFulfillmentReturnShipmentDeadlineSweepRunners,
+  createFulfillmentReturnLabelPurchaseReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";

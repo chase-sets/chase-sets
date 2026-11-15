@@ -1,3 +1,4 @@
+import { createAgentWebhookDispatchRunners } from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -31,7 +32,7 @@ import {
   buildAgentOrderWebhookProjectionHandlers,
 } from "./support/ucp-support/agent-webhooks";
 
-export const module = defineBoundedContextModule<AuthServices, PgTransactionalPool, AuthHostPorts>({
+const contextModule = defineBoundedContextModule<AuthServices, PgTransactionalPool, AuthHostPorts>({
   manifest: contextManifest,
   schemaSql: authSchemaSql,
   retentionSweeps: authRetentionSweeps,
@@ -79,3 +80,5 @@ function buildAgentWebhookHandlers(services: AuthServices) {
     resolveShipmentOrderId: services.agentWebhookOrderResolvers.resolveShipmentOrderId,
   });
 }
+
+export const module = { ...contextModule, workerJobFactories: { createAgentWebhookDispatchRunners } };

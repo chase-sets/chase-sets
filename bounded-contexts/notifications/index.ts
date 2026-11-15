@@ -1,3 +1,4 @@
+import { createNotificationDispatchRunners } from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -23,7 +24,7 @@ import { buildNotificationsCustomerFeedbackProjectionHandlers } from "./features
 import { buildNotificationsSupportDisputeProjectionHandlers } from "./features/notification-center/integrations/source-events/support-dispute-notifications";
 import { buildNotificationsPricingRepricingProjectionHandlers } from "./features/notification-center/integrations/source-events/pricing-repricing-notifications";
 
-export const module = defineBoundedContextModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts>({
+const contextModule = defineBoundedContextModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts>({
   manifest: contextManifest,
   schemaSql: notificationsSchemaSql,
   retentionSweeps: notificationsRetentionSweeps,
@@ -76,3 +77,5 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
       },
     }),
 });
+
+export const module = { ...contextModule, workerJobFactories: { createNotificationDispatchRunners } };

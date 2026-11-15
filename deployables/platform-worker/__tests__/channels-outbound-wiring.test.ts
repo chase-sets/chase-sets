@@ -9,10 +9,8 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createWorkerRunnerLoop } from "@chase-sets/platform-runtime/worker";
 import { describe, expect, it, vi } from "vitest";
-import {
-  createChannelsOutboundRunners,
-  createPlatformWorkerMarketplaceChannelInboundClampBinding,
-} from "../src/channels-outbound-runners";
+import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "../src/channels-outbound-runners";
+import { createChannelsOutboundRunners } from "@chase-sets/channels/server";
 
 describe("Channels outbound worker wiring", () => {
   it("can call the published liveness readers through the real server entrypoint", async () => {
@@ -27,13 +25,18 @@ describe("Channels outbound worker wiring", () => {
   });
   it("registers the isolated Channels runner in the existing jobs group", () => {
     const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(source).toContain('import { createChannelsOutboundRunners } from "./channels-outbound-runners";');
-    expect(source).toContain("...createChannelsOutboundRunners(runtime.services, config)");
+    expect(source).toContain("createPlatformWorkerJobComposition(");
+    const owner = readFileSync(new URL("../../../bounded-contexts/channels/index.ts", import.meta.url), "utf8");
+    expect(owner).toContain("workerJobFactories");
+    expect(owner).toContain("createChannelsOutboundRunners");
   });
 
   it("uses the canonical expanded Channels service and injected provider registry", () => {
-    const source = readFileSync(new URL("../src/channels-outbound-runners.ts", import.meta.url), "utf8");
-    expect(source).toContain('import { isChannelsServices } from "@chase-sets/channels/server"');
+    const source = readFileSync(
+      new URL("../../../bounded-contexts/channels/support/runtime-support/worker-jobs.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('import { isChannelsServices } from "./services"');
     expect(source).toContain("registry: channelProviderRegistry");
     expect(source).toContain('workflowName: "channels.outbound-operations"');
     expect(source).toContain("channelsOutboundOperationLaneCount");
@@ -70,10 +73,10 @@ describe("Channels outbound worker wiring", () => {
       },
     };
 
-    expect(createChannelsOutboundRunners(outboundOnly, config)).toEqual([]);
-    expect(createChannelsOutboundRunners(connectionsOnly, config)).toEqual([]);
-    expect(createChannelsOutboundRunners(missingUsedMethod, config)).toEqual([]);
-    expect(createChannelsOutboundRunners(missingOrderPullProducer, config)).toEqual([]);
+    expect(createChannelsOutboundRunners({ services: outboundOnly, config: config })).toEqual([]);
+    expect(createChannelsOutboundRunners({ services: connectionsOnly, config: config })).toEqual([]);
+    expect(createChannelsOutboundRunners({ services: missingUsedMethod, config: config })).toEqual([]);
+    expect(createChannelsOutboundRunners({ services: missingOrderPullProducer, config: config })).toEqual([]);
   });
 
   it.each(["connectionHealth", "manualSync"] as const)(
@@ -81,9 +84,9 @@ describe("Channels outbound worker wiring", () => {
     (member) => {
       const candidate = validChannelsCandidate();
       const config = { workerId: "worker-1", channelsOutboundOperationLaneCount: 2 };
-      expect(createChannelsOutboundRunners({ channels: candidate }, config)).toHaveLength(2);
+      expect(createChannelsOutboundRunners({ services: { channels: candidate }, config: config })).toHaveLength(2);
       const missing = Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== member));
-      expect(createChannelsOutboundRunners({ channels: missing }, config)).toEqual([]);
+      expect(createChannelsOutboundRunners({ services: { channels: missing }, config: config })).toEqual([]);
     },
   );
 
@@ -100,10 +103,10 @@ describe("Channels outbound worker wiring", () => {
       scheduleDueOrderPulls,
       scheduleDueLiveExports,
     });
-    const runners = createChannelsOutboundRunners(
-      { channels: candidate },
-      { workerId: "worker-1", channelsOutboundOperationLaneCount: 2 },
-    );
+    const runners = createChannelsOutboundRunners({
+      services: { channels: candidate },
+      config: { workerId: "worker-1", channelsOutboundOperationLaneCount: 2 },
+    });
 
     expect(runners.map((runner) => runner.name)).toEqual([
       "job:channels.outbound-operations.lane-1",
@@ -134,16 +137,16 @@ describe("Channels outbound worker wiring", () => {
       const scheduleDueOrderPulls = vi.fn(async (): Promise<number> => {
         throw failure;
       });
-      const [runner] = createChannelsOutboundRunners(
-        {
+      const [runner] = createChannelsOutboundRunners({
+        services: {
           channels: validChannelsCandidate({
             recoverExpiredClaimedOperations: async () => 0,
             processNextInlineOperation,
             [scheduler]: scheduleDueOrderPulls,
           }),
         },
-        { workerId: "worker-1", channelsOutboundOperationLaneCount: 1 },
-      );
+        config: { workerId: "worker-1", channelsOutboundOperationLaneCount: 1 },
+      });
       const statuses: Parameters<PlatformControlPlane["recordRunnerStatus"]>[0][] = [];
       const granted: Partial<PlatformControlPlane> = {
         acquireLease: async (input) => ({
