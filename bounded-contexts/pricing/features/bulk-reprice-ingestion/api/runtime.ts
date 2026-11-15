@@ -261,24 +261,32 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
   }
 
   async function finalizeCancelledJob(job: BulkRepriceJob, inputRows: readonly BulkRepriceInputRow[]) {
-    await upsertBulkRepriceRows(deps.db, {
-      jobId: job.jobId,
-      rows: inputRows.map((row) => ({
-        rowNumber: row.rowNumber,
-        sellerSku: row.sellerSku,
-        listingId: row.listingId,
-        requestedPriceAmount: storableMoneyOrNull(row.newPriceAmount),
-        resolvedListingId: null,
-        previousPriceAmount: null,
-        outcome: "failed" as const,
-        errorMessage:
-          row.validationErrors.length > 0
-            ? row.validationErrors.join(" ")
-            : "Row was not processed because the bulk reprice job was cancelled.",
-      })),
-    });
+    // The cancelled record, not the pre-cancel read, proves whether a worker could have sent updates.
+    if (job.startedAt === null && job.attemptCount === 0) {
+      await upsertBulkRepriceRows(deps.db, {
+        jobId: job.jobId,
+        rows: inputRows.map((row) => ({
+          rowNumber: row.rowNumber,
+          sellerSku: row.sellerSku,
+          listingId: row.listingId,
+          requestedPriceAmount: storableMoneyOrNull(row.newPriceAmount),
+          resolvedListingId: null,
+          previousPriceAmount: null,
+          outcome: "failed" as const,
+          errorMessage:
+            row.validationErrors.length > 0
+              ? row.validationErrors.join(" ")
+              : "Row was not processed because the bulk reprice job was cancelled.",
+        })),
+      });
+    }
     const summary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: job.jobId });
-    const progress = jobProgress("failed", summary.total, inputRows.length, "Cancelled by account.");
+    const unresolved = inputRows.length - summary.total;
+    const message =
+      unresolved > 0
+        ? `Cancelled by account. ${unresolved} price update outcome(s) remain unknown; these updates may already have applied.`
+        : "Cancelled by account.";
+    const progress = jobProgress("failed", summary.total, inputRows.length, message);
     const result = { ...summary, total: inputRows.length };
     await deps.db.query(
       `UPDATE pricing_bulk_reprice_jobs
@@ -403,6 +411,21 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
     }
 
     let inputRows: readonly BulkRepriceInputRow[] = [];
+    let unknown = 0;
+    let latestProgress = claimed.progress;
+    let latestResult = claimed.result;
+    const unknownWarning = () =>
+      `${unknown} Marketplace price update outcome(s) remain unknown after retry; these updates may already have applied.`;
+    const finishHandoff = async () => {
+      const current = await jobStore.get(claimed.jobId);
+      if (current?.status === "failed" && current.errorMessage === BULK_REPRICE_CANCELLED_ERROR) {
+        await finalizeCancelledJob(
+          current,
+          inputRows.length > 0 ? inputRows : await loadInputRows(current.payload.inputId),
+        );
+      }
+      return 0;
+    };
     try {
       input.throwIfLeaseLost?.();
       if (input.signal?.aborted) {
@@ -437,9 +460,6 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       inputRows = await loadInputRows(claimed.payload.inputId);
 
       const waves = chunkItems(inputRows, policy.chunkSize);
-      let completed = 0;
-      let unknown = 0;
-
       for (const [waveIndex, wave] of waves.entries()) {
         jobContext.throwIfCancelled();
         const waveUnknown = await runDurableJobSideEffect(
@@ -457,23 +477,16 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
           { renewIntervalMs: 5_000, claimLostMessage: "Bulk reprice job claim was lost while applying a wave." },
         );
         unknown += waveUnknown;
-        completed += wave.length - waveUnknown;
         const runningSummary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: claimed.jobId });
-        await progressCheckpoint.checkpoint(
-          jobProgress("processing", completed, inputRows.length, "Processed a wave of rows."),
-          {
-            applied: runningSummary.applied,
-            unchanged: runningSummary.unchanged,
-            failed: runningSummary.failed,
-            total: inputRows.length,
-          },
-        );
+        latestProgress = jobProgress("processing", runningSummary.total, inputRows.length, "Processed a wave of rows.");
+        latestResult = { ...runningSummary, total: inputRows.length };
+        await progressCheckpoint.checkpoint(latestProgress, latestResult);
         await defaultLaneYield(policy.yieldIntervalMs);
       }
 
       const summary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: claimed.jobId });
       if (unknown > 0) {
-        const message = `${unknown} Marketplace price update outcome(s) remain unknown after retry; these updates may already have applied.`;
+        const message = unknownWarning();
         const progress = jobProgress("failed", summary.total, inputRows.length, message);
         await progressCheckpoint.flush(progress, {
           applied: summary.applied,
@@ -507,24 +520,28 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       return 1;
     } catch (error) {
       if (isDurableJobHandoffError(error, input)) {
-        const current = await jobStore.get(claimed.jobId);
-        if (current?.status === "failed" && current.errorMessage === BULK_REPRICE_CANCELLED_ERROR) {
-          await finalizeCancelledJob(
-            current,
-            inputRows.length > 0 ? inputRows : await loadInputRows(current.payload.inputId),
-          );
-        }
-        return 0;
+        return finishHandoff();
+      }
+      const cause = error instanceof Error ? error.message : "Bulk reprice job failed.";
+      const message = unknown > 0 ? `${cause} ${unknownWarning()}` : cause;
+      const progress = { ...latestProgress, phase: "failed" as const, message };
+      if (
+        latestResult &&
+        !(await jobStore.updateProgress({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          progress,
+          result: latestResult,
+        }))
+      ) {
+        return finishHandoff();
       }
       await jobStore.fail({
         jobId: claimed.jobId,
         claimOwnerId: input.claimOwnerId,
-        progress: {
-          ...claimed.progress,
-          phase: "failed",
-          message: error instanceof Error ? error.message : "Bulk reprice job failed.",
-        },
-        errorMessage: error instanceof Error ? error.message : "Bulk reprice job failed.",
+        progress,
+        errorMessage: message,
       });
       return 1;
     }
