@@ -50,7 +50,7 @@ pub fn GuestClaimPage<'a>(t: PaymentMsg, p: Pilot, screen: &'a ClaimScreen) -> i
                             <p>
                                 {if screen.paid { p.guest_claim_unavailable() } else { t.you_can_save_this_order_after_payment() }}
                             </p>
-                            <p><a class={(Button, Secondary)} href={&payment}>{t.payment_marketplace()}</a></p>
+                            <p><a class={(Button, Secondary)} href={&payment}>{p.guest_back_to_payment()}</a></p>
                         </div>
                     </section>
                 }

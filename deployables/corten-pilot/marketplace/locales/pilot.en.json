@@ -20,7 +20,8 @@
     "claim_link_sent_unread": "We sent a claim link to this order's contact email. Open it to save this order to an account.",
     "claim_link_rate_limited_title": "Too many attempts",
     "claim_link_rate_limited": "There were too many attempts. Try the link again later.",
-    "claim_unavailable": "This order cannot be saved to an account right now. It stays on its payment page."
+    "claim_unavailable": "This order cannot be saved to an account right now. It stays on its payment page.",
+    "back_to_payment": "Back to payment"
   },
   "check": {
     "required": "Enter a value.",

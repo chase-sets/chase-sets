@@ -20475,14 +20475,14 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
         assert_eq!(status, StatusCode::OK, "{id}: {html}");
         let page = text(&html);
         assert!(page.contains("This order cannot be saved to an account right now."), "{id}: {html}");
-        assert!(!page.contains("Save with passkey") && html.contains(&format!(r#"href="/checkout/payments/{id}""#)), "{html}");
+        assert!(!page.contains("Save with passkey") && html.contains(&format!(r#"href="/checkout/payments/{id}">Back to payment</a>"#)), "{html}");
     }
     // A payment not paid yet says it can be saved after payment, without asking Auth.
     let asked = claim_sent(&pilot, "claim-context").len();
     let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/claim/pay_1", "")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
-    assert!(html.contains(r#"href="/checkout/payments/pay_1""#), "{html}");
+    assert!(html.contains(r#"href="/checkout/payments/pay_1">Back to payment</a>"#), "{html}");
     assert_eq!(claim_sent(&pilot, "claim-context").len(), asked);
     // An account goes to its own payment page; no guest checkout is told the link is no longer good.
     let (status, headers, _) = pilot.send(get("/checkout/claim/pay_1", Some("payer"))).await;
