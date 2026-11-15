@@ -5139,8 +5139,7 @@ async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filte
     // dialog, empty, for the answer.
     let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    // Its submit opens a closed dialog again (corten-run/corten#1371's workaround).
-    let save = r#"<form class="search-page__save" method="post" action="/items/card-1" data-patch data-on='submit:search.fresh("save-to-list")'>"#;
+    let save = r#"<form class="search-page__save" method="post" action="/items/card-1" data-patch>"#;
     let form = html.split(save).nth(1);
     let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
     for field in [
@@ -5254,7 +5253,7 @@ async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() 
     // sheet, empty, for its answer.
     let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    let trigger = r#"<form class="search-page__bulk" id="bulk-trigger" method="get" action="/search/cart" data-patch data-on='submit:search.fresh("bulk-cart")'>"#;
+    let trigger = r#"<form class="search-page__bulk" id="bulk-trigger" method="get" action="/search/cart" data-patch>"#;
     let form = html.split(trigger).nth(1);
     let form = form.expect("the bulk add's form").split("</form>").next().unwrap();
     for field in
