@@ -54,7 +54,7 @@ async function appendLifecycleEvent(
     await eventStore.appendToStream({ streamId, expectedVersion: "no_stream", events: [event], context });
   } catch (error) {
     if (isConcurrencyConflict(error)) return;
-    // Cross-context CSAT publication is asynchronous and must not turn a
+    // Lifecycle publication must not turn a
     // committed registration or onboarding operation into a failed response.
     return;
   }
