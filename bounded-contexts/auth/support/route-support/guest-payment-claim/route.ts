@@ -16,7 +16,7 @@ import type {
   GuestCheckoutClaimContext,
   GuestClaimActionData,
 } from "../../../features/registration/ui/guest-payment-claim-contracts";
-import contextManifest from "../../../context.json";
+import contextManifest from "../../../context.json" with { type: "json" };
 
 export type ReadGuestPaymentClaimability = (
   request: Request,
