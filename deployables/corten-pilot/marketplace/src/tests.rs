@@ -5139,8 +5139,7 @@ async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filte
     // dialog, empty, for the answer.
     let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    // Its submit opens a closed dialog again (corten-run/corten#1371's workaround).
-    let save = r#"<form class="search-page__save" method="post" action="/items/card-1" data-patch data-on='submit:search.fresh("save-to-list")'>"#;
+    let save = r#"<form class="search-page__save" method="post" action="/items/card-1" data-patch>"#;
     let form = html.split(save).nth(1);
     let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
     for field in [
@@ -5254,23 +5253,19 @@ async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() 
     // sheet, empty, for its answer.
     let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    let trigger = r#"<form class="search-page__bulk" id="bulk-trigger" method="get" action="/search/cart" data-patch data-on='submit:search.fresh("bulk-cart")'>"#;
-    let form = html.split(trigger).nth(1);
-    let form = form.expect("the bulk add's form").split("</form>").next().unwrap();
-    for field in
-        [r#"<input type="hidden" name="q" value="pika">"#, r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#]
-    {
+    let trigger = r#"<form class="search-page__bulk" method="get" action="/search/cart" data-patch>"#;
+    let (bar, form) = html.split_once(trigger).expect("the bulk add's form");
+    let form = form.split("</form>").next().unwrap();
+    for field in [
+        r#"<input type="hidden" name="q" value="pika">"#,
+        r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
+        r#"<button type="submit" class="search-page__secondary">Add matching products to Buy Cart</button>"#,
+    ] {
         assert!(form.contains(field), "{field}: {form}");
     }
-    // Its button is in the control bar, its fields after the filters, whose focus they would take.
-    let button =
-        r#"<button type="submit" class="search-page__secondary" form="bulk-trigger">Add matching products to Buy Cart</button>"#;
-    let (bar, after) = html.split_once(button).expect("the bulk add's button");
-    assert!(!bar.contains(r#"id="search-filters""#), "the button is above the filters: {html}");
-    assert!(
-        after.find(r#"id="search-filters""#).unwrap() < after.find(r#"id="bulk-trigger""#).unwrap(),
-        "the form's fields come after the filters: {html}"
-    );
+    // The form and its button are in the control bar, above the filters: a filter's focus comes
+    // back to the filter, as hidden fields take no place (corten-run/corten#1372).
+    assert!(!bar.contains(r#"id="search-filters""#), "the form is above the filters: {html}");
     assert!(html.contains(r#"<dialog id="bulk-cart" class="bulk-cart-sheet__dialog"></dialog>"#), "{html}");
     assert!(bulk_previews(&pilot).is_empty(), "nothing is previewed until it is asked for");
     // The landing and a failed search offer none.
@@ -5311,11 +5306,11 @@ async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() 
 
     // On the home page, the form says so, for the add to go back to it.
     let (_, _, html) = pilot.send(get("/?q=pika", Some("watcher"))).await;
-    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    let form = html.split(trigger).nth(1).unwrap().split("</form>").next().unwrap();
     assert!(form.contains(r#"<input type="hidden" name="home" value="true">"#), "{form}");
     // On a category's page, the form sends its slug, which the preview reads.
     let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", Some("watcher"))).await;
-    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    let form = html.split(trigger).nth(1).unwrap().split("</form>").next().unwrap();
     assert!(form.contains(r#"<input type="hidden" name="category" value="singles-x1">"#), "{form}");
     pilot.send(get_patch("/search/cart?q=pika&category=singles-x1")).await;
     assert_eq!(bulk_previews(&pilot).pop().unwrap()["category"], "singles-x1");

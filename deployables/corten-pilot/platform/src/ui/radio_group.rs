@@ -1,4 +1,4 @@
-// corten ui 0.1.0: radio_group 02f684afc0e8559a
+// corten ui 0.2.0: radio_group 02f684afc0e8559a
 //! A group of radio buttons: a `<fieldset>` with its legend, and each choice's label after its
 //! `<input type="radio">`:
 //!
