@@ -7,7 +7,11 @@ type MarketplaceNavActor = Readonly<{ permissions?: readonly string[]; roleKey?:
 type MarketplaceNavOptions = Readonly<{ cartCount?: number }>;
 
 export function resolveMarketplaceRouteConfigRecords() {
-  return resolveWebHostRouteConfigRecords(webContextRegistry, "marketplace-web");
+  return resolveWebHostRouteConfigRecords(webContextRegistry, "marketplace-web").map((record) =>
+    record.contextName === "auth" && record.routeId === "guest-payment-claim"
+      ? { ...record, file: "routes/guest-payment-claim.tsx" }
+      : record,
+  );
 }
 
 // The deployable supplies only the actor, the Cart count, the bottom-bar limit and the Search default;
