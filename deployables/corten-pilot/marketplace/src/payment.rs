@@ -453,7 +453,8 @@ pub(crate) async fn page(
 
 /// The status part (see the module): while the payment's status is the one the page was drawn
 /// with and the watch has time left, an empty part read again shortly; once it changed, the page's
-/// content drawn again. Without JavaScript, the page.
+/// content drawn again. A read that answers with a page instead (the payment gone, a session that
+/// ended) ends the watch with an empty part. Without JavaScript, the page.
 #[allow(clippy::too_many_arguments)]
 async fn watch_part<P: corten::Href>(
     req: &Req,
@@ -465,7 +466,7 @@ async fn watch_part<P: corten::Href>(
     id: &str,
     watch: Watch,
     page: P,
-) -> HtmlResult {
+) -> HtmlResult<Patches> {
     let caller = config.platform.caller(headers, config.proto, None);
     let until = watch.until.unwrap_or_default();
     // A read that fails ends the watch: the part stays as it is and the buyer can reload.
@@ -485,7 +486,7 @@ async fn watch_part<P: corten::Href>(
     }
     let screen = match read(req, viewer, payer, config, headers, client, id, None, until).await {
         Ok(screen) => screen,
-        Err(page) => return *page,
+        Err(page) => return req.patch_or(views::PaymentWatch { again: None }, || async { *page }).await,
     };
     let t: PaymentMsg = req.t();
     req.patch_or(views::PaymentContent { t, screen: &screen }, back).await
@@ -497,7 +498,7 @@ pub(crate) async fn status(
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::payments::BuyerPaymentStatus<'_>>,
-) -> HtmlResult {
+) -> HtmlResult<Patches> {
     let page = url::BuyerPayment { id: &route.id, place: Place::default() };
     watch_part(&req, &viewer, Payer::Account, &config, &headers, None, &route.id, route.watch, page).await
 }
@@ -725,7 +726,8 @@ pub(crate) async fn guest_write(
     }
 }
 
-/// A guest's status part (see `status`).
+/// A guest's status part (see `status`). Someone who is not the guest ends the watch with an empty
+/// part; without JavaScript, they get the payment page's answer.
 pub(crate) async fn guest_status(
     req: Req,
     session: Option<Caller<Session>>,
@@ -733,10 +735,10 @@ pub(crate) async fn guest_status(
     headers: HeaderMap,
     client: Option<ClientIp>,
     Params(route): Params<crate::app::url::guest_payments::GuestPaymentStatus<'_>>,
-) -> HtmlResult {
+) -> HtmlResult<Patches> {
     let viewer = match guest_payer(&req, session, &route.id) {
         Ok(viewer) => viewer,
-        Err(answer) => return *answer,
+        Err(answer) => return req.patch_or(views::PaymentWatch { again: None }, || async { *answer }).await,
     };
     let page = url::GuestPayment { id: &route.id, place: GuestPlace::default() };
     watch_part(&req, &viewer, Payer::Guest, &config, &headers, client, &route.id, route.watch, page).await

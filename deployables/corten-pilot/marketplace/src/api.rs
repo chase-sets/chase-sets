@@ -4331,6 +4331,8 @@ pub struct ShipmentDetail {
     pub exceptions: Vec<ShipmentException>,
     pub postage_label_operations: Vec<PostageOperation>,
     pub postage_provider_events: Vec<PostageProviderEvent>,
+    /// What the shipment's state lets its seller do next; only the seller's read carries it.
+    pub action_plan: Option<ActionPlan>,
 }
 
 /// The order's package plan, the part the page shows (`PackagePlan`): its postage policy.

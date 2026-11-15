@@ -24,7 +24,9 @@ use crate::{
 };
 
 /// A social sign-in's start (`SocialLoginLink`'s `href`): Auth's, through the pilot's relay where
-/// nothing else serves `/api`, so the provider comes back to this origin.
+/// nothing else serves `/api`, so the provider comes back to this origin. Its links take
+/// `data-reload`: the start is a redirect to the provider, not a page, so a touch or a hover must
+/// not prefetch it and a click must not fetch it as a page first.
 fn social_start(provider: &str, journey: &str, return_to: &str) -> String {
     format!("{}?journey={journey}&returnTo={}", url::SocialSignIn { provider, step: "start" }.href(), segment(return_to))
 }
@@ -99,8 +101,12 @@ fn Start<'a>(t: SignInMsg, ask: &'a Ask) -> impl Render {
         <section class={(Card, Flush)}>
             <p class={Muted}>{t.page_continue_with_social_login()}</p>
             <div class={Row}>
-                <a class={(Button, Secondary)} href={&social("google", &return_to)}>{t.page_continue_with_google()}</a>
-                <a class={(Button, Secondary)} href={&social("facebook", &return_to)}>{t.page_continue_with_facebook()}</a>
+                <a class={(Button, Secondary)} href={&social("google", &return_to)} data-reload>
+                    {t.page_continue_with_google()}
+                </a>
+                <a class={(Button, Secondary)} href={&social("facebook", &return_to)} data-reload>
+                    {t.page_continue_with_facebook()}
+                </a>
             </div>
         </section>
         <section class={Card}>
@@ -345,10 +351,10 @@ pub fn RegisterPage<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render
             <section class={(Card, Flush)}>
                 <p class={Muted}>{t.register_use_an_account_you_already_have()}</p>
                 <div class={Row}>
-                    <a class={(Button, Secondary)} href={&social_registration("google", &screen.return_to)}>
+                    <a class={(Button, Secondary)} href={&social_registration("google", &screen.return_to)} data-reload>
                         {t.register_continue_with_google()}
                     </a>
-                    <a class={(Button, Secondary)} href={&social_registration("facebook", &screen.return_to)}>
+                    <a class={(Button, Secondary)} href={&social_registration("facebook", &screen.return_to)} data-reload>
                         {t.register_continue_with_facebook()}
                     </a>
                 </div>
