@@ -22,11 +22,15 @@ const streamId = "identity.agent-grant-revocation-release-v1";
 
 export function withDormantAgentGrantWrite<T>(pool: PgTransactionalPool, work: (db: PgQueryable) => Promise<T>) {
   return withPgTransaction(pool, async (db) => {
-    await db.query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [streamId]);
-    const activated = await db.query("SELECT 1 FROM event_store_events WHERE stream_id = $1 LIMIT 1", [streamId]);
-    if (activated.rows.length) throw new Error("revocation_dormant_write_closed");
+    await assertDormantAgentGrantWrite(db);
     return work(db);
   });
+}
+
+export async function assertDormantAgentGrantWrite(db: PgQueryable) {
+  await db.query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [streamId]);
+  const activated = await db.query("SELECT 1 FROM event_store_events WHERE stream_id = $1 LIMIT 1", [streamId]);
+  if (activated.rows.length) throw new Error("revocation_dormant_write_closed");
 }
 
 export function createAgentGrantRevocationRelease(

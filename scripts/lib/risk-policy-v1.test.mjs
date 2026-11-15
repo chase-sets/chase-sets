@@ -1,6 +1,21 @@
 import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { RISK_POLICY_V1, classifyRisk } from "./risk-policy-v1.mjs";
+import { RISK_POLICY_V1, classifyIntegrationRisk, classifyRisk } from "./risk-policy-v1.mjs";
+
+const runtimeCompositionReason = "Cross-context subscription or runtime composition changed";
+const contextRegistryPairs = [
+  [
+    "deployables/platform-api/src/generated/api-context-registry.ts",
+    "deployables/platform-api/src/context-registry.ts",
+  ],
+  [
+    "deployables/platform-worker/src/generated/worker-context-registry.ts",
+    "deployables/platform-worker/src/context-registry.ts",
+  ],
+  ["deployables/admin-web/app/generated/web-context-registry.ts", "deployables/admin-web/app/context-registry.ts"],
+  ["deployables/marketplace/app/generated/web-context-registry.ts", "deployables/marketplace/app/context-registry.ts"],
+  ["deployables/public-web/app/generated/web-context-registry.ts", "deployables/public-web/app/context-registry.ts"],
+];
 
 const highRiskCases = [
   ["money movement", "bounded-contexts/payments/features/refunds/domain/refund.ts", "money-movement"],
@@ -168,6 +183,45 @@ describe("risk-policy/v1", () => {
     });
     expect(result.categories).toContain("deployment-control");
   });
+
+  it.each(contextRegistryPairs)(
+    "keeps the context registry moved from %s to %s high-risk runtime composition without generated coupling",
+    (previousFilename, filename) => {
+      const pathFinding = {
+        category: "cross-context-contract",
+        reason: runtimeCompositionReason,
+        source: "path",
+        path: filename,
+        integrationReason: runtimeCompositionReason,
+      };
+      const modified = classifyRisk({ changedFiles: [{ filename, status: "modified" }] });
+      expect(modified).toMatchObject({
+        classification: "high",
+        categories: ["cross-context-contract"],
+        reasons: [runtimeCompositionReason],
+        findings: [{ ...pathFinding, status: "modified" }],
+      });
+
+      const moved = classifyRisk({
+        changedFiles: [
+          { filename, previousFilename, status: "renamed", additions: 0, deletions: 1, changes: 1, patch: null },
+        ],
+      });
+      expect(moved).toMatchObject({
+        classification: "high",
+        categories: ["cross-context-contract"],
+        reasons: [runtimeCompositionReason],
+        findings: [{ ...pathFinding, status: "renamed" }],
+      });
+      expect(moved.categories).not.toContain("generated-coupling");
+      expect(moved.categories).not.toContain("integration-surface");
+
+      expect(classifyIntegrationRisk({ changedFiles: [filename] })).toEqual({
+        required: true,
+        reasons: [runtimeCompositionReason],
+      });
+    },
+  );
 
   it("couples generated metadata only when a high-risk source is present", () => {
     const generated = { filename: "bounded-contexts/catalog/features/listings/generated/index.ts", status: "modified" };

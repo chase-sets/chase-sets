@@ -195,7 +195,7 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.merge.candidate.update.fact.not.editable":
     "An edit can correct only the candidate's text facts.",
   "catalog.features.sourceObservations.api.route.merge.candidate.requires.expected.version":
-    "Update and split require expectedVersion: the candidate version the page read.",
+    "Promote, update and split require expectedVersion: the candidate version the page read.",
   "catalog.features.sourceObservations.api.route.merge.candidate.stale":
     "The candidate changed after this page read it. Read it again before acting on it.",
   "catalog.features.sourceObservations.api.route.merge.candidate.ignore.requires.reason": "Ignore requires a reason.",

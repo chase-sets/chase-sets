@@ -90,18 +90,62 @@ describe("preview-pool-census reducers and controls", () => {
     expect(peaks.get("ns/pod/api")).toMatchObject({ maxWorkingSetBytes: 9, sampleCount: 2, component: "platform-api" });
   });
 
-  it("computes the seven-workload namespace request and live/max-node N", () => {
+  it("computes the fresh-install peak and caps isolated capacity at one stack per node", () => {
     expect(
       computeSizing(
         fixtureValues,
-        [{ pool: "preview", allocatable: { memoryMi: 6414 }, nonPreviewRequests: { memoryMi: 412 } }],
+        [
+          {
+            pool: "preview",
+            ready: true,
+            previewNamespaces: [],
+            allocatable: { memoryMi: 6414 },
+            nonPreviewRequests: { memoryMi: 412 },
+          },
+        ],
         3,
       ),
     ).toEqual({
-      namespaceRequestMi: 2816,
-      perNode: [2],
-      N: { live: 2, maxNodes: 6 },
+      namespaceRequestMi: 2304,
+      perNode: [1],
+      N: { live: 1, maxNodes: 3 },
     });
+  });
+
+  it("uses the bootstrap phase when it exceeds the five steady-state deployments", () => {
+    const values = structuredClone(fixtureValues);
+    values.components["platform-bootstrap"].resources.requests.memory = "4Gi";
+    expect(computeSizing(values, [], 3).namespaceRequestMi).toBe(4608);
+  });
+
+  it("counts only Ready unoccupied nodes that fit R and never exceeds max_nodes", () => {
+    const free = {
+      pool: "preview",
+      ready: true,
+      previewNamespaces: [],
+      allocatable: { memoryMi: 4096 },
+      nonPreviewRequests: { memoryMi: 256 },
+    };
+    expect(computeSizing(fixtureValues, [free, { ...free, previewNamespaces: ["chase-sets-pr-1"] }], 3)).toMatchObject({
+      perNode: [1, 1],
+      N: { live: 1, maxNodes: 3 },
+    });
+    expect(
+      computeSizing(
+        fixtureValues,
+        [
+          { ...free, ready: false },
+          { ...free, allocatable: { memoryMi: 2559 } },
+        ],
+        3,
+      ),
+    ).toMatchObject({
+      perNode: [0, 0],
+      N: { live: 0, maxNodes: 0 },
+    });
+    expect(computeSizing(fixtureValues, [free, free, free, free], 3).N).toEqual({ live: 3, maxNodes: 3 });
+    expect(computeSizing(fixtureValues, [{ ...free, allocatable: { memoryMi: 2560 } }], 3).perNode).toEqual([1]);
+    expect(computeSizing(fixtureValues, [], 3).N).toEqual({ live: 0, maxNodes: 0 });
   });
 
   it("fails closed on mutating kubectl verbs and permits only get/raw stats", () => {
@@ -192,6 +236,7 @@ describe("preview-pool-census reducers and controls", () => {
     const result = await collectSnapshot({ dependencies: { kubectl }, sizing: null });
     expect(result.errors).toEqual([]);
     expect(result.nodeRecords.map((node) => node.name)).toEqual(["preview-node", "runtime-node"]);
+    expect(result.nodeRecords[0].previewNamespaces).toEqual([previewNamespace]);
     expect([...result.peaks.values()][0]).toMatchObject({
       component: "platform-api",
       memoryRequestMi: 512,
@@ -293,7 +338,7 @@ describe("preview-pool-census reducers and controls", () => {
     };
     const node = {
       metadata: { name: "synthetic-preview-node", labels: { "chase-sets.com/pool": "preview" } },
-      status: { allocatable: { memory: "6414Mi" } },
+      status: { allocatable: { memory: "6414Mi" }, conditions: [{ type: "Ready", status: "True" }] },
     };
     const systemPod = {
       metadata: { namespace: "kube-system", name: "synthetic-coredns" },
@@ -326,7 +371,7 @@ describe("preview-pool-census reducers and controls", () => {
         sleep: async (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       });
       expect(record.result).toBe("partial");
-      expect(record.sizing).toEqual({ namespaceRequestMi: 2816, perNode: [1], N: { live: 1, maxNodes: 3 } });
+      expect(record.sizing).toEqual({ namespaceRequestMi: 2304, perNode: [1], N: { live: 1, maxNodes: 3 } });
     }
   });
 
@@ -404,6 +449,7 @@ describe("preview-pool-census workflow and runbook", () => {
     expect(workflow.on.workflow_dispatch.inputs.duration_minutes.default).toBe(45);
     expect(workflow.on.workflow_dispatch.inputs.interval_seconds.default).toBe(10);
     expect(workflowText).toContain("kubectl get");
+    expect(workflowText).toContain("--values infrastructure/helm/platform/values.preview.yaml");
     expect(workflowText).toContain("actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10");
     expect(workflowText).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
     expect(workflowText).not.toMatch(/uses:\s+[^@]+@v\d/);

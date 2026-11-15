@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `GET /catalog/components?search&status&has_field_rules&has_dimension_rules&page` | the list; `POST` creates |
 //! | `GET /catalog/components/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/components/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/components/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/components/{id}`, `POST .../edit`, `.../lifecycle` | the component; revise it; its status |
 //! | `POST /catalog/components/{id}/field-rules`, `.../field-rules/{field_id}/remove` | add or remove a field rule |
 //! | `POST /catalog/components/{id}/dimension-rules`, `.../dimension-rules/{dimension_id}/remove` | add or remove a dimension rule |
@@ -16,7 +16,7 @@
 //! it. The edit restates the rules the API has when it is posted, from the list, which reads the
 //! component's own table: the page's read can miss a rule (chase-sets/chase-sets#10823), and a
 //! rule it missed would be deleted (chase-sets/chase-sets#10824).
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 
@@ -31,7 +31,7 @@ use super::{
 use crate::{
     api::{ApiError, Caller, Method},
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -56,13 +56,12 @@ fn api_query(query: &url::ComponentQuery, page: u32) -> String {
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use crate::catalog::url::ListNotice;
 
     /// The list's filters (the filter form's fields) and page (from 1); the rule filters are
     /// `true` or `false`.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct ComponentQuery {
         pub search: Option<String>,
@@ -102,12 +101,7 @@ pub mod url {
         pub query: ComponentQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/components/bulk", post = preview_bulk)]
-    pub struct ComponentsBulk {
-        #[route(query)]
-        pub query: ComponentQuery,
-    }
+    pub use crate::catalog::previews::url::ComponentsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/components/bulk/confirm", post = confirm_bulk)]
@@ -201,9 +195,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_components()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_components()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -302,9 +296,9 @@ async fn component_page(
     req.screen(
         &component,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_component()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_component()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -509,9 +503,9 @@ fn selection_filter(query: &url::ComponentQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::components::url::ComponentsBulk>,

@@ -167,12 +167,20 @@ describe("representative commerce state evidence artifact", () => {
     const dir = await mkdtemp(join(tmpdir(), "representative-commerce-state-"));
     const outPath = join(dir, "representative-commerce-state-evidence.json");
     try {
-      await writeRepresentativeCommerceStateEvidence(outPath, supportSafeRepresentativeEvidence());
+      await writeRepresentativeCommerceStateEvidence(outPath, {
+        ...supportSafeRepresentativeEvidence(),
+        representativeOfferCount: 2,
+        representativeOfferBuyerAccountCount: 1,
+        representativeOfferSkippedCount: 3,
+      });
 
       const evidence = JSON.parse(await readFile(outPath, "utf8"));
       expect(evidence).toMatchObject({
         schemaVersion: "representative-commerce-state.evidence/v2",
         type: "representative-commerce-state.complete",
+        representativeOfferCount: 2,
+        representativeOfferBuyerAccountCount: 1,
+        representativeOfferSkippedCount: 3,
         chromeUatSelector: {
           schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
           status: "operator-action-required",
@@ -575,6 +583,7 @@ function supportSafeRepresentativeEvidence(): RepresentativeCommerceStateEvidenc
     representativeListingAccountCount: 0,
     representativeOfferCount: 0,
     representativeOfferBuyerAccountCount: 0,
+    representativeOfferSkippedCount: 0,
     representativeAcceptedOfferCount: 0,
     representativeAcceptedOfferSkippedCount: 0,
     representativeOrderingSupplyState: { listingCount: 50, inventoryItemCount: 50 },

@@ -1,0 +1,87 @@
+.panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.status,
+.disconnect,
+.handoff,
+.reveal {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.label {
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.notice {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.reveal p,
+.pending,
+.paired {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.secret {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.secret code {
+  overflow-wrap: anywhere;
+}
+
+/* The handoff runs only with the script: until it settles the grant is hidden and the page says it
+   is pairing. Without the script the grant is shown at once and the pairing line is not drawn. */
+@media (scripting: enabled) {
+  .reveal[data-pending] {
+    display: none;
+  }
+}
+
+@media (scripting: none) {
+  .pending {
+    display: none;
+  }
+}

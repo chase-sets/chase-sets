@@ -8,6 +8,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_1,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use crate::{
     api::{Feed, FeedItem, Preference, ProductAlert},
@@ -153,7 +157,7 @@ fn FeedCard<'a>(t: NotificationsMsg, item: &'a FeedItem) -> impl Render {
     html! {
         <article class={Card}>
             <div class={CardHead}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                     <p class={Strong}>{&item.title}</p>
                     <p class={Muted}>{&item.body}</p>
                 </div>
@@ -210,7 +214,7 @@ pub fn PreferenceSwitch<'a>(t: NotificationsMsg, preference: &'a Preference) -> 
             data-patch
         >
             <input type="hidden" name={f.enabled} value={if preference.enabled { "false" } else { "true" }}>
-            <div class={Stack}>
+            <div class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                 <span id={&label_id} class={Strong}>{label}</span>
                 <span id={&description_id} class={Muted}>{description}</span>
             </div>
@@ -288,7 +292,7 @@ fn AlertCard<'a>(t: NotificationsMsg, alert: &'a ProductAlert) -> impl Render {
     html! {
         <article class={Card}>
             <div class={CardHead}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                     <p class={Strong}>{alert.product_summary.as_deref().unwrap_or(&alert.product_id)}</p>
                     <p class={Muted}>{&detail(t, alert)}</p>
                 </div>

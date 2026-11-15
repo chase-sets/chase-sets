@@ -12,7 +12,7 @@
     },
     {
       "path": "scripts/check-structure/run.mjs",
-      "line": 296,
+      "line": 297,
       "operation": "validateLostUpdateWriteGuard({ repoRoot })",
       "deadline": null,
       "owner": "Static Source Checks chain",

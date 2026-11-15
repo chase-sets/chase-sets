@@ -17,7 +17,7 @@ import { closePlatformApiPools, createPlatformApiPools, createSeedCommandPools }
 import { productionLikeDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { withSchemaBootstrapLock } from "@chase-sets/bounded-context-runtime";
 import { createPlatformApiHost } from "../src/app";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import type { PlatformApiContextName } from "../src/config";
 import {
   createPlatformApiBootstrapTestHarness,
@@ -25,6 +25,11 @@ import {
   requireCatalogContext,
   type PlatformApiTestPools,
 } from "./bootstrap-db-test-support";
+
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
 
 const contentionBootstrapOptions = {
   lockTimeoutMs: 100,
@@ -152,6 +157,7 @@ describe("platform api bootstrap lock contention", () => {
       environmentName: "test",
       schemaBootstrapLockPool: seedPools.schemaBootstrapLockPool,
       schemaBootstrap: { lockAcquisitionTimeoutMs: 100 },
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     };
     try {
       await withSchemaBootstrapLock(seedPools.schemaBootstrapLockPool, {}, async (schemaBootstrapLockAcquisition) => {

@@ -15,7 +15,7 @@
 //! admin-web revalidates its route. The platform does not register that topic yet, so the API
 //! refuses the stream and the page stays as it was drawn (admin-web's says Connecting);
 //! chase-sets/chase-sets#10607.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use serde::Serialize;
 
 pub mod api;
@@ -115,7 +115,10 @@ pub fn open_href(link: &DeepLink) -> Option<String> {
     let path =
         if auth::SECTIONS.contains(&first) { link.href.clone() } else { format!("/{}{}", section(&link.surface)?, link.href) };
     // A page the pilot serves opens here.
-    if let Some(own) = crate::support::feedback::serves(&path).or_else(|| crate::support::requests::serves(&path)) {
+    let own = crate::support::feedback::serves(&path)
+        .or_else(|| crate::support::requests::serves(&path))
+        .or_else(|| crate::projections::serves(&path));
+    if let Some(own) = own {
         return Some(own);
     }
     crate::views::admin_web(&path).map(|uri| uri.to_string())
@@ -134,9 +137,11 @@ mod tests {
         let origin = crate::app::admin_web_origin();
         let open = |surface: &str, href: &str| open_href(&link(surface, href)).map(|h| h.trim_start_matches(origin).to_owned());
         assert_eq!(
-            open("projection-operations", "/projections?tab=blocked").as_deref(),
-            Some("/platform/projections?tab=blocked")
+            open_href(&link("projection-operations", "/projections?tab=blocked")).as_deref(),
+            Some("/platform/projections?tab=blocked"),
+            "the pilot serves the projections console"
         );
+        assert_eq!(open("projection-operations", "/projections/elsewhere").as_deref(), Some("/platform/projections/elsewhere"));
         assert_eq!(open("support-operations", "/requests?requestId=req_1").as_deref(), Some("/support/requests?requestId=req_1"));
         assert_eq!(open("platform-feedback", "/platform-feedback/pfb_1").as_deref(), Some("/support/platform-feedback/pfb_1"));
         assert_eq!(

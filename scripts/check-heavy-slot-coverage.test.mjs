@@ -87,7 +87,6 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/connector-pairing-drill-staging.mjs",
     "scripts/dev-system.mjs",
     "scripts/format-check.mjs",
-    "scripts/typecheck-changed.mjs",
     "scripts/generate-brand-icons.mjs",
     "scripts/identity-creation-position-guard.mjs",
     "scripts/managed-postgres-authority-guard.mjs",
@@ -96,7 +95,8 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 89);
+  assert.equal(result.entrypoints.length, 88);
+  assert.equal(result.entrypoints.includes("scripts/typecheck-changed.mjs"), false);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -489,6 +489,8 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/check-structure/brand-foil-sites.test.mjs": "brand-foil checks do not spawn the guard",
   "scripts/check-structure/brand-mark-representations.test.mjs": "icon checks do not spawn the guard",
   "scripts/check-structure/browser-e2e-disclosure-guard.test.mjs": "disclosure fixture does not spawn the guard",
+  "scripts/check-structure/channels-context-foundation.test.mjs":
+    "channels partition checks invoke only workspaceScriptNames, not the guarded CLI",
   "scripts/check-structure/provider-scope-picker-shape-guard.test.mjs":
     "provider shape fixture does not spawn the guard",
   "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs":
@@ -563,7 +565,7 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 29);
+  assert.equal(candidates.length, 30);
   assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],

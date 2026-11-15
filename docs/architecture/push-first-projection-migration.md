@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (173)
+## Projection Groups (177)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -46,7 +46,11 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `auth:auth-agent-order-webhook-projection` | Auth | fulfillment, **ordering**, **payments** | push-eligible | 2/3 |
 | `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |
 | `catalog:catalog-admin-catalog-item-projection` | Catalog | **catalog** | push-enabled | 1/1 |
+| `catalog:catalog-alias-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-attention-dismissal-projection` | Catalog | **catalog** | push-enabled | 1/1 |
+| `catalog:catalog-blueprint-projection` | Catalog | **catalog** | push-enabled | 1/1 |
+| `catalog:catalog-display-template-projection` | Catalog | **catalog** | push-enabled | 1/1 |
+| `catalog:catalog-field-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-item-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-product-contents-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-provider-scope-mapping-projection` | Catalog | **catalog** | push-enabled | 1/1 |
@@ -217,9 +221,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 130 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 134 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (85)
+## Read-After-Write Route Inventory (89)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -231,6 +235,10 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `channels.publication-settings-to-detail` | channels | important | exact wait | deferred until wave 4 |
 | `channels.activation-to-manual-sync` | channels | important | exact wait | deferred until wave 4 |
 | `channels.connect-to-detail` | channels | important | exact wait | deferred until wave 4 |
+| `catalog.item-detail-self-refresh` | catalog | important | exact wait | push-accelerated |
+| `catalog.item-list-self-refresh` | catalog | important | exact wait | push-accelerated |
+| `catalog.product-contents-contained-self-refresh` | catalog | important | exact wait | push-accelerated |
+| `catalog.product-contents-container-self-refresh` | catalog | important | exact wait | push-accelerated |
 | `checkout.cart-self-refresh` | checkout | critical | exact wait | push-accelerated |
 | `checkout.guest-cart-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
 | `checkout.guest-sell-list-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
@@ -294,6 +302,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `marketplace.offer-match-seller-control-list-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.order-capacity-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
+| `ordering.accepted-offer-to-purchases-list` | ordering | critical | exact wait | push-accelerated |
 | `ordering.accepted-offer-to-sales-list` | ordering | critical | exact wait | push-accelerated |
 | `ordering.postage-policy-command-to-home` | ordering | important | exact wait | push-accelerated |
 | `ordering.postage-policy-create-to-list` | ordering | important | exact wait | push-accelerated |

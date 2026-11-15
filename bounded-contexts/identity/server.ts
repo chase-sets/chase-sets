@@ -4,6 +4,10 @@ import {
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
 export type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
+export { createIdentityListingActivationAuthority } from "./features/accounts/api/listing-activation-authority";
+export type { ListingActivationAuthorityInput } from "./features/accounts/api/listing-activation-authority";
+export { createIdentityOwnerEpochs } from "./features/accounts/api/owner-epochs";
+export type { IdentitySourceTopology } from "./features/accounts/api/owner-epochs";
 export {
   DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
   parseCapabilityAdministrationAuthority,
@@ -18,7 +22,11 @@ import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
 export { createIdentityWalletFundingEligibilityResolver } from "./features/accounts/api/wallet-funding-eligibility";
-export { createIdentityOperatorAuthority } from "./features/memberships/api/operator-authority";
+export {
+  createIdentityOperatorAuthority,
+  type IdentityOperatorAuthority,
+  type OperatorGrantCreator,
+} from "./features/memberships/api/operator-authority";
 export { createIdentityPaymentsTermsAcceptanceResolver } from "./features/consents/api/terms-acceptance-resolver";
 export type { PaymentsTermsAcceptanceStatus } from "./features/consents/read-model/terms-acceptance";
 

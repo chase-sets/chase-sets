@@ -40,6 +40,8 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   promotionValidation?: SourceObservationPromotionValidation | null;
   /** Recomputed current evidence only; never an original action receipt. */
   promotionPreviewFingerprint?: string | null;
+  /** Coverage verdict computed from the daily API's own preview, never loader summaries. */
+  promotionPreviewCommittable?: boolean;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   canManageCatalog: boolean;
 }>;

@@ -52,7 +52,7 @@ impl Config {
         let var = |name: &str| std::env::var(name).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         let origin = |name: &str, default: &str| var(name).unwrap_or_else(|| default.into()).trim_end_matches('/').to_owned();
         Config {
-            platform: Platform::new(&origin("PLATFORM_API_ORIGIN", "http://localhost:7762")),
+            platform: Platform::new(&Platform::origin_from_env()),
             origin: origin("CHASE_SETS_PUBLIC_ORIGIN", "https://chasesets.com"),
             marketplace: origin("CHASE_SETS_MARKETPLACE_ORIGIN", "https://marketplace.chasesets.com"),
             indexing: indexing(var("CHASE_SETS_PUBLIC_INDEXING").as_deref()),
@@ -171,7 +171,7 @@ pub mod url {
         #[route("/favicon.ico", get = crate::site::favicon)]
         pub struct FaviconIco;
 
-        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
+        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools, no_store)]
         pub struct ChromeDevtools;
     }
 
@@ -269,8 +269,12 @@ corten::assets::embed!(pub struct Static = "static");
 
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
+    // Served only over HTTPS when its canonical origin is (`https://chasesets.com` unless set).
+    let policy = corten::security::Policy::new();
     App::new(url::files::router(shared.clone()))
         .assets(Static)
+        .policy(if shared.proto() == "https" { policy.hsts() } else { policy })
+        .layer(platform::access_log::AccessLog::new())
         .messages::<crate::text::MarketMsg>()
         .components(views::COMPONENTS)
         .area(|area| url::help::area(area, shared.clone()).components(views::HELP))

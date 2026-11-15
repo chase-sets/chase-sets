@@ -136,6 +136,22 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
       failed_count: 0,
       candidates: [],
     }),
+    previewBulkRemoveDrafts: async () => ({
+      mode: "ids",
+      item_ids: [],
+      total: 0,
+      ready_count: 0,
+      blocked_count: 0,
+      candidates: [],
+    }),
+    removeDraftsBulk: async () => ({
+      item_ids: [],
+      total: 0,
+      succeeded_count: 0,
+      skipped_count: 0,
+      failed_count: 0,
+      candidates: [],
+    }),
     processDisplayIdentityRecomputeBatch: async () => ({
       selected: 0,
       processed: 0,

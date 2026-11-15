@@ -197,25 +197,19 @@ async fn connect(
     if let Some(cursor) = &cursor {
         open = open.query(&[("cursor", cursor)]);
     }
-    {
-        // Workaround for chase-sets/chase-sets#10524: the API keeps the lease of a stream dropped
-        // before its headers. Sent from its own task, the request reaches them even if the page
-        // that wanted it goes away first. Remove when that issue is fixed.
-        let sent = tokio::spawn(open.send()).await.map_err(|_| None)?;
-        let res = sent.map_err(|error| {
-            tracing::warn!("realtime stream unreachable: {error}");
-            None
-        })?;
-        let status = res.status();
-        if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
-            return Err(Some(status));
-        }
-        if !status.is_success() {
-            tracing::warn!("realtime stream answered {status}");
-            return Err(None);
-        }
-        Ok(events(res.bytes_stream().map(|chunk| chunk.map_err(|_| ()))).boxed())
+    let res = open.send().await.map_err(|error| {
+        tracing::warn!("realtime stream unreachable: {error}");
+        None
+    })?;
+    let status = res.status();
+    if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+        return Err(Some(status));
     }
+    if !status.is_success() {
+        tracing::warn!("realtime stream answered {status}");
+        return Err(None);
+    }
+    Ok(events(res.bytes_stream().map(|chunk| chunk.map_err(|_| ()))).boxed())
 }
 
 /// The events in a `text/event-stream` body (the WHATWG parsing rules, minus `retry`).

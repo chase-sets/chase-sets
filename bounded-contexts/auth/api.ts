@@ -11,6 +11,7 @@ import { registerRegistrationRoutes } from "./support/api-support/register-route
 import { registerRegistrationConsentRoutes } from "./support/api-support/registration-consent-routes";
 import { registerSessionApiRoutes } from "./support/api-support/session-routes";
 import { registerSocialLoginRoutes } from "./support/api-support/social-login-routes";
+import { registerStagingPersonaSignInRoutes } from "./features/sign-in/api/staging-persona-sign-in";
 export type { AuthApiEnv } from "./support/api-support/support";
 import type { AuthApiEnv } from "./support/api-support/support";
 
@@ -20,6 +21,9 @@ export function buildAuthApi(services: AuthServices) {
   registerRegistrationConsentRoutes(app);
   registerRegistrationRoutes(app, services);
   registerSocialLoginRoutes(app, services);
+  if (services.stagingPersonaMagicLinkVerifierSha256) {
+    registerStagingPersonaSignInRoutes(app, services);
+  }
   registerPasswordRoutes(app, services);
   registerMagicLinkRoutes(app, services);
   registerPhoneCodeRoutes(app, services);

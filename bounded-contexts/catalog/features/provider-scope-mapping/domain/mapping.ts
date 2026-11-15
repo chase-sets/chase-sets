@@ -111,7 +111,7 @@ export function buildProviderScopeMappingCandidate(
   const reviewStatus = input.reviewStatus ?? "proposed";
   assert(REVIEW_STATUSES.includes(reviewStatus), `Unknown Provider Scope Mapping review status '${reviewStatus}'.`);
 
-  const coordinates = normalizeCoordinates(input.coordinates);
+  const coordinates = normalizeCoordinates(input.coordinates, identity.providerKey);
   assert(hasProviderCoordinate(coordinates), "Provider Scope Mapping requires at least one provider coordinate.");
 
   const source = input.provenance.source.trim();
@@ -156,12 +156,13 @@ function normalizeIdentity(input: ProviderScopeMappingIdentity): ProviderScopeMa
 
 function normalizeCoordinates(
   coordinates: BuildProviderScopeMappingCandidateInput["coordinates"],
+  providerKey: string,
 ): ProviderScopeMappingCoordinates {
   return {
     productLineId: normalizeOptional(coordinates.productLineId),
     seriesId: normalizeOptional(coordinates.seriesId),
     setId: normalizeOptional(coordinates.setId),
-    setName: normalizeOptional(coordinates.setName),
+    setName: providerKey === "tcgplayer" ? (coordinates.setName ?? null) : normalizeOptional(coordinates.setName),
     language: {
       languageCode: normalizeOptional(coordinates.language?.languageCode, normalizeKeyOrNull),
       providerLanguageCode: normalizeOptional(coordinates.language?.providerLanguageCode, normalizeKeyOrNull),

@@ -248,9 +248,10 @@ describe("Catalog integrations route", () => {
     ]);
 
     const deferredSourceOptions = await routeData.deferredSourceOptions;
-    // One profile read for the surface and one for the source-option read, each
-    // composed by the Catalog API; a failed read is never retried.
-    expect(listSourceObservationProviderProfiles).toHaveBeenCalledTimes(2);
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
+    // The surface, source options and import preview each read profiles once;
+    // a failed read is never retried.
+    expect(listSourceObservationProviderProfiles).toHaveBeenCalledTimes(3);
     expect(listSourceObservationIntegrationOptions).not.toHaveBeenCalled();
     expect(deferredSourceOptions.pages).toEqual([]);
   });

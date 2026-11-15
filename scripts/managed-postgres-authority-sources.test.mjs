@@ -25,6 +25,15 @@ const sourceCli = "scripts/managed-postgres-authority-sources.mjs";
 const guardCli = "scripts/managed-postgres-authority-guard.mjs";
 const schemaPath = "scripts/managed-postgres-authority-manifest.schema.json";
 const workflowPath = ".github/workflows/platform-production.yml";
+const cortenAdminImageDelta = [
+  {
+    file: workflowPath,
+    jobId: "build-image",
+    stepAnchor: "name:Build and push Corten admin image#9",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  },
+];
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -401,6 +410,16 @@ const ebayReceiptLookupStagingActorDelta = [
     jobId: "deploy-staging",
     stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+    purpose: "application-runtime",
+  },
+];
+// Adds the staging-only persona sign-in verifier digest at the same Secret-apply sink.
+const connectorStagingPersonaVerifierDelta = [
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
+    secretName: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
     purpose: "application-runtime",
   },
 ];
@@ -1025,6 +1044,7 @@ describe("managed Postgres authority source generator", () => {
               : "EBAY_APPLICATION_CLIENT_SECRET",
         })),
         ...ebayReceiptLookupStagingActorDelta,
+        ...connectorStagingPersonaVerifierDelta,
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
@@ -1055,6 +1075,7 @@ describe("managed Postgres authority source generator", () => {
         .concat(registryCleanupResolverDelta)
         .map(applyProductionMarkerMintInsertions)
         .concat(productionMarkerAppKeyDelta)
+        .concat(cortenAdminImageDelta)
         .map(applyTerraformProviderCacheStepInsertions),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.

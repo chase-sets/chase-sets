@@ -968,12 +968,12 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Own the context-level Channels runtime service composition contract.",
-      "expectedConsumers": ["credentials"]
+      "expectedConsumers": ["manual-sync"]
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Channels test-only browser mapping candidate and bounded row-hold support; never invoked by seed or bootstrap composition.",
-      "expectedConsumers": ["Channels cross-slice DB acceptance tests", "Deployable browser-e2e composition for #8122"]
+      "purpose": "Channels test-only browser composition for mapping candidates, bounded row holds, and isolated manual-sync recovery fixtures; never invoked by seed or bootstrap composition.",
+      "expectedConsumers": ["manual-sync"]
     },
     "manual-sync": {
       "classification": "slice",

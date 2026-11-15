@@ -1,3 +1,4 @@
+import type { CatalogDailyImportPreview } from "../api/admin/daily-import-preview";
 import { Suspense, useMemo, useState, type ReactElement } from "react";
 import { Await, type Location } from "react-router";
 import { OperationalStatusBanner, ProgressiveDisclosure } from "@chase-sets/design-system";
@@ -7,7 +8,6 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-
 import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
-  SourceObservationIntegrationImportPreview,
   CatalogIntegrationsCommandResult,
   SourceObservationImportJobReceipt,
 } from "./contracts";
@@ -21,7 +21,6 @@ import { DeferredSupplementaryPanel } from "./deferred-supplementary-panel";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import {
   projectPromotionReceipt,
-  promotionReceiptHasCompleteCoverage,
   promotionReceiptMatchesContext,
   promotionValidationFor,
 } from "./primary-workbench-source-observation-review";
@@ -42,7 +41,7 @@ export type CatalogIntegrationsRouteData = Readonly<{
   // option snapshots never reach the browser payload. Each promise resolves
   // null/empty on absence/error, so the streamed boundary stays fail-soft.
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
   deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
@@ -158,12 +157,14 @@ export function useOriginalPromotionReceipt(
 ): CatalogPrimaryWorkbenchReadModel {
   const model = routeData.readModel;
   const activeProfileVersion = model.importJobs.selectedScope?.profileVersion ?? null;
+  const commandPreview = model.actions.find((entry) => entry.key === "observation.promote")?.commandPreview;
   const evidence = JSON.stringify([
     model.routeContext,
     model.sourceObservationReview,
     model.promotionPreview.validation,
     model.promotionPreview.currentFingerprint,
     activeProfileVersion,
+    commandPreview,
   ]);
   const [binding, setBinding] = useState({
     result,
@@ -220,7 +221,7 @@ export function useOriginalPromotionReceipt(
   const sameIds =
     JSON.stringify([...receipt.selection.observationIds].sort()) ===
     JSON.stringify([...result.context.selectedObservationIds].sort());
-  const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext);
+  const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext, commandPreview);
   const sameActiveProfile = activeProfileVersion !== null && receipt.selection.profileVersion === activeProfileVersion;
   const currentFingerprint = model.promotionPreview.currentFingerprint;
   const valid =
@@ -229,12 +230,14 @@ export function useOriginalPromotionReceipt(
     sameIds &&
     receipt.previewId === result.context.promotionPreviewId &&
     receipt.selection.promoteAsDraft === (result.context.promoteAsDraft === true) &&
-    promotionReceiptMatchesContext(receipt, result.context) &&
+    promotionReceiptMatchesContext(receipt, result.context, result.promotionCommandPreview) &&
     sameContext &&
     sameActiveProfile &&
     (!model.promotionPreview.previewId || model.promotionPreview.previewId === receipt.previewId) &&
     (!currentFingerprint || currentFingerprint === receipt.preview.fingerprint) &&
-    promotionReceiptHasCompleteCoverage(receipt) &&
+    result.promotionPreviewVerdict?.previewCommittable === true &&
+    Boolean(receipt.preview.fingerprint) &&
+    result.promotionPreviewVerdict.currentFingerprint === receipt.preview.fingerprint &&
     model.readiness.rbacAllowed &&
     model.sourceObservationReview.freshness === "fresh" &&
     model.promotionPreview.blockers.length === 0;
@@ -263,6 +266,7 @@ export function useOriginalPromotionReceipt(
     promotionPreview: {
       ...model.promotionPreview,
       previewId: receipt.previewId,
+      previewCommittable: valid,
       receipt,
       validation: promotionValidationFor(result.context, receipt.preview.validation),
       freshness: pending ? "unavailable" : valid ? "fresh" : "stale",

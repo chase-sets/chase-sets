@@ -12,6 +12,10 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use crate::{
     api::{SavedAddress, SellListConfirmation, SellListRow},
@@ -282,6 +286,7 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Rend
             </div>
             <a class={(Button, Secondary)} href={back}>{w.back_to_sell_list}</a>
         </header>
+        <p><a class={(Button, Secondary)} href={url::ShippingSetup::PATH}>{t.shipping_setup()}</a></p>
         if let Some(recovery) = &screen.recovery {
             <div class={Banner} data-tone="warning" role="status">
                 <p class={Strong}>{recovery_title(t, screen.account, recovery)}</p>
@@ -390,7 +395,7 @@ fn Summary<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen, total: &'a str,
     };
     let ready = screen.readiness.as_ref().is_some_and(|r| r.status == "ready");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Row}>
                 <span class={Hint}>{&subtitle}</span>
                 <span class={Badge} data-tone="success">{w.summary_status}</span>

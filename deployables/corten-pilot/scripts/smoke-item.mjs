@@ -23,31 +23,11 @@ function check(ok, what) {
   if (!ok) failures += 1;
 }
 
-let blocked = 0;
-/** A step the platform API keeps from passing, with the issue that tracks it. */
-function block(what, issue) {
-  console.log(`BLKD ${what} (${issue})`);
-  blocked += 1;
-}
-
-/**
- * A write's result on the page: `shown` within the wait, else blocked when the API's item does
- * not have it either (`inApi`): the admin item projection can rebuild the page from the row
- * before the write. A page that misses what the API has is a failure.
- */
-async function landed(page, what, shown, inApi) {
-  if (await eventually(page, shown)) return (check(true, what), true);
-  if (!inApi(await apiItem(page, id)))
-    return (block(`${what}: saved, and the API's item does not have it`, "chase-sets#10554"), false);
-  return (check(false, what), false);
-}
-
-/** The item as the API answers it now, without a receipt. */
-async function apiItem(page, item) {
-  const res = await page.request.get(`${base}/catalog/catalog-items/${item}`, {
-    headers: { accept: "application/json" },
-  });
-  return (await res.json()).data.item;
+/** A write's result on the page its receipt drew. */
+async function landed(page, what, shown) {
+  const ok = await shown().catch(() => false);
+  check(ok, what);
+  return ok;
 }
 
 async function settled(page) {
@@ -79,9 +59,8 @@ async function context(javaScriptEnabled, viewport = { width: 1280, height: 900 
 }
 
 /**
- * Whether `shown` holds on the page, reloading for up to a minute. A local catalog projection can
- * take longer than a receipt's 30 seconds to show a write (the item read waits on every catalog
- * projection), and then the page is drawn from the read before it.
+ * Whether `shown` holds on the page, reloading for up to a minute and a half. Only for a write
+ * without a receipt (product contents'), whose page is drawn from whatever the read has then.
  */
 async function eventually(page, shown) {
   const start = Date.now();
@@ -188,6 +167,8 @@ let id = "";
   await create.getByLabel("Description").fill(`Smoke ${stamp}`);
   await create.getByRole("button", { name: "Create" }).click();
   await page.waitForURL((u) => u.searchParams.get("done") === "created");
+  // The create's own navigation can still be settling, and a goto then is aborted.
+  await navigated(page);
   for (let i = 0; i < 30; i += 1) {
     await page.goto(`${base}/catalog/catalog-items?search=${id}`);
     await navigated(page);
@@ -231,34 +212,21 @@ let id = "";
   // The description.
   await dialog(page, "item-metadata-dialog", "Edit Description", [["Description", `Smoke ${stamp} described`]], "Save");
   await done(page, "metadata_revised");
-  await landed(
-    page,
-    "the new description",
-    () => page.getByText(`Smoke ${stamp} described`).isVisible(),
-    (i) => i.description === `Smoke ${stamp} described`,
-  );
+  await landed(page, "the new description", () => page.getByText(`Smoke ${stamp} described`).isVisible());
 
-  // Tags, and image URLs on two lines (admin-web's input keeps one).
+  // Tags, and image URLs on two lines.
   await page.locator("summary", { hasText: "Tags" }).click();
   await dialog(page, "item-tags-dialog", "Set Tags", [["Tags", ` smoke , ${stamp} `]], "Save");
   await done(page, "tags_updated");
   // The API keeps tags sorted.
-  await landed(
-    page,
-    "the tags, in their open fold",
-    () => page.getByText(["smoke", stamp].sort().join(", ")).isVisible(),
-    (i) => i.tags.includes(stamp),
+  await landed(page, "the tags, in their open fold", () =>
+    page.getByText(["smoke", stamp].sort().join(", ")).isVisible(),
   );
   await page.locator("summary", { hasText: "Image URLs" }).click();
   const urls = [`https://example.com/${stamp}/a.png`, `https://example.com/${stamp}/b.png`];
   await dialog(page, "item-image-urls-dialog", "Set Image URLs", [["Image URLs", urls.join("\n")]], "Save");
   await done(page, "image_urls_updated");
-  await landed(
-    page,
-    "both image URLs",
-    async () => (await page.locator("li", { hasText: stamp }).count()) === 2,
-    (i) => i.image_urls.length === 2 && i.image_urls[0].includes(stamp),
-  );
+  await landed(page, "both image URLs", async () => (await page.locator("li", { hasText: stamp }).count()) === 2);
 
   // An image fallback: variants that are not an object are the field's error.
   await page.locator("summary", { hasText: "Image fallback" }).click();
@@ -279,21 +247,13 @@ let id = "";
   await fb.getByRole("button", { name: "Save", exact: true }).click();
   await done(page, "fallback_updated");
   if (
-    await landed(
-      page,
-      "the fallback, its usage in the summary",
-      () => page.getByText("loading-only fallback").isVisible(),
-      (i) => i.image_fallback?.usage === "loading-only",
+    await landed(page, "the fallback, its usage in the summary", () =>
+      page.getByText("loading-only fallback").isVisible(),
     )
   ) {
     await page.getByRole("button", { name: "Clear image fallback" }).click();
     await done(page, "fallback_cleared");
-    await landed(
-      page,
-      "the fallback is cleared",
-      () => page.getByText("No image fallback.").first().isVisible(),
-      (i) => i.image_fallback === null,
-    );
+    await landed(page, "the fallback is cleared", () => page.getByText("No image fallback.").first().isVisible());
   }
 
   // External references: a catalog item reference (the origin section follows it), then a product
@@ -312,11 +272,8 @@ let id = "";
   );
   await done(page, "catalog_ref_linked");
   if (
-    await landed(
-      page,
-      "the catalog item reference (a key with a slash)",
-      () => page.getByRole("cell", { name: "k/1", exact: true }).isVisible(),
-      (i) => i.external_catalog_item_references.some((r) => r.externalKey === "k/1" || r.external_key === "k/1"),
+    await landed(page, "the catalog item reference (a key with a slash)", () =>
+      page.getByRole("cell", { name: "k/1", exact: true }).isVisible(),
     )
   ) {
     check(
@@ -325,12 +282,7 @@ let id = "";
     );
     await page.getByRole("row", { name: /k\/1/ }).getByRole("button", { name: "Unlink" }).click();
     await done(page, "catalog_ref_unlinked");
-    await landed(
-      page,
-      "unlinked",
-      () => page.getByText("No external catalog item references").first().isVisible(),
-      (i) => i.external_catalog_item_references.length === 0,
-    );
+    await landed(page, "unlinked", () => page.getByText("No external catalog item references").first().isVisible());
   }
   await page.locator("summary", { hasText: "External Product References" }).click();
   const pr = await dialog(
@@ -346,21 +298,13 @@ let id = "";
   );
   if (await wrote(page, "product_ref_linked")) {
     if (
-      await landed(
-        page,
-        "the product reference and its one whole option",
-        () => page.getByRole("cell", { name: "dim_a:opt_1", exact: true }).isVisible(),
-        (i) => i.external_product_references.length > 0,
+      await landed(page, "the product reference and its one whole option", () =>
+        page.getByRole("cell", { name: "dim_a:opt_1", exact: true }).isVisible(),
       )
     ) {
       await page.getByRole("row", { name: /sku-1/ }).getByRole("button", { name: "Unlink" }).click();
       await done(page, "product_ref_unlinked");
-      await landed(
-        page,
-        "unlinked",
-        () => page.getByText("No external references").first().isVisible(),
-        (i) => i.external_product_references.length === 0,
-      );
+      await landed(page, "unlinked", () => page.getByText("No external references").first().isVisible());
     }
   } else {
     const refused = pr.locator(".form-error");
@@ -384,49 +328,25 @@ let id = "";
   await labelled(fv, "Value").fill(`smoke ${stamp}`);
   await fv.getByRole("button", { name: "Set", exact: true }).click();
   await done(page, "field_set");
-  const hasValue = (i) => i.field_values.some((v) => v.fieldId === textField.fieldId);
-  if (
-    await landed(
-      page,
-      "the field's value",
-      () => page.getByRole("cell", { name: `smoke ${stamp}` }).isVisible(),
-      hasValue,
-    )
-  ) {
+  if (await landed(page, "the field's value", () => page.getByRole("cell", { name: `smoke ${stamp}` }).isVisible())) {
     await page
       .getByRole("row", { name: new RegExp(`smoke ${stamp}`) })
       .getByRole("button", { name: "Clear" })
       .click();
     await done(page, "field_cleared");
     check(await page.getByText("Field value cleared").isVisible(), "the value cleared (its toast)");
-    await landed(
-      page,
-      "the value cleared",
-      () => page.getByRole("cell", { name: `smoke ${stamp}` }).isHidden(),
-      (i) => !hasValue(i),
-    );
+    await landed(page, "the value cleared", () => page.getByRole("cell", { name: `smoke ${stamp}` }).isHidden());
   }
 
   // A category.
   await dialog(page, "item-category-dialog", "Assign Category", [["Category ID", category.categoryId]], "Assign");
   await done(page, "category_assigned");
-  const inCategory = (i) => i.categories.some((c) => c.categoryId === category.categoryId);
   if (
-    await landed(
-      page,
-      "the category",
-      () => page.getByRole("cell", { name: category.name, exact: true }).isVisible(),
-      inCategory,
-    )
+    await landed(page, "the category", () => page.getByRole("cell", { name: category.name, exact: true }).isVisible())
   ) {
     await page.getByRole("row", { name: category.name }).getByRole("button", { name: "Remove" }).click();
     await done(page, "category_removed");
-    await landed(
-      page,
-      "the category removed",
-      () => page.getByText("No categories assigned.").isVisible(),
-      (i) => !inCategory(i),
-    );
+    await landed(page, "the category removed", () => page.getByText("No categories assigned.").isVisible());
   }
 
   // A content line: the model item inside the draft.
@@ -466,12 +386,7 @@ let id = "";
   await labelled(fv, "Value").fill(`plain ${stamp}`);
   await fv.getByRole("button", { name: "Set", exact: true }).click();
   await done(page, "field_set");
-  await landed(
-    page,
-    "set without the script",
-    () => page.getByRole("cell", { name: `plain ${stamp}` }).isVisible(),
-    (i) => i.field_values.some((v) => v.fieldId === textField.fieldId),
-  );
+  await landed(page, "set without the script", () => page.getByRole("cell", { name: `plain ${stamp}` }).isVisible());
   await page.locator("summary", { hasText: "Image fallback" }).click();
   await page.getByRole("button", { name: "Set image fallback" }).click();
   const fb = page.locator("#item-fallback-dialog");
@@ -511,14 +426,13 @@ let id = "";
     .getByRole("checkbox")
     .check();
   await page.getByRole("button", { name: "Remove drafts from selected" }).click();
-  await page.locator("#catalog-bulk-preview").getByRole("button", { name: "Remove drafts from selected" }).click();
-  await page.waitForURL((u) => u.searchParams.get("done") === "drafts_removed");
+  await page.locator("#catalog-bulk-preview").getByRole("button", { name: "Remove Drafts", exact: true }).click();
+  await page.waitForURL((u) => u.searchParams.has("job"));
+  await page.locator("#catalog-bulk-job").getByText("1 succeeded, 0 skipped, 0 failed.").waitFor({ timeout: 60_000 });
   check(true, `the draft is removed (${id})`);
   await ctx.close();
 }
 
 await browser.close();
-console.log(
-  `${failures ? `${failures} failed` : "all passed"}${blocked ? `, ${blocked} blocked by the platform API` : ""}`,
-);
+console.log(failures ? `${failures} failed` : "all passed");
 process.exit(failures ? 1 : 0);

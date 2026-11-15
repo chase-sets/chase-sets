@@ -1230,6 +1230,7 @@ export type CatalogMergeCandidateServices = Readonly<{
   }) => Promise<CatalogMergeCandidateGenerationResult>;
   promoteCatalogMergeCandidate: (input: {
     candidateId: string;
+    expectedVersion: number;
     reason: string;
     conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
     context: EventStoreContext;

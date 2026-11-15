@@ -13,6 +13,18 @@ const doksOutputs = readFileSync(resolve("infrastructure/digitalocean/doks/outpu
 const doksOperationsRunbook = readFileSync(resolve("docs/runbooks/doks-platform-operations.md"), "utf8");
 
 describe("DOKS preview node pool", () => {
+  it("defaults only preview nodes to the approved 16 GB size and keeps the three-node ceiling", () => {
+    expect(doksVariables).toMatch(
+      /variable "preview_node_pool_size" \{\s+type\s*= string\s+default\s*= "s-8vcpu-16gb"/,
+    );
+    expect(doksVariables).toMatch(
+      /variable "runtime_xl_node_pool_size" \{\s+type\s*= string\s+default\s*= "s-4vcpu-8gb"/,
+    );
+    expect(doksVariables).toMatch(/variable "preview_node_pool_max_nodes" \{\s+type\s*= number\s+default\s*= 3/);
+    expect(doksMain).toContain("size       = var.preview_node_pool_size");
+    expect(doksOperationsRunbook).toContain("`s-8vcpu-16gb`");
+  });
+
   it("provisions a dedicated scale-to-zero preview pool on the staging cluster only", () => {
     expect(doksMain).toContain('resource "digitalocean_kubernetes_node_pool" "preview"');
     expect(doksMain).toContain("count = local.preview_node_pool_enabled ? 1 : 0");
@@ -48,26 +60,40 @@ describe("DOKS preview node pool", () => {
     expect(doksOperationsRunbook).toContain("min_nodes = 0");
   });
 
-  it("documents interim requests, release isolation, overflow and measured-memory handover", () => {
+  it("documents measured reservations, the fresh-install bound, residual risks, fixture and rollback", () => {
     const section = doksOperationsRunbook.split("## Preview Node Pool\n")[1].split("### Idle Draft Retirement")[0];
     for (const request of [
-      "public-web 1024Mi",
-      "marketplace 1152Mi",
-      "admin-web 832Mi",
-      "platform-api 640Mi",
-      "platform-worker 832Mi",
-      "preview-postgres 448Mi",
-      "platform-bootstrap 1152Mi",
+      "public-web 1216Mi",
+      "marketplace 1280Mi",
+      "admin-web 960Mi",
+      "platform-api 1408Mi",
+      "platform-worker 960Mi",
+      "preview-postgres 512Mi",
+      "platform-bootstrap 896Mi",
     ]) {
       expect(section).toContain(request);
     }
     for (const behavior of [
-      "no CPU requests or limits",
+      "memory request = limit",
+      "no CPU limit",
+      "ceil-to-64Mi(1.15 × S)",
+      "43338035023/1",
       "cross-namespace, other-release pod anti-affinity",
       "one stack per node",
       "three-stack ceiling",
-      "hook-phase requests total 1600Mi",
-      "steady-state requests total 4928Mi",
+      "hook-phase requests total 1408Mi",
+      "steady-state requests total 6336Mi",
+      "`N.live`",
+      "`N.maxNodes`",
+      "no preview deploy retry or surge",
+      "60-minute census sample",
+      "one manual verify run green alone",
+      "one overflow run",
+      "final snapshot",
+      "Non-workload memory",
+      "ephemeral-storage eviction",
+      "autoscaler scale-down drains",
+      "OOMKilled",
       "A fourth stack stays Pending",
       "postgres does not block Helm",
       "bootstrap Job fails on its `activeDeadlineSeconds: 890`",
@@ -80,7 +106,7 @@ describe("DOKS preview node pool", () => {
       "not a required check",
       "Older BestEffort previews remain first to be evicted",
       "issues/9963",
-      "rollback for this interim is a revert",
+      "Rollback is a revert",
     ]) {
       expect(section).toContain(behavior);
     }

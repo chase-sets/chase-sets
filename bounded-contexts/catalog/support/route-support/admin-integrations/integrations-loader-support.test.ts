@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { importPreviewMatchesSelectedScope, loadDailySurfaceForRequest } from "./integrations-loader-support";
+import { loadDailySurfaceForRequest } from "./integrations-loader-support";
 import {
   profileReview,
   sourceObservationScope,
@@ -9,7 +9,7 @@ import {
   queryCatalogProviderIntegrationOptionsWithCache,
   type CatalogProviderOptionQueryCacheRecord,
 } from "../../../features/source-observations/api/providers/provider-option-query-cache";
-import { importPreviewMatchesRouteContext } from "../../../features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module";
+import { catalogImportPreviewMatchesSelection } from "../../../features/source-observations/api/admin/daily-import-preview";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import type { SourceObservationIntegrationImportPreview } from "../../../features/source-observations/ui/contracts";
 import { scopeContextToObservationFilterScope } from "../../../features/source-observations/ui/primary-workbench-scope-context";
@@ -195,7 +195,7 @@ describe("admin integrations loader support", () => {
     expect(["degraded", "unavailable"]).toContain(options.status);
     expect(options.pages.some((page) => page.degraded)).toBe(true);
   });
-  it("binds loader and rendered preview identity to the exact selected product, including deselection", () => {
+  it("binds API preview identity to the exact selected product, including deselection", () => {
     const context = parseCatalogPrimaryWorkbenchRouteContext(
       "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:sealed-product:reference-data&languageCode=en&productId=synthetic-product-A",
     );
@@ -213,16 +213,17 @@ describe("admin integrations loader support", () => {
       targetCount: 0,
       targets: [],
     };
-    expect(importPreviewMatchesSelectedScope(preview, scope)).toBe(true);
-    expect(importPreviewMatchesRouteContext(preview, context)).toBe(true);
+    expect(catalogImportPreviewMatchesSelection(preview, scope, context)).toBe(true);
     for (const productId of ["synthetic-product-B", "synthetic-product-a", undefined]) {
       const stale = { ...preview, scope: { ...scope, productId } };
-      expect(importPreviewMatchesSelectedScope(stale, scope)).toBe(false);
-      expect(importPreviewMatchesRouteContext(stale, context)).toBe(false);
+      expect(catalogImportPreviewMatchesSelection(stale, scope, context)).toBe(false);
     }
-    expect(importPreviewMatchesSelectedScope(preview, { ...scope, productId: undefined })).toBe(false);
+    expect(catalogImportPreviewMatchesSelection(preview, { ...scope, productId: undefined }, context)).toBe(false);
     expect(
-      importPreviewMatchesRouteContext(preview, { ...context, scope: { ...context.scope!, productId: null } }),
+      catalogImportPreviewMatchesSelection(preview, scope, {
+        ...context,
+        scope: { ...context.scope!, productId: null },
+      }),
     ).toBe(false);
   });
 });

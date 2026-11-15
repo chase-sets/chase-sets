@@ -30,6 +30,8 @@ import type {
   CatalogPrimaryWorkbenchAuditEvidenceReadModel,
 } from "./primary-workbench-lifecycle-governance-contracts";
 import { catalogPrimaryWorkbenchBlockers } from "./primary-workbench-contract-descriptors";
+import type { SourceObservationFilterScope } from "../../read-model/queries";
+import type { SourceObservationPromotionConfirmation } from "../promotion/promotion-preview-token";
 
 export type CatalogPrimaryWorkbenchSectionKey =
   | "provider-scope-selection"
@@ -213,6 +215,19 @@ export type CatalogPrimaryWorkbenchActionReadModel = Readonly<{
   state: CatalogPrimaryWorkbenchActionState;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   copyKey: CatalogPrimaryWorkbenchCopyKey | null;
+  commandPreview?: CatalogPrimaryWorkbenchPromotionCommandPreview;
+}>;
+
+/**
+ * Request data for the daily promotion action and each workset unit's previewPromotion
+ * action, not a preview or authorization. Add checked ids (which take precedence) or
+ * use scope only when allowScopeSelection, plus the explicit draft choice. Preview
+ * and execute retain the same confirmation; execution still requires the API token.
+ */
+export type CatalogPrimaryWorkbenchPromotionCommandPreview = Readonly<{
+  scope: SourceObservationFilterScope;
+  confirmation: SourceObservationPromotionConfirmation;
+  allowScopeSelection: boolean;
 }>;
 
 export type CatalogPrimaryWorkbenchSecurityPrivacyReadModel = Readonly<{

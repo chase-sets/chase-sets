@@ -93,6 +93,7 @@ import {
   parseWholeGameStartInput,
   planScopePromotion,
   planWholeGameSettle,
+  scopePromotionCheckpoint,
   promotedCatalogItems,
   publishFilters,
   readAllCompletedPromoteJobs,
@@ -109,6 +110,7 @@ import {
   type WholeGamePublishFilter,
   type WholeGamePublishPreview,
   type WholeGameReceipt,
+  type WholeGameScopeProgress,
   type WholeGameSettleInput,
   type WholeGameStartInput,
 } from "./support/whole-game-rehearsal";
@@ -7336,7 +7338,7 @@ type WholeGameRunIdentity = Pick<WholeGameReceipt, "sha" | "runId" | "runAttempt
 type WholeGameSettleCounts = {
   -readonly [Key in Exclude<
     keyof NonNullable<WholeGameReceipt["settle"]>,
-    "batchStatus" | "units" | "resumed"
+    "batchStatus" | "units" | "resumed" | "scopeProgress"
   >]: number;
 };
 
@@ -7657,6 +7659,7 @@ async function wholeGameSettle(
     draftsRemaining: 0,
   };
   let resumed = false;
+  const scopeProgress: WholeGameScopeProgress[] = [];
   const unitCount = (state: WholeGameBatchView["units"][number]["state"]) =>
     batch.units.filter((unit) => unit.state === state).length;
   const receipt = (state: WholeGameReceipt["state"]): WholeGameReceipt => ({
@@ -7677,6 +7680,7 @@ async function wholeGameSettle(
       },
       resumed,
       ...counts,
+      scopeProgress,
     },
   });
 
@@ -7698,17 +7702,65 @@ async function wholeGameSettle(
     }
 
     const observedJobs: WholeGamePromoteJob[] = [];
+    const convergedJobs = new Map<string, WholeGamePromoteJob[]>();
+    const history = new Map<string, readonly WholeGamePromoteJob[]>();
     for (const scopeRecordId of step.scopeRecordIds) {
+      const progress: WholeGameScopeProgress = {
+        scopeRecordId,
+        state: "pending",
+        completedJobsObserved: 0,
+        promotedOutcomes: 0,
+        jobIds: [],
+        startedAt: new Date().toISOString(),
+        waitStartedAt: null,
+        finishedAt: null,
+        deadlineAt: new Date(runtime.deadlineAt).toISOString(),
+        readyRemaining: null,
+        changedPromotedRemaining: null,
+      };
+      scopeProgress.push(progress);
+      const completed = [
+        ...(await readAllCompletedPromoteJobs(scopeRecordId, (cursor) =>
+          readWholeGameJson<WholeGameJobPage>(page, promoteJobsPath(scopeRecordId, "completed", cursor), runtime),
+        )),
+      ];
+      history.set(scopeRecordId, completed);
+      progress.completedJobsObserved = completed.length;
+      progress.promotedOutcomes = promotedCatalogItems(completed).promotedOutcomes;
+      counts.promotedOutcomes = promotedCatalogItems([...history.values()].flat()).promotedOutcomes;
       let converged = false;
       while (!converged) {
+        const passJobs: WholeGamePromoteJob[] = [];
         const active = await readActivePromoteJobs(page, scopeRecordId, runtime);
-        const plan = planScopePromotion(scopeRecordId, active);
+        const checkpoint = scopePromotionCheckpoint(scopeRecordId, completed);
+        let changedCandidates = 1;
+        if (active.length === 0 && checkpoint) {
+          progress.readyRemaining = await readReadyCandidateCount(page, scopeRecordId, [checkpoint], runtime);
+          progress.changedPromotedRemaining = await readReadyCandidateCount(
+            page,
+            scopeRecordId,
+            [checkpoint],
+            runtime,
+            "promoted",
+          );
+          changedCandidates = progress.readyRemaining + progress.changedPromotedRemaining;
+        }
+        const plan = planScopePromotion(scopeRecordId, active, completed, changedCandidates);
+        if (plan.kind === "reuse-completed-job") {
+          progress.jobIds = plan.jobIds;
+          convergedJobs.set(scopeRecordId, [checkpoint!]);
+          converged = true;
+          break;
+        }
         const jobIds =
           plan.kind === "adopt-active-job"
             ? plan.jobIds
             : [await submitPromoteAllReady(page, scopeRecordId, active, runtime)];
         if (plan.kind === "adopt-active-job") counts.promoteJobsAdopted += jobIds.length;
         else counts.promoteJobsSubmitted += 1;
+        progress.state = "promotion-running";
+        progress.jobIds = jobIds;
+        progress.waitStartedAt = new Date().toISOString();
         for (const jobId of jobIds) {
           const job = await waitForPromoteJob(page, jobId, runtime);
           if (!job) return receipt("running");
@@ -7723,10 +7775,18 @@ async function wholeGameSettle(
           if (job.promotionApplicationVersion !== 1)
             throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
           observedJobs.push(job);
+          passJobs.push(job);
+          completed.push(job);
+          progress.completedJobsObserved = new Set(completed.map((entry) => entry.jobId)).size;
+          progress.promotedOutcomes = promotedCatalogItems(completed).promotedOutcomes;
+          counts.promotedOutcomes = promotedCatalogItems([...history.values()].flat()).promotedOutcomes;
           counts.promotedThisDispatch = promotedCatalogItems(observedJobs).promotedOutcomes;
-          converged = job.result.promoted === 0;
         }
+        converged = passJobs.every((job) => job.result?.promoted === 0);
+        if (converged) convergedJobs.set(scopeRecordId, passJobs);
       }
+      progress.state = "converged";
+      progress.finishedAt = new Date().toISOString();
       counts.scopesPromoted += 1;
     }
 
@@ -7770,7 +7830,12 @@ async function wholeGameSettle(
     }
 
     for (const scopeRecordId of step.scopeRecordIds) {
-      counts.readyRemaining += await readReadyCandidateCount(page, scopeRecordId, runtime);
+      counts.readyRemaining += await readReadyCandidateCount(
+        page,
+        scopeRecordId,
+        convergedJobs.get(scopeRecordId) ?? [],
+        runtime,
+      );
     }
     for (const filter of filters)
       counts.draftsRemaining += await readWholeGameTotal(page, draftItemsPath(filter), runtime);
@@ -7806,12 +7871,65 @@ async function readActivePromoteJobs(
   return (await readWholeGameJson<WholeGameJobPage>(page, promoteJobsPath(scopeRecordId, "active"), runtime)).items;
 }
 
-async function readReadyCandidateCount(page: Page, scopeRecordId: string, runtime?: WholeGameRuntime): Promise<number> {
-  return readWholeGameTotal(
-    page,
-    `/api/catalog/source-observations/merge-candidates?${wholeGameQuery({ scopeRecordId, status: "ready", limit: "1" })}`,
-    runtime,
+async function readReadyCandidateCount(
+  page: Page,
+  scopeRecordId: string,
+  convergedJobs: readonly WholeGamePromoteJob[],
+  runtime?: WholeGameRuntime,
+  status: "ready" | "promoted" = "ready",
+): Promise<number> {
+  // Historical dispositions are reusable only until the candidate changes.
+  // Approved candidates use the stored `promoted` status, including unapplied approvals.
+  const checkpoint = scopePromotionCheckpoint(scopeRecordId, convergedJobs);
+  const checkpointAt = Date.parse(checkpoint?.createdAt ?? "");
+  const checkpointCandidates = new Set(checkpoint?.result?.outcomes.map((outcome) => outcome.candidateId) ?? []);
+  const referenceOnly = new Map(
+    convergedJobs.flatMap((job) =>
+      job.scopeRecordId === scopeRecordId &&
+      job.kind === "merge-candidate-promote" &&
+      job.status === "completed" &&
+      job.promotionApplicationVersion === 1 &&
+      job.result?.promoted === 0 &&
+      !job.result.failed
+        ? job.result.outcomes.flatMap((outcome) =>
+            outcome.status === "skipped-not-eligible" && outcome.disposition === "reference-only" && outcome.candidateId
+              ? [[outcome.candidateId, Date.parse(job.createdAt ?? "")] as const]
+              : [],
+          )
+        : [],
+    ),
   );
+  const seen = new Set<string>();
+  let total: number | undefined;
+  let remaining = 0;
+  for (let offset = 0; ; ) {
+    const result = await readWholeGameJson<{
+      total: number;
+      items: readonly { candidate_id: string; updated_at: string }[];
+    }>(
+      page,
+      `/api/catalog/source-observations/merge-candidates?${wholeGameQuery({ scopeRecordId, status, limit: "100", offset: String(offset) })}`,
+      runtime,
+    );
+    if (!Number.isSafeInteger(result.total) || result.total < 0 || (total !== undefined && total !== result.total))
+      throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+    total = result.total;
+    for (const candidate of result.items) {
+      if (!candidate.candidate_id || seen.has(candidate.candidate_id))
+        throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+      seen.add(candidate.candidate_id);
+      // An edit after job creation invalidates its disposition; unknown dates fail closed.
+      const unchanged =
+        status === "promoted"
+          ? checkpointCandidates.has(candidate.candidate_id) && Date.parse(candidate.updated_at) < checkpointAt
+          : Date.parse(candidate.updated_at) <= (referenceOnly.get(candidate.candidate_id) ?? Number.NEGATIVE_INFINITY);
+      if (!unchanged) remaining += 1;
+    }
+    offset += result.items.length;
+    if (offset > total || (offset < total && result.items.length === 0))
+      throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+    if (offset === total) return remaining;
+  }
 }
 
 // Acts only through the form carrying the requested batch id, so another batch

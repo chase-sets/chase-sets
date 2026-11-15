@@ -1,4 +1,9 @@
 {
+  "payment.summary.not.found": "Payment summary not found.",
+  "payment.quote.required": "Review the latest payable total before payment starts.",
+  "payment.email.verification.required": "Verify your email before you pay. Nothing was reserved or ordered.",
+  "payment.authority.required": "This account cannot pay for purchases. Nothing was reserved or ordered.",
+  "payment.start.pending": "Payment setup is still catching up. Review checkout again before payment starts.",
   "page.add.a.product.before.starting.checkout": "Add a product before starting checkout.",
   "page.address.line1": "Address line 1",
   "page.address.line2": "Address line 2",

@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createLinkedPlatformAuthorizationStore } from "./linked-platform-authorizations";
+import { createIdentityOwnerEpochs } from "../../features/accounts/api/owner-epochs";
+
+function sqlFixture(query: PgTransactionalPool["query"]) {
+  const pool = { query, connect: vi.fn() } as PgTransactionalPool;
+  return createLinkedPlatformAuthorizationStore(pool, {
+    ...createIdentityOwnerEpochs(pool),
+    delegationTransaction: (work) => work(pool),
+    enrollDelegation: vi.fn(async () => {}),
+  });
+}
 
 describe("agent-grant-revocation-authority private token owner lookup", () => {
   it.each(["synthetic-access-hash", "synthetic-refresh-hash"])(
@@ -74,7 +84,7 @@ describe("operator grant absolute expiry", () => {
       calls.push([sql, params]);
       return { rows: [row], rowCount: 1 };
     });
-    const store = createLinkedPlatformAuthorizationStore({ query, connect: vi.fn() } as PgTransactionalPool);
+    const store = sqlFixture(query);
     await store.grant({
       authorizationId: row.authorization_id,
       platformProfileUrl: row.platform_profile_url,
@@ -97,7 +107,7 @@ describe("operator grant absolute expiry", () => {
 
   it("caps day-six refresh rotation and rejects bearer or refresh tokens after day seven", async () => {
     const query = vi.fn(async (sql: string, _params: readonly unknown[] = []) => ({ rows: [row], rowCount: 1 }));
-    const store = createLinkedPlatformAuthorizationStore({ query, connect: vi.fn() } as PgTransactionalPool);
+    const store = sqlFixture(query);
     await store.rotateRefreshToken({
       refreshTokenHash: row.refresh_token_hash,
       newAccessTokenHash: "rotated_access_hash",
@@ -106,7 +116,7 @@ describe("operator grant absolute expiry", () => {
       refreshTokenExpiresAt: "2026-02-06T00:00:00.000Z",
       refreshedAt: "2026-01-07T00:00:00.000Z",
     });
-    const rotateSql = query.mock.calls[0]![0] as string;
+    const rotateSql = query.mock.calls.find(([sql]) => sql.startsWith("UPDATE"))![0];
     expect(rotateSql).toContain("LEAST($4::timestamptz, COALESCE(absolute_expires_at, $4::timestamptz))");
     expect(rotateSql).toContain("LEAST($5::timestamptz, COALESCE(absolute_expires_at, $5::timestamptz))");
 

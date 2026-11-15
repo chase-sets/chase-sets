@@ -64,9 +64,10 @@ pub fn observation_values(t: Cat, screen: &ObservationScreen) -> Vec<(&'static s
     items
 }
 
-/// The page: breadcrumbs back to admin-web's workbench, the name, the review form (for staff who
+/// The page: breadcrumbs back to the integrations workbench (the pilot's, when it serves it), the name, the review form (for staff who
 /// may review it, when its status allows a review), the image and the values.
 pub fn observation_page<'a>(
+    req: &'a Req,
     t: Cat,
     p: Pilot,
     screen: &'a ObservationScreen,
@@ -75,7 +76,7 @@ pub fn observation_page<'a>(
 ) -> impl Render + 'a {
     let o = &screen.observation;
     let name = if o.normalized.name.is_empty() { o.observation_id.as_str() } else { o.normalized.name.as_str() };
-    let workbench = crate::views::admin_web("/catalog/integrations?section=workbench").map(|u| u.to_string()).unwrap_or_default();
+    let workbench = crate::views::link_to(req, "/catalog/integrations?section=workbench").unwrap_or_default();
     let action = url::Observation { id: &o.observation_id, after_write: None, done: None }.href();
     let values = observation_values(t, screen);
     let reviewable = screen.manage && (promotable(&o.status) || rejectable(&o.status));

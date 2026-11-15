@@ -12,6 +12,10 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::{listing_page::options, on_marketplace};
 use crate::{
@@ -381,10 +385,10 @@ fn Readiness<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listing
         readiness.public_gallery.iter().enumerate().filter(|(_, image)| !image.assets.is_empty()).collect();
     let f = ListingForm::FIELDS;
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <Checklist t={t} readiness={readiness} />
             if !gallery.is_empty() {
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
                     <p class={Strong}>{t.evidence_seller_supplied()}</p>
                     <ul class={Gallery}>
                         for (index, image) in gallery {
@@ -478,7 +482,7 @@ fn PhotoForms<'a>(
     let last = index + 1 == ids.len();
     html! {
         <p class={Strong}>{&label}</p>
-        <form class={Stack} method="post" action={here(id)}>
+        <form class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
             <input type="hidden" name={f.intent} value="classify-photo">
             <input type="hidden" name={f.photo_id} value={&photo.photo_id}>
             <label class={Field}>
@@ -506,7 +510,12 @@ fn PhotoForms<'a>(
             </div>
             <button class={(Button, Secondary)} type="submit">{t.evidence_save_classification()}</button>
         </form>
-        <form class={(Stack, Drop)} method="post" action={url::SellerListingPhotos { id }} enctype="multipart/form-data">
+        <form
+            class={(KitStack { gap: Gap::App }, gap_3(), Stack, Drop)}
+            method="post"
+            action={url::SellerListingPhotos { id }}
+            enctype="multipart/form-data"
+        >
             <input type="hidden" name={f.intent} value="replace-photo">
             <input type="hidden" name={f.photo_id} value={&photo.photo_id}>
             <input type="hidden" name={f.slot_id} value={photo.slot_id.as_deref().unwrap_or_default()}>
@@ -587,7 +596,9 @@ fn Checklist<'a>(t: SellerListingMsg, readiness: &'a EvidenceReadiness) -> impl 
             <li class={Check}>
                 <p class={Strong}>{t.evidence_minimum_photo_count(c.minimum_photo_count)}</p>
                 <span class={State} data-done={enough}>{state(enough)}</span>
-                <p class={Muted}>{t.evidence_photo_count_progress(c.active_photo_count, c.minimum_photo_count)}</p>
+                <p class={Muted}>
+                    {t.evidence_photo_count_progress(crate::text::seller_listing_msg::EvidencePhotoCountProgress { present: c.active_photo_count, required: c.minimum_photo_count })}
+                </p>
                 if !enough {
                     <p>{t.coverage_min_photo_count_unmet()}</p>
                 }
@@ -603,7 +614,9 @@ fn Checklist<'a>(t: SellerListingMsg, readiness: &'a EvidenceReadiness) -> impl 
                         <p class={Tags}>
                             <span class={Tag}>{&required.slot_id}</span>
                             if let (Some(w), Some(h)) = (required.minimum_width_pixels, required.minimum_height_pixels) {
-                                <span class={Tag}>{t.evidence_minimum_dimensions(w, h)}</span>
+                                <span class={Tag}>
+                                    {t.evidence_minimum_dimensions(crate::text::seller_listing_msg::EvidenceMinimumDimensions { width: w, height: h })}
+                                </span>
                             }
                         </p>
                     }
@@ -634,7 +647,7 @@ fn FeeHistory<'a>(t: SellerListingMsg, p: Pilot, listing: &'a SellerListing, fee
                         <li>
                             <p class={Strong}>{fee_event(t, &e.event_type)}</p>
                             <p class={Hint}>
-                                {t.page_fee_history_recorded(e.stream_version, &when(t, e.recorded_at.as_deref()))}
+                                {t.page_fee_history_recorded(crate::text::seller_listing_msg::PageFeeHistoryRecorded { version: e.stream_version, recorded_at: &when(t, e.recorded_at.as_deref()) })}
                             </p>
                             <dl class={Lines}>
                                 <div>
@@ -689,9 +702,9 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
     let (qe, le) = (e.errors.within(QuantityFormId), e.errors.within(LimitsFormId));
     let blocked = !matches!(l.status.as_str(), "active" | "withdrawn");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <div class={Card}>
-                <form id={PriceFormId} class={Stack} method="post" action={here(id)}>
+                <form id={PriceFormId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
                     <div class={Grid}>
                         <label class={Field}>
                             <span class={Label}>{t.page_price_2()}</span>
@@ -728,7 +741,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                 }
             </div>
             <div class={Card}>
-                <form id={QuantityFormId} class={Stack} method="post" action={here(id)}>
+                <form id={QuantityFormId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
                     <input type="hidden" name={f.intent} value="update-quantity-cap">
                     if let Some(fingerprint) = &l.fee_quote_fingerprint {
                         <input type="hidden" name={f.fee_quote_fingerprint} value={fingerprint}>
@@ -756,7 +769,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                     <span class={Strong}>{t.page_purchase_limits_copy()}</span>
                     <span class={Hint}>{limits(t, l)}</span>
                 </summary>
-                <form id={LimitsFormId} class={Stack} method="post" action={here(id)}>
+                <form id={LimitsFormId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
                     <input type="hidden" name={f.intent} value="update-purchase-limits">
                     <div class={Grid3}>
                         <label class={Field}>
@@ -804,7 +817,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                 </form>
             </details>
             <div class={Card}>
-                <form class={Stack} method="post" action={here(id)}>
+                <form class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
                     <input type="hidden" name={f.intent} value="publish">
                     if let Some(fingerprint) = &l.fee_quote_fingerprint {
                         <input type="hidden" name={f.fee_quote_fingerprint} value={fingerprint}>
@@ -865,7 +878,7 @@ fn le_open(e: &Edits) -> bool {
 fn Preview<'a>(t: SellerListingMsg, p: Pilot, preview: &'a TermsPreview, currency: &'a str) -> impl Render {
     let currency = Some(currency).filter(|c| !c.trim().is_empty());
     html! {
-        <div class={(Stack, Quote)} role="status">
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack, Quote)} role="status">
             <p class={Strong}>{t.page_updated_fee_preview()}</p>
             <p class={Hint}>{t.page_account_type()} {&preview.account_type}</p>
             <p class={Hint}>

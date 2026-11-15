@@ -122,6 +122,57 @@ describe("verify-observation-pack real entrypoint", () => {
     expect(result.postReplay.equalityIdentity).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
+  it("binds representative offer skips into the commerce state identity", () => {
+    const fixture = commerceClosureFixture();
+    fixture.commerceCompletion.representativeOfferSkippedCount = 1;
+
+    expect(() => buildClosedCommercePackCohortEvidence(fixture)).toThrow(
+      "Representative commerce state identity mismatch.",
+    );
+  });
+
+  it.each([0, 1])("closes %s sampled Offers and projection rows over the full selected cohort", (offerCount) => {
+    const fixture = commerceClosureFixture();
+    fixture.commerceCompletion = updateCommerceCompletionState(fixture.commerceCompletion, fixture.replayReceipt, {
+      representativeOfferCount: offerCount,
+      representativeOfferSkippedCount: 2 - offerCount,
+    });
+    const selectedCatalogItemIds = fixture.commerceCompletion.selectedCatalogItemIds;
+
+    expect(buildClosedCommercePackCohortEvidence(fixture).status).toBe("verified");
+    expect(() =>
+      assertRepresentativeCommerceProjectionClosure({
+        selectedCatalogItemIds,
+        catalogItemIds: selectedCatalogItemIds,
+        discoverySearchCatalogItemIds: selectedCatalogItemIds,
+        discoveryDetailCatalogItemIds: selectedCatalogItemIds,
+        listingCatalogItemIds: selectedCatalogItemIds,
+        offerCatalogItemIds: selectedCatalogItemIds.slice(0, offerCount),
+        listingRowCount: 2,
+        offerRowCount: offerCount,
+        expectedListingRowCount: 2,
+        expectedOfferRowCount: fixture.commerceCompletion.representativeOfferCount,
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    [0, 0],
+    [1, 0],
+    [2, 1],
+  ])(
+    "rejects %s Offers and %s skipped when they do not cover the selected cohort",
+    (representativeOfferCount, representativeOfferSkippedCount) => {
+      const fixture = commerceClosureFixture();
+      fixture.commerceCompletion = updateCommerceCompletionState(fixture.commerceCompletion, fixture.replayReceipt, {
+        representativeOfferCount,
+        representativeOfferSkippedCount,
+      });
+
+      expect(() => buildClosedCommercePackCohortEvidence(fixture)).toThrow(/Representative commerce.*mismatch/);
+    },
+  );
+
   it.each([
     ["reordered", (packs) => packs.reverse()],
     ["omitted", (packs) => packs.slice(0, 1)],
@@ -177,19 +228,31 @@ describe("verify-observation-pack real entrypoint", () => {
   });
 
   it.each([
-    ["omitted current-run item", { listingCatalogItemIds: ["cat_pack"] }],
-    ["extra current-run item", { offerCatalogItemIds: ["cat_fixture", "cat_pack", "cat_extra"] }],
-    ["stale prior representative row", { listingCatalogItemIds: ["cat_fixture", "cat_old", "cat_pack"] }],
+    ["omitted current-run item", { listingCatalogItemIds: ["cat_synthetic_pack"] }],
+    [
+      "extra current-run item",
+      { offerCatalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_pack", "cat_synthetic_extra"] },
+    ],
+    [
+      "stale prior representative row",
+      { listingCatalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_old", "cat_synthetic_pack"] },
+    ],
     ["duplicate stale representative row", { listingRowCount: 3 }],
+    ["duplicate stale representative Offer row", { offerRowCount: 3 }],
+    ["omitted representative Offer row", { offerRowCount: 1 }],
+    [
+      "sampled Offer outside the selected cohort",
+      { offerCatalogItemIds: ["cat_synthetic_extra"], offerRowCount: 1, expectedOfferRowCount: 1 },
+    ],
   ])("rejects %s before cohort acceptance", (_label, override) => {
     expect(() =>
       assertRepresentativeCommerceProjectionClosure({
-        selectedCatalogItemIds: ["cat_fixture", "cat_pack"],
-        catalogItemIds: ["cat_fixture", "cat_pack"],
-        discoverySearchCatalogItemIds: ["cat_fixture", "cat_pack"],
-        discoveryDetailCatalogItemIds: ["cat_fixture", "cat_pack"],
-        listingCatalogItemIds: ["cat_fixture", "cat_pack"],
-        offerCatalogItemIds: ["cat_fixture", "cat_pack"],
+        selectedCatalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_pack"],
+        catalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_pack"],
+        discoverySearchCatalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_pack"],
+        discoveryDetailCatalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_pack"],
+        listingCatalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_pack"],
+        offerCatalogItemIds: ["cat_synthetic_fixture", "cat_synthetic_pack"],
         listingRowCount: 2,
         offerRowCount: 2,
         expectedListingRowCount: 2,
@@ -239,8 +302,14 @@ describe("verify-observation-pack real entrypoint", () => {
     ).toThrow(/canonical sandbox/i);
   });
 
-  it("accepts only a zero-append retained-state replay with the same closed commerce identity", () => {
+  it.each([false, true])("accepts only a zero-append retained-state replay (sampled Offers: %s)", (sampled) => {
     const fixture = commerceClosureFixture();
+    if (sampled) {
+      fixture.commerceCompletion = updateCommerceCompletionState(fixture.commerceCompletion, fixture.replayReceipt, {
+        representativeOfferCount: 1,
+        representativeOfferSkippedCount: 1,
+      });
+    }
     const prior = buildClosedCommercePackCohortEvidence(fixture);
     const dayAfterReceipt = buildRepresentativeCatalogReplayReceipt(
       fixture.replayReceipt.packs.map((pack) => ({
@@ -613,7 +682,7 @@ function commerceClosureFixture() {
     postgresPort: 6520,
     catalogDatabaseName: "cs_lane_01_catalog",
   });
-  const selectedCatalogItemIds = ["cat_fixture", "cat_pack"];
+  const selectedCatalogItemIds = ["cat_synthetic_fixture", "cat_synthetic_pack"];
   const selectedCatalogItemDigest = identity(selectedCatalogItemIds);
   const commerceStateMaterial = {
     environmentName: "dev",
@@ -633,6 +702,7 @@ function commerceClosureFixture() {
     representativeListingAccountCount: 2,
     representativeOfferCount: 2,
     representativeOfferBuyerAccountCount: 2,
+    representativeOfferSkippedCount: 0,
     representativeAcceptedOfferCount: 2,
     representativeAcceptedOfferSkippedCount: 0,
     representativeOrderingSupplyState: { listingCount: 2, inventoryItemCount: 2 },
@@ -695,8 +765,8 @@ function commerceClosureFixture() {
       representativeCatalogReplay,
     },
     catalogReferences: [
-      { catalogItemId: "cat_pack", providerKey: "tcgdex", externalKey: "card:1" },
-      { catalogItemId: "cat_fixture", providerKey: "fixture", externalKey: "item:1" },
+      { catalogItemId: "cat_synthetic_pack", providerKey: "tcgdex", externalKey: "card:1" },
+      { catalogItemId: "cat_synthetic_fixture", providerKey: "fixture", externalKey: "item:1" },
     ],
     acceptedPackReferences: [{ providerKey: "tcgdex", externalKey: "card:1" }],
     minimumPercentage: 50,

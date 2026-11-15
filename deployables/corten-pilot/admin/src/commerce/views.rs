@@ -22,7 +22,6 @@ pub const PAYOUTS: &[Component] = &[
     platform::ui::badge::Badge,
     platform::ui::button::Button,
     platform::ui::card::Card,
-    platform::ui::table::Table,
     MoneyHealthPage,
 ];
 /// Recovered Returns' components: its stylesheet.

@@ -629,15 +629,19 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "governing-law-and-forum",
       title: "Governing law and forum",
       draftText:
-        "These Terms are governed by the laws of the State of Kansas, without regard to its conflict-of-laws rules, except that the Federal Arbitration Act governs the arbitration agreement in the dispute-resolution-with-platform subject above. Subject to that arbitration agreement, you and Chase Sets consent to the exclusive jurisdiction of the state and federal courts located in Kansas for any dispute not subject to arbitration. Chase Sets Limited, registered in Wichita, Kansas, is the contracting entity for these Terms. Send legal notices, including arbitration opt-out notices, to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to [NOTICE-EMAIL].",
+        "These Terms are governed by the laws of the State of Kansas, without regard to its conflict-of-laws rules, except that the Federal Arbitration Act governs the arbitration agreement in the dispute-resolution-with-platform subject above. Subject to that arbitration agreement, you and Chase Sets consent to the exclusive jurisdiction of the state and federal courts located in Kansas for any dispute not subject to arbitration. Chase Sets Limited, registered in Wichita, Kansas, is the contracting entity for these Terms. Send legal notices, including arbitration opt-out notices, to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to legal@chasesets.com.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "State the contracting entity, governing law, forum, and legal notice address per the ratified #5677 decision, with an explicit placeholder for the fact #5677 did not supply.",
-        decisionRefs: [5677, 5679],
-        productTruthRefs: ["bounded-contexts/public-presence/routes/marketplace/home.tsx:198-200"],
+          "State the contracting entity, governing law, forum, and mailing notice address per the ratified contracting decision and the legal-notice email per Todd's recorded selection.",
+        decisionRefs: [5677, 5679, 8668, 10299],
+        productTruthRefs: [
+          "bounded-contexts/public-presence/routes/marketplace/home.tsx:198-200",
+          "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+          "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
+        ],
         openQuestions: [
-          "#5677 recorded the entity, state, and mailing notice address (Todd, 2026-07-18) but did not supply a dedicated legal-notice email distinct from the published general support contact (support@chasesets.com); [NOTICE-EMAIL] is an explicit placeholder pending that fact.",
+          "Todd selected legal@chasesets.com for contract notices, arbitration opt-outs and privacy requests on 2026-10-07, and confirmed receipt on 2026-11-14 (selection and receipt records cited in productTruthRefs). General support remains support@chasesets.com.",
           "Governing-law state follows the entity's registration (Kansas) per #5677's decision comment 'unless counsel (#5679) directs otherwise'; confirm no change during the #5679 counsel engagement before publication.",
         ],
         assumptions: [

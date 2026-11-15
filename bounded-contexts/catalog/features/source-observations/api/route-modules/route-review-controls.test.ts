@@ -14,6 +14,52 @@ import { sourceObservationListItem } from "../../ui/primary-workbench-test-fixtu
 import { sourceObservationEvidenceFor } from "../admin/source-observation-evidence-read";
 
 describe("source observation routes: review and control-plane reads", () => {
+  it.each([0, 4])(
+    "forwards promote version %s, reason, resolutions and audit context unchanged",
+    async (expectedVersion) => {
+      const promoteCatalogMergeCandidate = vi.fn(async () => ({ status: "promoted" }));
+      const app = buildApp({ promoteCatalogMergeCandidate } as unknown as SourceObservationRouteServices);
+      const conflictResolutions = [
+        {
+          conflictCode: "name",
+          fieldPath: "name",
+          chosenValue: "New",
+          reason: "Correct name",
+          observationIds: ["obs_1"],
+        },
+      ];
+      const response = await app.request("/source-observations/admin/merge-candidates/cand_1/promote", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "Approve reviewed snapshot", expectedVersion, conflictResolutions }),
+      });
+      expect(response.status).toBe(200);
+      expect(promoteCatalogMergeCandidate).toHaveBeenCalledWith({
+        candidateId: "cand_1",
+        expectedVersion,
+        reason: "Approve reviewed snapshot",
+        conflictResolutions,
+        context,
+      });
+    },
+  );
+
+  it.each([undefined, null, "4", -1, 0.5, Number.MAX_SAFE_INTEGER + 1])(
+    "refuses promote expectedVersion=%s before calling the service",
+    async (expectedVersion) => {
+      const promoteCatalogMergeCandidate = vi.fn(async () => ({ status: "promoted" }));
+      const app = buildApp({ promoteCatalogMergeCandidate } as unknown as SourceObservationRouteServices);
+      const response = await app.request("/source-observations/admin/merge-candidates/cand_1/promote", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "Approve reviewed snapshot", expectedVersion }),
+      });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "expected_version_required" } });
+      expect(promoteCatalogMergeCandidate).not.toHaveBeenCalled();
+    },
+  );
+
   it("passes Eligible through the authorized list route to the bounded query and preserves promotion-scope parity", async () => {
     const rows = ["observed", "changed", "promoted", "rejected"].map((status) => ({
       observation_id: `synthetic-${status}`,
@@ -342,7 +388,7 @@ describe("source observation routes: review and control-plane reads", () => {
     await expect(unversioned.json()).resolves.toEqual({
       error: {
         code: "expected_version_required",
-        message: "Update and split require expectedVersion: the candidate version the page read.",
+        message: "Promote, update and split require expectedVersion: the candidate version the page read.",
       },
     });
 

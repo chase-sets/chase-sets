@@ -17,7 +17,7 @@ import { productContentRoutes } from "../../features/product-contents/api/route"
 import { providerScopeMappingRoutes } from "../../features/provider-scope-mapping/api/route";
 import { providerScopeDiscoveryRoutes } from "../../features/provider-scope-discovery/api/route";
 import { referenceDataRoutes } from "../../features/reference-data/api/route";
-import { catalogScopeRegistryRoutes } from "../../features/scope-registry/api/route";
+import { catalogScopeRegistryRoutes, scopeRecordDetailFromRow } from "../../features/scope-registry/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
 import { scopeSyncBatchRoutes } from "../../features/scope-sync-batches/api/route";
 import { operatorSessionAdminRoutes } from "../../features/operator-session/api/route";
@@ -110,6 +110,11 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
           throw new Error("Provider refresh schedules unavailable.");
         }
         return services.providerScopeDiscovery.listRefreshSchedules();
+      },
+      // Scope Detail's daily journey is composed for the Scope Record its path names.
+      async (scopeRecordId) => {
+        const row = await services.scopeRegistry.getScopeRecord(scopeRecordId);
+        return row ? scopeRecordDetailFromRow(row, new Date().toISOString()) : null;
       },
     ),
   );

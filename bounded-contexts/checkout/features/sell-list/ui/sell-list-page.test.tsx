@@ -509,7 +509,9 @@ describe("checkout sell list page", () => {
     );
 
     expect(screen.getByText("Some items need action")).toBeTruthy();
-    expect(screen.getByText("Resolve 1 line(s) before seller checkout starts.")).toBeTruthy();
+    expect(
+      screen.getByText("Resolve 1 item before seller checkout starts. Offer acceptance is unavailable."),
+    ).toBeTruthy();
     expect(screen.getByText("Payout setup required")).toBeTruthy();
     expect(screen.getByText(/bank account/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
@@ -1058,5 +1060,268 @@ describe("checkout sell list page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     expect(screen.getAllByText("Buyer").length).toBeGreaterThan(0);
     expect(screen.queryByText("acc_private_buyer_id")).toBeNull();
+  });
+});
+
+describe("Sell List payout and acceptance presentation", () => {
+  const quotedReview = {
+    lineId: selectedOfferLine.line_id,
+    status: "ready" as const,
+    terms: {
+      basis_amount: "350.00",
+      marketplace_sales_fee_unit_amount: "35.00",
+      seller_net_unit_amount: "315.00",
+      shipping_allowance_percentage_bps: 0,
+    },
+    comparison: null,
+    message: null,
+  };
+
+  function summaryValue(label: string) {
+    const term = screen.getAllByText(label)[0];
+    expect(term, label).toBeTruthy();
+    return term?.nextElementSibling?.textContent;
+  }
+
+  it("agrees on selected-offer payout and keeps not-started payout setup unchanged", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        offerReviews={[quotedReview]}
+        payoutReadiness={{ status: "not-started", missing_requirements: ["provider-onboarding", "seller-agreement"] }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Review Charizard offers and terms" }).textContent).toContain(
+      "Estimated net $630.00",
+    );
+    expect(summaryValue("Expected seller payout")).toBe("$630.00");
+    expect(summaryValue("Estimated sales fees")).toBe("$70.00");
+    expect(screen.getByText("Complete payout provider onboarding")).toBeTruthy();
+    expect(screen.getByText("Accept the seller agreement")).toBeTruthy();
+    expect(screen.getByText("Offer acceptance is unavailable until payout setup is ready.")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Set up payouts" })[0]?.getAttribute("href")).toBe(
+      "/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+    );
+    expect(screen.queryByText("Ready for seller checkout")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/provider-onboarding|seller-agreement|line\(s\)/);
+    expect(document.querySelector('button[name="intent"]:disabled')).not.toBeNull();
+  });
+
+  it("labels best-offer card net separately from aggregate payout", () => {
+    const offers = [315, 270].map((net, index) => ({
+      offer: {
+        offer_id: `off_${index}`,
+        buyer_account_id: `acc_${index}`,
+        buyer_display_name: `Buyer ${index}`,
+        price_amount: String(net + 35),
+        quantity_requested: 1,
+        offer_to_listing_price_bps: 10000,
+      },
+      terms: {
+        seller_net_unit_amount: String(net),
+        marketplace_sales_fee_unit_amount: "35.00",
+        fee_quote_fingerprint: `fee_${index}`,
+      },
+    }));
+    render(
+      <CheckoutSellListPage
+        sellListLines={[{ ...productLine, quantity: 2 }]}
+        productOfferReviews={[{ lineId: productLine.line_id, status: "ready", offers, message: null }]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Review Charizard offers and terms" }).textContent).toContain(
+      "Best offer net $315.00",
+    );
+    expect(summaryValue("Expected seller payout (all offers)")).toBe("$585.00");
+    expect(summaryValue("Estimated sales fees")).toBe("$70.00");
+  });
+
+  it("agrees on the complete quoted allocation for one product offer", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[productLine]}
+        productOfferReviews={[
+          {
+            lineId: productLine.line_id,
+            status: "ready",
+            message: null,
+            offers: [
+              {
+                offer: {
+                  offer_id: "off_allocation",
+                  buyer_account_id: "acc_buyer",
+                  buyer_display_name: "Buyer",
+                  price_amount: "350.00",
+                  quantity_requested: 2,
+                  offer_to_listing_price_bps: 10000,
+                },
+                terms: {
+                  seller_net_unit_amount: "315.00",
+                  marketplace_sales_fee_unit_amount: "35.00",
+                  fee_quote_fingerprint: "allocation",
+                },
+              },
+            ],
+          },
+        ]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Review Charizard offers and terms" }).textContent).toContain(
+      "Estimated net $630.00",
+    );
+    expect(summaryValue("Expected seller payout")).toBe("$630.00");
+  });
+
+  it.each(["selected", "product", "mixed"])("does not turn missing %s quotes into zero or gross payout", (kind) => {
+    const lines =
+      kind === "selected" ? [selectedOfferLine] : kind === "product" ? [productLine] : [selectedOfferLine, productLine];
+    render(
+      <CheckoutSellListPage
+        sellListLines={lines}
+        offerReviews={kind === "mixed" ? [quotedReview] : []}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(summaryValue("Expected seller payout")).toBe("Not quoted yet");
+    expect(summaryValue("Estimated sales fees")).toBe("Not quoted yet");
+    expect(
+      screen
+        .getAllByRole("button", { name: "Review Charizard offers and terms" })
+        .some((card) => card.textContent?.includes("Estimated net Not quoted yet")),
+    ).toBe(true);
+  });
+
+  it("keeps a quoted zero numeric and future listing gross separate", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[
+          { ...selectedOfferLine, offer_price_amount: "0.00" },
+          { ...productLine, quantity: 2 },
+        ]}
+        offerReviews={[
+          {
+            ...quotedReview,
+            terms: {
+              ...quotedReview.terms,
+              basis_amount: "0.00",
+              seller_net_unit_amount: "0.00",
+              marketplace_sales_fee_unit_amount: "0.00",
+            },
+          },
+        ]}
+        productOfferReviews={[
+          {
+            lineId: productLine.line_id,
+            status: "ready",
+            offers: [
+              {
+                offer: {
+                  offer_id: "off_zero",
+                  buyer_account_id: "acc_zero",
+                  buyer_display_name: "Zero buyer",
+                  price_amount: "0.00",
+                  quantity_requested: 1,
+                  offer_to_listing_price_bps: 10000,
+                },
+                terms: {
+                  seller_net_unit_amount: "0.00",
+                  marketplace_sales_fee_unit_amount: "0.00",
+                  fee_quote_fingerprint: "zero",
+                },
+              },
+            ],
+            message: null,
+          },
+        ]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(summaryValue("Expected seller payout")).toBe("$0.00");
+    expect(summaryValue("Estimated sales fees")).toBe("$0.00");
+    expect(summaryValue("Future listing gross")).toBe("$399.00");
+    expect(
+      screen
+        .getAllByRole("button", { name: "Review Charizard offers and terms" })
+        .every((card) => card.textContent?.includes("Estimated net $0.00")),
+    ).toBe(true);
+  });
+
+  it.each([1, 3])("names %i blocked items with correct grammar and a recovery link", (count) => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={Array.from({ length: count }, (_, index) => ({
+          ...selectedOfferLine,
+          line_id: `blocked_${index}`,
+        }))}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(
+      screen.getByText(
+        `Resolve ${count} ${count === 1 ? "item" : "items"} before seller checkout starts. Offer acceptance is unavailable.`,
+      ),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Resolve items" })[0]?.getAttribute("href")).toContain(
+      "/account/listings/new?",
+    );
+    expect(screen.queryByText("Ready for seller checkout")).toBeNull();
+    expect(document.body.textContent).not.toContain("line(s)");
+  });
+
+  it.each([
+    { status: "pending" as const, missing_requirements: [], expected: "Payout verification is pending." },
+    {
+      status: "restricted" as const,
+      missing_requirements: ["external_account", "individual.verification.document"],
+      expected: "Payouts are restricted. Review payout setup to resolve the restrictions.",
+    },
+    {
+      status: "not-started" as const,
+      missing_requirements: ["future_unknown_code"],
+      expected: "Review additional payout setup requirements",
+    },
+    null,
+  ])("explains payout readiness without exposing codes: %j", (readiness) => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        offerReviews={[quotedReview]}
+        payoutReadiness={readiness}
+      />,
+    );
+    expect(
+      screen.getByText(
+        readiness?.expected ??
+          "Payout readiness could not be loaded. Refresh payout setup before accepting offers or creating fallback listings.",
+      ),
+    ).toBeTruthy();
+    if (readiness?.status === "restricted") {
+      expect(screen.getByText("Add a bank account for payouts")).toBeTruthy();
+      expect(screen.getByText("Provide identity verification documents")).toBeTruthy();
+    }
+    expect(document.body.textContent).not.toMatch(
+      /external_account|individual\.verification\.document|future_unknown_code/,
+    );
+    expect(screen.queryByText("Ready for seller checkout")).toBeNull();
+    expect(screen.getByText("Offer acceptance is unavailable until payout setup is ready.")).toBeTruthy();
+  });
+
+  it("shows acceptance ready only when payout and every line are ready", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        offerReviews={[quotedReview]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(screen.getByText("Ready for seller checkout")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Every item has a pre-checkout sale action and payout setup is ready. Offer acceptance is available.",
+      ),
+    ).toBeTruthy();
+    expect(document.querySelector('button[name="intent"]:disabled')).toBeNull();
   });
 });

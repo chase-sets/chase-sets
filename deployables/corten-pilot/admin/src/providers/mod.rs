@@ -10,7 +10,7 @@
 //!
 //! An observation's freshness (fresh, aging, stale, too old) and age are the API's, worked out
 //! against its limits when it evaluated them.
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
 
 pub mod views;
@@ -98,7 +98,7 @@ async fn page(
         Err(error) => return read_failed(&req, error, false),
     };
     let o: Ops = req.t();
-    let view = html! { <views::ProvidersPage o={o} snapshot={&snapshot} /> };
+    let view = html! { <views::ProvidersPage o={o} req={&req} snapshot={&snapshot} /> };
     req.screen(
         &snapshot,
         html! {

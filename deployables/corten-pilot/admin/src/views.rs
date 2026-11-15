@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use corten::{
     Component,
-    axum::http::{StatusCode, Uri},
+    http::{StatusCode, Uri},
     prelude::*,
 };
 
@@ -15,9 +15,11 @@ use crate::{
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, default_payload},
     text::{Msg, Pilot},
 };
-use platform::theme;
+use corten_ui::{Toast, Toaster};
+use platform::{theme, ui::toasts::Toasts};
 
 mod admin_nav;
+mod index_page;
 mod lifecycle;
 mod live_status;
 mod offline_page;
@@ -27,7 +29,8 @@ mod policy_table;
 mod sign_in_page;
 mod status_badge;
 
-pub use admin_nav::AdminNav;
+pub use admin_nav::{AdminNav, SectionNav, SectionNavId, section_label};
+pub use index_page::{HomeSection, IndexPage};
 pub use lifecycle::{ActivateForm, CloneForm, Lifecycle, RetireForm};
 pub use live_status::{LiveStatus, LiveWords};
 pub use offline_page::OfflinePage;
@@ -39,18 +42,39 @@ pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
 pub use status_badge::StatusBadge;
 
 /// The components every page renders (the frame and the shared parts), tokens first: their
-/// stylesheets are `components.css`.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section];
+/// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules,
+/// and its `Table` is every area's lists' (one stylesheet, so no area links another's), as its `Stats`
+/// is every dashboard's counts, its `Stack` most screens' columns, its `VisuallyHidden` every table's hidden caption, and its `Icon`
+/// in an `InputGroup` a search field's glyph (`platform::search`). The layout's
+/// toaster is the kit's `Toasts` around corten-ui's `Toaster`. The home's (`IndexPage`) is here
+/// because no area can be at `/`.
+pub const COMPONENTS: &[Component] = &[
+    theme::TOKENS,
+    platform::ui::nav_bar::NavBar,
+    platform::ui::table::Table,
+    platform::ui::stats::Stats,
+    platform::ui::stack::Stack,
+    platform::ui::visually_hidden::VisuallyHidden,
+    platform::ui::icon::Icon,
+    platform::ui::input_group::InputGroup,
+    AdminNav,
+    Section,
+    IndexPage,
+    Toasts,
+    Toaster,
+];
 
-/// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet.
-pub const SIGN_IN: &[Component] = &[SignInPage];
+/// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet and the
+/// passkey step's script.
+pub const SIGN_IN: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
 pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// A live stream's status, which the catalog and the Operations Attention queue render: both areas
-/// list it, so its stylesheet is one those two share.
-pub const LIVE: &[Component] = &[LiveStatus];
+/// list it, so its stylesheet is one those two share. Its Live badge's dot is the kit's `LiveDot`,
+/// whose rules are `StatusDot`'s.
+pub const LIVE: &[Component] = &[platform::ui::status_dot::StatusDot, LiveStatus];
 
 /// The postage screen's components: its area's stylesheet.
 pub const POSTAGE: &[Component] = &[StatusBadge, PolicyTable, PolicyFields, PolicySheet, Lifecycle, corten_ui::dialog::COMPONENT];
@@ -99,14 +123,63 @@ pub fn now_iso() -> String {
 
 /// The document around every page: admin-web's frame (its sections and the commerce pages) for
 /// `viewer` and their color mode, `title`, the page's own `head` tags and the page
-/// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.
+/// (`children`). A client navigation gets only the title, the head tags, `<main>`'s children and
+/// the section's pages beside `<main>` (`SectionNav`, in the element marked `page`; empty on the home), which differ
+/// by section.
 /// The viewer is the handler's `Caller`, or the error page's.
+///
+/// Outside `<main>` is corten-ui's toaster, kept by a navigation: it shows a redirect's notice
+/// (`req.notice()`) and says a `data-patch` submit that got no answer (`corten:error`), so a
+/// write that did not go through is never silent.
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
     title: &'a str,
     head: H,
+    children: C,
+) -> impl Document + 'a {
+    let p: Pilot = req.t();
+    let toaster = html! {
+        <Toasts>
+            <Toaster
+                close={p.shell_toast_close()}
+                seconds={5}
+                toast={Toast { message: req.notice(), failed: false }}
+                failed={p.shell_not_sent()}
+            />
+        </Toasts>
+    };
+    html! {
+        <Frame req={req} viewer={viewer} title={title} head={head} toaster={toaster}>{children}</Frame>
+    }
+}
+
+/// `Layout` for a page that draws its own toaster: the catalog's (`catalog::views::Toasts`),
+/// which says what the write before did from the address it redirected to (`done`), and a
+/// `data-patch` submit that got no answer. One toaster per page, since each listens on the
+/// document and owns `#ui-toast`.
+#[component]
+pub fn OwnToastLayout<'a, H: Render, C: Render>(
+    req: &'a Req,
+    viewer: Option<&'a Viewer>,
+    title: &'a str,
+    head: H,
+    children: C,
+) -> impl Document + 'a {
+    html! {
+        <Frame req={req} viewer={viewer} title={title} head={head} toaster="">{children}</Frame>
+    }
+}
+
+/// The document `Layout` and `OwnToastLayout` draw, with the toaster (`toaster`) after `<main>`.
+#[component]
+fn Frame<'a, H: Render, T: Render, C: Render>(
+    req: &'a Req,
+    viewer: Option<&'a Viewer>,
+    title: &'a str,
+    head: H,
+    toaster: T,
     children: C,
 ) -> impl Document + 'a {
     let p: Pilot = req.t();
@@ -134,7 +207,13 @@ pub fn Layout<'a, H: Render, C: Render>(
                 if let Some(viewer) = viewer {
                     <AdminNav p={p} req={req} viewer={viewer} />
                 }
+                <div page id={SectionNavId}>
+                    if let Some(viewer) = viewer {
+                        <SectionNav p={p} req={req} viewer={viewer} />
+                    }
+                </div>
                 <main>{children}</main>
+                {toaster}
             </body>
         </html>
     }
@@ -154,9 +233,15 @@ pub async fn error_page(failure: Failure, req: Req, viewer: Option<Caller<Viewer
             (p.error_failed_title(), p.error_pending())
         }
         Failure::Failed { status, .. } if *status == StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
+        // The request did not arrive whole before the deadline (a 408 under `corten::serve`): an
+        // upload whose connection stopped sending.
+        Failure::Failed { status, .. } if *status == StatusCode::REQUEST_TIMEOUT => {
+            (p.error_not_received_title(), p.error_not_received())
+        }
         // The platform API could not say whose the session is (`Refused::unavailable`).
         Failure::Unidentified { .. } => (p.error_unidentified_title(), p.error_unidentified()),
         Failure::WrongMethod
+        | Failure::UnknownMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
         | Failure::Panicked { .. }
@@ -182,7 +267,8 @@ pub fn admin_web(path: &str) -> Option<Uri> {
 }
 
 /// The operator's zone, for `t.date_time(..).zone(&here)`: Corten writes times in UTC unless told,
-/// and takes the zone as its `Zone` (todd-skelton/corten#387 is to give one for the visitor).
+/// and takes the zone as its `Zone`. Admin dates are in the operator's zone, not the visitor's
+/// (corten-ui's `LocalTime`, todd-skelton/corten#387, is for that).
 #[derive(Clone, Debug)]
 pub struct Here(pub jiff::tz::TimeZone);
 

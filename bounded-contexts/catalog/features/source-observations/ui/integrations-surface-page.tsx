@@ -1,9 +1,9 @@
+import type { CatalogDailyImportPreview } from "../api/admin/daily-import-preview";
 import { useMemo, type ReactElement } from "react";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
-  SourceObservationIntegrationImportPreview,
   SourceObservationImportJobReceipt,
 } from "./contracts";
 import {
@@ -30,7 +30,7 @@ export interface CatalogIntegrationsSurfacePageProps {
   // fan-out, so the shell renders the status panel behind a Suspense boundary
   // around this promise; the other surfaces leave it absent and render no panel.
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
 }

@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProviderUsageSnapshot } from "../../source-observations/api/provider-adapters/provider-adapter";
+import { evaluateScrydexBillingPeriod, scrydexBillingPeriodSchema } from "../domain/scrydex-billing-period";
 import {
   CountAcquisitionRefused,
+  CountPeriodCapRefused,
   countAllocationEndSchemaVersion,
   countAllocationSchema,
   countAllocationSchemaVersion,
@@ -19,6 +21,7 @@ import {
   projectCountSpend,
   countResultSchema,
   type CountAuthority,
+  type CountPeriodGate,
   type CountPreparationView,
   type CountQuote,
   type CountQuoteDebit,
@@ -50,6 +53,7 @@ const usageSchema = z
     totalCredits: z.number().int().min(0).max(2147483647).nullable(),
     observedAt: z.iso.datetime({ offset: true }).nullable(),
     attemptState: z.enum(["checked", "unavailable", "not-configured"]),
+    billingPeriod: scrydexBillingPeriodSchema.nullable().optional(),
   })
   .strict();
 type Row = { event_id: string; payload: unknown; recorded_at: Date | string };
@@ -216,6 +220,8 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
       at,
       fingerprint: countFingerprint(snapshot),
       observedAt: snapshot?.observedAt ?? null,
+      snapshot,
+      unreflectedCredits: valid ? debits + reserved + allocated! : null,
       // Unclamped: a negative value means retained commitments already exceed the usage snapshot.
       net: valid ? Math.min(snapshot.remainingCredits!, snapshot.totalCredits!) - debits - reserved - allocated! : null,
     };
@@ -225,6 +231,62 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
     const current = await ledger(target);
     const headroom = current.net === null ? null : Math.max(0, current.net);
     return { fingerprint: current.fingerprint, headroom, allowed: headroom !== null };
+  }
+  /** The retained usage snapshot and every durable commitment it may not yet reflect, read through `target`. */
+  async function periodLedger(runId: string, target: PgQueryable = db) {
+    const current = await ledger(target);
+    const since = current.observedAt
+      ? new Date(Date.parse(current.observedAt) - SCRYDEX_USAGE_LAG_MS).toISOString()
+      : null;
+    const usage = await target.query<{ credits: string; uncertain: string }>(
+      `SELECT count(*)::text AS credits,
+      (SELECT count(*) FROM catalog_scope_sync_count_history d
+        WHERE d.account_slot=$3 AND d.event_kind='debit' AND d.recorded_at <= $2::timestamptz
+        AND d.recorded_at >= $4::timestamptz
+        AND NOT EXISTS (SELECT 1 FROM catalog_scope_sync_count_history r
+          WHERE r.debit_id=d.event_id AND r.event_kind='result' AND r.payload->>'outcome'='complete'))::text AS uncertain
+      FROM
+      (SELECT DISTINCT ON (run_id) run_id,payload FROM catalog_scope_sync_count_capture_history ORDER BY run_id,position DESC) r,
+      LATERAL jsonb_array_elements(r.payload->'sends') s
+      WHERE r.run_id<>$1 AND s->>'category'='usage'
+      AND ((s->>'debitedAt')::timestamptz > $2::timestamptz
+        OR (s->>'status' IS NULL AND (s->>'debitedAt')::timestamptz >= $4::timestamptz))`,
+      [runId, since, slot, current.snapshot?.billingPeriod?.startsAt ?? null],
+    );
+    const usageCredits = Number(usage.rows[0]?.credits);
+    const uncertainCredits = Number(usage.rows[0]?.uncertain);
+    return {
+      snapshot: {
+        allowance: current.snapshot?.attemptState === "checked" ? current.snapshot.totalCredits : null,
+        balance: current.snapshot?.remainingCredits,
+        observedAt: current.observedAt,
+        period: current.snapshot?.billingPeriod,
+      },
+      durableCredits:
+        current.unreflectedCredits !== null &&
+        Number.isSafeInteger(usageCredits) &&
+        Number.isSafeInteger(uncertainCredits)
+          ? current.unreflectedCredits + usageCredits + uncertainCredits
+          : null,
+    };
+  }
+  /**
+   * The billing-period cap for one non-capture send plan, evaluated with the
+   * landed gate inside the caller's headroom-locked transaction: U is every
+   * durable commitment the retained snapshot may not reflect plus the reserve.
+   */
+  async function periodAdmission(target: PgQueryable, gate: CountPeriodGate, plannedCredits: number) {
+    const current = await periodLedger(gate.runId, target);
+    const decision = evaluateScrydexBillingPeriod({
+      snapshot: current.snapshot,
+      reserve: gate.reserve,
+      durableCredits: current.durableCredits,
+      plannedCredits,
+      runId: gate.runId,
+      now: now(),
+    });
+    gate.decided(decision);
+    if (!decision.admitted) throw new CountPeriodCapRefused(decision);
   }
   async function saveQuote(quote: CountQuote, owner: string) {
     await append("quoted", { quote, owner }, { quoteId: quote.quoteId });
@@ -286,15 +348,18 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
   }
   /**
    * Whole-quote admission: under the account-slot headroom lock, the owned,
-   * unexpired, never-executed quote must still be covered in full by current net
+   * unexpired, never-executed quote's whole P must first be admitted by the
+   * billing-period cap when gated, then still be covered in full by current net
    * headroom; its P is then held as one allocation whose event id is the single
-   * execution identity. No debit or send happens here.
+   * execution identity, so its claims convert it without being re-gated. No
+   * debit or send happens here.
    */
   async function admit(
     pool: PgTransactionalPool,
     quote: CountQuote,
     owner: string,
     expectedAuthority: CountAuthority,
+    period: CountPeriodGate | null = null,
   ): Promise<string> {
     return withPgTransaction(pool, async (tx) => {
       await lockCountHeadroom(tx, slot);
@@ -310,7 +375,14 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         Date.parse(persisted.expiresAt) < Date.parse(current.at) ||
         persisted.plannedCredits < 1 ||
         persisted.cap < persisted.plannedCredits ||
-        Number(executed.rows[0]?.events) !== 0 ||
+        Number(executed.rows[0]?.events) !== 0
+      )
+        throw new CountAcquisitionRefused();
+      // Missing, stale or changed usage is the period gate's to name before the headroom refusal.
+      if (period) await periodAdmission(tx, period, persisted.plannedCredits);
+      if (
+        !expectedAuthority.allowed ||
+        !persisted.authority.allowed ||
         current.net === null ||
         current.fingerprint !== persisted.authority.fingerprint ||
         current.fingerprint !== expectedAuthority.fingerprint ||
@@ -330,6 +402,26 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         { quoteId: quote.quoteId },
         tx,
       );
+    });
+  }
+  /**
+   * The zero-send up-front period check of an ordinary acquisition: everything
+   * the quote may still debit (its cap less debits already recorded) must fit
+   * the billing-period cap before the first claim. Each claim is gated again.
+   */
+  async function admitPeriod(pool: PgTransactionalPool, quote: CountQuote, owner: string, period: CountPeriodGate) {
+    await withPgTransaction(pool, async (tx) => {
+      await lockCountHeadroom(tx, slot);
+      const persisted = await loadQuote(quote.quoteId, owner, tx);
+      const recorded = await tx.query<{ recorded: string }>(
+        `SELECT count(*)::text AS recorded FROM catalog_scope_sync_count_history
+        WHERE account_slot=$1 AND quote_id=$2 AND event_kind='debit'`,
+        [slot, quote.quoteId],
+      );
+      const debits = Number(recorded.rows[0]?.recorded);
+      if (persisted.fingerprint !== quote.fingerprint || !Number.isSafeInteger(debits))
+        throw new CountAcquisitionRefused();
+      await periodAdmission(tx, period, Math.max(0, persisted.cap - debits));
     });
   }
   /** Terminal close: fences every later claim of the execution, which releases only unconverted capacity. */
@@ -370,6 +462,7 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
     owner: string,
     expectedAuthority: CountAuthority,
     executionId?: string,
+    period: CountPeriodGate | null = null,
   ): Promise<string | null> {
     return withPgTransaction(pool, async (tx) => {
       await lockCountHeadroom(tx, slot);
@@ -425,6 +518,8 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         Number(used.per_kind) >= 1
       )
         throw new CountAcquisitionRefused();
+      // An admitted whole-quote claim converts capacity its admission already gated.
+      if (period && !executionId) await periodAdmission(tx, period, 1);
       return append(
         "debit",
         { query: item.query, credits: 1 },
@@ -590,12 +685,14 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
   }
   return {
     slot,
+    periodLedger: (runId: string) => periodLedger(runId),
     read,
     blocked,
     authority,
     saveQuote,
     loadQuote,
     admit,
+    admitPeriod,
     approve,
     claim,
     result,
@@ -611,6 +708,7 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         totalCredits: snapshot.totalCredits,
         observedAt: snapshot.observedAt,
         attemptState: snapshot.attemptState,
+        billingPeriod: snapshot.billingPeriod ?? null,
       });
       const payload = parsed.success
         ? parsed.data

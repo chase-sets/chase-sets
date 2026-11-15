@@ -10,7 +10,7 @@
 //!
 //! admin-web's range form has no submit control, so its range cannot be applied
 //! (chase-sets/chase-sets#10874); the pilot's has one.
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use jiff::{Timestamp, ToSpan, civil::Date, tz::TimeZone};
 use serde::{Deserialize, Serialize};
 
@@ -34,10 +34,9 @@ const RUNS: u32 = 12;
 #[corten::routes(state = crate::app::Shared, area = crate::insights::ops::url::OpsDashboard, caller = crate::auth::Staff<crate::auth::InsightsView>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     /// The range and granularity, as admin-web's form sends them.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct View {

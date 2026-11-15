@@ -145,9 +145,8 @@ export async function registerSyntheticAccount(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), registrationTimeoutMs);
   try {
-    let response: Response;
-    try {
-      response = await fetch(new URL("/api/auth/register", origin), {
+    const response = await syntheticAuthResponse(
+      fetch(new URL("/api/auth/register", origin), {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -159,11 +158,22 @@ export async function registerSyntheticAccount(
         credentials: "omit",
         redirect: "error",
         signal: controller.signal,
-      });
-    } catch {
-      throw registrationFailure(controller.signal.aborted ? "timeout" : "network");
+      }),
+      controller.signal,
+    );
+    const registration = await consumeSyntheticRegistrationResponse(response, controller.signal);
+    if (registration.kind === "existing-account") {
+      // A retry or retained re-entry of the same canonical identity: the server
+      // says this normalized email already has an account, so the existing
+      // password verifier is the only way back in. Its session carries no
+      // registration receipt, so the fresh read opens the route without one.
+      const sessionToken = await resumeExistingSyntheticAccount(origin, account, controller.signal);
+      console.log("synthetic registration status=409 code=email_already_taken resumed=password-sign-in");
+      await addSessionCookie(page, origin, sessionToken);
+      if (options.freshReadRoute) await page.goto(new URL(options.freshReadRoute, origin).toString());
+      return sessionToken;
     }
-    const { sessionToken, bytes } = await consumeSyntheticRegistrationResponse(response, controller.signal);
+    const { sessionToken, bytes } = registration;
     console.log(
       `synthetic registration status=201 bytes=${bytes} cap=${registrationResponseBodyLimitBytes} headroom-percent=${Math.floor((registrationResponseBodyLimitBytes / bytes - 1) * 100)}`,
     );
@@ -182,8 +192,59 @@ export async function registerSyntheticAccount(
   }
 }
 
-export async function consumeSyntheticRegistrationResponse(response: Response, signal: AbortSignal) {
+function syntheticAuthRequest(signal: AbortSignal, body: Record<string, unknown>): RequestInit {
+  return {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "omit",
+    redirect: "error",
+    signal,
+  };
+}
+
+async function syntheticAuthResponse(request: Promise<Response>, signal: AbortSignal) {
+  try {
+    return await request;
+  } catch {
+    throw registrationFailure(signal.aborted ? "timeout" : "network");
+  }
+}
+
+/**
+ * Signs the existing synthetic account back in through the unchanged password
+ * verifier, inside the registration deadline and body cap. Only a complete
+ * password `session-started` for exactly one owner Account is accepted; every
+ * other answer fails closed before any cookie exists.
+ */
+async function resumeExistingSyntheticAccount(
+  origin: string,
+  account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password">,
+  signal: AbortSignal,
+) {
+  const response = await syntheticAuthResponse(
+    fetch(
+      new URL("/api/auth/password-sign-in", origin),
+      syntheticAuthRequest(signal, { email: account.email, password: account.password }),
+    ),
+    signal,
+  );
   const body = await readRegistrationJson(response, signal);
+  if (response.status !== 200) throw registrationFailure(`resume status=${response.status}`);
+  if (!isResumedSessionStarted(body.value, account)) throw registrationFailure("invalid-resume-response");
+  return body.value.sessionToken;
+}
+
+type SyntheticRegistration =
+  | Readonly<{ kind: "registered"; sessionToken: string; bytes: number }>
+  | Readonly<{ kind: "existing-account" }>;
+
+export async function consumeSyntheticRegistrationResponse(
+  response: Response,
+  signal: AbortSignal,
+): Promise<SyntheticRegistration> {
+  const body = await readRegistrationJson(response, signal);
+  if (isExistingAccountConflict(response.status, body.value)) return { kind: "existing-account" };
   if (response.status !== 201) {
     const allowedCodes = [
       "registration_admission_required",
@@ -204,7 +265,20 @@ export async function consumeSyntheticRegistrationResponse(response: Response, s
   if (!isRegistrationStarted(body.value)) throw registrationFailure("invalid-response");
   if (registrationResponseBodyLimitBytes < Math.ceil(body.bytes * 1.25))
     throw registrationFailure("insufficient-live-headroom");
-  return { sessionToken: body.value.sessionToken, bytes: body.bytes };
+  return { kind: "registered", sessionToken: body.value.sessionToken, bytes: body.bytes };
+}
+
+/** The exact server-emitted discriminator; status or message alone never qualifies. */
+function isExistingAccountConflict(status: number, value: unknown) {
+  return (
+    status === 409 &&
+    isRecord(value) &&
+    exactKeys(value, ["error"]) &&
+    isRecord(value.error) &&
+    exactKeys(value.error, ["code", "message"]) &&
+    value.error.code === "email_already_taken" &&
+    boundedString(value.error.message)
+  );
 }
 
 async function readRegistrationJson(
@@ -291,13 +365,40 @@ function timestamp(value: unknown) {
   );
 }
 
+const sessionStartedKeys = ["type", "userId", "sessionId", "sessionToken", "session", "memberships"] as const;
+
+/** Registration answers `session-started` plus the Account it just created. */
 function isRegistrationStarted(value: unknown): value is { sessionToken: string } {
+  return (
+    isRecord(value) &&
+    exactKeys(value, [...sessionStartedKeys, "accountId"]) &&
+    isSessionStarted(value, value.accountId)
+  );
+}
+
+/**
+ * Password sign-in answers `session-started` without a top-level Account; the
+ * session's single Account must be the one membership it returns, and any
+ * identity the server echoes must be the identity that was requested.
+ */
+function isResumedSessionStarted(
+  value: unknown,
+  requested: Pick<MarketplaceE2EAccount, "displayName" | "email">,
+): value is { sessionToken: string } {
+  if (!isRecord(value) || !exactKeys(value, sessionStartedKeys) || !isRecord(value.session)) return false;
+  const { user_primary_email: email, user_display_name: displayName } = value.session;
+  return (
+    isSessionStarted(value, value.session.account_id) &&
+    (email === null || email === requested.email.trim().toLowerCase()) &&
+    (displayName === null || displayName === requested.displayName)
+  );
+}
+
+function isSessionStarted(value: Record<string, unknown>, accountId: unknown): boolean {
   if (
-    !isRecord(value) ||
-    !exactKeys(value, ["type", "userId", "accountId", "sessionId", "sessionToken", "session", "memberships"]) ||
     value.type !== "session-started" ||
     !boundedString(value.userId) ||
-    !boundedString(value.accountId) ||
+    !boundedString(accountId) ||
     !boundedString(value.sessionId) ||
     typeof value.sessionToken !== "string" ||
     !/^session_[0-9a-f]{36}$/.test(value.sessionToken)
@@ -326,13 +427,13 @@ function isRegistrationStarted(value: unknown): value is { sessionToken: string 
     ) ||
     session.session_id !== value.sessionId ||
     session.user_id !== value.userId ||
-    session.account_id !== value.accountId ||
+    session.account_id !== accountId ||
     ![session.user_display_name, session.user_primary_email, session.account_display_name, session.account_name].every(
       nullableString,
     ) ||
     !Array.isArray(session.available_account_ids) ||
     session.available_account_ids.length !== 1 ||
-    session.available_account_ids[0] !== value.accountId ||
+    session.available_account_ids[0] !== accountId ||
     session.authentication_method !== "password" ||
     session.status !== "active" ||
     !timestamp(session.expires_at) ||
@@ -346,7 +447,7 @@ function isRegistrationStarted(value: unknown): value is { sessionToken: string 
     isRecord(member) &&
     exactKeys(member, ["membershipId", "accountId", "roleKey", "status", "rolePermissions"]) &&
     boundedString(member.membershipId) &&
-    member.accountId === value.accountId &&
+    member.accountId === accountId &&
     member.roleKey === "owner" &&
     member.status === "active" &&
     Array.isArray(member.rolePermissions) &&

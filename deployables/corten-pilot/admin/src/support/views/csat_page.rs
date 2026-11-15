@@ -1,10 +1,15 @@
 //! The CSAT dashboard (`CsatAdminPage`): four rate cards (one column on a phone, two from 40rem,
 //! four from 64rem) and two volume cards, the filter form (its fields two to a row from 40rem,
 //! four from 64rem), the trend, the rating distribution and the invitation queue as tables that
-//! scroll on their own on a phone, the queue's pages, and the projection's freshness.
+//! stack on a phone (a row a block of labelled lines), the queue's pages, and the projection's
+//! freshness.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
 };
 use serde_json::Value;
 
@@ -118,12 +123,7 @@ fn Choice<'a>(
 
 #[component(css = CsatPage)]
 fn Rate<'a>(label: &'a str, value: &'a str) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-        </div>
-    }
+    html! { <Stat label={label} value={value} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css)]
@@ -144,13 +144,13 @@ pub fn CsatPage<'a>(t: Sup, p: Pilot, screen: &'a CsatScreen) -> impl Render {
         </header>
         if let Some(data) = &screen.dashboard {
             let (seven, thirty) = (&data.analytics.windows.seven, &data.analytics.windows.thirty);
-            <dl class={Rates}>
+            <dl class={(KitStats { surface: StatsSurface::Cards }, Rates)}>
                 <Rate label={t.csat_csat7()} value={&rate(t, seven.csat, &seven.csat_availability)} />
                 <Rate label={t.csat_csat30()} value={&rate(t, thirty.csat, &thirty.csat_availability)} />
                 <Rate label={t.csat_response7()} value={&rate(t, seven.response_rate, &seven.response_rate_availability)} />
                 <Rate label={t.csat_response30()} value={&rate(t, thirty.response_rate, &thirty.response_rate_availability)} />
             </dl>
-            <dl class={Volumes}>
+            <dl class={(KitStats { surface: StatsSurface::Cards }, Rates)}>
                 <Rate label={t.csat_submitted()} value={&thirty.volume.submitted.to_string()} />
                 <Rate label={t.csat_presented()} value={&thirty.volume.presented.to_string()} />
             </dl>
@@ -226,28 +226,40 @@ pub fn CsatPage<'a>(t: Sup, p: Pilot, screen: &'a CsatScreen) -> impl Render {
                     <Empty t={t} />
                 } else {
                     <div class={Scroll}>
-                        <table class={Table} aria-label={t.csat_trend()}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.csat_bucket()}</th>
-                                    <th scope="col">{t.csat_csat()}</th>
-                                    <th scope="col">{t.csat_response_rate()}</th>
-                                    <th scope="col">{t.csat_submitted()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for bucket in &data.analytics.trend.items {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table} aria-label={t.csat_trend()}>
+                                <thead>
                                     <tr>
-                                        <td class={Nowrap}>{day(t, &bucket.bucket_start)}</td>
-                                        <td class={Nowrap}>{rate(t, bucket.slice.csat, &bucket.slice.csat_availability)}</td>
-                                        <td class={Nowrap}>
-                                            {rate(t, bucket.slice.response_rate, &bucket.slice.response_rate_availability)}
-                                        </td>
-                                        <td>{bucket.slice.volume.submitted}</td>
+                                        <th scope="col">{t.csat_bucket()}</th>
+                                        <th scope="col">{t.csat_csat()}</th>
+                                        <th scope="col">{t.csat_response_rate()}</th>
+                                        <th scope="col">{t.csat_submitted()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for bucket in &data.analytics.trend.items {
+                                        <tr>
+                                            <td class={Nowrap}>
+                                                <CellLabel>{t.csat_bucket()}</CellLabel>
+                                                {day(t, &bucket.bucket_start)}
+                                            </td>
+                                            <td class={Nowrap}>
+                                                <CellLabel>{t.csat_csat()}</CellLabel>
+                                                {rate(t, bucket.slice.csat, &bucket.slice.csat_availability)}
+                                            </td>
+                                            <td class={Nowrap}>
+                                                <CellLabel>{t.csat_response_rate()}</CellLabel>
+                                                {rate(t, bucket.slice.response_rate, &bucket.slice.response_rate_availability)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.csat_submitted()}</CellLabel>
+                                                {bucket.slice.volume.submitted}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>
@@ -261,34 +273,50 @@ pub fn CsatPage<'a>(t: Sup, p: Pilot, screen: &'a CsatScreen) -> impl Render {
                     <Empty t={t} />
                 } else {
                     <div class={Scroll}>
-                        <table class={Table} aria-label={t.csat_queue()}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.csat_invitation()}</th>
-                                    <th scope="col">{t.csat_state()}</th>
-                                    <th scope="col">{t.csat_version()}</th>
-                                    <th scope="col">{t.csat_outcome()}</th>
-                                    <th scope="col">{t.csat_rating()}</th>
-                                    <th scope="col">{t.csat_submission()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for item in &data.queue.items {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table} aria-label={t.csat_queue()}>
+                                <thead>
                                     <tr>
-                                        <td class={Words}>{&item.invitation_id}</td>
-                                        <td><span class={Pill}>{state(t, &item.state)}</span></td>
-                                        <td>{version(t, &item.survey_version.survey_version)}</td>
-                                        <td>{outcome(t, &item.outcome_code)}</td>
-                                        <td>
-                                            {item.rating.map_or_else(|| t.csat_not_available().to_owned(), |r| r.to_string())}
-                                        </td>
-                                        <td>
-                                            {when(t, item.submitted_at.as_deref()).unwrap_or_else(|| t.csat_not_available().to_owned())}
-                                        </td>
+                                        <th scope="col">{t.csat_invitation()}</th>
+                                        <th scope="col">{t.csat_state()}</th>
+                                        <th scope="col">{t.csat_version()}</th>
+                                        <th scope="col">{t.csat_outcome()}</th>
+                                        <th scope="col">{t.csat_rating()}</th>
+                                        <th scope="col">{t.csat_submission()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for item in &data.queue.items {
+                                        <tr>
+                                            <td class={Words}>
+                                                <CellLabel>{t.csat_invitation()}</CellLabel>
+                                                {&item.invitation_id}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.csat_state()}</CellLabel>
+                                                <span class={Pill}>{state(t, &item.state)}</span>
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.csat_version()}</CellLabel>
+                                                {version(t, &item.survey_version.survey_version)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.csat_outcome()}</CellLabel>
+                                                {outcome(t, &item.outcome_code)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.csat_rating()}</CellLabel>
+                                                {item.rating.map_or_else(|| t.csat_not_available().to_owned(), |r| r.to_string())}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.csat_submission()}</CellLabel>
+                                                {when(t, item.submitted_at.as_deref()).unwrap_or_else(|| t.csat_not_available().to_owned())}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
                 if data.queue.previous_cursor.is_some() || data.queue.next_cursor.is_some() {
@@ -332,22 +360,30 @@ fn Empty(t: Sup) -> impl Render {
 fn Distribution<'a>(t: Sup, slice: &'a Slice) -> impl Render {
     html! {
         <div class={Scroll}>
-            <table class={Table} aria-label={t.csat_distribution()}>
-                <thead>
-                    <tr>
-                        <th scope="col">{t.csat_rating()}</th>
-                        <th scope="col">{t.csat_count()}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    for (rating, n) in &slice.rating_distribution {
+            <KitTable layout={TableLayout::Stack}>
+                <table class={Table} aria-label={t.csat_distribution()}>
+                    <thead>
                         <tr>
-                            <td>{rating}</td>
-                            <td>{count(n)}</td>
+                            <th scope="col">{t.csat_rating()}</th>
+                            <th scope="col">{t.csat_count()}</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        for (rating, n) in &slice.rating_distribution {
+                            <tr>
+                                <td>
+                                    <CellLabel>{t.csat_rating()}</CellLabel>
+                                    {rating}
+                                </td>
+                                <td>
+                                    <CellLabel>{t.csat_count()}</CellLabel>
+                                    {count(n)}
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </KitTable>
         </div>
     }
 }

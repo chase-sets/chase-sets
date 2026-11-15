@@ -3,7 +3,7 @@ import { Hono, type Context } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { PricingApiEnv } from "../../../api";
 import { buildBulkRepriceCsvTemplate } from "../domain/csv";
-import { toBulkRepriceJobStatus, type BulkRepriceIngestionServices } from "./runtime";
+import { BulkRepriceAttemptConflictError, toBulkRepriceJobStatus, type BulkRepriceIngestionServices } from "./runtime";
 
 function requireBulkRepriceAccess(c: { get(key: "actor"): PricingApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -135,11 +135,15 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
           csvText: body.csvText,
           rows: body.rows,
           sourceFilename: body.sourceFilename,
+          idempotencyKey: c.req.header("Idempotency-Key") || undefined,
         },
         context,
       );
       return c.json(toBulkRepriceJobStatus(job), 202);
     } catch (error) {
+      if (error instanceof BulkRepriceAttemptConflictError) {
+        return c.json({ error: { code: "attempt_conflict", message: errorMessage(error) } }, 409);
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });

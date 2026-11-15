@@ -628,6 +628,19 @@ A **Store Invitation** is the planned request for a User or email address to joi
 
 An **Agent Grant Revocation Operation** is Identity's retained owner of one Account's withdrawal of an Agent Grant. It records the first revocation time, reason and provenance, then tracks Identity terminal authority, Payments cleanup, webhook exclusion and completion. Repeated token and Account requests resume that owner rather than creating another revocation. Adoption records system recovery of an already-revoked Grant; it does not invent historical user intent or cleanup completion.
 
+### Listing Activation Authority
+
+**Listing Activation Authority** is Identity's canonical capture of an active
+Account, an active User and their exact active owner or manager Membership.
+Each owner carries its stream-version seal and an installed class-C epoch grant
+for the registered consumer incarnation. Account Capability Assignments never
+grant `listings.manage`. A CLOSING key refuses capture until acknowledged closure
+and atomic installation complete; no per-Listing Identity promise is created.
+Linked-platform principals also require their canonical active Delegation,
+bound to the same User and Account with `listings:write`. Its epoch grant is
+bounded by token expiry. Grant creation, token rotation and both dormant and
+activated revocation writers participate in the same acknowledged closure.
+
 ## Language Rules
 
 To maintain consistency:

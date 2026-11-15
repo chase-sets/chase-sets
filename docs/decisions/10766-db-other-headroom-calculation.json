@@ -1,5 +1,7 @@
 {
   "schemaVersion": "db-other-headroom-calculation/v1",
+  "supersededBy": "https://github.com/chase-sets/chase-sets/issues/10766#issuecomment-6875676168",
+  "scopeNote": "Historical calculation under the former 1800000 ms job timeout; the replacement scope sets 2700000 ms (45 minutes). Values below preserve the original evidence, not current constraints.",
   "status": "REFUSAL_MODEL_CANNOT_ESTABLISH_STRICT_AC3",
   "selectedMechanism": "coverage-preserving reduction of measured top-file work, to be scoped and proven by #10766; no implementation mechanism is selected by this Probe",
   "unchangedFences": {

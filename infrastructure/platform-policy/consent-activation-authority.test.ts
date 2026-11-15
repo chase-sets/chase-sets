@@ -11,6 +11,7 @@ import {
   decodeConsentActivationAuthoritySnapshot,
   readConsentActivationAuthority,
   type ValidatedConsentActivationAuthoritySnapshot,
+  type ValidatedConsentActivationGuard,
 } from "./consent-activation-authority";
 import { definePolicy, type PolicyDefinition } from "./define-policy";
 import { createPolicyRuntime } from "./runtime";
@@ -579,6 +580,16 @@ describe("canonical Consent Activation Authority snapshot decoder", () => {
       // @ts-expect-error The canonical decoder's private snapshot brand is required.
       const unvalidatedSnapshot: ValidatedConsentActivationAuthoritySnapshot = active;
       expect(unvalidatedSnapshot).toBeUndefined();
+
+      // Compile-time negative fixture: a spread copy with a changed field loses guard provenance.
+      // @ts-expect-error The canonical decoder's private brand does not survive a spread copy.
+      const changedGuard: ValidatedConsentActivationGuard = { ...decoded.guard, expectedVersion: 999 };
+      expect(changedGuard).toBeUndefined();
+
+      // Compile-time negative fixture: a spread copy with a changed field loses snapshot provenance.
+      // @ts-expect-error The canonical decoder's private snapshot brand does not survive a spread copy.
+      const changedSnapshot: ValidatedConsentActivationAuthoritySnapshot = { ...decoded, isActive: false };
+      expect(changedSnapshot).toBeUndefined();
     }
   });
 

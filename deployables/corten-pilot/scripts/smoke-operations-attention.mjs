@@ -39,7 +39,8 @@ async function read(page) {
     const stats = [...document.querySelectorAll("main dl dt, main [class*='stat'] [class*='label']")].map((e) =>
       e.textContent.trim().toLowerCase(),
     );
-    const values = [...document.querySelectorAll("main dl dd")].map((e) => e.textContent.trim());
+    // A figure's note is an empty description the kit hides when there is none.
+    const values = [...document.querySelectorAll("main dl dd:not(:empty)")].map((e) => e.textContent.trim());
     const rows = [...document.querySelectorAll("main table tbody tr")].map((tr) =>
       [...tr.querySelectorAll("td")].map((td) => td.textContent.trim()),
     );
@@ -109,7 +110,11 @@ for (const javaScriptEnabled of [true, false]) {
   const layout = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
     open: [...document.querySelectorAll("main table tbody tr a")].map((a) => a.getBoundingClientRect().height),
-    stats: getComputedStyle(document.querySelector("main dl")).gridTemplateColumns.split(" ").length,
+    // The figures wrap as flex items: the columns are how many share the first one's row.
+    stats: (() => {
+      const figures = [...document.querySelector("main dl").children].map((e) => e.getBoundingClientRect().top);
+      return figures.filter((top) => Math.abs(top - figures[0]) < 1).length;
+    })(),
   }));
   check(layout.scroll <= 390, `390 px: no sideways scroll (${layout.scroll})`);
   check(

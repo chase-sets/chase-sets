@@ -34,7 +34,15 @@ describe("staging eBay receipt actor configuration threading", () => {
     const stagingOverlay = buildPlatformHelmStagingValues({ repoRoot });
     const baseApiEnv = base.components["platform-api"].env;
     const stagingApiEnv = staging.components["platform-api"].env;
-    expect(stagingApiEnv).toEqual([...baseApiEnv, { name: actorKey, secret: true, secretKey: actorKey }]);
+    expect(stagingApiEnv).toEqual([
+      ...baseApiEnv,
+      { name: actorKey, secret: true, secretKey: actorKey },
+      {
+        name: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+        secret: true,
+        secretKey: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+      },
+    ]);
     expect(stagingOverlay.components["platform-api"].env).toEqual(stagingApiEnv);
     expect(staging.components["platform-worker"].env.some((entry) => entry.name === actorKey)).toBe(false);
     expect(staging.components["platform-bootstrap"].env.some((entry) => entry.name === actorKey)).toBe(false);
