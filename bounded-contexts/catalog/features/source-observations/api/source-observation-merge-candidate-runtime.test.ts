@@ -43,16 +43,14 @@ describe("source observation merge candidate bounded stream contracts", () => {
       const first = await harness.generate();
       const candidate = first.candidates[0]!;
       const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
-      const state = harness.streams
-        .get(streamId)!
-        .reduce(
-          (state, event) =>
-            evolveCatalogMergeCandidate(state, {
-              type: event.eventType,
-              data: event.payload,
-            } as CatalogMergeCandidateEvent),
-          initialCatalogMergeCandidateState,
-        );
+      const state = harness.streams.get(streamId)!.reduce(
+        (state, event) =>
+          evolveCatalogMergeCandidate(state, {
+            type: event.eventType,
+            data: event.payload,
+          } as CatalogMergeCandidateEvent),
+        initialCatalogMergeCandidateState,
+      );
       const events = decideCatalogMergeCandidate(state, {
         ...(terminal === "promoted"
           ? { type: "PromoteCatalogMergeCandidate", promotedAt: "2026-11-15T00:00:00.000Z" }
@@ -77,8 +75,8 @@ describe("source observation merge candidate bounded stream contracts", () => {
       expect(harness.streams.size).toBe(1);
       expect(harness.streams.get(streamId)).toEqual(terminalHistory);
 
-      const newRow = observationRow("obs_new_product", "sv2-new");
-      newRow.normalized = { ...pokemonFacts(newRow), cardNumber: "55" };
+      const newObservation = observationRow("obs_new_product", "sv2-new");
+      const newRow = { ...newObservation, normalized: { ...pokemonFacts(newObservation), cardNumber: "55" } };
       const mixed = await harness.runtime.persistCatalogMergeCandidatesFromObservations(
         [...harness.observations, newRow],
         context,
