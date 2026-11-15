@@ -17,7 +17,10 @@ export function managedOfferEvaluations(events: readonly DiagnosticEvent[]) {
         operationId: event.payload.operationId,
         evidence:
           evidence && typeof evidence === "object" && !Array.isArray(evidence)
-            ? { marketPrice: evidence.marketPrice ?? null, evaluatedAt: evidence.evaluatedAt ?? null }
+            ? {
+                marketPrice: "marketPrice" in evidence ? (evidence.marketPrice ?? null) : null,
+                evaluatedAt: "evaluatedAt" in evidence ? (evidence.evaluatedAt ?? null) : null,
+              }
             : null,
       };
     });
