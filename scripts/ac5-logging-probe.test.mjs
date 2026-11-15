@@ -18,6 +18,7 @@ import {
   overallVerdict,
   parseArgs,
   qualifyChart,
+  readStagingChart,
   selectReadyPods,
   serializeEvidence,
   toRfc3339,
@@ -310,10 +311,10 @@ async function expectQualificationStop(fixture, code) {
 }
 
 describe("AC5 logging probe", () => {
-  it("qualifies the repository chart under its own topology", () => {
+  it("qualifies the repository chart under its effective staging topology", () => {
     const source = readFileSync("infrastructure/helm/doks-ingress/ingress-nginx-values.yaml", "utf8");
     const topology = Object.hasOwn(parseYaml(source), "defaultBackend") ? "ratified" : "absent";
-    expect(qualifyChart(source).topology).toBe(topology);
+    expect(readStagingChart().topology).toBe(topology);
     console.log(`repository chart topology=${topology}`);
   });
 
@@ -415,9 +416,9 @@ describe("AC5 logging probe", () => {
       },
     ],
     [
-      "disabled",
+      "missing enabled",
       (backend) => {
-        backend.enabled = false;
+        delete backend.enabled;
       },
     ],
     [
@@ -471,6 +472,33 @@ describe("AC5 logging probe", () => {
       "ac5_chart_default_backend_unratified",
     );
   });
+
+  it("refuses a disabled backend without the staging override", () => {
+    expect(() =>
+      qualifyChart(
+        editRatified((backend) => {
+          backend.enabled = false;
+        }),
+      ),
+    ).toThrow("ac5_chart_default_backend_unratified");
+  });
+
+  it.each(["$args", "access_log off;", "error_log /dev/stderr;"])(
+    "does not bypass logging qualification when staging enables the backend: %s",
+    async (unsafe) => {
+      await expectQualificationStop(
+        mainFixture({
+          ratified: true,
+          chart: () =>
+            editRatified((backend) => {
+              backend.enabled = false;
+              backend.extraConfigMaps[0].data["default.conf"] += `server { ${unsafe} }\n`;
+            }),
+        }),
+        "ac5_chart_default_backend_unratified",
+      );
+    },
+  );
 
   it.each([
     [
@@ -709,8 +737,15 @@ describe("AC5 logging probe", () => {
     }
   });
 
-  it("passes a full ratified-topology run", async () => {
-    const fixture = mainFixture({ ratified: true });
+  it.each([true, false])("passes a full ratified-topology run with shared enabled=%s", async (enabled) => {
+    const fixture = mainFixture({
+      ratified: true,
+      chart: (source) => {
+        const document = parseYaml(source);
+        document.defaultBackend.enabled = enabled;
+        return stringifyYaml(document);
+      },
+    });
     try {
       const result = await fixture.run();
       expect(result.overall).toBe("PASS");
