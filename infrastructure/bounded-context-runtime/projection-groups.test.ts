@@ -416,6 +416,9 @@ describe("bounded context projection groups", () => {
 
     expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items", "inventory_catalog_blueprints"]]);
     expect(revisionSyncToken).toMatchObject({ generation: "2" });
+    expect(
+      getProjectionGroupGenerationStore(targetPool).get("inventory:inventory-catalog-item-projection"),
+    ).toMatchObject({ target_projection_revision: 1 });
     await expect(
       loadProjectionGroupGeneration(targetPool as never, {
         targetContextName: "inventory",
@@ -427,6 +430,7 @@ describe("bounded context projection groups", () => {
     expect(Object.hasOwn(ordinaryStatus, "revisionSyncToken")).toBe(false);
     await expect(group.refreshStatus({ captureRevisionSyncToken: true })).resolves.toMatchObject({
       revisionSyncToken: { generation: "2" },
+      rebuildingProjectionRevision: 1,
     });
 
     await group.markRevisionSynced(revisionSyncToken);
@@ -475,6 +479,80 @@ describe("bounded context projection groups", () => {
       });
     },
   );
+
+  it.each([1, null])(
+    "rejects completion for target revision %s and records the replacement target",
+    async (targetRevision) => {
+      const pool = createMockPool();
+      const runner = createSubscriptionRunner("discovery", pool as never, pool as never, {
+        subscriptionName: "discovery.items",
+        sourceContextName: "discovery",
+        projectionName: "items",
+        subscriptionVersion: 1,
+        handlers: {},
+      });
+      const [group] = createProjectionGroupRuntime(
+        "discovery",
+        pool,
+        [
+          {
+            projectionName: "items",
+            sourceContextNames: ["discovery"],
+            ownedTables: [],
+            projectionRevision: 2,
+          },
+        ],
+        [runner],
+      );
+      const stale = await group.startGenerationRebuild!();
+      const generations = getProjectionGroupGenerationStore(pool);
+      generations.get("discovery:items")!.target_projection_revision = targetRevision;
+      await expect(group.refreshStatus({ captureRevisionSyncToken: true })).resolves.toMatchObject({
+        rebuildingProjectionRevision: targetRevision,
+        revisionSyncToken: stale,
+      });
+      await expect(group.markRevisionSynced(stale)).rejects.toThrow("stale rebuild token");
+      await expect(group.completeGenerationRebuild!(stale)).rejects.toThrow("stale rebuild token");
+      expect(getProjectionRevisionStore(pool).get("discovery:items")).toBeUndefined();
+      const replacement = await resetProjectionGroup(group);
+      expect(replacement).toMatchObject({ generation: "3" });
+      expect(generations.get("discovery:items")).toMatchObject({ target_projection_revision: 2 });
+      await group.markRevisionSynced(replacement);
+      expect(getProjectionRevisionStore(pool).get("discovery:items")).toBe(2);
+    },
+  );
+
+  it("explicit rebuild starts a new target generation rather than resuming the existing one", async () => {
+    const pool = createMockPool();
+    const runner = createSubscriptionRunner("discovery", pool as never, pool as never, {
+      subscriptionName: "discovery.items",
+      sourceContextName: "discovery",
+      projectionName: "items",
+      subscriptionVersion: 1,
+      handlers: {},
+    });
+    const [group] = createProjectionGroupRuntime(
+      "discovery",
+      pool,
+      [
+        {
+          projectionName: "items",
+          sourceContextNames: ["discovery"],
+          ownedTables: [],
+          projectionRevision: 2,
+        },
+      ],
+      [runner],
+    );
+    await resetProjectionGroup(group);
+    await rebuildProjectionGroup(group);
+    expect(getProjectionGroupGenerationStore(pool).get("discovery:items")).toMatchObject({
+      active_generation: "3",
+      rebuilding_generation: null,
+      target_projection_revision: 2,
+      state: "active",
+    });
+  });
 
   it("load-projection-group-generation preserves decimal identity and fails closed for partial or invalid rows", async () => {
     const load = (row: Record<string, unknown>) =>
