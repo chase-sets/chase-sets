@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { fenceEbayCredential } from "../../ebay-connection/read-model/binding";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   openSecretEnvelope,
@@ -83,8 +84,9 @@ export function createChannelCredentialRuntime(
       await query<Stored>(db, `SELECT ${columns} FROM channels_connection_credentials WHERE row_id = $1`, [reference])
     ).rows[0];
   }
-  async function current(db: PgQueryable, expected: ChannelCredentialEnvelope) {
-    active();
+  async function current(db: PgQueryable, expected: ChannelCredentialEnvelope, requireEncryption = true) {
+    await fenceEbayCredential(db, expected);
+    if (requireEncryption) active();
     encodeEnvelopeAad(expected);
     const row = await read(db, expected.rowId);
     if (!row || !encodeEnvelopeAad(metadata(row)).equals(encodeEnvelopeAad(expected)))
@@ -137,6 +139,7 @@ export function createChannelCredentialRuntime(
       payload: unknown,
       at: string,
     ): Promise<ChannelCredentialEnvelope> {
+      await fenceEbayCredential(db, binding);
       const { key, keyId } = active();
       const bytes = encodeTokenSet(payload);
       try {
@@ -219,6 +222,51 @@ export function createChannelCredentialRuntime(
         beforeBytes?.fill(0);
       }
     },
+    async supersede(
+      db: PgQueryable,
+      expected: ChannelCredentialEnvelope,
+      payload: unknown,
+      at: string,
+    ): Promise<ChannelCredentialEnvelope> {
+      await current(db, expected);
+      const bytes = encodeTokenSet(payload);
+      try {
+        return await rewrite(
+          db,
+          expected,
+          {
+            ...expected,
+            tokenGeneration: nextCredentialCounter(expected.tokenGeneration),
+            envelopeRevision: nextCredentialCounter(expected.envelopeRevision),
+            keyId: active().keyId,
+            updatedAt: at,
+          },
+          bytes,
+        );
+      } finally {
+        bytes.fill(0);
+      }
+    },
+    async delete(db: PgQueryable, expected: ChannelCredentialEnvelope): Promise<void> {
+      await current(db, expected, false);
+      const result = await query(
+        db,
+        `DELETE FROM channels_connection_credentials
+        WHERE row_id=$1 AND token_generation=$2 AND envelope_revision=$3 AND account_id=$4
+        AND connection_id=$5 AND provider_key=$6 AND environment=$7 AND key_id=$8 RETURNING row_id`,
+        [
+          expected.rowId,
+          expected.tokenGeneration,
+          expected.envelopeRevision,
+          expected.accountId,
+          expected.connectionId,
+          expected.providerKey,
+          expected.environment,
+          expected.keyId,
+        ],
+      );
+      if (result.rows.length !== 1) throw new ChannelCredentialError("conflict");
+    },
     async rewrap(db: PgQueryable, expected: ChannelCredentialEnvelope, at: string): Promise<ChannelCredentialEnvelope> {
       const row = await current(db, expected);
       const bytes = decrypt(row);
@@ -242,6 +290,7 @@ export function createChannelCredentialRuntime(
     async resolve(db: PgQueryable, capability: object, expected: ChannelCredentialExpectation): Promise<Buffer> {
       const binding = capabilities.get(capability);
       if (!binding || !sameBinding(binding, expected)) throw new ChannelCredentialError("forbidden");
+      await fenceEbayCredential(db, expected);
       active();
       const row = await read(db, expected.reference);
       if (
@@ -286,7 +335,11 @@ export function createChannelCredentialRuntime(
       if (keyId === active().keyId) return "active-key";
       const result = await query<{ referenced: boolean }>(
         db,
-        "SELECT EXISTS (SELECT 1 FROM channels_connection_credentials WHERE key_id = $1) AS referenced",
+        `SELECT EXISTS (SELECT 1 FROM channels_connection_credentials WHERE key_id = $1
+          UNION ALL SELECT 1 FROM channels_ebay_account_deletion_receipts
+            WHERE subject_key_id=$1 OR split_part(subject_fingerprint, ':', 2)=$1
+          UNION ALL SELECT 1 FROM channels_ebay_seller_bindings
+            WHERE subject_key_id=$1 OR split_part(subject_fingerprint, ':', 2)=$1) AS referenced`,
         [keyId],
       );
       return result.rows[0].referenced ? "referenced" : "zero-references";
