@@ -11,9 +11,8 @@
 //! condition or an anchor. A change to what the policy does drops the authoring intent
 //! (`changeBody`); the Pricing Goal's simple controls bind it again (`changeSimpleGoal`).
 //!
-//! A rule's conditions and anchors are rows of their own keyed by the rule and their place
-//! (`{rule}-{index}`), since a Corten form's row cannot hold rows (corten-run/corten#1395, in the
-//! README's open workarounds).
+//! A rule's conditions and anchors are rows in the rule's row (`rules[i].conditions[j]`,
+//! `rules[i].anchors[j]`).
 use std::collections::BTreeMap;
 
 use corten::prelude::*;
@@ -266,12 +265,8 @@ pub fn rules_of(body: &Value) -> &[Value] {
     body["rules"].as_array().map_or(&[], Vec::as_slice)
 }
 
-/// A condition or anchor row's key: its rule and its place in the rule.
-pub fn slot(rule: usize, index: usize) -> String {
-    format!("{rule}-{index}")
-}
-
-/// One rule's directive as the editor posts it. A choice's value field is the one its choice draws.
+/// One rule as the editor posts it: its directive's controls, then its conditions and its anchor
+/// chain by their place in the rule. A choice's value field is the one its choice draws.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RuleFields {
@@ -291,6 +286,12 @@ pub struct RuleFields {
     pub max_move: Option<String>,
     pub terminal: Option<String>,
     pub terminal_value: Option<String>,
+    #[fields(rows)]
+    #[serde(default)]
+    pub conditions: BTreeMap<u32, ConditionFields>,
+    #[fields(rows)]
+    #[serde(default)]
+    pub anchors: BTreeMap<u32, AnchorFields>,
 }
 
 /// A rule's condition as the editor posts it.
@@ -327,8 +328,6 @@ pub struct Posted<'a> {
     pub excluded: Option<&'a str>,
     pub cap: Option<&'a str>,
     pub rules: &'a BTreeMap<u32, RuleFields>,
-    pub conditions: &'a BTreeMap<String, ConditionFields>,
-    pub anchors: &'a BTreeMap<String, AnchorFields>,
 }
 
 /// Text as typed, trimmed.
@@ -648,19 +647,19 @@ pub fn read(body: &mut Value, tier: Tier, posted: &Posted<'_>) {
             if let Some(excluded) = posted.excluded {
                 body["excludedListingIds"] = json!(distinct(excluded.split(',').map(str::to_owned)));
             }
+            let place = |n: usize| u32::try_from(n).ok();
             for (i, rule) in body["rules"].as_array_mut().into_iter().flatten().enumerate() {
-                if let Some(f) = u32::try_from(i).ok().and_then(|i| posted.rules.get(&i)) {
-                    directive(&mut rule["directive"], f);
-                }
+                let Some(f) = place(i).and_then(|i| posted.rules.get(&i)) else { continue };
+                directive(&mut rule["directive"], f);
                 if tier == Tier::Advanced && i + 1 != count {
                     for (j, current) in rule["conditions"].as_array_mut().into_iter().flatten().enumerate() {
-                        if let Some(f) = posted.conditions.get(&slot(i, j)) {
+                        if let Some(f) = place(j).and_then(|j| f.conditions.get(&j)) {
                             condition(current, f);
                         }
                     }
                 }
                 for (j, current) in rule["directive"]["anchorChain"].as_array_mut().into_iter().flatten().enumerate() {
-                    if let Some(f) = posted.anchors.get(&slot(i, j)) {
+                    if let Some(f) = place(j).and_then(|j| f.anchors.get(&j)) {
                         anchor(current, f, tier == Tier::Advanced);
                     }
                 }

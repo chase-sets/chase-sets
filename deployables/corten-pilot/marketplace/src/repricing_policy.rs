@@ -42,7 +42,7 @@ use crate::{
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
     auth::{PricingManager, Viewer},
     repricing::{self, DryRunView, Editor, EditorInput, RunEditor, ended, messages},
-    repricing_body::{self, AnchorFields, ConditionFields, Op, Posted, RuleFields, Source, Tier},
+    repricing_body::{self, Op, Posted, RuleFields, Source, Tier},
     text::RepricingMsg,
     views::{self, Layout},
 };
@@ -110,7 +110,7 @@ impl Place {
 /// A write: Pause, Resume, Delete, the halt, and the editor's posts, here and on the list's page
 /// (`repricing::WriteForm`, whose list buttons name the policy). The editor's carry its tier, the
 /// body it drew and its dry run, and its controls: the preset's, named as the create editor's
-/// address, and each rule's, condition's and anchor's as rows.
+/// address, and each rule's as a row holding its conditions and anchors as rows of its own.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PolicyForm {
@@ -143,12 +143,6 @@ pub struct PolicyForm {
     #[fields(rows)]
     #[serde(default)]
     pub rules: BTreeMap<u32, RuleFields>,
-    #[fields(rows)]
-    #[serde(default)]
-    pub conditions: BTreeMap<String, ConditionFields>,
-    #[fields(rows)]
-    #[serde(default)]
-    pub anchors: BTreeMap<String, AnchorFields>,
 }
 
 impl PolicyForm {
@@ -179,8 +173,6 @@ impl PolicyForm {
             excluded: self.excluded.as_deref(),
             cap: self.cap.as_deref(),
             rules: &self.rules,
-            conditions: &self.conditions,
-            anchors: &self.anchors,
         }
     }
 }

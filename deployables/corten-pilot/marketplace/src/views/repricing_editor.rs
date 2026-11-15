@@ -8,9 +8,9 @@
 //! tier's button, and Preview answer with the editor drawn again (a patch, or the page without a
 //! script), and Save policy goes to the policy's page after its revise. Opened up from the create
 //! editor it has no Save policy: its dry run's Activate creates the policy. The page's script applies
-//! a choice as it changes. A rule's conditions and anchors are rows keyed by the rule and their
-//! place (`repricing_body::slot`). One column on a phone; the controls beside the preview from
-//! 64rem, as the create editor's.
+//! a choice as it changes. A rule's conditions and anchors are rows in the rule's row
+//! (`rules[i].conditions[j]`). One column on a phone; the controls beside the preview from 64rem,
+//! as the create editor's.
 use corten::prelude::*;
 use serde_json::Value;
 
@@ -18,7 +18,7 @@ use super::repricing_page::{DryRunSlot, PresetFields, PresetNames, ReviseFormId,
 use crate::{
     api::RepricingCategory,
     app::url,
-    repricing_body::{self, ANCHORS, CONDITIONS, Op, Tier, condition_number, slot},
+    repricing_body::{self, ANCHORS, CONDITIONS, Op, Tier, condition_number},
     repricing_policy::{Place as PolicyPlace, PolicyForm, ReviseEditor, ReviseScreen},
     text::{Pilot, RepricingMsg},
 };
@@ -26,6 +26,11 @@ use crate::{
 /// The editor's part, which its form's answers draw again.
 #[derive(Id)]
 pub struct ReviseEditorId;
+
+/// A rule's, condition's or anchor's place as its row's key.
+fn place(index: usize) -> u32 {
+    u32::try_from(index).unwrap_or(u32::MAX)
+}
 
 /// A number or text of the body as a control shows it; nothing for null.
 fn shown(value: &Value) -> String {
@@ -381,20 +386,14 @@ fn RuleFields<'a>(
     let f = PolicyForm::FIELDS;
     let legend =
         if last { t.editor_default_rule().to_owned() } else { t.editor_rule_number(&(index + 1).to_string()).to_string() };
-    let conditions: Vec<(String, &Value)> = rule["conditions"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .enumerate()
-        .map(|(j, condition)| (slot(index, j), condition))
-        .collect();
-    let rule_key = u32::try_from(index).unwrap_or(u32::MAX);
+    let conditions: &[Value] = rule["conditions"].as_array().map_or(&[], Vec::as_slice);
+    let rule_key = place(index);
     html! {
         <fieldset class={(Card, Fieldset)} data-repricing-rule={index.to_string()}>
             <legend class={PartTitle}>{&legend}</legend>
             if advanced && !last {
-                for (j, (key, condition)) in conditions.iter().enumerate() {
-                    <ConditionFields t={t} categories={categories} at={key} condition={condition} rule={index} index={j} />
+                for (j, condition) in conditions.iter().enumerate() {
+                    <ConditionFields t={t} categories={categories} condition={condition} rule={rule_key} index={place(j)} />
                 }
                 <div class={Actions}>
                     <button type="submit" class={(Button, Secondary)} name={f.op} value={Op::AddCondition(index).value()}>
@@ -424,12 +423,12 @@ fn RuleFields<'a>(
 fn ConditionFields<'a>(
     t: RepricingMsg,
     categories: &'a [RepricingCategory],
-    at: &'a String,
     condition: &'a Value,
-    rule: usize,
-    index: usize,
+    rule: u32,
+    index: u32,
 ) -> impl Render {
-    let row = PolicyForm::FIELDS.conditions.at(at);
+    let row = PolicyForm::FIELDS.rules.at(&rule).conditions.at(&index);
+    let at = format!("{rule}-{index}");
     let kind = mode(condition, "type");
     let number = condition_number(kind).map(|field| shown(&condition[field]));
     let cost = kind.starts_with("cost-basis-");
@@ -515,7 +514,7 @@ fn ConditionFields<'a>(
                     type="submit"
                     class={(Button, Secondary)}
                     name={PolicyForm::FIELDS.op}
-                    value={Op::RemoveCondition(rule, index).value()}
+                    value={Op::RemoveCondition(rule as usize, index as usize).value()}
                 >
                     {t.editor_remove_condition()}
                 </button>
@@ -530,13 +529,7 @@ fn ConditionFields<'a>(
 #[component(css = super::repricing_page::RepricingPage)]
 fn DirectiveFields<'a>(t: RepricingMsg, rule: u32, index: usize, directive: &'a Value, advanced: bool) -> impl Render {
     let row = PolicyForm::FIELDS.rules.at(&rule);
-    let anchors: Vec<(String, &Value)> = directive["anchorChain"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .enumerate()
-        .map(|(j, anchor)| (slot(index, j), anchor))
-        .collect();
+    let anchors: &[Value] = directive["anchorChain"].as_array().map_or(&[], Vec::as_slice);
     let offset = mode(&directive["offset"], "mode");
     let ceiling = if directive["ceiling"].is_null() { "none" } else { mode(&directive["ceiling"], "mode") };
     let tolerance = mode(&directive["tolerance"], "mode");
@@ -562,8 +555,8 @@ fn DirectiveFields<'a>(t: RepricingMsg, rule: u32, index: usize, directive: &'a 
                 autocomplete="off"
             >
         </label>
-        for (j, (key, anchor)) in anchors.iter().enumerate() {
-            <AnchorFields t={t} at={key} anchor={anchor} rule={index} index={j} advanced={advanced} />
+        for (j, anchor) in anchors.iter().enumerate() {
+            <AnchorFields t={t} anchor={anchor} rule={rule} index={place(j)} advanced={advanced} />
         }
         <p class={Row}>
             <button
@@ -782,13 +775,13 @@ fn FloorFields<'a>(t: RepricingMsg, rule: u32, floor: &'a Value) -> impl Render 
 #[component(css = super::repricing_page::RepricingPage)]
 fn AnchorFields<'a>(
     t: RepricingMsg,
-    at: &'a String,
     anchor: &'a Value,
-    rule: usize,
-    index: usize,
+    rule: u32,
+    index: u32,
     advanced: bool,
 ) -> impl Render {
-    let row = PolicyForm::FIELDS.anchors.at(at);
+    let row = PolicyForm::FIELDS.rules.at(&rule).anchors.at(&index);
+    let at = format!("{rule}-{index}");
     let op = PolicyForm::FIELDS.op;
     let source = mode(anchor, "source");
     let any = source == "lowest-competing-ask" && mode(anchor, "strata") == "any";
@@ -865,12 +858,12 @@ fn AnchorFields<'a>(
                     type="submit"
                     class={(Button, Secondary)}
                     name={op}
-                    value={Op::MoveAnchorUp(rule, index).value()}
+                    value={Op::MoveAnchorUp(rule as usize, index as usize).value()}
                     disabled={index == 0}
                 >
                     {t.editor_move_up()}
                 </button>
-                <button type="submit" class={(Button, Secondary)} name={op} value={Op::RemoveAnchor(rule, index).value()}>
+                <button type="submit" class={(Button, Secondary)} name={op} value={Op::RemoveAnchor(rule as usize, index as usize).value()}>
                     {t.editor_remove_anchor()}
                 </button>
             </div>

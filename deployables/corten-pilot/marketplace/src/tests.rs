@@ -13572,15 +13572,15 @@ async fn a_policys_edit_opens_its_editor_in_the_controls_its_intent_says() {
     assert!(!html.contains("data-repricing-activate"), "a revise saves without a preview");
     assert_eq!(drawn_body(&html)["authoringIntent"]["source"]["preset"], json!("beat-lowest"));
 
-    // A custom policy of two rules opens in the advanced editor, its rows named by rule and place;
+    // A custom policy of two rules opens in the advanced editor, a condition and an anchor named through its rule's row;
     // a Pricing Goal a seller may not choose says so, and no simple controls are offered.
     for address in ["/account/desk/repricing/pol_1?edit=open", "/account/desk/repricing/pol_1?edit=1"] {
         let (status, _, html) = pilot.send(get(address, Some("pricer"))).await;
         assert_eq!(status, StatusCode::OK);
         assert!(html.contains(r#"data-repricing-tier="advanced""#), "{address}: {html}");
         assert!(html.contains("data-repricing-unsupported-goal") && html.contains("data-repricing-custom"), "{html}");
-        assert!(html.contains(r#"name="conditions[0-1].value" value="2""#), "{html}");
-        assert!(html.contains(r#"name="anchors[0-0].source""#) && html.contains(r#"name="rules[1].terminalValue""#), "{html}");
+        assert!(html.contains(r#"name="rules[0].conditions[1].value" value="2""#), "{html}");
+        assert!(html.contains(r#"name="rules[0].anchors[0].source""#) && html.contains(r#"name="rules[1].terminalValue""#), "{html}");
         assert!(html.contains(r#"data-repricing-anchor="1-0""#) && text(&html).contains("Pricing goal"), "{html}");
         assert!(html.contains(r#"value="add-rule""#) && html.contains(r#"value="remove-condition:0:1""#), "{html}");
     }
@@ -13727,8 +13727,8 @@ async fn a_policys_editor_opens_up_only_a_complete_preset_and_keeps_choices_its_
         ("body", drawn.as_str()),
         ("scope", "catalog-filter"),
         ("categories", "cat-9"),
-        ("conditions[0-0].kind", "category"),
-        ("conditions[0-0].category", "cat-9"),
+        ("rules[0].conditions[0].kind", "category"),
+        ("rules[0].conditions[0].category", "cat-9"),
     ];
     let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
     let kept = drawn_body(&html);
@@ -13765,9 +13765,9 @@ async fn a_policys_advanced_editor_changes_its_rules_and_previews_them_in_place(
     // A changed choice starts that part again from its defaults; the controls draw over the body.
     let fields = [
         ("intent", "apply"),
-        ("conditions[0-0].kind", "schedule-window"),
-        ("anchors[0-0].source", "lowest-competing-ask"),
-        ("anchors[0-0].strata", "any"),
+        ("rules[0].conditions[0].kind", "schedule-window"),
+        ("rules[0].anchors[0].source", "lowest-competing-ask"),
+        ("rules[0].anchors[0].strata", "any"),
         ("rules[1].ceiling", "none"),
         ("rules[1].maxMove", "12"),
     ];
