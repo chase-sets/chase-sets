@@ -7580,6 +7580,7 @@ fn fulfillment(method: &Method, uri: &Uri) -> Option<Response> {
         _ => return Some(refusal(StatusCode::NOT_FOUND, "shipment_not_found", "Shipment not found.")),
     };
     if seller {
+        detail["action_plan"] = json!({ "status": "delivered", "primary": null, "disclosed": [], "terminal": true });
         detail["label_status"] = json!("failed");
         detail["label_error_code"] = json!("rate_unavailable");
         detail["label_error_message"] = json!("No rate for this package.");
@@ -7781,7 +7782,7 @@ async fn a_buyers_shipment_shows_its_progress_facts_cover_lines_and_exceptions()
 }
 
 #[tokio::test]
-async fn a_sale_shipment_shows_the_postage_diagnostics_and_one_without_a_plan_sends_its_actions_to_marketplace() {
+async fn a_sale_shipment_shows_the_postage_diagnostics_and_a_delivered_one_offers_no_actions() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_done", Some("shipper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -7818,7 +7819,9 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_one_without_a_plan_se
         "{shown}"
     );
     assert!(shown.contains("carrier-delay Raised at 2026-03-21T09:00:00.000Z Missed scan."), "{shown}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments/shp_done">Open on marketplace</a>"#), "{html}");
+    // A delivered shipment's plan is empty: the page offers no action and sends none to marketplace.
+    assert!(!html.contains(r#"name="intent""#), "{html}");
+    assert!(!shown.contains("Open on marketplace"), "{shown}");
 }
 
 #[tokio::test]
@@ -7853,7 +7856,8 @@ const NO_RECORD: &str = "33333333-3333-4333-8333-333333333333";
 const CHECK_DOWN: &str = "44444444-4444-4444-8444-444444444444";
 
 /// A shipment the seller packs: `shp_wait` awaits its package, `shp_pack` is packing with 2 of 3
-/// packed, `shp_full` is packing with all 3. Charizard's line holds 2.
+/// packed, `shp_full` is packing with all 3. Charizard's line holds 2. Each read carries the
+/// action plan the API resolves for its status.
 fn packing_shipment(id: &str) -> Option<Value> {
     let (status, packed) = match id {
         "shp_wait" => ("awaiting-package", [None, None]),
@@ -7862,6 +7866,8 @@ fn packing_shipment(id: &str) -> Option<Value> {
         _ => return None,
     };
     let mut detail = shipment(id, status, None);
+    let primary = if status == "packing" { "complete-packing" } else { "start-packing" };
+    detail["action_plan"] = json!({ "status": status, "primary": primary, "disclosed": ["raise-exception"], "terminal": false });
     detail["package_status"] = json!("unpacked");
     detail["total_quantity"] = json!(3);
     detail["updated_at"] = json!("2026-10-24T15:00:00.000Z");
@@ -7930,13 +7936,13 @@ fn packing(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Opti
 /// `shp_ex`, `shp_lbl`, `shp_parcel`) is the shipment with its origin and destination.
 fn command_center(session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(SELLER_SHIPMENTS)?;
-    let item = |id: &str, status: &str, primary: Value, disclosed: Value| {
+    let item = |id: &str, status: &str| {
         json!({
             "shipmentId": id, "orderId": "ord_1", "displayReference": format!("SHP-{}", id.to_uppercase()),
             "status": status, "labelStatus": "none", "trackingIdentifier": null, "carrierName": null,
             "buyerDisplayName": "Collector Zero", "currentExceptionType": null, "currentExceptionNotes": null,
             "lineCount": 2, "totalQuantity": 3, "bucket": "", "severity": "normal", "observedAt": "2026-11-02T10:00:00.000Z",
-            "conflicts": [], "plan": { "primary": primary, "disclosed": disclosed }, "attention": {},
+            "conflicts": [], "plan": sale_plan(id), "attention": {},
         })
     };
     if rest == "/command-center" && *method == Method::GET {
@@ -7951,14 +7957,14 @@ fn command_center(session: &str, method: &Method, path: &str, headers: &HeaderMa
                     .into_response(),
             );
         }
-        let mut exception = item("shp_ex", "exception", Value::Null, json!(["cancel-shipment", "return", "brand-new-action"]));
+        let mut exception = item("shp_ex", "exception");
         exception["currentExceptionType"] = json!("carrier-delay");
         exception["currentExceptionNotes"] = json!("Stuck at the hub.");
-        let mut ready = item("shp_rtd", "label-attached", json!("dispatch"), json!(["void-label", "raise-exception"]));
+        let mut ready = item("shp_rtd", "label-attached");
         ready["trackingIdentifier"] = json!("9400TRACK");
-        let packing = item("shp_new", "awaiting-package", json!("start-packing"), json!([]));
-        let label = item("shp_lbl", "awaiting-label", json!("buy-label"), json!(["raise-exception"]));
-        let parcel = item("shp_parcel", "awaiting-label", json!("buy-label"), json!(["raise-exception"]));
+        let packing = item("shp_new", "awaiting-package");
+        let label = item("shp_lbl", "awaiting-label");
+        let parcel = item("shp_parcel", "awaiting-label");
         let buckets = json!([
             { "id": "exceptions", "items": [exception], "count": 1 },
             { "id": "ready-to-dispatch", "items": [ready], "count": 1 },
@@ -8002,9 +8008,21 @@ fn command_center(session: &str, method: &Method, path: &str, headers: &HeaderMa
     })
 }
 
+/// A command-center shipment's action plan, as the command center and the shipment's own read both
+/// carry it: `shp_ex`'s offers a cancel the API refuses and an action the pilot does not know.
+fn sale_plan(id: &str) -> Value {
+    let (primary, disclosed) = match id {
+        "shp_ex" => (Value::Null, json!(["cancel-shipment", "return", "brand-new-action"])),
+        "shp_rtd" => (json!("dispatch"), json!(["void-label", "raise-exception"])),
+        "shp_new" => (json!("start-packing"), json!([])),
+        _ => (json!("buy-label"), json!(["raise-exception"])),
+    };
+    json!({ "primary": primary, "disclosed": disclosed })
+}
+
 /// A command-center shipment's own read: `shp_ex` in its exception, `shp_rtd` labelled with its
-/// tracking, `shp_lbl` and `shp_parcel` awaiting their labels. Each ships from the seller's
-/// origin to the buyer; `shp_lbl` is planned as a letter.
+/// tracking, `shp_lbl` and `shp_parcel` awaiting their labels, each with its action plan. Each
+/// ships from the seller's origin to the buyer; `shp_lbl` is planned as a letter.
 fn sale_shipment(id: &str) -> Value {
     let (status, tracking) = match id {
         "shp_ex" => ("exception", Some("9400STUCK")),
@@ -8012,6 +8030,9 @@ fn sale_shipment(id: &str) -> Value {
         _ => ("awaiting-label", None),
     };
     let mut detail = shipment(id, status, tracking);
+    detail["action_plan"] = sale_plan(id);
+    detail["action_plan"]["status"] = json!(status);
+    detail["action_plan"]["terminal"] = json!(false);
     detail["shipping_origin_snapshot"] = json!({
         "name": "Chase Sets", "company": "Chase Sets LLC", "line1": "1 Seller Way", "line2": null,
         "city": "Austin", "state": "TX", "postalCode": "78701", "country": "US", "phone": "5125550100", "email": null,
@@ -8187,9 +8208,13 @@ async fn a_sale_shipments_page_draws_the_actions_the_apis_plan_allows_the_next_o
     assert!(visible.contains("Actions Cancel shipment Return notes Mark returned"), "{visible}");
     assert!(!html.contains("brand-new-action"), "an action the pilot does not know is not drawn: {html}");
 
-    // The command center leaves a delivered shipment out: no plan, so the link to marketplace.
-    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_done", Some("shipper"))).await;
-    assert!(text(&html).contains("actions are on marketplace for now. Open on marketplace"), "{}", text(&html));
+    // The plan is the shipment's own read's; the page does not read the command center for it.
+    assert!(!shipment_calls(&pilot).iter().any(|c| c.path.ends_with("/command-center")), "{:?}", shipment_calls(&pilot));
+
+    // A shipment's actions are its own read's plan, not the command center's: a shipment the
+    // command center leaves out still offers what its plan does.
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_wait", Some("shipper"))).await;
+    assert!(html.contains(r#"value="raise-exception""#), "{html}");
 }
 
 #[tokio::test]
@@ -14729,7 +14754,7 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"name="returnTo" value="/account/cart""#), "{html}");
     assert!(html.contains(r#"name="signInMethod" value="password""#) && html.contains(r#"name="signInIdentifier""#));
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart""#),
+        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
         "the pilot's relay: {html}"
     );
     assert!(!html.contains(r#"type="password""#));
@@ -14918,7 +14943,7 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     assert!(html.contains(r#"autocomplete="email""#) && html.contains(r#"autocomplete="name""#), "{html}");
     assert!(!html.contains(r#"href="http://localhost:7753/register"#), "no longer marketplace's: {html}");
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart""#),
+        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
         "{html}"
     );
 

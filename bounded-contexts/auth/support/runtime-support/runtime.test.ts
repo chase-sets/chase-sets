@@ -432,6 +432,40 @@ describe("Auth request actor resolution", () => {
     });
   });
 
+  it("admits the synthetic linked-platform listings writer whose delegation is enrolled by Identity", async () => {
+    const services = createServices({
+      membership: {
+        membership_id: "mem_synthetic",
+        user_id: "usr_synthetic",
+        account_id: "acc_synthetic",
+        role_key: "owner",
+        role_permissions: ["listings.manage"],
+        status: "active",
+        updated_at: new Date().toISOString(),
+      },
+    });
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://synthetic.invalid/listings", { headers: { authorization: "Bearer ucp_at_synthetic" } }),
+      {
+        linkedPlatformAuthorizations: {
+          resolveAccessToken: async () => ({
+            authorization_id: "synthetic-delegation",
+            platform_profile_url: "https://synthetic.invalid",
+            user_id: "usr_synthetic",
+            account_id: "acc_synthetic",
+            scopes: ["listings:write"],
+          }),
+        },
+      },
+    );
+    expect(actor).toMatchObject({
+      sessionProvenance: "linked-platform",
+      permissions: ["listings.manage"],
+      agentGrant: { grantId: "synthetic-delegation" },
+    });
+  });
+
   it("resolves UCP access-token actors with Auth-owned scope permission policy", async () => {
     const services = createServices({
       membership: {

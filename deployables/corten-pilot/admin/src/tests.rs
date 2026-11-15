@@ -1166,8 +1166,8 @@ async fn the_sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     let (status, _, html) = pilot.send(get("/access/sign-in?returnTo=%2Fcatalog", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
-        "Google Workspace through the pilot's relay, back to the page: {html}"
+        html.contains(r#"href="/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog" data-reload>"#),
+        "Google Workspace through the pilot's relay, back to the page, never prefetched: {html}"
     );
     assert!(html.contains(r#"<form class="sign-in-page__form" method="get" action="/access/sign-in">"#), "{html}");
     assert!(html.contains(r#"name="noindex""#) || html.contains(r#"content="noindex""#), "not indexed: {html}");

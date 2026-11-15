@@ -10,6 +10,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import type { RevocationActivationProof } from "./revocation-floor";
 import { createAgentGrantRevocationRelease } from "./revocation-release";
+import { createIdentityOwnerEpochs, type IdentityOwnerEpochs } from "../../accounts/api/owner-epochs";
 
 export const REVOCATION_PHASES = [
   "admitted",
@@ -162,6 +163,7 @@ export function createAgentGrantRevocations(
   pool: PgTransactionalPool,
   eventStore: PostgresEventStore,
   instanceId?: string,
+  ownerEpochs: IdentityOwnerEpochs = createIdentityOwnerEpochs(pool),
 ): AgentGrantRevocations {
   const release = createAgentGrantRevocationRelease(pool, eventStore, instanceId);
   const history = (db: PgQueryable, streamId: string) =>
@@ -343,7 +345,7 @@ export function createAgentGrantRevocations(
       }),
     readProgress: async (accountId, grantId) => (await load(pool, { accountId, grantId }))?.phase ?? null,
     advance: (state, context) =>
-      withPgTransaction(pool, async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
         const row = await grant(db, state);
         const current = await load(db, state);
         if (
@@ -363,6 +365,7 @@ export function createAgentGrantRevocations(
               (!row.revoked_at || new Date(row.revoked_at).toISOString() !== current.revokedAt))
           )
             invalidHistory();
+          await ownerEpochs.enrollDelegation(db, state.grantId);
           await db.query(
             `UPDATE identity_linked_platform_authorizations SET status = 'revoked', revoked_at = $3::timestamptz,
           revocation_reason = COALESCE(revocation_reason, $4), updated_at = now()

@@ -117,7 +117,7 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
   value: {{ index $componentEnvOverrides .name | quote }}
   {{- else if hasKey $envOverrides .name }}
   value: {{ index $envOverrides .name | quote }}
-  {{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}
+  {{- else if or (eq .name "CHASE_SETS_INTERNAL_API_ORIGIN") (eq .name "PLATFORM_API_ORIGIN") }}
   value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}
   {{- else }}
   value: {{ default "" .value | quote }}
@@ -243,7 +243,11 @@ tolerations:
 {{- include "chase-sets-platform.topologySpreadConstraints" . }}
 containers:
   - name: {{ .name | quote }}
+    {{- if hasKey $component "image" }}
+    image: {{ required "component.image is required for separately built components" $component.image | quote }}
+    {{- else }}
     image: {{ include "chase-sets-platform.image" $root | quote }}
+    {{- end }}
     imagePullPolicy: {{ $root.Values.global.image.pullPolicy | quote }}
     command:
       - "sh"

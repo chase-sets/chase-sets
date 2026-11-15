@@ -3,6 +3,14 @@
   "rootDomain": "chasesets.com",
   "hosts": [
     {
+      "host": "admin-corten.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
       "host": "admin.chasesets.com",
       "status": "current",
       "environment": "production",
