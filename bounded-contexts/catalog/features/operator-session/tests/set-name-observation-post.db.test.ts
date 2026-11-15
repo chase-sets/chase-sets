@@ -130,15 +130,21 @@ describeDb("operator-extension set-name observation posts against the catalog st
       expect(response.headers.get("cache-control")).toBe("no-store");
       // No canonical scope records exist, so each observation proposes a new canonical scope.
       expect(await response.json()).toEqual({
-        observationCount: unit.observations.length,
-        newObservationCount: unit.observations.length,
-        mappingsProposed: unit.observations.length,
+        observationCount: unit.observations.length * (unit.productLineId === 1 ? 2 : 1),
+        newObservationCount: unit.observations.length * (unit.productLineId === 1 ? 2 : 1),
+        mappingsProposed: unit.observations.length * (unit.productLineId === 1 ? 2 : 1),
       });
       expect(await observationRows(pool, unit.unitKey)).toEqual(
         unit.observations
           .map((observation) => ({ ...observation, metadata: { ...observation.metadata, ...provenance } }))
           .sort(byExternalId),
       );
+      if (unit.productLineId === 1) {
+        const sealedUnit = unit.unitKey.replace(":single-card:", ":sealed-product:");
+        expect(await observationRows(pool, sealedUnit)).toEqual(
+          (await observationRows(pool, unit.unitKey)).map((row) => ({ ...row, unitKey: sealedUnit })),
+        );
+      }
     }
     const schedule = await pool.query<{ last_run_status: string; last_run_triggered_by: string; last_run_error: null }>(
       `SELECT last_run_status, last_run_triggered_by, last_run_error
@@ -183,12 +189,32 @@ describeDb("operator-extension set-name observation posts against the catalog st
     expect(twins.map((row) => row.metadata.setNameId).sort()).toEqual(["920005", "920006"]);
   });
 
+  it.each([1, 3])("records and proposes both units for qualified product line %s", async (line) => {
+    const { pool, post } = await compose();
+    const response = await post(setNamePost(line, [setNameEntry(line, 950001)]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ observationCount: 2, newObservationCount: 2, mappingsProposed: 2 });
+    const domain = line === 1 ? "mtg" : "pokemon";
+    for (const form of ["single-card", "sealed-product"]) {
+      const unitKey = `tcgplayer:${domain}:${form}:source-observation-import`;
+      expect(await observationRows(pool, unitKey)).toHaveLength(1);
+      expect(
+        (
+          await pool.query(
+            "SELECT payload FROM event_store_events WHERE event_type = 'catalog.provider-scope-mapping.proposed' AND payload->>'unitKey' = $1",
+            [unitKey],
+          )
+        ).rows,
+      ).toHaveLength(1);
+    }
+  });
+
   it("converges concurrent first posts and identical repeats without duplicate rows or mapping proposals", async () => {
     const { pool, post } = await compose();
     await seedMagicScope(pool);
     const magic = setNamePost(1, magicUnit.sets);
     const pokemon = setNamePost(3, unicodeControlSets);
-    const count = magicUnit.observations.length;
+    const count = magicUnit.observations.length * 2;
 
     const racing = await Promise.all([post(magic), post(magic)]);
     expect(racing.map((response) => response.status)).toEqual([200, 200]);
@@ -207,6 +233,7 @@ describeDb("operator-extension set-name observation posts against the catalog st
     );
     expect(accepted.rows).toEqual([
       { review_status: "auto-accepted", actor: `operator-extension-grant:${provenance.grantId}` },
+      { review_status: "auto-accepted", actor: `operator-extension-grant:${provenance.grantId}` },
     ]);
 
     expect((await post(pokemon)).status).toBe(200);
@@ -222,7 +249,10 @@ describeDb("operator-extension set-name observation posts against the catalog st
     for (const response of repeated)
       expect(await response.json()).toMatchObject({ newObservationCount: 0, mappingsProposed: 0 });
     expect(await mappingEventCount(pool)).toBe(events);
-    expect(await observationRows(pool, magicUnit.unitKey)).toHaveLength(count);
+    expect(await observationRows(pool, magicUnit.unitKey)).toHaveLength(count / 2);
+    expect(await observationRows(pool, magicUnit.unitKey.replace(":single-card:", ":sealed-product:"))).toHaveLength(
+      count / 2,
+    );
     expect(await observationRows(pool, pokemonUnitKey)).toHaveLength(unicodeControlSets.length);
   });
 
@@ -240,12 +270,14 @@ describeDb("operator-extension set-name observation posts against the catalog st
           throw new Error("synthetic transient command failure");
       });
       const body = setNamePost(3, [setNameEntry(3, 940001), setNameEntry(3, 940002)]);
+      const sealedUnitKey = pokemonUnitKey.replace(":single-card:", ":sealed-product:");
       const first = await post(body);
       expect(first.status).toBe(503);
       expect(await first.json()).toEqual({
         code: "scope-observations-unavailable",
       });
       expect(await observationRows(pool, pokemonUnitKey)).toEqual([]);
+      expect(await observationRows(pool, sealedUnitKey)).toEqual([]);
       expect((await pool.query("SELECT proposal_id FROM catalog_scope_record_proposals")).rows).toEqual([]);
       expect(await mappingEventCount(pool)).toBe(failure === "matching" ? 0 : 1);
       expect(statements).toContain("ROLLBACK");
@@ -260,16 +292,32 @@ describeDb("operator-extension set-name observation posts against the catalog st
       const retry = await post(body);
       expect(retry.status).toBe(200);
       expect(await observationRows(pool, pokemonUnitKey)).toHaveLength(2);
+      expect(await observationRows(pool, sealedUnitKey)).toHaveLength(2);
       expect((await pool.query("SELECT proposal_id FROM catalog_scope_record_proposals")).rows).toHaveLength(2);
-      const streams = await pool.query<{ count: string }>(
-        "SELECT count(DISTINCT stream_id)::text AS count FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'",
+      const mappings = () =>
+        pool.query<{ unit_key: string; set_name: string }>(
+          `SELECT payload->>'unitKey' AS unit_key, payload->'coordinates'->>'setName' AS set_name
+             FROM event_store_events
+            WHERE event_type = 'catalog.provider-scope-mapping.proposed'
+            ORDER BY unit_key, set_name`,
+        );
+      const expectedMappings = [sealedUnitKey, pokemonUnitKey].flatMap((unit_key) =>
+        body.sets.map((set) => ({ unit_key, set_name: set.cleanSetName })),
       );
-      expect(streams.rows).toEqual([{ count: "2" }]);
+      expect((await mappings()).rows).toEqual(expectedMappings);
+      const streams = () =>
+        pool.query<{ stream_id: string }>(
+          "SELECT DISTINCT stream_id FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%' ORDER BY stream_id",
+        );
+      const streamsBefore = (await streams()).rows;
+      expect(streamsBefore).toHaveLength(4);
       const events = await mappingEventCount(pool);
       const third = await post(body);
       expect(third.status).toBe(200);
-      expect(await third.json()).toEqual({ observationCount: 2, newObservationCount: 0, mappingsProposed: 0 });
+      expect(await third.json()).toEqual({ observationCount: 4, newObservationCount: 0, mappingsProposed: 0 });
       expect(await mappingEventCount(pool)).toBe(events);
+      expect((await mappings()).rows).toEqual(expectedMappings);
+      expect((await streams()).rows).toEqual(streamsBefore);
     },
   );
 
