@@ -3,17 +3,17 @@
 // (1280 px): a signed-out postage policies page sends the browser to the pilot's sign-in, the email
 // step offers its methods, the password starts the session (HttpOnly, SameSite=Lax) and the
 // browser lands back on the pilot's page, whose account menu has Sign out; signing out clears the
-// cookie and the page asks to sign in again. Signing in for a page only admin-web serves lands on
-// admin-web, which the page's `form-action` must allow. Nothing is wider than the screen and every
+// cookie and the page asks to sign in again. Signing in for a section's home (`/commerce`) lands on
+// the pilot's first page of it, as admin-web's does: the pilot serves every admin route. Nothing is wider than the screen and every
 // control is at least 44 px tall. Never sends a wrong password: the API counts failures by the browser's
 // address, which on a local run is every run's.
 // The platform admin exists only in the browser-e2e seed (PLATFORM_ADMIN_EMAIL); against the dev
 // seed, sign in as another seeded password user with PILOT_ADMIN_EMAIL and PILOT_ADMIN_PASSWORD
 // (the demo user, demo@chasesets.test).
-// Usage: node scripts/smoke-admin-sign-in.mjs [pilot-url] [admin-web-url]   (the pilot's ADMIN_WEB_ORIGIN)
+// Usage: node scripts/smoke-admin-sign-in.mjs [pilot-url]
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7790", adminWeb = "http://localhost:7752"] = process.argv.slice(2);
+const [base = "http://localhost:7790"] = process.argv.slice(2);
 const email = process.env.PILOT_ADMIN_EMAIL ?? "browser-e2e-platform-admin@chasesets.test";
 const password = process.env.PILOT_ADMIN_PASSWORD ?? "browser-e2e-platform-admin-password";
 const screen = "/commerce/postage-policies";
@@ -107,7 +107,7 @@ for (const javaScriptEnabled of [true, false]) {
     );
     await page.goto(`${base}${screen}`);
     check(page.url().startsWith(`${base}/access/sign-in`), `${label}: the page asks to sign in again`);
-    // A page the pilot does not serve is admin-web's: the sign-in's redirect goes there.
+    // A section's home: the sign-in's redirect comes back to the pilot, which opens its first page.
     await page.goto(`${base}/access/sign-in?returnTo=${encodeURIComponent("/commerce")}`);
     await page.getByLabel("Email or phone").fill(email);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -116,8 +116,8 @@ for (const javaScriptEnabled of [true, false]) {
     await page.getByRole("button", { name: "Sign In", exact: true }).click();
     await page.waitForURL((u) => !u.pathname.includes("sign-in"), { timeout: 20_000 }).catch(() => undefined);
     check(
-      page.url().startsWith(`${adminWeb}/commerce`),
-      `${label}: a page only admin-web serves is admin-web's (${page.url()})`,
+      page.url().startsWith(`${base}/commerce/`),
+      `${label}: a section's home lands on its first page in the pilot (${page.url()})`,
     );
     check(problems.length === 0, `${label}: no script errors ${JSON.stringify(problems)}`);
     await ctx.close();

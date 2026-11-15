@@ -1166,8 +1166,8 @@ async fn the_sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     let (status, _, html) = pilot.send(get("/access/sign-in?returnTo=%2Fcatalog", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
-        "Google Workspace through the pilot's relay, back to the page: {html}"
+        html.contains(r#"href="/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog" data-reload>"#),
+        "Google Workspace through the pilot's relay, back to the page, never prefetched: {html}"
     );
     assert!(html.contains(r#"<form class="sign-in-page__form" method="get" action="/access/sign-in">"#), "{html}");
     assert!(html.contains(r#"name="noindex""#) || html.contains(r#"content="noindex""#), "not indexed: {html}");
@@ -8209,9 +8209,24 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
     candidate["fieldProvenance"] = json!([{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer",
         "sourceProfileVersion": "sv-2026", "confidence": "exact", "evidenceSummary": "name" }]);
     candidate["proposedFacts"] = json!([{ "key": "name", "value": "Sprigatito" }]);
-    // `candidateConflicts=blocking` is a read whose candidate has a blocking conflict to resolve.
-    if location.contains("candidateConflicts=blocking") {
+    // `candidateConflicts=blocking` is a read whose candidate has a blocking conflict to resolve, its
+    // promote blocked by it alone; `candidateConflicts=stale` one whose promote a stale projection
+    // blocks as well.
+    if location.contains("candidateConflicts=") {
+        let stale = location.contains("candidateConflicts=stale");
+        candidate["status"] = json!(if stale { "stale" } else { "has-conflicts" });
         candidate["conflicts"]["blocking"] = json!(1);
+        candidate["conflicts"]["blockingConflicts"] = json!([{
+            "code": "rarity-mismatch", "message": "Rarity differs between sources.", "fieldPath": "catalogItem.rarity",
+            "existingValueDisplay": "Ultra Rare", "proposedValueDisplay": "Double Rare",
+            "existingValueJson": "\"Ultra Rare\"", "proposedValueJson": "\"Double Rare\"",
+            "observationIds": ["obs_1", "obs_2"] }]);
+        let blockers =
+            if stale { json!(["promotion-conflict", "source-projection-stale"]) } else { json!(["promotion-conflict"]) };
+        candidate["promoteReadiness"] = json!({ "state": if stale { "stale" } else { "blocked" }, "blockers": blockers });
+        candidate["actions"][0] = json!({ "key": "candidate.promote", "state": "blocked", "blockers": blockers,
+            "commandPreview": { "commandKind": "promote-catalog-merge-candidate",
+                "body": { "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4 } } });
     }
     candidate["actions"][3]["commandPreview"]["provenance"] =
         json!({ "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }], "externalProductReferences": [] });
@@ -10188,25 +10203,88 @@ async fn a_candidates_evidence_is_its_detail_sheet_from_the_row_the_read_gave() 
     ] {
         assert!(sheet.contains(text), "{text}: {sheet}");
     }
-    assert!(!sheet.contains("blocking conflicts runs on admin-web"), "no blocking conflict to resolve: {sheet}");
+    assert!(!sheet.contains("data-catalog-merge-candidate-conflicts"), "no blocking conflict to resolve: {sheet}");
     // Its trigger opens it without a read of its own, for a viewer who cannot manage too.
     assert!(
         html.contains(r#"command="show-modal" commandfor="#) && html.contains(r#"aria-label="Evidence: Sprigatito 001""#),
         "{html}"
     );
-    // A candidate with a blocking conflict: its resolution runs on admin-web, said in its sheet and below the list.
+    // A candidate with a blocking conflict: its sheet resolves it, the catalog's value chosen until
+    // the operator picks the source's, and the row offers no plain promote.
     let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
     let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
-    let admin_web = r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;candidateConflicts=blocking""#;
     let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
     let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
-    assert!(sheet.contains("blocking conflicts runs on admin-web") && sheet.contains(admin_web), "{sheet}");
-    assert_eq!(html.matches(admin_web).count(), 2, "the sheet's and the list's: {html}");
-    assert!(!html.contains("candidate-promote"), "no promote while a blocking conflict waits: {html}");
+    let form = &sheet[sheet.find("data-catalog-merge-candidate-conflict-resolution-form").expect(sheet)..];
+    assert!(
+        sheet.contains(r#"<form method="post" action="/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&amp;unitKey=pokemon&amp;candidateConflicts=blocking" class="#),
+        "{sheet}"
+    );
+    for text in [
+        r#"name="version" value="4""#,
+        r#"data-catalog-conflict-code="rarity-mismatch""#,
+        "Rarity differs between sources.",
+        "Keep the catalog value: Ultra Rare",
+        "Use the proposed source value: Double Rare",
+        r#"name="conflict[rarity-mismatch].field" value="catalogItem.rarity""#,
+        r#"name="conflict[rarity-mismatch].observation" value="obs_2""#,
+        r#"name="conflict[rarity-mismatch].reason""#,
+        "Resolve &amp; promote",
+    ] {
+        assert!(form.contains(text), "{text}: {form}");
+    }
+    let keep = &form[form.find(r#"name="conflict[rarity-mismatch].value""#).expect(form)..];
+    let keep = &keep[..keep.find('>').unwrap()];
+    assert!(keep.contains("Ultra Rare") && keep.contains("checked"), "the catalog's value is chosen first: {keep}");
+    assert!(!html.contains("runs on admin-web"), "{html}");
+    assert!(!html.contains(r#"data-catalog-primary-workbench-command="candidate-promote""#), "{html}");
+    // A reader sees the conflict, not the form.
+    let (_, _, viewer) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    assert!(viewer.contains(r#"data-catalog-merge-candidate-conflicts="cand_1""#), "{viewer}");
+    assert!(!viewer.contains("conflict-resolution-form"), "{viewer}");
+    // While a stale projection blocks the promote too, the sheet names it instead of offering the form.
+    let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=stale";
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-conflicts="cand_1""#).expect(&html)..];
+    assert!(sheet.contains("Other blockers remain") && !sheet.contains("conflict-resolution-form"), "{sheet}");
 
     let (_, _, viewer) =
         pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
     assert!(viewer.contains(r#"data-catalog-merge-candidate-detail="cand_1""#), "{viewer}");
+}
+
+#[tokio::test]
+async fn a_candidates_blocking_conflicts_resolve_with_its_promote_and_the_api_gets_each_choice() {
+    let pilot = Pilot::new().await;
+    let post_to = "/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
+    let row = "conflict%5Brarity-mismatch%5D";
+    let body = format!(
+        "command=promote&version=4&reason=Checked+against+the+set+list\
+         &{row}.field=catalogItem.rarity&{row}.observation=obs_1&{row}.observation=obs_2\
+         &{row}.value=%22Double+Rare%22&{row}.reason=The+set+list+says+Double+Rare"
+    );
+    let (status, headers, html) = pilot.send(post(post_to, &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    assert_eq!(
+        last_write(&pilot, "/admin/merge-candidates/cand_1/promote"),
+        json!({ "reason": "Checked against the set list", "expectedVersion": 4, "conflictResolutions": [{
+            "conflictCode": "rarity-mismatch", "fieldPath": "catalogItem.rarity", "chosenValue": "Double Rare",
+            "reason": "The set list says Double Rare", "observationIds": ["obs_1", "obs_2"] }] })
+    );
+    // A resolution without its reason, a value that is not the JSON the read gave, or a promote
+    // without its own reason writes nothing and says what the form needs.
+    let before = daily_writes(&pilot).len();
+    for refused in [
+        body.replace("The+set+list+says+Double+Rare", "+"),
+        body.replace("%22Double+Rare%22", "Double+Rare"),
+        body.replace("Checked+against+the+set+list", ""),
+    ] {
+        let (status, _, html) = pilot.send(post(post_to, &refused, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+        assert!(html.contains("cannot promote until every blocking conflict below has a chosen value and a reason"), "{html}");
+    }
+    assert_eq!(daily_writes(&pilot).len(), before);
 }
 
 #[tokio::test]

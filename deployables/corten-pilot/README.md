@@ -150,7 +150,7 @@ checked rows, an observation's evidence or a unit's scope) and Create or update 
 selection and confirmation the Catalog API builds for the read; a promotion the read does not offer is
 not offered. The commit presents the token the preview answered, with the draft choice it bound, and is
 offered while the read says the held preview may be committed (`previewCommittable`). A merge
-candidate's Promote sends the version the read offered it with, and its Evidence opens the candidate's detail sheet from the row the read gave; a promote with blocking conflicts to resolve stays on admin-web, as the API does not apply the value a resolution chooses ([chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235)). Its import context
+candidate's Promote sends the version the read offered it with, and its Evidence opens the candidate's detail sheet from the row the read gave; the sheet resolves a candidate's blocking conflicts, the catalog's value or the source's for each with a reason, and promotes with those choices, which the API applies. Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
 force-refreshes them; the scope selects, their options and the bar's summary line are the Catalog
 API's.
@@ -255,7 +255,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `eaddfa19` (Corten `main` on 2026-11-14), whose framework package is
+`Cargo.toml` pins Corten to `4674d1d3` (Corten `main` on 2026-11-15), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -310,6 +310,7 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 | [corten-run/corten#1371 A data-patch answer to a trigger outside a dialog cannot open it again once the user closed it: the patch keeps the user's closed state over the answer's open](https://github.com/corten-run/corten/issues/1371) | open. The search page's two sheet triggers (Add to List, Add matching products to Buy Cart) run `search.js`'s `fresh(id)` as they submit, which swaps a closed sheet for an empty hidden element of its id, so the answer opens it ([marketplace/src/views/search.js](marketplace/src/views/search.js)) |
 | [corten-run/corten#1372 A data-keep-place navigation gives focus to a hidden input with the focused control's name and value: placeOf matches any input in main by index](https://github.com/corten-run/corten/issues/1372) | open. Add matching products to Buy Cart's form, whose hidden fields repeat the filters, is drawn after the rail with its button in the control bar (`form="bulk-trigger"`), so a filter's focus comes back to the filter ([marketplace/src/views/search_page.rs](marketplace/src/views/search_page.rs), `BulkTriggerId`) |
 | [corten-run/corten#1449 A Corten app writes no line per request, and an app's middleware cannot write a faithful one: it never sees a 421 or a cross-site refusal and logs a 200 where the client got a 304](https://github.com/corten-run/corten/issues/1449) | open. Each app's requests are logged by a tower layer around it, `AccessLog` ([platform/src/access_log.rs](platform/src/access_log.rs)) |
+| [corten-run/corten#1462 A patches route's handler whose part needs its own read cannot answer its page without building a patch it will not send: only patch_or turns a page into HtmlResult<Patches>, and it takes the patch already built](https://github.com/corten-run/corten/issues/1462) | open. The notification center's address, which an alert write's patch reads the alerts section again from, answers the runtime's read itself and reaches the page through `patch_or` with an `AlertsSection` that is never drawn ([marketplace/src/notifications.rs](marketplace/src/notifications.rs)) |
 | [corten-run/corten#1388 Kit Checkbox, Radio and Switch ignore --control-height: their label, the whole target, stays 20 px when a theme makes every other control 44 px](https://github.com/corten-run/corten/issues/1388) | open. Market following's checkboxes sit in a `Choice` row of the control height whose label fills it ([marketplace/src/views/market_following.css](marketplace/src/views/market_following.css)); the kit's copied files are unchanged, and the pilot's other kit checkboxes, radios and switches stay 20 px until it lands |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
@@ -321,7 +322,6 @@ instead. Remove the workaround when the issue closes.
 
 | Issue | Cited in |
 |---|---|
-| [chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11239 [platform-operations] Offer a Support Request's remedy choices and actions from the Support API: admin-web's remedy panel uses the compiled launch policy and its own effect and permission rules](https://github.com/chase-sets/chase-sets/issues/11239) | [admin/src/support/requests.rs](admin/src/support/requests.rs) |
 | [chase-sets/chase-sets#9995 [checkout] Apply Sell List commands exactly once and converge the Offer handoff](https://github.com/chase-sets/chase-sets/issues/9995) | [marketplace/src/selling.rs](marketplace/src/selling.rs), [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#8766 Show every seller attention source in the Desk Needs you queue](https://github.com/chase-sets/chase-sets/issues/8766) | [scripts/smoke-market-desk.mjs](scripts/smoke-market-desk.mjs), [marketplace/src/views/desk_page.rs](marketplace/src/views/desk_page.rs) |
@@ -408,7 +408,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10881 [marketplace] The Listing Evidence Policy overview read after a write does not show the write: the policy document projection is not waited on](https://github.com/chase-sets/chase-sets/issues/10881) (none: the pilot sends the write's receipt, as admin-web does, and shows what the API answers) | [admin/src/evidence/mod.rs](admin/src/evidence/mod.rs) |
 | [chase-sets/chase-sets#10896 [catalog] A refused Promote or Reject on a Source Observation's page shows nothing](https://github.com/chase-sets/chase-sets/issues/10896) (none: the pilot's review is a form, and a refusal is its message) | [admin/src/catalog/observation.rs](admin/src/catalog/observation.rs) |
 | [chase-sets/chase-sets#10882 [marketplace] Validating any Listing Evidence Policy draft fails: the impact preview reads listing.catalog_item_id, which marketplace_listing_pages does not have](https://github.com/chase-sets/chase-sets/issues/10882) (none: the pilot shows the API's message; Validate and Activate are checked against a stand-in only) | [admin/src/evidence/mod.rs](admin/src/evidence/mod.rs) |
-| [chase-sets/chase-sets#11002 [fulfillment] Return each seller shipment's action plan with its detail read instead of restating the status rules in the web layer](https://github.com/chase-sets/chase-sets/issues/11002) | [marketplace/src/shipments.rs](marketplace/src/shipments.rs) |
 
 These are closed and still cited in the pilot's code as the decision or fix the code relies on.
 None of them leaves a workaround behind:

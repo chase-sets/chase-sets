@@ -1,11 +1,18 @@
-import { copyFile, mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { validateBrowserE2eDisclosureGuard } from "./browser-e2e-disclosure-guard.mjs";
 
 const historicalPath = "deployables/admin-web/e2e/catalog-integrations.spec.ts";
 const roots = [];
+// Hosted real-tree coverage has exceeded 5 seconds; allow headroom for repository growth and runner load.
+const realTreeTimeout = 30_000;
+let realE2eSources;
+
+beforeAll(async () => {
+  realE2eSources = await readBrowserE2eSources(path.join(process.cwd(), "deployables"));
+}, realTreeTimeout);
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -74,38 +81,44 @@ describe("browser E2E disclosure guard", () => {
     expect(result.violations).toEqual([expect.stringContaining("provider interaction")]);
   });
 
-  it("rejects a same-test function closure against the real discovery tree", async () => {
-    const plantedPath = "deployables/marketplace/e2e/closure-flow.spec.ts";
-    const root = await fixtureWithRealE2eTree({
-      [plantedPath]: playwrightSpec(`
+  it(
+    "rejects a same-test function closure against the real discovery tree",
+    async () => {
+      const plantedPath = "deployables/marketplace/e2e/closure-flow.spec.ts";
+      const root = await fixtureWithRealE2eTree({
+        [plantedPath]: playwrightSpec(`
         const owner = page.locator("[data-catalog-import-context-bar='true']");
         async function expectProviderVisible() {
           await expect(owner.getByRole("combobox", { name: "Provider" })).toBeVisible();
         }
         await expectProviderVisible();
       `),
-    });
+      });
 
-    const result = await validateBrowserE2eDisclosureGuard({ repoRoot: root });
-    expect(result.hits).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          file: plantedPath,
-          control: "provider",
-          classification: "unsafe-collapsed-owner",
-        }),
-        expect.objectContaining({ control: "provider", classification: "safe-open-owner" }),
-      ]),
-    );
-    expect(result.violations).toEqual([
-      expect.stringMatching(new RegExp(`${plantedPath.replaceAll("/", "\\/")}:.*provider interaction`)),
-    ]);
-  });
+      const result = await validateBrowserE2eDisclosureGuard({ repoRoot: root });
+      expect(result.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            file: plantedPath,
+            control: "provider",
+            classification: "unsafe-collapsed-owner",
+          }),
+          expect.objectContaining({ control: "provider", classification: "safe-open-owner" }),
+        ]),
+      );
+      expect(result.violations).toEqual([
+        expect.stringMatching(new RegExp(`${plantedPath.replaceAll("/", "\\/")}:.*provider interaction`)),
+      ]);
+    },
+    realTreeTimeout,
+  );
 
-  it("accepts an invoked arrow closure after imported executable open proof in the real tree", async () => {
-    const plantedPath = "deployables/marketplace/e2e/closure-flow.spec.ts";
-    const root = await fixtureWithRealE2eTree({
-      "deployables/marketplace/e2e/support/closure-disclosure.ts": `
+  it(
+    "accepts an invoked arrow closure after imported executable open proof in the real tree",
+    async () => {
+      const plantedPath = "deployables/marketplace/e2e/closure-flow.spec.ts";
+      const root = await fixtureWithRealE2eTree({
+        "deployables/marketplace/e2e/support/closure-disclosure.ts": `
         import { expect, type Locator } from "@playwright/test";
         export async function reveal(scope: Locator) {
           const trigger = scope.getByRole("button", { name: /Step 0 · Choose import scope/ });
@@ -113,7 +126,7 @@ describe("browser E2E disclosure guard", () => {
           await expect(trigger).toHaveAttribute("aria-expanded", "true");
         }
       `,
-      [plantedPath]: `
+        [plantedPath]: `
         import { expect, test } from "@playwright/test";
         import { reveal as openScope } from "./support/closure-disclosure";
         test("safe closure", async ({ page }) => {
@@ -127,15 +140,17 @@ describe("browser E2E disclosure guard", () => {
           await assertControls();
         });
       `,
-    });
+      });
 
-    const result = await validateBrowserE2eDisclosureGuard({ repoRoot: root });
-    expect(result.violations).toEqual([]);
-    expect(result.hits.filter((hit) => hit.file === plantedPath)).toEqual([
-      expect.objectContaining({ control: "source-options", classification: "safe-open-owner" }),
-      expect.objectContaining({ control: "provider", classification: "safe-open-owner" }),
-    ]);
-  });
+      const result = await validateBrowserE2eDisclosureGuard({ repoRoot: root });
+      expect(result.violations).toEqual([]);
+      expect(result.hits.filter((hit) => hit.file === plantedPath)).toEqual([
+        expect.objectContaining({ control: "source-options", classification: "safe-open-owner" }),
+        expect.objectContaining({ control: "provider", classification: "safe-open-owner" }),
+      ]);
+    },
+    realTreeTimeout,
+  );
 
   it("accepts a multiline alias through an imported open helper and owner scope", async () => {
     const root = await fixture({
@@ -387,28 +402,19 @@ async function fixture(entries) {
 }
 
 async function fixtureWithRealE2eTree(entries) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "browser-e2e-disclosure-real-tree-"));
-  roots.push(root);
-  await copyBrowserE2eSources(path.join(process.cwd(), "deployables"), root);
-  for (const [relativePath, contents] of Object.entries(entries)) {
-    const target = path.join(root, relativePath);
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, contents, "utf8");
-  }
-  return root;
+  return fixture({ ...realE2eSources, ...entries });
 }
 
-async function copyBrowserE2eSources(directory, targetRoot, insideE2e = false) {
+async function readBrowserE2eSources(directory, insideE2e = false, sources = {}) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const source = path.join(directory, entry.name);
     const inE2e = insideE2e || entry.name === "e2e";
     if (entry.isDirectory()) {
-      await copyBrowserE2eSources(source, targetRoot, inE2e);
+      await readBrowserE2eSources(source, inE2e, sources);
       continue;
     }
     if (!inE2e || !/\.(?:ts|tsx)$/.test(entry.name)) continue;
-    const target = path.join(targetRoot, path.relative(process.cwd(), source));
-    await mkdir(path.dirname(target), { recursive: true });
-    await copyFile(source, target);
+    sources[path.relative(process.cwd(), source)] = await readFile(source, "utf8");
   }
+  return sources;
 }

@@ -712,9 +712,10 @@ pub mod url {
     #[corten::routes(state = crate::app::Shared, area = Notifications, caller = crate::auth::Member)]
     pub mod notifications {
         /// The feed, or the settings (`view=settings`, at `section`), read after the write whose
-        /// receipt it carries.
+        /// receipt it carries. An alert write's patch reads the alerts' section again from it
+        /// (`ReadAgain::from`), so its `get` answers the runtime with that section, a patch.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/notifications", get = crate::notifications::page)]
+        #[route("/account/notifications", get = crate::notifications::page, patches)]
         pub struct Notifications {
             #[route(query)]
             pub place: crate::notifications::Place,
@@ -1167,9 +1168,10 @@ pub mod url {
             pub place: crate::payment::Place,
         }
 
-        /// The payment's status part, read again while the payment waits for the buyer.
+        /// The payment's status part, read again while the payment waits for the buyer
+        /// (`ReadAgain::from`), so its `get` answers the runtime with a patch.
         #[derive(Clone, Debug)]
-        #[route("/account/payments/{id}/status", get = crate::payment::status)]
+        #[route("/account/payments/{id}/status", get = crate::payment::status, patches)]
         pub struct BuyerPaymentStatus<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -1197,9 +1199,10 @@ pub mod url {
             pub place: crate::payment::GuestPlace,
         }
 
-        /// The payment's status part, read again while the payment waits for the guest.
+        /// The payment's status part, read again while the payment waits for the guest
+        /// (`ReadAgain::from`), so its `get` answers the runtime with a patch.
         #[derive(Clone, Debug)]
-        #[route("/checkout/payments/{id}/status", get = crate::payment::guest_status)]
+        #[route("/checkout/payments/{id}/status", get = crate::payment::guest_status, patches)]
         pub struct GuestPaymentStatus<'a> {
             pub id: &'a str,
             #[route(query)]
