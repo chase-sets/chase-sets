@@ -1292,7 +1292,7 @@ function executeStep(step, env = {}) {
         '-n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json')
           printf '%s\\n' '{"items":[{"status":{"phase":"Running"},"spec":{"nodeName":"synthetic-ingress-node"}}]}' ;;
         'get nodes -o json')
-          printf '%s\\n' '{"items":[{"metadata":{"name":"synthetic-ingress-node"},"spec":{"podCIDRs":["192.0.2.0/24"]}}]}' ;;
+          printf '%s\\n' '{"items":[{"metadata":{"name":"synthetic-ingress-node","annotations":{"network.cilium.io/ipv4-pod-cidr":"192.0.2.0/24"}},"spec":{}}]}' ;;
         *) echo 'unexpected synthetic kubectl command' >&2; return 1 ;;
       esac
     }
