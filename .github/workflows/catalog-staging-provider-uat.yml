@@ -291,9 +291,9 @@ jobs:
           retention-days: 30
 
       # Whole-game journeys write one schema-validated, support-safe receipt; it
-      # publishes only when the producing step succeeded and the exact file exists.
+      # preserves failure diagnostics without publishing traces or provider bodies.
       - name: Upload whole-game rehearsal receipt
-        if: steps.provider-uat.outcome == 'success' && startsWith(matrix.journey_scope, 'full-game-')
+        if: ${{ always() && startsWith(matrix.journey_scope, 'full-game-') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: catalog-whole-game-rehearsal-${{ matrix.journey_scope }}-${{ github.run_id }}-${{ github.run_attempt }}
