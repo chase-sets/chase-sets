@@ -1130,6 +1130,49 @@ describe("platform Kubernetes deployment", () => {
     ).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.production.yaml"]));
   });
 
+  it.each([
+    ["platform-pr.yml", "Reset preview namespace", "Deploy preview Kubernetes release"],
+    ["platform-merge-gate-verification.yml", "Create gate namespace", "Deploy gate Kubernetes release"],
+    ["platform-ephemeral-verification.yml", "Reset verification namespace", "Deploy verification Kubernetes release"],
+  ])("pins %s to a fresh preview install without deploy retry", (file, resetName, deployName) => {
+    const workflow = parseYaml(readFileSync(`.github/workflows/${file}`, "utf8"));
+    const job = Object.values(workflow.jobs).find((job) => job.steps?.some((step) => step.name === deployName));
+    const reset = job.steps.findIndex((step) => step.name === resetName);
+    const deploy = job.steps.findIndex((step) => step.name === deployName);
+    expect(reset).toBeGreaterThanOrEqual(0);
+    expect(reset).toBeLessThan(deploy);
+    if (file === "platform-merge-gate-verification.yml") {
+      expect(job.env.CHASE_SETS_KUBERNETES_NAMESPACE).toBe(
+        "chase-sets-gate-${{ github.run_id }}-${{ github.run_attempt }}",
+      );
+      expect(job.steps[reset].run).toContain("kubectl create -f -");
+    } else {
+      expect(job.steps[reset].run).toContain(
+        'kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true',
+      );
+      expect(job.steps[reset].run).toContain('kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+      if (file === "platform-ephemeral-verification.yml") {
+        expect(job.env.CHASE_SETS_KUBERNETES_NAMESPACE).toBe(
+          "chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}",
+        );
+      }
+    }
+    const run = job.steps[deploy].run;
+    expect(run.match(/pnpm run platform:kubernetes-deployment -- deploy/g)).toHaveLength(1);
+    expect(run).toContain("DEPLOYMENT_ENVIRONMENT=preview");
+    expect(run).not.toMatch(/--attempts-out|--admission-retry|\b(for|while|until)\b|continue-on-error/);
+    expect(job.steps[deploy]["continue-on-error"]).not.toBe(true);
+    const args = buildHelmUpgradeArgs({
+      release: "preview-fixture",
+      namespace: "preview-fixture",
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:fixture",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-9963" },
+    });
+    expect(args.slice(0, 2)).toEqual(["upgrade", "--install"]);
+    expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
+  });
+
   it("enables in-cluster collection with environment-safe export only for long-lived environments", () => {
     const stagingArgs = buildHelmUpgradeArgs({
       release: "chase-sets-platform",
@@ -7377,13 +7420,13 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
 
   it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
     const memoryByComponent = {
-      "public-web": "1024Mi",
-      marketplace: "1152Mi",
-      "admin-web": "832Mi",
-      "platform-api": "640Mi",
-      "platform-worker": "832Mi",
-      "platform-bootstrap": "1152Mi",
-      "preview-postgres": "448Mi",
+      "public-web": "1216Mi",
+      marketplace: "1280Mi",
+      "admin-web": "960Mi",
+      "platform-api": "1408Mi",
+      "platform-worker": "960Mi",
+      "platform-bootstrap": "896Mi",
+      "preview-postgres": "512Mi",
     };
     for (const release of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
       const args = deployArgs("preview", release);
@@ -7397,7 +7440,10 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         const component = pod.metadata.labels["app.kubernetes.io/component"];
         const { spec, metadata } = pod.spec.template;
         expect(spec.containers).toHaveLength(1);
-        expect(spec.containers[0].resources).toEqual({ requests: { memory: memoryByComponent[component] } });
+        expect(spec.containers[0].resources).toEqual({
+          requests: { cpu: component === "platform-bootstrap" ? "250m" : "100m", memory: memoryByComponent[component] },
+          limits: { memory: memoryByComponent[component] },
+        });
         const selector = (operator) => ({
           matchExpressions: [
             { key: "app.kubernetes.io/name", operator: "In", values: ["chase-sets-platform"] },
@@ -7426,6 +7472,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         } else if (component === "platform-bootstrap") {
           expect(pod.kind).toBe("Job");
           expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-20");
+          expect(pod.metadata.annotations["helm.sh/hook-delete-policy"]).toContain("hook-succeeded");
           expect(pod.spec.activeDeadlineSeconds).toBe(890);
         } else {
           expect(pod.kind).toBe("Deployment");
