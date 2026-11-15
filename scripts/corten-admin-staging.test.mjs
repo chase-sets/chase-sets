@@ -307,13 +307,13 @@ describe("Corten admin staging deployment", () => {
       expect(result.error).toBeUndefined();
       expect(result.status).not.toBe(0);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("Missing pod CIDR for ingress node synthetic-ingress-node-2");
+      expect(result.stderr).toContain("Missing pod CIDR for ingress node: synthetic-ingress-node-2");
     });
 
     it("fails closed if an ingress node is absent from the node list", () => {
       const result = discover([]);
       expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain("Missing pod CIDR for ingress node synthetic-ingress-node");
+      expect(result.stderr).toContain("Missing pod CIDR for ingress node: synthetic-ingress-node");
     });
   });
 });

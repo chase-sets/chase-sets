@@ -2069,7 +2069,7 @@ jobs:
               | .metadata.annotations["network.cilium.io/ipv4-pod-cidr"] as $cilium_cidr
               | if ($cidrs | length) > 0 then $cidrs[]
                 elif ($cilium_cidr | type == "string" and length > 0) then $cilium_cidr
-                else error("Missing pod CIDR for ingress node \($name)")
+                else error("Missing pod CIDR for ingress node: \($name)")
                 end
             ] | unique | select(length > 0) | join(",")')"
 
