@@ -23,6 +23,7 @@ const productionOrigin = linkIntentOrigins["marketplace-web"].production;
 const authorizePath = "/channel-connector/oauth/authorize";
 const stagingPersonaSignInPath = "/api/auth/staging-persona-sign-in";
 const stagingPersonaMagicLinkPath = "/sign-in/magic";
+const stagingPersonaClockSkewToleranceMs = 60_000;
 const valueFlags = [
   "--deploy-run",
   "--deploy-commit",
@@ -199,7 +200,7 @@ export function createStagingPersonaSignIn(resolver?: PairingDrillResolver) {
         token.length > maxPersonaTokenLength ||
         !Number.isFinite(expiry) ||
         expiry <= now ||
-        expiry > now + 10 * 60 * 1000 ||
+        expiry > now + 10 * 60 * 1000 + stagingPersonaClockSkewToleranceMs ||
         new Date(expiry).toISOString() !== body.expiresAt
       ) {
         throw new Error("staging-persona-link-origin-refused");

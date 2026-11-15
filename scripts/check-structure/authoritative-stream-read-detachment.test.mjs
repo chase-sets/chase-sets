@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-four green grammar instances across thirty live locations without a registry", () => {
+  it("derives thirty-five green grammar instances across thirty-one live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(34);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(30);
+    expect(green).toHaveLength(35);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(31);
     expect(
       green
         .filter((entry) => entry.file.startsWith("bounded-contexts/auth/"))
@@ -241,6 +241,11 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         symbol: "createAuthSessionAuthority.capture.readStream",
       },
     ]);
+    expect(
+      green
+        .filter((entry) => entry.file === "bounded-contexts/catalog/features/product-contents/api/runtime.ts")
+        .map(({ category, symbol }) => ({ category, symbol })),
+    ).toEqual([{ category: "member-declaration", symbol: "readProductContentsAuthoringState.reader.readStream" }]);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
     expect(declarations.errors).toEqual([]);
     expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
