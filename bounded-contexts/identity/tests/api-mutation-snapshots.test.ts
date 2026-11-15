@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -10,6 +11,11 @@ import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 import { registrationConsentBundlesFixture } from "./consent-activation-authority-fixtures";
+import {
+  expectHelperParity,
+  expectProjectionFailure,
+  expectSourceEvent,
+} from "../../customer-feedback/tests/outcome-fact-test-support";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -241,6 +247,106 @@ async function requestJson(app: Hono<IdentityApiEnv>, path: string, init: Reques
   const body = await response.json();
   return { response, body };
 }
+
+async function emitIdentityOutcome(path: "registration" | "guest-account" | "invitation") {
+  const eventStore = createInMemoryEventStore();
+  const services = createServices({}, eventStore);
+  const app = buildApp(services);
+  const consent = await requestJson(app, "/internal/auth/registration-consent");
+  const registration = path === "registration";
+  const { response, body } = await requestJson(
+    app,
+    registration
+      ? "/internal/auth/personal-identities"
+      : path === "guest-account"
+        ? "/internal/auth/guest-accounts/acc_guest/claim"
+        : "/internal/auth/invitations/ivt_existing/accept",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        registration
+          ? {
+              email: "new@example.com",
+              displayName: "New Person",
+              registrationConsent: { resolution: consent.body, affirmed: true },
+            }
+          : path === "guest-account"
+            ? { userId: "usr_1", roleKey: "owner" }
+            : { userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" },
+      ),
+    },
+  );
+  expect(response.status).toBe(path === "invitation" ? 200 : 201);
+  const accountId = registration ? body.accountId : path === "guest-account" ? "acc_guest" : actor.accountId;
+  const userId = registration ? body.userId : actor.userId;
+  const eventType = registration ? "identity.registration.completed" : "identity.onboarding.completed";
+  const events = await eventStore.readAll();
+  const event = events.find((candidate) => candidate.eventType === eventType)!;
+  const payload = registration
+    ? { accountId, userId }
+    : path === "guest-account"
+      ? { accountId, userId, onboardingPath: path }
+      : { accountId, userId, onboardingPath: path, invitationId: "ivt_existing" };
+  return { event, events, response, payload, accountId, userId, eventType };
+}
+
+describe("Identity native outcome events", () => {
+  const paths = ["registration", "guest-account", "invitation"] as const;
+  it.each(paths)("emits identity %s event with exact payload and envelope identity", async (path) => {
+    const { event, payload, eventType, accountId, userId } = await emitIdentityOutcome(path);
+    expectSourceEvent(event, {
+      eventType,
+      payload,
+      tenantId: "tnt_identity" as never,
+      performedByUserId: "usr_1" as never,
+      forAccountId: "acc_1" as never,
+    });
+    const key =
+      path === "registration"
+        ? `identity:registration:${accountId}`
+        : path === "guest-account"
+          ? `identity:onboarding:guest-account:${accountId}:${userId}`
+          : `identity:onboarding:invitation:ivt_existing:${userId}`;
+    expect(event.eventId).toBe(`evt_lifecycle_${createHash("sha256").update(key).digest("hex")}`);
+  });
+
+  it.each(paths)("projects identity %s with helper-parity row", async (path) => {
+    const { event, accountId, userId } = await emitIdentityOutcome(path);
+    await expectHelperParity(event, {
+      idempotencyKey:
+        path === "registration"
+          ? `identity:registration:${accountId}`
+          : path === "guest-account"
+            ? `identity:onboarding:guest-account:${accountId}:${userId}`
+            : `identity:onboarding:invitation:ivt_existing:${userId}`,
+      outcomeCode: path === "registration" ? "registration.completed" : "onboarding.completed",
+      sourceContext: "identity",
+      subjectAccountId: accountId,
+      subjectKind: "account",
+      subjectEntityType: path === "invitation" ? "invitation" : "account",
+      subjectEntityId: path === "invitation" ? "ivt_existing" : accountId,
+      authenticationMethod: null,
+    });
+  });
+
+  it("keeps registration atomic when outcome projection fails", async () => {
+    const { event, events, response } = await emitIdentityOutcome("registration");
+    await expectProjectionFailure(event);
+    expect(response.status).toBe(201);
+    for (const type of ["identity.account.created", "identity.user.created", "identity.membership.granted"]) {
+      expect(events.filter((candidate) => candidate.eventType === type)).toHaveLength(1);
+    }
+  });
+
+  it.each(["guest-account", "invitation"] as const)(
+    "keeps guest and invitation onboarding successful when projection fails (%s)",
+    async (path) => {
+      const { event, response } = await emitIdentityOutcome(path);
+      await expectProjectionFailure(event);
+      expect(response.status).toBe(path === "invitation" ? 200 : 201);
+    },
+  );
+});
 
 describe("Identity API mutation snapshots", () => {
   it("keeps guest and invitation onboarding successful when outcome publication fails", async () => {

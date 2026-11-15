@@ -19,6 +19,13 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 A **Search Session** is the authenticated session context associated with a signed-in Discovery search occurrence.
 
+### Search Session Started
+
+**Search Session Started** is the `discovery.search-session.started` fact emitted
+for the first successful signed-in search in an authenticated Session. It carries
+the Account and Session identifiers. Further searches in that Session do not
+append another fact; anonymous and agent-grant searches do not emit it.
+
 ### Discovery Query
 
 A **Discovery Query** is the normalized set of search text, filters, sort order, and pagination inputs used to request catalog-item browse results.

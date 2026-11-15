@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -13,6 +14,11 @@ import {
   INVITATION_ACCEPTANCE_MAX_EVENTS,
 } from "./acceptance-operation";
 import { acceptanceContext, acceptanceOperation, seedAcceptance } from "./acceptance-test-support";
+import {
+  expectHelperParity,
+  expectProjectionFailure,
+  expectSourceEvent,
+} from "../../../../customer-feedback/tests/outcome-fact-test-support";
 
 function servicesFor(store: EventStore): IdentityServices {
   const deps = {
@@ -76,13 +82,13 @@ describe("invitation-acceptance-identity-atomicity", () => {
     },
   );
 
-  it("production invitation acceptance publishes the discriminated onboarding fact", async () => {
+  it("emits identity invitation-operation event with exact payload and envelope identity", async () => {
     const store = createInMemoryEventStore();
     await seedAcceptance(store);
     const response = await accept(store);
     expect(response.status).toBe(200);
     const event = (await store.readAll()).find((candidate) => candidate.eventType === "identity.onboarding.completed");
-    expect(event).toMatchObject({
+    expectSourceEvent(event, {
       eventType: "identity.onboarding.completed",
       payload: {
         accountId: "acc_invited",
@@ -90,11 +96,42 @@ describe("invitation-acceptance-identity-atomicity", () => {
         onboardingPath: "invitation",
         invitationId: "ivt_invited",
       },
-      streamId: expect.stringMatching(/^identity\.onboarding-/),
       tenantId: acceptanceContext.tenantId,
       performedByUserId: acceptanceContext.audit.performedByUserId,
       forAccountId: acceptanceContext.audit.forAccountId,
     });
+    const digest = createHash("sha256")
+      .update("identity:onboarding:invitation:ivt_invited:usr_recipient")
+      .digest("hex");
+    expect(event!.eventId).toBe(`evt_lifecycle_${digest}`);
+    expect(event!.streamId).toMatch(/^identity\.onboarding-/);
+  });
+
+  it("projects identity invitation-operation with helper-parity row", async () => {
+    const store = createInMemoryEventStore();
+    await seedAcceptance(store);
+    expect((await accept(store)).status).toBe(200);
+    const event = (await store.readAll()).find((candidate) => candidate.eventType === "identity.onboarding.completed")!;
+    await expectHelperParity(event, {
+      idempotencyKey: "identity:onboarding:invitation:ivt_invited:usr_recipient",
+      outcomeCode: "onboarding.completed",
+      sourceContext: "identity",
+      subjectAccountId: "acc_invited",
+      subjectKind: "account",
+      subjectEntityType: "invitation",
+      subjectEntityId: "ivt_invited",
+      authenticationMethod: null,
+    });
+  });
+
+  it("keeps guest and invitation onboarding successful when projection fails (invitation-operation)", async () => {
+    const store = createInMemoryEventStore();
+    await seedAcceptance(store);
+    const response = await accept(store);
+    const event = (await store.readAll()).find((candidate) => candidate.eventType === "identity.onboarding.completed")!;
+    await expectProjectionFailure(event);
+    expect(response.status).toBe(200);
+    expect(await store.readStream({ streamId: "identity.membership-mbr_reserved" })).toHaveLength(1);
   });
 
   it("F2 receipt-bound acceptance remains provable after a one-hour token expires, never pending or wrong-token", async () => {
