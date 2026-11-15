@@ -4,7 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { isDeepStrictEqual, promisify } from "node:util";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { planClusterAddons } from "./doks-cluster-addons.mjs";
 
 const execFileAsync = promisify(execFile);
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
@@ -759,10 +760,22 @@ export function qualifyChart(source) {
     throw new Error("ac5_chart_default_backend_unratified");
   return { ...common, topology: "ratified", maintenanceData: data, maintenanceAnnotation: annotation };
 }
-function chartValues(root = process.cwd()) {
-  return qualifyChart(
-    readFileSync(resolve(root, "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml"), "utf8"),
+export function readStagingChart(root = process.cwd()) {
+  const source = readFileSync(resolve(root, "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml"), "utf8");
+  let document;
+  try {
+    document = parseYaml(source, { uniqueKeys: true });
+  } catch {
+    throw new Error("ac5_chart_config_invalid");
+  }
+  const ingress = planClusterAddons({ environment: "staging" }).find((step) =>
+    step.name.startsWith("install ingress-nginx"),
   );
+  // Refs #10392: qualify staging's effective values, not the disabled production default.
+  if (document?.defaultBackend?.enabled === false && ingress.command.includes("defaultBackend.enabled=true")) {
+    document.defaultBackend.enabled = true;
+  }
+  return qualifyChart(stringifyYaml(document));
 }
 function wildcardMatches(host, target) {
   if (!host) return true;
@@ -890,7 +903,7 @@ async function executeProbe(options, dependencies) {
     timeout: READ_TIMEOUT_MS,
   });
   if (ancestor.exit !== 0) throw new Error("ac5_fix_sha_not_ancestor");
-  const chart = chartValues(dependencies.root);
+  const chart = readStagingChart(dependencies.root);
   const workloadRef = findResourceName(options.marketplaceWorkload);
   const collectorDaemonSet = jsonOutput(
     await runKubectl([

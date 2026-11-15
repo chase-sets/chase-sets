@@ -70,7 +70,7 @@ controller:
     enabled: true
 
 defaultBackend:
-  enabled: true
+  enabled: false
   replicaCount: 2
   minAvailable: 1
   topologySpreadConstraints:

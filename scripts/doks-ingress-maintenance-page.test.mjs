@@ -80,7 +80,7 @@ function assertMaintenanceConfig(candidate) {
     "error-log-path": "/dev/null",
   });
   expect(candidateBackend).toMatchObject({
-    enabled: true,
+    enabled: false,
     replicaCount: 2,
     minAvailable: 1,
     port: 8080,
