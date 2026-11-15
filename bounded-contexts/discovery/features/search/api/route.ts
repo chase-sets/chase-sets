@@ -44,7 +44,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
           context,
         });
       } catch {
-        // CSAT publication is asynchronous and must not turn a successful
+        // Lifecycle publication must not turn a successful
         // search response into a failed request.
       }
     }
