@@ -277,7 +277,9 @@ fn refusal(t: SignInMsg, intent: &str, error: &ApiError) -> (StatusCode, &'stati
 }
 
 /// Google Workspace's sign-in (`createAdminGoogleWorkspaceSocialLoginHref`): Auth's start, through
-/// the pilot's relay where nothing else serves `/api`, so Google comes back to this origin.
+/// the pilot's relay where nothing else serves `/api`, so Google comes back to this origin. Its
+/// link takes `data-reload`: the start is a redirect to Google, not a page, so a touch or a hover
+/// must not prefetch it and a click must not fetch it as a page first.
 pub fn workspace(return_to: &str) -> String {
     let start = crate::site::files::SocialSignIn { provider: "google", step: "start" }.href();
     format!("{start}?journey=admin&returnTo={}", segment(return_to))

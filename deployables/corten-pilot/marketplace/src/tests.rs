@@ -14682,7 +14682,7 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"name="returnTo" value="/account/cart""#), "{html}");
     assert!(html.contains(r#"name="signInMethod" value="password""#) && html.contains(r#"name="signInIdentifier""#));
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart""#),
+        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
         "the pilot's relay: {html}"
     );
     assert!(!html.contains(r#"type="password""#));
@@ -14871,7 +14871,7 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     assert!(html.contains(r#"autocomplete="email""#) && html.contains(r#"autocomplete="name""#), "{html}");
     assert!(!html.contains(r#"href="http://localhost:7753/register"#), "no longer marketplace's: {html}");
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart""#),
+        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
         "{html}"
     );
 
