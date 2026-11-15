@@ -1,6 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ReportedContentQueueStatus } from "../api/contracts";
-import { reportedContentDueTimes, reportedContentReason, reportedContentSeverity } from "./response-policy";
+import {
+  reportedContentDueTimes,
+  reportedContentReason,
+  reportedContentRepeatDispositionDaysPolicy,
+  reportedContentSeverity,
+} from "./response-policy";
 
 export type ResponseAction = { actionId: string; action: string; recordedAt: string };
 export type ResponseAcknowledgement = { startedAt: string; acknowledgedAt: string; operatorUserId: string | null };
@@ -69,12 +74,12 @@ export async function refreshReportedContentResponses(db: PgQueryable, targetTyp
           WHERE p.target_owner_account_id = q.target_owner_account_id
             AND a->>'action' <> 'dismiss'
             AND (a->>'recordedAt')::timestamptz < q.last_reported_at
-            AND (a->>'recordedAt')::timestamptz >= q.last_reported_at - interval '180 days') AS prior_dispositions
+            AND (a->>'recordedAt')::timestamptz >= q.last_reported_at - make_interval(days => $3::integer)) AS prior_dispositions
       FROM platform_operations_reported_content_queue_pages q
       WHERE q.report_count > 0 AND ((q.target_type = $1 AND q.target_id = $2)
         OR q.target_owner_account_id = (SELECT target_owner_account_id
           FROM platform_operations_reported_content_queue_pages WHERE target_type = $1 AND target_id = $2))`,
-      [targetType, targetId],
+      [targetType, targetId, reportedContentRepeatDispositionDaysPolicy.defaultValue],
     );
     let conflict = false;
     for (const row of rows.rows) {

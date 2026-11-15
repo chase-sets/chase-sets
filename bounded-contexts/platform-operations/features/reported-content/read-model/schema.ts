@@ -1,4 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { refreshReportedContentResponses } from "./response-state";
 
 export const reportedContentSchemaSql = `
@@ -50,7 +51,7 @@ export const reportedContentResponseSchemaMigrations: readonly BcSchemaMigration
     migrationId: "20261115_reported_content_response",
     description: "Backfill effective response policy and prior dispositions without appending events.",
     statements: [],
-    dataStep: async (db) => {
+    dataStep: async (db: PgQueryable) => {
       await db.query(`UPDATE platform_operations_reported_content_queue_pages q SET response_actions = COALESCE((
       SELECT jsonb_agg(jsonb_build_object('actionId', e.payload->>'actionId', 'action', e.payload->>'action',
         'recordedAt', e.payload->>'recordedAt') ORDER BY e.payload->>'recordedAt', e.payload->>'actionId')

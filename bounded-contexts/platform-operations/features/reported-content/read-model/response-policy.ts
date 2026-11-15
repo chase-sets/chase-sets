@@ -1,3 +1,18 @@
+import { definePolicy } from "@chase-sets/platform-policy/define-policy";
+
+export const reportedContentRepeatDispositionDaysPolicy = definePolicy({
+  policyKey: "platform-operations.reported-content-repeat-disposition-days",
+  contextName: "platform-operations",
+  schemaSummary: "Positive whole days of prior owner dispositions considered for repeat-owner severity.",
+  defaultValue: 180,
+  decodeValue: (raw) => {
+    if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw <= 0) {
+      throw new Error("Reported Content repeat disposition days must be a positive whole number.");
+    }
+    return raw;
+  },
+});
+
 export type ReportedContentSeverity = "critical" | "high" | "standard";
 export const severityRank = { critical: 0, high: 1, standard: 2 } as const;
 export type ReportedContentResponsePolicy = Readonly<{

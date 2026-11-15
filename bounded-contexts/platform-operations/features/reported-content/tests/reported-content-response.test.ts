@@ -3,15 +3,35 @@ import {
   reportedContentDueTimes,
   reportedContentReason,
   reportedContentSeverity,
+  reportedContentRepeatDispositionDaysPolicy,
   isReportedContentBusinessDay,
   REPORTED_CONTENT_RESPONSE_POLICY,
 } from "../read-model/response-policy";
-import { deriveReportedContentResponse, type ResponseRow } from "../read-model/response-state";
+import {
+  deriveReportedContentResponse,
+  refreshReportedContentResponses,
+  type ResponseRow,
+} from "../read-model/response-state";
 import { createReportedContentRuntime } from "../api/runtime";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 describe("reported-content-severity-matrix", () => {
+  it("single-sources the repeat-owner window in the policy default and parameterizes its query", async () => {
+    expect(reportedContentRepeatDispositionDaysPolicy.defaultValue).toBe(180);
+    expect(reportedContentRepeatDispositionDaysPolicy.decodeValue(90)).toBe(90);
+    for (const invalid of [0, -1, 1.5, "180", null]) {
+      expect(() => reportedContentRepeatDispositionDaysPolicy.decodeValue(invalid)).toThrow();
+    }
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    await refreshReportedContentResponses({ query } as PgQueryable, "listing", "lst_repeat");
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("make_interval(days => $3::integer)"), [
+      "listing",
+      "lst_repeat",
+      reportedContentRepeatDispositionDaysPolicy.defaultValue,
+    ]);
+  });
+
   it.each([
     ["counterfeit-concern", "counterfeit-ip-stolen-photo", "standard"],
     ["stolen-photos", "counterfeit-ip-stolen-photo", "standard"],
