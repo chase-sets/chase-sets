@@ -34,6 +34,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const targetType = params.targetType ?? "";
   const targetId = params.targetId ?? "";
   const note = String(formData.get("note") ?? "").trim() || null;
+  if (formData.get("action") === "acknowledge") {
+    await createReportedContentRequestApiClient(request).acknowledgeReportedContent(targetType, targetId);
+    return redirect(`/reported-content/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}`);
+  }
   await createReportedContentRequestApiClient(request).recordReportedContentAction(
     targetType,
     targetId,

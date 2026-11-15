@@ -144,6 +144,7 @@ describe("platform API route collision assembly", () => {
       { method: "GET", path: "/reported-content/metrics" },
       { method: "GET", path: "/reported-content/:targetType/:targetId" },
       { method: "POST", path: "/reported-content/:targetType/:targetId/actions" },
+      { method: "POST", path: "/reported-content/:targetType/:targetId/acknowledge" },
     ]);
   });
 
