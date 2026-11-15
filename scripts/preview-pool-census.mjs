@@ -207,21 +207,31 @@ export function computeSizing(values, nodes, maxNodes) {
   ];
   const missing = requestSources.filter(([, value]) => !(parseMemoryMib(value) > 0)).map(([name]) => name);
   if (missing.length) throw new Error(`seven preview workload memory requests must be positive: ${missing.join(", ")}`);
-  const namespaceRequestMi = requestSources.reduce((sum, [, value]) => sum + parseMemoryMib(value), 0);
+  const requests = Object.fromEntries(requestSources.map(([name, value]) => [name, parseMemoryMib(value)]));
+  const deploymentsMi = PREVIEW_COMPONENTS.slice(0, 5).reduce((sum, name) => sum + requests[`components.${name}`], 0);
+  // Fresh installs run postgres throughout, bootstrap before the five Deployments.
+  const namespaceRequestMi =
+    requests.previewPostgres + Math.max(requests["components.platform-bootstrap"], deploymentsMi);
   const previewNodes = asArray(nodes).filter(
     (node) => node?.pool === PREVIEW_POOL_VALUE || node?.metadata?.labels?.[PREVIEW_POOL_LABEL] === PREVIEW_POOL_VALUE,
   );
   const perNode = previewNodes.map((node) => {
     const available = node.allocatable.memoryMi - (node.nonPreviewRequests?.memoryMi ?? 0);
-    return Math.max(0, Math.floor(available / namespaceRequestMi));
+    return node.ready === true && available >= namespaceRequestMi ? 1 : 0;
   });
-  const liveN = perNode.reduce((sum, value) => sum + value, 0);
   const maxNodeCount = Number.isInteger(maxNodes) ? maxNodes : Number(maxNodes);
+  const liveN = perNode.reduce(
+    (sum, value, index) => sum + (asArray(previewNodes[index].previewNamespaces).length ? 0 : value),
+    0,
+  );
   const maxPerNode = perNode.length ? Math.min(...perNode) : 0;
   return {
     namespaceRequestMi,
     perNode,
-    N: { live: liveN, maxNodes: Number.isInteger(maxNodeCount) ? maxPerNode * maxNodeCount : liveN },
+    N: {
+      live: Number.isInteger(maxNodeCount) ? Math.min(liveN, maxNodeCount) : liveN,
+      maxNodes: Number.isInteger(maxNodeCount) ? maxPerNode * maxNodeCount : liveN,
+    },
   };
 }
 
@@ -304,6 +314,15 @@ function buildNodeRecords(snapshot) {
   return asArray(snapshot.nodes).map((node) => {
     const record = nodeRecord(node);
     if (!nodeIsPreview(node)) return record;
+    record.previewNamespaces = [
+      ...new Set(
+        asArray(snapshot.pods)
+          .filter(
+            (pod) => pod?.spec?.nodeName === record.name && previewNames.has(podNamespace(pod)) && !isTerminalPod(pod),
+          )
+          .map(podNamespace),
+      ),
+    ].sort();
     const nonPreviewPods = asArray(snapshot.pods).filter(
       (pod) => pod?.spec?.nodeName === record.name && !previewNames.has(podNamespace(pod)) && !isTerminalPod(pod),
     );
