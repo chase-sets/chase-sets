@@ -1,6 +1,5 @@
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
 import type { CatalogProviderProfileFixtureCase } from "./provider-profile-contract-harness";
-import { TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION } from "./tcgplayer/executable-mapping-contract";
 
 export function catalogProviderProfileFixtureCases(): readonly CatalogProviderProfileFixtureCase[] {
   return [
@@ -1755,7 +1754,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       {
         profileKey: "lorcana-sealed-product-sku",
         ingestionUnitKey: "tcgplayer:lorcana:sealed-product:source-observation-import",
-        profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+        profileVersion: "2026.11.15",
       },
       {},
     ).map((fixtureCase) => ({
