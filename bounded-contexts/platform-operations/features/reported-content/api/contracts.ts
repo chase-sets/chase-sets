@@ -62,6 +62,7 @@ export const reportedContentActionRejectionCodes = [
   "action-not-allowed",
   "note-required",
   "target-not-queued",
+  "target-disposed",
   "invalid-listing-removal-directive",
 ] as const;
 
@@ -127,6 +128,16 @@ export type ReportedContentReportSummary = Readonly<{
 }>;
 
 export type ReportedContentQueueItem = Readonly<{
+  severity: "critical" | "high" | "standard";
+  policy_revision: string | null;
+  policy_code: "policy-incomplete" | null;
+  response_started_at: string | null;
+  acknowledged_at: string | null;
+  acknowledge_due_at: string | null;
+  disposition_due_at: string | null;
+  accountable_role: string;
+  response_open: boolean;
+  overdue: boolean;
   target_type: ReportedContentTargetType;
   target_id: string;
   target_owner_account_id: string | null;

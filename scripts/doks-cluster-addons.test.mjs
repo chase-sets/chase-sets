@@ -45,6 +45,19 @@ const goldenProvenance = "dae5e288572b52a559654343ec229f3a988c4b07";
 const historicalNonexistentProvenance = "93172b2173e40bdd0089c63a28b58cd86466a6b9";
 const committedGoldens = readCommittedGoldens(repositoryRoot);
 const movingMainRef = "refs/remotes/fixture/moving-main";
+const stagingMaintenanceDelta = [
+  {
+    name: "staging-only maintenance backend",
+    decision: "Refs #10392: host structural hold; production enablement is a separate follow-up",
+    goldenFragment: "--values <repo>/infrastructure/helm/doks-ingress/ingress-nginx-values.yaml --set-string",
+    currentFragment:
+      "--values <repo>/infrastructure/helm/doks-ingress/ingress-nginx-values.yaml --set defaultBackend.enabled=true --set-string",
+  },
+];
+
+function allowedPlannerDeltas(environment) {
+  return environment === "staging" ? stagingMaintenanceDelta : emptyAllowedNormalizedDeltas;
+}
 
 function isOutsideSourceCheckout(root) {
   const pathFromSource = relative(repositoryRoot, root);
@@ -137,6 +150,28 @@ describe("doks cluster addons planner", () => {
 
   it("rejects an unknown component instead of broadening the selector", () => {
     expect(() => planClusterAddons({ component: "all" })).toThrow("component must be one of ingress-nginx");
+  });
+
+  it.each([undefined, "ingress-nginx"])("enables maintenance only for staging (component=%s)", (component) => {
+    expect(ingressNginxValuesDocument.defaultBackend.enabled).toBe(false);
+    for (const environment of dryRunEnvironments) {
+      const ingress = planClusterAddons({ environment, component }).find((step) =>
+        step.name.startsWith("install ingress-nginx"),
+      );
+      expect(ingress.command.includes("defaultBackend.enabled=true")).toBe(environment === "staging");
+      expect(ingress.command.filter((token) => token.startsWith("defaultBackend."))).toEqual(
+        environment === "staging" ? ["defaultBackend.enabled=true"] : [],
+      );
+    }
+  });
+
+  it("preserves main's production controller values with the backend disabled", () => {
+    const mainValues = parseYaml(
+      runGit(["show", `${originMainRef}:infrastructure/helm/doks-ingress/ingress-nginx-values.yaml`], repositoryRoot),
+    );
+    const { defaultBackend, ...sharedValues } = ingressNginxValuesDocument;
+    expect(sharedValues).toEqual(mainValues);
+    expect(defaultBackend.enabled).toBe(false);
   });
 
   it("disables ingress-nginx trust in client forwarded headers and forbids copy snippets", () => {
@@ -469,6 +504,7 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
         environment,
         golden: committedGoldens[environment],
         actual: runRealDryRun({ repositoryRoot, environment }),
+        allowlist: allowedPlannerDeltas(environment),
       });
     }
   });
@@ -634,6 +670,7 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
         golden: committedGoldens.staging,
         actual,
         allowlist: [
+          ...stagingMaintenanceDelta,
           {
             name: "test-only ingress repo debug token",
             decision: "synthetic proof for #6166; not committed policy",

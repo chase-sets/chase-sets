@@ -244,6 +244,7 @@ export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "
                   | "appliedMode"
                   | "approvalVersion"
                   | "planFingerprint"
+                  | "diagnosticCode"
                 >
               >)[];
           }>)
@@ -450,6 +451,38 @@ export function assertPublishPreviewGuard(
 }
 
 // AC5 — support-safe receipt: counts, states and opaque ids only.
+export type WholeGamePromotionFailure = Readonly<{
+  code: "scope-promotion-failed";
+  scopeRecordId: string;
+  jobId: string;
+  jobStatus: WholeGamePromoteJob["status"];
+  failedOutcomes: readonly Readonly<{
+    candidateId: string;
+    reasonCode: "asset-processing-failed" | "unclassified";
+  }>[];
+}>;
+
+export function wholeGamePromotionFailure(job: WholeGamePromoteJob): WholeGamePromotionFailure {
+  // `reason` is free text; only the API's classified diagnostic code is support-safe.
+  return {
+    code: "scope-promotion-failed",
+    scopeRecordId: job.scopeRecordId,
+    jobId: job.jobId,
+    jobStatus: job.status,
+    failedOutcomes: (job.result?.outcomes ?? []).flatMap((outcome) =>
+      outcome.status === "failed"
+        ? [
+            {
+              candidateId: outcome.candidateId ?? "unavailable",
+              reasonCode:
+                outcome.diagnosticCode === "asset-processing-failed" ? "asset-processing-failed" : "unclassified",
+            },
+          ]
+        : [],
+    ),
+  };
+}
+
 export type WholeGameScopeProgress = {
   scopeRecordId: string;
   state: "pending" | "promotion-running" | "converged";
@@ -471,7 +504,8 @@ export type WholeGameReceipt = Readonly<{
   runId: string;
   runAttempt: string;
   batchId: string;
-  state: "confirmed" | "running" | "cancelled" | "settled";
+  state: "confirmed" | "running" | "cancelled" | "settled" | "failed";
+  promotionFailure?: WholeGamePromotionFailure;
   preview: Readonly<{
     planFingerprint: string;
     scopeCount: number;
@@ -549,12 +583,13 @@ const batchStatuses: readonly WholeGameBatchStatus[] = [
   "partial",
   "failed",
 ];
-const receiptStates = ["confirmed", "running", "cancelled", "settled"];
+const receiptStates = ["confirmed", "running", "cancelled", "settled", "failed"];
 
 /** Returns every schema violation; an empty list is the only publishable receipt. */
 export function validateWholeGameReceipt(value: unknown): readonly string[] {
   const errors: string[] = [];
-  const receipt = record(value, "receipt", receiptKeys, errors);
+  const hasFailure = value !== null && typeof value === "object" && Object.hasOwn(value, "promotionFailure");
+  const receipt = record(value, "receipt", hasFailure ? [...receiptKeys, "promotionFailure"] : receiptKeys, errors);
   if (!receipt) return errors;
   if (receipt.schemaVersion !== wholeGameReceiptSchemaVersion) errors.push("schemaVersion");
   if (!wholeGameJourneyScopes.includes(receipt.journeyScope as WholeGameJourneyScope)) errors.push("journeyScope");
@@ -564,6 +599,34 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
   if (typeof receipt.batchId === "string" && !batchIdPattern.test(receipt.batchId)) errors.push("batchId");
   if (!receiptStates.includes(receipt.state as string)) errors.push("state");
   if (typeof receipt.batchId !== "string") errors.push("batchId-required");
+  if (hasFailure !== (receipt.state === "failed")) errors.push("promotionFailure.state");
+  if (hasFailure) {
+    if (receipt.journeyScope !== "full-game-settle" || receipt.settle === null) errors.push("promotionFailure.settle");
+    const failure = record(
+      receipt.promotionFailure,
+      "promotionFailure",
+      ["code", "scopeRecordId", "jobId", "jobStatus", "failedOutcomes"],
+      errors,
+    );
+    if (failure) {
+      if (failure.code !== "scope-promotion-failed") errors.push("promotionFailure.code");
+      for (const key of ["scopeRecordId", "jobId"])
+        if (typeof failure[key] !== "string" || !batchIdPattern.test(failure[key]))
+          errors.push(`promotionFailure.${key}`);
+      if (!["completed", "failed"].includes(failure.jobStatus as string)) errors.push("promotionFailure.jobStatus");
+      if (!Array.isArray(failure.failedOutcomes)) errors.push("promotionFailure.failedOutcomes");
+      else
+        failure.failedOutcomes.forEach((entry, index) => {
+          const path = `promotionFailure.failedOutcomes.${index}`;
+          const outcome = record(entry, path, ["candidateId", "reasonCode"], errors);
+          if (!outcome) return;
+          if (typeof outcome.candidateId !== "string" || !batchIdPattern.test(outcome.candidateId))
+            errors.push(`${path}.candidateId`);
+          if (!["asset-processing-failed", "unclassified"].includes(outcome.reasonCode as string))
+            errors.push(`${path}.reasonCode`);
+        });
+    }
+  }
 
   if (receipt.preview !== null) {
     const preview = record(receipt.preview, "preview", previewKeys, errors);

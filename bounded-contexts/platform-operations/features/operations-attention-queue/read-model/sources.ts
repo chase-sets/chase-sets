@@ -34,6 +34,53 @@ export function canViewOperationsAttentionSource(
   return descriptor !== undefined && permissions.includes(descriptor.requiredPermission);
 }
 
+export type ReportedContentAttentionInput = Readonly<{
+  target_type: string;
+  target_id: string;
+  response_open: boolean;
+  severity: "critical" | "high" | "standard";
+  acknowledge_due_at: string | null;
+  disposition_due_at: string | null;
+  accountable_role: string;
+  policy_code: string | null;
+  updated_at: string;
+}>;
+export function mapReportedContentToItems(
+  rows: readonly ReportedContentAttentionInput[],
+  context: OperationsAttentionContext,
+) {
+  return rows
+    .filter((row) => row.response_open)
+    .flatMap((row) => {
+      const dueAt =
+        [row.acknowledge_due_at, row.disposition_due_at]
+          .filter((due): due is string => isoOrNull(due) !== null)
+          .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
+      const overdue = dueAt !== null && Date.parse(dueAt) <= Date.parse(context.now);
+      if (!overdue && row.severity === "standard" && !row.policy_code) return [];
+      return [
+        buildOperationsAttentionItem({
+          source: "reported-content-response",
+          entityId: `${row.target_type}:${row.target_id}`,
+          severity: overdue || row.severity === "critical" || row.policy_code ? "critical" : "warning",
+          summary: { code: "reportedContent", params: { severity: row.severity, role: row.accountable_role } },
+          observedAt: isoOrNull(row.updated_at) ?? context.now,
+          dueAt,
+        }),
+      ];
+    });
+}
+
+export function reportedContentIncompleteItem(context: OperationsAttentionContext) {
+  return buildOperationsAttentionItem({
+    source: "reported-content-response",
+    entityId: "incomplete",
+    severity: "critical",
+    summary: { code: "reportedContentIncomplete", params: {} },
+    observedAt: context.now,
+  });
+}
+
 function isoOrNull(value: string | null | undefined): string | null {
   return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
 }

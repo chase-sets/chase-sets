@@ -8,9 +8,11 @@ share.
 Owner: Todd Skelton. The pilot is worked in its own Codex task (the "Corten pilot" thread), not by
 the delivery loop: a lane does not take pilot work, and a lane whose change makes the advisory
 `corten-pilot.yml` check fail notes it on its PR instead of fixing the pilot. Keep it isolated: it is
-not deployed and is not part of the platform gates. The root `.dockerignore` keeps it out of the
-platform image; do not add a `Dockerfile` here, since `deployables/*/Dockerfile` makes every pilot
-PR build and preview the platform. Business
+not part of the platform gates. Only the admin app is deployed, to staging, by the delivery loop's
+`Dockerfile.corten-admin` and Helm component `admin-corten`; the marketplace and public apps are not
+deployed. The root `.dockerignore` keeps the pilot out of the platform image; do not add a
+`Dockerfile` here, since `deployables/*/Dockerfile` makes every pilot PR build and preview the
+platform. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
 apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` forward to Corten's latest

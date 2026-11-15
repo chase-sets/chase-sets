@@ -14,6 +14,8 @@ import {
   mapPoisonEventsToItems,
   mapSupportRequestsToItems,
   mapWakeStoreToItems,
+  mapReportedContentToItems,
+  reportedContentIncompleteItem,
   type BlockedStreamInput,
   type PoisonEventInput,
   type WakeStoreInput,
@@ -25,7 +27,7 @@ import type { PlatformOperationsServices } from "../../../support/runtime-suppor
 
 type OperationsAttentionServices = Pick<
   PlatformOperationsServices,
-  "supportRequests" | "platformFeedback" | "operationsAttentionRuntimeReads"
+  "supportRequests" | "platformFeedback" | "reportedContent" | "operationsAttentionRuntimeReads"
 >;
 
 const QUEUE_READ_LIMIT = 100;
@@ -98,6 +100,26 @@ function sourceFor(
   wakeStatus: () => Promise<{ generatedAt: string; wakeStore: WakeStoreStatus } | null>,
 ): OperationsAttentionSource {
   switch (id) {
+    case "reported-content-response":
+      return {
+        id,
+        load: async (context) => {
+          try {
+            const result = await services.reportedContent.listReportedContentQueue({
+              attentionOnly: true,
+              limit: 200,
+              offset: 0,
+            });
+            const items = mapReportedContentToItems(result.items, context);
+            if (!Number.isInteger(result.total) || result.total > result.items.length || result.total < items.length)
+              return loaded([...items, reportedContentIncompleteItem(context)], "unknown");
+            return loaded(items, result.total);
+          } catch {
+            // Never expose the database exception or reporter evidence as a source reason.
+            return loaded([reportedContentIncompleteItem(context)], "unknown");
+          }
+        },
+      };
     case "projection-poison-event":
       return {
         id,

@@ -31,7 +31,7 @@ describe("Corten admin staging deployment", () => {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
       "deploy-production": "740c6e8e5d18ec54356e2e7cda6d58939318e3afead34c4b2b9803622b50acd9",
-      "notify-production-deploy-incident": "ccec9ed9d62fddb68ba17663b81e825fd3ccc99ad3be2ea58e183a83ccb9343b",
+      "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
     const headings = [...workflowText.matchAll(/^  ([a-z][a-z0-9-]*):\n/gm)];

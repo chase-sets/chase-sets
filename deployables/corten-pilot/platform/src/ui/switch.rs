@@ -1,4 +1,4 @@
-// corten ui 0.1.0: switch ba5afbe346866593
+// corten ui 0.2.0: switch ba5afbe346866593
 //! An on and off setting: the platform's checkbox with `role="switch"`, so it posts as a checkbox
 //! does and a screen reader says on and off. Its label goes after it:
 //! `<Switch label="Dark mode"><input type="checkbox" role="switch" name={f.dark}></Switch>`.

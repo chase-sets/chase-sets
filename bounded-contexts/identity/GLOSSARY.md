@@ -641,6 +641,20 @@ bound to the same User and Account with `listings:write`. Its epoch grant is
 bounded by token expiry. Grant creation, token rotation and both dormant and
 activated revocation writers participate in the same acknowledged closure.
 
+### Registration Completed
+
+**Registration Completed** is Identity's `identity.registration.completed` fact,
+published after the atomic registration commits its User, Account, Membership,
+and required consents. It carries the registered Account and User identifiers.
+
+### Onboarding Completed
+
+**Onboarding Completed** is Identity's `identity.onboarding.completed` fact for
+a granted guest-account Membership or an accepted Invitation. It carries the
+Account, User, and `guest-account` or `invitation` path; the invitation path also
+carries the Invitation identifier. Both invitation acceptance entrypoints publish
+the same fact identity for the same Invitation and User.
+
 ## Language Rules
 
 To maintain consistency:

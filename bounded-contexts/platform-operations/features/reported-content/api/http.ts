@@ -82,6 +82,7 @@ export function createReportedContentRoutes(services: ReportedContentServices) {
       offset,
       status: c.req.query("status"),
       targetType: c.req.query("targetType"),
+      attentionOnly: c.req.query("attentionOnly") === "true",
     });
 
     return c.json({
@@ -154,6 +155,29 @@ export function createReportedContentRoutes(services: ReportedContentServices) {
           400,
         );
       }
+      throw error;
+    }
+  });
+
+  app.post("/:targetType/:targetId/acknowledge", async (c) => {
+    const access = requireActor(c, "reported-content.view");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
+    try {
+      return c.json(
+        await services.acknowledge(
+          {
+            targetType: c.req.param("targetType"),
+            targetId: c.req.param("targetId"),
+            operatorUserId: access.actor.userId,
+          },
+          context,
+        ),
+      );
+    } catch (error) {
+      if (error instanceof ReportedContentActionRejectedError)
+        return c.json({ error: { code: "validation_failed", reason: error.code } }, 400);
       throw error;
     }
   });

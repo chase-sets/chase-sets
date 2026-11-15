@@ -53,6 +53,7 @@ import {
   buildAccountAppealProjectionHandlers,
 } from "./features/account-appeals/read-model/projection";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
+import { reportedContentResponseSchemaMigrations } from "./features/reported-content/read-model/schema";
 import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
   createPlatformOperationsServices,
@@ -71,6 +72,7 @@ export const module = defineBoundedContextModule<
   schemaSql: platformOperationsSchemaSql,
   schemaMigrations: [
     ...platformOperationsUnloggedProjectionSchemaMigrations,
+    ...reportedContentResponseSchemaMigrations,
     ...riskAlertsSchemaMigrations,
     ...supportRequestSchemaMigrations,
     ...sellerComplianceSalesSchemaMigrations,
