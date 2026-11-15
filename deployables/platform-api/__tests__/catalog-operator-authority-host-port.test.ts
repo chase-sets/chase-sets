@@ -34,6 +34,9 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const fakePool = () => {
     const client = {
       query: async (sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("SELECT store_id, incarnation FROM event_configuration_store_identity")) {
+          return { rows: [{ store_id: "identity", incarnation: "synthetic-identity" }] };
+        }
         if (sql.includes("SELECT current_version FROM event_store_streams")) {
           return { rows: [{ current_version: stores.versions.get(String(values[0])) ?? 0 }] };
         }

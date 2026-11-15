@@ -37,7 +37,7 @@ function createCommandRecorder(existingIds: Set<string>, idKey: "accountId" | "u
 /**
  * The fake exposes no Consent service at all, so a restored Consent write
  * throws instead of being recorded. Committed commands land in `existingIds`,
- * which stands in for the retained projection the fixture's existence checks
+ * which stands in for the canonical aggregate the fixture's existence checks
  * read, so a later run over the same set observes the earlier run's state.
  */
 function createServices(existingIds: Set<string> = new Set()) {
@@ -48,9 +48,18 @@ function createServices(existingIds: Set<string> = new Set()) {
 
   return {
     services: {
-      accounts: { commandHandler: accounts.handler },
-      users: { commandHandler: users.handler },
-      memberships: { commandHandler: memberships.handler },
+      accounts: {
+        commandHandler: accounts.handler,
+        getAccountState: async (id: string) => (existingIds.has(id) ? { id } : null),
+      },
+      users: {
+        commandHandler: users.handler,
+        getUserState: async (id: string) => (existingIds.has(id) ? { id } : null),
+      },
+      memberships: {
+        commandHandler: memberships.handler,
+        getMembershipState: async (id: string) => (existingIds.has(id) ? { id } : null),
+      },
       db: {
         query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
           queriedTables.push(/FROM (\w+)/.exec(sql)?.[1] ?? sql);
@@ -230,9 +239,7 @@ describe("admin-qa actor fixtures", () => {
     expect(interrupted.records.memberships).toHaveLength(6);
 
     for (const run of [boot, rerun, interrupted]) {
-      expect(new Set(run.queriedTables)).toEqual(
-        new Set(["identity_accounts", "identity_users", "identity_memberships"]),
-      );
+      expect(run.queriedTables, "canonical reruns never consult lagging projections").toEqual([]);
       expect(JSON.stringify(run.records)).not.toMatch(/consent/i);
     }
     expect(activationAuthorityReads).not.toHaveBeenCalled();
