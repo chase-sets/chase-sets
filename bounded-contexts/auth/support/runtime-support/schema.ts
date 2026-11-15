@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS identity_auth_challenges (
 CREATE TABLE IF NOT EXISTS identity_session_tokens (
   session_id text PRIMARY KEY,
   token_hash text NOT NULL UNIQUE,
+  revision bigint NOT NULL DEFAULT 1 CONSTRAINT identity_session_tokens_revision_check CHECK (revision > 0),
   expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -201,6 +202,29 @@ ALTER TABLE identity_guest_checkout_claim_tokens
 CREATE UNIQUE INDEX IF NOT EXISTS identity_guest_checkout_claim_tokens_continuation_hash_idx
   ON identity_guest_checkout_claim_tokens (continuation_hash)
   WHERE continuation_hash IS NOT NULL;`;
+
+export const authSessionEpochSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261115_auth_session_token_revision",
+    description: "Version canonical SQL Session Token mutations for acknowledged epoch capture.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE identity_session_tokens ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 1;",
+      `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'identity_session_tokens_revision_check'
+      AND conrelid = 'identity_session_tokens'::regclass
+  ) THEN
+    ALTER TABLE identity_session_tokens
+      ADD CONSTRAINT identity_session_tokens_revision_check CHECK (revision > 0) NOT VALID;
+  END IF;
+END $$;`,
+      "ALTER TABLE identity_session_tokens VALIDATE CONSTRAINT identity_session_tokens_revision_check;",
+    ],
+  },
+];
 
 export const authSessionGenerationSchemaMigrations: readonly BcSchemaMigration[] = [
   {

@@ -38,6 +38,18 @@ describe("owner writer enrollment census", () => {
     ]);
     expect(writers.every((row) => row.disposition === "enrolled" && row.keys.includes("delegation"))).toBe(true);
   });
+  it("discovers Session streams, physical SQL tokens and projection-only Session writers", () => {
+    expect(manifest.owners).toContain("auth");
+    expect(manifest.keys).toContain("session/<sessionId>");
+    const tokens = manifest.writers.filter((row) => row.sink === "session SQL");
+    expect(tokens.map((row) => row.symbol)).toContain("upsertSessionToken");
+    expect(tokens.every((row) => row.disposition === "enrolled")).toBe(true);
+    const projections = manifest.writers.filter(
+      (row) => row.file === "bounded-contexts/auth/features/sessions/read-model/projection.ts",
+    );
+    expect(projections.length).toBeGreaterThan(0);
+    expect(projections.every((row) => row.disposition === "excluded" && row.foldTest)).toBe(true);
+  });
   it("binds every enrollment and exclusion to an existing source symbol and executable proof", () => {
     for (const row of manifest.writers) {
       const [sourcePath, sourceSymbol] = (row.enrollment ?? row.sourceSymbol).split("::");
@@ -71,6 +83,13 @@ describe("owner writer enrollment census", () => {
     `function planted() { return db.query('UPDATE identity_linked_platform_authorizations SET status = $1 WHERE authorization_id = $2', ['revoked', id]); }`,
     `const table = 'identity_linked_platform_authorizations'; function planted() { return db.query('INSERT INTO ' + table + ' (authorization_id) VALUES ($1)', [id]); }`,
     `function planted() { return db.query('DELETE FROM identity_linked_platform_authorizations WHERE authorization_id = $1', [id]); }`,
+    `function planted() { return db.query('UPDATE identity_session_tokens SET token_hash = $1 WHERE session_id = $2', [hash, id]); }`,
+    `const table = 'identity_session_tokens'; const method = 'qu' + 'ery'; const save = db[method]; function planted() { return save('INSERT INTO ' + table + ' (session_id) VALUES ($1)', [id]); }`,
+    `function planted() { return db.query('DELETE FROM identity_session_tokens WHERE session_id = $1', [id]); }`,
+    `const hidden = 'auth.' + 'session-' + id; function planted() { return store.appendToStream({ streamId: hidden, events }); }`,
+    `function planted() { return db.query('UPDATE identity_sessions SET user_id = $1 WHERE session_id = $2', [user, id]); }`,
+    `function planted() { return db.query('TRUNCATE TABLE identity_session_tokens'); }`,
+    `const table = 'identity_session_tokens'; const save = db.query.bind(db); function planted() { return save('DELETE FROM ' + table + ' WHERE session_id = $1', [id]); }`,
   ])("rejects a planted unenrolled physical writer regardless of path vocabulary", (code) => {
     const sites = discoverOwnerWriters({ "packages/innocent/adapter.ts": code });
     expect(sites).toHaveLength(1);

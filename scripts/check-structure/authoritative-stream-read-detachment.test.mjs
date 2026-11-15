@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 22,
-      authoritativeSites: 20,
+      discoveredCallCandidates: 23,
+      authoritativeSites: 21,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -220,10 +220,27 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-four green grammar instances across thirty live locations without a registry", () => {
+  it("derives thirty-six green grammar instances across thirty-two live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(34);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(30);
+    expect(green).toHaveLength(36);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(32);
+    expect(
+      green
+        .filter((entry) => entry.file.startsWith("bounded-contexts/auth/"))
+        .map(({ category, file, symbol }) => ({ category, file, symbol }))
+        .sort((left, right) => left.file.localeCompare(right.file)),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/auth/features/sessions/api/owner-epochs.ts",
+        symbol: "createAuthSessionPersistence.readStream",
+      },
+      {
+        category: "type-position",
+        file: "bounded-contexts/auth/features/sessions/api/session-authority.ts",
+        symbol: "createAuthSessionAuthority.capture.readStream",
+      },
+    ]);
     expect(
       green
         .filter((entry) => entry.file.endsWith("/extension-tcgplayer-sealed-products.ts"))
@@ -701,6 +718,7 @@ const memberDeclarationSelectors = [
     "bounded-contexts/catalog/features/catalog-items/api/bulk-remove-drafts-test-harness.ts",
     "createBulkRemoveDraftsHarness.eventStore.readStream",
   ],
+  ["bounded-contexts/auth/features/sessions/api/owner-epochs.ts", "createAuthSessionPersistence.readStream"],
 ].map(([file, symbol]) => ({ category: "member-declaration", file, symbol }));
 const sharedReaderSelectors = ["member-declaration", "type-position"].map((category) => ({
   category,

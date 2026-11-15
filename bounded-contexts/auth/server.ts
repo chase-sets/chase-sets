@@ -6,6 +6,13 @@ export {
   type ReceiptLookupCredential,
 } from "./features/service-actors/api/receipt-lookup";
 export { resumeAgentGrantRevocation } from "./features/agent-grants/api/revocation";
+export {
+  createAuthSessionEpochs,
+  createAuthSessionPersistence,
+  type AuthSessionEpochs,
+  type AuthSessionTopology,
+} from "./features/sessions/api/owner-epochs";
+export { createAuthSessionAuthority, type SessionAuthorityInput } from "./features/sessions/api/session-authority";
 export type { RevokeAgentGrantPaymentInstruments } from "./features/agent-grants/api/payment-instrument-revocation";
 export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
 export {

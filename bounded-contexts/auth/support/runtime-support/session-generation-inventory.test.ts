@@ -224,6 +224,7 @@ describe("route-negative", () => {
     // start guard and the resolver read it.
     expect([...new Set(inventory.filter((entry) => entry.endsWith(":authority-stream")))]).toEqual([
       `${SESSIONS}/api/runtime.ts:authority-stream`,
+      `${SESSIONS}/api/session-authority.ts:authority-stream`,
       `${SESSIONS}/domain/session-generation.ts:authority-stream`,
     ]);
   });

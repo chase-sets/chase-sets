@@ -19,7 +19,11 @@ import {
   buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
 } from "./support/auth-support/identity-projection";
-import { authSchemaSql, authSessionGenerationSchemaMigrations } from "./support/runtime-support/schema";
+import {
+  authSchemaSql,
+  authSessionGenerationSchemaMigrations,
+  authSessionEpochSchemaMigrations,
+} from "./support/runtime-support/schema";
 import { connectorOAuthSchemaMigrations } from "./support/ucp-support/connector-oauth-schema";
 import { authUcpOAuthConsentSchemaMigrations } from "./support/ucp-support/oauth";
 import { agentWebhookGrantFenceSchemaMigrations } from "./support/ucp-support/agent-webhooks/agent-webhook-outbox";
@@ -45,6 +49,7 @@ const contextModule = defineBoundedContextModule<AuthServices, PgTransactionalPo
     ...authUcpOAuthConsentSchemaMigrations,
     ...agentWebhookGrantFenceSchemaMigrations,
     ...authSessionGenerationSchemaMigrations,
+    ...authSessionEpochSchemaMigrations,
   ],
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [{ mountPath: "/api/auth", contextMountOrdinal: 1, router: buildAuthApi(services) }],
