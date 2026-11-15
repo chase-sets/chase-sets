@@ -14477,8 +14477,11 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(html.contains("collector@chasesets.test") && html.contains("60201"), "the billing details: {html}");
     assert_eq!(html.matches("data-payment-confirm").count(), 2, "{html}");
     assert!(page.contains("Stripe can only load in the browser."), "{page}");
-    // The watch over its status.
+    // The watch over its status, and the step's status form, which Confirm sends for the runtime
+    // to read the part (a script's markup string would be refused under Trusted Types).
     assert!(html.contains("/account/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    assert!(html.contains(r#"method="get" action="/account/payments/pay_1/status" data-patch hidden>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="since" value="pending-confirmation">"#), "{html}");
     // A Checkout Session's secret goes to the script as it is.
     let (_, _, html) = pilot.send(get("/account/payments/pay_cs", Some("payer"))).await;
     assert!(html.contains("cs_test_1_secret"), "{html}");
@@ -20374,6 +20377,7 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_1", "")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("/checkout/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    assert!(html.contains(r#"method="get" action="/checkout/payments/pay_1/status" data-patch hidden>"#), "{html}");
     assert!(!html.contains(r#"href="/account/purchases""#), "no Back to purchases: {html}");
     assert!(!html.contains(r#"href="/account/purchases/ord_pay""#), "no Open purchase: {html}");
     let until = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 60;
