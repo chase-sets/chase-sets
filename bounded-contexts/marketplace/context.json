@@ -45,8 +45,7 @@
     "./seed-support/*",
     "./server",
     "./web",
-    "./integration/link-intents",
-    "./integration/listing-commands"
+    "./integration/link-intents"
   ],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",

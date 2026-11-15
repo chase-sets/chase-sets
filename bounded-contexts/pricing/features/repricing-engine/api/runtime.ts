@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { MarketplaceListingServices } from "@chase-sets/marketplace/integration/listing-commands";
+import type { MarketplaceListingServices } from "@chase-sets/marketplace/server";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
