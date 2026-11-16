@@ -203,16 +203,20 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
 
   return {
     sweepConnectorLiveness: createConnectorLivenessSweep(deps, submitObservationInTransaction),
-    async readConnectionHealth(input) {
+    async readConnectionHealth(input, transaction) {
       const query = decodeChannelHealthQuery(input);
-      return transact(query, async (_db, status, health, policy) => read(query, status, health, policy !== null));
+      return transact(
+        query,
+        async (_db, status, health, policy) => read(query, status, health, policy !== null),
+        transaction,
+      );
     },
     async listOpenReasonGenerations(input) {
       const query = decodeChannelHealthQuery(input);
       return transact(query, async (_db, _status, health) => openHealthReasonGenerations(health));
     },
-    async submitObservation(input, context: EventStoreContext) {
-      return submitObservationInTransaction(input, context);
+    async submitObservation(input, context: EventStoreContext, transaction) {
+      return submitObservationInTransaction(input, context, transaction);
     },
   };
 
