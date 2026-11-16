@@ -163,6 +163,9 @@ describe("retained consumption handoff query contract", () => {
       sql: string,
       _values?: readonly unknown[],
     ) => {
+      if (sql.startsWith("SELECT reservation_id")) return { rows: [] as Row[] };
+      if (sql.includes("RETURNING generation") || sql.includes("SELECT generation"))
+        return { rows: [{ generation: "1", status: "PENDING", affected_reservation_ids: [] }] as Row[] };
       if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
       if (sql.includes("consumed.stream_id AS hold_stream_id")) {
         return {

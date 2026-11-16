@@ -34,6 +34,7 @@ import {
 } from "./seeding/product-asset-normalization";
 import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 import { createPromotionAliasReader } from "./promotion/provider-promotion-alias-reader";
+import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
 import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -367,6 +368,8 @@ export function resolveAliasPromotionServices(
   return {
     ...createPromotionAliasReader(deps.db),
     catalogAliasCommandHandler: aliasPromotion.catalogAliasCommandHandler,
+    upsertSourceObservationAliasCandidates: (candidates, observedAt) =>
+      upsertSourceObservationAliasCandidates(deps.db, candidates, observedAt),
   };
 }
 

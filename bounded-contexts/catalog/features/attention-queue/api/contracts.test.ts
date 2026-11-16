@@ -575,6 +575,14 @@ describe("createCatalogAttentionQueueRuntime", () => {
       expect(statement.params.slice(-2)).toEqual([20, 0]);
     }
     expect(statements.every((statement) => statement.sql.includes("catalog_attention_dismissals parked"))).toBe(true);
+    const aliasStatements = statements.filter((statement) =>
+      statement.sql.includes("catalog_source_observation_alias_candidates candidate"),
+    );
+    expect(aliasStatements).toHaveLength(2);
+    for (const statement of aliasStatements) {
+      expect(statement.sql).toContain("COALESCE(item.review_status, reference.review_status, 'pending')");
+      expect(statement.sql).toContain("candidate.target_id IS NOT NULL");
+    }
   });
 
   it("reads only the paged kind's window and still counts every other kind", async () => {

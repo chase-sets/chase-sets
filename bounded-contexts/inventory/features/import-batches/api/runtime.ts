@@ -30,6 +30,7 @@ import {
   type InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
+import { InventoryStockChangePending } from "../../inventory-items/api/stock-reservations";
 import { listNativeInventoryExportItems } from "../../inventory-items/read-model/queries";
 import { getStorageLocation, listStorageLocations } from "../../storage-locations/read-model/queries";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
@@ -2775,6 +2776,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         if (isImportBatchJobHandoff(error, input)) {
           return 0;
         }
+        if (error instanceof InventoryStockChangePending) {
+          await jobStore.releaseClaim({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: claimed.progress,
+          });
+          return 0;
+        }
         await requireImportBatchJobClaim(
           jobStore.fail({
             jobId: claimed.jobId,
@@ -2927,7 +2936,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         }))
       );
     } catch (error) {
-      if (input.signal?.aborted) {
+      if (input.signal?.aborted || error instanceof InventoryStockChangePending) {
         await workUnitStore.releaseClaim(fence);
         return 0;
       }

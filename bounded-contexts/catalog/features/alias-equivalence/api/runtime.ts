@@ -19,7 +19,11 @@ import {
   type CatalogAliasEvent,
   type CatalogAliasState,
 } from "../domain/domain";
-import { buildCatalogAliasProjectionHandlers, upsertSourceObservationAliasCandidates } from "../read-model/projection";
+import {
+  buildCatalogAliasProjectionHandlers,
+  upsertSourceObservationAliasCandidates,
+  type SourceObservationAliasCandidateSink,
+} from "../read-model/projection";
 import {
   enqueueAllCatalogItemAliasRecomputeWork,
   enqueueAllReferenceRecordAliasRecomputeWork,
@@ -66,10 +70,7 @@ export type CatalogAliasPublisherDeps = Readonly<{
 export type CatalogAliasServices = Readonly<{
   catalogAliasCommandHandler: CommandHandler<CatalogAliasCommand, CatalogAliasState, CatalogAliasEvent>;
   /** Idempotently persist Source Observation alias candidates into the queryable table. */
-  upsertSourceObservationAliasCandidates: (
-    candidates: Parameters<typeof upsertSourceObservationAliasCandidates>[1],
-    observedAt: string,
-  ) => Promise<void>;
+  upsertSourceObservationAliasCandidates: SourceObservationAliasCandidateSink;
   listSourceObservationAliasCandidates: (
     filter?: Parameters<typeof listSourceObservationAliasCandidates>[1],
   ) => ReturnType<typeof listSourceObservationAliasCandidates>;

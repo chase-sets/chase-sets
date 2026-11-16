@@ -140,6 +140,11 @@
   border-radius: var(--radius-lg);
   background: var(--color-surface);
 }
+/* Furniture on the page (the design system's Card elevation="tinted"): a fill, no border. */
+.tinted {
+  border-color: transparent;
+  background: var(--color-surface-2);
+}
 .banner {
   display: grid;
   gap: var(--space-1);
