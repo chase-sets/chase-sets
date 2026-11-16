@@ -1658,17 +1658,27 @@ fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
 }
 
 /// Seller checkout's confirmation, as the stand-in answers it: a confirm applies at 75 and is kept
-/// by its id; `slc_chk_done` was confirmed already; one read that waits for 75 before it is kept is
-/// still catching up, and any other is not saved (404).
+/// by its id, but `slc_chk_lost`'s answer is lost after it is kept and `slc_chk_gone`'s is lost with
+/// nothing kept; `slc_chk_done` was confirmed already; `slc_chk_dark` cannot be read (503); one
+/// read that waits for 75 before it is kept is still catching up, and any other is not saved (404).
 fn sell_confirmations(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(ACCOUNT_SELL_LIST)?;
     if *method == Method::POST && rest == "/confirm" {
         let sent: Value = serde_json::from_str(body).unwrap_or_default();
         let id = sent["confirmationId"].as_str().unwrap_or_default().to_owned();
+        if id == "slc_chk_gone" {
+            return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        }
         stand.kept.lock().unwrap().insert(format!("sell_confirmation:{id}"), sent);
+        if id == "slc_chk_lost" {
+            return Some(StatusCode::BAD_GATEWAY.into_response());
+        }
         return Some(committed(StatusCode::CREATED, "checkout", "75", json!({ "confirmationId": id, "status": "confirmed" })));
     }
     let id = rest.strip_prefix("/confirmations/").filter(|_| *method == Method::GET)?;
+    if id == "slc_chk_dark" {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
     let kept = stand.kept.lock().unwrap().get(&format!("sell_confirmation:{id}")).cloned();
     let summary = match (kept, id) {
         (Some(sent), _) => sent["handoffSummary"].clone(),
@@ -4797,6 +4807,35 @@ async fn an_account_takes_an_offer_as_a_seller_and_needs_to_manage_offers() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].path, ACCOUNT_SELL_LIST);
     assert!(!sent[0].headers.contains_key("x-checkout-anonymous-sell-list-id"));
+    let line: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(line["attemptId"].as_str().map(str::len), Some(36), "a post without its attempt is still one: {line}");
+
+    // An add whose answer is lost is looked up once by its attempt: kept, it goes to the list.
+    const KEPT: &str = "5b0e1c6e-2f7a-4c55-9a58-6f1d2c3b4a01";
+    let add = |quantity: u32, attempt: &str| {
+        format!(
+            "market=sell&intent=add-product-to-sell-list&product={}&quantity={quantity}&attempt={attempt}",
+            crate::api::segment(OFFERED)
+        )
+    };
+    let (status, headers, html) = pilot.send(post(SELL_LIST, "buyer", &add(8, KEPT), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(query(headers[header::LOCATION].to_str().unwrap())["afterWrite"].contains(r#""commitPosition":"13""#));
+    assert_eq!(list_calls(&pilot, &format!("/api/marketplace/account/command-attempts/{KEPT}")).len(), 1);
+
+    // Not kept, it is not known: the rail holds its sell forms and offers the same add again.
+    const LOST: &str = "5b0e1c6e-2f7a-4c55-9a58-6f1d2c3b4a02";
+    let (status, _, html) = pilot.send(post(SELL_LIST, "buyer", &add(9, LOST), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    let retry = forms_to(&html, SELL_LIST).into_iter().find(|f| f.contains("Retry the same action")).expect("a retry");
+    assert!(
+        retry.contains(&format!(r#"name="attempt" value="{LOST}""#)) && retry.contains(r#"name="quantity" value="9""#),
+        "{retry}"
+    );
+    assert!(html.contains(r#"value="add-product-to-sell-list" disabled"#), "{html}");
+    let posts = sell_calls(&pilot).iter().filter(|c| c.body.contains(LOST)).count();
+    assert_eq!(posts, 1, "never resent on its own");
 }
 
 const WATCH_PAGE: &str = "/items/charizard?market=watch&dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm";
@@ -11790,6 +11829,21 @@ fn offer_policies(session: &str, method: &Method, uri: &Uri, body: &str) -> Opti
         let (Some(target), Some(hash)) = (query("target"), query("requestHash")) else {
             return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "Invalid attempt."));
         };
+        // An offer's acceptance is kept as the seller's (`trader` is `acc_seller`); `off_borrowed`'s
+        // was another seller's.
+        if query("kind").as_deref() == Some("offer.accept") {
+            let key = percent_encoding::percent_decode_str(attempt).decode_utf8_lossy().into_owned();
+            let account = if target == "off_borrowed" { "acc_other" } else { "acc_seller" };
+            return Some(
+                Json(json!({
+                    "schemaVersion": 1, "mutationKind": "offer.accept",
+                    "attemptKeyFingerprint": crate::sell_checkout::key_fingerprint(&key),
+                    "actorBinding": { "accountId": account }, "target": { "kind": "offer", "id": target },
+                    "canonicalRequestHash": hash, "ownerStatus": "committed", "ownerReceipt": { "id": target, "version": 4 },
+                }))
+                .into_response(),
+            );
+        }
         if target != "bop_lost" || query("kind").as_deref() != Some("offer-policy.command") {
             return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Attempt not found."));
         }
@@ -17979,26 +18033,90 @@ async fn remove_and_decline_selected_write_and_read_the_sell_list_after_them() {
     assert!(query(to)["afterWrite"].contains(r#""commitPosition":"72""#), "{to}");
     assert!(sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_product/remove".to_owned()));
 
-    let (status, headers, html) =
-        pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers&bulkOfferId=off_ready", false)).await;
+    let removed = list_calls(&pilot, "/api/marketplace/account/sell-list/sll_product/remove");
+    let sent: Value = serde_json::from_str(removed[0].split_once("/remove ").unwrap().1).unwrap();
+    assert_eq!(sent["attemptId"].as_str().map(str::len), Some(36), "a post without its attempt is still one: {sent}");
+
+    // Decline selected declines each offer as an attempt made from the form's, then removes their
+    // lines in one batch attempt (chase-sets/chase-sets#9995).
+    assert_eq!(
+        crate::sell_list::LineForm::FIELDS.attempt_id.as_str(),
+        crate::sell_list::ATTEMPT,
+        "the forms' field is the one read"
+    );
+    const ATTEMPT: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    let body = format!("intent=decline-sell-list-offers&bulkOfferId=off_ready&attemptId={ATTEMPT}");
+    let (status, headers, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/sell-list?afterWrite="));
     let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
     assert_eq!(
         declined,
-        [r#"POST /api/marketplace/account/offers/matches/off_ready/decline {"attemptId":"decline_off_ready_____"}"#],
-        "the offer's own attempt, padded to 22 as marketplace's action pads it"
+        [
+            r#"POST /api/marketplace/account/offers/matches/off_ready/decline {"attemptId":"Apm-cmT8CsgKuwxjl8A032YreUa18nMG2dX5LjfU4w4"}"#
+        ],
+        "marketplace's attempt for the offer, made from the form's"
     );
-    assert!(sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_offer/remove".to_owned()));
+    let batch = list_calls(&pilot, "/api/marketplace/account/sell-list/commands");
+    assert_eq!(batch.len(), 1, "{batch:?}");
+    let sent: Value = serde_json::from_str(batch[0].split_once("/commands ").unwrap().1).unwrap();
+    assert_eq!(sent, json!({ "attemptId": ATTEMPT, "lineIds": ["sll_offer"] }));
+    assert!(!sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_offer/remove".to_owned()));
 
-    // A decline the API refuses is shown on the page, and its line stays.
-    let removes = |p: &Pilot| sell_list_calls(p).iter().filter(|c| c.ends_with("/remove")).count();
-    let before = removes(&pilot);
-    let (status, _, html) =
-        pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers&bulkOfferId=off_taken", false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(text(&html).contains("Offer match has already been declined."), "{html}");
-    assert_eq!(removes(&pilot), before);
+    // A decline the API refuses stops the batch: the page says which offers were declined, holds
+    // its writes and offers the same write again, with the lines the first send found.
+    let batches = |p: &Pilot| list_calls(p, "/api/marketplace/account/sell-list/commands").len();
+    let before = batches(&pilot);
+    let body = format!("intent=decline-sell-list-offers&bulkOfferId=off_ready&bulkOfferId=off_taken&attemptId={ATTEMPT}");
+    let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("This action completed only partly."), "{html}");
+    assert!(shown.contains("Offer match has already been declined."), "{html}");
+    assert!(shown.contains("Declined") && shown.contains("Not confirmed") && !shown.contains("Not sent"), "{shown}");
+    assert_eq!(batches(&pilot), before);
+    let retry = forms_to(&html, SELL_LIST_PAGE).into_iter().find(|f| f.contains("Retry the same action")).expect("a retry");
+    for field in [
+        format!(r#"name="attemptId" value="{ATTEMPT}""#),
+        r#"name="declinedLineId" value="sll_offer""#.to_owned(),
+        r#"name="declinedLineTargetsCaptured" value="true""#.to_owned(),
+        r#"name="bulkOfferId" value="off_taken""#.to_owned(),
+    ] {
+        assert!(retry.contains(&field), "{field}: {retry}");
+    }
+    assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "Continue waits: {html}");
+    assert!(html.contains(r#"type="submit" disabled>Remove<"#), "Remove waits: {html}");
+
+    // Sent again, the lines are the ones the form carries; a line no longer there is not applied.
+    let body = format!(
+        "intent=decline-sell-list-offers&bulkOfferId=off_ready&attemptId={ATTEMPT}&declinedLineTargetsCaptured=true&declinedLineId=sll_gone&declinedLineId=sll_offer"
+    );
+    let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(
+        text(&html).contains("This action completed only partly.") && text(&html).contains("Sell List line not found."),
+        "{html}"
+    );
+    let batch = list_calls(&pilot, "/api/marketplace/account/sell-list/commands").pop().unwrap();
+    let sent: Value = serde_json::from_str(batch.split_once("/commands ").unwrap().1).unwrap();
+    assert_eq!(sent["lineIds"], json!(["sll_gone", "sll_offer"]), "the lines the form carries, not a new read");
+
+    // A removal whose answer is lost and was not kept is not known: the page holds its writes.
+    const UNKNOWN: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
+    let body = format!("intent=remove-sell-list-line&lineId=sll_unknown&attemptId={UNKNOWN}");
+    let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    let retry = forms_to(&html, SELL_LIST_PAGE).into_iter().find(|f| f.contains("Retry the same action")).expect("a retry");
+    assert!(
+        retry.contains(&format!(r#"name="attemptId" value="{UNKNOWN}""#)) && retry.contains(r#"value="sll_unknown""#),
+        "{retry}"
+    );
+    assert_eq!(
+        list_calls(&pilot, &format!("/api/marketplace/account/command-attempts/{UNKNOWN}")).len(),
+        1,
+        "looked up once, never resent"
+    );
     // Nothing checked is refused before anything is sent.
     let (status, _, _) = pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -18221,9 +18339,12 @@ async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_that_k
     assert!(html.contains(r#"method="post""#) && !html.contains(r#"type="submit" disabled"#), "{html}");
     assert!(html.contains(&format!(r#"name="sellListReviewPlan" value="{}""#, plan.replace('"', "&quot;"))), "{html}");
     assert!(html.contains(r#"name="readinessSnapshotId" value="srs_1""#), "{html}");
-    // The page asks for readiness with the decisions alone; seller evidence is the confirm's.
+    // The page asks for readiness with the decisions and its confirmation (chase-sets/chase-sets#9995);
+    // seller evidence is the confirm's.
     let readiness = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
-    assert_eq!(readiness, serde_json::from_str::<Value>(SELL_DECISIONS).unwrap());
+    let mut expected: Value = serde_json::from_str(SELL_DECISIONS).unwrap();
+    expected["confirmationId"] = json!("slc_chk_one");
+    assert_eq!(readiness, expected);
     assert!(handoff_calls(&pilot).is_empty(), "a read writes nothing");
 }
 
@@ -18338,9 +18459,23 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
         json!({ "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD", "quantityCap": 1,
             "listingIdOverride": "lst_slc_chk_one_sll_product" })
     );
-    // Readiness with the seller's evidence came first.
+    // Readiness with the seller's evidence came first, for the confirmation and the snapshot and
+    // plan the page started from.
     let evidence = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
     assert_eq!(evidence["sellerEvidence"]["payout"]["readinessStatus"], "ready");
+    assert_eq!(
+        (&evidence["confirmationId"], &evidence["entryReadinessSnapshotId"], &evidence["reviewPlan"]),
+        (&json!("slc_chk_one"), &json!("srs_1"), &json!(plan))
+    );
+    // Each acceptance was checked against the attempt Marketplace kept for it.
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 2, "{lookups:?}");
+    assert!(
+        lookups[0].contains(
+            "kind=offer.accept&target=off_ready&requestHash=3323346fdb85b8129cb6b74f552c3074c97b9cb3dc1f37097e61d8b7051f0157"
+        ),
+        "{lookups:?}"
+    );
     assert_eq!(
         evidence["sellerEvidence"]["shipFrom"],
         json!({ "status": "ready", "addressId": null, "country": "US", "region": "IL", "postalCode": "60201" })
@@ -18380,9 +18515,13 @@ async fn an_offer_whose_terms_changed_sends_the_seller_back_to_the_sell_list_wit
     let pilot = Pilot::new().await;
     let plan = sell_plan("off_stale", 1);
     let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &sell_form(&plan, &[]), false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
     let page = text(&html);
     assert!(page.contains("Sell List changed") && page.contains("Pikachu"), "{page}");
+    // The handoff stopped part way: what each line came to, the form held and offered again.
+    assert!(page.contains("This action completed only partly."), "{page}");
+    assert!(page.contains("Completed") && page.contains("Not confirmed"), "{page}");
+    assert!(html.contains(r#"type="submit" disabled"#) && page.contains("Retry the same action"), "{html}");
     assert_eq!(
         handoff_calls(&pilot),
         [
@@ -18392,12 +18531,44 @@ async fn an_offer_whose_terms_changed_sends_the_seller_back_to_the_sell_list_wit
         "nothing after the stale offer"
     );
 
-    // An offer accepted already (a resent confirm after a lost answer) counts, with no second write.
-    let (status, _, html) =
-        pilot.send(post("/checkout/sell/session/chk_two", "trader", &sell_form(&sell_plan("off_accepted", 1), &[]), false)).await;
+    // An offer accepted already is not counted as this sale's: the handoff stops on it, and
+    // nothing is confirmed (chase-sets/chase-sets#9995). So does one Marketplace kept as another
+    // seller's acceptance.
+    for (offer, words) in [("off_accepted", "Offer match has already been accepted."), ("off_borrowed", "not as this sale")] {
+        let at = format!("/checkout/sell/session/chk_{offer}");
+        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&sell_plan(offer, 1), &[]), false)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{offer}: {html}");
+        let page = text(&html);
+        assert!(page.contains(words) && page.contains("Not applied"), "{offer}: {page}");
+    }
+    assert!(!handoff_calls(&pilot).iter().any(|c| c.ends_with("/confirm")), "nothing confirmed");
+}
+
+#[tokio::test]
+async fn a_confirm_whose_answer_is_lost_is_looked_up_and_one_not_found_waits_for_the_same_form() {
+    let pilot = Pilot::new().await;
+    let plan = sell_plan("off_short", 1);
+    // Kept, it is its confirmation's page.
+    let (status, headers, html) =
+        pilot.send(post("/checkout/sell/session/chk_lost", "trader", &sell_form(&plan, &[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    let confirm = last_body(&pilot, "/api/marketplace/account/sell-list/confirm");
-    assert_eq!(confirm["handoffSummary"]["acceptedOfferCount"], 2);
+    assert_eq!(headers[header::LOCATION], "/checkout/sell/session/chk_lost/confirmation");
+    // Not kept, it is not known: the same form to send again, and the form held.
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_gone", "trader", &sell_form(&plan, &[]), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    let retry = html.split("<form").find(|f| f.contains("Retry the same action")).expect("a retry");
+    assert!(
+        retry.contains(r#"name="readinessSnapshotId" value="srs_1""#) && retry.contains(r#"name="termsAccepted""#),
+        "{retry}"
+    );
+    assert!(html.contains(r#"type="submit" disabled"#), "{html}");
+    // A confirmation that cannot be looked for first is not known either, and nothing is sent.
+    let before = handoff_calls(&pilot).len();
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_dark", "trader", &sell_form(&plan, &[]), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    assert_eq!(handoff_calls(&pilot).len(), before, "nothing handed off");
 }
 
 #[tokio::test]

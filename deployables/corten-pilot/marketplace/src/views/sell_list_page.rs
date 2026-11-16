@@ -314,15 +314,15 @@ fn AttemptBanner<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen, attem
                 <p>{message}</p>
             }
             if !attempt.declines.is_empty() {
-                <dl class={Facts} aria-label={p.sell_list_declines()}>
+                <dl class={Facts} aria-label={p.sell_list_results()}>
                     for (id, declined) in &attempt.declines {
                         <div>
                             <dt>{offer(id)}</dt>
                             <dd>
                                 {match declined {
                                     Declined::Yes => p.sell_list_declined(),
-                                    Declined::Unconfirmed => p.sell_list_decline_unconfirmed(),
-                                    Declined::NotSent => p.sell_list_decline_not_sent(),
+                                    Declined::Unconfirmed => p.sell_list_unconfirmed(),
+                                    Declined::NotSent => p.sell_list_not_sent(),
                                 }}
                             </dd>
                         </div>
