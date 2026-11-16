@@ -212,7 +212,6 @@ pub mod url {
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
     pub use ebay::EbayConnect;
-    pub use ebay_return::{EbayCallback, EbayDeclined};
     pub use guest_claims::GuestClaim;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
     pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
@@ -1389,7 +1388,7 @@ pub mod url {
     /// eBay's return from consent (Channels' `channels-ebay-callback` and `channels-ebay-declined`):
     /// each redirects to the journey (see `ebay`). Every handler takes an `EbayReturn`; nothing
     /// keeps an answer.
-    #[corten::routes(state = crate::app::Shared, area = EbayReturn, caller = crate::auth::EbayReturn)]
+    #[corten::routes(state = crate::app::Shared, area = EbayCallback, caller = crate::auth::EbayReturn)]
     pub mod ebay_return {
         /// Consent given: eBay's state and one-time code.
         #[route("/channels/ebay/callback", get = crate::ebay::callback, no_store)]
