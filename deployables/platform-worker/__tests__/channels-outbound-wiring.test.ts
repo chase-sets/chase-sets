@@ -283,6 +283,10 @@ function validChannelsCandidate(
       cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
       batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
     } satisfies ChannelsServices["ebayReceiptExpiry"],
+    ebayAccountDeletionConsumer: {
+      batch: vi.fn<ChannelsServices["ebayAccountDeletionConsumer"]["batch"]>(),
+      consume: vi.fn<ChannelsServices["ebayAccountDeletionConsumer"]["consume"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletionConsumer"],
     connections: { getConnection: async () => null },
     connectionAuthority: {
       capture: vi.fn<ChannelsServices["connectionAuthority"]["capture"]>(),

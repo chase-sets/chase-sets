@@ -128,7 +128,8 @@ export function createEbayAccountDeletionRuntime(db: PgQueryable, keyring: Chann
       const references = await receiptQuery<{ fingerprint: string; keyId: string }>(
         db,
         `SELECT subject_fingerprint AS fingerprint, subject_key_id AS "keyId" FROM channels_ebay_account_deletion_receipts
-         UNION SELECT subject_fingerprint AS fingerprint, subject_key_id AS "keyId" FROM channels_ebay_seller_bindings`,
+         UNION SELECT subject_fingerprint AS fingerprint, subject_key_id AS "keyId" FROM channels_ebay_seller_bindings
+         WHERE subject_fingerprint IS NOT NULL`,
       );
       assertEbaySubjectKeyringContinuity(keyring, next, references.rows);
     },

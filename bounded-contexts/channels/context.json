@@ -1,6 +1,15 @@
 {
   "scheduledJobs": [
     {
+      "id": "channels.ebay-account-deletion-consumer",
+      "schedule": { "kind": "interval", "intervalMs": 3600000 },
+      "runnerExport": "createChannelsEbayAccountDeletionConsumerRunners",
+      "group": "scheduled",
+      "order": 99,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:channels.ebay-account-deletion-consumer"
+    },
+    {
       "id": "channels.ebay-account-deletion-receipt-expiry",
       "schedule": {
         "kind": "interval",

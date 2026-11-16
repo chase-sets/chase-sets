@@ -222,6 +222,21 @@ export function createEbayConnectionRuntime(deps: {
       const fingerprint = cipher.fingerprint(subject);
       const creationKey = `connection/${attempt.candidate_connection_id}`;
       return connectionEpochs.transaction([creationKey], async (db: PgQueryable) => {
+        // Receipt locks precede the binding lock in both the callback and consumer.
+        const receipts = await db.query<{ notification_id: string }>(
+          `SELECT notification_id FROM channels_ebay_account_deletion_receipts
+          WHERE subject_fingerprint=$1 AND expires_at>statement_timestamp()
+          ORDER BY notification_id FOR SHARE`,
+          [fingerprint],
+        );
+        if (receipts.rows.length) {
+          const completed = await db.query(
+            `SELECT 1 FROM channels_ebay_account_deletion_completions
+            WHERE notification_id=ANY($1::text[]) LIMIT 1`,
+            [receipts.rows.map((receipt) => receipt.notification_id)],
+          );
+          if (completed.rows.length) throw new EbayConnectionError("stale-authorization");
+        }
         const bindingId = randomUUID();
         const sealed = cipher.seal(bindingId, subject);
         await db.query(
@@ -246,6 +261,7 @@ export function createEbayConnectionRuntime(deps: {
           )
         ).rows[0]!;
         if (binding.account_id !== accountId) throw new EbayConnectionError("seller-conflict");
+        if (!binding.subject_fingerprint || !binding.subject_key_id) throw new EbayConnectionError("unavailable");
         cipher.assertAvailable({ fingerprint: binding.subject_fingerprint, keyId: binding.subject_key_id });
         if (attempt.expected_connection_id && attempt.expected_connection_id !== binding.current_connection_id)
           throw new EbayConnectionError("stale-authorization");
@@ -306,22 +322,39 @@ export function createEbayConnectionRuntime(deps: {
     async beforeConnectionLock(db: PgQueryable, input: Target) {
       await lockEbayConnectionBinding(db, input.connectionId);
     },
-    async disconnectEffect(db: PgQueryable, state: ChannelConnectionState) {
+    async prepareAccountDeletionDisconnect(target: Target) {
+      const refreshToken = await withPgTransaction(deps.db, async (db) => {
+        try {
+          const { envelope } = await current(db, target);
+          const material = await tokens(db, envelope);
+          return material.refresh.kind === "present" &&
+            (!material.refresh.expiresAt || Date.parse(material.refresh.expiresAt) > now().getTime())
+            ? material.refresh.token
+            : null;
+        } catch {
+          return null;
+        }
+      });
+      return revokeCurrentGrant(provider, refreshToken);
+    },
+    async disconnectEffect(db: PgQueryable, state: ChannelConnectionState, remoteRevocation?: "unconfirmed") {
       if (state.providerKey !== "ebay") return;
       const target = { accountId: state.accountId!, connectionId: state.connectionId! };
       const { binding, envelope } = await current(db, target);
       let refreshToken: string | null = null;
-      try {
-        const material = await tokens(db, envelope);
-        if (
-          material.refresh.kind === "present" &&
-          (!material.refresh.expiresAt || Date.parse(material.refresh.expiresAt) > now().getTime())
-        )
-          refreshToken = material.refresh.token;
-      } catch {
-        /* Unusable custody still requires local removal. */
+      if (!remoteRevocation) {
+        try {
+          const material = await tokens(db, envelope);
+          if (
+            material.refresh.kind === "present" &&
+            (!material.refresh.expiresAt || Date.parse(material.refresh.expiresAt) > now().getTime())
+          )
+            refreshToken = material.refresh.token;
+        } catch {
+          /* Unusable custody still requires local removal. */
+        }
       }
-      const remote = await revokeCurrentGrant(provider, refreshToken);
+      const remote = remoteRevocation ?? (await revokeCurrentGrant(provider, refreshToken));
       await credentials.delete(db, envelope);
       await db.query(
         `UPDATE channel_outbound_operations SET status='failed',revision=revision+1,terminal_reason='connection-disconnected',terminal_at=$2

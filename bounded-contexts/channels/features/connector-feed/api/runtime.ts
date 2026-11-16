@@ -62,7 +62,11 @@ export function createConnectorFeedRuntime(
     now?: () => Date;
     connectionEpochs?: ConnectionEpochs;
     beforeConnectionLock?: (db: PgQueryable, input: ConnectionQuery) => Promise<void>;
-    disconnectEffect?: (db: PgQueryable, state: ChannelConnectionState) => Promise<void>;
+    disconnectEffect?: (
+      db: PgQueryable,
+      state: ChannelConnectionState,
+      remoteRevocation?: "unconfirmed",
+    ) => Promise<void>;
   }>,
 ) {
   const now = deps.now ?? (() => new Date());
@@ -79,6 +83,7 @@ export function createConnectorFeedRuntime(
     input: ConnectionQuery,
     work: (db: PgQueryable, state: ChannelConnectionState, version: number) => Promise<T>,
     changingConnection = false,
+    transaction?: PgQueryable,
   ): Promise<T> {
     const checked = query(input);
     const perform = async (db: PgQueryable) => {
@@ -101,6 +106,7 @@ export function createConnectorFeedRuntime(
       return work(db, state, events.at(-1)?.streamVersion ?? 0);
     };
     // The installed disconnect closes before pairing/token or stream effects.
+    if (transaction) return perform(transaction);
     return changingConnection
       ? connectionEpochs.transaction([`connection/${checked.connectionId}`], perform)
       : withPgTransaction(deps.db, perform);
@@ -365,10 +371,12 @@ export function createConnectorFeedRuntime(
       await close(db, pairing);
     });
   }
-  const disconnectChannelConnection: ChannelConnectionServices["disconnectChannelConnection"] = async (
-    input,
+  async function disconnect(
+    input: ConnectionQuery,
     context: EventStoreContext,
-  ) => {
+    transaction?: PgQueryable,
+    remoteRevocation?: "unconfirmed",
+  ) {
     try {
       const checked = query(input);
       await loadOwned(deps.eventStore, checked.accountId, checked.connectionId);
@@ -377,7 +385,7 @@ export function createConnectorFeedRuntime(
         async (db, state, version) => {
           const pairing = await latest(db, input.connectionId);
           if (pairing) await close(db, pairing);
-          if (state.status !== "disconnected") await deps.disconnectEffect?.(db, state);
+          if (state.status !== "disconnected") await deps.disconnectEffect?.(db, state, remoteRevocation);
           const newEvents = decideChannelConnection(state, { type: "DisconnectChannelConnection" });
           const storedEvents = newEvents.length
             ? await deps.eventStore.appendToStreamInTransaction(db, {
@@ -396,13 +404,23 @@ export function createConnectorFeedRuntime(
           };
         },
         true,
+        transaction,
       );
     } catch (error) {
       if (error instanceof ConnectorPairingError && error.code === "connection-not-found")
         throw new ChannelConnectionError("connection-not-found");
       throw error;
     }
-  };
+  }
+  const disconnectChannelConnection: ChannelConnectionServices["disconnectChannelConnection"] = (input, context) =>
+    disconnect(input, context);
+  // Internal callers must already hold the Connection epoch closure transaction.
+  const disconnectChannelConnectionInTransaction = (
+    db: PgQueryable,
+    input: ConnectionQuery,
+    context: EventStoreContext,
+    remoteRevocation: "unconfirmed",
+  ) => disconnect(input, context, db, remoteRevocation);
   async function withAuthority<T>(
     input: Readonly<{ token: string; connectionId: string; operation: ConnectorOperation }>,
     work: (authority: ConnectorAuthority, db: PgQueryable) => Promise<T>,
@@ -471,6 +489,7 @@ export function createConnectorFeedRuntime(
     validateAuthorization: (input: unknown) => oauth().validateAuthorization(input),
     unpair,
     disconnectChannelConnection,
+    disconnectChannelConnectionInTransaction,
     exchange,
     revoke,
     register: (input: unknown) => oauth().register(input),
