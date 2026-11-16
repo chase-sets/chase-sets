@@ -4,11 +4,14 @@
 //! quantity cap, the purchase limits, publish, pause and withdraw, and a draft's photos (add,
 //! classify, replace, remove and reorder). A write that applied goes back to the page with its
 //! receipt (`afterWrite`) and what came of the evidence (`evidenceEvent`), as marketplace's
-//! does; one refused is the page again with the API's words. The two photo writes post
-//! `multipart/form-data` to `/photos`, read with Corten's `Upload` (`uploads::read`).
+//! does; one refused is the page again with the API's words. Each write but the photos' is a
+//! Listing attempt made from its form's `SubmitKey`, so a form sent again applies once. The two
+//! photo writes post `multipart/form-data` to `/photos`, read with Corten's `Upload`
+//! (`uploads::read`).
 use std::time::Duration;
 
 use corten::{
+    SubmitKey,
     extract::State,
     form::Errors,
     http::{HeaderMap, StatusCode},
@@ -69,6 +72,9 @@ pub struct ListingForm {
     /// Replace photo's file input.
     pub listing_photo: String,
     pub preview: String,
+    /// The form's attempt, drawn with it: the same form sent again is the same Listing attempt
+    /// (marketplace's `ListingCommandForm`). The photo forms send none.
+    pub attempt: Option<SubmitKey>,
 }
 
 /// A refused image description (`ListingEvidenceAltTextRecovery`): the photo, what was sent,
@@ -294,6 +300,13 @@ fn command(form: &ListingForm, listing: Option<&SellerListing>, p: Pilot) -> Res
             return Err(errors);
         }
     };
+    // Every command but the photo ones is an attempt, and a form drawn by the page has one.
+    let photos =
+        matches!(command, ListingCommand::Classify { .. } | ListingCommand::RemovePhoto { .. } | ListingCommand::Reorder { .. });
+    if !photos && form.attempt.is_none() {
+        errors.add_form(p.check_attempt());
+        return Err(errors);
+    }
     Ok(command)
 }
 
@@ -430,7 +443,7 @@ pub(crate) async fn write(
             .await;
         }
     };
-    match caller.listing_command(&id, &command).await {
+    match caller.listing_command(&id, &command, form.attempt.as_ref().map(SubmitKey::as_str)).await {
         Ok(receipt) => applied(&req, &id, receipt, event(&command)),
         Err(error) => refused(&req, &viewer, &config, &headers, &id, &form, error, false).await,
     }
