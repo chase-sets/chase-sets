@@ -620,9 +620,9 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 }
 
 // The current schedule model's own minimum unit count for the current manifest.
-// Capture-derived: an enrollment refreshes it with the projected schedule pins.
-const currentMinimumUnitCount = 2;
-const currentProjectedMakespans = [359404, 251960, 194055];
+// Enrollment-derived projections; new reference estimates are not measured costs.
+const currentMinimumUnitCount = 3;
+const currentProjectedMakespans = [387750, 251960, 194055];
 const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2" | "test:db:3">> = Object.freeze({
   "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
   "authoritative-seed-resume-core.db.test.ts": "test:db:1",
@@ -636,6 +636,7 @@ const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2
   "inventory-seed-resume.db.test.ts": "test:db:3",
   "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
   "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
+  "listing-channel-activation-composition.db.test.ts": "test:db:1",
 });
 const derivedBootBearingCaseCeilings = Object.freeze({ "test:db:1": 18, "test:db:2": 32, "test:db:3": 19 });
 
@@ -2759,8 +2760,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [32, 32],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(805419);
-    expect(schedule.aggregateWithOverheadMs).toBe(861086);
+    expect(schedule.aggregateMs).toBe(833765);
+    expect(schedule.aggregateWithOverheadMs).toBe(889432);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
     expect(schedule.effectiveMinimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
