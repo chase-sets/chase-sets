@@ -926,7 +926,7 @@
     "seed-support": {
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Multiple auth slices", "Deployable composition for auth"],
+      "expectedConsumers": ["sessions"],
       "crossCuttingRuntimeComposition": true
     },
     "social-login-support": {

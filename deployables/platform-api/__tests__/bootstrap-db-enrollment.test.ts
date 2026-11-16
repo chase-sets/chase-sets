@@ -3335,7 +3335,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(refusal).toBeNull();
     expect(result.schedule.measuredOneFewerUnitFloor).toEqual({
       applied: false,
-      reason: "the measured one-fewer-unit floor measures 2 unit(s), not one fewer than the 4 observed",
+      reason: "the measured one-fewer-unit floor assignment does not cover exactly the manifested files",
     });
     const extraUnitFixture = await shippedCaptureFixture(extraUnitAssignment);
     expect(

@@ -314,7 +314,7 @@ describe("listing channel activation real composition", () => {
         priceCurrencyCode: "USD",
         quantityCap: 1,
         publicationScope: "channel-only",
-        idempotencyKey: "synthetic-create",
+        idempotencyKey: "synthetic-listing-create-attempt",
       },
       context,
     );
