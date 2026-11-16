@@ -1,4 +1,16 @@
 import { listingFormAttempt } from "../support/request-support/listing-attempt";
+import {
+  LISTING_RECOVERY_PARAM,
+  listingRecoveryForForm,
+  listingRecoveryResult,
+  listingRecoveryUrl,
+  loadListingRecovery,
+  recoverListingBatch,
+  sameListingRecovery,
+  type ListingRecoveryIdentity,
+} from "../features/listings/ui/listing-batch";
+import { ListingRecoveryNotice, ListingRecoveryScope } from "../features/listings/ui/listing-batch-recovery";
+export { ListingRecoveryErrorBoundary as ErrorBoundary } from "../features/listings/ui/listing-batch-recovery";
 import { t } from "@chase-sets/localization";
 import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
 import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
@@ -62,6 +74,7 @@ function currentAccountPath(request: Request) {
 
 function accountAccessRequired(returnTo: string) {
   return {
+    listingRecovery: null,
     accountAccessRequired: {
       returnTo,
       title: t("marketplace.routes.accountListings.account.access.required.title"),
@@ -243,7 +256,7 @@ function bulkActionOutcomeErrorMessage(error: unknown) {
   return listingActionFeedback(error) ?? t("marketplace.routes.accountListings.bulk.action.request.failed");
 }
 
-async function navigateToAccountListingsAfterWrite(commandResult: unknown, destinationRoute: string) {
+async function navigateToAccountListingsWithReceipt(commandResult: unknown, destinationRoute: string) {
   return navigateAfterWriteWithCompactToken(commandResult, destinationRoute, {
     postWriteTokenStore: await resolveMarketplacePostWriteTokenStore(),
     telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY,
@@ -266,6 +279,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const pendingAvailabilityStatus = availabilityStatusFromAction(searchParams.get(AVAILABILITY_ACTION_PARAM));
   const pendingSettingsAction = searchParams.get(SETTINGS_ACTION_PARAM);
+  const listingRecovery = new URL(request.url).searchParams.has(LISTING_RECOVERY_PARAM)
+    ? await loadListingRecovery(
+        createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest)),
+        request,
+        actor.accountId,
+      )
+    : null;
 
   const loadPageReads = async (apiClient: typeof marketplaceApi): Promise<AccountListingsPageReads> => {
     const [listings, feeLockReport, listingAvailability, orderCapacity] = await Promise.all([
@@ -286,8 +306,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
 
   let pageReads: AccountListingsPageReads;
+  let recoveryOnly = false;
   if (pageRead.kind === "data") {
     pageReads = pageRead.data;
+  } else if (listingRecovery) {
+    pageReads = createFreshWriteRecoveryPageReads(actor.accountId);
+    recoveryOnly = true;
   } else if (pageRead.kind === "pending" && "classification" in pageRead) {
     const { classification } = pageRead;
     if (classification.transient && hasMarketplaceFreshWriteSource(classification)) {
@@ -326,6 +350,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     accountAccessRequired: null,
+    listingRecovery,
+    ...(recoveryOnly ? { recoveryOnly: true as const } : {}),
     listings,
     feeLockReport,
     listingAvailability,
@@ -355,8 +381,35 @@ async function fetchSellerOpenOrderCount(request: Request): Promise<number | nul
   }
 }
 
-async function handleAction(intent: string, { request, formData }: FormActionContext) {
+async function handleAction(intent: string, { request, formData, actor }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
+  const retained = await loadListingRecovery(api, request, actor!.accountId);
+  if (retained?.phase === "ambiguous") return { listingRecovery: retained };
+  if (
+    !retained &&
+    (intent === "bulk-pause-listings" || intent === "bulk-withdraw-listings") &&
+    formData.getAll("listingIds").length === 0
+  )
+    return { bulkActionOutcomes: [] };
+  let submittedIdentity: ListingRecoveryIdentity | null;
+  try {
+    submittedIdentity =
+      intent === "retry-listing-batch"
+        ? (retained?.identity ?? null)
+        : await listingRecoveryForForm(formData, null, actor!.accountId);
+  } catch {
+    return { listingRecovery: { identity: null, items: [], phase: "failed-safe" as const } };
+  }
+  const navigateToAccountListingsAfterWrite = (commandResult: unknown, destination: string) =>
+    navigateToAccountListingsWithReceipt(
+      commandResult,
+      submittedIdentity ? listingRecoveryUrl("/account/listings", submittedIdentity) : destination,
+    );
+  if (retained?.identity && intent !== "retry-listing-batch") {
+    if (!submittedIdentity || !sameListingRecovery(retained.identity, submittedIdentity))
+      return { listingRecovery: { ...retained, phase: "failed-safe" as const } };
+    if (retained.items.every((item) => item.outcome !== "unknown")) return { listingRecovery: retained };
+  }
 
   try {
     if (intent === "disable-listing-availability") {
@@ -438,31 +491,50 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       );
     }
 
-    if (intent === "bulk-pause-listings" || intent === "bulk-withdraw-listings") {
-      const listingIds = [
-        ...new Set(
-          formData
-            .getAll("listingIds")
-            .map((value) => String(value))
-            .filter(Boolean),
-        ),
-      ];
-      if (listingIds.length === 0) return { bulkActionOutcomes: [] };
+    if (intent === "bulk-pause-listings" || intent === "bulk-withdraw-listings" || intent === "retry-listing-batch") {
+      if (intent === "retry-listing-batch" && !retained?.identity?.bulk)
+        return { listingRecovery: listingRecoveryResult(null, []) };
+      if (intent !== "retry-listing-batch" && formData.getAll("listingIds").length === 0)
+        return { bulkActionOutcomes: [] };
+      const identity: ListingRecoveryIdentity | null = retained?.identity ?? submittedIdentity ?? null;
+      if (
+        !identity?.bulk ||
+        (identity.mutationKind !== "listing.pause" && identity.mutationKind !== "listing.withdraw")
+      )
+        return { bulkActionOutcomes: [] };
+      const possible =
+        retained ??
+        listingRecoveryResult(
+          identity,
+          identity.targets.map((target) => ({ targetId: target.id, outcome: "unknown" })),
+        );
+      const pendingIds = possible.items.filter((item) => item.outcome === "unknown").map((item) => item.targetId);
+      if (pendingIds.length === 0) return { listingRecovery: possible };
       // One batch identity per submission (a resubmitted form keeps its id) and one target attempt per Listing.
-      const batchId = listingFormAttempt(formData, intent).idempotencyKey;
+      const batchId = identity.batchId;
       let batch: Awaited<ReturnType<typeof api.applyListingBatch>>;
       try {
         batch = await api.applyListingBatch({
           batchId,
-          family: intent === "bulk-pause-listings" ? "listing.pause" : "listing.withdraw",
-          listingIds,
+          family: identity.mutationKind,
+          listingIds: pendingIds,
         });
       } catch (error) {
         const status = marketplaceApiErrorAdapter.getStatus(error);
-        if (status === null || status < 400 || status >= 500) throwListingActionFailure(error);
+        if (
+          status === null ||
+          status < 400 ||
+          status >= 500 ||
+          marketplaceApiErrorAdapter.getErrorCode(error) === "history_incomplete"
+        )
+          return { listingRecovery: await recoverListingBatch(api, identity, actor!.accountId) };
         const message = bulkActionOutcomeErrorMessage(error);
         return {
-          bulkActionOutcomes: listingIds.map((listingId) => ({
+          listingRecovery: listingRecoveryResult(
+            identity,
+            possible.items.map((item) => (item.outcome === "unknown" ? { ...item, outcome: "error" } : item)),
+          ),
+          bulkActionOutcomes: pendingIds.map((listingId) => ({
             listingId,
             label: bulkActionOutcomeLabel(listingId),
             outcome: "error" as const,
@@ -471,7 +543,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         };
       }
       const outcomes = new Map(batch.items.map((item) => [item.targetId, item.outcome] as const));
-      const bulkActionOutcomes: MarketplaceListingBulkActionOutcome[] = listingIds.map((listingId) =>
+      const bulkActionOutcomes: MarketplaceListingBulkActionOutcome[] = pendingIds.map((listingId) =>
         outcomes.get(listingId) === "succeeded"
           ? { listingId, label: bulkActionOutcomeLabel(listingId), outcome: "success", message: null }
           : {
@@ -482,11 +554,26 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             },
       );
 
-      return { bulkActionOutcomes };
+      const listingRecovery = listingRecoveryResult(
+        identity,
+        possible.items.map((item) =>
+          item.outcome !== "unknown"
+            ? item
+            : { targetId: item.targetId, outcome: outcomes.get(item.targetId) ?? "ambiguous" },
+        ),
+      );
+      return { bulkActionOutcomes, listingRecovery };
     }
 
     return redirect("/account/listings");
   } catch (error) {
+    if (
+      submittedIdentity &&
+      (!(error instanceof MarketplaceApiError) ||
+        error.status >= 500 ||
+        marketplaceApiErrorAdapter.getErrorCode(error) === "history_incomplete")
+    )
+      return { listingRecovery: await recoverListingBatch(api, submittedIdentity, actor!.accountId) };
     const feedback = listingActionFeedback(error);
     if (feedback !== null) {
       return {
@@ -509,9 +596,22 @@ export const action = defineFormAction({
     "clear-order-capacity": (context) => handleAction("clear-order-capacity", context),
     "bulk-pause-listings": (context) => handleAction("bulk-pause-listings", context),
     "bulk-withdraw-listings": (context) => handleAction("bulk-withdraw-listings", context),
+    "retry-listing-batch": (context) => handleAction("retry-listing-batch", context),
   },
   onUnknownIntent: (context) => handleAction("", context),
 });
+
+export function shouldRevalidate({
+  actionResult,
+  defaultShouldRevalidate,
+}: {
+  actionResult?: unknown;
+  defaultShouldRevalidate: boolean;
+}) {
+  return actionResult && typeof actionResult === "object" && "listingRecovery" in actionResult
+    ? false
+    : defaultShouldRevalidate;
+}
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
@@ -535,26 +635,42 @@ export default function MarketplaceAccountListingsRoute() {
     );
   }
 
+  if ("recoveryOnly" in data && data.recoveryOnly) {
+    return (
+      <ListingRecoveryScope
+        recovery={actionData?.listingRecovery ?? data.listingRecovery}
+        accountId={data.listingAvailability.account_id}
+      >
+        <ListingRecoveryNotice />
+      </ListingRecoveryScope>
+    );
+  }
+
   return (
-    <MarketplaceAccountListingsRealtimeView
-      key={[
-        accountId ?? "anonymous",
-        data.listings.total,
-        data.listings.items.map((item) => item.listing_id).join("|"),
-        data.feeLockReport.total,
-        data.feeLockReport.items.map((item) => item.listing_id).join("|"),
-        data.listingAvailability.status,
-        data.listingAvailability.updated_at,
-        data.orderCapacity.updated_at,
-        String(data.orderCapacity.max_open_orders),
-        String(data.openOrderCount),
-        data.filters.status,
-        data.filters.search,
-      ].join("\n")}
-      data={data}
-      actionData={actionData}
-      accountId={accountId}
-    />
+    <ListingRecoveryScope
+      recovery={actionData?.listingRecovery ?? data.listingRecovery}
+      accountId={data.listingAvailability.account_id}
+    >
+      <MarketplaceAccountListingsRealtimeView
+        key={[
+          accountId ?? "anonymous",
+          data.listings.total,
+          data.listings.items.map((item) => item.listing_id).join("|"),
+          data.feeLockReport.total,
+          data.feeLockReport.items.map((item) => item.listing_id).join("|"),
+          data.listingAvailability.status,
+          data.listingAvailability.updated_at,
+          data.orderCapacity.updated_at,
+          String(data.orderCapacity.max_open_orders),
+          String(data.openOrderCount),
+          data.filters.status,
+          data.filters.search,
+        ].join("\n")}
+        data={data}
+        actionData={actionData}
+        accountId={accountId}
+      />
+    </ListingRecoveryScope>
   );
 }
 
@@ -636,7 +752,7 @@ function MarketplaceAccountListingsRealtimeView({
       orderCapacity={data.orderCapacity as MarketplaceSellerOrderCapacity}
       openOrderCount={data.openOrderCount}
       filters={data.filters}
-      bulkActionOutcomes={actionData?.bulkActionOutcomes ?? null}
+      bulkActionOutcomes={actionData?.listingRecovery ? null : (actionData?.bulkActionOutcomes ?? null)}
       errorMessage={actionData?.error ?? null}
       sellerBehavioralMetrics={data.sellerBehavioralMetrics}
     />

@@ -214,8 +214,9 @@ export function createEbayConnectionRuntime(deps: {
       assertOpaqueId(accountId, "accountId");
       if (typeof publication !== "boolean") throw new EbayConnectionError("invalid-request");
       const state = createOAuthState();
-      const at = now();
       await withPgTransaction(deps.db, async (db) => {
+        await db.query("LOCK TABLE channels_ebay_oauth_attempts IN ROW EXCLUSIVE MODE");
+        const at = now();
         const expected = connectionId ? await current(db, { accountId, connectionId }) : null;
         await db.query(
           `INSERT INTO channels_ebay_oauth_attempts
@@ -268,6 +269,16 @@ export function createEbayConnectionRuntime(deps: {
       const fingerprint = cipher.fingerprint(subject);
       const creationKey = `connection/${attempt.candidate_connection_id}`;
       return connectionEpochs.transaction([creationKey], async (db: PgQueryable) => {
+        // Local admission order: attempts table, exact attempt, seller binding.
+        // Completion takes the exclusive table lock and removes even consumed attempts.
+        await db.query("LOCK TABLE channels_ebay_oauth_attempts IN ROW EXCLUSIVE MODE");
+        const valid = await db.query(
+          `SELECT 1 FROM channels_ebay_oauth_attempts
+          WHERE state_hash=$1 AND account_id=$2 AND candidate_connection_id=$3
+          AND consumed_at IS NOT NULL AND expires_at>$4 FOR UPDATE`,
+          [hashOAuthState(state), accountId, attempt.candidate_connection_id, now()],
+        );
+        if (!valid.rows.length) throw new EbayConnectionError("stale-authorization");
         const bindingId = randomUUID();
         const sealed = cipher.seal(bindingId, subject);
         await db.query(
@@ -292,6 +303,7 @@ export function createEbayConnectionRuntime(deps: {
           )
         ).rows[0]!;
         if (binding.account_id !== accountId) throw new EbayConnectionError("seller-conflict");
+        if (!binding.subject_fingerprint || !binding.subject_key_id) throw new EbayConnectionError("unavailable");
         cipher.assertAvailable({ fingerprint: binding.subject_fingerprint, keyId: binding.subject_key_id });
         if (attempt.expected_connection_id && attempt.expected_connection_id !== binding.current_connection_id)
           throw new EbayConnectionError("stale-authorization");
@@ -353,22 +365,39 @@ export function createEbayConnectionRuntime(deps: {
     async beforeConnectionLock(db: PgQueryable, input: Target) {
       await lockEbayConnectionBinding(db, input.connectionId);
     },
-    async disconnectEffect(db: PgQueryable, state: ChannelConnectionState) {
+    async prepareAccountDeletionDisconnect(target: Target) {
+      const refreshToken = await withPgTransaction(deps.db, async (db) => {
+        try {
+          const { envelope } = await current(db, target);
+          const material = await tokens(db, envelope);
+          return material.refresh.kind === "present" &&
+            (!material.refresh.expiresAt || Date.parse(material.refresh.expiresAt) > now().getTime())
+            ? material.refresh.token
+            : null;
+        } catch {
+          return null;
+        }
+      });
+      return revokeCurrentGrant(provider, refreshToken);
+    },
+    async disconnectEffect(db: PgQueryable, state: ChannelConnectionState, remoteRevocation?: "unconfirmed") {
       if (state.providerKey !== "ebay") return;
       const target = { accountId: state.accountId!, connectionId: state.connectionId! };
       const { binding, envelope } = await current(db, target);
       let refreshToken: string | null = null;
-      try {
-        const material = await tokens(db, envelope);
-        if (
-          material.refresh.kind === "present" &&
-          (!material.refresh.expiresAt || Date.parse(material.refresh.expiresAt) > now().getTime())
-        )
-          refreshToken = material.refresh.token;
-      } catch {
-        /* Unusable custody still requires local removal. */
+      if (!remoteRevocation) {
+        try {
+          const material = await tokens(db, envelope);
+          if (
+            material.refresh.kind === "present" &&
+            (!material.refresh.expiresAt || Date.parse(material.refresh.expiresAt) > now().getTime())
+          )
+            refreshToken = material.refresh.token;
+        } catch {
+          /* Unusable custody still requires local removal. */
+        }
       }
-      const remote = await revokeCurrentGrant(provider, refreshToken);
+      const remote = remoteRevocation ?? (await revokeCurrentGrant(provider, refreshToken));
       await credentials.delete(db, envelope);
       await retireCredentialRefresh(db, target.connectionId);
       await db.query(

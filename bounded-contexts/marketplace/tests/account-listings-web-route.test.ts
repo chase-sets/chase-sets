@@ -114,7 +114,7 @@ function createTestPostWriteTokenStore() {
 }
 
 describe("marketplace listings workbench route", () => {
-  it("marks seller availability disable redirects with the pending availability action", async () => {
+  it("redirects seller availability changes with an opaque recovery identity and compact receipt", async () => {
     const store = createTestPostWriteTokenStore();
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     vi.stubGlobal(
@@ -151,7 +151,15 @@ describe("marketplace listings workbench route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\?availabilityAction=disabled&postWriteToken=/);
+    const destination = new URL(location, "http://localhost");
+    expect(destination.pathname).toBe("/account/listings");
+    expect(JSON.parse(destination.searchParams.get("listingRecovery")!)).toMatchObject({
+      batchId: "test_form_attempt_10923_disableSellerListingAvailability",
+      mutationKind: "seller.availability",
+      bulk: false,
+    });
+    expect(location).not.toMatch(/targets|requestHash/);
+    expect(location).not.toMatch(/reasonCategory|operations|availabilityAction/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listings/);
     expect(location).not.toContain("afterWrite=");
     expect(store.storeCalls[0]?.payload.receipt.commitPosition).toBe("43");

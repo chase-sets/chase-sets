@@ -1,4 +1,6 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import { z } from "zod";
+import { marketplaceAttemptIdSchema, recoveryHashSchema } from "../../mutation-recovery/domain/contracts";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence-policy/domain/policy";
 import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
@@ -367,8 +369,11 @@ export interface MarketplaceBulkListingPriceUpdateOutcome {
   message?: string;
 }
 
-/** The bulk families whose terminal vector Marketplace persists under one batch id. */
+/** Listing families whose recovery vector Marketplace persists under one batch id. */
 export type MarketplaceListingBatchFamily =
+  | "listing.publish"
+  | "listing.update-quantity"
+  | "listing.update-purchase-limits"
   | "listing.update-price"
   | "listing.pause"
   | "listing.withdraw"
@@ -385,7 +390,41 @@ export interface MarketplaceListingBatchItem {
   outcome: MarketplaceListingBatchOutcome;
   version: number;
   message?: string;
+  requestHash?: string;
+  attemptKeyFingerprint?: string;
+  noOp?: true;
 }
+
+export const listingRecoveryReferenceSchema = z.strictObject({
+  batchId: marketplaceAttemptIdSchema,
+  mutationKind: z.enum([
+    "listing.publish",
+    "listing.update-price",
+    "listing.update-quantity",
+    "listing.update-purchase-limits",
+    "listing.pause",
+    "listing.withdraw",
+    "seller.availability",
+    "seller.away",
+    "seller.order-capacity",
+  ]),
+  bulk: z.boolean(),
+});
+export const listingRecoveryIdentitySchema = listingRecoveryReferenceSchema
+  .extend({
+    targets: z
+      .array(z.strictObject({ id: z.string().regex(/^[A-Za-z0-9_-]{1,512}$/), requestHash: recoveryHashSchema }))
+      .min(1)
+      .max(500),
+  })
+  .refine(
+    (value) =>
+      new Set(value.targets.map((target) => target.id)).size === value.targets.length &&
+      (value.bulk
+        ? value.mutationKind === "listing.pause" || value.mutationKind === "listing.withdraw"
+        : value.targets.length === 1),
+  );
+export type ListingRecoveryIdentity = z.infer<typeof listingRecoveryIdentitySchema>;
 
 export interface MarketplaceListingBatchResult {
   batchId: string;

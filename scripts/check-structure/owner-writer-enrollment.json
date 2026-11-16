@@ -569,12 +569,21 @@
     },
     {
       "file": "bounded-contexts/channels/features/connector-feed/api/runtime.ts",
-      "symbol": "createConnectorFeedRuntime > disconnectChannelConnection",
+      "symbol": "createConnectorFeedRuntime > disconnect",
       "sink": "deps.eventStore.appendToStreamInTransaction",
       "ordinal": 1,
       "keys": ["connection"],
       "disposition": "enrolled",
       "enrollment": "bounded-contexts/channels/features/connector-feed/api/runtime.ts::createConnectorFeedRuntime > transact"
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-account-deletion/api/consumer.ts",
+      "symbol": "createEbayAccountDeletionConsumer",
+      "sink": "deps.connectorFeed.disconnectChannelConnectionInTransaction",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/ebay-account-deletion/api/consumer.ts::createEbayAccountDeletionConsumer > consume"
     },
     {
       "file": "bounded-contexts/channels/features/connector-feed/api/runtime.ts",

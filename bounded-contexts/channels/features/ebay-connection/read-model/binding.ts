@@ -6,8 +6,8 @@ export type EbaySellerBinding = {
   binding_id: string;
   account_id: string;
   environment: "sandbox" | "production";
-  subject_fingerprint: string;
-  subject_key_id: string;
+  subject_fingerprint: string | null;
+  subject_key_id: string | null;
   current_connection_id: string | null;
   credential_reference: string | null;
   capabilities: string[];

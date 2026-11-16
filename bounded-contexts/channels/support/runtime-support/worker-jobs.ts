@@ -4,6 +4,7 @@ import { createScheduledJobRunner, type WorkerJobInput } from "@chase-sets/platf
 import type { ChannelsServices } from "./services";
 import { isChannelsServices } from "./services";
 import { createEbayReceiptExpiryRunner } from "../../features/ebay-account-deletion/api/expiry-runner";
+import { createEbayAccountDeletionConsumerRunner } from "../../features/ebay-account-deletion/api/consumer-runner";
 import { channelProviderRegistry } from "../../features/publication-port/api/registry";
 import type { ChannelProviderRegistry } from "../../features/publication-port/domain/contracts";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -28,6 +29,17 @@ export function createChannelsEbayCredentialRefreshRunners({
 }
 
 type CreateChannelsEbayAccountDeletionReceiptExpiryRunnersConfig = Readonly<{}>;
+export function createChannelsEbayAccountDeletionConsumerRunners({
+  services,
+  controlPlane,
+  logger,
+}: Pick<WorkerJobInput<Readonly<{}>>, "services" | "controlPlane" | "logger">): readonly WorkerRunner[] {
+  const channels = services.channels;
+  return isChannelsServices(channels)
+    ? [createEbayAccountDeletionConsumerRunner(channels.ebayAccountDeletionConsumer, logger, controlPlane)]
+    : [];
+}
+
 export function createChannelsEbayAccountDeletionReceiptExpiryRunners({
   services,
   controlPlane,
