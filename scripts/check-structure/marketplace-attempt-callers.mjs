@@ -370,6 +370,7 @@ export const marketplaceListingCallerPartition = new Map([
   ["bounded-contexts/marketplace/routes/account-listings.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/support/runtime-support/seed.ts", "authoritative-stream"],
   ["bounded-contexts/marketplace/tests/safe-listing-feedback.test.ts", "typed-owner-fixture"],
+  ["bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx", "typed-owner-fixture"],
   ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts", "caller-identity"],
   ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/wave-outcomes.ts", "caller-identity"],
   ["bounded-contexts/pricing/features/recommendations/api/runtime.ts", "caller-identity"],

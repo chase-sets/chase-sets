@@ -45,7 +45,7 @@ describe("presents only allowlisted Listing feedback", () => {
     new Error("postgres password=secret"),
     { body: { nested: "nested-secret-body" } },
     json({ secret: "nested-secret-body" }, 500),
-  ])("redacts unknown action rejections before the root boundary: %s", async (failure) => {
+  ])("redacts unknown action rejections while recovering possible-send loss: %s", async (failure) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
@@ -53,15 +53,9 @@ describe("presents only allowlisted Listing feedback", () => {
         throw failure;
       }),
     );
-    let result: unknown;
-    try {
-      await listingsAction(actionArgs("set-order-capacity"));
-    } catch (error) {
-      result = error;
-    }
-    expect(result).toBeInstanceOf(Response);
-    expect((result as Response).status).toBe(500);
-    expect(await (result as Response).text()).not.toMatch(/password=secret|nested-secret-body/);
+    const result = await listingsAction(actionArgs("set-order-capacity"));
+    expect(result).toMatchObject({ listingRecovery: { phase: "ambiguous", items: [{ outcome: "ambiguous" }] } });
+    expect(inspect(result, { depth: null })).not.toMatch(/password=secret|nested-secret-body/);
   });
   it.each([
     [listingsAction, "set-order-capacity", "order_capacity_invalid", "orderCapacityInvalid"],
@@ -87,7 +81,7 @@ describe("presents only allowlisted Listing feedback", () => {
     [listingsNewAction, "create-listing"],
     [listingsNewAction, "create-and-publish-listing"],
     [listingsNewAction, "preview-listing"],
-  ] as const)("sends unknown 5xx to the existing boundary, never seller action data: %s %s", async (action, intent) => {
+  ] as const)("keeps unknown 5xx private during recovery or boundary handling: %s %s", async (action, intent) => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
@@ -107,15 +101,24 @@ describe("presents only allowlisted Listing feedback", () => {
       ),
     );
     let failure: unknown;
+    let result: unknown;
     try {
-      await action(actionArgs(intent));
+      result = await action(actionArgs(intent));
     } catch (error) {
       failure = error;
     }
-    expect(failure).toBeInstanceOf(Response);
-    const response = failure as Response;
-    expect(response.status).toBe(500);
-    expect([await response.text(), inspect(log.mock.calls, { depth: null })].join()).not.toMatch(
+    let feedback: string;
+    if (action === listingsAction) {
+      expect(failure).toBeUndefined();
+      expect(result).toMatchObject({ listingRecovery: { phase: "ambiguous", items: [{ outcome: "ambiguous" }] } });
+      feedback = inspect(result, { depth: null });
+    } else {
+      expect(failure).toBeInstanceOf(Response);
+      const response = failure as Response;
+      expect(response.status).toBe(500);
+      feedback = await response.text();
+    }
+    expect([feedback, inspect(log.mock.calls, { depth: null })].join()).not.toMatch(
       /password=secret|nested-secret-body/,
     );
   });
