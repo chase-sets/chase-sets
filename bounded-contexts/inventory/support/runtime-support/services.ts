@@ -204,6 +204,7 @@ export function createInventoryStockAuthorityForPool(pool: PgTransactionalPool, 
   return {
     ...createInventoryStockAuthority(pool, store, reservations),
     status: reservations.status,
+    invalidateStock: reservations.invalidateStock,
     async settleInboundSale(evidenceId: string) {
       const result = await pool.query<{
         payload: { command: RecordExternalChannelSaleCommand; context: EventStoreContext };

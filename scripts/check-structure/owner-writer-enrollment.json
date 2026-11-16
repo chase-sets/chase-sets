@@ -2518,7 +2518,7 @@
       "ordinal": 1,
       "keys": ["stock"],
       "disposition": "enrolled",
-      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/read-model/schema.ts::dataStep > enrollInventoryStockStreamsInTransaction"
     },
     {
       "file": "bounded-contexts/inventory/features/recovered-items/api/runtime.ts",

@@ -33,6 +33,20 @@ class StockClosureRequired extends Error {
   }
 }
 
+class StockReadyForApplication extends Error {}
+
+export async function enrollInventoryStockStreamsInTransaction(db: PgQueryable, ownerStreamIds: readonly string[]) {
+  const streams = [...new Set(ownerStreamIds)].sort();
+  for (const stream of streams) await db.query(STOCK_OWNER_LOCK_SQL, [stream]);
+  const pending: string[] = [];
+  for (const stream of streams) {
+    const intent = await beginOwnerStreamInvalidationInTransaction(db, stream);
+    const applied = await applyOwnerStreamInvalidationInTransaction(db, intent, async () => undefined);
+    if (applied.status !== "APPLIED") pending.push(stream);
+  }
+  if (pending.length) throw new StockClosureRequired(pending);
+}
+
 /** All physical Item, allocation and Hold writes, including replay, cross this fence. */
 export function createInventoryStockReservations(
   pool: PgTransactionalPool,
@@ -42,7 +56,10 @@ export function createInventoryStockReservations(
   const protocol = createPostgresOwnerStreamReservationStore({
     ownerPool: pool,
     consumerPool,
-    applyInvalidation: async () => undefined,
+    applyInvalidation: async () => {
+      // Only the business writer transaction may commit APPLIED.
+      throw new StockReadyForApplication();
+    },
     applyInboundEvidence: async () => {
       throw new InventoryDomainError("Inbound sales settle through the Inventory sale runtime.");
     },
@@ -84,15 +101,7 @@ export function createInventoryStockReservations(
 
   async function enroll(db: PgQueryable, inputs: readonly AppendToStreamInput[]) {
     const streams = await writerStreams(db, inputs);
-    // Acquire the complete lock set before beginning any generation.
-    for (const stream of streams) await db.query(STOCK_OWNER_LOCK_SQL, [stream]);
-    const pending: string[] = [];
-    for (const stream of streams) {
-      const intent = await beginOwnerStreamInvalidationInTransaction(db, stream);
-      const applied = await applyOwnerStreamInvalidationInTransaction(db, intent, async () => undefined);
-      if (applied.status !== "APPLIED") pending.push(stream);
-    }
-    if (pending.length) throw new StockClosureRequired(pending);
+    await enrollInventoryStockStreamsInTransaction(db, streams);
   }
 
   async function transaction<T>(work: (db: PgPoolClient) => Promise<T>): Promise<T> {
@@ -113,8 +122,7 @@ export function createInventoryStockReservations(
     if (first.kind === "applied") return first.value;
     // The writer transaction has committed its intent and released every lock.
     for (const stream of first.streams) {
-      const result = await protocol.driveInvalidation(stream);
-      if (result.status !== "APPLIED") throw new InventoryStockChangePending(first.streams);
+      if (!(await releaseOriginalReservations(stream))) throw new InventoryStockChangePending(first.streams);
     }
     const next = await attempt();
     if (next.kind !== "applied") throw new InventoryStockChangePending(next.streams);
@@ -174,6 +182,24 @@ export function createInventoryStockReservations(
     return result.rows[0] ?? null;
   }
 
+  async function invalidateStock(itemId: string) {
+    const streams = stockOwnerStreams(itemId);
+    await withConfigurationEpochTransaction(pool, async (db) => {
+      for (const stream of streams) await beginOwnerStreamInvalidationInTransaction(db, stream);
+    });
+    for (const stream of streams) await releaseOriginalReservations(stream);
+    return Promise.all(streams.map(status));
+  }
+
+  async function releaseOriginalReservations(stream: string) {
+    try {
+      return (await protocol.driveInvalidation(stream)).status === "APPLIED";
+    } catch (error) {
+      if (error instanceof StockReadyForApplication) return true;
+      throw error;
+    }
+  }
+
   return {
     identity,
     protocol,
@@ -183,6 +209,7 @@ export function createInventoryStockReservations(
     appendInTransaction,
     recordInboundSale,
     status,
+    invalidateStock,
     reserveInTransaction: reserveOwnerStreamInTransaction,
   };
 }

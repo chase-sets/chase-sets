@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  drainContextRuntime,
+  resolveModuleSubscriptions,
+} from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -39,7 +43,7 @@ const target: InventoryStockTarget = {
   inventoryItemId: "inv_stock",
   channelConnectionId: "connection-stock",
   catalogItemId: "cat_stock",
-  productId: "cat_stock::raw",
+  productId: "cat_stock::",
   selectedOptions: [],
 };
 const consumer = { storeId: "stock-test-consumer", incarnation: "stock-test-incarnation" };
@@ -55,19 +59,41 @@ const adjustment = (delta = 1): AppendToStreamInput => ({
   ],
   context,
 });
-const omissions = vi.hoisted(() => ({ physicalEnrollment: false }));
+const omissions = vi.hoisted(() => ({ physicalEnrollment: false, inboundEvidence: false, migrationEnrollment: false }));
 vi.mock("../features/inventory-items/api/stock-reservations", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../features/inventory-items/api/stock-reservations")>();
   const createInventoryStockReservations: typeof actual.createInventoryStockReservations = (...args) => {
     const enrolled = actual.createInventoryStockReservations(...args);
-    if (!omissions.physicalEnrollment) return enrolled;
     return {
       ...enrolled,
-      persistence: args[1],
-      appendInTransaction: (db, inputs) => args[1].appendToStreamsInTransaction(db, inputs),
+      ...(omissions.physicalEnrollment
+        ? {
+            persistence: args[1],
+            appendInTransaction: (
+              db: Parameters<typeof enrolled.appendInTransaction>[0],
+              inputs: readonly AppendToStreamInput[],
+            ) => args[1].appendToStreamsInTransaction(db, inputs),
+          }
+        : {}),
+      ...(omissions.inboundEvidence
+        ? {
+            recordInboundSale: async (evidenceId: string, resourceKey: string) => ({
+              evidenceId,
+              resourceKey,
+              payload: {},
+              status: "PENDING" as const,
+            }),
+          }
+        : {}),
     };
   };
-  return { ...actual, createInventoryStockReservations };
+  return {
+    ...actual,
+    createInventoryStockReservations,
+    enrollInventoryStockStreamsInTransaction: (
+      ...args: Parameters<typeof actual.enrollInventoryStockStreamsInTransaction>
+    ) => (omissions.migrationEnrollment ? Promise.resolve() : actual.enrollInventoryStockStreamsInTransaction(...args)),
+  };
 });
 
 describeDb("Inventory stock reservation handshake", () => {
@@ -91,6 +117,9 @@ describeDb("Inventory stock reservation handshake", () => {
     consumerPool = pools.marketplace;
   });
   beforeEach(async () => {
+    omissions.physicalEnrollment = false;
+    omissions.inboundEvidence = false;
+    omissions.migrationEnrollment = false;
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(inventoryModule, pool);
     await consumerPool.query(eventCorePostgresSchemaSql);
@@ -111,7 +140,7 @@ describeDb("Inventory stock reservation handshake", () => {
         itemId: "inv_stock" as never,
         accountId: "acc_stock",
         catalogItemId: "cat_stock",
-        productId: "cat_stock::raw" as never,
+        productId: "cat_stock::" as never,
         selectedOptions: [],
         storageLocationId: "loc_stock",
         totalQuantity: 10,
@@ -196,6 +225,191 @@ describeDb("Inventory stock reservation handshake", () => {
       ])
     ).rows[0]?.status;
   }
+
+  async function projectInventory() {
+    await drainContextRuntime(
+      {
+        subscriptionRunners: resolveModuleSubscriptions([
+          {
+            contextName: "inventory",
+            module: { ...inventoryModule, buildSubscriptions: () => [], eventSubscriptions: [], eventReactions: [] },
+            services,
+            pool,
+            projectionHandlerSets: inventoryModule.projectionHandlerSets?.(services) ?? [],
+          },
+        ]),
+      },
+      { settleIdleCheckpoints: true },
+    );
+  }
+
+  it("never reports APPLIED before the physical append commits, including a failed retry", async () => {
+    const binding = await prepare();
+    const before = await eventCount();
+    await pool.query(`CREATE FUNCTION stock_append_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'synthetic stock append barrier'; END $$;
+      CREATE TRIGGER stock_append_barrier BEFORE INSERT ON event_store_events
+      FOR EACH ROW EXECUTE FUNCTION stock_append_barrier()`);
+    try {
+      await expect(services.appendToStreams([adjustment()])).rejects.toThrow("synthetic stock append barrier");
+      expect(await terminal(binding)).toBe("ABORTED");
+      expect(await eventCount()).toBe(before);
+      for (const reservation of binding.reservations)
+        expect((await authority.status(reservation.ownerStreamId))?.status).toBe("ABORT-REQUESTED");
+      await expect(prepare()).rejects.toMatchObject({ code: "concurrency_conflict" });
+    } finally {
+      await pool.query("DROP TRIGGER stock_append_barrier ON event_store_events; DROP FUNCTION stock_append_barrier()");
+    }
+    await services.appendToStreams([adjustment()]);
+    expect(await eventCount()).toBe(before + 1);
+    expect((await authority.status("inventory.item-inv_stock"))?.status).toBe("APPLIED");
+    await prepare();
+  });
+
+  it.each([false, true])("retained migration enrollment omission=%s", async (omit) => {
+    const sourceRef = { orderId: "ord_retained_stock", reservationRequestId: "rsv_retained_stock" };
+    await pool.query(
+      "ALTER TABLE event_store_events DROP CONSTRAINT inventory_hold_consumed_pair_binding; ALTER TABLE inventory_item_ledger DROP CONSTRAINT inventory_item_ledger_consumed_null_delta",
+    );
+    await store.appendToStream({
+      streamId: "inventory.hold-retained-stock",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId: "retained-stock",
+            itemId: "inv_stock",
+            accountId: "acc_stock",
+            quantity: 1,
+            reason: "Retained stock",
+            purpose: "order",
+            sourceRef,
+          },
+        },
+        {
+          eventType: "inventory.hold.consumed",
+          payload: { holdId: "retained-stock", consumedAt: now, consumptionReason: "dispatch", sourceRef },
+        },
+      ],
+    });
+    await seedStockReferences();
+    await projectInventory();
+    const migrationId = "20261102_inventory_hold_consumption_handoff";
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId]);
+    const binding = await prepare();
+    const before = await eventCount();
+    if (omit) {
+      omissions.migrationEnrollment = true;
+      try {
+        await bootstrapContextDatabase(inventoryModule, pool);
+      } finally {
+        omissions.migrationEnrollment = false;
+      }
+      expect(await eventCount()).toBeGreaterThan(before);
+      await commit(binding);
+      expect(await terminal(binding)).toBe("COMMITTED");
+      const mutantEvents = await eventCount();
+      expect(() => expect(mutantEvents).toBe(before)).toThrow();
+      return;
+    }
+    await expect(bootstrapContextDatabase(inventoryModule, pool)).rejects.toThrow("consumed-hold handoff incomplete");
+    expect(await eventCount()).toBe(before);
+    expect(
+      (await pool.query("SELECT 1 FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId])).rows,
+    ).toEqual([]);
+    await authority.invalidateStock("inv_stock");
+    expect(await terminal(binding)).toBe("ABORTED");
+    expect((await authority.status("inventory.item-inv_stock"))?.status).toBe("ABORT-REQUESTED");
+    await bootstrapContextDatabase(inventoryModule, pool);
+    expect(await eventCount()).toBe(before + 1);
+    expect(
+      (await pool.query("SELECT 1 FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId])).rows,
+    ).toHaveLength(1);
+    expect((await authority.status("inventory.item-inv_stock"))?.status).toBe("APPLIED");
+    await expect(commit(binding)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await prepare();
+  });
+
+  async function seedStockReferences() {
+    await pool.query("INSERT INTO inventory_catalog_items (catalog_item_id, status) VALUES ('cat_stock', 'active')");
+    await pool.query(
+      `INSERT INTO inventory_storage_locations
+      (storage_location_id, account_id, name, ship_from_code, ship_from_address)
+      VALUES ('loc_stock', 'acc_stock', 'Stock shelf', 'MAIN', $1::jsonb)`,
+      [
+        JSON.stringify({
+          name: "Synthetic stock",
+          line1: "1 Main St",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+          phone: null,
+          email: null,
+        }),
+      ],
+    );
+  }
+
+  it("leaves a reservation-blocked import row retriable, then commits it once", async () => {
+    await seedStockReferences();
+    await projectInventory();
+    const claim = { claimOwnerId: "stock-import-worker", claimTtlMs: 30_000 };
+    const createJob = await services.importBatches.enqueueCreateBatchJob(
+      {
+        accountId: "acc_stock" as never,
+        parsedRows: [
+          {
+            rowNumber: 1,
+            values: { catalogItemId: "cat_stock", storageLocationId: "loc_stock", totalQuantity: "2" },
+          },
+        ],
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    expect(await services.importBatches.processNextImportBatchJob(claim)).toBe(1);
+    await projectInventory();
+    expect(
+      (
+        await pool.query("SELECT status, product_id FROM inventory_import_batch_rows WHERE batch_id = $1", [
+          createJob.payload.batchId,
+        ])
+      ).rows,
+    ).toEqual([{ status: "accepted", product_id: target.productId }]);
+    const commitJob = await services.importBatches.enqueueCommitBatchJob(
+      { accountId: "acc_stock" as never, batchId: createJob.payload.batchId! },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    const binding = await prepare(randomUUID(), false);
+    const before = await eventCount();
+    expect(await services.importBatches.processNextImportBatchJob(claim)).toBe(0);
+    expect(await eventCount()).toBe(before);
+    expect((await services.importBatches.getImportBatchJob(commitJob.jobId))?.status).not.toBe("failed");
+    expect(
+      (await pool.query("SELECT state FROM inventory_import_batch_work_units WHERE job_id = $1", [commitJob.jobId]))
+        .rows,
+    ).toEqual([{ state: "queued" }]);
+    await protocol.openRequestTerminal(binding);
+    expect(await services.importBatches.processNextImportBatchJob(claim)).toBe(1);
+    expect(await terminal(binding)).toBe("ABORTED");
+    expect((await services.importBatches.getImportBatchJob(commitJob.jobId))?.status).toBe("completed");
+    expect(
+      (
+        await pool.query("SELECT committed_inventory_item_id FROM inventory_import_batch_rows WHERE batch_id = $1", [
+          createJob.payload.batchId,
+        ])
+      ).rows,
+    ).toEqual([{ committed_inventory_item_id: target.inventoryItemId }]);
+    expect((await store.readStream({ streamId: "inventory.item-inv_stock" })).at(-1)?.payload).toMatchObject({
+      quantityDelta: 2,
+    });
+    const after = await eventCount();
+    expect(await services.importBatches.processNextImportBatchJob(claim)).toBe(0);
+    expect(await eventCount()).toBe(after);
+  });
 
   // Each route invokes the installed service or the physical append port used by its callers.
   let releaseHoldId = "hld_stock";
@@ -437,7 +651,67 @@ describeDb("Inventory stock reservation handshake", () => {
         )
       ).rows[0].status,
     ).toBe("APPLIED");
+    await prepare();
   });
+
+  it.each(["terminal-first", "physical-enrollment-omitted", "evidence-recording-omitted"])(
+    "inbound sale: %s",
+    async (mode) => {
+      const binding = await prepare(randomUUID(), mode === "terminal-first");
+      if (mode === "terminal-first") await commit(binding);
+      omissions.physicalEnrollment = mode === "physical-enrollment-omitted";
+      omissions.inboundEvidence = mode === "evidence-recording-omitted";
+      const writer = createInventoryServices(pool, { stockReservationConsumerPool: consumerPool });
+      omissions.physicalEnrollment = false;
+      omissions.inboundEvidence = false;
+      const command = {
+        accountId: "acc_stock",
+        inventoryItemId: "inv_stock",
+        storageLocationId: "loc_stock",
+        requestedQuantity: 2,
+        saleKey: {
+          version: "v1" as const,
+          providerKey: "external",
+          sellerEnvironmentLineage: "synthetic-stock",
+          orderLineIdentity: mode,
+        },
+      };
+      const id = externalChannelSaleStreamId(command.saleKey);
+      const before = await eventCount();
+      if (mode === "evidence-recording-omitted") {
+        await expect(writer.channelSales.record(command, context)).rejects.toBeInstanceOf(InventoryStockChangePending);
+        expect(await eventCount()).toBe(before);
+        await expect(createInventoryStockAuthorityForPool(pool, consumerPool).settleInboundSale(id)).rejects.toThrow(
+          "evidence unavailable",
+        );
+        const evidence = await pool.query("SELECT 1 FROM event_owner_stream_inbound_evidence WHERE evidence_id = $1", [
+          id,
+        ]);
+        expect(evidence.rows).toHaveLength(0);
+        expect(() => expect(evidence.rows).toHaveLength(1)).toThrow();
+        return;
+      }
+      expect(await writer.channelSales.record(command, context)).toMatchObject({
+        status: "committed",
+        sale: { appliedQuantity: 2 },
+      });
+      if (mode === "physical-enrollment-omitted") {
+        await protocol.openRequestTerminal(binding);
+        await commit(binding);
+        expect(await terminal(binding)).toBe("COMMITTED");
+        const mutantEvents = await eventCount();
+        expect(() => expect(mutantEvents).toBe(before)).toThrow();
+        return;
+      }
+      expect((await protocol.getReservation(binding.reservations[0].reservationId))?.releaseStatus).toBe("COMMITTED");
+      const after = await eventCount();
+      expect(await createInventoryStockAuthorityForPool(pool, consumerPool).settleInboundSale(id)).toMatchObject({
+        status: "committed",
+      });
+      expect(await eventCount()).toBe(after);
+      await prepare();
+    },
+  );
 
   it("captures Hold-aware canonical stock with all projections poisoned and rejects stale Hold captures", async () => {
     await pool.query(

@@ -4,7 +4,7 @@ import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { repoRoot } from "../lib/repo.mjs";
 
-const roots = ["bounded-contexts/", "contracts/", "infrastructure/", "deployables/", "packages/"];
+const roots = ["bounded-contexts/", "contracts/", "infrastructure/", "deployables/", "packages/", "scripts/"];
 const sinkNames = new Set([
   "appendToStream",
   "appendToStreams",
@@ -67,8 +67,8 @@ export function ownerWriterSourcePaths() {
     .filter(
       (file) =>
         roots.some((root) => file.startsWith(root)) &&
-        /\.[cm]?tsx?$/u.test(file) &&
-        !/(?:\.(?:test|spec|stories)|[.-]test-support)\.[cm]?tsx?$/u.test(file) &&
+        /\.[cm]?[jt]sx?$/u.test(file) &&
+        !/(?:\.(?:test|spec|stories)|[.-]test-support)\.[cm]?[jt]sx?$/u.test(file) &&
         !/(?:^|\/)(?:tests|__tests__|fixtures|__fixtures__|node_modules)\//u.test(file) &&
         !/\.d\.ts$/u.test(file),
     );
