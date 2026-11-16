@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { ConfigurationConsumer } from "@chase-sets/event-core/configuration-epoch";
-import { withConfigurationEpochTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  withConfigurationEpochTransaction,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 
 export function createMarketplaceListingConsumer(pool: PgTransactionalPool) {
   const topology: { identity: ConfigurationConsumer; pool: PgTransactionalPool }[] = [];
   let pending: Promise<ConfigurationConsumer> | undefined;
   async function initialize(): Promise<ConfigurationConsumer> {
     if (pending) return pending;
-    pending = withConfigurationEpochTransaction(pool, async (db) => {
+    pending = withConfigurationEpochTransaction(pool, async (db: PgQueryable) => {
       await db.query(
         "INSERT INTO event_configuration_store_identity (singleton, store_id, incarnation) VALUES (true, 'marketplace', $1) ON CONFLICT DO NOTHING",
         [randomUUID()],

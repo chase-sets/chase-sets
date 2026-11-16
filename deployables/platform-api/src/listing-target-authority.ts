@@ -11,6 +11,7 @@ import {
 import {
   createPostgresOwnerStreamReservationStore,
   withConfigurationEpochTransaction,
+  type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import {
@@ -67,7 +68,7 @@ export function createPlatformListingTargetAuthority(
             ]
           : [],
       );
-      const prior = await withConfigurationEpochTransaction(input.marketplace, (db) =>
+      const prior = await withConfigurationEpochTransaction(input.marketplace, (db: PgQueryable) =>
         db.query<{ binding: RequestTerminalBinding }>(
           "SELECT binding FROM event_request_terminals WHERE consumer_store_id = $1 AND request_id = $2",
           [identity.storeId, request.requestId],
@@ -206,7 +207,7 @@ export function createPlatformListingTargetAuthority(
           seal: { version: captured.itemVersion, storeIncarnation: captured.incarnation },
         },
       ];
-      const prior = await withConfigurationEpochTransaction(input.marketplace, async (db) =>
+      const prior = await withConfigurationEpochTransaction(input.marketplace, async (db: PgQueryable) =>
         db.query<{ binding: RequestTerminalBinding }>(
           "SELECT binding FROM event_request_terminals WHERE consumer_store_id = $1 AND request_id = $2",
           [identity.storeId, request.requestId],
