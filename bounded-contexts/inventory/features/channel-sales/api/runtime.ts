@@ -84,6 +84,14 @@ export function createInventoryExternalChannelSaleRuntime(
       return terminal;
     }
 
+    // Evidence commits before any reservation conflict or stock settlement.
+    await deps.stockReservations?.recordInboundSale(
+      saleStreamId,
+      `stock/${command.accountId}/${command.inventoryItemId}`,
+      command,
+      context,
+    );
+
     const claimGeneration = createId("iaj");
     const existingClaim = await claimInventoryAdjustmentIdempotency(deps.db, {
       idempotencyKey: saleStreamId,
