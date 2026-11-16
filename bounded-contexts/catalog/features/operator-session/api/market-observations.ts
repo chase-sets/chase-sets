@@ -63,7 +63,7 @@ function validateEndpointClocks(
 export type MarketObservationDeps = Readonly<{
   authorizeObservationGrant: (request: Request) => Promise<ObservationGrant>;
   requestSource: TcgplayerMarketObservationRequestSource | undefined;
-  store: Pick<EventStore, "readStream" | "appendToStream">;
+  store: EventStore;
   databaseNow: () => Promise<string>;
 }>;
 

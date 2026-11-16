@@ -57,6 +57,10 @@ const boundedSites = [
 
 const expectedInventory = [
   ...boundedSites.map(({ id }) => [id, "1"]),
+  [
+    "bounded-contexts/catalog/features/operator-session/api/market-observations.ts#readStream#1",
+    "Math.min(500, cap - events.length)",
+  ],
   // Auth's enrolled writer adapter forwards the caller's complete history request unchanged.
   ["bounded-contexts/auth/features/sessions/api/owner-epochs.ts#readStream#1", null],
   // The authority-tracking decorator forwards the caller's complete read request.
@@ -119,9 +123,19 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-three-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-four-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("retains the market upload's request-derived cap and bounded history pages", () => {
+    const file = "bounded-contexts/catalog/features/operator-session/api/market-observations.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site.limit).toBe("Math.min(500, cap - events.length)");
+    expect(readSource(file)).toContain("events.length >= cap");
+    expect(
+      errorCodes(mutatedInventory(file, readSource(file).replace("Math.min(500, cap - events.length)", "1"))),
+    ).toContain("inventory-mismatch");
   });
 
   it("keeps the Auth Session persistence reader's complete history request unchanged", () => {

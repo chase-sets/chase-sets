@@ -57,7 +57,7 @@ export function input(body?: unknown, method = "PUT", headers?: HeadersInit) {
 }
 export function harness(
   factory = createMarketObservationRoutes,
-  store: Pick<EventStore, "readStream" | "appendToStream"> = createInMemoryEventStore().eventStore,
+  store: EventStore = createInMemoryEventStore().eventStore,
 ) {
   const authorize = vi.fn(async (_request: Request) => provenance);
   const currentRequest = vi.fn<TcgplayerMarketObservationRequestSource["currentRequest"]>(async () => current);
@@ -67,7 +67,7 @@ export function harness(
   const deps = {
     authorizeObservationGrant: authorize,
     requestSource: { currentRequest },
-    store: { readStream, appendToStream },
+    store: { ...store, readStream, appendToStream },
     databaseNow,
   };
   const routes = factory(deps);
