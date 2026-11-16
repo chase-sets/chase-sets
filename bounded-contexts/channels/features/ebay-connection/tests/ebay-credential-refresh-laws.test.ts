@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelCredentialEnvelope } from "../../credentials/domain/contracts";
 import type { ConnectionHealthServices, ChannelHealthRead } from "../../connection-health/domain/contracts";
 import { createChannelCredentialRuntime } from "../../credentials/api/runtime";
@@ -10,7 +11,10 @@ import { healthDigest } from "../../connection-health/domain/identity";
 import { parseTokenResponse } from "../domain/oauth";
 
 const at = new Date("2026-11-16T00:00:00.000Z");
-const context = { tenantId: "tnt_refresh", audit: { performedByUserId: "usr_system", forAccountId: "acc_refresh" } };
+const context: EventStoreContext = {
+  tenantId: "tnt_refresh",
+  audit: { performedByUserId: "usr_system", forAccountId: "acc_refresh" },
+};
 const envelope: ChannelCredentialEnvelope = {
   version: "ChannelCredentialEnvelope/v1",
   rowId: "credential-refresh",
@@ -143,9 +147,9 @@ describe("ebay-credential-refresh laws and mutation oracles", () => {
     // An unmapped refusal is not terminal authority, including an exception that contains secret-like text.
     refresh.mockRejectedValueOnce(new Error("synthetic-private-provider-body"));
     await maintenance.process({ ...claim, schedule_generation: "3" });
-    const failure = f.calls.findLast((call) =>
-      call.sql.startsWith("UPDATE channels_ebay_credential_refresh SET last_outcome"),
-    )!;
+    const failure = f.calls
+      .filter((call) => call.sql.startsWith("UPDATE channels_ebay_credential_refresh SET last_outcome"))
+      .at(-1)!;
     expect(failure.values[5]).toBe("retryable");
     expect(failure.values[6]).toEqual(new Date(at.getTime() + 60000));
     expect(JSON.stringify(submit.mock.calls)).not.toContain("synthetic-private-provider-body");
