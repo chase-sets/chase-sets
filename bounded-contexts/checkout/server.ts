@@ -34,3 +34,4 @@ export { lookupCheckoutSupportReference } from "./features/support-lookup/api/ru
 export type { CheckoutSupportLookupResult } from "./features/support-lookup/api/runtime";
 export type { CheckoutOfferAcceptanceTermsSource } from "./features/sell-list/read-model/queries";
 export { checkoutSeedIds } from "./support/seed-support/ids";
+export { submitCheckoutSellListAdd } from "./features/command-attempts/api/sell-list-submission";

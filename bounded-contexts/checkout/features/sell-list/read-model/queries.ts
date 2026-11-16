@@ -316,7 +316,7 @@ type ListingEvidenceRequirementSnapshot = Readonly<{
   requirements: ResolvedListingEvidenceRequirements;
 }>;
 
-async function getCheckoutListingEvidenceCoverage(
+export async function getCheckoutListingEvidenceCoverage(
   db: PgQueryable,
   listingId: string,
 ): Promise<MarketplaceListingEvidenceCoverage | null> {

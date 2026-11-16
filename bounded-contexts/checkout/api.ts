@@ -50,6 +50,7 @@ export function buildCheckoutApi(services: CheckoutServices) {
     createAccountCommandAttemptRoutes({
       lookupCartAttempt: services.cart.lookupCartAttempt,
       lookupEntryAttempt: services.sessions.lookupEntryAttempt,
+      lookupSellListAttempt: services.sellList.lookupSellListAttempt,
     }),
   );
   app.route("/account", createAccountSellListRoutes(services.sellList, services.checkoutObservabilityTelemetry));
@@ -58,7 +59,13 @@ export function buildCheckoutApi(services: CheckoutServices) {
     "/guest",
     createGuestCartRoutes(services.cart, services.checkoutObservabilityTelemetry, services.rateLimitPolicyResolver),
   );
-  app.route("/guest", createGuestCommandAttemptRoutes(services.cart));
+  app.route(
+    "/guest",
+    createGuestCommandAttemptRoutes({
+      lookupCartAttempt: services.cart.lookupCartAttempt,
+      lookupSellListAttempt: services.sellList.lookupSellListAttempt,
+    }),
+  );
   app.route("/guest", createGuestSellListRoutes(services.sellList, services.rateLimitPolicyResolver));
   app.route("/support", createCheckoutSupportLookupRoutes(services.supportLookup));
 
