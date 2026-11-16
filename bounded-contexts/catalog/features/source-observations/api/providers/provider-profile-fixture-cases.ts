@@ -1749,6 +1749,31 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         },
       },
     ),
+    ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "lorcana-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:lorcana:sealed-product:source-observation-import",
+        profileVersion: "2026.11.15",
+      },
+      {},
+    ).map((fixtureCase) => ({
+      ...fixtureCase,
+      expectedObservation: {
+        externalKey: "product:1005020",
+        normalizedKind: "lorcana-sealed-product" as const,
+        normalizedFields: { tcg: "lorcana", productLineName: "Disney Lorcana", sealedProductForm: "booster-box" },
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005020" }],
+      },
+      expectedPromotionCommands: [
+        "CreateCatalogItem",
+        "AssignBlueprintToCatalogItem",
+        "SetCatalogItemFieldValue",
+        "AssignCatalogItemToCategory",
+        "LinkExternalCatalogItemReference",
+      ],
+      expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+    })),
   ];
 }
 

@@ -172,7 +172,7 @@ pub fn indexing(value: Option<&str>) -> bool {
     !matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("0" | "false" | "no" | "off"))
 }
 
-/// `canExposeGuestPaymentClaimLocalRecoveryToken`: on when the variable says so, never where
+/// The guest claim's `localRecoveryEnabled`: on when the variable says so, never where
 /// `NODE_ENV` or `DEPLOYMENT_ENVIRONMENT` (`environments`) says `production`.
 pub fn claim_token_entry(value: Option<&str>, environments: [Option<String>; 2]) -> bool {
     !environments.iter().flatten().any(|env| env.trim() == "production")
@@ -210,6 +210,7 @@ pub mod url {
     pub use consents::Consents;
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
+    pub use guest_claims::GuestClaim;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
     pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
     pub use inventory::{
@@ -1210,6 +1211,26 @@ pub mod url {
         }
     }
 
+    /// Save this order (Auth's `guest-payment-claim`, see `guest_claim`): a paid guest checkout's
+    /// claim, which its payment page links to and a claim link lands on. Its handlers take who is
+    /// asking, if anyone, as the guest's payment's do.
+    #[corten::routes(state = crate::app::Shared, area = GuestClaimsArea)]
+    pub mod guest_claims {
+        /// The prefix, with no page: a guest reaches its claim from its payment.
+        #[route("/checkout/claim")]
+        pub struct GuestClaimsArea;
+
+        /// The claim, read after the write whose receipt it carries, or a claim link's landing; its
+        /// forms post to it.
+        #[derive(Clone, Debug)]
+        #[route("/checkout/claim/{id}", get = crate::guest_claim::page, post = crate::guest_claim::write)]
+        pub struct GuestClaim<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::guest_claim::ClaimPlace,
+        }
+    }
+
     /// The account's saved payment methods (Payments' `account-payment-methods`, see
     /// `payment_methods`): the page, and its writes, which post to it as marketplace's form does.
     /// Every handler takes a `PaymentBuyer` (`orders.view`; Payments needs `orders.manage` to write).
@@ -1980,6 +2001,7 @@ pub fn app(config: Config) -> App {
         // only (todd-skelton/corten#275).
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
         .area(|area| url::guest_payments::area(area, shared.clone()).components(views::GUEST_PAYMENT).policy(stripe))
+        .area(|area| url::guest_claims::area(area, shared.clone()).components(views::GUEST_CLAIM))
         .area(|area| url::payment_methods::area(area, shared.clone()).components(views::PAYMENT_METHODS).policy(stripe))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))

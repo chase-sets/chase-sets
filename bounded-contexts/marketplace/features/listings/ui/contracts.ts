@@ -285,7 +285,7 @@ export interface MarketplaceListingAttemptInput {
   requestHash?: string;
 }
 
-export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput {
+export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput, MarketplaceListingAttemptInput {
   inventoryItemId: string;
   quantityCap: number;
   purchaseLimits?: Readonly<{
@@ -297,7 +297,8 @@ export interface MarketplaceCreateListingInput extends MarketplaceListingPriceIn
   listingIdOverride?: string;
 }
 
-export interface MarketplaceUpdateListingPriceInput extends MarketplaceListingPriceInput {
+export interface MarketplaceUpdateListingPriceInput
+  extends MarketplaceListingPriceInput, MarketplaceListingAttemptInput {
   feeQuoteFingerprint?: string | null;
 }
 

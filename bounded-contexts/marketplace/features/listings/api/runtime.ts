@@ -248,7 +248,7 @@ export { marketplaceListingCommandTypes as marketplaceListingCommandInventory } 
  * The shipped Listing carrier: `idempotencyKey` stamps the command's owner-stream events and
  * `requestHash`, when supplied, must equal the canonical request. Omitted only by proved internal exemptions.
  */
-export type MarketplaceListingAttemptParams = Readonly<{ idempotencyKey?: string; requestHash?: string }>;
+export type MarketplaceListingAttemptParams = Readonly<{ idempotencyKey: string; requestHash?: string }>;
 
 /** One bulk lifecycle or seller batch; seller families carry exactly one target, the seller account. */
 export type MarketplaceListingBatchInput = Readonly<{ accountId: string; batchId: string }> &
@@ -895,14 +895,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
   function attemptFor(
     mutationKind: MarketplaceListingMutationKind,
-    params: MarketplaceListingAttemptParams & Readonly<{ accountId: string }>,
+    params: Readonly<{ idempotencyKey?: string; requestHash?: string; accountId: string }>,
     request: Record<string, unknown>,
     targetId?: string,
     listingIdOverride?: string | null,
   ): ListingAttempt | null {
-    if (params.idempotencyKey === undefined) return null;
     return listingAttempt({
-      idempotencyKey: params.idempotencyKey,
+      idempotencyKey: params.idempotencyKey ?? "",
       requestHash: params.requestHash,
       mutationKind,
       accountId: params.accountId,
@@ -2220,6 +2219,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       await upsertBatchInventorySnapshot(params);
       return createListing(
         {
+          idempotencyKey: createHash("sha256")
+            .update(JSON.stringify(["inventory-draft", params.accountId, params.importBatchId, params.importRowId]))
+            .digest("hex"),
           accountId: params.accountId as AccountId,
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
@@ -2233,6 +2235,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       );
     },
     createListingFromInventorySnapshot: async (params, context) => {
+      attemptFor("listing.create", params, { ...params }, params.inventoryItemId, params.listingIdOverride);
       assert(
         params.quantityCap <= (params.availableQuantity ?? params.totalQuantity),
         "Listing quantity caps cannot exceed available listing stock.",

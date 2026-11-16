@@ -1,3 +1,4 @@
+import { listingFormAttempt } from "../support/request-support/listing-attempt";
 import { t } from "@chase-sets/localization";
 import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
 import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
@@ -362,6 +363,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       return redirect(
         await navigateToAccountListingsAfterWrite(
           await api.disableSellerListingAvailability({
+            ...listingFormAttempt(formData, "disableSellerListingAvailability"),
             reasonCategory: String(formData.get("reasonCategory") ?? ""),
             availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
             // Captured client-side by the disable form (seller-local
@@ -378,7 +380,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
     if (intent === "enable-listing-availability") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.enableSellerListingAvailability(),
+          await api.enableSellerListingAvailability(listingFormAttempt(formData, "enableSellerListingAvailability")),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
         ),
       );
@@ -391,6 +393,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       return redirect(
         await navigateToAccountListingsAfterWrite(
           await api.scheduleSellerAwayWindow({
+            ...listingFormAttempt(formData, "scheduleSellerAwayWindow"),
             reasonCategory,
             // Captured client-side (seller-local start-of-day for the
             // chosen date, converted to an instant), same convention as
@@ -410,7 +413,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
     if (intent === "cancel-away-window") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.cancelScheduledAwayWindow(),
+          await api.cancelScheduledAwayWindow(listingFormAttempt(formData, "cancelScheduledAwayWindow")),
           settingsDestination(SETTINGS_ACTIONS.cancelAwayWindow),
         ),
       );
@@ -420,7 +423,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       const maxOpenOrders = Number(formData.get("maxOpenOrders") ?? "");
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.setSellerOrderCapacity(maxOpenOrders),
+          await api.setSellerOrderCapacity(maxOpenOrders, listingFormAttempt(formData, "setSellerOrderCapacity")),
           settingsDestination(SETTINGS_ACTIONS.setOrderCapacity, { maxOpenOrders: String(maxOpenOrders) }),
         ),
       );
@@ -429,7 +432,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
     if (intent === "clear-order-capacity") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.clearSellerOrderCapacity(),
+          await api.clearSellerOrderCapacity(listingFormAttempt(formData, "clearSellerOrderCapacity")),
           settingsDestination(SETTINGS_ACTIONS.clearOrderCapacity),
         ),
       );
@@ -446,10 +449,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       ];
       if (listingIds.length === 0) return { bulkActionOutcomes: [] };
       // One batch identity per submission (a resubmitted form keeps its id) and one target attempt per Listing.
-      const submittedBatchId = String(formData.get("batchId") ?? "");
-      const batchId = /^[A-Za-z0-9_-]{22,128}$/.test(submittedBatchId)
-        ? submittedBatchId
-        : `listing_batch_${globalThis.crypto.randomUUID().replaceAll("-", "")}`;
+      const batchId = listingFormAttempt(formData, intent).idempotencyKey;
       let batch: Awaited<ReturnType<typeof api.applyListingBatch>>;
       try {
         batch = await api.applyListingBatch({

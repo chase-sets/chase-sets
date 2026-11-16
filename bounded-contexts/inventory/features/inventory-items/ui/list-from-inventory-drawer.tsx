@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Button,
@@ -21,6 +22,7 @@ import type { InventoryItemDetail } from "./contracts";
 // lands on the new listing. Posting to that route by path keeps this drawer free
 // of a cross-context dependency.
 export function ListFromInventoryDrawer({ item }: { item: InventoryItemDetail }) {
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const itemLabel = item.item_title ?? item.catalog_catalog_item_id;
 
   return (
@@ -31,8 +33,15 @@ export function ListFromInventoryDrawer({ item }: { item: InventoryItemDetail })
       closeLabel={t("inventory.features.inventoryItems.ui.listFromInventoryDrawer.close")}
       trigger={<Button>{t("inventory.features.inventoryItems.ui.listFromInventoryDrawer.list.it")}</Button>}
     >
-      <Form spacing="none" method="post" action="/account/listings/new" encType="multipart/form-data">
+      <Form
+        spacing="none"
+        method="post"
+        action="/account/listings/new"
+        encType="multipart/form-data"
+        onChange={() => setIdempotencyKey(crypto.randomUUID())}
+      >
         <Stack gap={3}>
+          <HiddenInput name="idempotencyKey" value={idempotencyKey} />
           <HiddenInput type="hidden" name="inventoryItemId" value={item.item_id} />
           <Text tone="secondary">
             {t("inventory.features.inventoryItems.ui.listFromInventoryDrawer.available", {

@@ -15,6 +15,7 @@ import { listConnectableChannelProviders } from "./providers";
 export type ChannelConnectionRouteOptions = Readonly<{
   deploymentEnvironment?: DeploymentEnvironment;
   storageLocationAuthority?: ChannelStorageLocationAuthorityResolver;
+  ebaySandboxEnabled?: boolean;
 }>;
 
 export function channelConnectionRoutes(
@@ -109,7 +110,15 @@ export function channelConnectionRoutes(
     if (new URL(c.req.url).searchParams.size > 0) return c.json(errorBody("invalid-request"), 400);
     if (!c.get("actor").permissions.includes("channels.manage")) return c.json({ items: [] });
     try {
-      return c.json({ items: await listConnectableChannelProviders(deploymentEnvironment) });
+      const items = await listConnectableChannelProviders(deploymentEnvironment);
+      return c.json({
+        items: [
+          ...items,
+          ...(options.ebaySandboxEnabled && deploymentEnvironment !== "production"
+            ? [{ providerKey: "ebay", environment: "sandbox" }]
+            : []),
+        ],
+      });
     } catch {
       return c.json(errorBody("invalid-request"), 400);
     }

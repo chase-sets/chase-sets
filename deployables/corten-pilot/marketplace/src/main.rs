@@ -28,6 +28,7 @@ mod consents;
 mod desk;
 mod email_verification;
 mod form;
+mod guest_claim;
 mod imports;
 mod inventory_item;
 mod inventory_list;

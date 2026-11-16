@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -14,6 +15,11 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "../provider-integration-profiles";
 import { createCatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
+import { seedCatalogDatabase } from "../../../../support/authoring-support/seed";
+import {
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION,
+} from "./tcgplayer/executable-mapping-contract";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -42,6 +48,43 @@ describeDb("catalog provider integration profile version store db", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it.each(["fresh", "prior-active"])("converges Lorcana sealed versions after two boots from %s", async (initial) => {
+    const store = createCatalogProviderIntegrationProfileVersionStore(pools.catalog);
+    const unitKey = "tcgplayer:lorcana:sealed-product:source-observation-import";
+    if (initial === "prior-active") {
+      const prior = catalogProviderIntegrationProfileVersions.find(
+        (version) =>
+          version.profileKey === "lorcana-sealed-product-sku" &&
+          version.profileVersion === TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION,
+      )!;
+      await store.seedProfileVersions([
+        {
+          ...prior,
+          lifecycle: "active",
+          active: true,
+          executableMappingContract: { ...prior.executableMappingContract!, lifecycle: "active" },
+        },
+      ]);
+    }
+    async function boot() {
+      await bootstrapContextDatabase(catalogModule, pools.catalog);
+      await seedCatalogDatabase(pools.catalog, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
+      return (await store.listProfileVersions("tcgplayer")).filter(
+        (version) => catalogProviderProfileVersionIngestionUnitKey(version) === unitKey,
+      );
+    }
+    const first = await boot();
+    expect(
+      first
+        .filter((version) => version.active && version.lifecycle === "active")
+        .map((version) => version.profileVersion),
+    ).toEqual([TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION]);
+    expect(
+      first.find((version) => version.profileVersion === TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION),
+    ).toMatchObject({ lifecycle: "deprecated", active: false });
+    expect(await boot()).toEqual(first);
   });
 
   it("keeps exactly one active provider profile when activation races seed reconciliation", async () => {

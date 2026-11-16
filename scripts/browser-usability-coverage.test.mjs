@@ -36,6 +36,20 @@ function assertRouteCoverage(files) {
 }
 
 describe("browser usability route coverage", () => {
+  it("claims the eBay journey without navigating the single-use provider callback", () => {
+    const seller = browserUsabilityGoalModules.find(({ id }) => id === "seller");
+    const journey = "bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx";
+    const callback = "bounded-contexts/channels/routes/marketplace/ebay-callback.tsx";
+    expect(seller.goals.find(({ id }) => id === "seller-ebay-sandbox-connection").routes).toEqual({
+      [journey]: "authorization-state",
+    });
+    expect(seller.excludedRoutes).toContainEqual({ path: callback, reason: "provider-step-only" });
+    expect(auditBrowserUsabilityRoutes([journey, callback]).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { seller: { inScope: 2, claimed: 1, excluded: 1, unclaimed: [] } },
+    });
+  });
   it("accounts for both guest claim route modules with the same explicit fixture gap", () => {
     const routes = [
       "bounded-contexts/auth/routes/marketplace/guest-payment-claim.tsx",

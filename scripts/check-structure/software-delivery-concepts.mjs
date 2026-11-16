@@ -35,7 +35,7 @@ export const softwareDeliveryConceptGuards = [
   { label: "release-controls deployment surface", pattern: /\brelease-controls\b/i },
   { label: "releaseControls deployment surface", pattern: /\breleaseControls\b/ },
   // Production release-lock used as a deploy gate. Only proven Web Streams reader
-  // cleanup in the operator request codec is removed from the token scan below.
+  // cleanup in the named bounded HTTP codecs is removed from the token scan below.
   { label: "PRODUCTION_RELEASE_LOCKED deploy gate", pattern: /\bPRODUCTION_RELEASE_LOCKED\b/ },
   { label: "release-lock deploy gate", pattern: /\brelease-lock\b/i },
   { label: "releaseLock deploy gate", pattern: /\breleaseLock\b/ },
@@ -108,8 +108,9 @@ export function isSoftwareDeliveryConceptGuardedFile(relativeFile, extension) {
 }
 
 function withoutOperatorRequestReaderCleanup(relativeFile, content) {
+  const responseCodec = relativeFile === "bounded-contexts/channels/features/ebay-connection/api/provider.ts";
   if (
-    relativeFile !== "bounded-contexts/catalog/features/operator-session/api/request.ts" ||
+    (!responseCodec && relativeFile !== "bounded-contexts/catalog/features/operator-session/api/request.ts") ||
     !content.includes("releaseLock")
   )
     return content;
@@ -171,7 +172,7 @@ function withoutOperatorRequestReaderCleanup(relativeFile, content) {
       !parameter ||
       !ts.isParameter(parameter) ||
       !parameter.type ||
-      parameter.type.getText(source) !== "Request" ||
+      parameter.type.getText(source) !== (responseCodec ? "Response" : "Request") ||
       !fromDom(checker.getSymbolAtLocation(parameter.type.typeName))
     )
       continue;
@@ -187,7 +188,7 @@ function withoutOperatorRequestReaderCleanup(relativeFile, content) {
           ref === parameter.name ||
           (ts.isPropertyAccessExpression(ref.parent) &&
             ref.parent.expression === ref &&
-            ref.parent.name.text === "body" &&
+            (ref.parent.name.text === "body" || (responseCodec && ref.parent.name.text === "ok")) &&
             ((ts.isPrefixUnaryExpression(ref.parent.parent) &&
               ref.parent.parent.operator === ts.SyntaxKind.ExclamationToken) ||
               ref.parent === body)),

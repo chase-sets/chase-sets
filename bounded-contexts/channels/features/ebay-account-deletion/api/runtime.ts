@@ -127,7 +127,8 @@ export function createEbayAccountDeletionRuntime(db: PgQueryable, keyring: Chann
       if (!keyring) throw new EbayReceiptError("unavailable");
       const references = await receiptQuery<{ fingerprint: string; keyId: string }>(
         db,
-        `SELECT DISTINCT subject_fingerprint AS fingerprint, subject_key_id AS "keyId" FROM channels_ebay_account_deletion_receipts`,
+        `SELECT subject_fingerprint AS fingerprint, subject_key_id AS "keyId" FROM channels_ebay_account_deletion_receipts
+         UNION SELECT subject_fingerprint AS fingerprint, subject_key_id AS "keyId" FROM channels_ebay_seller_bindings`,
       );
       assertEbaySubjectKeyringContinuity(keyring, next, references.rows);
     },

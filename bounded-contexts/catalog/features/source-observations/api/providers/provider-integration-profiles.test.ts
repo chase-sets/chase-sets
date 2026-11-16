@@ -51,8 +51,36 @@ import {
   type CatalogProviderMappingValueExpression,
 } from "./provider-integration-mapping-contract";
 import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
+import {
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION,
+} from "./tcgplayer/executable-mapping-contract";
 
 describe("catalog provider integration profiles", () => {
+  it("seeds one active Lorcana sealed version and keeps the prior version non-promotable for replay", () => {
+    const versions = catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        catalogProviderProfileVersionIngestionUnitKey(version) ===
+        "tcgplayer:lorcana:sealed-product:source-observation-import",
+    );
+    expect(
+      versions
+        .filter((version) => version.active && version.lifecycle === "active")
+        .map((version) => version.profileVersion),
+    ).toEqual([TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION]);
+    const prior = versions.find(
+      (version) => version.profileVersion === TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION,
+    )!;
+    expect(prior).toMatchObject({
+      active: false,
+      lifecycle: "deprecated",
+      profile: { normalizedObservationMapping: { kind: "provider-product" } },
+    });
+    expect(prior.profile.capabilities).not.toContain("catalog-item-promotion");
+    expect(prior.executableMappingContract?.promotionCommandPlan.commands).toEqual([]);
+    expect(versions.flatMap(validateCatalogProviderIntegrationProfileVersion)).toEqual([]);
+  });
+
   it("registers TCGplayer as an active Magic automation-client connector sourced from the automation app", () => {
     const profile = getCatalogProviderIntegrationProfile("TCGPLAYER");
 
@@ -152,13 +180,17 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("registers TCGplayer Lorcana single cards and sealed products as active marketplace-evidence units", () => {
+  it("registers TCGplayer Lorcana sealed promotion without changing single-card evidence", () => {
     const singleCard = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.23", {
       profileKey: "lorcana-single-card-product-sku",
     });
-    const sealedProduct = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.23", {
-      profileKey: "lorcana-sealed-product-sku",
-    });
+    const sealedProduct = getCatalogProviderIntegrationProfileVersion(
+      "tcgplayer",
+      TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+      {
+        profileKey: "lorcana-sealed-product-sku",
+      },
+    );
 
     expect(singleCard?.profile).toBe(tcgplayerLorcanaSingleCardProviderProfile);
     expect(sealedProduct?.profile).toBe(tcgplayerLorcanaSealedProductProviderProfile);
@@ -182,7 +214,8 @@ describe("catalog provider integration profiles", () => {
       providerKey: "tcgplayer",
       displayName: "TCGplayer Lorcana Sealed Products",
       status: "active",
-      normalizedObservationMapping: { kind: "provider-product" },
+      capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+      normalizedObservationMapping: { kind: "lorcana-sealed-product" },
       catalogFieldMapping: {
         blueprintKey: "lorcana-sealed-product",
         categoryKey: "lorcana-sealed-products",
@@ -859,6 +892,7 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
+      ["tcgplayer", "active"],
       ["ygojson", "active"],
       ["ygojson", "active"],
       ["ygoprodeck", "active"],
@@ -885,10 +919,11 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
+      ["tcgplayer", "2026.11.15", "active"],
       ["tcgplayer", "2026.07.13", "active"],
       ["tcgplayer", "2026.06.23", "active"],
       ["tcgplayer", "2026.06.23", "active"],
-      ["tcgplayer", "2026.06.23", "active"],
+      ["tcgplayer", "2026.06.23", "deprecated"],
       ["tcgplayer", "2026.06.22", "active"],
       ["tcgplayer", "2026.06.20", "active"],
       ["tcgplayer", "2026.06.19", "active"],

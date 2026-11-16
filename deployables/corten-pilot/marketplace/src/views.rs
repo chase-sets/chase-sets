@@ -37,6 +37,7 @@ mod command_center_page;
 mod consents_page;
 mod decision_card;
 mod desk_page;
+mod guest_claim_page;
 mod imports_page;
 mod inventory_item_page;
 mod inventory_page;
@@ -99,6 +100,7 @@ pub use command_center_page::CommandCenterPage;
 pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
+pub use guest_claim_page::GuestClaimPage;
 pub use imports_page::ImportsPage;
 pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
@@ -306,14 +308,12 @@ pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::Con
 /// A buyer's payment, with Stripe's step and the Stripe.js loader it imports, and starting a payment
 /// for the buyer's orders (`/account/payments/new`, no script).
 pub const PAYMENT: &[Component] = &[PaymentPage, payment_page::PaymentEntry, payment_page::stripe::COMPONENT, PaymentStartPage];
-/// A guest's payment: the same, and the passkey step's script, which Save this order's passkey uses.
-pub const GUEST_PAYMENT: &[Component] = &[
-    PaymentPage,
-    payment_page::PaymentEntry,
-    payment_page::stripe::COMPONENT,
-    PaymentStartPage,
-    platform::auth::passkey::COMPONENT,
-];
+/// A guest's payment: the same.
+pub const GUEST_PAYMENT: &[Component] =
+    &[PaymentPage, payment_page::PaymentEntry, payment_page::stripe::COMPONENT, PaymentStartPage];
+/// Save this order (`/checkout/claim/{id}`): the payment page's stylesheet, which the claim's view
+/// draws with, and the passkey step's script, which its passkey uses.
+pub const GUEST_CLAIM: &[Component] = &[PaymentPage, platform::auth::passkey::COMPONENT];
 
 /// The account's saved payment methods (`/account/payment-methods`), with Add's secure step and the
 /// Stripe.js loader it imports.
