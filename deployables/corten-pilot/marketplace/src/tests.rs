@@ -11222,7 +11222,9 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         let made_from = key.strip_suffix(&format!("_{name}")).unwrap_or_else(|| panic!("{key} is not {name}'s"));
         assert!(crate::recovery::valid_attempt(made_from), "{key}");
     }
-    assert_eq!(keys.iter().collect::<std::collections::HashSet<_>>().len(), keys.len(), "each form its own: {keys:?}");
+    // The zone that is not one resent the second form, so it is that form's attempt again.
+    assert_eq!(keys[1], keys[2], "{keys:?}");
+    assert_eq!(keys.iter().collect::<std::collections::HashSet<_>>().len(), keys.len() - 1, "each other form its own: {keys:?}");
     // A setting with no attempt (a form the page did not draw) is not sent.
     let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=enable-listing-availability", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
