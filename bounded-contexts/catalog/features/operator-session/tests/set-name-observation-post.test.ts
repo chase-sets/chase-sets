@@ -36,40 +36,48 @@ const validPost = () => setNamePost(pokemonLine, [setNameEntry(pokemonLine, 1)])
 const scalars = (count: number, scalar = "a") => scalar.repeat(count);
 
 describe("set-name unit binding", () => {
-  it("binds exactly the four authority-qualified product lines and keeps Lorcana unresolved", () => {
+  it("binds all five authority-qualified product lines, including Lorcana 71", () => {
     expect(tcgplayerSetNameUnits).toEqual([
       { unitKey: "tcgplayer:mtg:single-card:source-observation-import", productLineId: 1 },
       { unitKey: "tcgplayer:yugioh:single-card:source-observation-import", productLineId: 2 },
       { unitKey: "tcgplayer:pokemon:single-card:source-observation-import", productLineId: 3 },
       { unitKey: "tcgplayer:one-piece:single-card:source-observation-import", productLineId: 68 },
-      { unitKey: "tcgplayer:lorcana:single-card:source-observation-import", productLineId: null },
+      { unitKey: "tcgplayer:lorcana:single-card:source-observation-import", productLineId: 71 },
     ]);
-    expect(tcgplayerSetNameProductLineIds).toEqual([1, 2, 3, 68]);
+    expect(tcgplayerSetNameProductLineIds).toEqual([1, 2, 3, 68, 71]);
     expect(new Set(tcgplayerSetNameUnits.map((unit) => unit.unitKey))).toEqual(
       new Set(tcgplayerSingleCardUnitConstraints.map((unit) => unit.unitKey)),
     );
-    for (const lorcanaCandidate of [82, 71]) {
-      expect(tcgplayerSetNameUnitKeyForProductLineId(lorcanaCandidate)).toBeNull();
-    }
+    expect(tcgplayerSetNameUnitKeyForProductLineId(71)).toBe("tcgplayer:lorcana:single-card:source-observation-import");
+    expect(tcgplayerSetNameUnitKeyForProductLineId(82)).toBeNull();
   });
 
-  it("pins the bound probe report and leaves the supplemental Lorcana report unbound", () => {
+  it("pins the bound probe report and the supplemental Lorcana report", () => {
     expect(tcgplayerSetNameObservationAuthority).toEqual({
       reportSha256: "973c4a89869c9f14b3ea67acae9210123a235d7ff6c1f5040d0aa9b229cd989b",
       buildCommit: "042e14c3151e5cf7da6c3d3da63ebfacd93aed10",
-      lorcanaSupplementalReportSha256: null,
+      lorcanaSupplementalReportSha256: "b948e35961aef6f14e51c3a7051ae13517e73c34f47ee83007f5ea1962a91cd4",
     });
-    // The probe keeps its own fixture ids; the contract binds only the qualified ones.
+    // The original probe keeps its fixture ids; the supplemental report binds Lorcana to 71.
     for (const probed of setNamesProbeUnitConstraints) {
       const bound = tcgplayerSetNameUnits.find((unit) => unit.unitKey === probed.unitKey)!;
       expect(bound.productLineId === null ? null : String(bound.productLineId)).toBe(
-        probed.unitKey.includes(":lorcana:") ? null : probed.productLineId,
+        probed.unitKey.includes(":lorcana:") ? "71" : probed.productLineId,
       );
     }
   });
 });
 
 describe("parseTcgplayerSetNameObservationPost positive controls", () => {
+  it("accepts Lorcana product line 71 and maps it to the Lorcana unit", () => {
+    const post = setNamePost(71, [setNameEntry(71, 1)]);
+    expect(parseTcgplayerSetNameObservationPost(post)).toEqual({
+      ok: true,
+      post,
+      unitKey: "tcgplayer:lorcana:single-card:source-observation-import",
+    });
+  });
+
   it.each([
     ["date-only", "2024-02-29"],
     ["measured local date-time", "2024-02-09T00:00:00"],
@@ -181,7 +189,7 @@ describe("parseTcgplayerSetNameObservationPost refusals", () => {
     expect(parseTcgplayerSetNameObservationPost(post)).toEqual({ ok: false, code: "invalid-body" });
   });
 
-  it.each([82, 71, 4, 2_147_483_647])("refuses a well-formed post for unbound product line %i", (productLineId) => {
+  it.each([82, 4, 2_147_483_647])("refuses a well-formed post for unbound product line %i", (productLineId) => {
     const post = setNamePost(productLineId, [setNameEntry(productLineId, 1)]);
     expect(parseTcgplayerSetNameObservationPost(post)).toEqual({ ok: false, code: "product-line-unsupported" });
   });
@@ -250,6 +258,29 @@ async function expectRefusal(response: Response, status: number, code: string) {
 }
 
 describe("tcgplayer set-name post guard", () => {
+  it("records Lorcana product line 71 under the Lorcana unit with grant provenance", async () => {
+    const h = harness();
+    const sets = [setNameEntry(71, 1)];
+    const response = await h.handler(postRequest(setNamePost(71, sets)));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      observationCount: 1,
+      newObservationCount: 1,
+      mappingsProposed: 0,
+    });
+    expect(h.events).toEqual(["authorize", "serialize", "record"]);
+    expect(h.record).toHaveBeenCalledExactlyOnceWith({
+      unitKey: "tcgplayer:lorcana:single-card:source-observation-import",
+      productLineId: 71,
+      sets,
+      provenance,
+      context: {
+        tenantId: "tnt_identity",
+        audit: { performedByUserId: provenance.creatorUserId, forAccountId: "acc_identity_system" },
+      },
+    });
+  });
+
   it("records one valid post with grant provenance and returns only the three counts", async () => {
     const h = harness();
     const post = setNamePost(pokemonLine, unicodeControlSets);
@@ -326,13 +357,11 @@ describe("tcgplayer set-name post guard", () => {
     expect(h.record).not.toHaveBeenCalled();
   });
 
-  it("refuses an unbound Lorcana candidate line with product-line-unsupported and no write", async () => {
-    for (const productLineId of [82, 71]) {
-      const h = harness();
-      const post = setNamePost(productLineId, [setNameEntry(productLineId, 1)]);
-      await expectRefusal(await h.handler(postRequest(post)), 422, "product-line-unsupported");
-      expect(h.record).not.toHaveBeenCalled();
-    }
+  it("refuses the unbound fixture line 82 with product-line-unsupported and no write", async () => {
+    const h = harness();
+    const post = setNamePost(82, [setNameEntry(82, 1)]);
+    await expectRefusal(await h.handler(postRequest(post)), 422, "product-line-unsupported");
+    expect(h.record).not.toHaveBeenCalled();
   });
 
   it("accepts the largest valid encoded post at the 2 MiB cap and refuses cap+1 with no write", async () => {

@@ -37,14 +37,24 @@ async function select() {
 }
 
 describe("TCGplayer set names action states", () => {
-  it("offers exactly the four bound product lines, no Lorcana, and starts empty with Run disabled", async () => {
+  it("offers all five bound product lines including Lorcana and starts empty with Run disabled", async () => {
     mount();
     const select = screen.getByLabelText("Product line") as HTMLSelectElement;
-    expect(Array.from(select.options).map((option) => option.value)).toEqual(["", "1", "2", "3", "68"]);
-    expect(Array.from(select.options).map((option) => option.text)).not.toContain("Disney Lorcana");
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(["", "1", "2", "3", "68", "71"]);
+    expect(Array.from(select.options).map((option) => option.text)).toContain("Disney Lorcana");
     expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByLabelText("Receipt")).toBeNull();
     await selectStatus();
+  });
+  it("runs Lorcana 71 once and posts its sets to Catalog", async () => {
+    const sets = [entry({ categoryId: 71 })];
+    const { request, post } = mount(vi.fn(async () => response({ errors: [], results: sets })));
+    await selectStatus();
+    fireEvent.change(screen.getByLabelText("Product line"), { target: { value: "71" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await screen.findByText("Catalog set names recorded");
+    expect(request).toHaveBeenCalledExactlyOnceWith("71");
+    expect(post).toHaveBeenCalledExactlyOnceWith("staging", expect.objectContaining({ productLineId: 71, sets }));
   });
   it("shows fetching then receipt and posting, prevents duplicate Run and environment changes, and renders Catalog counts", async () => {
     let resolveFetch!: (value: ReturnType<typeof response>) => void;
