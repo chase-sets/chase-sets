@@ -188,6 +188,41 @@ impl Identify<Shared> for ChannelsMember {
     }
 }
 
+/// A seller connecting eBay Sandbox (Channels' `channels-ebay-connection` route): reading and
+/// writing both need `channels.manage`, as its loader and action require (the API checks again).
+/// Anyone not signed in is sent to the sign-in, back to the page.
+#[derive(Clone, Debug, Hash)]
+pub struct ChannelsManager(pub Viewer);
+
+impl Identify<Shared> for ChannelsManager {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(CHANNELS_MANAGE) => Ok(ChannelsManager(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(back_to(parts))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
+/// The seller eBay sends back from consent (Channels' `channels-ebay-callback` and
+/// `channels-ebay-declined`), who needs `channels.manage` as the connection page does. Anyone not
+/// signed in is sent to the sign-in back to that page, never to this address: its query holds
+/// eBay's one-time code and state.
+#[derive(Clone, Debug, Hash)]
+pub struct EbayReturn(pub Viewer);
+
+impl Identify<Shared> for EbayReturn {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        match find(parts, config).await {
+            Found::Account(viewer) if viewer.actor.can(CHANNELS_MANAGE) => Ok(EbayReturn(viewer)),
+            Found::Account(_) => Err(Refused::forbidden()),
+            Found::SignedOut => Err(sign_in(sign_in_back_to(crate::ebay::PAGE))),
+            Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
+        }
+    }
+}
+
 /// A seller on the Seller Desk's repricing page (marketplace's `account-desk-repricing`): reading
 /// needs `pricing.view`, as the loader requires, and writing `pricing.manage`, as the action does
 /// (the API checks again). Anyone not signed in is sent to the sign-in, back to the page.

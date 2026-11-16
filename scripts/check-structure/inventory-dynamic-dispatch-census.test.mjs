@@ -666,6 +666,57 @@ const familyMatrixCases = familyExpressions.map(([family]) => ({
     .join("\n"),
 }));
 const sharedMatrices = new Map();
+const s3BypassGroups = [
+  ["assignment-source-syntactic", ["Y1", "Y2", "Y3", "Y3c", "Y4", "Y5", "Y6", "Y7", "Y8"]],
+  ["assignment-unresolved-open", ["G1", "G2", "G3", "G4", "C6"]],
+  ["assignment-default-trusted", ["G1", "G2", "G4"]],
+  ["assignment-target-erasure-off", ["L1", "L2", "L6", "L9", "L11", "L12", "B2", "A14"]],
+].map(([mutant, ids]) => [mutant, briefS3Controls.filter(({ id }) => ids.includes(id))]);
+const restockCases = restockControls().map((source) => ({ source }));
+const staticAccessCases = [
+  "services.holds.createHold({}, context);",
+  'services.holds["createHold"]({}, context);',
+  'const key = flag ? "createHold" as const : "releaseHold" as const; services.holds[key]({}, context);',
+  'let key: "createHold" = "createHold"; services.holds[key]({}, context);',
+  'var key: "createHold" = "createHold"; services.holds[key]({}, context);',
+  '({ ["s"]: { createHold: fn } } = { s: services.holds });',
+  "({ 0: { createHold: fn } } = [services.holds]);",
+  "const m = services.holds.createHold; m({}, context);",
+  "const { createHold: m } = services.holds; m({}, context);",
+  "const { holds: { createHold } } = services; createHold({}, context);",
+  "let holds: H; ({ holds } = services); holds.createHold({}, context);",
+  'const k = "createHold" as const; services.holds[k]({}, context);',
+  'function route(k: "createHold") { services.holds[k]({}, context); }',
+  "const bag: { holds: H } = { holds: services.holds }; bag.holds.createHold({}, context);",
+  "const holds = services.holds; const bag: { holds: H } = { holds }; bag.holds.createHold({}, context);",
+  "const route = (svc: H): H => svc; route(services.holds).createHold({}, context);",
+  "function* gen(svc: H): Generator<H> { yield svc; } gen(services.holds).next();",
+  "const m = services.holds.createHold.bind(services.holds); m({}, context);",
+  "services.holds.createHold.bind(services.holds)({}, context);",
+  "services.holds.createHold.call(services.holds, {}, context);",
+  "services.holds.createHold.apply(services.holds, [context, context]);",
+  'services.holds.createHold["bind"](services.holds)({}, context);',
+  "(services.holds.createHold.bind)(services.holds)({}, context);",
+  'function route(svc: InventoryServices["holds"]) { svc.createHold({}, context); }',
+  "const named = { ...services.holds, createHold: services.holds.createHold }; named.createHold({}, context);",
+  "declare const registry: Record<string, unknown>; registry[method];",
+  "localStorage[method]; sessionStorage[method];",
+  "const values = [() => 1]; values[0]();",
+  "const unrelated = { createHold() {} }; unrelated[method]();",
+  "services.pool[method]; services.db[method]; services.projectors[0];",
+  ...finiteAliasCleanControls.map(({ source }) => source),
+].map((source) => ({ source }));
+const frozenInputBypassGroups = ["receiver-type-ignored", "laundering-unchecked"].map((mutant) => [
+  mutant,
+  [
+    {
+      source:
+        mutant === "receiver-type-ignored"
+          ? 'function route(svc: InventoryServices["holds"]) { svc[method](); }'
+          : "const erased: unknown = services.holds;",
+    },
+  ],
+]);
 
 function matrixFixtures(cases, prefix = "") {
   return Object.fromEntries(
@@ -678,14 +729,8 @@ function matrixFixtures(cases, prefix = "") {
 
 async function matrix(cases, run) {
   const shared = sharedMatrices.get(cases);
-  if (shared) return run(shared);
-  const fixtures = matrixFixtures(cases);
-  return withTemporaryCorpus({ "tsconfig.json": fixtureConfig, ...fixtures }, async (root) => {
-    const roots = enumerateTrackedRoots(root);
-    const program = createClassificationProgram(root, roots);
-    const families = resolveInventoryFamilies(program, repoRoot);
-    return run({ root, roots, program, families, fixtures });
-  });
+  if (!shared) throw new Error("Matrix fixtures must be registered in beforeAll");
+  return run(shared);
 }
 
 function emit(name, data) {
@@ -729,13 +774,7 @@ describe("issue-7169-destructuring-assignment-closure", () => {
     });
   });
 
-  it.each([
-    ["assignment-source-syntactic", ["Y1", "Y2", "Y3", "Y3c", "Y4", "Y5", "Y6", "Y7", "Y8"]],
-    ["assignment-unresolved-open", ["G1", "G2", "G3", "G4", "C6"]],
-    ["assignment-default-trusted", ["G1", "G2", "G4"]],
-    ["assignment-target-erasure-off", ["L1", "L2", "L6", "L9", "L11", "L12", "B2", "A14"]],
-  ])("kills the %s S3 bypass", async (mutant, ids) => {
-    const controls = briefS3Controls.filter(({ id }) => ids.includes(id));
+  it.each(s3BypassGroups)("kills the %s S3 bypass", async (mutant, controls) => {
     await matrix(controls, ({ root, roots, program, families, fixtures }) => {
       const options = { repoRoot: root, roots, program, families };
       const candidate = analyzeInventoryDynamicDispatch(options);
@@ -857,70 +896,31 @@ describe("issue-7169-type-resolved-census-matrix", () => {
   });
 
   it("rejects all 37 frozen restock inputs end to end, including 12 static C1 controls", async () => {
-    const controls = restockControls();
+    const controls = restockCases;
     expect(controls).toHaveLength(37);
-    await matrix(
-      controls.map((source) => ({ source })),
-      ({ root, roots, program, families, fixtures }) => {
-        const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
-        const rejected = new Set(result.diagnostics.map(({ file }) => file));
-        let dynamic = 0;
-        let staticCalls = 0;
-        for (const [file, source] of Object.entries(fixtures)) {
-          if (rejected.has(file)) dynamic++;
-          else {
-            const discovery = discoverInventoryCallers([{ path: file, source }]);
-            expect(discovery.callers.length, source).toBeGreaterThan(0);
-            expect(() => partitionInventoryCallers(discovery, {})).toThrow("Unclassified Inventory caller");
-            staticCalls++;
-          }
+    await matrix(controls, ({ root, roots, program, families, fixtures }) => {
+      const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
+      const rejected = new Set(result.diagnostics.map(({ file }) => file));
+      let dynamic = 0;
+      let staticCalls = 0;
+      for (const [file, source] of Object.entries(fixtures)) {
+        if (rejected.has(file)) dynamic++;
+        else {
+          const discovery = discoverInventoryCallers([{ path: file, source }]);
+          expect(discovery.callers.length, source).toBeGreaterThan(0);
+          expect(() => partitionInventoryCallers(discovery, {})).toThrow("Unclassified Inventory caller");
+          staticCalls++;
         }
-        expect({ dynamic, staticCalls }).toEqual({ dynamic: 25, staticCalls: 12 });
-        emit("restock-controls", { total: 37, dynamic, staticCalls });
-      },
-    );
+      }
+      expect({ dynamic, staticCalls }).toEqual({ dynamic: 25, staticCalls: 12 });
+      emit("restock-controls", { total: 37, dynamic, staticCalls });
+    });
   });
 
   it("allows named static access, aliases, parameters, spreads and non-family lookalikes", async () => {
-    const cases = [
-      "services.holds.createHold({}, context);",
-      'services.holds["createHold"]({}, context);',
-      'const key = flag ? "createHold" as const : "releaseHold" as const; services.holds[key]({}, context);',
-      'let key: "createHold" = "createHold"; services.holds[key]({}, context);',
-      'var key: "createHold" = "createHold"; services.holds[key]({}, context);',
-      '({ ["s"]: { createHold: fn } } = { s: services.holds });',
-      "({ 0: { createHold: fn } } = [services.holds]);",
-      "const m = services.holds.createHold; m({}, context);",
-      "const { createHold: m } = services.holds; m({}, context);",
-      "const { holds: { createHold } } = services; createHold({}, context);",
-      "let holds: H; ({ holds } = services); holds.createHold({}, context);",
-      'const k = "createHold" as const; services.holds[k]({}, context);',
-      'function route(k: "createHold") { services.holds[k]({}, context); }',
-      "const bag: { holds: H } = { holds: services.holds }; bag.holds.createHold({}, context);",
-      "const holds = services.holds; const bag: { holds: H } = { holds }; bag.holds.createHold({}, context);",
-      "const route = (svc: H): H => svc; route(services.holds).createHold({}, context);",
-      "function* gen(svc: H): Generator<H> { yield svc; } gen(services.holds).next();",
-      "const m = services.holds.createHold.bind(services.holds); m({}, context);",
-      "services.holds.createHold.bind(services.holds)({}, context);",
-      "services.holds.createHold.call(services.holds, {}, context);",
-      "services.holds.createHold.apply(services.holds, [context, context]);",
-      'services.holds.createHold["bind"](services.holds)({}, context);',
-      "(services.holds.createHold.bind)(services.holds)({}, context);",
-      'function route(svc: InventoryServices["holds"]) { svc.createHold({}, context); }',
-      "const named = { ...services.holds, createHold: services.holds.createHold }; named.createHold({}, context);",
-      "declare const registry: Record<string, unknown>; registry[method];",
-      "localStorage[method]; sessionStorage[method];",
-      "const values = [() => 1]; values[0]();",
-      "const unrelated = { createHold() {} }; unrelated[method]();",
-      "services.pool[method]; services.db[method]; services.projectors[0];",
-      ...finiteAliasCleanControls.map(({ source }) => source),
-    ];
-    await matrix(
-      cases.map((source) => ({ source })),
-      ({ root, roots, program, families }) => {
-        expect(analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families }).diagnostics).toEqual([]);
-      },
-    );
+    await matrix(staticAccessCases, ({ root, roots, program, families }) => {
+      expect(analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families }).diagnostics).toEqual([]);
+    });
   });
 
   it("keeps the W8-W9 finite mutable-alias controls clean", async () => {
@@ -943,48 +943,49 @@ describe("issue-7169-type-resolved-census-matrix", () => {
     });
   });
 
-  it.each(["receiver-type-ignored", "laundering-unchecked"])(
-    "kills the %s bypass with frozen inputs",
-    async (mutant) => {
-      await matrix(
-        [
-          {
-            source:
-              mutant === "receiver-type-ignored"
-                ? 'function route(svc: InventoryServices["holds"]) { svc[method](); }'
-                : "const erased: unknown = services.holds;",
-          },
-        ],
-        ({ root, roots, program, families }) => {
-          const options = { repoRoot: root, roots, program, families };
-          const legacy = discoverInventoryCallers(
-            roots.map((file) => ({
-              path: file,
-              source: readFileSync(path.join(root, file), "utf8"),
-            })),
-          );
-          expect(legacy.callers).toEqual([]);
-          expect(() => partitionInventoryCallers(legacy, {})).not.toThrow();
-          const candidate = analyzeInventoryDynamicDispatch(options);
-          const bypass = analyzeInventoryDynamicDispatch({ ...options, mutant });
-          expect(candidate.diagnostics).toHaveLength(1);
-          expect(bypass.diagnostics).toEqual([]);
-          expect(() => expect(bypass.diagnostics).toHaveLength(1)).toThrow();
-          emit("mutant-killed", {
-            mutant,
-            candidate: "PASS",
-            bypass: "FAIL",
-            governingInput: mutant,
-            otherInputs: "unchanged",
-            legacyTextArm: "ADMITTED",
-          });
-        },
+  it.each(frozenInputBypassGroups)("kills the %s bypass with frozen inputs", async (mutant, cases) => {
+    await matrix(cases, ({ root, roots, program, families, fixtures }) => {
+      const options = { repoRoot: root, roots, program, families };
+      const legacy = discoverInventoryCallers(
+        roots.map((file) => ({
+          path: file,
+          source: fixtures[file],
+        })),
       );
-    },
-  );
+      expect(legacy.callers).toEqual([]);
+      expect(() => partitionInventoryCallers(legacy, {})).not.toThrow();
+      const candidate = analyzeInventoryDynamicDispatch(options);
+      const bypass = analyzeInventoryDynamicDispatch({ ...options, mutant });
+      expect(candidate.diagnostics).toHaveLength(1);
+      expect(bypass.diagnostics).toEqual([]);
+      expect(() => expect(bypass.diagnostics).toHaveLength(1)).toThrow();
+      emit("mutant-killed", {
+        mutant,
+        candidate: "PASS",
+        bypass: "FAIL",
+        governingInput: mutant,
+        otherInputs: "unchanged",
+        legacyTextArm: "ADMITTED",
+      });
+    });
+  });
 });
 
 describe("issue-7169-type-resolved-census-corpus", () => {
+  let syntheticMember;
+
+  beforeAll(async () => {
+    syntheticMember = await withTemporaryCorpus(
+      {
+        "tsconfig.json": fixtureConfig,
+        [servicesFile]: `import type { InventoryServices as Existing } from ${absoluteImport(servicesFile)};
+export type InventoryServices = Existing & { syntheticNew: Existing["holds"] };`,
+        "bounded-contexts/arbitrary/api/client.ts": `export { createInventoryApiClient } from ${absoluteImport("bounded-contexts/inventory/client.ts")};`,
+      },
+      (root) => ({ root, program: createClassificationProgram(root, enumerateTrackedRoots(root)) }),
+    );
+  }, 60_000);
+
   it("has zero tracked rejections, complete C1 coverage and unchanged clean/built qualification", () => {
     const result = production;
     expect(result.diagnostics).toEqual([]);
@@ -1017,28 +1018,17 @@ describe("issue-7169-type-resolved-census-corpus", () => {
     });
   });
 
-  it("fails the default arm for a synthetic new Inventory member until listed", async () => {
-    await withTemporaryCorpus(
-      {
-        "tsconfig.json": fixtureConfig,
-        [servicesFile]: `import type { InventoryServices as Existing } from ${absoluteImport(servicesFile)};
-export type InventoryServices = Existing & { syntheticNew: Existing["holds"] };`,
-        "bounded-contexts/arbitrary/api/client.ts": `export { createInventoryApiClient } from ${absoluteImport("bounded-contexts/inventory/client.ts")};`,
-      },
-      (root) => {
-        const roots = enumerateTrackedRoots(root);
-        const program = createClassificationProgram(root, roots);
-        const options = { apiFile: "bounded-contexts/arbitrary/api/client.ts" };
-        expect(() => resolveInventoryFamilies(program, root, options)).toThrow(
-          "Unlisted InventoryServices member: syntheticNew",
-        );
-        const listed = resolveInventoryFamilies(program, root, {
-          ...options,
-          additionalMembers: { syntheticNew: "FAMILY" },
-        });
-        expect(listed.table).toContainEqual({ name: "syntheticNew", classification: "FAMILY" });
-      },
+  it("fails the default arm for a synthetic new Inventory member until listed", () => {
+    const { root, program } = syntheticMember;
+    const options = { apiFile: "bounded-contexts/arbitrary/api/client.ts" };
+    expect(() => resolveInventoryFamilies(program, root, options)).toThrow(
+      "Unlisted InventoryServices member: syntheticNew",
     );
+    const listed = resolveInventoryFamilies(program, root, {
+      ...options,
+      additionalMembers: { syntheticNew: "FAMILY" },
+    });
+    expect(listed.table).toContainEqual({ name: "syntheticNew", classification: "FAMILY" });
   });
 });
 
@@ -1151,17 +1141,36 @@ const throwErasurePreservationGroups = [
     ],
   ],
 ];
+const declarationAndPrecisionCases = [...declarationTwinCases, ...throwPrecisionControls];
 
 beforeAll(async () => {
-  const groups = [familyMatrixCases, ...throwErasurePreservationGroups.map(([, cases]) => cases)].map(
-    (cases, index) => ({ cases, fixtures: matrixFixtures(cases, `matrix-${index}/`) }),
-  );
+  const groups = [
+    briefS3Controls,
+    briefS3CleanControls,
+    ...s3BypassGroups.map(([, cases]) => cases),
+    assignmentClosureControls,
+    repairControls,
+    familyMatrixCases,
+    restockCases,
+    staticAccessCases,
+    finiteAliasCleanControls,
+    ...frozenInputBypassGroups.map(([, cases]) => cases),
+    throwCases,
+    declarationAndPrecisionCases,
+    ...throwErasurePreservationGroups.map(([, cases]) => cases),
+  ].map((cases, index) => ({ cases, fixtures: matrixFixtures(cases, `matrix-${index}/`) }));
   await withTemporaryCorpus(
     { "tsconfig.json": fixtureConfig, ...Object.assign({}, ...groups.map(({ fixtures }) => fixtures)) },
     (root) => {
       const roots = enumerateTrackedRoots(root);
+      const started = performance.now();
       const program = createClassificationProgram(root, roots);
       const families = resolveInventoryFamilies(program, repoRoot);
+      emit("matrix-program", {
+        matrices: groups.length,
+        roots: roots.length,
+        milliseconds: performance.now() - started,
+      });
       // The Program retains the fixture sources after temporary corpus cleanup.
       // Each matrix still scans only its own roots; census results are not cached.
       for (const { cases, fixtures } of groups) {
@@ -1169,7 +1178,7 @@ beforeAll(async () => {
       }
     },
   );
-});
+}, 60_000);
 
 describe("issue-7169-census-throw-erasure", () => {
   it("rejects every derived family's thrown operand forms whatever catch receives them", async () => {
@@ -1210,7 +1219,7 @@ describe("issue-7169-census-throw-erasure", () => {
   });
 
   it("keeps declaration twins rejected and precision, boundary and preservation controls at their base verdict", async () => {
-    const cases = [...declarationTwinCases, ...throwPrecisionControls];
+    const cases = declarationAndPrecisionCases;
     await matrix(cases, ({ root, roots, program, families, fixtures }) => {
       const options = { repoRoot: root, roots, program, families };
       const candidate = analyzeInventoryDynamicDispatch(options);

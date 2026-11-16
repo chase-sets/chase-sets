@@ -73,7 +73,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Bulk reprice, `/account/bulk-reprice` (`?jobId=`) |
 | `marketplace/` | Pricing > Recommendations, `/account/repricing` (`?jobId=`) |
 | `marketplace/` | Seller Desk > Pricing Health, `/account/desk/pricing-health` (`?policyId=`) |
-| `marketplace/` | Channels > Connections, `/account/channels` (`?status=`, `?cursor=`), a connection, `/account/channels/{id}`, with its manual TCGplayer sync (`POST ../{id}/manual-sync`, `../ingest`, `../download`), Publication, `/account/channels/publication`, and a connection's publication, `/account/channels/publication/{id}` |
+| `marketplace/` | Channels > Connections, `/account/channels` (`?status=`, `?cursor=`), a connection, `/account/channels/{id}`, with its manual TCGplayer sync (`POST ../{id}/manual-sync`, `../ingest`, `../download`), Publication, `/account/channels/publication`, and a connection's publication, `/account/channels/publication/{id}`; Connect eBay Sandbox, `/account/channels/ebay` (consent, Authorize to eBay Sandbox's consent only, Disconnect), with eBay's return, `/channels/ebay/callback` and `/channels/ebay/declined` |
 | `marketplace/` | Seller Desk > Money and a payout's page, `/account/desk/money`, `/account/desk/payouts/{id}` |
 | `marketplace/` | Seller Desk > payout setup, `/account/desk/settings` (`?mode=manage`) |
 | `marketplace/` | Buy > Cart, `/account/cart`, for an account or the guest cart a visitor or guest checkout carries |
@@ -256,7 +256,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `a3ee0c05` (Corten `main` on 2026-11-15), whose framework package is
+`Cargo.toml` pins Corten to `1c72b037` (Corten `main` on 2026-11-16), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the

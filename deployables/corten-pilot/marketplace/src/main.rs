@@ -26,6 +26,7 @@ mod chrome;
 mod command_center;
 mod consents;
 mod desk;
+mod ebay;
 mod email_verification;
 mod form;
 mod guest_claim;

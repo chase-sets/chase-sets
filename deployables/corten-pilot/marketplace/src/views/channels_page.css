@@ -123,6 +123,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* The eBay consent's scopes are long URLs: they wrap on a phone, not past its edge. */
+.scopes {
+  min-width: 0;
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  overflow-wrap: anywhere;
+}
 .card {
   display: grid;
   gap: var(--space-3);

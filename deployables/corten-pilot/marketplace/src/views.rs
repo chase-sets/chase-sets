@@ -93,7 +93,9 @@ pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
     CheckoutLink, EmptyCart, Reputation,
 };
-pub use channels_page::{ChannelConnectionPage, ChannelPublicationPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending};
+pub use channels_page::{
+    ChannelConnectionPage, ChannelPublicationPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending, EbayPage,
+};
 pub use checkout_page::{BuyConfirmationPage, CheckoutPage, CheckoutRecovery};
 pub use checkout_start_page::CheckoutStartPage;
 pub use command_center_page::CommandCenterPage;
