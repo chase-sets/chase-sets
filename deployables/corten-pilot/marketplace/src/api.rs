@@ -3108,7 +3108,8 @@ pub trait Listings {
     /// Creates the listing, a draft. With `listingIdOverride` in `body`, the same id sent again is
     /// the same listing.
     async fn create_listing(&self, body: &serde_json::Value) -> Result<(CreatedListing, Option<Receipt>), ApiError>;
-    /// Publishes a draft with the fee quote it was created with.
+    /// Publishes a draft with the fee quote it was created with, as the attempt the listing's id
+    /// makes: the same create sent again publishes once.
     async fn publish_listing(&self, id: &str, fee_quote_fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError>;
     /// Saves a guest's listing as a draft intent owned by `guest`.
     async fn listing_draft_intent(&self, guest: &str, body: &serde_json::Value) -> Result<DraftIntent, ApiError>;
@@ -3124,7 +3125,7 @@ impl Listings for Caller<'_> {
     }
 
     async fn create_listing(&self, body: &serde_json::Value) -> Result<(CreatedListing, Option<Receipt>), ApiError> {
-        let attempt = listing_attempt(body["listingIdOverride"].as_str());
+        let attempt = listing_attempt(body["listingIdOverride"].as_str(), "create");
         let req = self
             .request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE)
             .header(IDEMPOTENCY_KEY, attempt)
@@ -3135,7 +3136,10 @@ impl Listings for Caller<'_> {
     async fn publish_listing(&self, id: &str, fee_quote_fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError> {
         let body = serde_json::json!({ "feeQuoteFingerprint": fee_quote_fingerprint });
         let path = format!("/api/marketplace/account/listings/{}/publish", segment(id));
-        let req = self.request(Method::POST, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, listing_attempt(None)).json(&body);
+        let req = self
+            .request(Method::POST, &path, MARKETPLACE)
+            .header(IDEMPOTENCY_KEY, listing_attempt(Some(id), "publish"))
+            .json(&body);
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
@@ -3453,7 +3457,7 @@ impl ListingCreate for Caller<'_> {
         let id = fields.iter().find(|(name, _)| *name == "listingIdOverride").map(|(_, id)| id.as_str());
         let req = self
             .request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE)
-            .header(IDEMPOTENCY_KEY, listing_attempt(id))
+            .header(IDEMPOTENCY_KEY, listing_attempt(id, "create"))
             .timeout(UPLOAD_TIMEOUT)
             .multipart(form);
         self.write(req).await
@@ -3978,11 +3982,13 @@ const IDEMPOTENCY_KEY: &str = "idempotency-key";
 
 /// A Listing command's attempt (Marketplace's `listingAttemptInput`, sent as `Idempotency-Key`):
 /// Marketplace applies a key once and answers it again with its first result, and refuses a
-/// command without one. A create's key is made from the listing id it names
-/// (`listingIdOverride`), so the same form sent again is the same attempt; any other command is
-/// its own attempt, as marketplace's are (`derivedListingAttemptKey`).
-pub fn listing_attempt(listing_id: Option<&str>) -> String {
-    match listing_id.map(|id| format!("{id}_create")) {
+/// command without one. The key is made from what makes the command one attempt and the
+/// command's name, as marketplace's `listingFormAttempt` makes it, so two commands never share
+/// one: a seller's form's `SubmitKey`, or the listing id a create names (`listingIdOverride`)
+/// for the create and the publish that follows it. Either sent again is the same attempt; with
+/// neither, the command is an attempt of its own.
+pub fn listing_attempt(made_from: Option<&str>, command: &str) -> String {
+    match made_from.map(|from| format!("{from}_{command}")) {
         Some(key) if valid_listing_attempt(&key) => key,
         _ => format!("browser_{}", uuid::Uuid::new_v4().simple()),
     }
@@ -5959,7 +5965,14 @@ impl From<ApiError> for CommandError {
 pub trait SellerListings {
     async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError>;
     async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError>;
-    async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError>;
+    /// Sends `command` as the attempt made from `attempt` (the form's `SubmitKey`; none: an attempt
+    /// of its own). The photo commands take no attempt.
+    async fn listing_command(
+        &self,
+        id: &str,
+        command: &ListingCommand,
+        attempt: Option<&str>,
+    ) -> Result<Option<Receipt>, CommandError>;
     /// Pauses or withdraws many listings as one batch: each one's outcome, and the receipt the
     /// next read waits for. Marketplace keeps each batch's outcomes, so the same batch sent again
     /// sends only the listings whose outcome was unknown.
@@ -6018,7 +6031,12 @@ impl SellerListings for Caller<'_> {
         Ok(self.read::<FeeHistory>(&path, MARKETPLACE).await?.items)
     }
 
-    async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError> {
+    async fn listing_command(
+        &self,
+        id: &str,
+        command: &ListingCommand,
+        attempt: Option<&str>,
+    ) -> Result<Option<Receipt>, CommandError> {
         use serde_json::json;
         let base = format!("/api/marketplace/account/listings/{}", segment(id));
         let (method, path, body) = match command {
@@ -6058,11 +6076,17 @@ impl SellerListings for Caller<'_> {
         };
         let mut req = self.request(method, &path, MARKETPLACE);
         // The photo commands take no attempt.
-        if !matches!(
-            command,
-            ListingCommand::Classify { .. } | ListingCommand::RemovePhoto { .. } | ListingCommand::Reorder { .. }
-        ) {
-            req = req.header(IDEMPOTENCY_KEY, listing_attempt(None));
+        let name = match command {
+            ListingCommand::Price { .. } => Some("price"),
+            ListingCommand::QuantityCap { .. } => Some("quantity-cap"),
+            ListingCommand::PurchaseLimits { .. } => Some("purchase-limits"),
+            ListingCommand::Publish { .. } => Some("publish"),
+            ListingCommand::Pause => Some("pause"),
+            ListingCommand::Withdraw => Some("withdraw"),
+            ListingCommand::Classify { .. } | ListingCommand::RemovePhoto { .. } | ListingCommand::Reorder { .. } => None,
+        };
+        if let Some(name) = name {
+            req = req.header(IDEMPOTENCY_KEY, listing_attempt(attempt, name));
         }
         if !body.is_null() {
             req = req.json(&body);
@@ -6270,7 +6294,8 @@ pub trait SellerListingList {
     async fn seller_metrics(&self) -> Result<SellerMetrics, ApiError>;
     /// Ordering's count of the account's open orders (the "N" of "N of M").
     async fn open_order_count(&self) -> Result<u64, ApiError>;
-    async fn seller_setting(&self, setting: &SellerSetting) -> Result<Option<Receipt>, CommandError>;
+    /// Sends `setting` as the attempt made from `attempt` (the form's `SubmitKey`).
+    async fn seller_setting(&self, setting: &SellerSetting, attempt: Option<&str>) -> Result<Option<Receipt>, CommandError>;
 }
 
 const ACCOUNT: &str = "/api/marketplace/account";
@@ -6303,27 +6328,31 @@ impl SellerListingList for Caller<'_> {
         Ok(self.read::<OpenOrders>(&format!("{ACCOUNT}/sales/order-capacity"), ORDERING).await?.open_order_count)
     }
 
-    async fn seller_setting(&self, setting: &SellerSetting) -> Result<Option<Receipt>, CommandError> {
+    async fn seller_setting(&self, setting: &SellerSetting, attempt: Option<&str>) -> Result<Option<Receipt>, CommandError> {
         use serde_json::json;
         let availability = format!("{ACCOUNT}/listing-availability");
         let capacity = format!("{ACCOUNT}/order-capacity");
-        let (method, path, body) = match setting {
+        let (name, method, path, body) = match setting {
             SellerSetting::Disable { reason, on, at } => (
+                "disable",
                 Method::POST,
                 format!("{availability}/disable"),
                 json!({ "reasonCategory": reason, "availableAgainOn": on, "availableAgainAt": at }),
             ),
-            SellerSetting::Enable => (Method::POST, format!("{availability}/enable"), json!({})),
+            SellerSetting::Enable => ("enable", Method::POST, format!("{availability}/enable"), json!({})),
             SellerSetting::Schedule { reason, starts_at, ends_at } => (
+                "schedule-away-window",
                 Method::POST,
                 format!("{availability}/away-window"),
                 json!({ "reasonCategory": reason, "startsAt": starts_at, "endsAt": ends_at }),
             ),
-            SellerSetting::CancelWindow => (Method::DELETE, format!("{availability}/away-window"), serde_json::Value::Null),
-            SellerSetting::Capacity(max) => (Method::POST, capacity, json!({ "maxOpenOrders": max })),
-            SellerSetting::ClearCapacity => (Method::DELETE, capacity, serde_json::Value::Null),
+            SellerSetting::CancelWindow => {
+                ("cancel-away-window", Method::DELETE, format!("{availability}/away-window"), serde_json::Value::Null)
+            }
+            SellerSetting::Capacity(max) => ("set-capacity", Method::POST, capacity, json!({ "maxOpenOrders": max })),
+            SellerSetting::ClearCapacity => ("clear-capacity", Method::DELETE, capacity, serde_json::Value::Null),
         };
-        let mut req = self.request(method, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, listing_attempt(None));
+        let mut req = self.request(method, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, listing_attempt(attempt, name));
         if !body.is_null() {
             req = req.json(&body);
         }

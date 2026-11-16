@@ -9,6 +9,7 @@
 //! Every action is a form and works without JavaScript. One column, mobile first; the overview's
 //! cards and the photos sit two abreast from 48rem.
 use corten::{
+    SubmitKey,
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
@@ -705,6 +706,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
         <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <div class={Card}>
                 <form id={PriceFormId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
+                    {SubmitKey::field(f.attempt)}
                     <div class={Grid}>
                         <label class={Field}>
                             <span class={Label}>{t.page_price_2()}</span>
@@ -743,6 +745,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
             <div class={Card}>
                 <form id={QuantityFormId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
                     <input type="hidden" name={f.intent} value="update-quantity-cap">
+                    {SubmitKey::field(f.attempt)}
                     if let Some(fingerprint) = &l.fee_quote_fingerprint {
                         <input type="hidden" name={f.fee_quote_fingerprint} value={fingerprint}>
                     }
@@ -771,6 +774,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                 </summary>
                 <form id={LimitsFormId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
                     <input type="hidden" name={f.intent} value="update-purchase-limits">
+                    {SubmitKey::field(f.attempt)}
                     <div class={Grid3}>
                         <label class={Field}>
                             <span class={Label}>{t.page_limit_per_order()}</span>
@@ -819,6 +823,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
             <div class={Card}>
                 <form class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id)}>
                     <input type="hidden" name={f.intent} value="publish">
+                    {SubmitKey::field(f.attempt)}
                     if let Some(fingerprint) = &l.fee_quote_fingerprint {
                         <input type="hidden" name={f.fee_quote_fingerprint} value={fingerprint}>
                     }
@@ -839,6 +844,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                 </form>
                 <form method="post" action={here(id)}>
                     <input type="hidden" name={f.intent} value="pause">
+                    {SubmitKey::field(f.attempt)}
                     <button class={(Button, Secondary)} type="submit" disabled={l.status != "active"}>
                         {t.page_pause_listing()}
                     </button>
@@ -857,6 +863,7 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                     <p id="withdraw-text" class={Muted}>{t.page_withdraw_confirm_description()}</p>
                     <form class={Row} method="post" action={here(id)}>
                         <input type="hidden" name={f.intent} value="withdraw">
+                        {SubmitKey::field(f.attempt)}
                         <button class={(Button, Secondary)} type="button" command="close" commandfor={WithdrawDialogId}>
                             {p.seller_listing_cancel()}
                         </button>
