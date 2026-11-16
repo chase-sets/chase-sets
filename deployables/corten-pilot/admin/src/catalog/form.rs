@@ -1304,8 +1304,8 @@ impl ReferenceInput {
     }
 }
 
-/// Add content line: the type, the policy, the contained item and its options, and the quantity
-/// (empty for none).
+/// Add content line: the type, the policy, the contained item and its options, the quantity
+/// (empty for none), and the contents version the page was drawn at.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ContentLineInput {
@@ -1314,6 +1314,19 @@ pub struct ContentLineInput {
     pub contained_catalog_item_id: String,
     pub contained_options: String,
     pub quantity: String,
+    pub expected_version: String,
+}
+
+/// A content line's remove: the contents version the page was drawn at.
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(default)]
+pub struct VersionInput {
+    pub expected_version: String,
+}
+
+/// A contents version a form sent, if it is one.
+pub fn contents_version(sent: &str) -> Option<u64> {
+    sent.trim().parse().ok()
 }
 
 impl ContentLineInput {

@@ -10,14 +10,19 @@
 //! | \`GET .../fields\`, \`POST .../fields\`, \`POST .../fields/{field_id}/clear\` | Set Field Value (drawn when opened); sets; clears |
 //! | \`POST .../categories\`, \`.../categories/{category_id}/remove\` | assigns, removes a category |
 //! | \`POST .../catalog-item-references\`, \`.../product-references\`, each \`/unlink\` | external references |
-//! | \`GET .../contents\`, \`POST .../contents\`, \`POST .../contents/{line_id}/remove\` | Add content line (drawn when opened); adds; removes |
+//! | \`GET .../contents?expected_version\`, \`POST .../contents\`, \`POST .../contents/{line_id}/remove\` | Add content line (drawn when opened); adds; removes |
 //!
 //! Every write is a form that works without JavaScript and answers with the page, its receipt
 //! and what it did (the toast), or with the form and the API's refusal. Product contents are
-//! replaced as a whole list (the API's only write for them): the pilot reads the lines when the
-//! write is sent, not when the page was drawn, and sends them back with one more or one less
-//! (chase-sets/chase-sets#10538 asks for a write that cannot drop another's line).
-use corten::{http::HeaderMap, prelude::*};
+//! replaced as a whole list (the API's only write for them) from the authoring snapshot: the page
+//! draws the lines and the stream version it read, and Add and Remove send that version
+//! (\`expectedVersion\`) with those lines, one more or one less. Contents that changed since the page
+//! was drawn are refused (409), saying so in the page's words rather than the API's, and drawn again
+//! as they are now, as admin-web refreshes rather than retry a stale edit.
+use corten::{
+    http::{HeaderMap, StatusCode},
+    prelude::*,
+};
 use futures_util::future::{join, join3};
 use platform::receipt::Receipt;
 use serde_json::{Value, json};
@@ -25,12 +30,13 @@ use serde_json::{Value, json};
 use super::{
     Sent,
     api::{
-        Catalog as _, ContentChoice, ContentLine, Field, ItemDetail, ItemRow, Kind, List, Readiness, ReferenceRow, Written, under,
+        Catalog as _, ContentChoice, ContentLine, ContentsSnapshot, Field, ItemDetail, ItemRow, Kind, List, Readiness,
+        ReferenceRow, Written, under,
     },
     command,
     form::{
         ActionInput, ContentLineInput, FallbackInput, FieldValueInput, IdInput, ListInput, MetadataInput, PublishInput,
-        ReferenceInput, line_input, parts,
+        ReferenceInput, VersionInput, contents_version, line_input, parts,
     },
     not_offered, receipt,
     views::{self, ContentChoices, Draft, FieldChoices, Fold, ItemBack, ItemScreen, Labels, choice_label, ids::item as ids},
@@ -116,15 +122,17 @@ pub mod url {
         }
     }
 
-    /// Add content line: \`GET\` draws its dialog, \`POST\` adds.
+    /// Add content line: \`GET\` draws its dialog for the contents version the page was drawn at
+    /// (\`expected_version\`, the opener's hidden field), \`POST\` adds.
     #[route("/catalog/catalog-items/{id}/contents", get = content_dialog, post = add_content)]
     pub struct Contents<'a> {
         pub id: &'a str,
+        pub expected_version: Option<u64>,
     }
 
     impl<'a> Contents<'a> {
         pub fn of(id: &'a str) -> Self {
-            Contents { id }
+            Contents { id, expected_version: None }
         }
     }
 
@@ -272,9 +280,14 @@ macro_rules! read {
     };
 }
 
-/// \`/containers/{id}\`: the lines a product contains (read and replaced there).
+/// \`/containers/{id}\`: the lines a product contains (replaced there).
 fn containers(id: &str) -> String {
     format!("/containers{}", under(id, &[]))
+}
+
+/// \`/containers/{id}/authoring\`: the lines and the version of their stream (\`ContentsSnapshot\`).
+fn authoring(id: &str) -> String {
+    format!("/containers{}", under(id, &["authoring"]))
 }
 
 fn caller<'a>(config: &'a Shared, headers: &'a HeaderMap, receipt: Option<&'a Receipt>) -> Caller<'a> {
@@ -286,15 +299,16 @@ fn caller<'a>(config: &'a Shared, headers: &'a HeaderMap, receipt: Option<&'a Re
 async fn screen(caller: &Caller<'_>, id: &str) -> Result<ItemScreen, ApiError> {
     let (item, contents, contained) = join3(
         caller.get::<ItemDetail>(Kind::Items, id),
-        caller.read_at::<List<ContentLine>>(Kind::ProductContents, &containers(id)),
+        caller.read_at::<ContentsSnapshot>(Kind::ProductContents, &authoring(id)),
         caller.read_at::<List<ContentLine>>(Kind::ProductContents, &format!("/contained{}", under(id, &[]))),
     )
     .await;
     let item = item?;
-    let (contents, containers) = (contents.ok().map(|l| l.items), contained.ok().map(|l| l.items));
+    let (contents, contents_version) = contents.map_or((None, None), |s| (Some(s.lines), Some(s.version)));
+    let containers = contained.ok().map(|l| l.items);
     let any = |lines: &Option<Vec<ContentLine>>| lines.as_ref().is_some_and(|l| !l.is_empty());
     let labels = if any(&contents) || any(&containers) { labels(caller).await } else { Labels::default() };
-    Ok(ItemScreen { item, contents, containers, labels })
+    Ok(ItemScreen { item, contents, contents_version, containers, labels })
 }
 
 /// The content types', policies' and active items' names (\`useProductContentTypes\`,
@@ -934,6 +948,7 @@ async fn content_dialog(
     let input = ContentLineInput {
         content_type_id: first(&choices.types),
         inclusion_policy_id: first(&choices.policies),
+        expected_version: route.expected_version.map(|v| v.to_string()).unwrap_or_default(),
         ..ContentLineInput::blank()
     };
     let draft = Draft::new(input);
@@ -941,15 +956,88 @@ async fn content_dialog(
     opened(&req, &staff.viewer, &config, &headers, &id, dialog, ItemBack::Content(draft.clone(), choices.clone())).await
 }
 
-/// Replaces the item's content lines with those the API holds now, changed by \`change\`.
+/// What a content line's write came to: the API's answer, or that the contents changed since the
+/// page read them (the version it sent is not theirs now).
+enum Replaced {
+    Sent(Sent),
+    Changed,
+}
+
+/// Replaces the item's content lines, changed by \`change\`, if they are still at \`version\` (the one
+/// the page was drawn at): the API refuses a stale version (409, \`concurrency_conflict\`), and a
+/// form that sent none is stale too.
 async fn replace_lines(
     caller: &Caller<'_>,
     id: &str,
+    version: Option<u64>,
     change: impl FnOnce(Vec<&ContentLine>) -> Vec<Value>,
-) -> Result<Sent, ApiError> {
-    let current = caller.read_at::<List<ContentLine>>(Kind::ProductContents, &containers(id)).await?;
-    let lines = change(current.items.iter().collect());
-    Ok(command(caller, Method::PUT, Kind::ProductContents, &containers(id), Some(&json!({ "lines": lines }))).await)
+) -> Result<Replaced, ApiError> {
+    let current = caller.read_at::<ContentsSnapshot>(Kind::ProductContents, &authoring(id)).await?;
+    let Some(version) = version.filter(|v| *v == current.version) else {
+        return Ok(Replaced::Changed);
+    };
+    let body = json!({ "lines": change(current.lines.iter().collect()), "expectedVersion": version });
+    Ok(match caller.command(Method::PUT, Kind::ProductContents, &containers(id), Some(&body)).await {
+        Ok(written) => Replaced::Sent(Sent::Written(written)),
+        Err(error) if error.status() == Some(StatusCode::CONFLICT) => Replaced::Changed,
+        Err(error) => Replaced::Sent(match refused(error) {
+            Ok(errors) => Sent::Refused(errors),
+            Err(denied) => Sent::Denied(denied),
+        }),
+    })
+}
+
+/// Contents that changed since the page read them (409): the contents as they are now, with Add
+/// content line's form (when that was the write) drawn again at their version with the message.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
+async fn contents_changed(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    add: Option<ContentLineInput>,
+) -> HtmlResult {
+    let p: crate::text::Pilot = req.t();
+    let mut errors = Errors::new();
+    errors.refuse(corten::Refusal::Conflict, p.item_contents_changed());
+    let (form_errors, page_errors) = (errors.clone(), errors.clone());
+    let page_add = add.clone();
+    req.invalid_with(
+        &errors,
+        |form| async move {
+            let caller = caller(config, headers, None);
+            let wants_choices = add.is_some();
+            let choices = async { if wants_choices { Some(content_choices(&caller).await) } else { None } };
+            let (screen, choices) = join(screen(&caller, id), choices).await;
+            let screen = screen.map_err(|error| corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY))?;
+            let version = screen.contents_version.map(|v| v.to_string()).unwrap_or_default();
+            let draft =
+                add.map(|input| Draft { input: ContentLineInput { expected_version: version, ..input }, errors: form_errors });
+            let t: Cat = req.t();
+            form.draw(html! {
+                <views::ContentsPart t={t} p={p} screen={&screen} open changed refused={None} />
+                if let Some((draft, choices)) = draft.as_ref().zip(choices.as_ref()) {
+                    <views::ContentForm t={t} id={id} form={draft} choices={choices} />
+                }
+            })
+        },
+        || async {
+            let caller = caller(config, headers, None);
+            let back = match page_add {
+                Some(input) => {
+                    let draft = Draft { input, errors: page_errors };
+                    ItemBack::ContentsChanged(Some((draft, content_choices(&caller).await)))
+                }
+                None => ItemBack::ContentsChanged(None),
+            };
+            render(req, viewer, config, headers, id, &url::After::default(), back).await
+        },
+    )
+    .await
 }
 
 async fn add_content(
@@ -964,9 +1052,14 @@ async fn add_content(
     let caller = caller(&config, &headers, None);
     let errors = match input.line(req.t()) {
         Ok(line) => {
-            let replaced = replace_lines(&caller, &id, |lines| lines.into_iter().map(line_input).chain([line]).collect()).await;
+            let version = contents_version(&input.expected_version);
+            let replaced =
+                replace_lines(&caller, &id, version, |lines| lines.into_iter().map(line_input).chain([line]).collect()).await;
             match read!(req, replaced) {
-                Ok(sent) => sent!(req, id, sent, Change::ContentsUpdated),
+                Ok(Replaced::Sent(sent)) => sent!(req, id, sent, Change::ContentsUpdated),
+                Ok(Replaced::Changed) => {
+                    return contents_changed(&req, &staff.viewer, &config, &headers, &id, Some(input)).await;
+                }
                 Err(errors) => errors,
             }
         }
@@ -985,13 +1078,18 @@ async fn remove_content(
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::item::url::ContentRemove<'_>>,
+    Form(input): Form<VersionInput>,
 ) -> HtmlResult {
     let (id, line_id) = (route.id, route.line_id);
     let caller = caller(&config, &headers, None);
-    let replaced =
-        replace_lines(&caller, &id, |lines| lines.into_iter().filter(|l| l.line_id != line_id).map(line_input).collect()).await;
+    let version = contents_version(&input.expected_version);
+    let replaced = replace_lines(&caller, &id, version, |lines| {
+        lines.into_iter().filter(|l| l.line_id != line_id).map(line_input).collect()
+    })
+    .await;
     let errors = match read!(req, replaced) {
-        Ok(sent) => sent!(req, id, sent, Change::ContentsUpdated),
+        Ok(Replaced::Sent(sent)) => sent!(req, id, sent, Change::ContentsUpdated),
+        Ok(Replaced::Changed) => return contents_changed(&req, &staff.viewer, &config, &headers, &id, None).await,
         Err(errors) => errors,
     };
     let t: Cat = req.t();

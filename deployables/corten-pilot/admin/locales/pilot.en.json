@@ -71,7 +71,8 @@
     "unknown_job": "This bulk change is not known."
   },
   "item": {
-    "contents_unavailable": "Product Contents could not be loaded. Refresh in a moment."
+    "contents_unavailable": "Product Contents could not be loaded. Refresh in a moment.",
+    "contents_changed": "Product Contents changed since this page was loaded, so nothing was saved. Here they are now: check them and try again."
   },
   "scope": {
     "refused": "The Catalog API refused the change.",

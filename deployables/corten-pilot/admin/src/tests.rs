@@ -1796,6 +1796,7 @@ fn items_api(method: Method, rest: &str, body: &str) -> Response {
             (StatusCode::ACCEPTED, Json(item_job("job_remove", ITEMS_REMOVE_DRAFTS, "remove-drafts"))).into_response()
         }
         (Method::DELETE, "/cat_used") => refusal(StatusCode::CONFLICT, "invalid_transition", "Only draft items can be removed."),
+        (Method::GET, "/cat_box" | "/cat_race") => Json(item(&rest[1..], "active")).into_response(),
         (Method::GET, "/cat_origin") => {
             let mut origin = item("cat_origin", "active");
             origin["external_product_references"] = json!([{ "providerKey": "tcgplayer", "externalKey": "p/1" }]);
@@ -1804,6 +1805,38 @@ fn items_api(method: Method, rest: &str, body: &str) -> Response {
         }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// The Catalog API's Product Contents for `cat_box` and `cat_race`: one line, read at version 4.
+/// A replace at that version is written; any other is the API's `concurrency_conflict`, and every
+/// replace of `cat_race` is, as if another write landed between the read and this one.
+fn contents_api(method: &Method, rest: &str, body: &str) -> Option<Response> {
+    let rest = rest.strip_prefix("/product-contents")?;
+    let list = |items: Value| Json(json!({ "items": items, "total": 0, "count": 0 })).into_response();
+    let line = |container: &str| {
+        json!({ "lineId": "pcl_1", "containerCatalogItemId": container, "containedCatalogItemId": "cat_a", "quantity": 1,
+                "contentTypeId": "pct_1", "inclusionPolicyId": null, "provenance": { "source": "operator" },
+                "resolutionStatus": "resolved" })
+    };
+    let conflict = || refusal(StatusCode::CONFLICT, "conflict", "Product Contents changed since the authoring snapshot.");
+    Some(match (method, rest) {
+        (&Method::GET, "/content-types") => list(
+            json!([{ "content_type_id": "pct_1", "key": "booster", "display_name": { "en": "Booster" }, "status": "active" }]),
+        ),
+        (&Method::GET, "/inclusion-policies") => list(json!([])),
+        (&Method::GET, "/contained/cat_box" | "/contained/cat_race") => list(json!([])),
+        (&Method::GET, "/containers/cat_box/authoring" | "/containers/cat_race/authoring") => {
+            let container = &rest["/containers/".len()..rest.len() - "/authoring".len()];
+            Json(json!({ "containerCatalogItemId": container, "containerSelectedOptions": null, "lines": [line(container)], "version": 4 }))
+                .into_response()
+        }
+        (&Method::PUT, "/containers/cat_race") => conflict(),
+        (&Method::PUT, "/containers/cat_box") => {
+            let sent: Value = serde_json::from_str(body).unwrap();
+            if sent["expectedVersion"] == json!(4) { written(StatusCode::OK, "cat_box") } else { conflict() }
+        }
+        _ => return None,
+    })
 }
 
 /// The Catalog's Scope Records: two on the page of 51, one live and fresh, one a draft the API
@@ -2136,6 +2169,9 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         }
     }
     if let Some(answer) = observation_api(&method, rest, body) {
+        return answer;
+    }
+    if let Some(answer) = contents_api(&method, rest, body) {
         return answer;
     }
     match (method, rest) {
@@ -3535,6 +3571,61 @@ async fn an_items_originating_imports_open_the_pilots_workbench_for_each_provide
     }
     let origin = crate::app::admin_web_origin();
     assert!(!html.contains(&format!("{origin}/catalog/integrations")), "nothing opens admin-web's workbench: {html}");
+}
+
+#[tokio::test]
+async fn a_content_lines_add_and_remove_send_the_contents_version_the_page_read() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/catalog-items/cat_box", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="item-contents""#), "{html}");
+    assert_eq!(
+        html.matches(r#"<input type="hidden" name="expected_version" value="4">"#).count(),
+        2,
+        "the opener and the remove: {html}"
+    );
+
+    let (_, _, html) = pilot.send(form_get("/catalog/catalog-items/cat_box/contents", "expected_version=4", true)).await;
+    assert!(html.contains(r#"<input type="hidden" name="expected_version" value="4">"#), "the dialog's form: {html}");
+
+    let add = "content_type_id=pct_1&inclusion_policy_id=&contained_catalog_item_id=cat_b&contained_options=&quantity=2";
+    let (status, headers, _) =
+        pilot.send(post("/catalog/catalog-items/cat_box/contents", &format!("{add}&expected_version=4"), true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=contents_updated"), "{headers:?}");
+    let (status, headers, _) =
+        pilot.send(post("/catalog/catalog-items/cat_box/contents/pcl_1/remove", "expected_version=4", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=contents_updated"), "{headers:?}");
+    let sent: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0]["expectedVersion"], json!(4));
+    let added: Vec<&str> =
+        sent[0]["lines"].as_array().unwrap().iter().map(|l| l["containedCatalogItemId"].as_str().unwrap()).collect();
+    assert_eq!(added, ["cat_a", "cat_b"], "the line read, then the new one");
+    assert_eq!((&sent[1]["expectedVersion"], &sent[1]["lines"]), (&json!(4), &json!([])));
+}
+
+#[tokio::test]
+async fn contents_that_changed_since_the_page_was_read_are_refused_and_drawn_as_they_are_now() {
+    let pilot = Pilot::new().await;
+    let changed = "Product Contents changed since this page was loaded";
+    // A form drawn at version 3: nothing is sent, and the part and the form come back at 4.
+    let add = "content_type_id=pct_1&contained_catalog_item_id=cat_b&quantity=2&expected_version=3";
+    let (status, _, html) = pilot.send(post("/catalog/catalog-items/cat_box/contents", add, true)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains(r#"id="item-contents""#) && html.contains(changed), "{html}");
+    assert!(html.contains(r#"name="quantity" value="2""#), "the typed line stays: {html}");
+    assert!(html.contains(r#"<input type="hidden" name="expected_version" value="4">"#), "{html}");
+    assert!(!html.contains("<html"), "a patch: {html}");
+    assert!(pilot.catalog_writes().is_empty(), "a stale form sends nothing");
+
+    // The API's own refusal (another write landed first), without JavaScript: the page, open.
+    let (status, _, html) =
+        pilot.send(post("/catalog/catalog-items/cat_race/contents/pcl_1/remove", "expected_version=4", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("<html") && html.contains(changed), "{html}");
+    assert_eq!(pilot.catalog_writes().len(), 1, "the remove was sent once, and not again");
 }
 
 #[tokio::test]
