@@ -27,7 +27,11 @@ import {
   verifyMarketFollowingBuyerContactInOwnedSandbox,
 } from "@chase-sets/identity/seed-support/market-following-verification";
 import { signInWithPassword } from "./support/auth";
-import { managedOfferEvaluations, readManagedOfferWorkDiagnostics } from "./support/managed-offer-diagnostics";
+import {
+  managedOfferEvaluations,
+  managedOfferFulfillmentSnapshot,
+  readManagedOfferWorkDiagnostics,
+} from "./support/managed-offer-diagnostics";
 import {
   marketplaceBrowserE2eBuyerCredentials,
   marketplaceBrowserE2eSellerCredentials,
@@ -817,13 +821,25 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           quantity: null,
           estimateVersion: null,
         });
+        const fulfillment = {
+          kind: "seller-match-fulfillment",
+          offerId: controlOfferId,
+          expected: { can_fulfill: true, amount: "135.00", listingId },
+          pollCount: 0,
+          observedAt: null as string | null,
+          lastObserved: null as ReturnType<typeof managedOfferFulfillmentSnapshot> | null,
+        };
+        timeline.push(fulfillment);
         await expect
           .poll(async () => {
+            fulfillment.pollCount += 1;
             const response = await seller.request.get(`/api/marketplace/account/offers/matches/${controlOfferId}`, {
               headers: freshReadHeaders("marketplace"),
             });
             expect(response.ok()).toBe(true);
             const match = await response.json();
+            fulfillment.observedAt = new Date().toISOString();
+            fulfillment.lastObserved = managedOfferFulfillmentSnapshot(match);
             return { can_fulfill: match.can_fulfill, amount: match.price_amount, listingId: match.listing_id };
           })
           .toEqual({ can_fulfill: true, amount: "135.00", listingId });
