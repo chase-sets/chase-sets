@@ -684,6 +684,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "listingTargetAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Compose Auth Session, Identity Membership, Channels configuration grants and Inventory reservations for channel-only Listing target commands."
+    },
+    {
       "portName": "managedOfferPricing",
       "providedBy": "pricing",
       "purpose": "Evaluate current buyer Offer targets through Pricing's public boundary without Marketplace querying Pricing storage."
@@ -1440,6 +1445,8 @@
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-availability/enable",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-draft-intents/:id/claim",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/target-price",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/activate-channel",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/pause",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/photos",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/photos/:photoId/classify",
@@ -1463,10 +1470,12 @@
         "description": "Listing API commands return command-owned ids, versions, statuses, draft intent snapshots, or fee quote snapshots; browser form destinations use the returned receipt for fresh detail/list reads. Order Capacity set/clear are additive and inert -- no browser destination consumes them in this slice (no seller-facing UI yet); they return the same command-owned accountId/version/maxOpenOrders snapshot shape as the other listing commands."
       },
       "proof": {
-        "authoritativeResponse": "POST /listings returns the committed Listing aggregate state and matching version, folded from the events appended atomically with inventory-listing registration; exact retries return loaded aggregate state, never a Listing projection. Listing update/publish/pause/withdraw and availability commands respond from the committed command result with id/version/status; draft intent and claim routes return the draft snapshot; fee preview routes return the computed terms snapshot, with stale fee quote responses carrying the current quote; setSellerOrderCapacity/clearSellerOrderCapacity respond from the committed command result with accountId/version/maxOpenOrders.",
+        "authoritativeResponse": "POST /listings returns the committed Listing aggregate state and matching version, folded from the events appended atomically with inventory-listing registration; exact retries return loaded aggregate state, never a Listing projection. POST /listings/:id/target-price and POST /listings/:id/activate-channel return the committed aggregate state and version recorded atomically with their request result, without projection reads. Listing update/publish/pause/withdraw and availability commands respond from the committed command result with id/version/status; draft intent and claim routes return the draft snapshot; fee preview routes return the computed terms snapshot, with stale fee quote responses carrying the current quote; setSellerOrderCapacity/clearSellerOrderCapacity respond from the committed command result with accountId/version/maxOpenOrders.",
         "tests": [
           "bounded-contexts/marketplace/features/listings/api/route.test.ts",
           "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/target-runtime.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/listing-request.test.ts",
           "bounded-contexts/marketplace/tests/account-listing-route.test.ts",
           "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
         ]

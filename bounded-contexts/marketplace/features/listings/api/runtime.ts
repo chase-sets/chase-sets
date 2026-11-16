@@ -1,4 +1,6 @@
 import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { createListingTargetRuntime } from "./target-runtime";
+import type { ListingTargetServices } from "./target-contracts";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -313,7 +315,9 @@ type MarketplaceCreateListing = {
   (params: MarketplaceCreateListingParams, context: EventStoreContext): Promise<MarketplaceCreateListingResult>;
 };
 
-export type MarketplaceListingServices = Readonly<{
+export type MarketplaceListingServices = MarketplaceListingCoreServices & ListingTargetServices;
+
+type MarketplaceListingCoreServices = Readonly<{
   operatorUnlistListing: (
     params: Readonly<{
       listingId: ListingId;
@@ -3153,6 +3157,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryItemSupply: (itemId, accountId) => getInventoryItemSupply(deps.db, itemId, accountId),
+    ...createListingTargetRuntime({ eventStore: deps.eventStore, authority: deps.listingTargetAuthority }),
     loadListingState: async (listingId) => (await repository.load(`marketplace.listing-${listingId}`)).state,
     reconcileInventoryCapacity,
     projectors: [
