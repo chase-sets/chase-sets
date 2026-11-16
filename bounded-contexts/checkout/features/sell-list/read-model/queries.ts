@@ -5,7 +5,7 @@ import {
   type MarketplaceListingEvidenceCoverage,
   type ResolvedListingEvidenceRequirements,
 } from "../../../support/request-support/marketplace-listing-evidence.server";
-import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
+import { CheckoutDomainError, type VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 import type { SellListLineEvidenceReadiness, SellListReadinessLine } from "../domain/readiness";
 import { realTimestamp } from "./seller-checkout-owner-reads";
 
@@ -127,7 +127,12 @@ export type CheckoutSellPayoutReadinessRow = Readonly<{
   updated_at: string | null;
 }>;
 
-type SellListPageRow = Omit<CheckoutSellListLineRow, "selected_options" | "line_type" | "fallback_mode"> & {
+type SellListPageRow = Omit<
+  CheckoutSellListLineRow,
+  "selected_options" | "line_type" | "fallback_mode" | "offer_stream_version" | "listing_stream_version"
+> & {
+  offer_stream_version?: number | string | null;
+  listing_stream_version?: number | string | null;
   selected_options: unknown;
   line_type: string;
   fallback_mode: string;
@@ -267,7 +272,7 @@ type SellOfferPageRow = Readonly<{
   product_summary: string | null;
   price_amount: string;
   price_currency_code: string | null;
-  last_stream_version: number;
+  last_stream_version: number | string;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -316,7 +321,7 @@ type ListingEvidenceRequirementSnapshot = Readonly<{
   requirements: ResolvedListingEvidenceRequirements;
 }>;
 
-async function getCheckoutListingEvidenceCoverage(
+export async function getCheckoutListingEvidenceCoverage(
   db: PgQueryable,
   listingId: string,
 ): Promise<MarketplaceListingEvidenceCoverage | null> {
@@ -355,9 +360,18 @@ async function getCheckoutListingEvidenceCoverage(
   };
 }
 
+function streamVersion(value: number | string): number {
+  const version = typeof value === "string" && !/^[1-9]\d*$/.test(value) ? NaN : Number(value);
+  if (!Number.isSafeInteger(version) || version < 1)
+    throw new CheckoutDomainError("Invalid Sell List stream version.", "checkout_confirmation_changed");
+  return version;
+}
+
 function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
   return {
     ...row,
+    offer_stream_version: row.offer_stream_version == null ? null : streamVersion(row.offer_stream_version),
+    listing_stream_version: row.listing_stream_version == null ? null : streamVersion(row.listing_stream_version),
     created_at: realTimestamp(row.created_at) ?? "",
     updated_at: realTimestamp(row.updated_at) ?? "",
     line_type: row.line_type === "selected-offer" ? "selected-offer" : "product",
@@ -393,6 +407,7 @@ function mapAddressSnapshot(value: unknown): AddressSnapshot {
 function mapSellOfferRow(row: SellOfferPageRow) {
   return {
     ...row,
+    last_stream_version: streamVersion(row.last_stream_version),
     selected_options: mapSelectedOptions(row.selected_options),
   };
 }
@@ -404,7 +419,7 @@ function mapOfferMatch(row: SellOfferMatchRow): CheckoutSellOfferMatch {
   return {
     ...offer,
     price_currency_code: row.price_currency_code!,
-    offer_stream_version: row.last_stream_version,
+    offer_stream_version: offer.last_stream_version,
     listing_id: row.listing_id,
     listing_price_amount: row.listing_price_amount,
     listing_price_currency_code: row.listing_price_currency_code,

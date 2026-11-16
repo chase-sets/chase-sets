@@ -16,7 +16,11 @@ import {
   valuesFromFormData,
   validateGuestSellCheckoutValues,
 } from "./sell-checkout-form";
-import { buildSellerEvidence, performMarketplaceHandoff } from "./sell-checkout-handoff";
+import {
+  buildSellerEvidence,
+  performMarketplaceHandoff,
+  SellListHandoffInterruptedError,
+} from "./sell-checkout-handoff";
 import {
   canUseSignedInSellCheckout,
   loadGuestSellCheckoutState,
@@ -52,11 +56,28 @@ export async function action({
 }: ActionFunctionArgs): Promise<GuestSellCheckoutActionState | SignedInSellCheckoutActionState | Response> {
   const actor = await resolveActorFromAuthApi({ request });
   const formData = await request.formData();
+  const retainedFields = [...formData.entries()].filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
   if (canUseSignedInSellCheckout(actor)) {
     const api = createCheckoutRequestApiClient(request);
     const submittedValues = signedInValuesFromFormData(formData);
+    const sessionId = params.sessionId ?? createId("chk");
+    const confirmationId = confirmationIdForSession(sessionId);
+    let existingConfirmation;
+    try {
+      existingConfirmation = await getExistingSellListConfirmation(api, confirmationId);
+    } catch {
+      return {
+        status: "error",
+        values: submittedValues,
+        fieldErrors: {},
+        attempt: { state: "ambiguous", fields: retainedFields, lines: [] },
+      };
+    }
+    if (existingConfirmation) return redirect(confirmationPathForSession(sessionId));
     const readinessDecisions = parseSellListReadinessDecisions(normalizeText(formData.get("readinessDecisions")));
-    const state = await loadSignedInSellCheckoutState(request, params.sessionId ?? createId("chk"), {
+    const state = await loadSignedInSellCheckoutState(request, sessionId, {
       readinessSnapshotId: normalizeText(formData.get("readinessSnapshotId")),
       readinessSourceRevision: normalizeText(formData.get("readinessSourceRevision")),
       readinessDecisions,
@@ -98,12 +119,6 @@ export async function action({
       };
     }
 
-    const confirmationId = confirmationIdForSession(state.sessionId);
-    const existingConfirmation = await getExistingSellListConfirmation(api, confirmationId);
-    if (existingConfirmation) {
-      return redirect(confirmationPathForSession(state.sessionId));
-    }
-
     try {
       const reviewPlan = parseSellListReviewPlan(state.sellListReviewPlan);
       const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, reviewPlan);
@@ -124,7 +139,14 @@ export async function action({
             : { addressId: values.shipFromAddressId },
         label: { preference: sellerEvidence.label.preference },
       };
-      const sellerReadiness = await api.createSellListReadiness({ ...readinessDecisions, ...choices, sellerEvidence });
+      const sellerReadiness = await api.createSellListReadiness({
+        ...readinessDecisions,
+        ...choices,
+        sellerEvidence,
+        confirmationId,
+        entryReadinessSnapshotId: state.readiness.snapshotId,
+        reviewPlan: state.sellListReviewPlan,
+      });
       if (
         sellerReadiness.readiness.status !== "ready" ||
         sellerReadiness.readiness.unresolvedLineIds.length > 0 ||
@@ -132,8 +154,13 @@ export async function action({
       ) {
         throw new Error(t("checkout.routes.sellCheckoutSession.validation.readiness.recovery"));
       }
-      const marketplaceHandoff = await performMarketplaceHandoff(marketplaceApi, confirmationId, reviewedLines);
-      const result = await api.confirmSellListCheckout({
+      const marketplaceHandoff = await performMarketplaceHandoff(
+        marketplaceApi,
+        confirmationId,
+        reviewedLines,
+        actor!.accountId,
+      );
+      const confirmationBody = {
         confirmationId,
         readinessSnapshotId: sellerReadiness.readiness.snapshotId,
         readinessSourceRevision: sellerReadiness.readiness.sourceRevision,
@@ -143,7 +170,22 @@ export async function action({
         ...choices,
         sellerEvidence,
         handoffSummary: marketplaceHandoff.summary,
-      });
+      };
+      let result;
+      try {
+        result = await api.confirmSellListCheckout(confirmationBody);
+      } catch (error) {
+        const status = error instanceof CheckoutApiError ? error.status : null;
+        if (status !== null && status !== 408 && status < 500) throw error;
+        const confirmed = await getExistingSellListConfirmation(api, confirmationId).catch(() => null);
+        if (confirmed) return redirect(confirmationPathForSession(state.sessionId));
+        return {
+          status: "error",
+          values,
+          fieldErrors: {},
+          attempt: { state: "ambiguous", fields: retainedFields, lines: [] },
+        };
+      }
 
       return redirect(
         await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
@@ -152,6 +194,19 @@ export async function action({
         ),
       );
     } catch (error) {
+      if (error instanceof SellListHandoffInterruptedError) {
+        return {
+          status: "error",
+          values,
+          fieldErrors: { form: error.message },
+          ...(error.reason instanceof SellListReviewPlanStaleError ? { recovery: error.reason.recovery } : {}),
+          attempt: {
+            state: "partial",
+            fields: retainedFields,
+            lines: error.lines.map((line) => ({ id: line.lineId, status: line.status })),
+          },
+        };
+      }
       if (error instanceof SellListReviewPlanStaleError) {
         return {
           status: "error",
@@ -166,6 +221,7 @@ export async function action({
       return {
         status: "error",
         values,
+        attempt: { state: "failed-safe", fields: retainedFields, lines: [] },
         fieldErrors: {
           form:
             error instanceof Error

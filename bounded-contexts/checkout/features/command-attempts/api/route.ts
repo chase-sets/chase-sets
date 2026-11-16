@@ -4,16 +4,19 @@ import type { CheckoutApiEnv } from "../../../api";
 import { createCheckoutAccessGuard } from "../../../support/request-support/checkout-route-guard";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
 import type { CheckoutSessionServices } from "../../sessions/api/runtime";
+import type { CheckoutSellListServices } from "../../sell-list/api/runtime";
 import {
   CHECKOUT_ENTRY_ATTEMPT_KIND,
   CHECKOUT_ENTRY_ATTEMPT_TARGET,
   isCheckoutCartAttemptKind,
+  isCheckoutLineAttemptKind,
   isCheckoutCommandAttemptId,
 } from "./contracts";
 
 type CommandAttemptLookups = Readonly<{
   lookupCartAttempt: CheckoutCartServices["lookupCartAttempt"];
   lookupEntryAttempt: CheckoutSessionServices["lookupEntryAttempt"];
+  lookupSellListAttempt: CheckoutSellListServices["lookupSellListAttempt"];
 }>;
 
 const requireLookupAccess = createCheckoutAccessGuard({
@@ -70,8 +73,16 @@ async function lookup(
     const result = await services.lookupEntryAttempt({ ownerKey, attemptId, requestHash });
     return c.json({ attempt: result }, 200, { "cache-control": "no-store" });
   }
-  if (!isCheckoutCartAttemptKind(kind)) {
+  if (!isCheckoutLineAttemptKind(kind)) {
     return lookupInvalid(c);
+  }
+  if (!isCheckoutCartAttemptKind(kind)) {
+    if (!services.lookupSellListAttempt) return lookupInvalid(c);
+    return c.json(
+      { attempt: await services.lookupSellListAttempt({ ownerKey, attemptId, kind, target, requestHash }) },
+      200,
+      { "cache-control": "no-store" },
+    );
   }
   const result = await services.lookupCartAttempt({ ownerKey, attemptId, kind, target, requestHash });
   return c.json({ attempt: result }, 200, { "cache-control": "no-store" });
@@ -90,10 +101,15 @@ export function createAccountCommandAttemptRoutes(services: CommandAttemptLookup
   return app;
 }
 
-export function createGuestCommandAttemptRoutes(services: Pick<CheckoutCartServices, "lookupCartAttempt">) {
+export function createGuestCommandAttemptRoutes(
+  services: Pick<CommandAttemptLookups, "lookupCartAttempt"> &
+    Partial<Pick<CommandAttemptLookups, "lookupSellListAttempt">>,
+) {
   const app = new Hono<CheckoutApiEnv>();
   app.get("/command-attempts/:attemptId", async (c) => {
-    const ownerKey = c.req.header("x-checkout-anonymous-cart-id")?.trim() ?? "";
+    const sellList = c.req.query("kind")?.startsWith("sell-list-");
+    const ownerKey =
+      c.req.header(sellList ? "x-checkout-anonymous-sell-list-id" : "x-checkout-anonymous-cart-id")?.trim() ?? "";
     if (!ownerKey.startsWith("anon_")) {
       return c.json(
         {

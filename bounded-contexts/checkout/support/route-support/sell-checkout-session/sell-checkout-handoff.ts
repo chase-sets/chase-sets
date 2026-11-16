@@ -1,7 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { createHash } from "node:crypto";
 import type { SellListLineId } from "../../runtime-support/common";
-import { MarketplaceApiError } from "@chase-sets/marketplace/server";
+import {
+  MarketplaceApiError,
+  hashMarketplaceRequest,
+  marketplaceOfferCanonicalRequest,
+} from "@chase-sets/marketplace/server";
 import type {
   CheckoutSellListConfirmationRow,
   SellListConfirmationSummary,
@@ -141,29 +145,33 @@ const OFFER_ACCEPTANCE_STALE_CODES = new Set([
   "managed_offer_conflict",
 ]);
 
-/**
- * Accept one Offer against its exact Listing, tolerating idempotent replays and
- * converting Marketplace revalidation failures into a re-review recovery.
- *
- * `offer_already_accepted` is a benign replay (duplicate submit, browser
- * refresh, or a partially completed batch being retried): the acceptance
- * already exists in Marketplace, so the line counts as completed with a `null`
- * write (no new side effect). Stale / ineligible responses abort the remaining
- * batch and surface the refreshed requirement for review.
- */
+/** Exact replay is answered by Marketplace's consumed key, never by Offer status. */
 async function acceptOfferMatchWithRecovery(
   marketplaceApi: MarketplaceRequestApiClient,
   offerId: string,
   itemTitle: string,
   body: Parameters<MarketplaceRequestApiClient["acceptOfferMatch"]>[1],
+  sellerAccountId: string,
 ): Promise<unknown | null> {
   try {
-    return await marketplaceApi.acceptOfferMatch(offerId, body);
+    const result = await marketplaceApi.acceptOfferMatch(offerId, body);
+    const consumed = await marketplaceApi.getOfferAcceptanceAttempt(offerId, body);
+    if (
+      consumed.ownerStatus !== "committed" ||
+      consumed.mutationKind !== "offer.accept" ||
+      consumed.actorBinding.accountId !== sellerAccountId ||
+      consumed.target.kind !== "offer" ||
+      consumed.target.id !== offerId ||
+      consumed.attemptKeyFingerprint !== createHash("sha256").update(body.sourceActionKey).digest("hex") ||
+      consumed.canonicalRequestHash !==
+        hashMarketplaceRequest(marketplaceOfferCanonicalRequest("offer.accept", { ...body, offerId })) ||
+      consumed.ownerReceipt?.id !== offerId
+    ) {
+      throw new MarketplaceApiError(409, { error: { code: "offer_already_accepted" } });
+    }
+    return result;
   } catch (error) {
     const code = marketplaceErrorCode(error);
-    if (code === "offer_already_accepted") {
-      return null;
-    }
     if (OFFER_ACCEPTANCE_STALE_CODES.has(code)) {
       if (
         code === "managed_offer_held" ||
@@ -178,10 +186,25 @@ async function acceptOfferMatchWithRecovery(
   }
 }
 
+export type SellListHandoffLineResult = Readonly<{
+  lineId: string;
+  status: "completed" | "partial" | "skipped" | "conflict" | "ambiguous" | "not-attempted";
+  detail: string;
+}>;
+export class SellListHandoffInterruptedError extends Error {
+  constructor(
+    public readonly reason: unknown,
+    public readonly lines: readonly SellListHandoffLineResult[],
+  ) {
+    super(reason instanceof Error ? reason.message : "Sell List handoff interrupted.");
+  }
+}
+
 export async function performMarketplaceHandoff(
   marketplaceApi: MarketplaceRequestApiClient,
   confirmationId: string,
   reviewedLines: readonly SellListReviewedLine[],
+  sellerAccountId: string = reviewedLines[0]?.line.seller_account_id ?? "",
 ): Promise<SellListMarketplaceHandoff> {
   const completedLineIds: string[] = [];
   const remainingLineQuantities: { lineId: string; quantity: number }[] = [];
@@ -194,71 +217,97 @@ export async function performMarketplaceHandoff(
     const acceptedOfferIds: string[] = [];
     let listingId: string | null = null;
     let completedQuantity = 0;
-
-    if (readinessAction === "selected-offer" && review.selectedOffer) {
-      const result = await acceptOfferMatchWithRecovery(marketplaceApi, review.selectedOffer.offerId, line.item_title, {
-        listingId: review.selectedOffer.listingId,
-        feeQuoteFingerprint: review.selectedOffer.feeQuoteFingerprint,
-        sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:selected:${review.selectedOffer.offerId}`,
-      });
-      if (result) {
-        writeResults.push(result);
-      }
-      acceptedOfferIds.push(review.selectedOffer.offerId);
-      completedQuantity += line.quantity;
-      acceptedOfferCount += 1;
-    }
-
-    if (readinessAction === "smart-match") {
-      const acceptanceBatchId = `offer-acceptance:${confirmationId}:${line.line_id}`;
-      for (const target of review.productOfferTargets) {
-        const result = await acceptOfferMatchWithRecovery(marketplaceApi, target.offerId, line.item_title, {
-          listingId: target.listingId,
-          feeQuoteFingerprint: target.feeQuoteFingerprint,
-          sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:match:${target.offerId}`,
-          acceptanceBatchId,
-          acceptanceBatchSize: review.productOfferTargets.length,
-        });
+    try {
+      if (readinessAction === "selected-offer" && review.selectedOffer) {
+        const result = await acceptOfferMatchWithRecovery(
+          marketplaceApi,
+          review.selectedOffer.offerId,
+          line.item_title,
+          {
+            listingId: review.selectedOffer.listingId,
+            feeQuoteFingerprint: review.selectedOffer.feeQuoteFingerprint,
+            sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:selected:${review.selectedOffer.offerId}`,
+          },
+          sellerAccountId,
+        );
         if (result) {
           writeResults.push(result);
         }
-        acceptedOfferIds.push(target.offerId);
-        completedQuantity += target.quantity;
+        acceptedOfferIds.push(review.selectedOffer.offerId);
+        completedQuantity += line.quantity;
         acceptedOfferCount += 1;
       }
-    }
 
-    if ((readinessAction === "fallback-listing" || review.fallbackListing) && review.fallbackListing) {
-      const listingIdOverride = reviewedListingId(confirmationId, line.line_id);
-      const createdListing = await marketplaceApi.createListing({
-        idempotencyKey: createHash("sha256")
-          .update(JSON.stringify(["sell-confirm", confirmationId, line.line_id, "create"]))
-          .digest("hex"),
-        inventoryItemId: review.fallbackListing.inventoryItemId,
-        priceAmount: review.fallbackListing.priceAmount,
-        priceCurrencyCode: review.fallbackListing.priceCurrencyCode,
-        quantityCap: review.fallbackListing.quantityCap,
-        listingIdOverride,
-      });
-      writeResults.push(createdListing);
-      listingId = responseString(createdListing, "id", "listingId", "listing_id") || listingIdOverride;
-      try {
-        const result = await marketplaceApi.publishListing(listingId, {
-          idempotencyKey: createHash("sha256")
-            .update(JSON.stringify(["sell-confirm", confirmationId, line.line_id, "publish"]))
-            .digest("hex"),
-          feeQuoteFingerprint: responseString(createdListing, "feeQuoteFingerprint", "fee_quote_fingerprint") || null,
-        });
-        writeResults.push(result);
-      } catch (error) {
-        if (!isAlreadyActiveListingPublishReplay(error)) {
-          throw error;
+      if (readinessAction === "smart-match") {
+        const acceptanceBatchId = `offer-acceptance:${confirmationId}:${line.line_id}`;
+        for (const target of review.productOfferTargets) {
+          const result = await acceptOfferMatchWithRecovery(
+            marketplaceApi,
+            target.offerId,
+            line.item_title,
+            {
+              listingId: target.listingId,
+              feeQuoteFingerprint: target.feeQuoteFingerprint,
+              sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:match:${target.offerId}`,
+              acceptanceBatchId,
+              acceptanceBatchSize: review.productOfferTargets.length,
+            },
+            sellerAccountId,
+          );
+          if (result) {
+            writeResults.push(result);
+          }
+          acceptedOfferIds.push(target.offerId);
+          completedQuantity += target.quantity;
+          acceptedOfferCount += 1;
         }
       }
-      completedQuantity += review.fallbackListing.quantityCap;
-      publishedListingCount += 1;
-    }
 
+      if ((readinessAction === "fallback-listing" || review.fallbackListing) && review.fallbackListing) {
+        const listingIdOverride = reviewedListingId(confirmationId, line.line_id);
+        const createdListing = await marketplaceApi.createListing({
+          idempotencyKey: createHash("sha256")
+            .update(JSON.stringify(["sell-confirm", confirmationId, line.line_id, "create"]))
+            .digest("hex"),
+          inventoryItemId: review.fallbackListing.inventoryItemId,
+          priceAmount: review.fallbackListing.priceAmount,
+          priceCurrencyCode: review.fallbackListing.priceCurrencyCode,
+          quantityCap: review.fallbackListing.quantityCap,
+          listingIdOverride,
+        });
+        writeResults.push(createdListing);
+        listingId = responseString(createdListing, "id", "listingId", "listing_id") || listingIdOverride;
+        try {
+          const result = await marketplaceApi.publishListing(listingId, {
+            idempotencyKey: createHash("sha256")
+              .update(JSON.stringify(["sell-confirm", confirmationId, line.line_id, "publish"]))
+              .digest("hex"),
+            feeQuoteFingerprint: responseString(createdListing, "feeQuoteFingerprint", "fee_quote_fingerprint") || null,
+          });
+          writeResults.push(result);
+        } catch (error) {
+          if (!isAlreadyActiveListingPublishReplay(error)) {
+            throw error;
+          }
+        }
+        completedQuantity += review.fallbackListing.quantityCap;
+        publishedListingCount += 1;
+      }
+    } catch (error) {
+      throw new SellListHandoffInterruptedError(error, [
+        ...lineOutcomes.map((outcome) => ({ lineId: outcome.lineId, status: outcome.status, detail: outcome.detail })),
+        {
+          lineId: line.line_id,
+          status: marketplaceErrorCode(error) === "offer_already_accepted" ? "conflict" : "ambiguous",
+          detail: error instanceof Error ? error.message : "Handoff interrupted.",
+        },
+        ...reviewedLines.slice(lineOutcomes.length + 1).map(({ line: pending }) => ({
+          lineId: pending.line_id,
+          status: "not-attempted" as const,
+          detail: "Not attempted.",
+        })),
+      ]);
+    }
     const remainingQuantity = Math.max(0, line.quantity - completedQuantity);
     if (remainingQuantity > 0) {
       remainingLineQuantities.push({ lineId: line.line_id, quantity: remainingQuantity });

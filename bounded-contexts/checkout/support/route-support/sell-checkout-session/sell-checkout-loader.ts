@@ -26,6 +26,7 @@ import {
   parseSellListReadinessDecisions,
   recoveryFromSearchParams,
   signedInRecoveryFromSearchParams,
+  confirmationIdForSession,
 } from "./sell-checkout-readiness";
 import type {
   GuestSellCheckoutLoaderData,
@@ -280,7 +281,9 @@ export async function loadSignedInSellCheckoutState(
     };
   }
 
-  const readinessResult = await api.createSellListReadiness(provided.readinessDecisions).catch(() => null);
+  const readinessResult = await api
+    .createSellListReadiness({ ...provided.readinessDecisions, confirmationId: confirmationIdForSession(sessionId) })
+    .catch(() => null);
   if (!readinessResult?.readiness) {
     return {
       ...base,

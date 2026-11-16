@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { isDeepStrictEqual } from "node:util";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { CheckoutSellerCheckoutOwners, SellerCheckoutRiskResult } from "../../../api";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -88,6 +89,7 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
   let payoutStatus = "ready";
   let payoutTimestamp: unknown = stamp;
   let offerAvailable = true;
+  let offerStreamVersion: number | string = 1;
   let listingEvidence: {
     listing_id: string;
     status: string;
@@ -123,6 +125,15 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
   const db = {
     query: vi.fn(async (query: unknown, args?: readonly unknown[]) => {
       const sql = String(query);
+      if (sql.includes("SET evidence_requirements = $2") && listingEvidence) {
+        const next = JSON.parse(String(args?.[1]));
+        const { evaluatedAt: _old, ...before } = listingEvidence.evidence_requirements as Record<string, unknown>;
+        const { evaluatedAt: _new, ...after } = next as Record<string, unknown>;
+        if (!sql.includes("IS NOT DISTINCT FROM") || !isDeepStrictEqual(before, after))
+          listingEvidence.updated_at = String(args?.[2]);
+        listingEvidence.evidence_requirements = next;
+        return { rows: [] };
+      }
       if (sql.includes("checkout_sell_list_confirmation_pages")) return { rows: [] };
       if (sql.includes("checkout_sell_payout_readiness_pages"))
         return {
@@ -144,7 +155,7 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
               selected_options: [],
               price_amount: "10.00",
               price_currency_code: "USD",
-              last_stream_version: 1,
+              last_stream_version: offerStreamVersion,
               quantity_requested: 1,
               status: "submitted",
               listing_id: "lst_fixture",
@@ -207,6 +218,9 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
     },
     setOfferAvailable: (value: boolean) => {
       offerAvailable = value;
+    },
+    setOfferStreamVersion: (value: number | string) => {
+      offerStreamVersion = value;
     },
     getListingEvidence: () => listingEvidence,
     setListingEvidence: (value: typeof listingEvidence) => {
