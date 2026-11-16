@@ -399,7 +399,7 @@ pub(crate) async fn add(
         }
         Attempted::Ambiguous => {
             let resend = cart_attempt::resend(&raw, field::ATTEMPT, &attempt);
-            let notice = BuyNotice::SellAmbiguous { form: intent.form(), resend };
+            let notice = BuyNotice::SellAmbiguous { resend };
             let reads = items::sell_reads(&req, session, &caller, &item, &address, false).await;
             items::render(&req, session, item, &address, Some(&notice), StatusCode::CONFLICT, reads)?
         }

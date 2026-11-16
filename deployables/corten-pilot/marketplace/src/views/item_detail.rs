@@ -1518,7 +1518,7 @@ fn SellForms<'a>(
     // An add not known to have applied holds both forms until it is sent again or the page is read
     // again (`SellListAttemptBoundary`).
     let resend = match notice {
-        Some(BuyNotice::SellAmbiguous { resend, .. }) => Some(resend.as_slice()),
+        Some(BuyNotice::SellAmbiguous { resend }) => Some(resend.as_slice()),
         _ => None,
     };
     let held = resend.is_some();

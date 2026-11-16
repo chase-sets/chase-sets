@@ -191,7 +191,7 @@ pub enum BuyNotice {
     SellRefused { message: String, form: crate::selling::SellForm, quantity: String },
     /// A sell form's Sell List add not known to have applied (`selling`): the rail's sell forms
     /// wait while `resend`, the form as posted with its attempt, is offered to send again.
-    SellAmbiguous { form: crate::selling::SellForm, resend: Vec<(String, String)> },
+    SellAmbiguous { resend: Vec<(String, String)> },
     /// A Watch alert was saved; the alerts' settings, which wait for the write.
     Watched(String),
     /// Add to List added the product (`saving`).

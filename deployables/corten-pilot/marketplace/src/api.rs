@@ -627,9 +627,6 @@ pub struct CommandOutcome {
     pub index: usize,
     /// `succeeded`, `conflict` or `error`.
     pub outcome: String,
-    /// The Sell List line it wrote, when it names one (a Sell List attempt's).
-    #[serde(default)]
-    pub line_id: Option<String>,
     /// What it did to the cart: `added` or `merged` for an add, among others.
     #[serde(default)]
     pub status: Option<String>,

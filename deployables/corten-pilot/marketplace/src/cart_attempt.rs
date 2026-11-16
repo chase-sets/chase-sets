@@ -222,7 +222,7 @@ mod tests {
             owner_status: status.into(),
             vector: outcomes
                 .iter()
-                .map(|o| CommandOutcome { index: 0, outcome: (*o).into(), line_id: None, status: None, message: None })
+                .map(|o| CommandOutcome { index: 0, outcome: (*o).into(), status: None, message: None })
                 .collect(),
             commit_receipt: None,
         };
