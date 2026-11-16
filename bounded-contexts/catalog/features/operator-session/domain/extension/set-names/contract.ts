@@ -6,8 +6,8 @@
 export const tcgplayerSetNameObservationAuthority = Object.freeze({
   reportSha256: "973c4a89869c9f14b3ea67acae9210123a235d7ff6c1f5040d0aa9b229cd989b",
   buildCommit: "042e14c3151e5cf7da6c3d3da63ebfacd93aed10",
-  // The Lorcana product-line id stays unresolved until a supplemental probe report binds it.
-  lorcanaSupplementalReportSha256: null,
+  // Supplemental report from build 2c8e8626e0a2308c29a124c5db08a0a6abef3a15 binds Lorcana to 71.
+  lorcanaSupplementalReportSha256: "b948e35961aef6f14e51c3a7051ae13517e73c34f47ee83007f5ea1962a91cd4",
 });
 
 export const tcgplayerSetNameObservationLimits = Object.freeze({
@@ -22,14 +22,14 @@ export const tcgplayerSetNameObservationLimits = Object.freeze({
 
 export type TcgplayerSetNameUnit = Readonly<{ unitKey: string; productLineId: number | null }>;
 
-// One unit per TCGplayer product line. Lorcana keeps its unit with no product-line id: neither the
-// fixture id 82 nor the candidate 71 is bound, so a Lorcana post is refused as unsupported.
+// One unit per TCGplayer product line. The supplemental report binds Lorcana to 71;
+// the original probe's fixture id 82 remains unsupported.
 export const tcgplayerSetNameUnits: readonly TcgplayerSetNameUnit[] = Object.freeze([
   Object.freeze({ unitKey: "tcgplayer:mtg:single-card:source-observation-import", productLineId: 1 }),
   Object.freeze({ unitKey: "tcgplayer:yugioh:single-card:source-observation-import", productLineId: 2 }),
   Object.freeze({ unitKey: "tcgplayer:pokemon:single-card:source-observation-import", productLineId: 3 }),
   Object.freeze({ unitKey: "tcgplayer:one-piece:single-card:source-observation-import", productLineId: 68 }),
-  Object.freeze({ unitKey: "tcgplayer:lorcana:single-card:source-observation-import", productLineId: null }),
+  Object.freeze({ unitKey: "tcgplayer:lorcana:single-card:source-observation-import", productLineId: 71 }),
 ]);
 
 export const tcgplayerSetNameProductLineIds: readonly number[] = Object.freeze(
