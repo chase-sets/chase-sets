@@ -1,15 +1,10 @@
 import { t } from "@chase-sets/localization";
-import type {
-  CheckoutSellListLineRow,
-  SellListReadinessDecisionInput,
-  SellListReadinessSnapshot,
-} from "../../request-support/api-client";
+import type { CheckoutSellListLineRow, SellListReadinessSnapshot } from "../../request-support/api-client";
 import type { GuestSellCheckoutRecovery } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import type { SignedInSellCheckoutRecovery } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
-import { normalizeQueryText, objectValue, positiveIntegerValue, stringValue } from "./sell-checkout-form";
+import { normalizeQueryText } from "./sell-checkout-form";
 import type {
   ParsedSellListLineAction,
-  ParsedSellListLineOutcome,
   SellListReviewPlan,
   SellListReviewPlanLine,
   SellListReviewedLine,
@@ -46,94 +41,6 @@ export function signedInRecoveryFromSearchParams(searchParams: URLSearchParams):
   return null;
 }
 
-export function parseSellListReviewPlan(value: string): SellListReviewPlan | null {
-  if (!value.trim()) {
-    return null;
-  }
-
-  try {
-    const source = objectValue(JSON.parse(value));
-    if (!source || source.version !== 1 || !Array.isArray(source.lines)) {
-      return null;
-    }
-
-    const lines = source.lines
-      .map(objectValue)
-      .filter((entry): entry is Record<string, unknown> => entry !== null)
-      .map((entry): SellListReviewPlanLine | null => {
-        const lineId = stringValue(entry.lineId);
-        const lineType =
-          entry.lineType === "selected-offer" ? "selected-offer" : entry.lineType === "product" ? "product" : null;
-        if (!lineId || !lineType) {
-          return null;
-        }
-
-        const selectedOfferSource = objectValue(entry.selectedOffer);
-        const selectedOffer =
-          selectedOfferSource &&
-          stringValue(selectedOfferSource.offerId) &&
-          stringValue(selectedOfferSource.listingId) &&
-          stringValue(selectedOfferSource.feeQuoteFingerprint)
-            ? {
-                offerId: stringValue(selectedOfferSource.offerId),
-                listingId: stringValue(selectedOfferSource.listingId),
-                feeQuoteFingerprint: stringValue(selectedOfferSource.feeQuoteFingerprint),
-              }
-            : null;
-        const productOfferTargets = Array.isArray(entry.productOfferTargets)
-          ? entry.productOfferTargets
-              .map(objectValue)
-              .filter((target): target is Record<string, unknown> => target !== null)
-              .map((target) => ({
-                offerId: stringValue(target.offerId),
-                listingId: stringValue(target.listingId),
-                feeQuoteFingerprint: stringValue(target.feeQuoteFingerprint),
-                quantity: positiveIntegerValue(target.quantity),
-              }))
-              .filter(
-                (target) => target.offerId && target.listingId && target.feeQuoteFingerprint && target.quantity > 0,
-              )
-          : [];
-        const fallbackSource = objectValue(entry.fallbackListing);
-        const fallbackListing =
-          fallbackSource &&
-          stringValue(fallbackSource.inventoryItemId) &&
-          stringValue(fallbackSource.priceAmount) &&
-          stringValue(fallbackSource.priceCurrencyCode) &&
-          positiveIntegerValue(fallbackSource.quantityCap) > 0
-            ? {
-                inventoryItemId: stringValue(fallbackSource.inventoryItemId),
-                priceAmount: stringValue(fallbackSource.priceAmount),
-                priceCurrencyCode: stringValue(fallbackSource.priceCurrencyCode),
-                quantityCap: positiveIntegerValue(fallbackSource.quantityCap),
-              }
-            : null;
-
-        return {
-          lineId,
-          lineType,
-          itemTitle: stringValue(entry.itemTitle),
-          productId: stringValue(entry.productId) || null,
-          quantity: positiveIntegerValue(entry.quantity),
-          selectedOffer,
-          productOfferTargets,
-          fallbackListing,
-          skippedReasons: Array.isArray(entry.skippedReasons)
-            ? entry.skippedReasons
-                .map(String)
-                .map((reason) => reason.trim())
-                .filter(Boolean)
-            : [],
-        };
-      })
-      .filter((line): line is SellListReviewPlanLine => line !== null);
-
-    return { version: 1, lines };
-  } catch {
-    return null;
-  }
-}
-
 function stableKeyPart(value: string) {
   return value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 80) || "unknown";
 }
@@ -148,63 +55,6 @@ export function confirmationPathForSession(sessionId: string) {
 
 export function reviewedListingId(confirmationId: string, lineId: string) {
   return `lst_${stableKeyPart(confirmationId)}_${stableKeyPart(lineId)}`;
-}
-
-export function parseSellListReadinessDecisions(value: string): SellListReadinessDecisionInput {
-  if (!value.trim()) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(value) as {
-      lineActions?: unknown;
-      lineOutcomes?: unknown;
-    };
-    const lineActions = Array.isArray(parsed.lineActions)
-      ? parsed.lineActions
-          .map((action) => {
-            if (!action || typeof action !== "object") {
-              return null;
-            }
-            const lineId = String((action as { lineId?: unknown }).lineId ?? "").trim();
-            const actionValue = String((action as { action?: unknown }).action ?? "").trim();
-            if (
-              !lineId ||
-              (actionValue !== "selected-offer" && actionValue !== "smart-match" && actionValue !== "fallback-listing")
-            ) {
-              return null;
-            }
-            return { lineId, action: actionValue };
-          })
-          .filter((action): action is ParsedSellListLineAction => Boolean(action))
-      : [];
-    const lineOutcomes = Array.isArray(parsed.lineOutcomes)
-      ? parsed.lineOutcomes
-          .map((outcome) => {
-            if (!outcome || typeof outcome !== "object") {
-              return null;
-            }
-            const lineId = String((outcome as { lineId?: unknown }).lineId ?? "").trim();
-            const outcomeValue = String((outcome as { outcome?: unknown }).outcome ?? "").trim();
-            if (!lineId || outcomeValue !== "keep-in-list") {
-              return null;
-            }
-            return { lineId, outcome: outcomeValue };
-          })
-          .filter((outcome): outcome is ParsedSellListLineOutcome => Boolean(outcome))
-      : [];
-
-    return { lineActions, lineOutcomes };
-  } catch {
-    return {};
-  }
-}
-
-export function encodeSellListReadinessDecisions(decisions: SellListReadinessDecisionInput) {
-  return JSON.stringify({
-    lineActions: decisions.lineActions ?? [],
-    lineOutcomes: decisions.lineOutcomes ?? [],
-  });
 }
 
 export function filterIncludedLines(lines: readonly CheckoutSellListLineRow[], readiness: SellListReadinessSnapshot) {

@@ -102,10 +102,15 @@ describe("owner writer enrollment census", () => {
     const installed = manifest.writers.find(
       (row) =>
         row.file === "bounded-contexts/channels/features/connector-feed/api/runtime.ts" &&
-        row.symbol.endsWith(" > disconnectChannelConnection"),
+        row.symbol.endsWith(" > disconnect"),
     );
     expect(installed).toMatchObject({ disposition: "enrolled", keys: ["connection"] });
     expect(installed.enrollment).toContain("createConnectorFeedRuntime > transact");
+    const deletion = manifest.writers.find(
+      (row) => row.sink === "deps.connectorFeed.disconnectChannelConnectionInTransaction",
+    );
+    expect(deletion).toMatchObject({ disposition: "enrolled", keys: ["connection"] });
+    expect(deletion.enrollment).toContain("createEbayAccountDeletionConsumer > consume");
     const callback = manifest.writers.find(
       (row) => row.file === "bounded-contexts/channels/features/ebay-connection/api/runtime.ts",
     );
@@ -136,8 +141,8 @@ describe("owner writer enrollment census", () => {
     );
     expect(seed).toMatchObject({ disposition: "enrolled" });
     for (const feature of ["connection-health", "connection-attention", "credentials", "ebay-account-deletion"]) {
-      const rows = manifest.writers.filter((row) =>
-        row.file.startsWith(`bounded-contexts/channels/features/${feature}/`),
+      const rows = manifest.writers.filter(
+        (row) => row.file.startsWith(`bounded-contexts/channels/features/${feature}/`) && row !== deletion,
       );
       expect(rows.length, feature).toBeGreaterThan(0);
       expect(

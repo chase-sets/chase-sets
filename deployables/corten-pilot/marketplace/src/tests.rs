@@ -17893,6 +17893,8 @@ async fn an_accounts_sell_list_shows_each_lines_readiness_the_payout_in_cents_an
     assert!(html.contains(r#"name="productOfferId:sll_product" value="off_short""#), "{html}");
     // The unmatched photo can be classified; the evidence is complete, so no Add photo.
     assert!(html.contains(r#"name="photoId" value="ph_extra""#), "{html}");
+    let classify = forms_to(&html, SELL_LIST_PAGE).into_iter().find(|f| f.contains(r#"value="ph_extra""#)).expect("Classify");
+    assert!(!classify.contains("disabled"), "Classify is offered: {classify}");
     assert!(!html.contains(r#"name="photoId" value="ph_front""#), "{html}");
     assert!(!html.contains(r#"name="listingPhoto""#), "{html}");
     // The latest seller confirmation, with its support reference.
@@ -18088,6 +18090,12 @@ async fn remove_and_decline_selected_write_and_read_the_sell_list_after_them() {
     }
     assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "Continue waits: {html}");
     assert!(html.contains(r#"type="submit" disabled>Remove<"#), "Remove waits: {html}");
+    // The listing evidence's Classify waits too, as the banner says.
+    let classify = forms_to(&html, SELL_LIST_PAGE)
+        .into_iter()
+        .find(|f| f.contains(r#"value="classify-listing-evidence""#))
+        .expect("Classify");
+    assert!(classify.contains(r#"type="submit" disabled>"#), "Classify waits: {classify}");
 
     // Sent again, the lines are the ones the form carries; a line no longer there is not applied.
     let body = format!(

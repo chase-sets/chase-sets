@@ -1,3 +1,4 @@
+import type { SellListReviewSelections } from "../features/sell-list/api/review-plan-contracts";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { data, redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
 import { createHash } from "node:crypto";
@@ -45,7 +46,6 @@ import {
   type CheckoutSellListOfferReview,
   type CheckoutSellOfferMatch,
   type CheckoutSellPayoutReadinessRow,
-  type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
 import {
   appendAnonymousSellListCookie,
@@ -824,217 +824,49 @@ function selectedOfferLineFromPostedSnapshot(formData: FormData): Omit<AddChecko
   };
 }
 
-type SellListReviewPlan = Readonly<{
-  version: 1;
-  lines: readonly SellListReviewPlanLine[];
-}>;
-
-type SellListReviewPlanLine = Readonly<{
-  lineId: string;
-  lineType: "selected-offer" | "product";
-  itemTitle: string;
-  productId: string | null;
-  quantity: number;
-  selectedOffer: Readonly<{ offerId: string; listingId: string; feeQuoteFingerprint: string }> | null;
-  productOfferTargets: readonly Readonly<{
-    offerId: string;
-    listingId: string;
-    feeQuoteFingerprint: string;
-    quantity: number;
-  }>[];
-  fallbackListing: Readonly<{
-    inventoryItemId: string;
-    priceAmount: string;
-    priceCurrencyCode: string;
-    quantityCap: number;
-  }> | null;
-  skippedReasons: readonly string[];
-}>;
-
-async function buildSellListReviewPlan(
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-  lines: readonly CheckoutSellListLineRow[],
-  formData: FormData,
-): Promise<SellListReviewPlan> {
-  const reviewLines: SellListReviewPlanLine[] = [];
-  const bulkOfferIds = new Set(
-    formData
-      .getAll("bulkOfferId")
-      .map((value) => String(value).trim())
-      .filter(Boolean),
+function reviewSelectionsFromForm(formData: FormData): SellListReviewSelections {
+  const prefixes = ["offerFeeQuoteFingerprint:", "productOfferId:", "fallbackMode:"];
+  const lineIds = new Set(
+    [...formData.keys()].flatMap((key) => {
+      const prefix = prefixes.find((prefix) => key.startsWith(prefix));
+      return prefix ? [key.slice(prefix.length)] : [];
+    }),
   );
-  const isBulkOfferReview = bulkOfferIds.size > 0;
-
-  for (const line of lines) {
-    if (line.line_type === "selected-offer") {
-      const skippedReasons: string[] = [];
-      const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
-      let selectedOffer: SellListReviewPlanLine["selectedOffer"] = null;
-
-      if (isBulkOfferReview && (!line.offer_id || !bulkOfferIds.has(line.offer_id))) {
-        // Unselected lines remain durable Sell List intent.
-      } else if (!line.offer_id || !line.listing_id) {
-        skippedReasons.push(
-          t("checkout.routes.accountSellList.selected.offer.missing.detail", { itemTitle: line.item_title }),
-        );
-      } else if (!feeQuoteFingerprint) {
-        skippedReasons.push(
-          t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
-        );
-      } else {
-        selectedOffer = { offerId: line.offer_id, listingId: line.listing_id, feeQuoteFingerprint };
-      }
-
-      reviewLines.push({
-        lineId: line.line_id,
-        lineType: "selected-offer",
-        itemTitle: line.item_title,
-        productId: line.product_id,
-        quantity: line.quantity,
-        selectedOffer,
-        productOfferTargets: [],
-        fallbackListing: null,
-        skippedReasons,
-      });
-      continue;
-    }
-
-    const skippedReasons: string[] = [];
-    const productOfferTargets: Array<{
-      offerId: string;
-      listingId: string;
-      feeQuoteFingerprint: string;
-      quantity: number;
-    }> = [];
-    let plannedRemainingQuantity = line.quantity;
-
-    for (const offerId of [
-      ...new Set(
-        formData
-          .getAll(`productOfferId:${line.line_id}`)
-          .map((value) => String(value).trim())
-          .filter((value) => Boolean(value) && (!isBulkOfferReview || bulkOfferIds.has(value))),
-      ),
-    ]) {
-      try {
-        const offer = await api.getSellListOfferMatch(offerId);
-        if (offer.product_id !== line.product_id) {
-          skippedReasons.push(`${line.item_title}: matching offer ${offerId} no longer matches this product.`);
-          continue;
-        }
-        if (offer.quantity_requested > plannedRemainingQuantity) {
-          skippedReasons.push(`${line.item_title}: matching offer ${offerId} exceeds remaining quantity.`);
-          continue;
-        }
-        const feeQuoteFingerprint = formValue(formData, `productOfferFeeQuoteFingerprint:${line.line_id}:${offerId}`);
-        if (!feeQuoteFingerprint) {
-          skippedReasons.push(`${line.item_title}: matching offer terms need refresh.`);
-          continue;
-        }
-        productOfferTargets.push({
+  return {
+    bulkOfferIds: formData
+      .getAll("bulkOfferId")
+      .map(String)
+      .map((value) => value.trim())
+      .filter(Boolean),
+    lines: [...lineIds].map((lineId) => ({
+      lineId,
+      selectedOfferFeeQuoteFingerprint: formValue(formData, `offerFeeQuoteFingerprint:${lineId}`),
+      productOffers: formData.getAll(`productOfferId:${lineId}`).map((value) => {
+        const offerId = String(value).trim();
+        return {
           offerId,
-          listingId: offer.listing_id,
-          feeQuoteFingerprint,
-          quantity: offer.quantity_requested,
-        });
-        plannedRemainingQuantity -= offer.quantity_requested;
-      } catch (error) {
-        skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "offer match failed"}`);
-      }
-    }
-
-    const createFallbackListing =
-      !isBulkOfferReview && formValue(formData, `fallbackMode:${line.line_id}`) === "create-listing";
-    let fallbackListing: SellListReviewPlanLine["fallbackListing"] = null;
-    if (plannedRemainingQuantity > 0 && createFallbackListing) {
-      const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
-      const priceAmount = formValue(formData, `priceAmount:${line.line_id}`);
-      const priceCurrencyCode = formValue(formData, `priceCurrencyCode:${line.line_id}`);
-      const requestedQuantityCap = Number(
-        formValue(formData, `quantityCap:${line.line_id}`) || plannedRemainingQuantity,
-      );
-      const quantityCap = Math.min(plannedRemainingQuantity, requestedQuantityCap);
-      if (!inventoryItemId || !priceAmount || !priceCurrencyCode || !Number.isFinite(quantityCap) || quantityCap < 1) {
-        skippedReasons.push(`${line.item_title}: listing needs inventory, price, currency, and quantity.`);
-      } else {
-        fallbackListing = { inventoryItemId, priceAmount, priceCurrencyCode, quantityCap };
-      }
-    } else if (plannedRemainingQuantity > 0 && !isBulkOfferReview) {
-      skippedReasons.push(
-        t("checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail", {
-          itemTitle: line.item_title,
-        }),
-      );
-    }
-
-    reviewLines.push({
-      lineId: line.line_id,
-      lineType: "product",
-      itemTitle: line.item_title,
-      productId: line.product_id,
-      quantity: line.quantity,
-      selectedOffer: null,
-      productOfferTargets,
-      fallbackListing,
-      skippedReasons,
-    });
-  }
-
-  return { version: 1, lines: reviewLines };
-}
-
-function readinessDecisionsFromReviewPlan(plan: SellListReviewPlan): SellListReadinessDecisionInput {
-  const lineActions: Array<NonNullable<SellListReadinessDecisionInput["lineActions"]>[number]> = [];
-  const lineOutcomes: Array<NonNullable<SellListReadinessDecisionInput["lineOutcomes"]>[number]> = [];
-
-  for (const line of plan.lines) {
-    if (line.skippedReasons.length > 0) {
-      lineOutcomes.push({ lineId: line.lineId, outcome: "keep-in-list" });
-      continue;
-    }
-
-    if (line.lineType === "selected-offer" && line.selectedOffer) {
-      lineActions.push({ lineId: line.lineId, action: "selected-offer" });
-      continue;
-    }
-
-    if (line.productOfferTargets.length > 0) {
-      lineActions.push({ lineId: line.lineId, action: "smart-match" });
-      continue;
-    }
-
-    if (line.fallbackListing) {
-      lineActions.push({ lineId: line.lineId, action: "fallback-listing" });
-      continue;
-    }
-
-    lineOutcomes.push({ lineId: line.lineId, outcome: "keep-in-list" });
-  }
-
-  return { lineActions, lineOutcomes };
-}
-
-function encodeReadinessDecisions(decisions: SellListReadinessDecisionInput) {
-  return JSON.stringify({
-    lineActions: decisions.lineActions ?? [],
-    lineOutcomes: decisions.lineOutcomes ?? [],
-  });
-}
-
-function encodeSellListReviewPlan(plan: SellListReviewPlan) {
-  return JSON.stringify(plan);
+          feeQuoteFingerprint: formValue(formData, `productOfferFeeQuoteFingerprint:${lineId}:${offerId}`),
+        };
+      }),
+      fallbackListing:
+        formValue(formData, `fallbackMode:${lineId}`) === "create-listing"
+          ? {
+              inventoryItemId: formValue(formData, `inventoryItemId:${lineId}`),
+              priceAmount: formValue(formData, `priceAmount:${lineId}`),
+              priceCurrencyCode: formValue(formData, `priceCurrencyCode:${lineId}`),
+              quantityCap: formValue(formData, `quantityCap:${lineId}`),
+            }
+          : null,
+    })),
+  };
 }
 
 function sellCheckoutRedirectUrl(
   readiness: Readonly<{ readiness: Readonly<{ snapshotId: string; sourceRevision: string }> }>,
-  decisions: SellListReadinessDecisionInput,
-  reviewPlan: SellListReviewPlan,
 ) {
   const query = new URLSearchParams({
     readinessSnapshotId: readiness.readiness.snapshotId,
     readinessSourceRevision: readiness.readiness.sourceRevision,
-    readinessDecisions: encodeReadinessDecisions(decisions),
-    sellListReviewPlan: encodeSellListReviewPlan(reviewPlan),
   });
   return `/checkout/sell/session/${createId("chk")}?${query.toString()}`;
 }
@@ -1230,19 +1062,13 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         return redirect(SELLER_CHECKOUT_REGISTER_HREF);
       }
 
-      const sellList = await api.getSellList();
-      const reviewPlan = await buildSellListReviewPlan(api, sellList.items, formData);
-      const readinessDecisions = readinessDecisionsFromReviewPlan(reviewPlan);
-      const readiness = await api.createSellListReadiness(readinessDecisions);
+      const readiness = await api.createSellListReadiness({ selections: reviewSelectionsFromForm(formData) });
       if (readiness.readiness.status !== "ready" || readiness.readiness.unresolvedLineIds.length > 0) {
         throw new Error("Sell List readiness must be resolved before seller checkout starts.");
       }
 
       return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(
-          readiness,
-          sellCheckoutRedirectUrl(readiness, readinessDecisions, reviewPlan),
-        ),
+        await navigateAfterWriteWithPlatformPostWriteToken(readiness, sellCheckoutRedirectUrl(readiness)),
       );
     }
 

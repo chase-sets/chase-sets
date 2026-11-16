@@ -22,6 +22,7 @@ const sinkNames = new Set([
   "pauseChannelConnection",
   "resumeChannelConnection",
   "disconnectChannelConnection",
+  "disconnectChannelConnectionInTransaction",
   "upsertRow",
   "updateRow",
   "transitionStatus",
@@ -37,7 +38,7 @@ const sinkNames = new Set([
   "reduceItem",
 ]);
 const possibleSink =
-  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|receiptQuery|upsertRow|updateRow|transitionStatus|expired|createItem|adjustItem|ensureListingStock|createHold|releaseHold|consumeHold|planCreateHold|planConvertCheckoutHold|reduceItem|connectChannel|(?:activate|pause|resume|disconnect)ChannelConnection)\b|\[\s*[^\s\]]/u;
+  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|receiptQuery|upsertRow|updateRow|transitionStatus|expired|createItem|adjustItem|ensureListingStock|createHold|releaseHold|consumeHold|planCreateHold|planConvertCheckoutHold|reduceItem|connectChannel|(?:activate|pause|resume|disconnect)ChannelConnection(?:InTransaction)?)\b|\[\s*[^\s\]]/u;
 const ownerPatterns = ["account", "user", "membership"].map((kind) => [
   kind,
   new RegExp(
@@ -51,7 +52,7 @@ ownerPatterns.push([
 ]);
 ownerPatterns.push([
   "connection",
-  /channels\.connection[-.]|\bChannelConnection(?:Event|Command|State)\b|channelConnectionEventCodec|\b(?:[Cc]onnectChannel|[Aa]ctivateChannelConnection|[Pp]auseChannelConnection|[Rr]esumeChannelConnection|[Dd]isconnectChannelConnection)\b/u,
+  /channels\.connection[-.]|\bChannelConnection(?:Event|Command|State)\b|channelConnectionEventCodec|\b(?:[Cc]onnectChannel|[Aa]ctivateChannelConnection|[Pp]auseChannelConnection|[Rr]esumeChannelConnection|[Dd]isconnectChannelConnection(?:InTransaction)?)\b/u,
 ]);
 ownerPatterns.push([
   "stock",

@@ -5,6 +5,7 @@ import { module as channels } from "../../../index";
 import { createEbayAccountDeletionRuntime } from "../api/runtime";
 import { createEbaySubjectCipher } from "../domain/subject";
 import { ebayReceiptSchemaMigrations, ebayReceiptSchemaSql } from "../read-model/schema";
+import { ebayDeletionConsumerSchemaMigrations, ebayDeletionConsumerSchemaSql } from "../read-model/consumer-schema";
 import { receiptDatabase } from "./db-support";
 import { keyring, notice } from "./fixtures";
 
@@ -15,15 +16,21 @@ describe("ebay-account-deletion-receipt-store", () => {
     await bootstrapContextDatabase(
       {
         ...channels,
-        schemaSql: channels.schemaSql.replace(ebayReceiptSchemaSql, ""),
+        schemaSql: channels.schemaSql.replace(ebayDeletionConsumerSchemaSql, "").replace(ebayReceiptSchemaSql, ""),
         schemaMigrations: channels.schemaMigrations?.filter(
-          (m) => !ebayReceiptSchemaMigrations.some((next) => next.migrationId === m.migrationId),
+          (m) =>
+            ![...ebayReceiptSchemaMigrations, ...ebayDeletionConsumerSchemaMigrations].some(
+              (next) => next.migrationId === m.migrationId,
+            ),
         ),
       },
       upgrade(),
     );
     expect(
       (await upgrade().query("SELECT to_regclass('channels_ebay_account_deletion_receipts') AS name")).rows[0],
+    ).toEqual({ name: null });
+    expect(
+      (await upgrade().query("SELECT to_regclass('channels_ebay_account_deletion_completions') AS name")).rows[0],
     ).toEqual({ name: null });
     await bootstrapContextDatabase(channels, fresh());
     await bootstrapContextDatabase(channels, upgrade());
@@ -33,6 +40,17 @@ describe("ebay-account-deletion-receipt-store", () => {
       );
     const beforeColumns = (await columns(fresh())).rows;
     expect((await columns(upgrade())).rows).toEqual(beforeColumns);
+    const completionColumns = (db: ReturnType<typeof fresh>) =>
+      db.query(
+        "SELECT column_name,data_type,is_nullable FROM information_schema.columns WHERE table_name='channels_ebay_account_deletion_completions' ORDER BY ordinal_position",
+      );
+    expect((await completionColumns(upgrade())).rows).toEqual((await completionColumns(fresh())).rows);
+    expect((await completionColumns(fresh())).rows.map((column) => column.column_name)).toEqual([
+      "notification_id",
+      "connection_id",
+      "acted_at",
+      "remote_revocation",
+    ]);
     for (const sql of [
       "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='channels_ebay_account_deletion_receipts'::regclass ORDER BY definition",
       "SELECT indexdef FROM pg_indexes WHERE tablename='channels_ebay_account_deletion_receipts' ORDER BY indexdef",

@@ -1,3 +1,4 @@
+import type { SellListReviewPlan } from "./review-plan-contracts";
 import { createHash } from "node:crypto";
 import { EventStreamTooLongError, readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
@@ -17,6 +18,7 @@ export type SellListHandoffPreparation = Readonly<{
   requestHash: string;
   decisionsHash: string;
   entry: SellListReadinessSnapshot;
+  reviewPlan: SellListReviewPlan;
   readiness: SellListReadinessSnapshot;
   review: CheckoutSellListCompositeReview;
   estimate: SellerCheckoutOwnerReadCapture["estimate"];
@@ -52,6 +54,8 @@ export function createSellListHandoffPreparations(eventStore: EventStore) {
       !/^[a-f0-9]{64}$/.test(preparation.requestHash) ||
       !/^[a-f0-9]{64}$/.test(preparation.decisionsHash) ||
       !preparation.entry?.snapshotId ||
+      preparation.reviewPlan?.version !== 1 ||
+      !Array.isArray(preparation.reviewPlan.lines) ||
       !Array.isArray(preparation.review?.productOfferReviews) ||
       preparation.estimate?.status !== "complete" ||
       preparation.readiness?.sellerReadiness?.status !== "ready" ||

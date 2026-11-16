@@ -1,5 +1,6 @@
 export type {
   MarketplaceBulkListingPriceUpdateInput,
+  ListingRecoveryIdentity,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingBatchFamily,

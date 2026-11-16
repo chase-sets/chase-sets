@@ -306,6 +306,114 @@ const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
   permissions: ["listings.view", "listings.manage"],
 };
 
+describe("read-only Listing batch recovery API", () => {
+  const batchId = "listing_batch_lookup_0000001";
+  const preparation = {
+    batchId,
+    mutationKind: "listing.pause",
+    bulk: true,
+    targets: [{ id: "lst_one", requestHash: "1".repeat(64) }],
+  };
+  it("establishes an owner-bound hash-only vector without executing a Listing command", async () => {
+    const services = { ...createServices(), prepareListingBatch: vi.fn(async () => {}), applyListingBatch: vi.fn() };
+    const response = await buildApp({ actor: sellerActor, services }).request("/account/listings/batch/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preparation),
+    });
+    expect(response.status).toBe(200);
+    expect(services.prepareListingBatch).toHaveBeenCalledWith(
+      "acc_seller",
+      preparation,
+      expect.objectContaining({ audit: expect.objectContaining({ forAccountId: "acc_seller" }) }),
+    );
+    expect(services.applyListingBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { ...sellerActor!, permissions: ["listings.view"] }])(
+    "requires management authority for preparation",
+    async (actor) => {
+      const services = { ...createServices(), prepareListingBatch: vi.fn() };
+      const response = await buildApp({ actor, services }).request("/account/listings/batch/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preparation),
+      });
+      expect(response.status).toBe(actor ? 403 : 401);
+      expect(services.prepareListingBatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { ...preparation, accountId: "acc_other" },
+    { ...preparation, request: { reason: "seller" } },
+    { ...preparation, targets: [{ ...preparation.targets[0], csv: "private bytes" }] },
+  ])("refuses request-byte or actor additions before persistence", async (body) => {
+    const services = { ...createServices(), prepareListingBatch: vi.fn() };
+    const response = await buildApp({ actor: sellerActor, services }).request("/account/listings/batch/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(400);
+    expect(services.prepareListingBatch).not.toHaveBeenCalled();
+  });
+  it("binds vector lookup to the authenticated owner, not supplied account data, without executing a command", async () => {
+    const services = {
+      ...createServices(),
+      lookupListingBatch: vi.fn(async () => ({
+        batchId,
+        family: "listing.pause" as const,
+        items: [{ targetId: "lst_one", outcome: "unknown" as const, version: 0 }],
+      })),
+      applyListingBatch: vi.fn(),
+    };
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request(`/account/listings/batch/${batchId}?family=listing.pause&accountId=acc_other`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ batchId, items: [{ targetId: "lst_one", outcome: "unknown" }] });
+    expect(services.lookupListingBatch).toHaveBeenCalledWith({
+      batchId,
+      family: "listing.pause",
+      accountId: "acc_seller",
+    });
+    expect(services.applyListingBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["bad", "listing.pause"],
+    [batchId, "listing.invalid"],
+  ])("rejects invalid lookup identity %s / %s", async (id, family) => {
+    const services = { ...createServices(), lookupListingBatch: vi.fn() };
+    const response = await buildApp({ actor: sellerActor, services }).request(
+      `/account/listings/batch/${id}?family=${family}`,
+    );
+    expect(response.status).toBe(400);
+    expect(services.lookupListingBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { ...sellerActor!, permissions: [] }])(
+    "requires authenticated Listing view authority",
+    async (actor) => {
+      const services = { ...createServices(), lookupListingBatch: vi.fn() };
+      const response = await buildApp({ actor, services }).request(
+        `/account/listings/batch/${batchId}?family=listing.pause`,
+      );
+      expect(response.status).toBe(actor ? 403 : 401);
+      expect(services.lookupListingBatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns an explicitly absent batch instead of manufacturing outcomes", async () => {
+    const services = { ...createServices(), lookupListingBatch: vi.fn(async () => null) };
+    const response = await buildApp({ actor: sellerActor, services }).request(
+      `/account/listings/batch/${batchId}?family=listing.withdraw`,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toBeNull();
+  });
+});
+
 const validShipFromAddress = {
   name: "Seller shelf",
   company: null,

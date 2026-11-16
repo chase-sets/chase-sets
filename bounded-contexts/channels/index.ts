@@ -1,5 +1,6 @@
 import {
   createChannelsEbayAccountDeletionReceiptExpiryRunners,
+  createChannelsEbayAccountDeletionConsumerRunners,
   createChannelsConnectorLivenessSweepRunners,
   createChannelsEbayCredentialRefreshRunners,
   createChannelsOutboundRunners,
@@ -120,6 +121,12 @@ import { createEbaySellerSetupRuntime } from "./features/ebay-connection/api/set
 import { ebaySetupDeclaration, type EbayOAuthConfiguration } from "./features/ebay-connection/domain/configuration";
 import { createEbayReceiptStaffRoutes } from "./features/ebay-account-deletion/api/staff-route";
 import { createEbayReceiptExpiryStore } from "./features/ebay-account-deletion/read-model/expiry";
+import { createEbayAccountDeletionConsumer } from "./features/ebay-account-deletion/api/consumer";
+import {
+  ebayDeletionConsumerSchemaSql,
+  ebayDeletionConsumerSchemaMigrations,
+} from "./features/ebay-account-deletion/read-model/consumer-schema";
+import { accountScopedWorkerContext } from "./support/runtime-support/worker-jobs";
 import { ebayReceiptCustomRetention } from "./features/ebay-account-deletion/read-model/retention-policy";
 import { ebayReceiptSchemaSql, ebayReceiptSchemaMigrations } from "./features/ebay-account-deletion/read-model/schema";
 import { createChannelConnectionRuntime } from "./features/connections/api/runtime";
@@ -274,7 +281,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 const contextModule = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}\n${ebayConnectionSchemaSql}\n${ebaySellerSetupSchemaSql}\n${ebayCredentialRefreshSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}\n${ebayConnectionSchemaSql}\n${ebaySellerSetupSchemaSql}\n${ebayCredentialRefreshSchemaSql}\n${ebayDeletionConsumerSchemaSql}`,
   schemaMigrations: [
     ...ebayReceiptSchemaMigrations,
     ...channelConnectionSchemaMigrations,
@@ -282,6 +289,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...ebayConnectionSchemaMigrations,
     ...ebayCredentialRefreshSchemaMigrations,
     ...ebaySellerSetupSchemaMigrations,
+    ...ebayDeletionConsumerSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
@@ -486,6 +494,13 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
       credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
       ebayAccountDeletionReceipts,
       ebayReceiptExpiry: createEbayReceiptExpiryStore(pool),
+      ebayAccountDeletionConsumer: createEbayAccountDeletionConsumer({
+        db: pool,
+        connectionEpochs,
+        ebayConnection,
+        connectorFeed,
+        context: accountScopedWorkerContext,
+      }),
       connectionHealth,
       connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
       listingComposition,
@@ -601,6 +616,7 @@ export const module = {
   ...contextModule,
   workerJobFactories: {
     createChannelsEbayAccountDeletionReceiptExpiryRunners,
+    createChannelsEbayAccountDeletionConsumerRunners,
     createChannelsConnectorLivenessSweepRunners,
     createChannelsEbayCredentialRefreshRunners,
     createChannelsOutboundRunners,

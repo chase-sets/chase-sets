@@ -41,6 +41,7 @@ import {
   requoteMarketplaceListingFeeLock,
 } from "../../../support/runtime-support/fee-quotes";
 import type {
+  ListingRecoveryIdentity,
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
@@ -132,6 +133,7 @@ import {
   assertListingBatchId,
   lookupListingBatch as lookupPersistedListingBatch,
   runListingBatch,
+  prepareListingBatch,
   type ListingBatchDecision,
   type ListingBatchTarget,
 } from "./listing-batch";
@@ -563,6 +565,11 @@ export type MarketplaceListingServices = Readonly<{
   lookupListingBatch: (
     params: Readonly<{ accountId: string; family: MarketplaceListingBatchFamily; batchId: string }>,
   ) => Promise<MarketplaceListingBatchResult | null>;
+  prepareListingBatch: (
+    accountId: string,
+    identity: ListingRecoveryIdentity,
+    context: EventStoreContext,
+  ) => Promise<void>;
   /**
    * A Listing's complete authoritative stream for seed and clamp decisions that must never trust a projection.
    * An empty stream is `absent`; a history that does not open with this Listing's creation for this owner, or
@@ -612,7 +619,7 @@ export type MarketplaceListingServices = Readonly<{
         expectedVersion?: number;
       }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
+  ) => Promise<{ listingId: string; version: number; noOp?: true }>;
   withdrawListing: (
     params: MarketplaceListingAttemptParams &
       Readonly<{
@@ -622,7 +629,7 @@ export type MarketplaceListingServices = Readonly<{
         expectedVersion?: number;
       }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
+  ) => Promise<{ listingId: string; version: number; noOp?: true }>;
   getSellerListingAvailability: (accountId: string) => ReturnType<typeof getSellerListingAvailability>;
   disableSellerListingAvailability: (
     params: MarketplaceListingAttemptParams &
@@ -2093,7 +2100,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     return decided;
   }
 
-  type ListingBatchRunTarget = ListingBatchTarget & Readonly<{ run: () => Promise<Readonly<{ version: number }>> }>;
+  type ListingBatchRunTarget = ListingBatchTarget &
+    Readonly<{ run: () => Promise<Readonly<{ version: number; noOp?: true }>> }>;
 
   /** Each target's attempt is the batch id bound to that target, exactly as the single command derives it. */
   function listingBatchTargets(
@@ -2612,7 +2620,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           const decided = new Map<string, ListingBatchDecision>();
           for (const target of pending) {
             try {
-              decided.set(target.targetId, { outcome: "succeeded", version: (await target.run()).version });
+              const result = await target.run();
+              decided.set(target.targetId, {
+                outcome: "succeeded",
+                version: result.version,
+                ...(result.noOp ? { noOp: true as const } : {}),
+              });
             } catch (error) {
               decided.set(target.targetId, listingBatchFailure(error));
             }
@@ -2634,6 +2647,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         }),
       };
     },
+    prepareListingBatch: (accountId, identity, context) =>
+      prepareListingBatch(deps.eventStore, accountId, identity, context),
     lookupListingBatch: (params) =>
       lookupPersistedListingBatch(deps.eventStore, {
         accountId: params.accountId,
@@ -2793,7 +2808,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             },
             attempt,
           );
-          return { listingId: params.listingId, version: result.version };
+          return {
+            listingId: params.listingId,
+            version: result.version,
+            ...(result.newEvents.length === 0 ? { noOp: true as const } : {}),
+          };
         },
       );
     },
@@ -2828,7 +2847,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             },
             attempt,
           );
-          return { listingId: params.listingId, version: result.version };
+          return {
+            listingId: params.listingId,
+            version: result.version,
+            ...(result.newEvents.length === 0 ? { noOp: true as const } : {}),
+          };
         },
       );
     },
