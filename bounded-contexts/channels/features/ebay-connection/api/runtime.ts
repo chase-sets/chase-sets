@@ -36,6 +36,7 @@ import {
 } from "../domain/oauth";
 import { lockEbayConnectionBinding, type EbaySellerBinding } from "../read-model/binding";
 import { createEbayOAuthProvider, revokeCurrentGrant, type EbayOAuthProvider } from "./provider";
+import { EbaySetupError } from "../domain/setup-material";
 
 type Target = Readonly<{ accountId: string; connectionId: string }>;
 type Attempt = {
@@ -114,8 +115,50 @@ export function createEbayConnectionRuntime(deps: {
       bytes.fill(0);
     }
   }
+  async function withSellerSetupCredential<T>(
+    target: Target,
+    work: (db: PgQueryable, envelope: ChannelCredentialEnvelope, material: ChannelOAuthTokenSet) => Promise<T>,
+    transaction?: PgQueryable,
+  ): Promise<T> {
+    configured();
+    const execute = async (db: PgQueryable) => {
+      const { binding, envelope } = await current(db, target);
+      const material = await tokens(db, envelope);
+      if (
+        binding.environment !== "sandbox" ||
+        !binding.capabilities.includes("sellerSetup") ||
+        !material.accessExpiresAt ||
+        Date.parse(material.accessExpiresAt) <= now().getTime()
+      )
+        throw new EbaySetupError("credential-not-current");
+      return work(db, envelope, material);
+    };
+    return transaction ? execute(transaction) : withPgTransaction(deps.db, execute);
+  }
   return {
     enabled: config !== null,
+    withSellerSetupCredential,
+    credentialAuthority: {
+      async resolve(reference: string) {
+        try {
+          const envelope = await credentials.readMetadata(deps.db, reference);
+          if (!envelope || envelope.providerKey !== "ebay") return null;
+          return await withSellerSetupCredential(envelope, async (_db, current) =>
+            current.rowId === reference
+              ? {
+                  accountId: current.accountId,
+                  providerKey: "ebay",
+                  environment: "sandbox" as const,
+                  generation: current.tokenGeneration,
+                  status: "current" as const,
+                }
+              : null,
+          );
+        } catch {
+          return null;
+        }
+      },
+    },
     consent: (publication: boolean) => ({
       scopes: scopesForCapabilities(publication),
       capabilities: capabilitiesForConsent(publication),

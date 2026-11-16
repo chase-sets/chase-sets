@@ -216,7 +216,15 @@ export function createChannelConnectionRuntime(
       assertClosedRecord(input, ["accountId", "connectionId", "credentialReference", "bindings"], "activate input");
       const loaded = await loadOwned(deps.eventStore, input.accountId, input.connectionId);
       if (loaded.state.status === "disconnected") throw new ChannelConnectionError("connection-disconnected");
-      if (loaded.state.status !== "pending-setup") throw new ChannelConnectionError("invalid-transition");
+      if (
+        loaded.state.status !== "pending-setup" &&
+        !(
+          loaded.state.providerKey === "ebay" &&
+          loaded.state.environment === "sandbox" &&
+          loaded.state.status === "active"
+        )
+      )
+        throw new ChannelConnectionError("invalid-transition");
       const declaration = await resolveSetup(loaded.state.providerKey!, loaded.state.environment!);
       const credentialReference = input.credentialReference ?? null;
       await guardSetup(declaration, {

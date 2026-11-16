@@ -105,7 +105,13 @@ import { buildChannelsApi } from "./api";
 import { createEbayAccountDeletionRuntime } from "./features/ebay-account-deletion/api/runtime";
 import { createEbayConnectionRuntime } from "./features/ebay-connection/api/runtime";
 import { ebayConnectionRetentionSweeps } from "./features/ebay-connection/read-model/retention-policy";
-import { ebayConnectionSchemaSql, ebayConnectionSchemaMigrations } from "./features/ebay-connection/read-model/schema";
+import {
+  ebayConnectionSchemaSql,
+  ebayConnectionSchemaMigrations,
+  ebaySellerSetupSchemaSql,
+  ebaySellerSetupSchemaMigrations,
+} from "./features/ebay-connection/read-model/schema";
+import { createEbaySellerSetupRuntime } from "./features/ebay-connection/api/setup-runtime";
 import { ebaySetupDeclaration, type EbayOAuthConfiguration } from "./features/ebay-connection/domain/configuration";
 import { createEbayReceiptStaffRoutes } from "./features/ebay-account-deletion/api/staff-route";
 import { createEbayReceiptExpiryStore } from "./features/ebay-account-deletion/read-model/expiry";
@@ -263,12 +269,13 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 const contextModule = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}\n${ebayConnectionSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}\n${ebayConnectionSchemaSql}\n${ebaySellerSetupSchemaSql}`,
   schemaMigrations: [
     ...ebayReceiptSchemaMigrations,
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
     ...ebayConnectionSchemaMigrations,
+    ...ebaySellerSetupSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
@@ -348,7 +355,8 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
                 : null
               : (ports.setupResolver ?? channelProviderRegistry.setupResolver).resolve(input),
         },
-        policyAuthority: ports.policyAuthority ?? createConnectionPolicyAuthority(policies),
+        policyAuthority: ports.policyAuthority ?? createConnectionPolicyAuthority(policies, pool),
+        credentialAuthority: ports.credentialAuthority ?? ebayConnection.credentialAuthority,
         storageLocationAuthority,
       },
     );
@@ -451,6 +459,13 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
       connections,
       connectionAuthority: createVersionedConnectionAuthority(pool, eventStore, connectionEpochs),
       ebayConnection,
+      ebaySellerSetup: createEbaySellerSetupRuntime({
+        db: pool,
+        eventStore,
+        ebayConnection,
+        storageLocationAuthority,
+        connectionEpochs,
+      }),
       ebayAccountDeletion: {
         config: ports.ebayAccountDeletionConfiguration ?? null,
         telemetry: ports.webhookTelemetry,
