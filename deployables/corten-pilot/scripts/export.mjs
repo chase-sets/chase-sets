@@ -192,7 +192,8 @@
 //   bulk_route.*, the recommendations' page and route as recs.* and recs_route.*, and Pricing
 //   Health's title).
 // - marketplace/locales/channels.en.json: the channel screens' English catalog
-//   (channels.connections.*, channels.publication.* and channels.manualSync.* as manual_sync.*).
+//   (channels.connections.*, channels.publication.*, channels.manualSync.* as manual_sync.* and
+//   the eBay Sandbox connection's channels.ebay.*).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
 // - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
@@ -1766,6 +1767,7 @@ const outputs = [
         ["channels.connections.", "connections"],
         ["channels.publication.", "publication"],
         ["channels.manualSync.", "manual_sync"],
+        ["channels.ebay.", "ebay"],
       ]),
     ),
   ],

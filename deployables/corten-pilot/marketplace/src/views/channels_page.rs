@@ -19,6 +19,7 @@ use crate::{
         ChannelsScreen, ConnectForm, ConnectionForm, ConnectionScreen, IngestForm, ListPlace, ManualSaid, ManualSyncForm,
         PublicationForm, PublicationPlace, PublicationSaid, PublicationScreen, STATUSES, actions,
     },
+    ebay::{EbayForm, EbayPlace, EbayScreen, EbayState},
     text::{ChannelsMsg, Pilot},
     views::on_marketplace,
 };
@@ -160,12 +161,21 @@ fn ConnectionCard<'a>(t: ChannelsMsg, connection: &'a ChannelConnection) -> impl
             <p class={Strong}>{&connection.provider_key}</p>
             <Badges t={t} connection={connection} />
             <p class={Row}>
-                <a
-                    class={(Button, Secondary)}
-                    href={url::ChannelConnection { id: &connection.connection_id, place: Default::default() }}
-                >
-                    {t.connections_open()}
-                </a>
+                if connection.provider_key == "ebay" {
+                    <a
+                        class={(Button, Secondary)}
+                        href={url::EbayConnect { place: EbayPlace::connection(&connection.connection_id) }}
+                    >
+                        {t.connections_open()}
+                    </a>
+                } else {
+                    <a
+                        class={(Button, Secondary)}
+                        href={url::ChannelConnection { id: &connection.connection_id, place: Default::default() }}
+                    >
+                        {t.connections_open()}
+                    </a>
+                }
             </p>
         </li>
     }
@@ -283,6 +293,86 @@ pub fn ChannelConnectionPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a Connectio
                         {p.channels_open_on_marketplace()}
                     </a>
                 </p>
+            </section>
+        </div>
+    }
+}
+
+/// The eBay journey's state in its words (`channels.ebay.state.*`).
+fn ebay_state_word(t: ChannelsMsg, state: EbayState) -> &'static str {
+    match state {
+        EbayState::Consent => t.ebay_state_consent(),
+        EbayState::Declined => t.ebay_state_declined(),
+        EbayState::Failed => t.ebay_state_failed(),
+        EbayState::PendingSetup => t.ebay_state_pending_setup(),
+        EbayState::Connected => t.ebay_state_connected(),
+        EbayState::Reauthorize => t.ebay_state_reauthorize(),
+        EbayState::Disconnected => t.ebay_state_disconnected(),
+    }
+}
+
+/// Connect eBay Sandbox (`EbayConnectionJourney`): where the journey is, consent's scopes with
+/// Continue (Reauthorize for a live connection) where eBay is configured, Disconnect for a live
+/// connection, and Back to channels.
+#[component(css = ChannelsPage)]
+pub fn EbayPage<'a>(t: ChannelsMsg, screen: &'a EbayScreen, place: &'a EbayPlace) -> impl Render {
+    let here = url::EbayConnect { place: place.clone() }.href();
+    let live = screen.live();
+    let state = ebay_state_word(t, screen.state);
+    let f = EbayForm::FIELDS;
+    html! {
+        <div class={Page}>
+            <header class={Header}>
+                <h1 class={Title}>{t.ebay_title()}</h1>
+                <p class={Muted}>{t.ebay_description()}</p>
+            </header>
+            <section class={Section} aria-labelledby="ebay-state">
+                <h2 id="ebay-state" class={PartTitle}>{state}</h2>
+                if matches!(screen.state, EbayState::Failed | EbayState::Declined) {
+                    <div class={Banner} data-tone="warning" role="alert">
+                        <p class={Strong}>{state}</p>
+                        <p>{t.ebay_try_again()}</p>
+                    </div>
+                }
+                if screen.state == EbayState::Disconnected {
+                    <div class={Banner} data-tone="warning" role="status">
+                        <p class={Strong}>{state}</p>
+                        <p>{t.ebay_unconfirmed()}</p>
+                    </div>
+                }
+                if screen.state == EbayState::PendingSetup {
+                    <p>{t.ebay_setup_required()}</p>
+                }
+                if screen.authorization_available {
+                    <div class={Card}>
+                        <p>{t.ebay_consent()}</p>
+                        <ul class={Scopes}>
+                            for scope in &screen.scopes {
+                                <li>{scope}</li>
+                            }
+                        </ul>
+                        <form class={Form} method="post" action={&here}>
+                            <input type="hidden" name={f.intent} value="authorize">
+                            <input type="hidden" name={f.connection_id} value={live.unwrap_or_default()}>
+                            <input type="hidden" name={f.publication} value={if screen.publication { "true" } else { "false" }}>
+                            <p class={Row}>
+                                <button type="submit" class={Button}>
+                                    {if live.is_some() { t.ebay_reauthorize() } else { t.ebay_connect() }}
+                                </button>
+                            </p>
+                        </form>
+                    </div>
+                }
+                <div class={Row}>
+                    if let Some(id) = live {
+                        <form class={Inline} method="post" action={&here}>
+                            <input type="hidden" name={f.intent} value="disconnect">
+                            <input type="hidden" name={f.connection_id} value={id}>
+                            <button type="submit" class={(Button, Secondary)}>{t.ebay_disconnect()}</button>
+                        </form>
+                    }
+                    <a class={(Button, Secondary)} href={url::Channels::default()}>{t.ebay_back()}</a>
+                </div>
             </section>
         </div>
     }
