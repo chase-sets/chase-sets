@@ -6,9 +6,23 @@ import {
   getSellPayoutReadiness,
   listSellListLines,
 } from "./queries";
-import { fixtureLine } from "../api/owner-read.fixture";
+import { checkoutOwnerRuntimeFixture, fixtureLine } from "../api/owner-read.fixture";
 
 describe("sell list confirmation queries", () => {
+  it.each([1, "1", "2"])("compares normalized selected Offer and line versions: %s", async (version) => {
+    const f = checkoutOwnerRuntimeFixture();
+    f.setLines([{ ...fixtureLine, offer_stream_version: "1" as never, listing_stream_version: "1" as never }]);
+    f.setOfferStreamVersion(version);
+    const review = await f.services.loadCompositeReview("acc_seller");
+    expect(review.offerReviews).toEqual([
+      expect.objectContaining({ status: version === "2" ? "unavailable" : "ready" }),
+    ]);
+  });
+  it.each(["bad", "9007199254740992"])("refuses malformed or unsafe Offer page versions: %s", async (version) => {
+    const f = checkoutOwnerRuntimeFixture();
+    f.setOfferStreamVersion(version);
+    await expect(f.services.loadCompositeReview("acc_seller")).rejects.toThrow("Invalid Sell List stream version.");
+  });
   it.each([null, 1, "1", "9007199254740991"])("normalizes nullable safe stream versions: %s", async (version) => {
     const db = {
       query: async () => ({

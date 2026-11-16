@@ -12,7 +12,8 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as checkoutModule } from "../../../index";
 import { sellListAttemptCases } from "./sell-list-attempt.test-support";
-import { listSellListLines } from "../../sell-list/read-model/queries";
+import { listSellListLines, loadCheckoutSellListCompositeReview } from "../../sell-list/read-model/queries";
+import { checkoutOwnerRuntimeFixture } from "../../sell-list/api/owner-read.fixture";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Sell List attempt proof.");
@@ -41,7 +42,7 @@ if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is requir
     );
     it("maps real PostgreSQL bigint Offer and Listing versions to safe domain numbers", async () => {
       await pools.checkout.query(
-        "INSERT INTO checkout_sell_list_line_pages (seller_account_id, line_id, line_type, offer_stream_version, listing_stream_version, catalog_catalog_item_id, product_id, item_title, quantity) VALUES ('acc_seller', 'sll_bigint', 'selected-offer', 7, 9, 'cat_attempt', 'cat_attempt::', 'Synthetic Item', 1)",
+        "INSERT INTO checkout_sell_list_line_pages (seller_account_id, line_id, line_type, offer_id, offer_price_amount, offer_price_currency_code, offer_stream_version, listing_stream_version, catalog_catalog_item_id, product_id, item_title, quantity) VALUES ('acc_seller', 'sll_bigint', 'selected-offer', 'off_bigint', '10.00', 'USD', 7, 9, 'cat_attempt', 'cat_attempt::', 'Synthetic Item', 1)",
       );
       const raw = await pools.checkout.query<{ offer_stream_version: unknown; listing_stream_version: unknown }>(
         "SELECT offer_stream_version, listing_stream_version FROM checkout_sell_list_line_pages WHERE line_id = 'sll_bigint'",
@@ -50,6 +51,20 @@ if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is requir
       expect(await listSellListLines(pools.checkout, "acc_seller")).toEqual([
         expect.objectContaining({ offer_stream_version: 7, listing_stream_version: 9 }),
       ]);
+      await pools.checkout.query(
+        "INSERT INTO checkout_sell_offer_pages (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code, quantity_requested, last_stream_version) VALUES ('off_bigint', 'acc_buyer', 'cat_attempt', 'cat_attempt::', 'Synthetic Item', 10, 'USD', 1, 7)",
+      );
+      const { deps } = checkoutOwnerRuntimeFixture();
+      const review = async () =>
+        loadCheckoutSellListCompositeReview(pools.checkout, deps.commercialTermsResolver, {
+          sellerAccountId: "acc_seller",
+          lines: await listSellListLines(pools.checkout, "acc_seller"),
+        });
+      expect((await review()).offerReviews).toEqual([expect.objectContaining({ status: "ready" })]);
+      await pools.checkout.query(
+        "UPDATE checkout_sell_offer_pages SET last_stream_version = 8 WHERE offer_id = 'off_bigint'",
+      );
+      expect((await review()).offerReviews).toEqual([expect.objectContaining({ status: "unavailable" })]);
       await pools.checkout.query(
         "UPDATE checkout_sell_list_line_pages SET offer_stream_version = 9007199254740992 WHERE line_id = 'sll_bigint'",
       );

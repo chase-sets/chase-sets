@@ -89,6 +89,7 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
   let payoutStatus = "ready";
   let payoutTimestamp: unknown = stamp;
   let offerAvailable = true;
+  let offerStreamVersion: number | string = 1;
   let listingEvidence: {
     listing_id: string;
     status: string;
@@ -154,7 +155,7 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
               selected_options: [],
               price_amount: "10.00",
               price_currency_code: "USD",
-              last_stream_version: 1,
+              last_stream_version: offerStreamVersion,
               quantity_requested: 1,
               status: "submitted",
               listing_id: "lst_fixture",
@@ -217,6 +218,9 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
     },
     setOfferAvailable: (value: boolean) => {
       offerAvailable = value;
+    },
+    setOfferStreamVersion: (value: number | string) => {
+      offerStreamVersion = value;
     },
     getListingEvidence: () => listingEvidence,
     setListingEvidence: (value: typeof listingEvidence) => {

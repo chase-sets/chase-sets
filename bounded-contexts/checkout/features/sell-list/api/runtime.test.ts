@@ -828,7 +828,7 @@ describe("sell list checkout runtime readiness boundary", () => {
 });
 
 describe("AC4 composed readiness, pre-confirm and merge timing", () => {
-  it.each(["manual", "saved", "smart-match", "missing-fulfillment", "evidence-drift"])(
+  it.each(["manual", "saved", "smart-match", "pg-versions", "missing-fulfillment", "evidence-drift"])(
     "runs the fully-ready selected offer through the real seller review action and owner reread: %s",
     async (scenario) => {
       const f = checkoutOwnerRuntimeFixture();
@@ -837,6 +837,10 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
           ? { ...fixtureLine, line_type: "product" as const, offer_id: null, listing_id: null }
           : fixtureLine;
       f.setLines([line]);
+      if (scenario === "pg-versions") {
+        f.setLines([{ ...line, offer_stream_version: "1" as never, listing_stream_version: "1" as never }]);
+        f.setOfferStreamVersion("1");
+      }
       if (scenario === "missing-fulfillment")
         f.ports.resolveOrigin.mockResolvedValue({ status: "blocked", fact: "missing" });
       await seedSellListAggregate(f.services, [line], f.memory.allEvents);
