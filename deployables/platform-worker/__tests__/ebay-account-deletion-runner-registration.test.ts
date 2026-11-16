@@ -6,6 +6,33 @@ import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
 import { livenessConfig } from "./channels-liveness-config";
 
 describe("eBay receipt registered worker", () => {
+  it("registers the consumer on the receipt-policy cadence; omitted-runner mutant does no work", async () => {
+    const unavailable = async (): Promise<never> => {
+      throw new Error("unexpected-db");
+    };
+    const db = { query: unavailable, connect: unavailable };
+    const channels = channelsModule.createServices(db, { channelSaleRecorder: unavailable });
+    const batch = vi.spyOn(channels.ebayAccountDeletionConsumer, "batch").mockResolvedValue(["synthetic-notice"]);
+    const consume = vi.spyOn(channels.ebayAccountDeletionConsumer, "consume").mockResolvedValue(1);
+    const controlPlane = createPostgresPlatformControlPlane(db);
+    const claim = vi.spyOn(controlPlane, "claimScheduledRunner").mockResolvedValue(false);
+    vi.spyOn(controlPlane, "recordScheduledRunnerCompleted").mockResolvedValue(undefined);
+    const runners = createRegisteredScheduledRunners({
+      services: { channels },
+      config: livenessConfig,
+      controlPlane,
+      logger: { info: vi.fn(), warn: vi.fn() },
+      workSignalCleanup: () => ({ workSignalStore: createPostgresWorkSignalStore(db), intervalMs: 60000 }),
+      retentionSweep: () => ({ targets: [] }),
+    });
+    const selected = runners.filter((runner) => runner.name === "channels.ebay-account-deletion-consumer");
+    expect(selected).toHaveLength(1);
+    for (const runner of selected.filter(() => false)) await runner.runOnce();
+    expect(batch).not.toHaveBeenCalled();
+    expect((await selected[0]!.runOnce()).processed).toBe(1);
+    expect(consume).toHaveBeenCalledWith("synthetic-notice");
+    expect(claim).toHaveBeenCalledWith({ runnerName: "channels.ebay-account-deletion-consumer", intervalMs: 3600000 });
+  });
   it("requires the actual registered runner; omitted-runner control leaves the expired backlog", async () => {
     const unavailable = async (): Promise<never> => {
       throw new Error("unexpected-db");

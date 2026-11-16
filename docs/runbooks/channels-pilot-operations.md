@@ -308,12 +308,29 @@ the operator store. Record completion separately in the operator's restricted
 record, using the notification ID and completion time, not a copied subject.
 Receipt presence is not proof of erasure or of provider acceptance.
 
+In-platform eBay custody is handled automatically by the Channels account-deletion
+consumer. Every 3600 seconds and on worker restart it scans unexpired receipts in
+500-row pages, matches root-qualified fingerprints without opening subject
+envelopes, and uses the shipped disconnect to remove the credential envelope and
+seller identity atomically with a subject-free completion record. Completion
+records expire with their receipts. An unmatched receipt remains eligible until
+expiry, including for a seller connecting later. A completed receipt fences new
+OAuth callbacks for that subject until expiry; it is not an Account deletion or
+an eBay erasure claim. Remote revocation remains `unconfirmed`.
+
+Inspect `channels.ebay-deletion.unavailable` and
+`channels.ebay-deletion.incomplete` counts/signals without copying subject data.
+Unavailable fingerprints are retried, not treated as unmatched. Restore worker,
+database or key continuity before treating an incomplete sweep as handled.
+The manual lookup and deletion step above remains the owner for operator-held
+data only.
+
 Before Production Save, both displayed platform counts must be zero:
 non-disconnected Production `ebay` connections and their credential envelopes.
 A failed lookup/count is not zero. Stop Save on unavailable or nonzero counts;
 do not copy user IDs into logs, issue comments, screenshots, or verification
-artifacts. POST signature acceptance and deletion activation belong to #9296
-and #9304, not this lookup.
+artifacts. This lookup does not activate provider receipt delivery or Production
+connections; the automatic consumer does not change those enablement gates.
 
 Receipts retain encrypted subjects for 30 days from server receipt time. The
 worker starts on restart, then at fixed 1800-second intervals, draining up to

@@ -10,6 +10,7 @@ import { ebayReceiptSchemaSql } from "../read-model/schema";
 import { channelCredentialSchemaSql } from "../../credentials/read-model/schema";
 import { channelConnectionSchemaSql } from "../../connections/read-model/schema";
 import { ebayConnectionSchemaSql } from "../../ebay-connection/read-model/schema";
+import { ebayDeletionConsumerSchemaSql } from "../read-model/consumer-schema";
 
 export function receiptDatabase(suffix: string, initialize = true) {
   let pools: Readonly<Record<"channels", PgTransactionalPool>>;
@@ -21,7 +22,11 @@ export function receiptDatabase(suffix: string, initialize = true) {
     pools = createMultiContextTestPools(urls);
     if (initialize)
       await pools.channels.query(
-        ebayReceiptSchemaSql + channelConnectionSchemaSql + channelCredentialSchemaSql + ebayConnectionSchemaSql,
+        ebayReceiptSchemaSql +
+          channelConnectionSchemaSql +
+          channelCredentialSchemaSql +
+          ebayConnectionSchemaSql +
+          ebayDeletionConsumerSchemaSql,
       );
   });
   afterAll(async () => {
