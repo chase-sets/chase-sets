@@ -620,7 +620,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     sellListRecovery: effectiveSellListRecovery ?? compositeReviewRecovery?.sellListRecovery ?? null,
     pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(accountSellListRequest),
     sellList: accountSellList,
-    compositeReview: effectiveSellListRecovery ? null : sellListCompositeReview,
+    compositeReview: effectiveSellListRecovery?.kind === "pending-fresh-write" ? null : sellListCompositeReview,
   };
 }
 
