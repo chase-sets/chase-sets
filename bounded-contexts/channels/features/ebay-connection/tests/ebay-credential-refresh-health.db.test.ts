@@ -241,6 +241,7 @@ describe("ebay-credential-refresh paused completion", () => {
     r: ReturnType<typeof f.runtime>,
     connectionId: string,
     transition: "activated" | "paused" | "resumed",
+    accountId = f.owner,
   ) {
     await r.eventStore.appendToStream({
       streamId: `channels.connection-${connectionId}`,
@@ -252,16 +253,105 @@ describe("ebay-credential-refresh paused completion", () => {
             connectionId,
             ...(transition === "activated"
               ? {
-                  credentialReference: (await f.envelopes())[0].row_id,
+                  credentialReference: (await f.envelopes()).find((row) => row.connection_id === connectionId)!.row_id,
                   bindings: [{ storageLocationId: "location_synthetic", revision: 1 }],
                 }
               : {}),
           },
         },
       ],
-      context: f.context(),
+      context: f.context(accountId),
     });
   }
+
+  it("defers a paused unadmittable pre-slice seed while finishing healthy due work, then resumes with exactly one seed failure and reconnect attention", async () => {
+    const r = f.runtime({ lifetime: 2250 });
+    // Model legacy custody: the pre-slice callback did not initialize refresh maintenance.
+    const initialize = vi.spyOn(r.maintenance, "initialize").mockResolvedValueOnce(undefined);
+    const { connectionId } = await f.connect(r);
+    initialize.mockRestore();
+    await lifecycle(r, connectionId, "activated");
+    await lifecycle(r, connectionId, "paused");
+    const otherAccount = "acc_synthetic_unrelated";
+    r.provider.identity.mockResolvedValueOnce("synthetic-unrelated-seller");
+    r.provider.exchange.mockResolvedValueOnce(
+      parseTokenResponse(
+        {
+          access_token: "synthetic-healthy-access",
+          refresh_token: "synthetic-healthy-refresh",
+          expires_in: 7200,
+          refresh_token_expires_in: 1000000,
+          token_type: "User Access Token",
+        },
+        f.now().toISOString(),
+      ),
+    );
+    const healthy = await f.connect(r, otherAccount);
+    await lifecycle(r, healthy.connectionId, "activated", otherAccount);
+    f.advance(5400);
+    const custody = await f
+      .db()
+      .query("SELECT to_jsonb(c) AS value FROM channels_connection_credentials c WHERE connection_id=$1", [
+        connectionId,
+      ]);
+    expect(await r.maintenance.sweep()).toBe(1);
+    expect(r.provider.refresh).toHaveBeenCalledOnce();
+    expect(await f.rows()).toMatchObject([
+      { connection_id: healthy.connectionId, attempt: 0, schedule_generation: "2", last_outcome: "succeeded" },
+    ]);
+    expect(await f.observations()).toMatchObject([{ connectionId: healthy.connectionId, outcome: "success" }]);
+    const seedState = async () => ({
+      schedule: (
+        await f.db().query("SELECT 1 FROM channels_ebay_credential_refresh WHERE connection_id=$1", [connectionId])
+      ).rows,
+      journal: (await f.observations()).filter((o) => o.connectionId === connectionId),
+      observations: (
+        await f.db().query("SELECT observation FROM channel_health_observations WHERE connection_id=$1", [connectionId])
+      ).rows,
+      attention: (
+        await f
+          .db()
+          .query("SELECT reason_code FROM channel_connection_attention WHERE connection_id=$1", [connectionId])
+      ).rows,
+    });
+    expect(await seedState()).toEqual({ schedule: [], journal: [], observations: [], attention: [] });
+    expect(await r.maintenance.sweep()).toBe(0);
+    expect(await seedState()).toEqual({ schedule: [], journal: [], observations: [], attention: [] });
+    expect(
+      (
+        await f
+          .db()
+          .query("SELECT to_jsonb(c) AS value FROM channels_connection_credentials c WHERE connection_id=$1", [
+            connectionId,
+          ])
+      ).rows,
+    ).toEqual(custody.rows);
+    await lifecycle(r, connectionId, "resumed");
+    expect(await r.maintenance.sweep()).toBe(0);
+    expect((await f.rows()).filter((row) => row.connection_id === connectionId)).toMatchObject([
+      { token_generation: "1", schedule_generation: "1", attempt: 0, due_at: null, last_outcome: "terminal" },
+    ]);
+    expect((await f.observations()).filter((o) => o.connectionId === connectionId)).toMatchObject([
+      { sourceAttempt: 1, outcome: "failure", reasonCode: "credential" },
+    ]);
+    expect((await r.health.readConnectionHealth({ accountId: f.owner, connectionId })).health.reasons).toMatchObject([
+      { reasonCode: "credential", state: "degraded", consecutiveFailures: 1 },
+    ]);
+    expect((await seedState()).attention).toEqual([{ reason_code: "credential" }]);
+    expect(
+      (
+        await f
+          .db()
+          .query("SELECT resolved_at FROM channel_connection_attention WHERE connection_id=$1", [connectionId])
+      ).rows,
+    ).toEqual([{ resolved_at: null }]);
+    expect(await r.maintenance.sweep()).toBe(0);
+    expect((await r.maintenance.replay(connectionId)).map((result) => result.outcome)).toEqual(["replayed"]);
+    const after = await seedState();
+    expect(after.journal).toHaveLength(1);
+    expect(after.observations.map((row) => row.observation)).toEqual(after.journal);
+    expect(r.provider.refresh).toHaveBeenCalledOnce();
+  });
 
   it("attempt-6 refusal on a paused connection does not finalize; resume recovers the same attempt with credential failure and reconnect attention, without duplicate observation", async () => {
     const r = f.runtime();

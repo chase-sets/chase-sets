@@ -202,6 +202,8 @@ export function createEbayCredentialRefresh(deps: {
             ),
           );
         } catch (error) {
+          // Refused seed admission has rolled back. Leave it missing for a later sweep/resume.
+          if (error instanceof RefreshHealthRefused) continue;
           if (!(error instanceof EbayConnectionError) || error.code !== "stale-authorization") throw error;
         }
       }
