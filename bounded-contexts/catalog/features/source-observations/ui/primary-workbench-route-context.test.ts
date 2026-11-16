@@ -10,6 +10,40 @@ import {
 import { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
 
 describe("Catalog primary workbench route context", () => {
+  it.each(["pending", "rejected,pending", ""])("round-trips alias-review narrowing with statuses %j", (statuses) => {
+    const filters = {
+      aliasType: "language-edition",
+      reviewStatuses: statuses,
+      targetKind: "reference-record",
+      targetId: "synthetic-reference-record",
+    };
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      `https://admin.example/catalog/integrations?${new URLSearchParams(filters)}`,
+    );
+    const expected = { ...filters, reviewStatuses: statuses ? statuses.split(",") : [] };
+
+    expect(context).toMatchObject(expected);
+    const serialized = serializeCatalogPrimaryWorkbenchRouteContext(context);
+    expect(serialized.get("reviewStatuses")).toBe(statuses || null);
+    const hrefs = [
+      catalogPrimaryWorkbenchHref(context),
+      catalogPrimaryWorkbenchHref(context, "governance-controls"),
+      catalogPrimaryWorkbenchSupportingHref(context, "audit-evidence"),
+      catalogPrimaryWorkbenchReturnPath(context),
+    ];
+    for (const href of hrefs) {
+      const url = new URL(href, "https://admin.example");
+      expect(parseCatalogPrimaryWorkbenchRouteContext(url)).toMatchObject(expected);
+      expect(catalogPrimaryWorkbenchContextKeysFromUrl(url)).toEqual(
+        expect.arrayContaining(["aliasType", "targetKind", "targetId", ...(statuses ? ["reviewStatuses"] : [])]),
+      );
+      const returnPath = url.searchParams.get("returnPath");
+      if (returnPath) {
+        expect(parseCatalogPrimaryWorkbenchRouteContext(new URL(returnPath, url))).toMatchObject(expected);
+      }
+    }
+  });
+
   it.each([
     ["/catalog/providers/tcgdex", "tcgdex"],
     ["/catalog/providers/tcgdex/?providerKey=", "tcgdex"],
