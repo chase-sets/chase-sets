@@ -1385,16 +1385,21 @@ pub mod url {
         }
     }
 
-    /// eBay's return from consent (Channels' `channels-ebay-callback` and `channels-ebay-declined`):
-    /// each redirects to the journey (see `ebay`). Every handler takes an `EbayReturn`; nothing
-    /// keeps an answer.
+    /// eBay's return with consent given (Channels' `channels-ebay-callback`): it redirects to the
+    /// journey (see `ebay`). Its handler takes an `EbayReturn`; nothing keeps its answer.
     #[corten::routes(state = crate::app::Shared, area = EbayCallback, caller = crate::auth::EbayReturn)]
-    pub mod ebay_return {
-        /// Consent given: eBay's state and one-time code.
+    pub mod ebay_callback {
+        /// eBay's state and one-time code.
         #[route("/channels/ebay/callback", get = crate::ebay::callback, no_store)]
         pub struct EbayCallback;
+    }
 
-        /// Consent declined: eBay's state.
+    /// eBay's return with consent declined (Channels' `channels-ebay-declined`), an area of its own
+    /// beside the callback's: it redirects to the journey. Its handler takes an `EbayReturn`; nothing
+    /// keeps its answer.
+    #[corten::routes(state = crate::app::Shared, area = EbayDeclined, caller = crate::auth::EbayReturn)]
+    pub mod ebay_declined {
+        /// eBay's state.
         #[route("/channels/ebay/declined", get = crate::ebay::declined, no_store)]
         pub struct EbayDeclined;
     }
@@ -2045,7 +2050,12 @@ pub fn app(config: Config) -> App {
                 .components(views::CHANNELS)
                 .policy(|p| p.form_action(crate::ebay::EBAY_ORIGIN).referrer(corten::security::Referrer::NoReferrer))
         })
-        .area(|area| url::ebay_return::area(area, shared.clone()).policy(|p| p.referrer(corten::security::Referrer::NoReferrer)))
+        .area(|area| {
+            url::ebay_callback::area(area, shared.clone()).policy(|p| p.referrer(corten::security::Referrer::NoReferrer))
+        })
+        .area(|area| {
+            url::ebay_declined::area(area, shared.clone()).policy(|p| p.referrer(corten::security::Referrer::NoReferrer))
+        })
         // A CSV is up to 16 MB, so a slow connection has a listing's photos' time.
         .area(|area| {
             url::bulk_reprice::area(area, shared.clone()).components(views::BULK_REPRICE).deadline(crate::bulk_reprice::DEADLINE)
