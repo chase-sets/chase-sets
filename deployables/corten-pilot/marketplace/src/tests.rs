@@ -11558,8 +11558,10 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     assert_eq!(links, ["/account/offers/matches/off_ready", "/account/offers/matches/off_short"]);
     assert!(html.contains(r#"<corten-live src="/account/offers/matches/live"></corten-live>"#), "{html}");
     // Each match posts to its own page; one with no supply cannot be added to the sell list.
-    assert!(html.contains(r#"<form method="post" action="/account/offers/matches/off_short"><input type="hidden" name="intent" value="add-selected-offer"><button class="#), "{html}");
-    let short = html.split(r#"action="/account/offers/matches/off_short""#).nth(1).unwrap();
+    // Each add carries its own attempt key, so a resend is applied once.
+    let short = html.split(r#"<form method="post" action="/account/offers/matches/off_short">"#).nth(1).unwrap();
+    let (inputs, _) = short.split_once("<button").unwrap();
+    assert!(inputs.starts_with(r#"<input type="hidden" name="intent" value="add-selected-offer"><input type="hidden" name="attemptId" data-submit value=""#), "{short}");
     assert!(short.split("</form>").next().unwrap().contains("disabled"), "{short}");
 }
 
