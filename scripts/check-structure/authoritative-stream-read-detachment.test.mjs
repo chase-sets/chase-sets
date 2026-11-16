@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 24,
-      authoritativeSites: 22,
+      discoveredCallCandidates: 25,
+      authoritativeSites: 23,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -231,6 +231,11 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     ).toEqual([
       {
         category: "member-declaration",
+        file: "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
+        symbol: "createInventoryStockReservations.persistence.readStream",
+      },
+      {
+        category: "member-declaration",
         file: "bounded-contexts/inventory/features/inventory-items/api/stock-authority.ts",
         symbol: "createInventoryStockAuthority.captureInTransaction.eventStore.readStream",
       },
@@ -238,11 +243,6 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         category: "type-position",
         file: "bounded-contexts/inventory/features/inventory-items/api/stock-authority.ts",
         symbol: "createInventoryStockAuthority.captureInTransaction.eventStore.readStream",
-      },
-      {
-        category: "member-declaration",
-        file: "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
-        symbol: "createInventoryStockReservations.persistence.readStream",
       },
     ]);
     expect(
