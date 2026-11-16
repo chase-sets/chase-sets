@@ -191,8 +191,6 @@ export function buildCatalogAliasProjectionHandlers(db: PgQueryable): ProjectorH
         await upsertReferenceRecordAlias(db, data, recordedAt, reviewedAt);
       }
 
-      await upsertSourceObservationAliasCandidates(db, [data], recordedAt);
-
       await enqueueAliasRecompute(
         db,
         data.target.kind,

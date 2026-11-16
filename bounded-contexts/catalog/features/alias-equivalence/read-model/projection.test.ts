@@ -49,25 +49,28 @@ function candidate(kind: "catalog-item" | "reference-record" = "catalog-item") {
 }
 
 describe("Source Observation alias candidate persistence", () => {
-  it("reconciles the null-target intake hash into the event's resolved identity and preserves first observation", async () => {
-    const c = candidate();
-    const intake = buildCatalogAliasCandidate({ ...c, target: { ...c.target, targetId: null } });
-    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
-    const handlers = buildCatalogAliasProjectionHandlers({ query });
-    await handlers["catalog.alias.proposed"]?.({
-      streamId: catalogAliasStreamId(c.aliasHash),
-      data: { ...c, actor: "system", policyVersion: "alias-source-governance-v1" },
-      timing: { recordedAt: "2026-06-16T00:00:00.000Z" },
-    } as never);
-    const write = query.mock.calls.find(([sql]) =>
-      sql.includes("INSERT INTO catalog_source_observation_alias_candidates"),
-    );
-    expect(write?.[0]).toContain("DELETE FROM catalog_source_observation_alias_candidates");
-    expect(write?.[0]).toContain("MIN(first_observed_at)");
-    expect(write?.[1]?.[0]).toBe(c.aliasHash);
-    expect(write?.[1]?.[2]).toBe("cat_1");
-    expect(write?.[1]?.[19]).toBe(intake.aliasHash);
-  });
+  it.each(["catalog-item", "reference-record"] as const)(
+    "preserves newer intake evidence when a delayed %s proposal projects",
+    async (kind) => {
+      const c = candidate(kind);
+      const newer = { ...c, evidence: { revision: "new" } };
+      const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+      await upsertSourceObservationAliasCandidates({ query }, [newer], "2026-06-16T01:00:00.000Z");
+      const handlers = buildCatalogAliasProjectionHandlers({ query });
+      await handlers["catalog.alias.proposed"]?.({
+        streamId: catalogAliasStreamId(c.aliasHash),
+        data: { ...c, actor: "system", policyVersion: "alias-source-governance-v1" },
+        timing: { recordedAt: "2026-06-16T00:00:00.000Z" },
+      } as never);
+      const writes = query.mock.calls.filter(([sql]) => sql.includes("catalog_source_observation_alias_candidates"));
+      expect(writes).toHaveLength(1);
+      expect(writes[0]?.[1]?.[17]).toBe(JSON.stringify(newer.evidence));
+      expect(writes[0]?.[1]?.[18]).toBe("2026-06-16T01:00:00.000Z");
+      expect(query.mock.calls[1]?.[0]).toContain(
+        kind === "catalog-item" ? "INSERT INTO catalog_item_aliases" : "INSERT INTO catalog_reference_record_aliases",
+      );
+    },
+  );
 
   it("reuses the resolved target and hash on unchanged null-target re-intake", async () => {
     const c = candidate();

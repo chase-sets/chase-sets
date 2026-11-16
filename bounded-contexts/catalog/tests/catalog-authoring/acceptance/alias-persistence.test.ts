@@ -470,6 +470,65 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     referenceRecordIdsByTypeKey: { expansion: "ref_expansion_promoted", series: "ref_series_promoted" },
   } as const;
 
+  it("preserves newer intake evidence across delayed proposal projection and reopens on re-promotion", async () => {
+    const intake = observationItemCandidate();
+    const resolved = buildCatalogAliasCandidate({
+      ...intake,
+      target: { ...intake.target, targetId: promoteResolution.catalogItemId },
+    });
+    const promote = () =>
+      writePromotionAliases({
+        services: promotionAliasServices(),
+        observationId: "obs_promote_1",
+        resolution: promoteResolution,
+        context,
+      });
+    const read = () => services.catalogAliases.listSourceObservationAliasCandidates({ observationId: "obs_promote_1" });
+
+    await seedCandidates([intake]);
+    await promote();
+    expect(await services.catalogAliases.getCatalogItemAlias(resolved.aliasHash)).toBeNull();
+    expect(await services.catalogAliases.getSourceObservationAliasCandidate(intake.aliasHash)).toBeNull();
+    expect(await read()).toMatchObject([
+      { alias_hash: resolved.aliasHash, target_id: promoteResolution.catalogItemId },
+    ]);
+
+    const newer = observationItemCandidate({
+      reviewStatus: "pending",
+      evidence: { sharedId: "sv1a-001", revision: "new" },
+    });
+    const observedAt = "2026-11-16T01:02:00.000Z";
+    await services.catalogAliases.upsertSourceObservationAliasCandidates([newer], observedAt);
+    await drainCatalogProjections();
+
+    let rows = await read();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      alias_hash: resolved.aliasHash,
+      target_id: promoteResolution.catalogItemId,
+      evidence: newer.evidence,
+    });
+    expect(new Date(rows[0]!.updated_at).toISOString()).toBe(observedAt);
+    expect(new Date(rows[0]!.first_observed_at).toISOString()).toBe("2026-06-16T00:00:00.000Z");
+    expect((await services.catalogAliases.getCatalogItemAlias(resolved.aliasHash))?.review_status).toBe("accepted");
+
+    await promote();
+    await drainCatalogProjections();
+    rows = await read();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      alias_hash: resolved.aliasHash,
+      target_id: promoteResolution.catalogItemId,
+      review_status: "pending",
+      evidence: newer.evidence,
+    });
+    expect(new Date(rows[0]!.first_observed_at).toISOString()).toBe("2026-06-16T00:00:00.000Z");
+    expect(await services.catalogAliases.getSourceObservationAliasCandidate(intake.aliasHash)).toBeNull();
+    expect(await services.catalogAliases.listCatalogItemAliases(promoteResolution.catalogItemId)).toMatchObject([
+      { alias_hash: resolved.aliasHash, review_status: "pending", evidence: newer.evidence },
+    ]);
+  });
+
   it.each(["accepted", "rejected", "revoked"] as const)(
     "keeps one resolved %s alias after unchanged intake/promotion and reopens changed evidence",
     async (status) => {
