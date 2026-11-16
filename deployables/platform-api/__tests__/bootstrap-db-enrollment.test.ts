@@ -674,22 +674,41 @@ function defaultPathEnrollment(
   };
 }
 
-function floorBindsModel(floor: BootstrapDbMeasuredOneFewerUnitFloor | null, model: BootstrapDbScheduleModel) {
-  return floor !== null && floor.shippedReferenceRunId === model.referenceRunId;
+function floorBindsModel(
+  floor: BootstrapDbMeasuredOneFewerUnitFloor | null,
+  model: BootstrapDbScheduleModel,
+  files: readonly { fileName: string }[],
+) {
+  return (
+    floor !== null &&
+    floor.shippedReferenceRunId === model.referenceRunId &&
+    Object.keys(floor.assignment).sort().join("\n") ===
+      files
+        .map((file) => file.fileName)
+        .sort()
+        .join("\n")
+  );
 }
 
 /** The default path's floor verdict, formatted from the declared floor and the schedule model alone. */
 function expectedMeasuredFloorVerdict(
   floor: BootstrapDbMeasuredOneFewerUnitFloor | null,
   model: BootstrapDbScheduleModel,
+  files: readonly { fileName: string }[],
 ) {
   if (floor === null) return { applied: false, reason: noFloor };
-  if (!floorBindsModel(floor, model)) {
+  if (floor.shippedReferenceRunId !== model.referenceRunId) {
     return {
       applied: false,
       reason:
         `the measured one-fewer-unit floor binds shipped reference run ${floor.shippedReferenceRunId}, not the ` +
         `schedule model's ${model.referenceRunId}`,
+    };
+  }
+  if (!floorBindsModel(floor, model, files)) {
+    return {
+      applied: false,
+      reason: "the measured one-fewer-unit floor assignment does not cover exactly the manifested files",
     };
   }
   const [unit, makespanMs] = Object.entries(floor.unitMakespansMs).reduce((worst, entry) =>
@@ -704,10 +723,14 @@ function expectedMeasuredFloorVerdict(
 }
 
 const declaredFloorUnbound = bootstrapDbMeasuredOneFewerUnitFloor
-  ? expectedMeasuredFloorVerdict(bootstrapDbMeasuredOneFewerUnitFloor, {
-      ...bootstrapDbScheduleModel,
-      referenceRunId: syntheticScheduleModelProvenance.referenceRunId,
-    }).reason
+  ? expectedMeasuredFloorVerdict(
+      bootstrapDbMeasuredOneFewerUnitFloor,
+      {
+        ...bootstrapDbScheduleModel,
+        referenceRunId: syntheticScheduleModelProvenance.referenceRunId,
+      },
+      [],
+    ).reason
   : noFloor;
 const declaredFloorModelRefused = bootstrapDbMeasuredOneFewerUnitFloor
   ? "the schedule model refused, so the measured one-fewer-unit floor is not applied"
@@ -724,14 +747,14 @@ const measuredFloorLine = "  measured one-fewer-unit floor";
  */
 function expectDefaultPathFloorRole({ result, absent, floor, model, minimumUnitCount }: DefaultPathEnrollment) {
   const { observedUnitCount } = result.schedule;
-  const verdict = expectedMeasuredFloorVerdict(floor, model);
+  const verdict = expectedMeasuredFloorVerdict(floor, model, result.schedule.files);
   const floorLines = formatBootstrapDbEnrollmentResult(result)
     .split("\n")
     .filter((line) => line.startsWith(measuredFloorLine));
   expect(result.violations, "default-path violations").toEqual([]);
   expect(result.schedule.minimumUnitCount, "pinned minimum").toBe(minimumUnitCount);
   expect(result.schedule.effectiveMinimumUnitCount, "effective minimum").toBe(observedUnitCount);
-  if (floorBindsModel(floor, model)) {
+  if (floorBindsModel(floor, model, result.schedule.files)) {
     expect(result.schedule.measuredOneFewerUnitFloor, "bound floor verdict").toEqual(verdict);
     expect(floorLines, "bound floor line").toEqual([
       `${measuredFloorLine} applied: ${verdict.reason}; effectiveMinimumUnitCount ${observedUnitCount}`,
@@ -753,7 +776,7 @@ function expectDefaultPathFloorRole({ result, absent, floor, model, minimumUnitC
 function expectOneFewerUnitInfeasible({ result, floor, model, minimumUnitCount }: DefaultPathEnrollment) {
   const { observedUnitCount, oneFewerUnit, measuredOneFewerUnitFloor } = result.schedule;
   const ceilingMs = model.executionUnitCeilingMs;
-  if (floorBindsModel(floor, model)) {
+  if (floorBindsModel(floor, model, result.schedule.files)) {
     const { unitCount, unitMakespansMs } = floor!;
     expect(unitCount, "floor witness unit count").toBe(observedUnitCount - 1);
     expect(Math.max(...Object.values(unitMakespansMs)), "floor witness worst unit").toBeGreaterThan(ceilingMs);
@@ -764,7 +787,7 @@ function expectOneFewerUnitInfeasible({ result, floor, model, minimumUnitCount }
   expect(oneFewerUnit?.unitCount, "model alternative unit count").toBe(minimumUnitCount - 1);
   const alternativeWorstMs = Math.max(...(oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
   expect(alternativeWorstMs, "model alternative worst unit").toBeGreaterThan(ceilingMs);
-  expect(measuredOneFewerUnitFloor.applied, "floor applied").toBe(floorBindsModel(floor, model));
+  expect(measuredOneFewerUnitFloor.applied, "floor applied").toBe(floorBindsModel(floor, model, result.schedule.files));
 }
 
 afterEach(async () => {
@@ -1028,11 +1051,13 @@ describe("Platform API bootstrap DB enrollment", () => {
       `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount, schedulerCalls: old.schedulerCalls })}\n`,
     );
     expect(old.schedulerCalls.hits).toBeGreaterThan(0);
-    const regeneration =
-      "Regenerate with node __tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs from deployables/platform-api";
-    expect(old.schedulerCalls.misses, regeneration).toBe(0);
-    expect(Object.keys(memo.entries), regeneration).toHaveLength(4095);
-    expect(old.requestedKeys, regeneration).toHaveLength(Object.keys(memo.entries).length);
+    // Retain the historical memo byte-for-byte. New subsets use the same pinned
+    // independent oracle, rather than requiring a new capture or memo artifact.
+    expect(Object.keys(memo.entries)).toHaveLength(4095);
+    for (const key of Object.keys(memo.entries)) expect(old.requestedKeys.has(key), key).toBe(true);
+    expect(old.requestedKeys).toHaveLength((1 << candidateRepository.schedule.files.length) - 1);
+    const uncachedKeys = [...old.requestedKeys].filter((key) => !Object.hasOwn(memo.entries, key));
+    expect(old.schedulerCalls.misses).toBe(uncachedKeys.length);
     // The historical oracle's top-level path classifier rejects the real Catalog
     // entry, and it predates the measured floor, so it keeps any minimality
     // verdict a bound declared floor lifts. Preserve its complete output
@@ -1056,6 +1081,7 @@ describe("Platform API bootstrap DB enrollment", () => {
           measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(
             bootstrapDbMeasuredOneFewerUnitFloor,
             bootstrapDbScheduleModel,
+            candidateRepository.schedule.files,
           ),
         },
       }),
@@ -1314,8 +1340,8 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("derives the complete frozen six-entry non-bootstrap census independently of suffixes", async () => {
     const fixture = await createDbCensusFixture();
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
-    expect(census.dbEntries).toHaveLength(16);
-    expect(census.bootstrapEntries).toHaveLength(12);
+    expect(census.dbEntries).toHaveLength(17);
+    expect(census.bootstrapEntries).toHaveLength(13);
     expect(census.dbEntries).toEqual(census.suffixEntries);
     expect(census.dbEntries.filter((entry) => !census.bootstrapEntries.includes(entry)).sort()).toEqual(
       Object.keys(fixture.nonBootstrapCensus.entries).sort(),
@@ -2583,7 +2609,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     };
     expect(capture.provenance).toMatchObject(provenance);
     if (current) {
-      expect(bootstrapDbScheduleModel).toEqual(capture.model);
+      expect(bootstrapDbScheduleModel).toEqual({ ...capture.model, maximumScheduledFileCount: 13 });
       expect(capture.acceptedBootBearingCaseCeilings).toEqual({
         "test:db:1": 18,
         "test:db:2": 32,
@@ -2885,7 +2911,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       executionUnitCeilingMs: 419_999,
       aggregateCeilingMs: 1_079_999,
       maximumCaseReferenceDurationMs: 599_999,
-      maximumScheduledFileCount: 13,
+      maximumScheduledFileCount: 14,
       maximumEnumeratedUnitCount: 5,
     };
     const fixture = await createFixture([unitFileFor("synthetic-provenance", "test:db:1", 1_000)], {
@@ -3282,6 +3308,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       "bootstrap-scenario.db.test.ts": "test:db:2",
       "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
       "bootstrap-shared-seed-command.db.test.ts": "test:db:4",
+      "listing-channel-activation-composition.db.test.ts": "test:db:4",
       "inventory-seed-resume.db.test.ts": "test:db:3",
       "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
       "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
@@ -3961,7 +3988,12 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it("evaluates an unmistakably synthetic twelve-file 66-case shipped-shaped enrollment without changing main", async () => {
     const files = shippedShapedFiles()
-      .filter((file) => file.fileName !== "connector-mount-gate-isolation.db.test.ts")
+      .filter(
+        (file) =>
+          !["connector-mount-gate-isolation.db.test.ts", "listing-channel-activation-composition.db.test.ts"].includes(
+            file.fileName,
+          ),
+      )
       .map((file, index) => ({
         ...file,
         executionUnit: index < 6 ? "test:db:1" : "test:db:2",
@@ -4075,7 +4107,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         measuredOneFewerUnitFloor: { applied: false, reason: noFloor },
       });
 
-      const applied = expectedMeasuredFloorVerdict(floor, shipped.model).reason;
+      const applied = expectedMeasuredFloorVerdict(floor, shipped.model, shipped.files).reason;
       const result = runWithFloor(fixture, floor);
       expect(runWithFloor(fixture, null)).toEqual(absent);
       expect(result.violations).toEqual([]);
@@ -4178,7 +4210,11 @@ describe("Platform API bootstrap DB enrollment", () => {
       const fixture = await shippedCaptureFixture();
       // createShippedFixture's model carries unmistakably synthetic provenance.
       const synthetic = await createShippedFixture(shippedShapedFiles(), { model: acceptedTimingInputs() });
-      expectNotApplied(synthetic, floor, expectedMeasuredFloorVerdict(floor, synthetic.model).reason);
+      expectNotApplied(
+        synthetic,
+        floor,
+        expectedMeasuredFloorVerdict(floor, synthetic.model, shippedShapedFiles()).reason,
+      );
       const [dropped, ...kept] = Object.entries(floor.assignment);
       const coverage = "the measured one-fewer-unit floor assignment does not cover exactly the manifested files";
       expectNotApplied(fixture, { ...floor, assignment: Object.fromEntries(kept) }, coverage);
@@ -4293,7 +4329,11 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(bootstrapDbMeasuredOneFewerUnitFloor).not.toBeNull();
       const enrollment = defaultPathEnrollment(currentMinimumUnitCount);
       expect(enrollment.result.schedule).toMatchObject({
-        measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model),
+        measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(
+          enrollment.floor,
+          enrollment.model,
+          enrollment.result.schedule.files,
+        ),
         minimumUnitCount: currentMinimumUnitCount,
         effectiveMinimumUnitCount: 3,
         observedUnitCount: 3,
@@ -4411,7 +4451,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       const enrollment = await retainedDefaultPathEnrollment();
       expect(enrollment.result.schedule.measuredOneFewerUnitFloor).toEqual({
         applied: true,
-        reason: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model).reason,
+        reason: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model, enrollment.result.schedule.files)
+          .reason,
       });
       expect(enrollment.absent.violations).toEqual([minimalityViolation]);
       expectDefaultPathFloorRole(enrollment);

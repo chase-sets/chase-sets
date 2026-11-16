@@ -1,4 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Register owner-local omission mocks before loading host/context modules.
+import { authWriterProbe, upsertSessionToken, seedSessionToken, revokeSession } from "@chase-sets/auth/test-support";
+import { identityWriterProbe } from "@chase-sets/identity/test-support";
+import { inventoryWriterProbe, reserveOrderInventoryRequest } from "@chase-sets/inventory/test-support";
+import {
+  connectionWriterProbe,
+  createConnectionPersistence,
+  createConnectionEpochs,
+  disconnectChannelConnectionForWitness,
+} from "@chase-sets/channels/test-support";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
 import {
@@ -22,15 +32,7 @@ import { module as marketplaceModule } from "@chase-sets/marketplace";
 import type { MarketplaceServices, AcceptListingTargetPriceInput } from "@chase-sets/marketplace/server";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import {
-  createPostgresConfigurationEpochStore,
-  createPostgresEventStore,
-  withConfigurationEpochTransaction,
-} from "@chase-sets/event-core-postgres";
-import { upsertSessionToken } from "../../../bounded-contexts/auth/support/auth-support/store";
-import { upsertSessionToken as seedSessionToken } from "../../../bounded-contexts/auth/support/seed-support/store";
-import { revokeSession } from "../../../bounded-contexts/auth/support/runtime-support/services";
-import { reserveOrderInventoryRequest } from "../../../bounded-contexts/inventory/features/reservations/api/order-reservation-workflow";
+import { createPostgresConfigurationEpochStore, createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import {
   createPlatformApiBootstrapTestHarness,
@@ -47,6 +49,19 @@ const appendProbe = vi.hoisted(() => ({
   unavailable: false,
   omit: "none" as "none" | "identity" | "auth" | "channels" | "inventory",
 }));
+
+identityWriterProbe.omit = () => appendProbe.omit === "identity";
+authWriterProbe.omit = () => appendProbe.omit === "auth";
+connectionWriterProbe.omit = () => appendProbe.omit === "channels";
+inventoryWriterProbe.omit = () => appendProbe.omit === "inventory";
+connectionWriterProbe.setupResolver = async ({ providerKey, environment }) =>
+  providerKey === "synthetic-provider"
+    ? {
+        providerKey,
+        environment,
+        requirements: { credential: "not-required", requiredPolicyKeys: [], binding: "one-or-more-current" },
+      }
+    : null;
 
 function observedPool(pool: PgTransactionalPool): PgTransactionalPool {
   return {
@@ -82,87 +97,6 @@ function observedPool(pool: PgTransactionalPool): PgTransactionalPool {
   };
 }
 
-vi.mock("../../../bounded-contexts/identity/features/accounts/api/owner-epochs", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../../bounded-contexts/identity/features/accounts/api/owner-epochs")>();
-  const create: typeof actual.createIdentityOwnerEpochs = (...args) => {
-    const epochs = actual.createIdentityOwnerEpochs(...args);
-    return {
-      ...epochs,
-      enroll: (...inputs) => (appendProbe.omit === "identity" ? Promise.resolve() : epochs.enroll(...inputs)),
-    };
-  };
-  return { ...actual, createIdentityOwnerEpochs: create };
-});
-vi.mock("../../../bounded-contexts/auth/features/sessions/api/owner-epochs", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../../bounded-contexts/auth/features/sessions/api/owner-epochs")>();
-  const create: typeof actual.createAuthSessionEpochs = (pool, ...args) => {
-    const epochs = actual.createAuthSessionEpochs(pool, ...args);
-    return {
-      ...epochs,
-      transaction: (keys, work) =>
-        appendProbe.omit === "auth" ? withConfigurationEpochTransaction(pool, work) : epochs.transaction(keys, work),
-    };
-  };
-  return { ...actual, createAuthSessionEpochs: create };
-});
-vi.mock("../../../bounded-contexts/channels/features/connections/api/owner-epochs", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../../bounded-contexts/channels/features/connections/api/owner-epochs")>();
-  const create: typeof actual.createConnectionEpochs = (pool, ...args) => {
-    const epochs = actual.createConnectionEpochs(pool, ...args);
-    return {
-      ...epochs,
-      transaction: (keys, work) =>
-        appendProbe.omit === "channels"
-          ? withConfigurationEpochTransaction(pool, work)
-          : epochs.transaction(keys, work),
-    };
-  };
-  return { ...actual, createConnectionEpochs: create };
-});
-vi.mock(
-  "../../../bounded-contexts/inventory/features/inventory-items/api/stock-reservations",
-  async (importOriginal) => {
-    const actual =
-      await importOriginal<
-        typeof import("../../../bounded-contexts/inventory/features/inventory-items/api/stock-reservations")
-      >();
-    const create: typeof actual.createInventoryStockReservations = (...args) => {
-      const enrolled = actual.createInventoryStockReservations(...args);
-      const raw = args[1];
-      return {
-        ...enrolled,
-        persistence: {
-          ...enrolled.persistence,
-          appendToStream: (input) =>
-            appendProbe.omit === "inventory" ? raw.appendToStream(input) : enrolled.persistence.appendToStream(input),
-          appendToStreams: (inputs) =>
-            appendProbe.omit === "inventory"
-              ? raw.appendToStreams!(inputs)
-              : enrolled.persistence.appendToStreams!(inputs),
-        },
-        appendInTransaction: (db, inputs) =>
-          appendProbe.omit === "inventory"
-            ? raw.appendToStreamsInTransaction(db, inputs)
-            : enrolled.appendInTransaction(db, inputs),
-        appendSingleInTransaction: (db, input) =>
-          appendProbe.omit === "inventory"
-            ? raw.appendToStreamInTransaction(db, input)
-            : enrolled.appendSingleInTransaction(db, input),
-      };
-    };
-    return {
-      ...actual,
-      createInventoryStockReservations: create,
-      enrollInventoryStockStreamsInTransaction: (
-        ...args: Parameters<typeof actual.enrollInventoryStockStreamsInTransaction>
-      ) =>
-        appendProbe.omit === "inventory" ? Promise.resolve() : actual.enrollInventoryStockStreamsInTransaction(...args),
-    };
-  },
-);
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
   const create: typeof actual.createPostgresEventStore = (...args) => {
@@ -240,17 +174,6 @@ describe("listing channel activation real composition", () => {
         capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
-        setupResolver: {
-          resolve: async () => ({
-            providerKey: "synthetic-provider",
-            environment: "sandbox" as const,
-            requirements: {
-              credential: "not-required" as const,
-              requiredPolicyKeys: [],
-              binding: "one-or-more-current" as const,
-            },
-          }),
-        },
       },
     });
   }
@@ -1219,8 +1142,6 @@ describe("listing channel activation real composition", () => {
       writer === "connection resume" ||
       writer === "connection activation"
     ) {
-      const { createConnectionPersistence, createConnectionEpochs } =
-        await import("../../../bounded-contexts/channels/features/connections/api/owner-epochs");
       const consumer = (
         await pools.marketplace.query<{ store_id: string; incarnation: string }>(
           "SELECT store_id, incarnation FROM event_configuration_store_identity",
@@ -1236,12 +1157,7 @@ describe("listing channel activation real composition", () => {
         ]),
       );
       if (writer === "connection disconnect") {
-        const { createChannelConnectionRuntime } =
-          await import("../../../bounded-contexts/channels/features/connections/api/runtime");
-        return createChannelConnectionRuntime({ eventStore: store, db: pools.channels }).disconnectChannelConnection(
-          target,
-          context,
-        );
+        return disconnectChannelConnectionForWitness({ eventStore: store, db: pools.channels }, target, context);
       }
       const change: AppendToStreamInput = {
         streamId: `channels.connection-${f.connectionId}`,

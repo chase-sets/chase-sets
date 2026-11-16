@@ -47,7 +47,7 @@
     "ucp-support",
     "ui-support"
   ],
-  "publicExports": [".", "./context", "./host-config", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./host-config", "./routes/*", "./seed-support/*", "./server", "./web", "./test-support"],
   "allowedContextDependencies": [
     "@chase-sets/identity"
   ],

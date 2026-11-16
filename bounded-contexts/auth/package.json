@@ -19,7 +19,8 @@
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
     "./server": "./server.ts",
-    "./web": "./web.ts"
+    "./web": "./web.ts",
+    "./test-support": "./features/sessions/tests/listing-activation-test-support.ts"
   },
   "types": "./index.ts",
   "devDependencies": {
