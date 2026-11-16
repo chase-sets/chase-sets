@@ -989,10 +989,6 @@ async fn replace_lines(
 
 /// Contents that changed since the page read them (409): the contents as they are now, with Add
 /// content line's form (when that was the write) drawn again at their version with the message.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
-)]
 async fn contents_changed(
     req: &Req,
     viewer: &Viewer,
