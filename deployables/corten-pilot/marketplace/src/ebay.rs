@@ -211,7 +211,7 @@ pub enum SetupState {
     /// The setup or the storage locations could not be read.
     Error,
     Loaded {
-        setup: EbaySetup,
+        setup: Box<EbaySetup>,
         locations: Vec<SetupLocation>,
         /// The connection is active, so the selection replaces the current one.
         active: bool,
@@ -256,6 +256,31 @@ impl SetupScreen {
 struct SetupInput {
     posted: Option<SetupDraft>,
     failed: bool,
+}
+
+/// How a request draws the journey: whether a journey write failed, the setup part's input, and
+/// the status.
+struct Drawn {
+    failed: bool,
+    setup: SetupInput,
+    status: StatusCode,
+}
+
+impl Drawn {
+    /// The journey as it stands.
+    fn page() -> Self {
+        Drawn { failed: false, setup: SetupInput::default(), status: StatusCode::OK }
+    }
+
+    /// The journey saying a write failed, at `status`.
+    fn failed(status: StatusCode) -> Self {
+        Drawn { failed: true, setup: SetupInput::default(), status }
+    }
+
+    /// The setup part with what a post chose, at `status`.
+    fn setup(setup: SetupInput, status: StatusCode) -> Self {
+        Drawn { failed: false, setup, status }
+    }
 }
 
 /// Where the journey is (`EbayJourneyState`, but `awaiting-callback`).
@@ -303,17 +328,8 @@ impl EbayScreen {
     }
 }
 
-/// The journey at `place`, `failed` after a write Channels refused, at `status`.
-async fn render(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    place: &EbayPlace,
-    failed: bool,
-    setup_input: SetupInput,
-    status: StatusCode,
-) -> HtmlResult {
+/// The journey at `place`, as `drawn` says.
+async fn render(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, place: &EbayPlace, drawn: Drawn) -> HtmlResult {
     let t: ChannelsMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
     let read_error = |error: ApiError| match error.status() {
@@ -346,8 +362,8 @@ async fn render(
             let (setup, locations) = tokio::join!(caller.ebay_setup(id), caller.setup_locations());
             let state = match (setup, locations) {
                 (Ok(setup), Ok(locations)) => SetupState::Loaded {
-                    draft: setup_input.posted.clone().unwrap_or_else(|| SetupDraft::of(&setup)),
-                    setup,
+                    draft: drawn.setup.posted.clone().unwrap_or_else(|| SetupDraft::of(&setup)),
+                    setup: Box::new(setup),
                     locations,
                     active: state == EbayState::Connected,
                 },
@@ -356,7 +372,7 @@ async fn render(
                     SetupState::Error
                 }
             };
-            Some(SetupScreen { state, failed: setup_input.failed })
+            Some(SetupScreen { state, failed: drawn.setup.failed })
         }
         _ => None,
     };
@@ -368,7 +384,7 @@ async fn render(
     } else {
         Vec::new()
     };
-    if failed {
+    if drawn.failed {
         state = EbayState::Failed;
     }
     let screen = EbayScreen {
@@ -384,7 +400,7 @@ async fn render(
             <views::EbayPage t={t} screen={&screen} place={place} />
         </Layout>
     };
-    if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
+    if drawn.status == StatusCode::OK { req.page(page) } else { req.page_with_status(drawn.status, page) }
 }
 
 /// The journey at the address.
@@ -395,7 +411,7 @@ pub(crate) async fn page(
     headers: HeaderMap,
     Params(route): Params<url::EbayConnect>,
 ) -> HtmlResult {
-    render(&req, &viewer, &config, &headers, &route.place, false, SetupInput::default(), StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, &route.place, Drawn::page()).await
 }
 
 /// Authorize and Disconnect: eBay's consent, or the connection after Disconnect, or the journey
@@ -417,14 +433,14 @@ pub(crate) async fn write(
                 draft.pairs.push(EbayLocationPair::default());
             }
             let input = SetupInput { posted: Some(draft), failed: false };
-            return render(&req, &viewer, &config, &headers, &route.place, false, input, StatusCode::OK).await;
+            return render(&req, &viewer, &config, &headers, &route.place, Drawn::setup(input, StatusCode::OK)).await;
         }
         ("select-setup", Some(id)) => {
             let draft = SetupDraft::posted(&form);
             let Ok(generation) = form.setup_generation.trim().parse::<u64>() else {
                 let input = SetupInput { posted: Some(draft), failed: true };
-                return render(&req, &viewer, &config, &headers, &route.place, false, input, StatusCode::UNPROCESSABLE_ENTITY)
-                    .await;
+                let drawn = Drawn::setup(input, StatusCode::UNPROCESSABLE_ENTITY);
+                return render(&req, &viewer, &config, &headers, &route.place, drawn).await;
             };
             let error = match caller.select_ebay_setup(id, &draft.command(generation)).await {
                 Ok(saved) if saved.status == "active" => {
@@ -452,7 +468,7 @@ pub(crate) async fn write(
                 None => StatusCode::BAD_GATEWAY,
             };
             let input = SetupInput { posted: Some(draft), failed: true };
-            return render(&req, &viewer, &config, &headers, &route.place, false, input, status).await;
+            return render(&req, &viewer, &config, &headers, &route.place, Drawn::setup(input, status)).await;
         }
         ("disconnect", Some(id)) => match caller.channel_command(id, "disconnect").await {
             Ok(_) => return req.redirect(&url::EbayConnect { place: EbayPlace::connection(id) }),
@@ -464,34 +480,16 @@ pub(crate) async fn write(
                     Some(to) => return req.redirect(&to),
                     None => {
                         tracing::warn!("Channels answered an eBay authorization address that is not eBay Sandbox's consent");
-                        return render(
-                            &req,
-                            &viewer,
-                            &config,
-                            &headers,
-                            &route.place,
-                            true,
-                            SetupInput::default(),
-                            StatusCode::BAD_GATEWAY,
-                        )
-                        .await;
+                        let drawn = Drawn::failed(StatusCode::BAD_GATEWAY);
+                        return render(&req, &viewer, &config, &headers, &route.place, drawn).await;
                     }
                 },
                 Err(error) => error,
             }
         }
         _ => {
-            return render(
-                &req,
-                &viewer,
-                &config,
-                &headers,
-                &route.place,
-                true,
-                SetupInput::default(),
-                StatusCode::UNPROCESSABLE_ENTITY,
-            )
-            .await;
+            let drawn = Drawn::failed(StatusCode::UNPROCESSABLE_ENTITY);
+            return render(&req, &viewer, &config, &headers, &route.place, drawn).await;
         }
     };
     match refused.status() {
@@ -504,7 +502,7 @@ pub(crate) async fn write(
             } else {
                 StatusCode::BAD_GATEWAY
             };
-            render(&req, &viewer, &config, &headers, &route.place, true, SetupInput::default(), status).await
+            render(&req, &viewer, &config, &headers, &route.place, Drawn::failed(status)).await
         }
     }
 }
