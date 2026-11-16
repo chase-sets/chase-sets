@@ -157,7 +157,14 @@ function harness(currency: string | null = null, version = 0, fresh = false) {
       control: {
         query: vi.fn(async (sql: string, params?: readonly unknown[]) => ({
           rows: sql.includes("WITH claimable")
-            ? [{ lease_name: params?.[0], owner_id: params?.[1], fencing_token: "1", expires_at: "2026-11-16T00:00:00Z" }]
+            ? [
+                {
+                  lease_name: params?.[0],
+                  owner_id: params?.[1],
+                  fencing_token: "1",
+                  expires_at: "2026-11-16T00:00:00Z",
+                },
+              ]
             : [],
         })),
         connect: vi.fn(),
@@ -213,7 +220,17 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     await rejected;
     const attempts = query.mock.calls.length;
     expect(attempts).toBe(1);
-    query.mockResolvedValue({ rows: [{ lease_name: "projection-group:catalog.catalog-item-projection", owner_id: "seed:platform-api", fencing_token: "7", expires_at: "2026-11-16T00:00:00Z" }], rowCount: 1 });
+    query.mockResolvedValue({
+      rows: [
+        {
+          lease_name: "projection-group:catalog.catalog-item-projection",
+          owner_id: "seed:platform-api",
+          fencing_token: "7",
+          expires_at: "2026-11-16T00:00:00Z",
+        },
+      ],
+      rowCount: 1,
+    });
     await vi.advanceTimersByTimeAsync(2_000);
     expect(query).toHaveBeenCalledTimes(attempts);
     expect(syncProjectionGroup).not.toHaveBeenCalled();
@@ -299,7 +316,14 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
       "ordering.ordering-order-projection",
     ]);
     for (const [, context] of calls) {
-      expect(context).toEqual(expect.objectContaining({ ownerId: "seed:platform-api", fencingToken: "1", signal: expect.any(AbortSignal), throwIfLeaseLost: expect.any(Function) }));
+      expect(context).toEqual(
+        expect.objectContaining({
+          ownerId: "seed:platform-api",
+          fencingToken: "1",
+          signal: expect.any(AbortSignal),
+          throwIfLeaseLost: expect.any(Function),
+        }),
+      );
     }
     expect(drainProjectionGroups).toHaveBeenCalledExactlyOnceWith(
       state.options.runtime,
@@ -325,7 +349,14 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     const run = runRepresentativeCommerceState(state.options);
     const rejected = expect(run).rejects.toThrow("exceeded 600000ms");
     let settled = false;
-    void run.then(() => { settled = true; }, () => { settled = true; });
+    void run.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
     await vi.advanceTimersByTimeAsync(600_001);
     expect(settled).toBe(false);
     drain.resolve();
@@ -353,7 +384,8 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
       vi.mocked(seedApiHostIfEmpty).mockRejectedValueOnce(new Error("synthetic prerequisite failure"));
     else if (step.startsWith("sync"))
       vi.mocked(syncProjectionGroup).mockImplementation(async (group) => {
-        if (group.targetContextName === "discovery" && group.projectionName === "discovery-market-projection") throw new Error("synthetic projection failure");
+        if (group.targetContextName === "discovery" && group.projectionName === "discovery-market-projection")
+          throw new Error("synthetic projection failure");
       });
     else state.row.visible_quantity = 0;
     await expect(runRepresentativeCommerceState(state.options)).rejects.toThrow();

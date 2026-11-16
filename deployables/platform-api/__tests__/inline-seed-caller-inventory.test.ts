@@ -41,7 +41,10 @@ vi.mock("@chase-sets/bounded-context-runtime", async (original) => ({
 vi.mock("@chase-sets/identity/server", () => ({
   ADMIN_QA_ACTOR_FIXTURES: [],
   provisionAdminQaActorFixtures: vi.fn(async () => []),
-    bootstrapPlatformAdminIdentity: vi.fn(async () => ({ userId: "synthetic-user", credentialId: "synthetic-credential" })),
+  bootstrapPlatformAdminIdentity: vi.fn(async () => ({
+    userId: "synthetic-user",
+    credentialId: "synthetic-credential",
+  })),
 }));
 vi.mock("@chase-sets/auth/server", () => ({ bootstrapPlatformAdminPassword: vi.fn() }));
 vi.mock("@chase-sets/object-storage", () => ({
@@ -112,10 +115,22 @@ describe("inline seed caller inventory (deployable callers)", () => {
   it.each([
     ["infrastructure/bounded-context-runtime/test-support.ts", "@chase-sets/bounded-context-runtime/test-support"],
     ["infrastructure/bounded-context-runtime/projection-operations.db.test.ts", "projection-operations.db.test"],
-    ["deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "bootstrap-production-reconciliation.db.test"],
-    ["deployables/marketplace-seed-testing/tests/payments-money-feed-coverage.test.ts", "payments-money-feed-coverage.test"],
-    ["deployables/marketplace-seed-testing/tests/representative-commerce-state.test.ts", "representative-commerce-state.test"],
-    ["deployables/marketplace-seed-testing/tests/identity-anchor-representative-reconciliation.test.ts", "identity-anchor-representative-reconciliation.test"],
+    [
+      "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "bootstrap-production-reconciliation.db.test",
+    ],
+    [
+      "deployables/marketplace-seed-testing/tests/payments-money-feed-coverage.test.ts",
+      "payments-money-feed-coverage.test",
+    ],
+    [
+      "deployables/marketplace-seed-testing/tests/representative-commerce-state.test.ts",
+      "representative-commerce-state.test",
+    ],
+    [
+      "deployables/marketplace-seed-testing/tests/identity-anchor-representative-reconciliation.test.ts",
+      "identity-anchor-representative-reconciliation.test",
+    ],
     ["deployables/platform-worker/__tests__/channels-liveness-test-support.ts", "channels-liveness-test-support"],
     ["infrastructure/platform-runtime/concurrency.db.test.ts", "concurrency.db.test"],
   ])("keeps the direct drain in %s test-only, outside production seed composition", (path, importName) => {
@@ -126,34 +141,44 @@ describe("inline seed caller inventory (deployable callers)", () => {
     }
   });
 
-  it.each(["identity", "auth"])("aborts and awaits the %s admin drain before reporting its seed timeout", async (contextName) => {
-    vi.useFakeTimers();
-    const { syncBootstrapProjectionGroups } = await import("../src/bootstrap");
-    let complete!: () => void;
-    const cleanup = new Promise<void>((resolve) => { complete = resolve; });
-    let signal: AbortSignal | undefined;
-    vi.mocked(syncContextProjectionGroups).mockImplementationOnce(async (_runtime, _name, options) => {
-      signal = options?.context?.signal;
-      await new Promise<void>((resolve) => signal!.addEventListener("abort", () => resolve(), { once: true }));
-      await cleanup;
-      throw new Error("synthetic cancellation");
-    });
-    const runtime = { mountedContexts: [], projectionGroups: [] };
-    const port = createProjectionGroupLeasePort(createPostgresPlatformControlPlane(seedCommandPools().control), "platform-api");
-    let settled = false;
-    const run = syncBootstrapProjectionGroups(runtime, contextName, port).finally(() => { settled = true; });
-    const rejected = expect(run).rejects.toMatchObject({
-      name: "SeedApiHostSubstepTimeoutError",
-      code: "BOOTSTRAP_SEED_SUBSTEP_TIMEOUT",
-      message: expect.stringContaining(`projection-sync:${contextName}' exceeded 600000ms`),
-    });
-    await vi.advanceTimersByTimeAsync(600_001);
-    expect(signal?.aborted).toBe(true);
-    expect(settled).toBe(false);
-    complete();
-    await rejected;
-    expect(settled).toBe(true);
-  });
+  it.each(["identity", "auth"])(
+    "aborts and awaits the %s admin drain before reporting its seed timeout",
+    async (contextName) => {
+      vi.useFakeTimers();
+      const { syncBootstrapProjectionGroups } = await import("../src/bootstrap");
+      let complete!: () => void;
+      const cleanup = new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      let signal: AbortSignal | undefined;
+      vi.mocked(syncContextProjectionGroups).mockImplementationOnce(async (_runtime, _name, options) => {
+        signal = options?.context?.signal;
+        await new Promise<void>((resolve) => signal!.addEventListener("abort", () => resolve(), { once: true }));
+        await cleanup;
+        throw new Error("synthetic cancellation");
+      });
+      const runtime = { mountedContexts: [], projectionGroups: [] };
+      const port = createProjectionGroupLeasePort(
+        createPostgresPlatformControlPlane(seedCommandPools().control),
+        "platform-api",
+      );
+      let settled = false;
+      const run = syncBootstrapProjectionGroups(runtime, contextName, port).finally(() => {
+        settled = true;
+      });
+      const rejected = expect(run).rejects.toMatchObject({
+        name: "SeedApiHostSubstepTimeoutError",
+        code: "BOOTSTRAP_SEED_SUBSTEP_TIMEOUT",
+        message: expect.stringContaining(`projection-sync:${contextName}' exceeded 600000ms`),
+      });
+      await vi.advanceTimersByTimeAsync(600_001);
+      expect(signal?.aborted).toBe(true);
+      expect(settled).toBe(false);
+      complete();
+      await rejected;
+      expect(settled).toBe(true);
+    },
+  );
 
   it("bootstrap.ts seeds inside its held bootstrap lock with the port built from its control pool", async () => {
     const pools = seedCommandPools();
@@ -176,12 +201,10 @@ describe("inline seed caller inventory (deployable callers)", () => {
     const port = vi.mocked(createProjectionGroupLeasePort).mock.results[0]!.value;
     expect(syncContextProjectionGroups).toHaveBeenCalledTimes(2);
     for (const [index, contextName] of ["identity", "auth"].entries()) {
-      expect(syncContextProjectionGroups).toHaveBeenNthCalledWith(
-        index + 1,
-        expect.anything(),
-        contextName,
-        { context: { signal: expect.any(AbortSignal) }, runWithLease: port.runWithLease },
-      );
+      expect(syncContextProjectionGroups).toHaveBeenNthCalledWith(index + 1, expect.anything(), contextName, {
+        context: { signal: expect.any(AbortSignal) },
+        runWithLease: port.runWithLease,
+      });
     }
     const order = [
       vi.mocked(seedApiHostIfEmpty).mock.invocationCallOrder[0],

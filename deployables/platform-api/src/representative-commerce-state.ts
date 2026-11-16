@@ -373,8 +373,11 @@ export async function runRepresentativeCommerceState(
     activeStep: null,
     afterStepCompleted: options.afterStepCompleted,
   };
-  const runStep = <T>(stepName: string, run: (signal: AbortSignal) => Promise<T>, stepOptions: RepresentativeStepOptions = {}) =>
-    runRepresentativeStep(stepName, run, stepOptions, progress);
+  const runStep = <T>(
+    stepName: string,
+    run: (signal: AbortSignal) => Promise<T>,
+    stepOptions: RepresentativeStepOptions = {},
+  ) => runRepresentativeStep(stepName, run, stepOptions, progress);
   try {
     await bootstrapPlatformControlPlane(pools.control);
     const controlPlane = createPostgresPlatformControlPlane(pools.control);
@@ -437,7 +440,15 @@ export async function runRepresentativeCommerceState(
       contextName: string,
       projectionName: string,
       syncOptions: Readonly<{ timeoutMs?: number }> = {},
-    ) => syncRepresentativeProjection(runtime, projectionGroupLeasePort, contextName, projectionName, syncOptions, runStep);
+    ) =>
+      syncRepresentativeProjection(
+        runtime,
+        projectionGroupLeasePort,
+        contextName,
+        projectionName,
+        syncOptions,
+        runStep,
+      );
 
     await runStep(
       "seed data profiles",
@@ -895,13 +906,10 @@ async function withRepresentativeStepTimeout<T>(
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () => {
-            abort.abort();
-            reject(timeoutError);
-          },
-          timeoutMs,
-        );
+        timeout = setTimeout(() => {
+          abort.abort();
+          reject(timeoutError);
+        }, timeoutMs);
       }),
     ]);
   } catch (error) {
