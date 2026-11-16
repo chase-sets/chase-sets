@@ -1,11 +1,12 @@
 {
-  "owners": ["identity", "auth"],
+  "owners": ["identity", "auth", "channels"],
   "keys": [
     "account/<accountId>",
     "user/<userId>",
     "membership/<membershipId>",
     "delegation/<delegationId>",
-    "session/<sessionId>"
+    "session/<sessionId>",
+    "connection/<connectionId>"
   ],
   "consumedFields": {
     "account": ["id", "status"],
@@ -23,7 +24,8 @@
       "refreshTokenExpiresAt",
       "absoluteExpiresAt"
     ],
-    "session": ["id", "userId", "status", "streamRevision", "tokenRevision", "expiresAt"]
+    "session": ["id", "userId", "status", "streamRevision", "tokenRevision", "expiresAt"],
+    "connection": ["accountId", "providerKey", "environment", "status", "version"]
   },
   "principalScope": {
     "apiKey": "Excluded: resolveActorFromRequest in bounded-contexts/auth/support/runtime-support/runtime.ts admits sessions, guest checkout and linked-platform tokens, not Identity API keys.",
@@ -274,6 +276,608 @@
       "keys": ["session"],
       "disposition": "enrolled",
       "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts",
+      "symbol": "publishAttentionFact",
+      "sink": "eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts::publishAttentionFact",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Attention lifecycle and contribution rows/facts do not mutate the canonical Connection stream."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts",
+      "symbol": "recordAttentionHealthTransition",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts::recordAttentionHealthTransition",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Attention lifecycle and contribution rows/facts do not mutate the canonical Connection stream."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts",
+      "symbol": "recordAttentionHealthTransition",
+      "sink": "connection SQL",
+      "ordinal": 2,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts::recordAttentionHealthTransition",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Attention lifecycle and contribution rows/facts do not mutate the canonical Connection stream."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connection-attention/api/runtime.ts",
+      "symbol": "createConnectionAttentionRuntime",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connection-attention/api/runtime.ts::createConnectionAttentionRuntime",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Attention lifecycle and contribution rows/facts do not mutate the canonical Connection stream."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connection-health/api/runtime.ts",
+      "symbol": "createConnectionHealthRuntime > publish",
+      "sink": "deps.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connection-health/api/runtime.ts::createConnectionHealthRuntime > publish",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Health snapshots and health-changed facts use separate rows/streams; liveness changes systemPaused, never canonical seller status or Connection version."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connection-health/api/runtime.ts",
+      "symbol": "createConnectionHealthRuntime > transact > perform",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connection-health/api/runtime.ts::createConnectionHealthRuntime > transact > perform",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Health snapshots and health-changed facts use separate rows/streams; liveness changes systemPaused, never canonical seller status or Connection version."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connection-health/read-model/store.ts",
+      "symbol": "writeHealthSnapshot",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connection-health/read-model/store.ts::writeHealthSnapshot",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Health snapshots and health-changed facts use separate rows/streams; liveness changes systemPaused, never canonical seller status or Connection version."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/owner-epochs.ts",
+      "symbol": "createConnectionPersistence > append",
+      "sink": "store.appendToStreams!",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/owner-epochs.ts",
+      "symbol": "createConnectionPersistence > append",
+      "sink": "store.appendToStreamsInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/owner-epochs.ts",
+      "symbol": "createConnectionPersistence > appendToStream",
+      "sink": "append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/route.ts",
+      "symbol": "channelConnectionRoutes",
+      "sink": "services.activateChannelConnection",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/route.ts",
+      "symbol": "channelConnectionRoutes",
+      "sink": "services.connectChannel",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/route.ts",
+      "symbol": "channelConnectionRoutes",
+      "sink": "services.disconnectChannelConnection",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connector-feed/api/runtime.ts::createConnectorFeedRuntime > transact"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/route.ts",
+      "symbol": "channelConnectionRoutes",
+      "sink": "services.pauseChannelConnection",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/route.ts",
+      "symbol": "channelConnectionRoutes",
+      "sink": "services.resumeChannelConnection",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/runtime.ts",
+      "symbol": "createChannelConnectionRuntime > activateChannelConnection",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/runtime.ts",
+      "symbol": "createChannelConnectionRuntime > connectChannel",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/runtime.ts",
+      "symbol": "createChannelConnectionRuntime > disconnectChannelConnection",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/runtime.ts",
+      "symbol": "createChannelConnectionRuntime > disconnectChannelConnection",
+      "sink": "deps.disconnectChannelConnection",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connector-feed/api/runtime.ts::createConnectorFeedRuntime > transact"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/runtime.ts",
+      "symbol": "createChannelConnectionRuntime > pauseChannelConnection",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/runtime.ts",
+      "symbol": "createChannelConnectionRuntime > resumeChannelConnection",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/api/runtime.ts",
+      "symbol": "createChannelConnectionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/read-model/projection.ts",
+      "symbol": "buildChannelConnectionProjectionHandlers > \"channels.connection.activated\"",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connections/read-model/projection.ts::buildChannelConnectionProjectionHandlers > \"channels.connection.activated\"",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Projected Connection rows are not read by Versioned Connection Authority and cannot change its canonical version."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/read-model/projection.ts",
+      "symbol": "buildChannelConnectionProjectionHandlers > \"channels.connection.connected\"",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connections/read-model/projection.ts::buildChannelConnectionProjectionHandlers > \"channels.connection.connected\"",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Projected Connection rows are not read by Versioned Connection Authority and cannot change its canonical version."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/read-model/projection.ts",
+      "symbol": "buildChannelConnectionProjectionHandlers > \"channels.connection.disconnected\"",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connections/read-model/projection.ts::buildChannelConnectionProjectionHandlers > \"channels.connection.disconnected\"",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Projected Connection rows are not read by Versioned Connection Authority and cannot change its canonical version."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connections/read-model/projection.ts",
+      "symbol": "updateStatus",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connections/read-model/projection.ts::updateStatus",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Projected Connection rows are not read by Versioned Connection Authority and cannot change its canonical version."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connector-client/domain/tcgplayer-staged-import-envelope.ts",
+      "symbol": "formBody",
+      "sink": "params.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connector-client/domain/tcgplayer-staged-import-envelope.ts::formBody",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "URLSearchParams serialization in the extension is not a server Connection mutation."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connector-client/domain/tcgplayer-staged-import-envelope.ts",
+      "symbol": "formBody",
+      "sink": "params.append",
+      "ordinal": 2,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connector-client/domain/tcgplayer-staged-import-envelope.ts::formBody",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "URLSearchParams serialization in the extension is not a server Connection mutation."
+    },
+    {
+      "file": "bounded-contexts/channels/features/connector-feed/api/runtime.ts",
+      "symbol": "createConnectorFeedRuntime > disconnectChannelConnection",
+      "sink": "deps.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connector-feed/api/runtime.ts::createConnectorFeedRuntime > transact"
+    },
+    {
+      "file": "bounded-contexts/channels/features/connector-feed/api/runtime.ts",
+      "symbol": "createConnectorFeedRuntime > publishPairing",
+      "sink": "deps.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/connector-feed/api/runtime.ts::createConnectorFeedRuntime > publishPairing",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Pairing facts have a distinct connector-pairing stream; they do not change Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/credentials/api/runtime.ts",
+      "symbol": "createChannelCredentialRuntime > rewrite",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/credentials/api/runtime.ts::createChannelCredentialRuntime > rewrite",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "OAuth creation, replacement and rewrap mutate credential envelopes only; Connection identity, status and version are unchanged."
+    },
+    {
+      "file": "bounded-contexts/channels/features/credentials/api/runtime.ts",
+      "symbol": "createChannelCredentialRuntime",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/credentials/api/runtime.ts::createChannelCredentialRuntime",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "OAuth creation, replacement and rewrap mutate credential envelopes only; Connection identity, status and version are unchanged."
+    },
+    {
+      "file": "bounded-contexts/channels/features/credentials/api/runtime.ts",
+      "symbol": "createChannelCredentialRuntime",
+      "sink": "connection SQL",
+      "ordinal": 2,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/credentials/api/runtime.ts::createChannelCredentialRuntime",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "OAuth creation, replacement and rewrap mutate credential envelopes only; Connection identity, status and version are unchanged."
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-account-deletion/api/runtime.ts",
+      "symbol": "createEbayAccountDeletionRuntime",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/ebay-account-deletion/api/runtime.ts::createEbayAccountDeletionRuntime",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "The callback records/ages deletion receipts only; it neither disconnects nor changes a canonical Connection."
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-account-deletion/read-model/expiry.ts",
+      "symbol": "createEbayReceiptExpiryStore",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/ebay-account-deletion/read-model/expiry.ts::createEbayReceiptExpiryStore",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "The callback records/ages deletion receipts only; it neither disconnects nor changes a canonical Connection."
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-connection/api/runtime.ts",
+      "symbol": "createEbayConnectionRuntime",
+      "sink": "deps.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/ebay-connection/api/runtime.ts::createEbayConnectionRuntime > callback"
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/listing-publication-application.ts",
+      "symbol": "createChannelListingPublicationApplication > recordDesiredState",
+      "sink": "deps.linkRepository.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/listing-publication-application.ts::createChannelListingPublicationApplication > recordDesiredState",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime > applyConfigurationDecision",
+      "sink": "configurationRepository.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime > applyConfigurationDecision",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime > drainChannelListingDesiredStateReconciliation",
+      "sink": "runRepository.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime > drainChannelListingDesiredStateReconciliation",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime > drainChannelListingDesiredStateReconciliation",
+      "sink": "runRepository.append",
+      "ordinal": 2,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime > drainChannelListingDesiredStateReconciliation",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime > drainChannelListingDesiredStateReconciliation",
+      "sink": "runRepository.append",
+      "ordinal": 3,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime > drainChannelListingDesiredStateReconciliation",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime > enqueue",
+      "sink": "runRepository.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime > enqueue",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime > recordChannelListingPublicationOutcome",
+      "sink": "linkRepository.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime > recordChannelListingPublicationOutcome",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime > recordChannelListingPublicationOutcomeInTransaction",
+      "sink": "transactionalEventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime > recordChannelListingPublicationOutcomeInTransaction",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 2,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
+      "symbol": "createChannelListingCompositionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 3,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/listing-composition/api/runtime.ts::createChannelListingCompositionRuntime",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Listing configuration, link and reconciliation streams are distinct from Connection authority."
+    },
+    {
+      "file": "bounded-contexts/channels/features/manual-sync/api/seed.ts",
+      "symbol": "seedManualSyncScenario",
+      "sink": "createConnectionPersistence(eventStore, createConnectionEpochs(pool)).appendToStream",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/connections/api/owner-epochs.ts::createConnectionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/channels/features/manual-sync/api/seed.ts",
+      "symbol": "seedManualSyncScenario",
+      "sink": "eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/manual-sync/api/seed.ts::seedManualSyncScenario",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "This sink appends a TCGplayer sync-run, not the separately enrolled Connection seed append."
+    },
+    {
+      "file": "bounded-contexts/channels/features/order-fulfillment-observations/api/runtime.ts",
+      "symbol": "interpret > publish",
+      "sink": "store.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/order-fulfillment-observations/api/runtime.ts::interpret > publish",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Fulfillment observation facts do not append canonical Connection events."
+    },
+    {
+      "file": "bounded-contexts/channels/features/outbound-sync/ui/operation-log-navigation.ts",
+      "symbol": "pageHref",
+      "sink": "query.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/outbound-sync/ui/operation-log-navigation.ts::pageHref",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "URLSearchParams pagination is not a Connection writer."
+    },
+    {
+      "file": "bounded-contexts/channels/features/reconciliation/api/runtime.ts",
+      "symbol": "claimRun",
+      "sink": "dependencies.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/reconciliation/api/runtime.ts::claimRun",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Run and drift-decision facts are separate streams, not Connection lifecycle events."
+    },
+    {
+      "file": "bounded-contexts/channels/features/reconciliation/api/runtime.ts",
+      "symbol": "decideDrift",
+      "sink": "dependencies.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/reconciliation/api/runtime.ts::decideDrift",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Run and drift-decision facts are separate streams, not Connection lifecycle events."
+    },
+    {
+      "file": "bounded-contexts/channels/features/reconciliation/api/runtime.ts",
+      "symbol": "enqueueDecisionRepush",
+      "sink": "dependencies.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/reconciliation/api/runtime.ts::enqueueDecisionRepush",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Run and drift-decision facts are separate streams, not Connection lifecycle events."
+    },
+    {
+      "file": "bounded-contexts/channels/features/reconciliation/api/runtime.ts",
+      "symbol": "finishRun",
+      "sink": "dependencies.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/reconciliation/api/runtime.ts::finishRun",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Run and drift-decision facts are separate streams, not Connection lifecycle events."
+    },
+    {
+      "file": "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts",
+      "symbol": "appendRunEvent",
+      "sink": "eventStore.appendToStream",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts::appendRunEvent",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Sync-run composition and settlement append separate run streams, not Connection lifecycle events."
+    },
+    {
+      "file": "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts",
+      "symbol": "createTcgplayerCsvRuntime > composeTcgplayerSyncRun",
+      "sink": "dependencies.transactionalEventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts::createTcgplayerCsvRuntime > composeTcgplayerSyncRun",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Sync-run composition and settlement append separate run streams, not Connection lifecycle events."
+    },
+    {
+      "file": "bounded-contexts/channels/features/tcgplayer-csv/integrations/outbound-sync-settlement.ts",
+      "symbol": "createTcgplayerClaimedReservationRunSettlementPort > settleBoundRun",
+      "sink": "eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/tcgplayer-csv/integrations/outbound-sync-settlement.ts::createTcgplayerClaimedReservationRunSettlementPort > settleBoundRun",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Sync-run composition and settlement append separate run streams, not Connection lifecycle events."
     },
     {
       "file": "bounded-contexts/checkout/features/sessions/api/session-entry.ts",

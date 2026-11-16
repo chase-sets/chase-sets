@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 23,
-      authoritativeSites: 21,
+      discoveredCallCandidates: 24,
+      authoritativeSites: 22,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -94,6 +94,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
         "CANONICAL",
       ],
+      ["bounded-contexts/channels/features/connections/api/owner-epochs.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/fulfillment/features/seller-checkout-readiness/api/test-support.ts", "CANONICAL"],

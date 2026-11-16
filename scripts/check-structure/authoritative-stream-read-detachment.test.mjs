@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 23,
-      authoritativeSites: 21,
+      discoveredCallCandidates: 24,
+      authoritativeSites: 22,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-six green grammar instances across thirty-two live locations without a registry", () => {
+  it("derives thirty-eight green grammar instances across thirty-four live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(36);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(32);
+    expect(green).toHaveLength(38);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(34);
     expect(
       green
         .filter((entry) => entry.file.startsWith("bounded-contexts/auth/"))
@@ -239,6 +239,23 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         category: "type-position",
         file: "bounded-contexts/auth/features/sessions/api/session-authority.ts",
         symbol: "createAuthSessionAuthority.capture.readStream",
+      },
+    ]);
+    expect(
+      green
+        .filter((entry) => entry.file.startsWith("bounded-contexts/channels/features/connections/"))
+        .map(({ category, file, symbol }) => ({ category, file, symbol }))
+        .sort((left, right) => left.file.localeCompare(right.file)),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/channels/features/connections/api/owner-epochs.ts",
+        symbol: "createConnectionPersistence.readStream",
+      },
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/channels/features/connections/api/versioned-connection-authority.ts",
+        symbol: "createVersionedConnectionAuthority.capture.loaded.readStream",
       },
     ]);
     expect(

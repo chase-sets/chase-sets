@@ -21,6 +21,17 @@ describe("channels-services-guard-negative", () => {
   it("accepts the complete aggregate candidate", () => {
     expect(isChannelsServices(validCandidate())).toBe(true);
   });
+  it.each(["capture", "registerConsumer"])("rejects a missing Connection authority %s", (method) => {
+    const candidate = validCandidate();
+    expect(
+      isChannelsServices({
+        ...candidate,
+        connectionAuthority: Object.fromEntries(
+          Object.entries(candidate.connectionAuthority).filter(([key]) => key !== method),
+        ),
+      }),
+    ).toBe(false);
+  });
   it.each(["scheduleDueOrderPulls", "scheduleDueLiveExports"] as const)(
     "rejects missing %s worker scheduler",
     (method) => {
@@ -170,6 +181,10 @@ function validCandidate() {
       readConnectorLivenessAuthorityInTransaction:
         vi.fn<ChannelsServices["connectorFeed"]["readConnectorLivenessAuthorityInTransaction"]>(),
       listConnectorLivenessCandidates: vi.fn<ChannelsServices["connectorFeed"]["listConnectorLivenessCandidates"]>(),
+    },
+    connectionAuthority: {
+      capture: vi.fn<ChannelsServices["connectionAuthority"]["capture"]>(),
+      registerConsumer: vi.fn<ChannelsServices["connectionAuthority"]["registerConsumer"]>(),
     },
     projectors: [],
     db: {},

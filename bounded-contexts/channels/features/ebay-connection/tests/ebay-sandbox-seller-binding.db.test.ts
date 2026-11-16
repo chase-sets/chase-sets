@@ -42,6 +42,16 @@ describe("ebay-sandbox-seller-binding", () => {
     expect((await f.db().query("SELECT binding_id FROM channels_ebay_seller_bindings")).rows).toHaveLength(1);
     expect(await f.envelopes()).toHaveLength(1);
   });
+  it("reauthorization changes custody without changing canonical Connection history", async () => {
+    const r = f.runtime();
+    const connected = await f.connect(r);
+    const streamId = `channels.connection-${connected.connectionId}`;
+    const before = await r.eventStore.readStream({ streamId });
+    const state = await f.authorize(r, owner, connected.connectionId);
+    expect(await r.service.callback(owner, state, "synthetic-new-code", context())).toEqual(connected);
+    expect(await r.eventStore.readStream({ streamId })).toEqual(before);
+    expect(r.provider.exchange).toHaveBeenCalledTimes(2);
+  });
   it("retains root and seal keys after disconnect, with environment-qualified identity controls", async () => {
     const r = f.runtime(),
       connected = await f.connect(r);
