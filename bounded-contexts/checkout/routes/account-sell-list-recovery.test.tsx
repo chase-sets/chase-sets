@@ -1,4 +1,3 @@
-import { deriveSellListCompositeReview } from "../features/sell-list/read-model/screen-review";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createHash } from "node:crypto";
@@ -20,6 +19,7 @@ import {
   mockResolveActorFromAuthApi,
 } from "../tests/support/checkout-route-test-harness";
 import { sellListAttemptResult } from "../features/command-attempts/api/sell-list-route.test-support";
+import type { CheckoutSellListCompositeReview } from "../support/request-support/api-client";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({ resolveActorFromAuthApi: mockResolveActorFromAuthApi }));
 vi.mock("../support/request-support/api-client", () => ({
@@ -56,12 +56,43 @@ const line = {
   created_at: "2026-10-07T00:00:00.000Z",
   updated_at: "2026-10-07T00:00:00.000Z",
 };
-const review = deriveSellListCompositeReview({
-  lines: [line],
-  isAccount: true,
-  payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null },
-  review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
-});
+const review: CheckoutSellListCompositeReview = {
+  offerReviews: [],
+  productOfferReviews: [],
+  inventoryItems: [],
+  screen: {
+    lines: {
+      [line.line_id]: {
+        ready: false,
+        canSubmit: false,
+        labelCode: "needs-action",
+        detailCode: "choose-sale-action",
+        parameters: {},
+        unmetEvidenceCodes: [],
+        message: null,
+        setupHref: "/account/listings/new?catalogItemId=cat_charizard&recommendedPrice=399.00",
+        inventoryHref: "/account/inventory?catalogItemId=cat_charizard&returnTo=%2Faccount%2Fsell-list",
+        recoveryHref: "/account/inventory?catalogItemId=cat_charizard&returnTo=%2Faccount%2Fsell-list",
+      },
+    },
+    lineCount: 1,
+    totalQuantity: 1,
+    readyLineCount: 0,
+    blockedLineCount: 1,
+    blockedSubmissionLineCount: 1,
+    canContinue: false,
+    payoutIsReady: true,
+    payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null },
+    payoutSetupHref: "/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+    recoveryHref: "/account/inventory?catalogItemId=cat_charizard&returnTo=%2Faccount%2Fsell-list",
+    recoveryCode: "resolve-items",
+    hasMultipleOffers: false,
+    selectedOfferGross: "0.00",
+    futureListingGross: "399.00",
+    estimatedSalesFees: null,
+    expectedSellerPayout: null,
+  },
+};
 const lag = () => new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
 let router: ReturnType<typeof createMemoryRouter>;
 

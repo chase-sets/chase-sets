@@ -907,6 +907,7 @@ describe("checkout web routes: account sell list", () => {
       }),
     };
     const freshApi = {
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
     };
     mockCreateCheckoutRequestApiClient.mockImplementation((request: Request) => {
@@ -953,6 +954,7 @@ describe("checkout web routes: account sell list", () => {
       }),
     };
     const freshApi = {
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
     };
     mockCreateCheckoutRequestApiClient.mockImplementation((request: Request) => {

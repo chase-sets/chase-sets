@@ -98,14 +98,14 @@ describe("Sell List screen answers", () => {
             ...selected,
             evidence: {
               ...selected.evidence!,
-              coverage: { ...selected.evidence!.coverage, complete: false, unmetCodes: ["photo-count"] },
+              coverage: { ...selected.evidence!.coverage, complete: false, unmetCodes: ["min-photo-count-unmet"] },
             },
           },
         ],
       }).lines[fixtureLine.line_id],
     ).toMatchObject({
       detailCode: "evidence-incomplete",
-      unmetEvidenceCodes: ["photo-count"],
+      unmetEvidenceCodes: ["min-photo-count-unmet"],
       ready: false,
       canSubmit: false,
     });

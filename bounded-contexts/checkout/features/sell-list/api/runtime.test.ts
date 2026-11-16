@@ -1520,7 +1520,7 @@ describe("Sell List screen read services", () => {
     const f = checkoutOwnerRuntimeFixture();
     const result = await f.services.loadCompositeReview("acc_seller");
     expect(result.screen.canContinue).toBe(true);
-    expect(result.offerReviews[0]?.terms?.fee_quote_fingerprint).toBeTruthy();
+    expect(result.offerReviews[0]?.terms).toMatchObject({ fee_quote_fingerprint: expect.any(String) });
     const payoutReads = f.db.query.mock.calls.filter(([sql]) =>
       String(sql).includes("checkout_sell_payout_readiness_pages"),
     );

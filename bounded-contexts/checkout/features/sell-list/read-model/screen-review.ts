@@ -1,4 +1,5 @@
 import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
+import type { EvidenceCoverageCode } from "../../../support/request-support/marketplace-listing-evidence";
 import type {
   CheckoutSellListCompositeReview,
   CheckoutSellListLineRow,
@@ -21,7 +22,7 @@ export type SellListLineScreenReview = Readonly<{
     | "fallback-listing-form-ready"
     | "choose-sale-action";
   parameters: Readonly<{ count?: number }>;
-  unmetEvidenceCodes: readonly string[];
+  unmetEvidenceCodes: readonly EvidenceCoverageCode[];
   message: string | null;
   setupHref: string;
   inventoryHref: string;
