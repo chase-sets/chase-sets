@@ -92,6 +92,7 @@ describe("Listing recovery through a real data router", () => {
       injected?: boolean;
       loseRouteResponse?: boolean;
       failReadsAfterRouteLoss?: boolean;
+      failPageReads?: boolean;
     } = {},
   ) {
     const ids = outcomes.map((_, index) => (index === 0 ? "lst_one" : `lst_${index + 1}`));
@@ -104,6 +105,10 @@ describe("Listing recovery through a real data router", () => {
     const transport = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
+      if (routeResponseLost && options.failReadsAfterRouteLoss) {
+        if (url.pathname.includes("mutation-attempts")) lookups.push(url.searchParams.get("target")!);
+        throw new TypeError("read connection unavailable");
+      }
       if (url.pathname.includes("mutation-attempts")) {
         const id = url.searchParams.get("target")!;
         lookups.push(id);
@@ -146,7 +151,7 @@ describe("Listing recovery through a real data router", () => {
           items: body.listingIds.map((targetId) => ({ targetId, outcome: "succeeded", version: 2 })),
         });
       }
-      if (routeResponseLost && options.failReadsAfterRouteLoss) throw new TypeError("read connection unavailable");
+      if (options.failPageReads) throw new TypeError("projected reads unavailable");
       if (url.pathname.endsWith("listing-availability")) return json(availability);
       if (url.pathname.endsWith("order-capacity"))
         return json(
@@ -257,6 +262,14 @@ describe("Listing recovery through a real data router", () => {
       await navigation;
     });
     await screen.findByRole("button", { name: t("marketplace.listingRecovery.retryUnknown") });
+  });
+
+  it("reopens retained owner history once even when projected page reads are unavailable", async () => {
+    const fixture = await setup(["succeeded"], { failPageReads: true });
+    await screen.findAllByText(t("marketplace.listingRecovery.succeeded"));
+    expect(fixture.lookups).toEqual(["lst_one"]);
+    expect(fixture.sends).toEqual([]);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("looks up once after possible-send loss, retains the pre-send URL, and reopens without another append", async () => {
@@ -418,102 +431,109 @@ describe("Listing recovery through a real data router", () => {
     expect(fixture.lookups).toEqual([]);
   });
 
-  it("recovers a single Listing's lost POST and reopens its first owner result without resending", async () => {
-    const singlePath = `${path}/lst_one`;
-    let committed = false;
-    let sends = 0;
-    const lookups: string[] = [];
-    let router: ReturnType<typeof createMemoryRouter>;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-        const url = new URL(String(input), "http://localhost");
-        if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
-        if (url.pathname.includes("mutation-attempts")) {
-          const id = url.searchParams.get("target")!;
-          lookups.push(id);
-          const binding = marketplaceAttemptBinding({
-            attemptId: decodeURIComponent(url.pathname.split("/").at(-1)!),
-            accountId: actor.accountId,
-            mutationKind: "listing.pause",
-            target: { kind: "listing", id },
-            request: null,
-          });
+  it.each([false, true])(
+    "recovers a single Listing's lost POST and reopens without resending, projected reads unavailable=%s",
+    async (unavailableOnReload) => {
+      const singlePath = `${path}/lst_one`;
+      let committed = false;
+      let failPageReads = false;
+      let sends = 0;
+      const lookups: string[] = [];
+      let router: ReturnType<typeof createMemoryRouter>;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = new URL(String(input), "http://localhost");
+          if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
+          if (url.pathname.includes("mutation-attempts")) {
+            const id = url.searchParams.get("target")!;
+            lookups.push(id);
+            const binding = marketplaceAttemptBinding({
+              attemptId: decodeURIComponent(url.pathname.split("/").at(-1)!),
+              accountId: actor.accountId,
+              mutationKind: "listing.pause",
+              target: { kind: "listing", id },
+              request: null,
+            });
+            return json({
+              ...binding,
+              canonicalRequestHash: url.searchParams.get("requestHash"),
+              ownerStatus: committed ? "committed" : "not-observed",
+              ...(committed ? { ownerReceipt: { id, version: 2 } } : {}),
+            });
+          }
+          if (init?.method === "POST") {
+            expect(router.state.location.search).toContain("listingRecovery=");
+            sends++;
+            committed = true;
+            throw new TypeError("response lost after commit");
+          }
+          if (failPageReads) throw new TypeError("projected reads unavailable");
+          if (url.pathname.endsWith("/fee-history")) return json({ items: [], total: 0, count: 0 });
           return json({
-            ...binding,
-            canonicalRequestHash: url.searchParams.get("requestHash"),
-            ownerStatus: committed ? "committed" : "not-observed",
-            ...(committed ? { ownerReceipt: { id, version: 2 } } : {}),
-          });
-        }
-        if (init?.method === "POST") {
-          expect(router.state.location.search).toContain("listingRecovery=");
-          sends++;
-          committed = true;
-          throw new TypeError("response lost after commit");
-        }
-        if (url.pathname.endsWith("/fee-history")) return json({ items: [], total: 0, count: 0 });
-        return json({
-          ...listing,
-          fee_locks: [],
-          selected_options: [],
-          evidence_readiness: {
-            ready: true,
-            policy: { explanationCodes: [] },
-            requirements: {
-              minimumPhotoCount: 0,
-              requiredSlots: [],
-              sellerTrustRequirements: [],
-              buyerAcknowledgment: "none",
+            ...listing,
+            fee_locks: [],
+            selected_options: [],
+            evidence_readiness: {
+              ready: true,
+              policy: { explanationCodes: [] },
+              requirements: {
+                minimumPhotoCount: 0,
+                requiredSlots: [],
+                sellerTrustRequirements: [],
+                buyerAcknowledgment: "none",
+              },
+              coverage: { complete: true, unmetCodes: [], slots: [], activePhotoCount: 0, minimumPhotoCount: 0 },
+              nextActions: [],
+              publicGallery: [],
             },
-            coverage: { complete: true, unmetCodes: [], slots: [], activePhotoCount: 0, minimumPhotoCount: 0 },
-            nextActions: [],
-            publicGallery: [],
-          },
-        });
-      }),
-    );
-    const routes = [
-      {
-        path: `${path}/:listingId`,
-        loader: listingLoader,
-        action: listingAction,
-        shouldRevalidate: listingShouldRevalidate,
-        Component: ListingRoute,
-      },
-    ];
-    router = createMemoryRouter(routes, { initialEntries: [singlePath] });
-    await act(async () => {
-      render(
-        <ChaseRoot>
-          <RouterProvider router={router} />
-        </ChaseRoot>,
+          });
+        }),
       );
-      await routerReady(router);
-    });
-    await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: "Pause listing" }));
-    });
-    await act(async () => {
-      await routerReady(router);
-    });
-    await screen.findAllByText(t("marketplace.listingRecovery.succeeded"));
-    expect(sends).toBe(1);
-    expect(lookups).toEqual(["lst_one", "lst_one", "lst_one"]);
-    const retained = `${singlePath}${router.state.location.search}`;
-    cleanup();
-    router = createMemoryRouter(routes, { initialEntries: [retained] });
-    await act(async () => {
-      render(
-        <ChaseRoot>
-          <RouterProvider router={router} />
-        </ChaseRoot>,
-      );
-      await routerReady(router);
-    });
-    await screen.findAllByText(t("marketplace.listingRecovery.succeeded"));
-    expect(sends).toBe(1);
-    expect(lookups).toHaveLength(4);
-    expect(screen.getByRole("button", { name: "Pause listing" }).matches(":disabled")).toBe(true);
-  });
+      const routes = [
+        {
+          path: `${path}/:listingId`,
+          loader: listingLoader,
+          action: listingAction,
+          shouldRevalidate: listingShouldRevalidate,
+          Component: ListingRoute,
+        },
+      ];
+      router = createMemoryRouter(routes, { initialEntries: [singlePath] });
+      await act(async () => {
+        render(
+          <ChaseRoot>
+            <RouterProvider router={router} />
+          </ChaseRoot>,
+        );
+        await routerReady(router);
+      });
+      await act(async () => {
+        fireEvent.click(await screen.findByRole("button", { name: "Pause listing" }));
+      });
+      await act(async () => {
+        await routerReady(router);
+      });
+      await screen.findAllByText(t("marketplace.listingRecovery.succeeded"));
+      expect(sends).toBe(1);
+      expect(lookups).toEqual(["lst_one", "lst_one", "lst_one"]);
+      const retained = `${singlePath}${router.state.location.search}`;
+      cleanup();
+      failPageReads = unavailableOnReload;
+      router = createMemoryRouter(routes, { initialEntries: [retained] });
+      await act(async () => {
+        render(
+          <ChaseRoot>
+            <RouterProvider router={router} />
+          </ChaseRoot>,
+        );
+        await routerReady(router);
+      });
+      await screen.findAllByText(t("marketplace.listingRecovery.succeeded"));
+      expect(sends).toBe(1);
+      expect(lookups).toHaveLength(4);
+      if (unavailableOnReload) expect(screen.queryByRole("button")).toBeNull();
+      else expect(screen.getByRole("button", { name: "Pause listing" }).matches(":disabled")).toBe(true);
+    },
+  );
 });

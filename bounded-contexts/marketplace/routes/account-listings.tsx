@@ -1,5 +1,6 @@
 import { listingFormAttempt } from "../support/request-support/listing-attempt";
 import {
+  LISTING_RECOVERY_PARAM,
   listingRecoveryForForm,
   listingRecoveryResult,
   listingRecoveryUrl,
@@ -8,7 +9,7 @@ import {
   sameListingRecovery,
   type ListingRecoveryIdentity,
 } from "../features/listings/ui/listing-batch";
-import { ListingRecoveryScope } from "../features/listings/ui/listing-batch-recovery";
+import { ListingRecoveryNotice, ListingRecoveryScope } from "../features/listings/ui/listing-batch-recovery";
 export { ListingRecoveryErrorBoundary as ErrorBoundary } from "../features/listings/ui/listing-batch-recovery";
 import { t } from "@chase-sets/localization";
 import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
@@ -278,11 +279,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const pendingAvailabilityStatus = availabilityStatusFromAction(searchParams.get(AVAILABILITY_ACTION_PARAM));
   const pendingSettingsAction = searchParams.get(SETTINGS_ACTION_PARAM);
-  const listingRecovery = await loadListingRecovery(
-    createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest)),
-    request,
-    actor.accountId,
-  );
+  const listingRecovery = new URL(request.url).searchParams.has(LISTING_RECOVERY_PARAM)
+    ? await loadListingRecovery(
+        createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest)),
+        request,
+        actor.accountId,
+      )
+    : null;
 
   const loadPageReads = async (apiClient: typeof marketplaceApi): Promise<AccountListingsPageReads> => {
     const [listings, feeLockReport, listingAvailability, orderCapacity] = await Promise.all([
@@ -303,15 +306,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
 
   let pageReads: AccountListingsPageReads;
+  let recoveryOnly = false;
   if (pageRead.kind === "data") {
     pageReads = pageRead.data;
+  } else if (listingRecovery) {
+    pageReads = createFreshWriteRecoveryPageReads(actor.accountId);
+    recoveryOnly = true;
   } else if (pageRead.kind === "pending" && "classification" in pageRead) {
     const { classification } = pageRead;
     if (classification.transient && hasMarketplaceFreshWriteSource(classification)) {
-      if (listingRecovery) {
-        const recoveryApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest));
-        pageReads = await loadPageReads(recoveryApi).catch(() => createFreshWriteRecoveryPageReads(actor.accountId));
-      } else if (pendingSettingsAction) {
+      if (pendingSettingsAction) {
         const recoveryApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest));
         pageReads = applySettingsRecovery(await loadPageReads(recoveryApi), searchParams);
       } else if (pendingAvailabilityStatus) {
@@ -347,6 +351,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     accountAccessRequired: null,
     listingRecovery,
+    ...(recoveryOnly ? { recoveryOnly: true as const } : {}),
     listings,
     feeLockReport,
     listingAvailability,
@@ -627,6 +632,17 @@ export default function MarketplaceAccountListingsRoute() {
         description={data.accountAccessRequired.description}
         returnTo={data.accountAccessRequired.returnTo}
       />
+    );
+  }
+
+  if ("recoveryOnly" in data && data.recoveryOnly) {
+    return (
+      <ListingRecoveryScope
+        recovery={actionData?.listingRecovery ?? data.listingRecovery}
+        accountId={data.listingAvailability.account_id}
+      >
+        <ListingRecoveryNotice />
+      </ListingRecoveryScope>
     );
   }
 

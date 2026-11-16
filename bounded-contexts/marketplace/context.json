@@ -1371,6 +1371,22 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "marketplace.listing-recovery-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-batch-recovery.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "description": "The Listing recovery notice renders the command-owned terminal vector. Only explicit unknown targets have a retry action; projected Listing rows never authorize a resend."
+      },
+      "proof": {
+        "authoritativeResponse": "The retry route preflights each target through its owner lookup, submits only unknown targets, and returns the C2 terminal vector. Possible-send loss resolves through owner history rather than repeating the command.",
+        "tests": ["bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"]
+      }
+    },
+    {
       "id": "marketplace.offer-policy-command-snapshots",
       "owner": "marketplace",
       "risk": "important",

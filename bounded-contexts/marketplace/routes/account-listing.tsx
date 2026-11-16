@@ -148,6 +148,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
   const api = createMarketplaceRequestApiClient(resolvedRequest);
   const nonFreshApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest));
+  const listingRecovery = await loadListingRecovery(nonFreshApi, request, actor.accountId);
+  const recoveryData = {
+    listing: null,
+    feeHistory: { items: [], total: 0, count: 0 },
+    recovery: "fresh-write-preparing" as const,
+    accountId: actor.accountId,
+    listingRecovery,
+  };
   const listingRead = await loadAfterWrite<MarketplaceListingDetail>({
     request: resolvedRequest,
     isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
@@ -155,15 +163,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     telemetry: ACCOUNT_LISTING_POST_WRITE_TELEMETRY,
   });
 
-  if (listingRead.kind === "pending") {
-    return {
-      listing: null,
-      feeHistory: { items: [], total: 0, count: 0 },
-      recovery: "fresh-write-preparing" as const,
-      accountId: actor.accountId,
-      listingRecovery: await loadListingRecovery(nonFreshApi, request, actor.accountId),
-    };
-  }
+  if (listingRecovery && listingRead.kind !== "data") return { ...recoveryData, recoveryOnly: true as const };
+  if (listingRead.kind === "pending") return recoveryData;
 
   if (listingRead.kind === "permanent-failure") {
     const error = "error" in listingRead ? listingRead.error : null;
@@ -178,11 +179,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response(t("marketplace.routes.accountListing.listing.not.found"), { status: 404 });
   }
 
+  const feeHistory = await nonFreshApi.getSellerListingFeeHistory(params.listingId!).catch((error: unknown) => {
+    if (!listingRecovery) throw error;
+    return null;
+  });
+  if (!feeHistory) return { ...recoveryData, recoveryOnly: true as const };
   return {
     accountId: actor.accountId,
-    listingRecovery: await loadListingRecovery(nonFreshApi, request, actor.accountId),
+    listingRecovery,
     listing: listingRead.data,
-    feeHistory: await nonFreshApi.getSellerListingFeeHistory(params.listingId!),
+    feeHistory,
   };
 }
 
@@ -462,7 +468,9 @@ export default function MarketplaceAccountListingRoute() {
     return (
       <ListingRecoveryScope recovery={actionData?.listingRecovery ?? data.listingRecovery} accountId={data.accountId}>
         <ListingRecoveryNotice />
-        <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />
+        {!("recoveryOnly" in data && data.recoveryOnly) ? (
+          <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />
+        ) : null}
       </ListingRecoveryScope>
     );
   }
