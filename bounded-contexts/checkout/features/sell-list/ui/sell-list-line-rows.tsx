@@ -244,6 +244,7 @@ export function SelectedOfferRow({
           />
         </Stack>
         <Form spacing="none" method="post">
+          <HiddenInput name="attemptId" defaultValue="" />
           <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
           <HiddenInput type="hidden" name="lineId" value={line.line_id} />
           {review?.terms?.fee_quote_fingerprint ? (
@@ -344,6 +345,7 @@ export function ProductLineRow({
             />
           </Stack>
           <Form spacing="none" method="post">
+            <HiddenInput name="attemptId" defaultValue="" />
             <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
             <HiddenInput type="hidden" name="lineId" value={line.line_id} />
             <Button type="submit" tone="secondary" size="md" leadingIcon="trash">

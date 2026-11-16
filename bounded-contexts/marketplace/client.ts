@@ -13,6 +13,9 @@ import {
 import {
   marketplaceAttemptIdSchema,
   marketplaceListingCanonicalRequest,
+  marketplaceOfferCanonicalRequest,
+  marketplaceMutationRecoveryResultSchema,
+  type MarketplaceMutationRecoveryResult,
   type MarketplaceListingMutationKind,
 } from "./features/mutation-recovery/domain/contracts";
 import type { MarketplaceMutationKind } from "./features/mutation-recovery/domain/contracts";
@@ -238,6 +241,7 @@ export function createMarketplaceApiClient({
     }),
   );
   const headers = resolveHeaders(initialHeaders);
+  const recoveredAcceptances = new Map<string, MarketplaceMutationRecoveryResult>();
   const lookupAttempt = async (attemptId: string, kind: MarketplaceMutationKind, target: string, requestHash: string) =>
     parseJsonResponse(
       await configuredFetch(
@@ -868,10 +872,26 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async getOfferAcceptanceAttempt(
+      id: string,
+      body: Record<string, unknown> & { sourceActionKey: string },
+    ): Promise<MarketplaceMutationRecoveryResult> {
+      const requestHash = await marketplaceRequestHash(
+        marketplaceOfferCanonicalRequest("offer.accept", { ...body, offerId: id }),
+      );
+      const recovered = recoveredAcceptances.get(body.sourceActionKey);
+      if (recovered?.target.id === id && recovered.canonicalRequestHash === requestHash) return recovered;
+      const observed = await lookupAttempt(body.sourceActionKey, "offer.accept", id, requestHash);
+      marketplaceMutationRecoveryResultSchema.parse(observed);
+      return observed as MarketplaceMutationRecoveryResult;
+    },
     async acceptOfferMatch(id: string, body: Record<string, unknown> & { sourceActionKey: string }) {
       return recoverMarketplaceCommand({
         attemptId: body.sourceActionKey,
         mutationKind: "offer.accept",
+        onRecovered: (_recovery, observed) => {
+          recoveredAcceptances.set(body.sourceActionKey, observed as MarketplaceMutationRecoveryResult);
+        },
         target: id,
         request: { ...body, offerId: id },
         isCommandResponse: isDefiniteMarketplaceCommandResponse,

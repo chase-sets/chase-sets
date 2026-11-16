@@ -1,5 +1,16 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
+import { data, redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
+import { createHash } from "node:crypto";
+import { submitCheckoutSellListAdd } from "../features/command-attempts/api/sell-list-submission";
+import {
+  submitCheckoutCartAttempt,
+  checkoutCartAttemptCommitSource,
+} from "../features/command-attempts/api/attempt-submission";
+import { isCheckoutCommandAttemptId, mintCheckoutCommandAttemptId } from "../features/command-attempts/api/contracts";
+import {
+  SellListAttemptBoundary,
+  type SellListAttemptState,
+} from "../features/sell-list/ui/sell-list-attempt-boundary";
 import {
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
@@ -732,7 +743,7 @@ function parsePostedQuantity(formData: FormData) {
   return Number.isInteger(quantity) && quantity > 0 ? Math.min(quantity, 999) : 1;
 }
 
-function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutSellListLineRequest {
+function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): Omit<AddCheckoutSellListLineRequest, "attemptId"> {
   return {
     lineType: "selected-offer",
     offerId: offer.offer_id,
@@ -757,7 +768,7 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
   };
 }
 
-function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSellListLineRequest {
+function selectedOfferLineFromPostedSnapshot(formData: FormData): Omit<AddCheckoutSellListLineRequest, "attemptId"> {
   const offerId = limitedFormValue(formData, "offerId", 160);
   const listingId = limitedFormValue(formData, "listingId", 160);
   const catalogItemId = limitedFormValue(formData, "catalogItemId", 160);
@@ -1033,6 +1044,46 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
   const actor = await resolveActorFromAuthApi({ request });
   const useAccountSellList = canUseAccountSellList(actor);
   const anonymousSellListId = readAnonymousSellListId(request);
+  const presented = String(formData.get("attemptId") ?? "");
+  const attemptId = isCheckoutCommandAttemptId(presented) ? presented : mintCheckoutCommandAttemptId();
+  formData.set("attemptId", attemptId);
+  const attemptResult = (
+    state: SellListAttemptState["state"],
+    message: string | null = null,
+    lines: SellListAttemptState["lines"] = [],
+  ) => ({
+    error: message,
+    sellListAttempt: {
+      state,
+      fields: [...formData.entries()].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      lines,
+    } satisfies SellListAttemptState,
+  });
+  async function finishSubmission(
+    submission: Awaited<ReturnType<typeof submitCheckoutCartAttempt>>,
+    ownerId?: string,
+    handoff = false,
+  ) {
+    const headers = new Headers();
+    if (ownerId) appendAnonymousSellListCookie(headers, ownerId, request);
+    if (submission.state !== "succeeded")
+      return data(
+        attemptResult(
+          submission.state,
+          submission.message,
+          (submission.attempt?.vector ?? []).map((line) => ({ id: line.lineId ?? "", status: line.outcome })),
+        ),
+        { headers },
+      );
+    return redirect(
+      await navigateAfterWriteWithPlatformPostWriteToken(
+        checkoutCartAttemptCommitSource(submission),
+        sellListSurfacePath,
+        handoff ? { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF } : undefined,
+      ),
+      { headers },
+    );
+  }
   const sellListSurfacePath =
     new URL(request.url).pathname === "/account/desk/offers" ? "/account/desk/offers" : "/account/sell-list";
 
@@ -1056,63 +1107,77 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
       const marketplaceApi = createMarketplaceRequestApiClient(request);
       const sellList = await api.getSellList();
+      const outcomes: { id: string; status: string }[] = [];
       for (const offerId of offerIds) {
-        await marketplaceApi.declineOfferMatch(offerId, { attemptId: `decline_${offerId}`.padEnd(22, "_") });
-      }
-      const declined = new Set(offerIds);
-      for (const line of sellList.items) {
-        if (line.line_type === "selected-offer" && line.offer_id && declined.has(line.offer_id)) {
-          await api.removeSellListLine(line.line_id);
+        try {
+          await marketplaceApi.declineOfferMatch(offerId, {
+            attemptId: createHash("sha256")
+              .update(JSON.stringify(["sell-list-decline", attemptId, offerId]))
+              .digest("base64url"),
+          });
+          outcomes.push({ id: offerId, status: "declined" });
+        } catch (error) {
+          outcomes.push(
+            { id: offerId, status: "ambiguous" },
+            ...offerIds.slice(outcomes.length + 1).map((id) => ({ id, status: "not-attempted" })),
+          );
+          return attemptResult("partial", error instanceof Error ? error.message : null, outcomes);
         }
       }
-
-      return redirect(sellListSurfacePath);
+      const declined = new Set(offerIds);
+      const lineIds = formData.has("declinedLineId")
+        ? formData.getAll("declinedLineId").map(String)
+        : sellList.items
+            .filter((line) => line.line_type === "selected-offer" && line.offer_id && declined.has(line.offer_id))
+            .map((line) => line.line_id);
+      if (!lineIds.length) return redirect(sellListSurfacePath);
+      for (const lineId of lineIds)
+        if (!formData.getAll("declinedLineId").includes(lineId)) formData.append("declinedLineId", lineId);
+      const body = { attemptId, lineIds };
+      return finishSubmission(
+        await submitCheckoutCartAttempt({
+          attemptId,
+          kind: "sell-list-batch",
+          target: "sell-list",
+          body,
+          send: () => api.removeSellListLines(body),
+          lookup: (query) => api.getSellListCommandAttempt(query),
+        }),
+      );
     }
 
     if (intent === "add-selected-offer") {
       if (!useAccountSellList) {
         const anonymousOwnerId = ensureAnonymousSellListId(request);
-        const result = await api.addGuestSellListLine(anonymousOwnerId, selectedOfferLineFromPostedSnapshot(formData));
-        const response = redirect(
-          await navigateAfterWriteWithPlatformPostWriteToken(result, sellListSurfacePath, {
-            handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-          }),
-        );
-        appendAnonymousSellListCookie(response.headers, anonymousOwnerId, request);
-        return response;
+        const body = { ...selectedOfferLineFromPostedSnapshot(formData), attemptId };
+        return finishSubmission(await submitCheckoutSellListAdd(api, body, anonymousOwnerId), anonymousOwnerId, true);
       }
 
       const offerId = String(formData.get("offerId") ?? "");
       const offer = await api.getSellListOfferMatch(offerId);
 
-      const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
-
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(result, sellListSurfacePath, {
-          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-        }),
-      );
+      const body = { ...selectedOfferLineFromOffer(offer), attemptId };
+      return finishSubmission(await submitCheckoutSellListAdd(api, body), undefined, true);
     }
 
     if (intent === "remove-sell-list-line") {
-      if (!useAccountSellList && anonymousSellListId) {
-        return redirect(
-          await navigateAfterWriteWithPlatformPostWriteToken(
-            await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? "")),
-            sellListSurfacePath,
-          ),
-        );
-      }
-
-      if (!useAccountSellList) {
+      if (!useAccountSellList && !anonymousSellListId) {
         throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
       }
-
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(
-          await api.removeSellListLine(String(formData.get("lineId") ?? "")),
-          sellListSurfacePath,
-        ),
+      const lineId = String(formData.get("lineId") ?? "");
+      const ownerId = useAccountSellList ? undefined : anonymousSellListId!;
+      const body = { attemptId };
+      return finishSubmission(
+        await submitCheckoutCartAttempt({
+          attemptId,
+          kind: "sell-list-line",
+          target: lineId,
+          body,
+          send: () =>
+            ownerId ? api.removeGuestSellListLine(ownerId, lineId, body) : api.removeSellListLine(lineId, body),
+          lookup: (query) => api.getSellListCommandAttempt(query, ownerId),
+        }),
+        ownerId,
       );
     }
 
@@ -1181,9 +1246,10 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
     return null;
   } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : t("checkout.routes.accountSellList.sell.list.request.failed"),
-    };
+    return attemptResult(
+      "failed-safe",
+      error instanceof Error ? error.message : t("checkout.routes.accountSellList.sell.list.request.failed"),
+    );
   }
 }
 
@@ -1209,6 +1275,7 @@ export default function CheckoutAccountSellListRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
+  const navigation = useNavigation();
   const sellListRecovery = "sellListRecovery" in data ? data.sellListRecovery : null;
   const { currentPath, isAutoRevalidating } = usePendingFreshWriteRevalidation(
     sellListRecovery?.kind === "pending-fresh-write",
@@ -1216,38 +1283,40 @@ export default function CheckoutAccountSellListRoute() {
   );
 
   return (
-    <CheckoutSellListPage
-      sellListLines={data.sellList.items}
-      isSignedIn={data.isSignedIn}
-      offerReviews={"offerReviews" in data ? data.offerReviews : []}
-      productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
-      inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}
-      payoutReadiness={"payoutReadiness" in data ? data.payoutReadiness : null}
-      latestConfirmation={"latestConfirmation" in data.sellList ? (data.sellList.latestConfirmation ?? null) : null}
-      registrationReturn={data.registrationReturn}
-      mergedLineCount={data.mergedLineCount}
-      mergeError={data.mergeError}
-      sellerCheckoutRegisterHref={data.sellerCheckoutRegisterHref}
-      sellerCheckoutSignInHref={data.sellerCheckoutSignInHref}
-      errorMessage={actionData?.error ?? ("freshnessError" in data && !sellListRecovery ? data.freshnessError : null)}
-      recoveryMessage={sellListRecovery?.message ?? null}
-      recoveryState={
-        sellListRecovery
-          ? sellListRecovery.kind === "pending-fresh-write"
-            ? {
-                kind: sellListRecovery.kind,
-                message: sellListRecovery.message,
-                refreshHref: currentPath,
-                isAutoRevalidating,
-              }
-            : {
-                kind: sellListRecovery.kind,
-                message: sellListRecovery.message,
-                refreshHref: "/account/sell-list",
-              }
-          : null
-      }
-      sellListPath={location.pathname === "/account/desk/offers" ? location.pathname : "/account/sell-list"}
-    />
+    <SellListAttemptBoundary attempt={actionData?.sellListAttempt} pending={navigation.state !== "idle"}>
+      <CheckoutSellListPage
+        sellListLines={data.sellList.items}
+        isSignedIn={data.isSignedIn}
+        offerReviews={"offerReviews" in data ? data.offerReviews : []}
+        productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
+        inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}
+        payoutReadiness={"payoutReadiness" in data ? data.payoutReadiness : null}
+        latestConfirmation={"latestConfirmation" in data.sellList ? (data.sellList.latestConfirmation ?? null) : null}
+        registrationReturn={data.registrationReturn}
+        mergedLineCount={data.mergedLineCount}
+        mergeError={data.mergeError}
+        sellerCheckoutRegisterHref={data.sellerCheckoutRegisterHref}
+        sellerCheckoutSignInHref={data.sellerCheckoutSignInHref}
+        errorMessage={actionData?.error ?? ("freshnessError" in data && !sellListRecovery ? data.freshnessError : null)}
+        recoveryMessage={sellListRecovery?.message ?? null}
+        recoveryState={
+          sellListRecovery
+            ? sellListRecovery.kind === "pending-fresh-write"
+              ? {
+                  kind: sellListRecovery.kind,
+                  message: sellListRecovery.message,
+                  refreshHref: currentPath,
+                  isAutoRevalidating,
+                }
+              : {
+                  kind: sellListRecovery.kind,
+                  message: sellListRecovery.message,
+                  refreshHref: "/account/sell-list",
+                }
+            : null
+        }
+        sellListPath={location.pathname === "/account/desk/offers" ? location.pathname : "/account/sell-list"}
+      />
+    </SellListAttemptBoundary>
   );
 }

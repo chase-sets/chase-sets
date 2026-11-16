@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { MarketplaceApiError } from "@chase-sets/marketplace/server";
+import { createHash } from "node:crypto";
+import {
+  MarketplaceApiError,
+  hashMarketplaceRequest,
+  marketplaceOfferCanonicalRequest,
+} from "@chase-sets/marketplace/server";
 import { createCheckoutSellListRuntime } from "../features/sell-list/api/runtime";
 import type {
   CheckoutCommercialTermsResolver,
@@ -217,7 +222,21 @@ function createManagedMarketplace(livePrices: Readonly<Record<string, string>> =
   });
   return {
     source: { previewOfferAcceptanceTerms } satisfies CheckoutOfferAcceptanceTermsSource,
-    api: { acceptOfferMatch } as unknown as MarketplaceRequestApiClient,
+    api: {
+      acceptOfferMatch,
+      getOfferAcceptanceAttempt: async (offerId: string, body: { sourceActionKey: string }) => ({
+        schemaVersion: 1,
+        mutationKind: "offer.accept",
+        ownerStatus: "committed",
+        actorBinding: { accountId: "acc_seller" },
+        target: { kind: "offer", id: offerId },
+        attemptKeyFingerprint: createHash("sha256").update(body.sourceActionKey).digest("hex"),
+        canonicalRequestHash: hashMarketplaceRequest(
+          marketplaceOfferCanonicalRequest("offer.accept", { ...body, offerId }),
+        ),
+        ownerReceipt: { id: offerId, version: 2 },
+      }),
+    } as unknown as MarketplaceRequestApiClient,
     previewOfferAcceptanceTerms,
     acceptOfferMatch,
     moveOffer(offerId: string) {
@@ -329,7 +348,10 @@ describe("Sell List acceptance of a managed Offer", () => {
 
     await expect(
       performMarketplaceHandoff(marketplace.api, "slc_chk_1", [reviewedSelectedOffer(reviewedFingerprint)]),
-    ).rejects.toBeInstanceOf(SellListReviewPlanStaleError);
+    ).rejects.toMatchObject({
+      reason: expect.any(SellListReviewPlanStaleError),
+      lines: [{ lineId: "sll_selected", status: "ambiguous", detail: expect.any(String) }],
+    });
     await expect(marketplace.acceptOfferMatch.mock.results[0]?.value).rejects.toMatchObject({
       status: 409,
       body: { error: { code: "fee_quote_stale" } },

@@ -1053,6 +1053,12 @@
     },
     {
       "id": "discovery.item-detail-command-receipt-handoffs",
+      "sellListAttempt": {
+        "writes": [{ "surface": "Item Detail sell-now, add-to-sell-list and add-product-to-sell-list; account and anonymous", "kind": "sell-list-line", "target": "sell-list" }],
+        "stream": "checkout.command-attempt-v1-<fingerprint> atomically with checkout.sell-list-<owner>",
+        "lookup": "GET /account|/guest/command-attempts/:attemptId?kind=sell-list-line&target=sell-list&requestHash=",
+        "replay": "One caller-created id per deliberate submission; possible-send loss performs one owner lookup, zero resends; exact retry returns the first result."
+      },
       "owner": "discovery",
       "risk": "critical",
       "strategy": "snapshot-return",
