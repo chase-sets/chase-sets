@@ -313,6 +313,8 @@ function validationDryRunEvidenceFor(input: {
   if (unitEvidence.length === 0) {
     return [
       {
+        providerKey: input.profile.providerKey,
+        profileVersion: input.profile.profileVersion,
         externalKey:
           input.routeContext.providerKey ??
           input.profile.providerKey ??
@@ -337,6 +339,8 @@ function validationDryRunEvidenceFor(input: {
       .map(([key, value]) => ({ key, value }));
 
     return {
+      providerKey: input.profile!.providerKey,
+      profileVersion: input.profile!.profileVersion,
       externalKey: evidence.externalKey,
       sourceUrl: evidence.sourceUrl,
       sourceHash: evidence.sourceHash,

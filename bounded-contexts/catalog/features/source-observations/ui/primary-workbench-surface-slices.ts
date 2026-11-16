@@ -3,6 +3,7 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
 } from "../api/primary-workbench-admin-contracts";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
+import { importJobsFor } from "./primary-workbench-import-jobs";
 import { conflictResolutionFor } from "./primary-workbench-conflict-resolution";
 import type { CatalogPrimaryWorkbenchCore, CatalogPrimaryWorkbenchDerived } from "./primary-workbench-core-read-model";
 import { governanceControlsFor } from "./primary-workbench-governance-controls";
@@ -143,19 +144,30 @@ export function healthSurfaceSlices(
     healthTriage: CatalogPrimaryWorkbenchReadModel["healthTriage"];
     validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"];
   }>,
+  enabled = true,
 ): Readonly<{
   auditEvidence: CatalogPrimaryWorkbenchReadModel["auditEvidence"];
 }> {
   const auditEvidence = auditEvidenceFor({
-    conflictResolution: cited.conflictResolution,
-    controlPlaneOverview: input.controlPlaneOverview,
+    aliases: enabled ? (input.auditAliases ?? []) : [],
+    requestUrl: input.requestUrl,
+    observations: enabled ? (input.reviewObservations?.items ?? []) : [],
+    candidates: enabled ? (input.mergeCandidates?.items ?? []) : [],
+    providerKeys: enabled ? input.profileReviews.items.map((profile) => profile.providerKey) : [],
+    profiles: enabled ? input.profileReviews.items : [],
+    conflictResolution: enabled ? cited.conflictResolution : { ...cited.conflictResolution, recentAuditEvents: [] },
+    controlPlaneOverview: input.readModelFailures?.includes("audit-evidence") ? null : input.controlPlaneOverview,
     generatedAt: core.generatedAt,
     healthTriage: cited.healthTriage,
-    importJobs: derived.importJobRows,
-    promotionPreview: core.promotionPreview,
+    importJobs: enabled
+      ? importJobsFor(input.controlPlaneOverview, core.routeContext, input.scopes.items, Infinity)
+      : [],
+    promotionPreview: enabled
+      ? core.promotionPreview
+      : { ...core.promotionPreview, previewId: null, commandPlanHash: null },
     routeContext: core.routeContext,
     securityPrivacy: core.securityPrivacy,
-    sourceObservationReview: core.sourceObservationReview,
+    sourceObservationReview: enabled ? core.sourceObservationReview : { ...core.sourceObservationReview, rows: [] },
     reviewEvidenceByObservationId: core.reviewEvidenceByObservationId,
     validationReadiness: cited.validationReadiness,
   });

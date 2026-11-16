@@ -20,6 +20,28 @@ afterEach(() => {
 });
 
 describe("CatalogProviderDetailPage", () => {
+  it("launches provider and version evidence in place and opens the resolved drawer", async () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/providers/tcgdex?evidenceRef=provider/tcgdex&profileVersion=2026.06.04",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+    render(<CatalogProviderDetailPage readModel={readModel} />);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("link", { name: "Audit timeline: tcgdex" }).getAttribute("href")).toContain(
+      "/catalog/providers/tcgdex?",
+    );
+    expect(screen.getByRole("link", { name: "Audit timeline: 2026.06.04" }).getAttribute("href")).toContain(
+      "evidenceRef=provider-profile%2F2026.06.04%2Ftcgdex",
+    );
+    expect(document.querySelector("[data-catalog-provider-detail]")).toBeTruthy();
+  });
   it("renders provider identity, the active profile, clone draft, and version history on one page", () => {
     const profile = profileReview({
       providerKey: "tcgdex",

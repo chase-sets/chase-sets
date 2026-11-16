@@ -52,6 +52,17 @@ function runLoader(request: Request, id = "scope_expansion_paldean_fates") {
 }
 
 describe("Catalog scope-detail route loader", () => {
+  it("preserves typed evidence demand and the review window in the one journey request", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogScopeRecord: vi.fn().mockResolvedValue(paldeanFatesScope()),
+      getCatalogAliasReviewReadModel: vi.fn().mockResolvedValue({ candidates: [] }),
+    });
+    const request = new Request(
+      "https://admin.example/catalog/scopes/scope_expansion_paldean_fates?evidenceRef=candidate/cand-1&reviewOffset=25",
+    );
+    await runLoader(request);
+    expect(mockLoadDailySurfaceForRequest).toHaveBeenCalledExactlyOnceWith(request);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolveActorFromAuthApi.mockResolvedValue({ permissions: ["catalog.view", "catalog.manage"] });

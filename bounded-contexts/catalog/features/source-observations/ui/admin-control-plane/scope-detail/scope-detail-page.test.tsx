@@ -2,6 +2,14 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogScopeDetailPage } from "./scope-detail-page";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
+import {
+  catalogMergeCandidateListItem,
+  controlPlaneOverview,
+  profileReview,
+  sourceObservationListItem,
+  sourceObservationScope,
+} from "../../primary-workbench-test-fixtures";
 import type {
   CatalogAliasReviewCandidateSummary,
   CatalogAliasReviewReadModel,
@@ -26,6 +34,32 @@ vi.mock("../import-to-promotion/import-to-promotion-workspace", () => ({
 afterEach(cleanup);
 
 const ACTION_HREF = "/admin/catalog/scopes/scope_expansion_paldean_fates";
+
+function journeyFixture(open = false) {
+  const requestUrl = `https://admin.example/catalog/scopes/scope_expansion_paldean_fates?scopeRecordId=scope_expansion_paldean_fates${open ? "&evidenceRef=source-observation/obs_001" : ""}`;
+  const candidate = catalogMergeCandidateListItem();
+  return {
+    requestUrl,
+    readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview()], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      mergeCandidates: {
+        items: [
+          {
+            ...candidate,
+            identity_json: { ...candidate.identity_json, scopeRecordId: "scope_expansion_paldean_fates" },
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      canManageCatalog: true,
+    }),
+  };
+}
 
 function paldeanFatesScope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeRecordDetail {
   return {
@@ -123,6 +157,32 @@ function aliasReview(candidates: readonly CatalogAliasReviewCandidateSummary[]):
 }
 
 describe("CatalogScopeDetailPage", () => {
+  it("launches Scope and typed entity evidence on the current page and mounts a validated deep link", () => {
+    const view = render(
+      <CatalogScopeDetailPage
+        scope={paldeanFatesScope()}
+        languageEditionAliasReview={aliasReview([])}
+        actionHref={ACTION_HREF}
+        journey={journeyFixture()}
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: "Audit timeline: scope_expansion_paldean_fates" }).getAttribute("href"),
+    ).toContain("/catalog/scopes/scope_expansion_paldean_fates?");
+    expect(screen.getByRole("link", { name: "Audit timeline: obs_001" }).getAttribute("href")).toContain(
+      "evidenceRef=source-observation%2Fobs_001",
+    );
+    expect(screen.getByRole("heading", { name: "Paldean Fates" })).toBeTruthy();
+    view.rerender(
+      <CatalogScopeDetailPage
+        scope={paldeanFatesScope()}
+        languageEditionAliasReview={aliasReview([])}
+        actionHref={ACTION_HREF}
+        journey={journeyFixture(true)}
+      />,
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
   it("shows the scope header and the language-editions section for a scope imported in en+ja", () => {
     render(
       <CatalogScopeDetailPage
@@ -198,7 +258,7 @@ describe("CatalogScopeDetailPage", () => {
             ],
           } as never
         }
-        journey={{ readModel: { routeContext: {} }, requestUrl: "scope" } as never}
+        journey={journeyFixture()}
       />,
     );
 

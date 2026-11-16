@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { CatalogControlPlaneEvidenceDrawer } from "../evidence/catalog-control-plane-evidence-drawer";
+import { CatalogEntityEvidenceLink } from "../evidence/catalog-entity-evidence-link";
 import {
   Badge,
   BadgeCluster,
@@ -99,6 +101,26 @@ export function CatalogProviderDetailPage({
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
 
       <ProviderDetailHeader readModel={readModel} providerKey={providerKey} />
+      {providerKey ? (
+        <CatalogEntityEvidenceLink
+          location={readModel.auditEvidence.returnToPrimaryHref}
+          reference={{ kind: "provider", id: providerKey }}
+        />
+      ) : null}
+      {selectedProfile ? (
+        <CatalogEntityEvidenceLink
+          location={readModel.auditEvidence.returnToPrimaryHref}
+          reference={{
+            kind: "provider-profile",
+            id: selectedProfile.profileVersion,
+            providerKey: selectedProfile.providerKey,
+          }}
+        />
+      ) : null}
+      <CatalogControlPlaneEvidenceDrawer
+        key={readModel.routeContext.evidenceRef ?? "provider"}
+        auditEvidence={readModel.auditEvidence}
+      />
 
       {operatorSessionKey && providerKey === operatorSessionProviderKey ? (
         <OperatorSessionPanel key={operatorSessionKey} />

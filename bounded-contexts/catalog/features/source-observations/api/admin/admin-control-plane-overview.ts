@@ -196,7 +196,10 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
       }
     : input.activeJobs;
   const recentJobs = input.recentJobs ?? (!("items" in input.activeJobs) ? input.activeJobs : []);
-  const units = buildUnitActivity(input.readiness.units, recentJobs);
+  const units =
+    audience === "daily"
+      ? buildUnitActivity(input.readiness.units, recentJobs)
+      : buildCatalogIntegrationUnitActivity(input.readiness.units, recentJobs);
 
   return {
     generatedAt,
@@ -440,9 +443,7 @@ function buildAuditLifecycleEntries(
   return [
     ...profiles.flatMap((profile) => profileAuditEntries(profile, units, generatedAt)),
     ...jobs.map((job) => jobAuditEntry(job, units)),
-  ]
-    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
-    .slice(0, 12);
+  ].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
 }
 
 function profileAuditEntries(

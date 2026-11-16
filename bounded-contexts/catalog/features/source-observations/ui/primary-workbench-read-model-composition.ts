@@ -30,8 +30,8 @@ import {
 // Assemble a fully-validated read model for ONE audience surface route, computing
 // only the supporting slices that surface renders and substituting cheap default
 // slices (no provider-row iteration, no cross-surface inputs) for the rest. The
-// daily surface therefore never computes governance, lifecycle, or audit
-// sub-models; providers never computes governance/health; and so on. The health
+// daily surface omits heavy supporting slices unless evidenceRef requests audit
+// evidence. That demand does not enable governance, lifecycle, or authoring. The health
 // surface renders every supporting slice, so calling this with "health" computes
 // the complete read model — the reference other surfaces are compared against.
 export function buildCatalogPrimaryWorkbenchReadModelForSurface(
@@ -40,20 +40,15 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
 ): CatalogPrimaryWorkbenchReadModel {
   const { core, derived } = buildCatalogPrimaryWorkbenchCore(input);
 
-  // Surfaces that fully render (or cite) each supporting slice. The daily surface
-  // renders none of them, so it computes every supporting slice from the
-  // empty-input defaults below — never iterating provider readiness, lifecycle,
-  // governance, health, or audit data. The "providers" surface was retired
-  // (folded into the v2 Provider detail page's own loader, which composes
-  // from "health" — see provider-detail-loader.ts); governance and health cite
-  // the upstream slices they fold into their evidence.
+  // Provider and Settings reuse their supporting inputs; daily evidence demand
+  // enables only audit, not the other supporting slices.
   const wantsProviderSlices = surface === "governance" || surface === "health";
   const wantsHealthTriage = surface === "governance" || surface === "health";
   const wantsGovernanceSlices = surface === "governance" || surface === "health";
   // The Settings page (the "governance" surface) embeds the Evidence drawer, so it
   // also needs the audit-evidence slice computed — not just cited like the
   // observability signal in governanceControlsSlice.
-  const wantsHealthSlices = surface === "health" || surface === "governance";
+  const wantsAuditEvidence = surface === "health" || surface === "governance" || Boolean(core.routeContext.evidenceRef);
 
   const sliceInput = (wanted: boolean): CatalogPrimaryWorkbenchInput =>
     wanted ? input : emptyControlPlaneInput(input);
@@ -85,11 +80,17 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
     actions,
     healthTriage,
   );
-  const { auditEvidence } = healthSurfaceSlices(sliceInput(wantsHealthSlices), core, derived, {
-    conflictResolution,
-    healthTriage,
-    validationReadiness,
-  });
+  const { auditEvidence } = healthSurfaceSlices(
+    sliceInput(wantsAuditEvidence),
+    core,
+    derived,
+    {
+      conflictResolution,
+      healthTriage,
+      validationReadiness,
+    },
+    wantsAuditEvidence,
+  );
 
   return assembleReadModel({
     core,

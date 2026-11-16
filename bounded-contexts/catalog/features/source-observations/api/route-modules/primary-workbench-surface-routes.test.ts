@@ -23,7 +23,8 @@ import {
   type CatalogProviderScope,
 } from "../provider-integration-profiles";
 import { catalogImportPreviewMatchesSelection } from "../admin/daily-import-preview";
-import type { SourceObservationIntegrationImportPreview } from "../../ui/contracts";
+import type { SourceObservationIntegrationImportPreview, SourceObservationIntegrationJob } from "../../ui/contracts";
+import { buildCatalogAliasReviewReadModel } from "../../../alias-equivalence/api/alias-review-admin-contracts";
 import {
   controlPlaneOverview,
   sourceObservationListItem,
@@ -127,6 +128,166 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("Catalog entity audit demand", () => {
+  it("resolves an older selected job through the real full-overview projection before display caps", async () => {
+    const job: SourceObservationIntegrationJob = {
+      jobId: "selected-older-job",
+      syncRunId: null,
+      action: "import",
+      scope: { provider: "tcgdex", ingestionUnitKey: TCGDEX_UNIT, language: "en", setId: "base1" },
+      profileSnapshot: null,
+      reapplyProfileMode: null,
+      status: "completed",
+      operatorStatus: "completed",
+      consistency: {
+        duplicateSubmissionPolicy: "reuse-active-job",
+        profileSnapshotPolicy: "snapshotted-at-enqueue",
+        retryResumePolicy: "skip-completed-outcomes",
+        partialFailurePolicy: "mixed-outcomes",
+        workUnitClaimPolicy: "leased-job-turns",
+      },
+      progress: { phase: "completed", completed: 1, total: 1, currentName: null, status: null },
+      result: null,
+      errorMessage: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      completedAt: NOW,
+      updatedAt: NOW,
+    };
+    const listJobs = vi
+      .fn<SourceObservationRouteServices["listRecentIntegrationJobs"]>()
+      .mockResolvedValue([
+        ...Array.from({ length: 13 }, (_, index) => ({
+          ...job,
+          jobId: `newer-${index}`,
+          createdAt: NOW,
+          startedAt: NOW,
+        })),
+        job,
+      ]);
+    const body = await getJson(
+      buildApp(surfaceServices({ listRecentIntegrationJobs: listJobs }), mutableProfileStore()),
+      surfacePath("daily", "/catalog/integrations?providerKey=tcgdex&evidenceRef=import-job/selected-older-job"),
+    );
+    expect(listJobs).toHaveBeenCalledTimes(1);
+    expect(body.readModel.auditEvidence.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+    expect(body.readModel.auditEvidence.timeline.length).toBeGreaterThan(0);
+    expect(body.readModel.auditEvidence.timeline.every((row: { jobId: string }) => row.jobId === job.jobId)).toBe(true);
+    expect(body.readModel.importJobs.jobs).toHaveLength(10);
+  });
+  it("does not treat a query-only Scope identity as verified membership", async () => {
+    const body = await getJson(
+      buildApp(surfaceServices(), mutableProfileStore()),
+      surfacePath("daily", "/catalog/integrations?scopeRecordId=forged&evidenceRef=scope/forged"),
+    );
+    expect(body.readModel.auditEvidence.selection).toMatchObject({
+      state: "no-associated-evidence",
+      deepLinkOpen: false,
+    });
+    expect(body.readModel.auditEvidence.timeline).toEqual([]);
+  });
+  it("reuses one bounded alias read for home evidence and returns it for the host without review fan-out", async () => {
+    const aliases = buildCatalogAliasReviewReadModel({
+      generatedAt: NOW,
+      filter: {
+        providerKey: null,
+        sourceProfileVersion: null,
+        aliasType: null,
+        reviewStatuses: [],
+        observationId: null,
+        targetKind: null,
+        targetId: null,
+      },
+      candidateRows: [
+        {
+          alias_hash: "synthetic-alias",
+          target_kind: "catalog-item",
+          target_id: "item-home",
+          target_key: "name",
+          alias_text: "Charizard",
+          normalized_alias_text: "charizard",
+          alias_language_code: "en",
+          source_language_code: "ja",
+          alias_type: "official-equivalent",
+          confidence: "high",
+          review_status: "pending",
+          provider_key: "tcgdex",
+          observation_id: "home-observation",
+          source_category: "provider-same-id-localized-endpoint",
+          source_profile_key: "pokemon-tcg",
+          source_profile_version: "v1",
+          mapping_fingerprint: "fp",
+          evidence: { nativeName: "Charizard" },
+          first_observed_at: NOW,
+          updated_at: NOW,
+        },
+      ],
+      catalogItemAliasRows: [],
+      referenceRecordAliasRows: [],
+    });
+    const getAliasReview = vi.fn<NonNullable<Parameters<typeof buildApp>[5]>>().mockResolvedValue(aliases);
+    const services = surfaceServices();
+    const body = await getJson(
+      buildApp(services, mutableProfileStore(), undefined, undefined, undefined, getAliasReview),
+      surfacePath("daily", "/catalog/scopes?evidenceRef=source-observation/home-observation"),
+    );
+    expect(getAliasReview).toHaveBeenCalledExactlyOnceWith({ generatedAt: NOW, candidateLimit: 200 });
+    expect(services.listSourceObservations).not.toHaveBeenCalled();
+    expect(services.listCatalogMergeCandidates).not.toHaveBeenCalled();
+    expect(services.getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledTimes(1);
+    expect(body.aliasReview).toEqual(aliases);
+    expect(body.readModel.auditEvidence.timeline.map((row: { observationId: string }) => row.observationId)).toEqual([
+      "home-observation",
+    ]);
+    expect(body.readModel.auditEvidence.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+  });
+  it("loads one full overview on demand, retains ordinary daily omission, and reads the bounded review once", async () => {
+    const services = surfaceServices();
+    const app = buildApp(services, mutableProfileStore());
+    const ordinary = await getJson(app, surfacePath("daily", "/catalog/integrations?providerKey=tcgdex"));
+    expect(ordinary.readModel.auditEvidence.projectionState.missingProjection).toBe(true);
+    vi.clearAllMocks();
+    const evidence = await getJson(
+      app,
+      surfacePath("daily", "/catalog/integrations?providerKey=tcgdex&evidenceRef=source-observation/obs_001"),
+    );
+    expect(evidence.readModel.auditEvidence.projectionState.missingProjection).toBe(false);
+    expect(
+      evidence.readModel.auditEvidence.timeline.some(
+        (row: { observationId: string }) => row.observationId === "obs_001",
+      ),
+    ).toBe(true);
+    expect(services.getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledTimes(1);
+    expect(services.listRecentIntegrationJobs).toHaveBeenCalledTimes(1);
+    expect(services.listSourceObservations).toHaveBeenCalledTimes(1);
+    expect(services.listCatalogMergeCandidates).toHaveBeenCalledTimes(1);
+    expect(services.listSourceObservations).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 25, offset: undefined }),
+    );
+    expect(evidence.readModel.profileAuthoring.availableProfiles).toEqual([]);
+    expect(evidence.readModel.lifecycleRecovery.recentAuditEvents).toEqual([]);
+  });
+
+  it("degrades failed audit inputs without failing the host and exposes no denied records", async () => {
+    const services = surfaceServices({
+      getCatalogIntegrationControlPlaneReadiness: vi
+        .fn()
+        .mockRejectedValue(new Error("Synthetic unavailable overview")),
+    });
+    const body = await getJson(
+      buildApp(services, mutableProfileStore()),
+      surfacePath("daily", "/catalog/integrations?providerKey=tcgdex&evidenceRef=source-observation/obs_001"),
+    );
+    expect(body.readModel.auditEvidence.status).toBe("unavailable");
+    expect(body.readModelFailures).toContain("control-plane-overview");
+    const denied = await buildApp(surfaceServices(), mutableProfileStore(), { permissions: [] }).request(
+      surfacePath("daily", "/catalog/scopes?evidenceRef=provider/tcgdex"),
+    );
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).not.toContain("timeline");
+  });
 });
 
 // Literal predicates exercise the real HTTP preview binding, never admission.
@@ -773,9 +934,21 @@ describe("Catalog primary workbench surface routes", () => {
       app,
       surfacePath("health", `/catalog/providers/tcgdex?providerKey=tcgdex&${selection}`),
     );
-    expect(implicit.readModel).toEqual(explicit.readModel);
+    expect({
+      ...implicit.readModel,
+      auditEvidence: { ...implicit.readModel.auditEvidence, returnToPrimaryHref: null },
+    }).toEqual({
+      ...explicit.readModel,
+      auditEvidence: { ...explicit.readModel.auditEvidence, returnToPrimaryHref: null },
+    });
     const empty = await getJson(app, surfacePath("health", `/catalog/providers/tcgdex?providerKey=&${selection}`));
-    expect(empty.readModel).toEqual(explicit.readModel);
+    expect({
+      ...empty.readModel,
+      auditEvidence: { ...empty.readModel.auditEvidence, returnToPrimaryHref: null },
+    }).toEqual({
+      ...explicit.readModel,
+      auditEvidence: { ...explicit.readModel.auditEvidence, returnToPrimaryHref: null },
+    });
     expect(implicit.readModel.routeContext).toMatchObject({
       providerKey: "tcgdex",
       unitKey: TCGDEX_UNIT,
@@ -784,15 +957,15 @@ describe("Catalog primary workbench surface routes", () => {
       selectedObservationIds: ["obs-a", "obs-b"],
     });
     const conflict = await getJson(app, surfacePath("health", "/catalog/providers/tcgdex?providerKey=tcgplayer"));
-    expect(conflict.readModel.routeContext.providerKey).toBe("tcgplayer");
+    expect(conflict.readModel.routeContext.providerKey).toBe("tcgdex");
   });
 
-  it("reads only path-provider schedules once, retaining wire dates and query model precedence", async () => {
+  it("reads only path-provider schedules once, retaining wire dates and path identity", async () => {
     const list = vi.fn(async () => [refreshSchedule("tcgdex"), refreshSchedule("tcgplayer")]);
     const app = buildApp(surfaceServices(), mutableProfileStore(), viewOnlyActor, list);
     const body = await getJson(app, surfacePath("health", "/catalog/providers/tcgdex?providerKey=tcgplayer"));
     expect(body.providerRefreshSchedules).toEqual([refreshSchedule("tcgdex")]);
-    expect(body.readModel.routeContext.providerKey).toBe("tcgplayer");
+    expect(body.readModel.routeContext.providerKey).toBe("tcgdex");
     expect(list).toHaveBeenCalledTimes(1);
     expect((await getJson(app, surfacePath("health", "/catalog/providers/scryfall"))).providerRefreshSchedules).toEqual(
       [],

@@ -116,6 +116,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
         const row = await services.scopeRegistry.getScopeRecord(scopeRecordId);
         return row ? scopeRecordDetailFromRow(row, new Date().toISOString()) : null;
       },
+      (input) => services.catalogAliases.getCatalogAliasReviewReadModel(input),
     ),
   );
   app.route("/alias-review", catalogAliasRoutes(services.catalogAliases));

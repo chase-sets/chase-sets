@@ -9,6 +9,9 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { readCatalogListQuery } from "../../../../../support/shell-support/list-query-state";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
 import { CatalogScopeLandingPage } from "./scope-landing-page";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
+import { controlPlaneOverview, profileReview } from "../../primary-workbench-test-fixtures";
+import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { buildCatalogScopeLandingReadModel } from "./scope-landing-read-model";
 import { catalogAttentionQueueReadModelFixture } from "../../../../attention-queue/api/attention-queue-test-fixtures";
 import type { CatalogDeferredAttentionQueueResult } from "../../../../attention-queue/api/contracts";
@@ -59,6 +62,7 @@ function renderLanding(input: {
   canManage?: boolean;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback;
   attentionItemKey?: string;
+  auditEvidence?: CatalogPrimaryWorkbenchReadModel["auditEvidence"];
 }) {
   const url = input.url ?? "https://admin.example/catalog/scopes";
   const query = readCatalogListQuery(new Request(url));
@@ -90,6 +94,7 @@ function renderLanding(input: {
             canManage={input.canManage}
             commandFeedback={input.commandFeedback}
             attentionItemKey={input.attentionItemKey}
+            auditEvidence={input.auditEvidence}
           />
         ),
       },
@@ -227,6 +232,40 @@ function generalAliasReview(
 }
 
 describe("CatalogScopeLandingPage", () => {
+  it("opens alias-associated evidence over home without losing its filters", async () => {
+    const aliases = generalAliasReview();
+    const url = "https://admin.example/catalog/scopes?search=paldean&evidenceRef=source-observation/obs-1";
+    const audit = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl: url,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profileReview()], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      auditAliases: aliases.candidates,
+      canManageCatalog: true,
+    }).auditEvidence;
+    renderLanding({
+      scopes: { items: [scope()], total: 1, count: 1 },
+      url,
+      generalAliasReview: aliases,
+      auditEvidence: audit,
+    });
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getAllByText("diagnostics-present").length).toBeGreaterThan(0);
+    expect(
+      within(dialog)
+        .getAllByRole("link")
+        .every((link) => link.getAttribute("href")?.includes("search=paldean")),
+    ).toBe(true);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close evidence" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("searchbox").getAttribute("value")).toBe("paldean");
+    await userEvent.click(screen.getByRole("button", { name: /All-scopes alias review/i }));
+    expect(
+      screen
+        .getAllByRole("link", { name: "Audit timeline: obs-1" })
+        .every((link) => link.getAttribute("href")?.includes("search=paldean")),
+    ).toBe(true);
+  });
   // The DS DataTable renders both a desktop table and a mobile card layout in
   // jsdom, so cell values appear more than once; assert on "at least one".
   it("renders the canonical scope record list with promotion and sync signals, each linking to its Scope Detail", async () => {

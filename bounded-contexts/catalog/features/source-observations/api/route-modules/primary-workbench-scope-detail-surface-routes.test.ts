@@ -68,6 +68,24 @@ afterEach(() => {
 });
 
 describe("Catalog daily surface for a Scope Detail location", () => {
+  it("preserves Scope identity for evidence demand and loads one full overview without widening the review page", async () => {
+    const source = services();
+    const getScopeRecord = vi.fn(async () => paldeanFates);
+    const target = buildApp(source, mutableProfileStore(), manageActor, undefined, getScopeRecord);
+    const { status, body } = await read(
+      target,
+      surfacePath("daily", `${SCOPE_PATH}&evidenceRef=scope/scope_expansion_paldean_fates&reviewOffset=25`),
+    );
+    expect(status).toBe(200);
+    expect(getScopeRecord).toHaveBeenCalledTimes(1);
+    expect(source.getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledTimes(1);
+    expect(source.listRecentIntegrationJobs).toHaveBeenCalledTimes(1);
+    expect(source.listCatalogMergeCandidates).toHaveBeenCalledTimes(1);
+    expect(body.readModel.auditEvidence.projectionState.missingProjection).toBe(false);
+    expect(body.readModel.auditEvidence.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+    expect(body.readModel.sourceObservationReview.pagination).toMatchObject({ limit: 25, offset: 25 });
+    expect(body.readModel.routeContext.scopeRecordId).toBe("scope_expansion_paldean_fates");
+  });
   it.each(["daily", "daily/source-options"])(
     "reads %s for the Scope Record the path names, as for its daily working set",
     async (surface) => {

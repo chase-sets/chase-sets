@@ -303,8 +303,11 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.description":
     "Timeline rows show event, actor, provider, unit, profile, job, observation, target, summary, diagnostics, and redacted evidence links.",
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyDescription":
-    "The projection is unavailable or the current filters have no matching events.",
+    "The loaded evidence has no matching events in this bounded window. Check the projection status above.",
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyTitle": "No timeline events",
+  "catalog.features.sourceObservations.ui.auditEvidence.timeline.noAssociationTitle": "No associated evidence",
+  "catalog.features.sourceObservations.ui.auditEvidence.timeline.noAssociationDescription":
+    "This reference has no supported association in the loaded records. No broader history is shown.",
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.title": "Audit events",
   "catalog.features.sourceObservations.ui.auditEvidence.title": "Audit timeline",
   "catalog.features.sourceObservations.ui.controlPlaneV2.actions.alias.accept.label": "Accept alias",

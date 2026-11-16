@@ -95,6 +95,7 @@ export function importJobsFor(
   overview: CatalogIntegrationControlPlaneOverview | null,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
   scopes: readonly SourceObservationIntegrationScope[] = [],
+  limit = MAX_PRIMARY_WORKBENCH_IMPORT_JOB_ROWS,
 ): CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"] {
   const providerTransport = providerTransportFor(overview, routeContext.providerKey);
   const seenJobIds = new Set<string>();
@@ -137,7 +138,7 @@ export function importJobsFor(
 
       return jobOccurredAt(right.job).localeCompare(jobOccurredAt(left.job));
     })
-    .slice(0, MAX_PRIMARY_WORKBENCH_IMPORT_JOB_ROWS);
+    .slice(0, limit);
 
   return rows.map(({ unitKey, job }) => {
     const scopeMatchesRoute = jobMatchesRouteScope(job, routeContext);
