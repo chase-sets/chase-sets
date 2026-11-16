@@ -29,7 +29,12 @@ import {
   type PlatformWorkerRuntimeProfile,
 } from "@chase-sets/platform-runtime/runtime-profiles";
 import { workerContextRegistry } from "./context-registry";
-import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
+import {
+  parseChannelCredentialKeyring,
+  type ChannelCredentialKeyring,
+  parseEbayOAuthConfiguration,
+  type EbayOAuthConfiguration,
+} from "@chase-sets/channels/server";
 import {
   parseSupportEvidenceCleanupBinding,
   type SupportEvidenceCleanupBinding,
@@ -42,6 +47,7 @@ export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 
 export type PlatformWorkerConfig = Readonly<{
   channelCredentialKeyring: ChannelCredentialKeyring | null;
+  ebayOAuthConfiguration: EbayOAuthConfiguration | null;
   runtimeProfile: PlatformWorkerRuntimeProfile;
   deploymentEnvironment: DeploymentEnvironment;
   sharedDatabaseUrl: string | null;
@@ -638,6 +644,12 @@ export function loadConfig(): PlatformWorkerConfig {
       includeWebhookSecret: false,
     }),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    ebayOAuthConfiguration: parseEbayOAuthConfiguration(
+      deploymentEnvironment === "production" ? "production" : "sandbox",
+      process.env.EBAY_APPLICATION_CLIENT_ID,
+      process.env.EBAY_APPLICATION_CLIENT_SECRET,
+      process.env.EBAY_OAUTH_RUNAME,
+    ),
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,

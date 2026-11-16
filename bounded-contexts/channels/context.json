@@ -1,6 +1,15 @@
 {
   "scheduledJobs": [
     {
+      "id": "channels.ebay-credential-refresh",
+      "schedule": { "kind": "interval", "intervalMs": 450000 },
+      "runnerExport": "createChannelsEbayCredentialRefreshRunners",
+      "group": "scheduled",
+      "order": 102,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:channels.ebay-credential-refresh"
+    },
+    {
       "id": "channels.ebay-account-deletion-receipt-expiry",
       "schedule": {
         "kind": "interval",
@@ -853,13 +862,29 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "channels.ebay-credential-refresh-committed-health",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST H1c570cc9e4fb#1"],
+      "visibleDestination": { "description": "Background refresh commits custody, its successor schedule and the immutable credential health observation together. No browser mutation or redirect is introduced." },
+      "proof": {
+        "authoritativeResponse": "Only a current generation/cycle/attempt/lease can commit an outcome. Failed admission and terminal/exhausted work have no due schedule and expose credential reconnect attention through the existing health contract.",
+        "tests": [
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-credential-refresh-schedule.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-credential-refresh-outcomes.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-credential-refresh-health.db.test.ts"
+        ]
+      }
+    },
+    {
       "id": "channels.ebay-oauth-committed-state",
       "owner": "channels",
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST Hafb45c76765c#1",
-        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST He0322e08a297#1",
+        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST H5e8c3b3f2828#1",
         "api-client:bounded-contexts/channels/features/ebay-connection/ui/api-client.ts:POST H547d4165826d#1",
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /callback",
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /declined",

@@ -980,6 +980,8 @@ components:
       - name: "EBAY_APPLICATION_CLIENT_SECRET"
         secret: true
         secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
+      - name: "EBAY_OAUTH_RUNAME"
+        value: ""
     resources: {}
     podAnnotations: {}
     podLabels: {}

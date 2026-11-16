@@ -1,9 +1,10 @@
 import type { ChannelOAuthTokenSet } from "../../credentials/domain/contracts";
 import type { EbayOAuthConfiguration } from "../domain/configuration";
-import { EbayConnectionError, parseIdentity, parseTokenResponse } from "../domain/oauth";
+import { EbayConnectionError, parseIdentity, parseTokenResponse, parseRefreshResponse } from "../domain/oauth";
 
 export interface EbayOAuthProvider {
   exchange(code: string, signal: AbortSignal): Promise<ChannelOAuthTokenSet>;
+  refresh(tokens: ChannelOAuthTokenSet, signal: AbortSignal): Promise<ChannelOAuthTokenSet>;
   identity(accessToken: string, signal: AbortSignal): Promise<string>;
   revoke(refreshToken: string, signal: AbortSignal): Promise<number>;
 }
@@ -20,7 +21,10 @@ export function createEbayOAuthProvider(
     }
   }
   async function json(response: Response) {
-    if (!response.ok || !response.body) throw new EbayConnectionError("provider-unavailable");
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new EbayConnectionError("provider-unavailable");
+    }
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
@@ -44,6 +48,17 @@ export function createEbayOAuthProvider(
     }
   }
   return {
+    async refresh(tokens, signal) {
+      if (tokens.refresh.kind !== "present") throw new EbayConnectionError("provider-unavailable");
+      const response = await request("https://api.sandbox.ebay.com/identity/v1/oauth2/token", {
+        method: "POST",
+        signal,
+        headers: { authorization: basic, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokens.refresh.token }),
+      });
+      // S1 establishes retained-token reuse, not any terminal refusal class.
+      return parseRefreshResponse(await json(response), new Date().toISOString(), tokens);
+    },
     async exchange(code, signal) {
       const response = await request("https://api.sandbox.ebay.com/identity/v1/oauth2/token", {
         method: "POST",

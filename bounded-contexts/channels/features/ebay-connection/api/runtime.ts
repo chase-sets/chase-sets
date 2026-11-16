@@ -12,11 +12,7 @@ import {
 import { createEbaySubjectCipher } from "../../ebay-account-deletion/domain/subject";
 import { createChannelCredentialRuntime } from "../../credentials/api/runtime";
 import { decodeTokenSet } from "../../credentials/domain/codecs";
-import type {
-  ChannelCredentialEnvelope,
-  ChannelCredentialKeyring,
-  ChannelOAuthTokenSet,
-} from "../../credentials/domain/contracts";
+import type { ChannelCredentialEnvelope, ChannelCredentialKeyring } from "../../credentials/domain/contracts";
 import type { ChannelConnectionState } from "../../connections/domain/contracts";
 import {
   decideChannelConnection,
@@ -36,6 +32,16 @@ import {
 } from "../domain/oauth";
 import { lockEbayConnectionBinding, type EbaySellerBinding } from "../read-model/binding";
 import { createEbayOAuthProvider, revokeCurrentGrant, type EbayOAuthProvider } from "./provider";
+import {
+  createEbayCredentialRefresh,
+  type CurrentEbayCredential,
+  type CurrentEbayEnvelope,
+} from "./credential-refresh";
+import { retireCredentialRefresh } from "../read-model/refresh-schedule";
+import { createConnectionHealthRuntime } from "../../connection-health/api/runtime";
+import { resolveChannelHealthPolicy } from "../../connection-health/api/policy";
+import { createConnectorLivenessReader } from "../../connector-feed/read-model/liveness";
+import type { ConnectionHealthServices } from "../../connection-health/domain/contracts";
 
 type Target = Readonly<{ accountId: string; connectionId: string }>;
 type Attempt = {
@@ -58,6 +64,8 @@ export function createEbayConnectionRuntime(deps: {
   now?: () => Date;
   retireWork?: (db: PgQueryable, connectionId: string) => Promise<void>;
   connectionEpochs?: ConnectionEpochs;
+  connectionHealth?: ConnectionHealthServices;
+  classifyRefreshFailure?: (error: unknown) => "retryable" | "terminal";
 }) {
   const config = deps.configuration;
   const provider = deps.provider ?? (config ? createEbayOAuthProvider(config) : null);
@@ -114,7 +122,41 @@ export function createEbayConnectionRuntime(deps: {
       bytes.fill(0);
     }
   }
+  const withCurrentEnvelope: CurrentEbayEnvelope = async (target, expectedGeneration, work, transaction) => {
+    const perform = async (db: PgQueryable) => {
+      const { envelope } = await current(db, target);
+      if (envelope.tokenGeneration !== expectedGeneration) throw new EbayConnectionError("stale-authorization");
+      return work(db, envelope);
+    };
+    return transaction ? perform(transaction) : withPgTransaction(deps.db, perform);
+  };
+  const withCurrentCredential: CurrentEbayCredential = (target, expectedGeneration, work, transaction) =>
+    withCurrentEnvelope(
+      target,
+      expectedGeneration,
+      async (db, envelope) => work(db, envelope, await tokens(db, envelope)),
+      transaction,
+    );
+  const credentialRefresh = createEbayCredentialRefresh({
+    db: deps.db,
+    now,
+    credentials,
+    current: withCurrentCredential,
+    currentEnvelope: withCurrentEnvelope,
+    provider,
+    classifyFailure: deps.classifyRefreshFailure,
+    health:
+      deps.connectionHealth ??
+      createConnectionHealthRuntime({
+        db: deps.db,
+        eventStore: deps.eventStore,
+        connectorLiveness: createConnectorLivenessReader(deps.db),
+        resolvePolicy: (db, at) => resolveChannelHealthPolicy(deps.eventStore, db, at),
+        now: () => now().toISOString(),
+      }),
+  });
   return {
+    credentialRefresh,
     enabled: config !== null,
     consent: (publication: boolean) => ({
       scopes: scopesForCapabilities(publication),
@@ -257,6 +299,7 @@ export function createEbayConnectionRuntime(deps: {
           "UPDATE channels_ebay_seller_bindings SET credential_reference=$2,capabilities=$3 WHERE binding_id=$1",
           [binding.binding_id, envelope.rowId, JSON.stringify(attempt.capabilities)],
         );
+        await credentialRefresh.initialize(db, envelope, candidate, context);
         return { connectionId };
       });
     },
@@ -280,6 +323,7 @@ export function createEbayConnectionRuntime(deps: {
       }
       const remote = await revokeCurrentGrant(provider, refreshToken);
       await credentials.delete(db, envelope);
+      await retireCredentialRefresh(db, target.connectionId);
       await db.query(
         `UPDATE channel_outbound_operations SET status='failed',revision=revision+1,terminal_reason='connection-disconnected',terminal_at=$2
         WHERE connection_id=$1 AND status IN ('pending','in-flight')`,
@@ -310,17 +354,7 @@ export function createEbayConnectionRuntime(deps: {
         return { ...result.rows[0], status: loaded.state.status };
       });
     },
-    async withCurrentCredential<T>(
-      target: Target,
-      expectedGeneration: number,
-      work: (db: PgQueryable, envelope: ChannelCredentialEnvelope, material: ChannelOAuthTokenSet) => Promise<T>,
-    ): Promise<T> {
-      return withPgTransaction(deps.db, async (db) => {
-        const { envelope } = await current(db, target);
-        if (envelope.tokenGeneration !== expectedGeneration) throw new EbayConnectionError("stale-authorization");
-        return work(db, envelope, await tokens(db, envelope));
-      });
-    },
+    withCurrentCredential,
   };
 }
 export type EbayConnectionServices = ReturnType<typeof createEbayConnectionRuntime>;
