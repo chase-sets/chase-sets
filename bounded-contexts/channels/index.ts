@@ -2,6 +2,7 @@ import {
   createChannelsEbayAccountDeletionReceiptExpiryRunners,
   createChannelsEbayAccountDeletionConsumerRunners,
   createChannelsConnectorLivenessSweepRunners,
+  createChannelsEbayCredentialRefreshRunners,
   createChannelsOutboundRunners,
   createChannelsScheduledReconciliationRunners,
 } from "./support/runtime-support/worker-jobs";
@@ -106,6 +107,10 @@ import { buildChannelsApi } from "./api";
 import { createEbayAccountDeletionRuntime } from "./features/ebay-account-deletion/api/runtime";
 import { createEbayConnectionRuntime } from "./features/ebay-connection/api/runtime";
 import { ebayConnectionRetentionSweeps } from "./features/ebay-connection/read-model/retention-policy";
+import {
+  ebayCredentialRefreshSchemaSql,
+  ebayCredentialRefreshSchemaMigrations,
+} from "./features/ebay-connection/read-model/refresh-schema";
 import {
   ebayConnectionSchemaSql,
   ebayConnectionSchemaMigrations,
@@ -276,12 +281,13 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 const contextModule = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}\n${ebayConnectionSchemaSql}\n${ebaySellerSetupSchemaSql}\n${ebayDeletionConsumerSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}\n${ebayConnectionSchemaSql}\n${ebaySellerSetupSchemaSql}\n${ebayCredentialRefreshSchemaSql}\n${ebayDeletionConsumerSchemaSql}`,
   schemaMigrations: [
     ...ebayReceiptSchemaMigrations,
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
     ...ebayConnectionSchemaMigrations,
+    ...ebayCredentialRefreshSchemaMigrations,
     ...ebaySellerSetupSchemaMigrations,
     ...ebayDeletionConsumerSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
@@ -322,10 +328,17 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     });
     const connectionEpochs = createConnectionEpochs(pool, ports.connectionConsumers);
     const connectionStore = createConnectionPersistence(eventStore, connectionEpochs);
+    const connectionHealth = createConnectionHealthRuntime({
+      db: pool,
+      eventStore,
+      connectorLiveness: createConnectorLivenessReader(pool),
+      resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
+    });
     const ebayConnection = createEbayConnectionRuntime({
       db: pool,
       eventStore,
       connectionEpochs,
+      connectionHealth,
       configuration: ports.ebayOAuthConfiguration ?? null,
       keyring: ports.channelCredentialKeyring ?? null,
     });
@@ -369,12 +382,6 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
       },
     );
     const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
-    const connectionHealth = createConnectionHealthRuntime({
-      db: pool,
-      eventStore,
-      connectorLiveness: createConnectorLivenessReader(pool),
-      resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
-    });
     const readChannelHealthHold =
       ports.readChannelHealthHold ??
       (async (connectionId: string) => {
@@ -611,6 +618,7 @@ export const module = {
     createChannelsEbayAccountDeletionReceiptExpiryRunners,
     createChannelsEbayAccountDeletionConsumerRunners,
     createChannelsConnectorLivenessSweepRunners,
+    createChannelsEbayCredentialRefreshRunners,
     createChannelsOutboundRunners,
     createChannelsScheduledReconciliationRunners,
   },

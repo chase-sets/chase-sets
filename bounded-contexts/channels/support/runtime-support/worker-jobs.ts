@@ -9,6 +9,24 @@ import { channelProviderRegistry } from "../../features/publication-port/api/reg
 import type { ChannelProviderRegistry } from "../../features/publication-port/domain/contracts";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import { ebayCredentialMaintenancePolicy } from "../../features/ebay-connection/domain/credential-maintenance";
+
+export function createChannelsEbayCredentialRefreshRunners({
+  services,
+  controlPlane,
+}: Pick<WorkerJobInput<Readonly<{}>>, "services" | "controlPlane">): readonly WorkerRunner[] {
+  const channels = services.channels;
+  if (!isChannelsServices(channels) || !channels.ebayConnection?.enabled) return [];
+  const maintenance = channels.ebayConnection.credentialRefresh;
+  return [
+    createScheduledJobRunner(
+      "channels.ebay-credential-refresh",
+      ebayCredentialMaintenancePolicy.defaultValue.sweepSeconds * 1000,
+      controlPlane,
+      () => maintenance.sweep(),
+    ),
+  ];
+}
 
 type CreateChannelsEbayAccountDeletionReceiptExpiryRunnersConfig = Readonly<{}>;
 export function createChannelsEbayAccountDeletionConsumerRunners({

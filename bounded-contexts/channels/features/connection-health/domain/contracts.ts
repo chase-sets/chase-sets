@@ -1,4 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ChannelConnectionStatus } from "../../connections/domain/contracts";
 
 export const channelHealthStates = ["unknown", "healthy", "degraded", "failing"] as const;
@@ -88,8 +89,12 @@ export type ChannelHealthSubmission = Readonly<{
 }>;
 export type ConnectionHealthServices = Readonly<{
   sweepConnectorLiveness: (input: Readonly<{ now: string; limit: number }>) => Promise<ConnectorLivenessSweep>;
-  submitObservation: (input: ChannelHealthObservation, context: EventStoreContext) => Promise<ChannelHealthSubmission>;
-  readConnectionHealth: (input: ChannelHealthQuery) => Promise<ChannelHealthRead>;
+  submitObservation: (
+    input: ChannelHealthObservation,
+    context: EventStoreContext,
+    transaction?: PgQueryable,
+  ) => Promise<ChannelHealthSubmission>;
+  readConnectionHealth: (input: ChannelHealthQuery, transaction?: PgQueryable) => Promise<ChannelHealthRead>;
   listOpenReasonGenerations: (input: ChannelHealthQuery) => Promise<readonly ChannelHealthReasonGeneration[]>;
 }>;
 

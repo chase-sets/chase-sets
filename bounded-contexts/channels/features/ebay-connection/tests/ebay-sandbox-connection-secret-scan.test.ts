@@ -104,7 +104,7 @@ describe("ebay-sandbox-connection-secret-scan", () => {
     });
   });
   it("bounds revocation retries under one signal and cannot manufacture affirmative evidence", async () => {
-    const provider = { exchange: vi.fn(), identity: vi.fn(), revoke: vi.fn(async () => 503) };
+    const provider = { exchange: vi.fn(), refresh: vi.fn(), identity: vi.fn(), revoke: vi.fn(async () => 503) };
     expect(await revokeCurrentGrant(provider, "synthetic-refresh")).toBe("unconfirmed");
     expect(provider.revoke).toHaveBeenCalledTimes(3);
     const signals = provider.revoke.mock.calls.map((call) => Reflect.get(call, "1"));

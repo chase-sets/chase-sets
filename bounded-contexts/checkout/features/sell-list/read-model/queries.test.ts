@@ -1,8 +1,49 @@
 import { describe, expect, it } from "vitest";
 
-import { getCheckoutSellOfferMatch, getLatestSellListConfirmation, getSellPayoutReadiness } from "./queries";
+import {
+  getCheckoutSellOfferMatch,
+  getLatestSellListConfirmation,
+  getSellPayoutReadiness,
+  listSellListLines,
+} from "./queries";
+import { checkoutOwnerRuntimeFixture, fixtureLine } from "../api/owner-read.fixture";
 
 describe("sell list confirmation queries", () => {
+  it.each([1, "1", "2"])("compares normalized selected Offer and line versions: %s", async (version) => {
+    const f = checkoutOwnerRuntimeFixture();
+    f.setLines([{ ...fixtureLine, offer_stream_version: "1" as never, listing_stream_version: "1" as never }]);
+    f.setOfferStreamVersion(version);
+    const review = await f.services.loadCompositeReview("acc_seller");
+    expect(review.offerReviews).toEqual([
+      expect.objectContaining({ status: version === "2" ? "unavailable" : "ready" }),
+    ]);
+  });
+  it.each(["bad", "9007199254740992"])("refuses malformed or unsafe Offer page versions: %s", async (version) => {
+    const f = checkoutOwnerRuntimeFixture();
+    f.setOfferStreamVersion(version);
+    await expect(f.services.loadCompositeReview("acc_seller")).rejects.toThrow("Invalid Sell List stream version.");
+  });
+  it.each([null, 1, "1", "9007199254740991"])("normalizes nullable safe stream versions: %s", async (version) => {
+    const db = {
+      query: async () => ({
+        rows: [{ ...fixtureLine, offer_stream_version: version, listing_stream_version: version }],
+      }),
+    };
+    const [line] = await listSellListLines(db, "acc_seller");
+    expect(line).toMatchObject({
+      offer_stream_version: version === null ? null : Number(version),
+      listing_stream_version: version === null ? null : Number(version),
+    });
+  });
+  it.each(["9007199254740992", "bad", "", "1.5", "-1", 0])(
+    "refuses malformed or unsafe stream versions: %s",
+    async (version) => {
+      for (const column of ["offer_stream_version", "listing_stream_version"]) {
+        const db = { query: async () => ({ rows: [{ ...fixtureLine, [column]: version }] }) };
+        await expect(listSellListLines(db, "acc_seller")).rejects.toThrow("Invalid Sell List stream version.");
+      }
+    },
+  );
   it("uses the Checkout offer page stream fence for Sell List Matches", async () => {
     const queriedSql: string[] = [];
     const db = {

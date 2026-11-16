@@ -49,6 +49,7 @@ export async function recoverMarketplaceCommand<T>(input: {
   isCommandResponse: (error: unknown) => boolean;
   resolveReceipt?: (receipt: { id: string; version: number }) => Promise<T>;
   onPhase?: (phase: MarketplaceCommandPhase) => void;
+  onRecovered?: (recovery: MarketplaceMutationRecoveryResult, observed: unknown) => void;
 }): Promise<T | { id: string; version: number }> {
   const parser = input.mutationKind === "offer.accept" ? marketplaceAcceptanceKeySchema : marketplaceAttemptIdSchema;
   if (!parser.safeParse(input.attemptId).success) {
@@ -121,6 +122,7 @@ export async function recoverMarketplaceCommand<T>(input: {
           })
         : recovery.ownerReceipt;
       input.onPhase?.("succeeded");
+      input.onRecovered?.(recovery, observed);
       return input.resolveReceipt ? input.resolveReceipt(receipt) : receipt;
     }
     input.onPhase?.("ambiguous");

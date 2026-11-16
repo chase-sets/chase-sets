@@ -5,6 +5,7 @@ import {
   Button,
   CheckoutLayout,
   Form,
+  HiddenInput,
   Inline,
   Inset,
   KeyValueList,
@@ -396,6 +397,7 @@ export function CheckoutSellListPage({
                   </Text>
                   <Inline gap={2}>
                     <Form spacing="none" id="sell-list-checkout-form" method="post">
+                      <HiddenInput name="attemptId" defaultValue="" />
                       <Button
                         type="submit"
                         name="intent"

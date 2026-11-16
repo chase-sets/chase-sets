@@ -309,6 +309,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       inventoryCleanupAuthority: { kind: "not-mounted" },
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
+      ebayOAuthConfiguration: config.ebayOAuthConfiguration,
       ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
       storageLocationAuthority: {
         resolve: pools.inventory

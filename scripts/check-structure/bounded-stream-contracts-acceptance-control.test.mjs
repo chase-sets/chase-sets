@@ -94,6 +94,7 @@ const expectedInventory = [
   ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
   // The non-DB shipping test seam forwards the complete read request to the in-memory store unchanged.
   ["bounded-contexts/fulfillment/features/seller-checkout-readiness/api/test-support.ts#readStream#1", null],
+  ["bounded-contexts/checkout/features/command-attempts/api/sell-list-attempt.test-support.ts#readStream#1", null],
   // The owner-checking lookup reader forwards the complete history request unchanged.
   ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts#readStream#1", null],
   // Listing-attempt owner lookup forwards the complete history request unchanged.
@@ -126,7 +127,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-four-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-five-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });

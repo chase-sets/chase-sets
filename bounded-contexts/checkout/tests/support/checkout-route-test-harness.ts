@@ -1,4 +1,5 @@
 import { expect, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 
 export class MockCheckoutApiError extends Error {
@@ -68,6 +69,7 @@ export const mockListOfferMatches = vi.fn();
 export const mockPreviewPublicStandardListingTerms = vi.fn();
 export const mockPreviewOfferAcceptanceTerms = vi.fn();
 export const mockAcceptOfferMatch = vi.fn();
+export const mockGetOfferAcceptanceAttempt = vi.fn();
 export const mockDeclineOfferMatch = vi.fn();
 export const mockCreateListing = vi.fn();
 export const mockPublishListing = vi.fn();
@@ -95,6 +97,23 @@ export function applyCheckoutRouteMockDefaults() {
     commandReceipt: checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
   }));
   mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
+  mockGetOfferAcceptanceAttempt.mockImplementation(async (offerId, body) => {
+    const actual = await vi.importActual<typeof import("@chase-sets/marketplace/server")>(
+      "@chase-sets/marketplace/server",
+    );
+    return {
+      schemaVersion: 1,
+      mutationKind: "offer.accept",
+      ownerStatus: "committed",
+      actorBinding: { accountId: "acc_seller" },
+      target: { kind: "offer", id: offerId },
+      attemptKeyFingerprint: createHash("sha256").update(body.sourceActionKey).digest("hex"),
+      canonicalRequestHash: actual.hashMarketplaceRequest(
+        actual.marketplaceOfferCanonicalRequest("offer.accept", { ...body, offerId }),
+      ),
+      ownerReceipt: { id: offerId, version: 2 },
+    };
+  });
   mockCreateListing.mockResolvedValue({
     id: "lst_slc_chk_sell_1_sll_1",
     status: "draft",

@@ -2211,6 +2211,61 @@
       "enrollment": "bounded-contexts/identity/features/accounts/api/owner-epochs.ts::createIdentityOwnerEpochs > enrollDelegation"
     },
     {
+      "file": "bounded-contexts/channels/features/ebay-connection/api/credential-refresh.ts",
+      "symbol": "createEbayCredentialRefresh > observe",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/ebay-connection/api/credential-refresh.ts::createEbayCredentialRefresh > observe",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Refresh schedule, lease and observation writes leave canonical Connection identity, status and version unchanged; custody completion uses the physical seller-binding fence shared with reauthorization and disconnect."
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts",
+      "symbol": "createRefreshSchedule",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts::createRefreshSchedule",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Refresh schedule, lease and observation writes leave canonical Connection identity, status and version unchanged; custody completion uses the physical seller-binding fence shared with reauthorization and disconnect."
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts",
+      "symbol": "createRefreshSchedule",
+      "sink": "connection SQL",
+      "ordinal": 2,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts::createRefreshSchedule",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Refresh schedule, lease and observation writes leave canonical Connection identity, status and version unchanged; custody completion uses the physical seller-binding fence shared with reauthorization and disconnect."
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts",
+      "symbol": "retireCredentialRefresh",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts::retireCredentialRefresh",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Refresh schedule, lease and observation writes leave canonical Connection identity, status and version unchanged; custody completion uses the physical seller-binding fence shared with reauthorization and disconnect."
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts",
+      "symbol": "scheduleCredentialRefresh",
+      "sink": "connection SQL",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts::scheduleCredentialRefresh",
+      "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
+      "reason": "Refresh schedule, lease and observation writes leave canonical Connection identity, status and version unchanged; custody completion uses the physical seller-binding fence shared with reauthorization and disconnect."
+    },
+    {
       "file": "bounded-contexts/inventory/features/channel-allocations/api/runtime.ts",
       "symbol": "createInventoryChannelStockAllocationRuntime > set",
       "sink": "deps.eventStore.appendToStream",

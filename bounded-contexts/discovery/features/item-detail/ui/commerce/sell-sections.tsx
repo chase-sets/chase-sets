@@ -18,6 +18,7 @@ import {
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
   formatMoneyAmount,
+  mintCartAttemptId,
   formatTermsSource,
   type MarketplaceListingTermsPreview,
   type MarketSelectionSource,
@@ -156,6 +157,8 @@ export function MarketplaceOfferMatchSection({
     });
   }, [errorMessage, offerMatchWorkflow, selectedOfferSource]);
   function trackOfferMatchSubmit(event: FormEvent<HTMLFormElement>) {
+    const field = event.currentTarget.elements.namedItem("attemptId");
+    if (field instanceof HTMLInputElement) field.value = mintCartAttemptId();
     const submittedValue = submittedButtonValue(event);
     const isSellList = submittedValue === "add-to-sell-list" || actionMode === "add-to-sell-list";
 
@@ -200,6 +203,7 @@ export function MarketplaceOfferMatchSection({
     );
   const form = (
     <Form spacing="none" id={formId} method="post" onSubmit={trackOfferMatchSubmit}>
+      <HiddenInput name="attemptId" defaultValue="" />
       <Stack gap={3}>
         <HiddenInput type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
         <HiddenInput
@@ -380,7 +384,9 @@ export function ProductSellListIntentSection({
         spacing="none"
         id={formId}
         method="post"
-        onSubmit={() => {
+        onSubmit={(event) => {
+          const field = event.currentTarget.elements.namedItem("attemptId");
+          if (field instanceof HTMLInputElement) field.value = mintCartAttemptId();
           trackItemDetailRailEvent("intent_submit_started", {
             intent: "sell",
             workflow: "selected_product",
@@ -391,6 +397,7 @@ export function ProductSellListIntentSection({
       >
         <Stack gap={3}>
           <HiddenInput type="hidden" name="intent" value="add-product-to-sell-list" />
+          <HiddenInput name="attemptId" defaultValue="" />
           <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
           <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
           <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
