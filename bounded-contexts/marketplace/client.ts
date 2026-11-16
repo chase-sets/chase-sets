@@ -5,7 +5,6 @@ import type { buildMarketplaceApi } from "./api";
 import type { BuyerOfferPolicyRequest } from "./features/offer-policy/domain/contracts";
 import type { serializeBuyerOfferPolicy } from "./features/offer-policy/api/runtime";
 export type { MarketplaceMutationRecoveryResult } from "./features/mutation-recovery/domain/contracts";
-import type { ListingRecoveryIdentity, MarketplaceListingBatchFamily } from "./features/listings/ui/contracts";
 import {
   recoverMarketplaceCommand,
   MarketplaceCommandRecoveryError,
@@ -77,6 +76,8 @@ export type {
 
 import type {
   MarketplaceBulkListingPriceUpdateInput,
+  ListingRecoveryIdentity,
+  MarketplaceListingBatchFamily,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingBatchResult,
