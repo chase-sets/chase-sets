@@ -73,9 +73,9 @@ pub use item_list::{
     item_list, item_live, item_operations, item_rows,
 };
 pub use item_page::{
-    ContentChoices, ContentDialog, ContentForm, FallbackForm, FieldChoices, FieldDialog, FieldValueForm, Fold, IdForm, ItemBack,
-    ItemPage, ItemScreen, Labels, ListForm, MetadataForm, PublishForm, ReferenceForm, RowForm, choice_label, item_page,
-    item_transitions,
+    ContentChoices, ContentDialog, ContentForm, ContentsPart, FallbackForm, FieldChoices, FieldDialog, FieldValueForm, Fold,
+    IdForm, ItemBack, ItemPage, ItemScreen, Labels, ListForm, MetadataForm, PublishForm, ReferenceForm, RowForm, choice_label,
+    item_page, item_transitions,
 };
 pub use list_page::{
     BlueprintRow, CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick,
@@ -293,6 +293,10 @@ pub mod ids {
         #[derive(Id, Clone, Copy)]
         pub struct ItemContentDialogId;
         pub const CONTENT_DIALOG: ItemContentDialogId = ItemContentDialogId;
+        /// Product Contents, which a write refused for changed contents redraws.
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemContentsId;
+        pub const CONTENTS: ItemContentsId = ItemContentsId; // item-contents
         /// The image fallback's clear form.
         pub const FALLBACK_CLEAR: &str = "item-fallback-clear";
 
