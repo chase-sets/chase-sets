@@ -1,28 +1,95 @@
 {
-  "observationId": "tcgplayer_lorcana_product_1005020_unknown_option",
-  "externalKey": "1005020-unknown-option",
-  "sourceUrl": "https://www.tcgplayer.com/product/1005020",
-  "sourceUpdatedAt": "2026-06-23T00:00:00.000Z",
   "productId": 1005020,
   "productName": "The First Chapter Booster Box",
-  "setName": "The First Chapter",
   "productLineId": 82,
   "productLineName": "Disney Lorcana",
   "productTypeName": "Sealed Products",
-  "customAttributes": { "number": "BOX" },
-  "productForm": "sealed",
+  "setId": 1001,
+  "setCode": "TFC",
+  "setName": "The First Chapter",
+  "rarityName": "Sealed",
+  "sealed": true,
+  "productStatusId": 1,
+  "customAttributes": {
+    "number": "BOX",
+    "releaseDate": "2026-06-23T00:00:00.000Z"
+  },
   "barcode": "4050368981234",
-  "skuReferences": ["sku:9001005022"],
-  "externalCatalogItemReferences": [{ "providerKey": "tcgplayer", "externalKey": "product:1005020" }],
-  "externalProductReferences": [
+  "formattedAttributes": {},
+  "skus": [
     {
-      "providerKey": "tcgplayer",
-      "externalKey": "sku:9001005022",
-      "selectedOptions": [{ "dimensionKey": "language", "optionKey": null, "providerValue": "Inklands" }]
+      "sku": 411070434,
+      "condition": "Sealed",
+      "variant": "Sealed",
+      "language": "Inklands"
     }
   ],
+  "observationId": "tcgplayer_en_product_1005020",
+  "externalKey": "product:1005020",
+  "sourceUrl": "https://mp-search-api.tcgplayer.com/v2/product/1005020/details",
+  "sourceUpdatedAt": "2026-06-23T00:00:00.000Z",
+  "sourcePayload": {
+    "productId": 1005020,
+    "productName": "The First Chapter Booster Box",
+    "productLineId": 82,
+    "productLineName": "Disney Lorcana",
+    "productTypeName": "Sealed Products",
+    "setId": 1001,
+    "setCode": "TFC",
+    "setName": "The First Chapter",
+    "rarityName": "Sealed",
+    "sealed": true,
+    "productStatusId": 1,
+    "customAttributes": {
+      "number": "BOX",
+      "releaseDate": "2026-06-23T00:00:00.000Z"
+    },
+    "barcode": "4050368981234",
+    "formattedAttributes": {},
+    "skus": [
+      {
+        "sku": 411070434,
+        "condition": "Sealed",
+        "variant": "Sealed",
+        "language": "Inklands"
+      }
+    ]
+  },
+  "catalogHashMaterial": {
+    "productId": 1005020,
+    "productName": "The First Chapter Booster Box",
+    "productLineId": 82,
+    "productLineName": "Disney Lorcana",
+    "productTypeName": "Sealed Products",
+    "setId": 1001,
+    "setCode": "TFC",
+    "setName": "The First Chapter",
+    "rarityName": "Sealed",
+    "sealed": true,
+    "productForm": "sealed",
+    "sealedProductForm": "booster-box",
+    "packCount": 36,
+    "barcode": "4050368981234",
+    "productStatusId": 1,
+    "number": "BOX",
+    "releaseDate": "2026-06-23T00:00:00.000Z",
+    "releaseYear": 2026,
+    "skus": [
+      {
+        "sku": 411070434,
+        "condition": "Sealed",
+        "variant": "Sealed",
+        "language": "Inklands"
+      }
+    ]
+  },
+  "productForm": "sealed",
+  "sealedProductForm": "booster-box",
+  "packCount": 36,
+  "releaseYear": 2026,
+  "imageUrls": [],
   "mergeIdentity": {
-    "tcg": "lorcana",
+    "tcg": "disney lorcana",
     "productLineName": "Disney Lorcana",
     "setName": "The First Chapter",
     "printedProductName": "The First Chapter Booster Box",
@@ -31,18 +98,23 @@
     "productForm": "sealed",
     "barcode": "4050368981234"
   },
-  "catalogHashMaterial": {
-    "productId": 1005020,
-    "productName": "The First Chapter Booster Box",
-    "setName": "The First Chapter",
-    "productLineName": "Disney Lorcana",
-    "productForm": "sealed",
-    "skuIds": [9001005022]
-  },
-  "sourcePayload": {
-    "provider": "tcgplayer",
-    "payloadKind": "product-detail-with-skus",
-    "fixtureFlow": "unknown-option",
-    "excludedEvidence": { "price": "redacted fixture boundary", "inventory": "redacted fixture boundary" }
-  }
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:1005020"
+    }
+  ],
+  "externalProductReferences": [],
+  "skuReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:411070434",
+      "reviewEvidence": {
+        "condition": "Sealed",
+        "printing": "Sealed",
+        "language": "Inklands",
+        "productForm": "unopened"
+      }
+    }
+  ]
 }

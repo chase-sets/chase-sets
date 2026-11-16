@@ -376,7 +376,12 @@ export function buildPlatformHelmValues(options = {}) {
   if (options.deploymentEnvironment === "staging") {
     components["platform-api"] = {
       ...components["platform-api"],
-      env: [...(components["platform-api"].env ?? []), ...stagingApiEnv],
+      env: [
+        ...(components["platform-api"].env ?? []).filter(
+          (entry) => !stagingApiEnv.some((override) => override.name === entry.name),
+        ),
+        ...stagingApiEnv,
+      ],
     };
   }
   const digest = options.managedPostgresCaSha256 ?? "";

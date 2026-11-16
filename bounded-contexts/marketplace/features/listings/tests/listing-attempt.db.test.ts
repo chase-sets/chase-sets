@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./listing-attempt-test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closeMultiContextTestPools,
@@ -78,10 +79,10 @@ describeDb("Listing attempts on PostgreSQL", () => {
       quantityCap: 1,
       idempotencyKey: key("create"),
     };
-    const first = await f.listings.createListing(create, context);
+    const first = await f.listings.createListing(listingTestCommand("listing.create", create), context);
     expect(first.listingId).toBe(attemptListingId("acc_seller", key("create")));
     await f.expectNoAppend(async () =>
-      expect(await f.restart().createListing(create, context)).toMatchObject({
+      expect(await f.restart().createListing(listingTestCommand("listing.create", create), context)).toMatchObject({
         listingId: first.listingId,
         version: first.version,
       }),
@@ -142,8 +143,8 @@ describeDb("Listing attempts on PostgreSQL", () => {
       idempotencyKey: key("concurrent-price"),
     };
     const results = await Promise.allSettled([
-      f.listings.updateListingPrice(command, context),
-      f.restart().updateListingPrice(command, context),
+      f.listings.updateListingPrice(listingTestCommand("listing.update-price", command), context),
+      f.restart().updateListingPrice(listingTestCommand("listing.update-price", command), context),
     ]);
     expect(results.every((result) => result.status === "fulfilled")).toBe(true);
     expect(results.map((result) => (result.status === "fulfilled" ? result.value.version : null))).toEqual([4, 4]);
@@ -319,9 +320,11 @@ describeDb("Listing attempts on PostgreSQL", () => {
       quantityCap: 1,
       idempotencyKey: key("create"),
     };
-    await f.listings.createListing(create, context);
+    await f.listings.createListing(listingTestCommand("listing.create", create), context);
     await f.expectNoAppend(() =>
-      expect(f.restart().createListing({ ...create, ...change }, context)).rejects.toMatchObject({
+      expect(
+        f.restart().createListing(listingTestCommand("listing.create", { ...create, ...change }), context),
+      ).rejects.toMatchObject({
         code: "attempt_conflict",
       }),
     );
@@ -373,7 +376,10 @@ describeDb("Listing attempts on PostgreSQL", () => {
     expect(firstSend).toMatchObject([{ listingId: one, outcome: "applied" }]);
     const before = await f.streamLengths([one, two]);
     const retried = await f.listings.applyBulkListingPriceUpdates(
-      { accountId: "acc_seller", updates: [batch(one, "11.00"), batch(two, "11.00")] },
+      {
+        accountId: "acc_seller",
+        updates: [batch(one, "11.00"), batch(two, "11.00")],
+      },
       context,
     );
     expect(retried).toMatchObject([
@@ -385,19 +391,23 @@ describeDb("Listing attempts on PostgreSQL", () => {
     expect(after[two]).toBeGreaterThan(before[two]!);
     // A day-after retry of the whole vector (one amount respelled) appends nothing.
     await f.expectNoAppend(async () => {
-      const replay = await f
-        .restart()
-        .applyBulkListingPriceUpdates(
-          { accountId: "acc_seller", updates: [batch(one, "11"), batch(two, "11.00")] },
-          context,
-        );
+      const replay = await f.restart().applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [batch(one, "11"), batch(two, "11.00")],
+        },
+        context,
+      );
       expect(replay.map((item) => item.outcome)).toEqual(["applied", "applied"]);
     });
     // A currency-only change under the same batch target conflicts.
     await f.expectNoAppend(async () =>
       expect(
         await f.listings.applyBulkListingPriceUpdates(
-          { accountId: "acc_seller", updates: [batch(one, "11.00", "CAD")] },
+          {
+            accountId: "acc_seller",
+            updates: [batch(one, "11.00", "CAD")],
+          },
           context,
         ),
       ).toMatchObject([{ listingId: one, outcome: "conflict" }]),
@@ -599,14 +609,14 @@ describeDb("Listing attempts on PostgreSQL", () => {
     // so the batch reports the target unknown and appends nothing.
     const draft = "lst_history_draft";
     await f.listings.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_one",
         priceAmount: "10.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: draft as never,
-      },
+      }),
       context,
     );
     const partialBatch = key("partial");
@@ -676,55 +686,85 @@ describeDb("Listing attempts on PostgreSQL", () => {
   it("replays seller availability, away and capacity attempts and conflicts on a changed field", async () => {
     const f = await fixture(pools.marketplace);
     const disable = {
+      status: "unavailable",
       accountId: "acc_seller",
       reasonCategory: null,
       availableAgainOn: null,
       availableAgainAt: null,
       idempotencyKey: key("availability"),
     };
-    const disabled = await f.listings.disableSellerListingAvailability(disable, context);
+    const disabled = await f.listings.disableSellerListingAvailability(
+      listingTestCommand("seller.availability", disable),
+      context,
+    );
     await f.expectNoAppend(async () =>
-      expect(await f.restart().disableSellerListingAvailability(disable, context)).toMatchObject({
+      expect(
+        await f.restart().disableSellerListingAvailability(listingTestCommand("seller.availability", disable), context),
+      ).toMatchObject({
         version: disabled.version,
       }),
     );
     await f.expectNoAppend(() =>
       expect(
-        f.listings.disableSellerListingAvailability({ ...disable, availableAgainOn: "2031-01-01" }, context),
+        f.listings.disableSellerListingAvailability(
+          listingTestCommand("seller.availability", {
+            ...disable,
+            availableAgainOn: "2031-01-01",
+          }),
+          context,
+        ),
       ).rejects.toMatchObject({ code: "attempt_conflict" }),
     );
-    const enable = { accountId: "acc_seller", idempotencyKey: key("enable") };
-    const enabled = await f.listings.enableSellerListingAvailability(enable, context);
+    const enable = { status: "available", accountId: "acc_seller", idempotencyKey: key("enable") };
+    const enabled = await f.listings.enableSellerListingAvailability(
+      listingTestCommand("seller.availability", enable),
+      context,
+    );
     await f.expectNoAppend(async () =>
-      expect(await f.listings.enableSellerListingAvailability(enable, context)).toMatchObject({
+      expect(
+        await f.listings.enableSellerListingAvailability(listingTestCommand("seller.availability", enable), context),
+      ).toMatchObject({
         version: enabled.version,
       }),
     );
 
     const away = {
+      action: "schedule",
       accountId: "acc_seller",
       startsAt: "2031-01-01T00:00:00.000Z",
       endsAt: "2031-01-08T00:00:00.000Z",
       reasonCategory: "travel" as const,
       idempotencyKey: key("away"),
     };
-    const scheduled = await f.listings.scheduleSellerAwayWindow(away, context);
+    const scheduled = await f.listings.scheduleSellerAwayWindow(listingTestCommand("seller.away", away), context);
     await f.expectNoAppend(async () =>
-      expect(await f.restart().scheduleSellerAwayWindow(away, context)).toMatchObject({ version: scheduled.version }),
+      expect(
+        await f.restart().scheduleSellerAwayWindow(listingTestCommand("seller.away", away), context),
+      ).toMatchObject({ version: scheduled.version }),
     );
     await f.expectNoAppend(() =>
       expect(
-        f.listings.scheduleSellerAwayWindow({ ...away, endsAt: "2031-01-09T00:00:00.000Z" }, context),
+        f.listings.scheduleSellerAwayWindow(
+          listingTestCommand("seller.away", { ...away, endsAt: "2031-01-09T00:00:00.000Z" }),
+          context,
+        ),
       ).rejects.toMatchObject({ code: "attempt_conflict" }),
     );
 
     const capacity = { accountId: "acc_seller", maxOpenOrders: 5, idempotencyKey: key("capacity") };
-    const set = await f.listings.setSellerOrderCapacity(capacity, context);
+    const set = await f.listings.setSellerOrderCapacity(listingTestCommand("seller.order-capacity", capacity), context);
     await f.expectNoAppend(async () =>
-      expect(await f.restart().setSellerOrderCapacity(capacity, context)).toMatchObject({ version: set.version }),
+      expect(
+        await f.restart().setSellerOrderCapacity(listingTestCommand("seller.order-capacity", capacity), context),
+      ).toMatchObject({ version: set.version }),
     );
     await f.expectNoAppend(() =>
-      expect(f.listings.setSellerOrderCapacity({ ...capacity, maxOpenOrders: 6 }, context)).rejects.toMatchObject({
+      expect(
+        f.listings.setSellerOrderCapacity(
+          listingTestCommand("seller.order-capacity", { ...capacity, maxOpenOrders: 6 }),
+          context,
+        ),
+      ).rejects.toMatchObject({
         code: "attempt_conflict",
       }),
     );
@@ -862,17 +902,20 @@ async function fixture(pool: PgTransactionalPool) {
     /** An internal-exempt (no attempt) active Listing for edit and bulk cases. */
     activeListing: async (listingId: string) => {
       await listings.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_one",
           priceAmount: "10.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
-        },
+        }),
         context,
       );
-      await listings.publishListing({ accountId: "acc_seller", listingId }, context);
+      await listings.publishListing(
+        listingTestCommand("listing.publish", { accountId: "acc_seller", listingId }),
+        context,
+      );
       await project();
       return listingId;
     },

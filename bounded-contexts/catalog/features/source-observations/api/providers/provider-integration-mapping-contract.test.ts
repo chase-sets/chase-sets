@@ -1,4 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import type { JsonObject } from "@chase-sets/primitives/json";
+import type { TcgplayerSealedProductDetail } from "../../../operator-session/domain/extension/sealed-products/contract";
+import { buildTcgplayerAutomationSourceObservationPayload } from "./tcgplayer/adapter";
+import { tcgplayerLorcanaSealedProductProviderProfile } from "./tcgplayer/profiles";
+import { tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract as lorcanaSealedContract } from "./tcgplayer/executable-mapping-contract";
+import { requireCatalogProviderSourceObservation } from "../promotion/provider-source-observation-normalizer";
 import {
   catalogProviderRequiredFixtureFlows,
   defineCatalogProviderIngestionUnitIdentityContract,
@@ -13,6 +20,86 @@ import {
   type CatalogProviderMappingRuntimeFunctionKey,
   type CatalogProviderMappingValueExpression,
 } from "./provider-integration-mapping-contract";
+
+describe("TCGplayer Lorcana sealed mapping", () => {
+  function build(detail: TcgplayerSealedProductDetail) {
+    return buildTcgplayerAutomationSourceObservationPayload({
+      detail,
+      externalReferenceRules: tcgplayerLorcanaSealedProductProviderProfile.externalReferenceExtractionRules.rules,
+      selectedOptionMapping: tcgplayerLorcanaSealedProductProviderProfile.selectedOptionMapping,
+    });
+  }
+
+  async function fixture(flow: string): Promise<JsonObject> {
+    return JSON.parse(
+      await readFile(new URL(`../__fixtures__/tcgplayer-lorcana-sealed-product/${flow}.json`, import.meta.url), "utf8"),
+    );
+  }
+
+  it.each(catalogProviderRequiredFixtureFlows)(
+    "keeps the %s fixture equivalent to the executable mapper",
+    async (flow) => {
+      const payload = await fixture(flow);
+      const rebuilt = build(payload.sourcePayload as TcgplayerSealedProductDetail);
+      expect(JSON.parse(JSON.stringify(rebuilt))).toEqual(payload);
+      const observation = requireCatalogProviderSourceObservation({
+        contract: lorcanaSealedContract,
+        payload,
+        observedAt: "2026-11-15T00:00:00.000Z",
+      });
+      expect(observation.normalized).toMatchObject({
+        kind: "lorcana-sealed-product",
+        tcg: "lorcana",
+        productLineName: "Disney Lorcana",
+      });
+      expect(["booster-pack", "booster-box", "starter-deck", "gift-set", "trove", "deck", "sealed-product"]).toContain(
+        observation.normalized.sealedProductForm,
+      );
+      expect(observation.normalized.sealedProductForm).not.toBe("bundle");
+      expect(validateCatalogProviderExecutableMappingContract(lorcanaSealedContract)).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["Booster Pack", "booster-pack"],
+    ["Booster Box", "booster-box"],
+    ["Starter Deck", "deck"],
+    ["Bundle", "sealed-product"],
+    ["Gift Set", "sealed-product"],
+  ])("maps a %s detail into the Lorcana closed form set", async (productName, sealedProductForm) => {
+    const detail = (await fixture("normal")).sourcePayload as TcgplayerSealedProductDetail;
+    const payload = build({ ...detail, productName });
+    const observation = requireCatalogProviderSourceObservation({
+      contract: lorcanaSealedContract,
+      payload,
+      observedAt: "2026-11-15T00:00:00.000Z",
+    });
+    expect(observation.normalized.sealedProductForm).toBe(sealedProductForm);
+  });
+
+  it("retains a genuinely stale source timestamp and a partial payload without a release date", async () => {
+    const normal = await fixture("normal");
+    const stale = await fixture("stale");
+    const partial = await fixture("partial");
+    expect(Date.parse(String(stale.sourceUpdatedAt))).toBeLessThan(Date.parse(String(normal.sourceUpdatedAt)));
+    expect(partial.sourceUpdatedAt).toBeNull();
+    expect(
+      requireCatalogProviderSourceObservation({
+        contract: lorcanaSealedContract,
+        payload: partial,
+        observedAt: "2026-11-15T00:00:00.000Z",
+      }).normalized.releaseDate,
+    ).toBeNull();
+  });
+
+  it.each(["Magic: The Gathering", "Pokemon"])(
+    "keeps bundle classification for %s unchanged",
+    async (productLineName) => {
+      const detail = (await fixture("normal")).sourcePayload as TcgplayerSealedProductDetail;
+      expect(build({ ...detail, productName: "Bundle", productLineName }).sealedProductForm).toBe("bundle");
+    },
+  );
+});
 
 describe("provider integration executable mapping contract", () => {
   it("represents the existing TCGdex Pokemon mapping without live provider calls", () => {

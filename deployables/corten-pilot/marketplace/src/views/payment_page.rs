@@ -24,7 +24,7 @@ use crate::{
     api::{AccountPayment, PaymentOrder},
     app::url,
     // `Defaults` by its name: payment_entry.js's `mount` takes its generated declaration.
-    payment::{Defaults, GuestForm, PaymentScreen, WatchRoute},
+    payment::{Defaults, GuestForm, PaymentScreen, Watch, WatchRoute},
     text::PaymentMsg,
 };
 
@@ -305,14 +305,18 @@ fn Summary<'a>(t: PaymentMsg, payment: &'a AccountPayment) -> impl Render {
 
 /// The secure payment step (`StripeConfirmationCard`, or the provider's own page by address):
 /// Stripe's fields, mounted by the script, Confirm payment (off until they are ready), and on a
-/// phone the bar with the total and Confirm payment.
+/// phone the bar with the total and Confirm payment. Once Stripe confirms, the script sends the
+/// step's hidden status form (a `GET` of the status part, `data-patch`), so the runtime reads the
+/// part and draws its answer: a script may not draw markup from a string, since pages require
+/// Trusted Types.
 #[component(css = PaymentPage, js)]
 pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str) -> impl Render {
     let payment = &screen.payment;
     let stripe = payment.processor_client_secret.as_deref().zip(payment.processor_publishable_key.as_deref());
-    let (fields, skeleton, error, error_text, processing) = refs();
-    let parts = js::Parts { fields, skeleton, error, error_text, processing };
-    let watch = screen.watch.as_ref().map_or("", |w| w.href.as_str());
+    let (fields, skeleton, error, error_text, processing, status, until) = refs();
+    let parts = js::Parts { fields, skeleton, error, error_text, processing, status, until };
+    let status_action = screen.status_action();
+    let w = Watch::FIELDS;
     html! {
         <section class={Section} aria-labelledby="payment-entry-title" data-payment-entry>
             <h2 id="payment-entry-title" class={PartTitle}>{t.secure_payment_2()}</h2>
@@ -339,12 +343,16 @@ pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str
                                 <p class={Strong}>{t.payment_in_progress()}</p>
                                 <p>{t.the_payment_is_being_updated_by()}</p>
                             </div>
+                            <form ref={status} method="get" action={&status_action} data-patch hidden>
+                                <input type="hidden" name={w.since} value={&payment.status}>
+                                <input type="hidden" ref={until} name={w.until} value="">
+                            </form>
                             <button
                                 type="button"
                                 class={(Button, Wide)}
                                 data-payment-confirm
                                 disabled
-                                on:click={js::confirm(scope, parts, watch, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
+                                on:click={js::confirm(scope, parts, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
                             >
                                 {t.confirm_payment()}
                             </button>
@@ -358,7 +366,7 @@ pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str
                                     class={(Button, Wide)}
                                     data-payment-confirm
                                     disabled
-                                    on:click={js::confirm(scope, parts, watch, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
+                                    on:click={js::confirm(scope, parts, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
                                 >
                                     {t.confirm_payment()}
                                 </button>

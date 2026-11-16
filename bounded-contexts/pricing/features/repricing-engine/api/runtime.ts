@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { MarketplaceListingServices } from "../../../support/request-support/marketplace-listings";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -93,17 +95,18 @@ export type RepricingSpiralBreakerTrip = Readonly<{
   frozenUntil: string;
 }>;
 
+type ListingPriceBatch = Parameters<MarketplaceListingServices["applyBulkListingPriceUpdates"]>[0];
+type RepricingPriceUpdate = ListingPriceBatch["updates"][number] &
+  Readonly<{
+    expectedVersion: number;
+    minimumChange: RepricingListingEvaluation["tolerance"];
+    idempotencyKey: string;
+  }>;
+
 export type RepricingMarketplaceGateway = Readonly<{
-  applyBulkListingPriceUpdates: (body: {
-    updates: readonly Readonly<{
-      listingId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      expectedVersion: number;
-      minimumChange: RepricingListingEvaluation["tolerance"];
-      idempotencyKey: string;
-    }>[];
-  }) => Promise<{
+  applyBulkListingPriceUpdates: (
+    body: Omit<ListingPriceBatch, "accountId" | "updates"> & Readonly<{ updates: readonly RepricingPriceUpdate[] }>,
+  ) => Promise<{
     items: readonly Readonly<{
       listingId: string;
       outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
@@ -112,9 +115,12 @@ export type RepricingMarketplaceGateway = Readonly<{
   }>;
   pauseListing: (
     listingId: string,
-    body: { reason: "policy-input-missing"; idempotencyKey: string },
+    body: Omit<Parameters<MarketplaceListingServices["pauseListing"]>[0], "accountId" | "listingId">,
   ) => Promise<unknown>;
-  publishListing: (listingId: string, body: { idempotencyKey: string }) => Promise<unknown>;
+  publishListing: (
+    listingId: string,
+    body: Omit<Parameters<MarketplaceListingServices["publishListing"]>[0], "accountId" | "listingId">,
+  ) => Promise<unknown>;
 }>;
 
 type RepricingEngineRuntimeDeps = Readonly<{
@@ -918,6 +924,10 @@ function buildMarketplaceMutationIdempotencyKey(
   listingId: string,
   action: "price" | "pause" | "publish",
 ): string {
+  if (action !== "price")
+    return createHash("sha256")
+      .update(JSON.stringify(["repricing", triggerEventId, productId, listingId, action]))
+      .digest("hex");
   return `repricing:${encodeURIComponent(triggerEventId)}:${encodeURIComponent(productId)}:${encodeURIComponent(
     listingId,
   )}:${action}`;

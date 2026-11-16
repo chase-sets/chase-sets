@@ -12,8 +12,61 @@ import {
   SellListReviewPlanStaleError,
   type MarketplaceRequestApiClient,
 } from "../support/route-support/sell-checkout-session/sell-checkout-types";
+import type { SellListReviewedLine } from "../support/route-support/sell-checkout-session/sell-checkout-types";
+import { createMarketplaceApiClient } from "@chase-sets/marketplace/server";
 
 const plainFingerprint = "135.00|6.75|128.25|500|sch_standard|";
+
+it("reuses confirmation-and-line Listing identities and hashes across a fallback handoff retry", async () => {
+  const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const client = createMarketplaceApiClient({
+    baseUrl: "http://localhost/api/marketplace",
+    fetch: async (input, init) => {
+      const request = new Request(input, init);
+      writes.push({ path: new URL(request.url).pathname, body: await request.json() });
+      return Response.json({ id: "lst_fallback", version: 1, feeQuoteFingerprint: "quote_fallback" });
+    },
+  });
+  const reviewed: SellListReviewedLine = {
+    line: productLine,
+    readinessAction: "fallback-listing",
+    review: {
+      lineId: productLine.line_id,
+      lineType: "product",
+      itemTitle: productLine.item_title,
+      productId: productLine.product_id,
+      quantity: productLine.quantity,
+      selectedOffer: null,
+      productOfferTargets: [],
+      skippedReasons: [],
+      fallbackListing: {
+        inventoryItemId: "inv_fallback",
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+      },
+    },
+  };
+  const first = await performMarketplaceHandoff(client, "confirmation:with/punctuation", [reviewed]);
+  const replay = await performMarketplaceHandoff(client, "confirmation:with/punctuation", [reviewed]);
+  expect(replay).toEqual(first);
+  expect(writes).toHaveLength(4);
+  expect(writes[2]).toEqual(writes[0]);
+  expect(writes[3]).toEqual(writes[1]);
+  expect(writes[0]!.body.idempotencyKey).toMatch(/^[a-f0-9]{64}$/);
+  expect(writes[0]!.body.idempotencyKey).not.toBe(writes[1]!.body.idempotencyKey);
+  expect(writes[0]!.body.requestHash).toMatch(/^[a-f0-9]{64}$/);
+  await performMarketplaceHandoff(client, "another-confirmation", [reviewed]);
+  expect(writes[4]!.body.idempotencyKey).not.toBe(writes[0]!.body.idempotencyKey);
+  await performMarketplaceHandoff(client, "confirmation:with/punctuation", [
+    {
+      ...reviewed,
+      line: { ...productLine, line_id: "sll_other" },
+      review: { ...reviewed.review, lineId: "sll_other" },
+    },
+  ]);
+  expect(writes[6]!.body.idempotencyKey).not.toBe(writes[0]!.body.idempotencyKey);
+});
 
 const commercialTermsResolver: CheckoutCommercialTermsResolver = {
   resolveListingTerms: async ({ amount }) => ({

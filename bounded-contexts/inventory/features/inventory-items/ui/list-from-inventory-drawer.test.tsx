@@ -55,6 +55,15 @@ describe("ListFromInventoryDrawer", () => {
 
     expect(form.getAttribute("method")).toBe("post");
     expect(form.getAttribute("enctype")).toBe("multipart/form-data");
+    const attempt = () => new FormData(form).get("idempotencyKey");
+    const originalAttempt = attempt();
+    expect(originalAttempt).toEqual(expect.any(String));
+    expect(String(originalAttempt).length).toBeGreaterThan(15);
+    expect(attempt()).toBe(originalAttempt);
+    fireEvent.change(form.querySelector('input[name="priceAmount"]')!, { target: { value: "2.00" } });
+    expect(attempt()).not.toBe(originalAttempt);
+    const changedAttempt = attempt();
+    expect(attempt()).toBe(changedAttempt);
     expect(form.querySelector('input[name="inventoryItemId"][value="inv_1"]')).not.toBeNull();
     expect(form.querySelector('input[name="priceAmount"]')).not.toBeNull();
     expect(form.querySelector('input[name="quantityCap"]')).not.toBeNull();

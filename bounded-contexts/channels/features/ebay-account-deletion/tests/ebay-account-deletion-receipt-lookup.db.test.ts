@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
 import { createEbayAccountDeletionRuntime } from "../api/runtime";
 import { createChannelCredentialRuntime } from "../../credentials/api/runtime";
+import { createEbaySubjectCipher } from "../domain/subject";
 import { receiptDatabase } from "./db-support";
 import { keyring, notice } from "./fixtures";
 
@@ -55,7 +56,16 @@ describe("ebay-account-deletion-receipt-lookup and ebay-subject-data-count", () 
         VALUES ($1,'account', $2,$3,$4,'2026-10-11T00:00:00Z',statement_timestamp(),statement_timestamp(),1)`,
         [connectionId, providerKey, environment, status],
       );
-      await credentials.create(
+      if (providerKey === "ebay") {
+        const sealed = createEbaySubjectCipher(keyring()).seal(connectionId, connectionId);
+        await db().query(
+          `INSERT INTO channels_ebay_seller_bindings
+          (binding_id,account_id,environment,subject_fingerprint,subject_key_id,iv,ciphertext,tag,current_connection_id,credential_reference,capabilities)
+          VALUES ($1,'account',$2,$3,$4,$5,$6,$7,$1,'pending','[]')`,
+          [connectionId, environment, sealed.fingerprint, sealed.keyId, sealed.iv, sealed.ciphertext, sealed.tag],
+        );
+      }
+      const envelope = await credentials.create(
         db(),
         { accountId: "account", connectionId, providerKey, environment },
         {
@@ -67,6 +77,11 @@ describe("ebay-account-deletion-receipt-lookup and ebay-subject-data-count", () 
         },
         notice.eventDate,
       );
+      if (providerKey === "ebay")
+        await db().query("UPDATE channels_ebay_seller_bindings SET credential_reference=$2 WHERE binding_id=$1", [
+          connectionId,
+          envelope.rowId,
+        ]);
     }
     expect(await store.countSubjectData()).toEqual({ connections: 3, credentialEnvelopes: 3 });
   });

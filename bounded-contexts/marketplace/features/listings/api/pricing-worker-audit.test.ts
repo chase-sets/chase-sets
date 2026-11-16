@@ -8,6 +8,7 @@ import {
   type RepricingEngineServices,
 } from "@chase-sets/pricing/server";
 import { listingAttempt } from "./listing-attempt";
+import { listingCommandInput } from "../../../support/request-support/listing-attempt";
 import { listingBatchStreamId, lookupListingBatch, runListingBatch } from "./listing-batch";
 
 describe("Pricing worker seller audit composition", () => {
@@ -31,8 +32,39 @@ describe("Pricing worker seller audit composition", () => {
         }),
       };
       let appends = 0;
-      const listings: Pick<MarketplaceListingServices, "applyBulkListingPriceUpdates"> = {
-        applyBulkListingPriceUpdates: async (_params, context) => {
+      const listings: Pick<
+        MarketplaceListingServices,
+        "applyBulkListingPriceUpdates" | "pauseListing" | "publishListing"
+      > = {
+        pauseListing: async (params) => {
+          expect(params).toMatchObject(
+            listingCommandInput("listing.pause", {
+              listingId: target.targetId,
+              idempotencyKey: batch.batchId,
+              reason: "policy-input-missing",
+            }),
+          );
+          return { listingId: target.targetId, version: 1 };
+        },
+        publishListing: async (params) => {
+          expect(params).toMatchObject(
+            listingCommandInput("listing.publish", {
+              listingId: target.targetId,
+              idempotencyKey: batch.batchId,
+              requestHash: "0".repeat(64),
+            }),
+          );
+          return { listingId: target.targetId, version: 1 };
+        },
+        applyBulkListingPriceUpdates: async (params, context) => {
+          expect(params.updates[0]).toMatchObject(
+            listingCommandInput("listing.update-price", {
+              listingId: target.targetId,
+              priceAmount: "9.99",
+              priceCurrencyCode: "USD",
+              idempotencyKey: batch.batchId,
+            }),
+          );
           const decisions = await runListingBatch({
             store: eventStore,
             batch,
@@ -88,8 +120,16 @@ describe("Pricing worker seller audit composition", () => {
       };
       const processNext: PricingRecommendationServices["processNextRecommendationJob"] = async (input) =>
         auditGateway(input.marketplaceListingGatewayForAccount(batch.accountId));
-      const processEvaluation: RepricingEngineServices["processNextEvaluationJob"] = async (input) =>
-        auditGateway(input.marketplaceGatewayForAccount(batch.accountId));
+      const processEvaluation: RepricingEngineServices["processNextEvaluationJob"] = async (input) => {
+        const gateway = input.marketplaceGatewayForAccount(batch.accountId);
+        await gateway.pauseListing(target.targetId, {
+          idempotencyKey: batch.batchId,
+          reason: "policy-input-missing",
+        });
+        // The owner, not the wiring, must reject a supplied mismatched hash.
+        await gateway.publishListing(target.targetId, { idempotencyKey: batch.batchId, requestHash: "0".repeat(64) });
+        return auditGateway(gateway);
+      };
       const services = {
         marketplace: { listings },
         inventory: { importBatches: {} },

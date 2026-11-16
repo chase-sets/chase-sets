@@ -249,6 +249,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
           "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
       },
       {
+        portName: "ebayOAuthConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection.",
+      },
+      {
         portName: "ebayAccountDeletionConfiguration",
         providedBy: "platform-api",
         purpose:
@@ -295,6 +301,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
+      "ebay-connection",
       "ebay-account-deletion",
       "connector-feed",
       "connections",
@@ -323,7 +330,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (candidate.eventSubscriptions?.length !== 6) violations.push("eventSubscriptions");
   if (candidate.eventReactions?.length !== 6) violations.push("eventReactions");
-  if (candidate.deployableContributions?.[0]?.routes?.length !== 5) violations.push("deployableContributions");
+  if (candidate.deployableContributions?.[0]?.routes?.length !== 8) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
   if (JSON.stringify(candidate.apiDeployables) !== JSON.stringify(["platform-api"])) violations.push("apiDeployables");
@@ -442,6 +449,7 @@ describe("channels-context-foundation", () => {
         "channel-sync-run",
       ]),
       slices: [
+        "ebay-connection",
         "ebay-account-deletion",
         "connector-feed",
         "connections",
@@ -469,6 +477,12 @@ describe("channels-context-foundation", () => {
           providedBy: "platform-api",
           purpose:
             "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
+        },
+        {
+          portName: "ebayOAuthConfiguration",
+          providedBy: "platform-api",
+          purpose:
+            "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection.",
         },
         {
           portName: "ebayAccountDeletionConfiguration",
@@ -523,6 +537,9 @@ describe("channels-context-foundation", () => {
     ]);
     expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([64, 65, 60, 61, 62, 63]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
+      ["channels.manage"],
+      ["channels.manage"],
+      ["channels.manage"],
       ["channels.view"],
       ["channels.view"],
       ["channels.view"],

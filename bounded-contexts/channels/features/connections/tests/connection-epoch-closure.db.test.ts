@@ -18,6 +18,7 @@ import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createConnectorOAuthService } from "@chase-sets/auth/server";
 import { module as channelsModule } from "../../../index";
 import * as epochModule from "../api/owner-epochs";
+import * as ebayModule from "../../ebay-connection/api/runtime";
 import { createConnectionEpochs, createConnectionPersistence, type ConnectionEpochs } from "../api/owner-epochs";
 import { createVersionedConnectionAuthority } from "../api/versioned-connection-authority";
 import { createChannelConnectionRuntime } from "../api/runtime";
@@ -74,6 +75,7 @@ describeDb("Connection acknowledged epoch closure", () => {
     if (writer.name !== "activation") await activateFixture(services);
     if (writer.name === "resume") await services.pauseChannelConnection(target, testContext);
     const revokePairing = vi.fn(async () => {});
+    const disconnectEffect = vi.fn(async () => {});
     const oauth = {
       ...createConnectorOAuthService(
         () => {
@@ -107,6 +109,7 @@ describeDb("Connection acknowledged epoch closure", () => {
           )
         ).rows,
         revocations: revokePairing.mock.calls.length,
+        disconnectEffects: disconnectEffect.mock.calls.length,
       };
     }
     const authority = createVersionedConnectionAuthority(pool, raw, epochs);
@@ -126,6 +129,11 @@ describeDb("Connection acknowledged epoch closure", () => {
       if (writer.name === "installed Connector Feed disconnect") {
         // Exercise the actual production composition, not only a hand-wired fallback.
         const substitute = vi.spyOn(epochModule, "createConnectionEpochs").mockReturnValue(active);
+        const createEbay = ebayModule.createEbayConnectionRuntime;
+        const ebay = vi.spyOn(ebayModule, "createEbayConnectionRuntime").mockImplementation((deps) => ({
+          ...createEbay(deps),
+          disconnectEffect,
+        }));
         try {
           const installed = channelsModule.createServices(pool, {
             connectorOAuth: oauth,
@@ -136,6 +144,7 @@ describeDb("Connection acknowledged epoch closure", () => {
           return await installed.connections.disconnectChannelConnection(target, testContext);
         } finally {
           substitute.mockRestore();
+          ebay.mockRestore();
         }
       }
       if (writer.name === "handler disconnect") return current.disconnectChannelConnection(target, testContext);

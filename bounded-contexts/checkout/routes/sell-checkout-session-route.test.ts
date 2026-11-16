@@ -1079,11 +1079,16 @@ describe("checkout web routes: sell checkout session", () => {
     await expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).toHaveBeenCalledWith({
+      idempotencyKey: "2e4bc1139f2861897100cf5ba6be36bf3bd4274891e7343eb89496c72f6c1160",
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
       priceCurrencyCode: "USD",
       quantityCap: 1,
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
+    });
+    expect(mockPublishListing).toHaveBeenCalledWith("lst_slc_chk_sell_1_sll_1", {
+      idempotencyKey: "1ba4296cdaed440502c5a4d940095ab8606746d838dccee9c3108340b1814913",
+      feeQuoteFingerprint: "listing_quote_1",
     });
     expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1303,6 +1308,7 @@ describe("checkout web routes: sell checkout session", () => {
       acceptanceBatchSize: 1,
     });
     expect(mockCreateListing).toHaveBeenCalledWith({
+      idempotencyKey: "2e4bc1139f2861897100cf5ba6be36bf3bd4274891e7343eb89496c72f6c1160",
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
       priceCurrencyCode: "USD",
@@ -1310,6 +1316,7 @@ describe("checkout web routes: sell checkout session", () => {
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
     });
     expect(mockPublishListing).toHaveBeenCalledWith("lst_slc_chk_sell_1_sll_product", {
+      idempotencyKey: "1ba4296cdaed440502c5a4d940095ab8606746d838dccee9c3108340b1814913",
       feeQuoteFingerprint: "listing_quote_1",
     });
     expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(

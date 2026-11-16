@@ -168,6 +168,12 @@ describe("channel-listing-composition-scope-fence", () => {
           "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
       },
       {
+        portName: "ebayOAuthConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection.",
+      },
+      {
         portName: "ebayAccountDeletionConfiguration",
         providedBy: "platform-api",
         purpose:

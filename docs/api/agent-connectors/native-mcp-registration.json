@@ -2609,6 +2609,7 @@
           "priceCurrencyCode",
           "quantityCap",
           "idempotencyKey",
+          "requestHash",
           "confirmationText"
         ],
         "properties": {
@@ -2658,6 +2659,10 @@
           "idempotencyKey": {
             "type": "string",
             "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace Listing command."
           },
           "confirmationText": {
             "type": "string",
@@ -2744,6 +2749,7 @@
           "priceAmount",
           "priceCurrencyCode",
           "idempotencyKey",
+          "requestHash",
           "confirmationText"
         ],
         "properties": {
@@ -2770,6 +2776,10 @@
           "idempotencyKey": {
             "type": "string",
             "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace Listing command."
           },
           "confirmationText": {
             "type": "string",
@@ -2854,6 +2864,7 @@
           "accountId",
           "listingId",
           "idempotencyKey",
+          "requestHash",
           "confirmationText"
         ],
         "properties": {
@@ -2872,6 +2883,10 @@
           "idempotencyKey": {
             "type": "string",
             "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace Listing command."
           },
           "confirmationText": {
             "type": "string",
@@ -2957,7 +2972,8 @@
           "listingId",
           "reason",
           "idempotencyKey",
-          "confirmationText"
+          "confirmationText",
+          "requestHash"
         ],
         "properties": {
           "accountId": {
@@ -2983,6 +2999,10 @@
           "dryRun": {
             "type": "boolean",
             "description": "Validate the action without committing it."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace Listing command."
           }
         }
       },

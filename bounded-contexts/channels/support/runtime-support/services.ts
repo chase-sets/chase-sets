@@ -1,4 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { EbayConnectionServices } from "../../features/ebay-connection/api/runtime";
 import type { EbayAccountDeletionOptions } from "../../features/ebay-account-deletion/api/route";
 import type { EbayAccountDeletionServices } from "../../features/ebay-account-deletion/api/runtime";
 import type { createEbayReceiptExpiryStore } from "../../features/ebay-account-deletion/read-model/expiry";
@@ -25,6 +26,7 @@ import type { TcgplayerLiveExportSnapshotServices } from "../../features/live-ex
 import type { FulfillmentObservationServices } from "../../features/order-fulfillment-observations/api/runtime";
 
 export type ChannelsServices = Readonly<{
+  ebayConnection?: EbayConnectionServices;
   ebayAccountDeletion: EbayAccountDeletionOptions;
   ebayAccountDeletionReceipts: EbayAccountDeletionServices;
   ebayReceiptExpiry: ReturnType<typeof createEbayReceiptExpiryStore>;
@@ -51,6 +53,7 @@ export type ChannelsServices = Readonly<{
 }>;
 
 export const channelsServicesMembers = defineChannelsServicesMembers([
+  "ebayConnection",
   "ebayAccountDeletion",
   "ebayAccountDeletionReceipts",
   "ebayReceiptExpiry",
@@ -95,6 +98,8 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const db = Reflect.get(value, "db");
 
   return (
+    isObject(Reflect.get(value, "ebayConnection")) &&
+    typeof Reflect.get(Reflect.get(value, "ebayConnection"), "callback") === "function" &&
     isObject(Reflect.get(value, "ebayAccountDeletion")) &&
     isObject(ebayAccountDeletionReceipts) &&
     typeof Reflect.get(ebayAccountDeletionReceipts, "recordEbayAccountDeletionReceipt") === "function" &&

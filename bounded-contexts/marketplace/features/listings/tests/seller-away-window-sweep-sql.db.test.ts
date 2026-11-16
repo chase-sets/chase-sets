@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./listing-attempt-test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { BcApiEntry, BcApiModule } from "@chase-sets/bounded-context-module";
 import { bootstrapContextDatabase, drainContextRuntime } from "@chase-sets/bounded-context-runtime";
@@ -192,12 +193,13 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     const accountId = "acc_away_window_round_trip";
 
     await services.listings.scheduleSellerAwayWindow(
-      {
+      listingTestCommand("seller.away", {
+        action: "schedule",
         accountId,
         startsAt: "2030-01-01T00:00:00.000Z",
         endsAt: "2030-01-10T00:00:00.000Z",
         reasonCategory: "travel",
-      },
+      }),
       context(accountId),
     );
     await drainContextRuntime(runtime);
@@ -254,7 +256,13 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     const accountId = "acc_away_window_indefinite";
 
     await services.listings.scheduleSellerAwayWindow(
-      { accountId, startsAt: "2030-01-01T00:00:00.000Z", endsAt: null, reasonCategory: "other" },
+      listingTestCommand("seller.away", {
+        action: "schedule",
+        accountId,
+        startsAt: "2030-01-01T00:00:00.000Z",
+        endsAt: null,
+        reasonCategory: "other",
+      }),
       context(accountId),
     );
     await drainContextRuntime(runtime);
@@ -281,7 +289,13 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     const accountId = "acc_away_window_cancel_race";
 
     await services.listings.scheduleSellerAwayWindow(
-      { accountId, startsAt: "2030-01-01T00:00:00.000Z", endsAt: "2030-01-10T00:00:00.000Z", reasonCategory: "travel" },
+      listingTestCommand("seller.away", {
+        action: "schedule",
+        accountId,
+        startsAt: "2030-01-01T00:00:00.000Z",
+        endsAt: "2030-01-10T00:00:00.000Z",
+        reasonCategory: "travel",
+      }),
       context(accountId),
     );
     await drainContextRuntime(runtime);
@@ -293,7 +307,10 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
 
     // Before the sweep's disable command reaches the aggregate, the seller
     // cancels the window.
-    await services.listings.cancelScheduledAwayWindow({ accountId }, context(accountId));
+    await services.listings.cancelScheduledAwayWindow(
+      listingTestCommand("seller.away", { action: "cancel", accountId }),
+      context(accountId),
+    );
 
     const sweep = await services.listings.sweepDueSellerAwayWindowStarts({ now }, context("system"));
     expect(sweep).toEqual({ checked: 1, started: 0, skipped: 1 });
@@ -309,12 +326,24 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     const accountId = "acc_away_window_manual_preempt";
 
     await services.listings.scheduleSellerAwayWindow(
-      { accountId, startsAt: "2030-02-01T00:00:00.000Z", endsAt: "2030-02-10T00:00:00.000Z", reasonCategory: "travel" },
+      listingTestCommand("seller.away", {
+        action: "schedule",
+        accountId,
+        startsAt: "2030-02-01T00:00:00.000Z",
+        endsAt: "2030-02-10T00:00:00.000Z",
+        reasonCategory: "travel",
+      }),
       context(accountId),
     );
 
     await services.listings.disableSellerListingAvailability(
-      { accountId, reasonCategory: "audit", availableAgainOn: null, availableAgainAt: null },
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
+        accountId,
+        reasonCategory: "audit",
+        availableAgainOn: null,
+        availableAgainAt: null,
+      }),
       context(accountId),
     );
     await drainContextRuntime(runtime);
@@ -353,25 +382,46 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     const accountId = "acc_away_window_reschedule";
 
     await services.listings.scheduleSellerAwayWindow(
-      { accountId, startsAt: "2030-02-01T00:00:00.000Z", endsAt: null, reasonCategory: "travel" },
+      listingTestCommand("seller.away", {
+        action: "schedule",
+        accountId,
+        startsAt: "2030-02-01T00:00:00.000Z",
+        endsAt: null,
+        reasonCategory: "travel",
+      }),
       context(accountId),
     );
 
     await expect(
       services.listings.scheduleSellerAwayWindow(
-        { accountId, startsAt: "2030-03-01T00:00:00.000Z", endsAt: null, reasonCategory: "audit" },
+        listingTestCommand("seller.away", {
+          action: "schedule",
+          accountId,
+          startsAt: "2030-03-01T00:00:00.000Z",
+          endsAt: null,
+          reasonCategory: "audit",
+        }),
         context(accountId),
       ),
     ).rejects.toThrow("Cancel the existing scheduled away window before scheduling a new one.");
 
-    await services.listings.cancelScheduledAwayWindow({ accountId }, context(accountId));
+    await services.listings.cancelScheduledAwayWindow(
+      listingTestCommand("seller.away", { action: "cancel", accountId }),
+      context(accountId),
+    );
     await drainContextRuntime(runtime);
     const afterCancel = await readAvailabilityRow(pool, accountId);
     expect(afterCancel).toMatchObject({ away_window_starts_at: null });
 
     // Rescheduling now succeeds.
     await services.listings.scheduleSellerAwayWindow(
-      { accountId, startsAt: "2030-03-01T00:00:00.000Z", endsAt: null, reasonCategory: "audit" },
+      listingTestCommand("seller.away", {
+        action: "schedule",
+        accountId,
+        startsAt: "2030-03-01T00:00:00.000Z",
+        endsAt: null,
+        reasonCategory: "audit",
+      }),
       context(accountId),
     );
     await drainContextRuntime(runtime);

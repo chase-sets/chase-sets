@@ -60,6 +60,8 @@ import {
 import {
   TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION,
+  tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract,
   tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract,
   tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract,
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
@@ -103,6 +105,7 @@ import { tcgdexPokemonTcgProviderProfile } from "./tcgdex/profiles";
 import {
   tcgplayerAutomationClientProviderProfile,
   tcgplayerLorcanaSealedProductProviderProfile,
+  tcgplayerLorcanaSealedProductPriorProviderProfile,
   tcgplayerLorcanaSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
@@ -507,6 +510,19 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "lorcana-sealed-product-sku",
+    profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION,
+    ingestionUnitIdentity: tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "deprecated",
+    active: false,
+    profile: tcgplayerLorcanaSealedProductPriorProviderProfile,
+    sourceContract: tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract,
   },
   {
     providerKey: "tcgplayer",
