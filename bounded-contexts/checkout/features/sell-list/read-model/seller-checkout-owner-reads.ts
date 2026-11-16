@@ -410,7 +410,11 @@ export function sellerCheckoutEvidence(
       origin: reads.origin,
       fulfillment: reads.fulfillment,
       riskPolicy: reads.risk?.policyRevision ?? null,
-      estimate: params.estimate,
+      estimate: {
+        status: params.estimate.status,
+        amount: params.estimate.amount,
+        currencyCode: params.estimate.currencyCode,
+      },
       matchedEvidenceRevisions,
     }),
   };

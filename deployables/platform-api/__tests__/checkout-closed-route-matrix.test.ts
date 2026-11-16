@@ -380,7 +380,9 @@ const preservedRoutes = [
     ...["", "/readiness", "/bulk", "/commands", "/:lineId/quantity", "/:lineId/fulfillment", "/:lineId/remove"].map(
       (suffix) => `POST /api/marketplace/${actor}/cart${suffix}`,
     ),
-    ...["", "/readiness", "/:lineId/remove"].map((suffix) => `POST /api/marketplace/${actor}/sell-list${suffix}`),
+    ...["", "/readiness", "/commands", "/:lineId/remove"].map(
+      (suffix) => `POST /api/marketplace/${actor}/sell-list${suffix}`,
+    ),
   ]),
   "POST /api/marketplace/guest/cart/merge-to-account",
   "POST /api/marketplace/guest/sell-list/merge-to-account",

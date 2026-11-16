@@ -3,6 +3,7 @@ import {
   withMeasurePublicationStaging,
 } from "@chase-sets/event-core-postgres/measure-publication-test-support";
 import { describe, expect, it } from "vitest";
+import { isDeepStrictEqual } from "node:util";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
@@ -105,8 +106,12 @@ class ProjectionDb implements PgQueryable {
     if (sql.includes("SET evidence_requirements = $2")) {
       const row = this.options.get(String(values[0]));
       if (row) {
-        row.evidence_requirements = JSON.parse(String(values[1]));
-        row.updated_at = String(values[2]);
+        const next = JSON.parse(String(values[1]));
+        const { evaluatedAt: _old, ...before } = (row.evidence_requirements ?? {}) as Record<string, unknown>;
+        const { evaluatedAt: _new, ...after } = next as Record<string, unknown>;
+        if (!sql.includes("IS NOT DISTINCT FROM") || !isDeepStrictEqual(before, after))
+          row.updated_at = String(values[2]);
+        row.evidence_requirements = next;
       }
       return { rows: [], rowCount: row ? 1 : 0 };
     }
@@ -234,14 +239,20 @@ class ProjectionDb implements PgQueryable {
   }
 }
 
-function event(type: string, streamId: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
+function event(
+  type: string,
+  streamId: string,
+  data: Record<string, unknown>,
+  streamVersion = 1,
+  recordedAt = "2026-05-09T00:00:00.000Z",
+): TransportEvent {
   return buildTransportEvent(type, data, {
     id: "evt_1",
     streamId,
     streamVersion,
     tenantId: "tnt_1",
     audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
-    timing: { occurredAt: "2026-05-09T00:00:00.000Z", recordedAt: "2026-05-09T00:00:00.000Z" },
+    timing: { occurredAt: recordedAt, recordedAt },
   });
 }
 
@@ -267,6 +278,42 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("checkout marketplace seller-options projection", () => {
+  it("keeps evidence freshness across acceptance's identical requirement refresh, but advances policy and photo changes", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+    await handlers["marketplace.listing.created"]!(createdEvent());
+    const initial = db.options.get("lst_1")!.updated_at;
+    const refreshed = {
+      policyHash: "sha256:policy",
+      policyVersion: 1,
+      requirements: {},
+      evaluatedAt: "2026-05-10T00:00:00.000Z",
+    };
+    const refresh = event(
+      "marketplace.listing.evidence-requirements-refreshed",
+      "marketplace.listing-lst_1",
+      { evidenceRequirements: refreshed },
+      1,
+      refreshed.evaluatedAt,
+    );
+    await handlers[refresh.type]!(refresh);
+    expect(db.options.get("lst_1")!.evidence_requirements).toEqual(refreshed);
+    expect(db.options.get("lst_1")!.updated_at).toBe(initial);
+    await handlers[refresh.type]!({
+      ...refresh,
+      data: { evidenceRequirements: { ...refreshed, policyHash: "sha256:changed" } },
+    });
+    expect(db.options.get("lst_1")!.updated_at).toBe(refreshed.evaluatedAt);
+    const photo = event(
+      "marketplace.listing.photos-added",
+      "marketplace.listing-lst_1",
+      { evidence: [{ photoId: "photo_new", status: "active" }] },
+      1,
+      "2026-05-11T00:00:00.000Z",
+    );
+    await handlers[photo.type]!(photo);
+    expect(db.options.get("lst_1")!.updated_at).toBe("2026-05-11T00:00:00.000Z");
+  });
   it("keeps equal and older created/price redelivery distinct from a rebuild", async () => {
     const db = new ProjectionDb();
     const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);

@@ -4,6 +4,7 @@ import { appendFreshWriteToken, appendPostWriteHandoff } from "@chase-sets/http/
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import { ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF } from "../support/request-support/account-sell-list-handoffs";
+import { sellListAttemptResult } from "../features/command-attempts/api/sell-list-route.test-support";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -1123,6 +1124,7 @@ describe("checkout web routes: account sell list", () => {
     });
     mockAddSellListLine.mockResolvedValue({
       id: "sll_1",
+      attempt: sellListAttemptResult(),
       version: 1,
       status: "added",
       commandReceipt: checkoutCommit("42", "evt_sell_list_line"),
@@ -1149,6 +1151,7 @@ describe("checkout web routes: account sell list", () => {
 
     expect(mockGetOfferMatch).toHaveBeenCalledWith("off_1");
     expect(mockAddSellListLine).toHaveBeenCalledWith({
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "off_1",
       listingId: "lst_1",
@@ -1173,7 +1176,7 @@ describe("checkout web routes: account sell list", () => {
 
   it("declines selected offers through Marketplace and removes selected-offer Sell List lines", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
-    const removeSellListLine = vi.fn(async () => ({ status: "removed" }));
+    const removeSellListLines = vi.fn(async () => ({ attempt: sellListAttemptResult("committed", "sell-list-batch") }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({
         items: [
@@ -1189,7 +1192,7 @@ describe("checkout web routes: account sell list", () => {
           },
         ],
       })),
-      removeSellListLine,
+      removeSellListLines,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       declineOfferMatch: mockDeclineOfferMatch.mockResolvedValue({ status: "declined" }),
@@ -1210,9 +1213,10 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1", { attemptId: "decline_off_1".padEnd(22, "_") });
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2", { attemptId: "decline_off_2".padEnd(22, "_") });
-    expect(removeSellListLine).toHaveBeenCalledWith("sll_1");
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1", { attemptId: expect.any(String) });
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2", { attemptId: expect.any(String) });
+    expect(mockDeclineOfferMatch.mock.calls[0][1]).not.toEqual(mockDeclineOfferMatch.mock.calls[1][1]);
+    expect(removeSellListLines).toHaveBeenCalledExactlyOnceWith({ attemptId: expect.any(String), lineIds: ["sll_1"] });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/desk/offers");
   });
@@ -1226,7 +1230,7 @@ describe("checkout web routes: account sell list", () => {
       getSellList: vi.fn(async () => ({
         items: [{ line_id: "sll_1", line_type: "selected-offer", offer_id: "off_1" }],
       })),
-      removeSellListLine: vi.fn(async () => ({ status: "removed" })),
+      removeSellListLines: vi.fn(async () => ({ attempt: sellListAttemptResult("committed", "sell-list-batch") })),
       getGuestSellList: mockGetGuestSellList,
       getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
@@ -1262,7 +1266,7 @@ describe("checkout web routes: account sell list", () => {
     expect(await revalidate()).toMatchObject({ offerReviews: [] });
     expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(2);
     expect(mockDeclineOfferMatch).toHaveBeenCalledExactlyOnceWith("off_1", {
-      attemptId: "decline_off_1".padEnd(22, "_"),
+      attemptId: expect.any(String),
     });
     expect(mockCreateMarketplaceRequestApiClient).toHaveBeenCalledOnce();
     expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
@@ -1270,7 +1274,7 @@ describe("checkout web routes: account sell list", () => {
 
   it("adds a posted selected offer snapshot to the anonymous Sell List when signed out", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockAddGuestSellListLine.mockResolvedValue({ status: "added" });
+    mockAddGuestSellListLine.mockResolvedValue({ status: "added", attempt: sellListAttemptResult() });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       getSellListOfferMatch: mockGetOfferMatch,
     });
@@ -1310,6 +1314,7 @@ describe("checkout web routes: account sell list", () => {
 
     expect(mockGetOfferMatch).not.toHaveBeenCalled();
     expect(mockAddGuestSellListLine).toHaveBeenCalledWith(expect.stringMatching(/^anon_/), {
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "off_1",
       listingId: "lst_1",
@@ -2357,7 +2362,7 @@ describe("checkout web routes: account sell list", () => {
 
   it("removes anonymous Sell List lines before sign-in", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockRemoveGuestSellListLine.mockResolvedValue({ status: "removed" });
+    mockRemoveGuestSellListLine.mockResolvedValue({ status: "removed", attempt: sellListAttemptResult() });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       removeGuestSellListLine: mockRemoveGuestSellListLine,
     });
@@ -2379,7 +2384,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockRemoveGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", "sll_1");
+    expect(mockRemoveGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", "sll_1", { attemptId: expect.any(String) });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/sell-list");
   });
@@ -2479,7 +2484,10 @@ describe("checkout web routes: account sell list", () => {
 
     expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
     expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
-    expect(result).toEqual({ error: "Resolve Sell List readiness before seller checkout starts." });
+    expect(result).toMatchObject({
+      error: "Resolve Sell List readiness before seller checkout starts.",
+      sellListAttempt: { state: "failed-safe" },
+    });
     expectNoSellerCommitSideEffects();
   });
 
@@ -2514,7 +2522,10 @@ describe("checkout web routes: account sell list", () => {
     } as never);
 
     expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
-    expect(result).toEqual({ error: "Resolve Sell List readiness before seller checkout starts." });
+    expect(result).toMatchObject({
+      error: "Resolve Sell List readiness before seller checkout starts.",
+      sellListAttempt: { state: "failed-safe" },
+    });
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
   });

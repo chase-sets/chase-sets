@@ -7,6 +7,7 @@ import IntegrationsRoute, { action, loader } from "../routes/admin/integrations"
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
+import { commandRedirectHref } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../features/source-observations/ui/primary-workbench-route-context";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
@@ -112,11 +113,24 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    const result = await runDailyAction({ _intent: "alias.accept", aliasHashes: "hash_a" });
+    const result = await runDailyAction(
+      { _intent: "alias.accept", aliasHashes: "hash_a" },
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&aliasType=language-edition&reviewStatuses=rejected,pending&targetKind=reference-record&targetId=synthetic-reference-record",
+    );
 
     expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledWith({ intent: "accept", aliasHashes: ["hash_a"] });
     expect(result.section).toBe("import-to-promotion");
     expect(result.feedback.status).toBe("success");
+    expect(
+      parseCatalogPrimaryWorkbenchRouteContext(new URL(commandRedirectHref(result), "https://admin.example")),
+    ).toMatchObject({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      aliasType: "language-edition",
+      reviewStatuses: ["rejected", "pending"],
+      targetKind: "reference-record",
+      targetId: "synthetic-reference-record",
+    });
   });
 
   it("dispatches the #1905 reject command with the operator reason for the alias-review reject action", async () => {

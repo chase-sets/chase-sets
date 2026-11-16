@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sellListAttemptResult } from "../../checkout/features/command-attempts/api/sell-list-route.test-support";
 import {
   appendFreshWriteToken,
   appendPostWriteHandoff,
@@ -76,6 +77,7 @@ vi.mock("@chase-sets/checkout/server", async () => {
     isCheckoutCommandAttemptId: actual.isCheckoutCommandAttemptId,
     mintCheckoutCommandAttemptId: actual.mintCheckoutCommandAttemptId,
     submitCheckoutCartAttempt: actual.submitCheckoutCartAttempt,
+    submitCheckoutSellListAdd: actual.submitCheckoutSellListAdd,
     ACCOUNT_CART_ADD_LINE_HANDOFF: {
       kind: "checkout.cart.add-line",
       expectation: "collection-non-empty",
@@ -125,6 +127,23 @@ function expectCompactPostWriteLocation(location: string | null, expectedPathnam
 }
 
 function commandResult<T extends { id?: string }>(value: T, sourceContextName = "inventory"): T {
+  if (sourceContextName === "checkout" && value.id?.startsWith("sll_"))
+    Object.assign(value, {
+      attempt: {
+        ...sellListAttemptResult(),
+        vector: [
+          {
+            index: 0,
+            command: "add",
+            outcome: "succeeded",
+            lineId: value.id,
+            status: "added",
+            version: 1,
+            message: null,
+          },
+        ],
+      },
+    });
   const id = value.id ?? "cmd_1";
   Object.defineProperty(value, "commandReceipt", {
     value: {
@@ -554,6 +573,7 @@ describe("item detail buy now validation and watch intents", () => {
     } as never)) as Response;
 
     expect(mockAddSellListLine).toHaveBeenCalledWith({
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "offer_charizard",
       buyerAccountId: null,
@@ -637,6 +657,7 @@ describe("item detail buy now validation and watch intents", () => {
     } as never)) as Response;
 
     expect(mockAddSellListLine).toHaveBeenCalledWith({
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "off_air_balloon",
       buyerAccountId: null,

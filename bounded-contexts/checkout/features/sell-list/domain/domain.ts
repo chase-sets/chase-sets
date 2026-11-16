@@ -93,6 +93,8 @@ export type CheckoutSellListCommand =
   | RemoveSellListLineCommand
   | Readonly<{
       type: "ConfirmSellListCheckout";
+      requestHash?: string;
+      resultHash?: string;
       confirmationId: string;
       confirmedAt: string;
       completedLineIds?: readonly SellListLineId[] | null;
@@ -212,6 +214,8 @@ export type SellListCheckoutConfirmedEvent = DomainEvent<
     confirmationId: string;
     confirmedAt: string;
     completedLineIds: SellListLineId[];
+    requestHash?: string;
+    resultHash?: string;
     remainingLineQuantities: SellListRemainingLineQuantity[];
     readinessEvidence: SellListReadinessConfirmationEvidence;
     sellerEvidence: SellListSellerConfirmationEvidence;
@@ -389,6 +393,8 @@ export const decideCheckoutSellList: AggregateDecider<
               "Sell list checkout must record a confirmation id.",
             ),
             confirmedAt: normalizeRequiredText(command.confirmedAt, "Sell list checkout must record a timestamp."),
+            ...(command.requestHash ? { requestHash: command.requestHash } : {}),
+            ...(command.resultHash ? { resultHash: command.resultHash } : {}),
             completedLineIds,
             remainingLineQuantities,
             readinessEvidence: command.readinessEvidence,

@@ -243,6 +243,16 @@ async function selectedScopeAliasReview(
   if (context.profileVersion) {
     query.set("sourceProfileVersion", context.profileVersion);
   }
+  if (context.aliasType) {
+    query.set("aliasType", context.aliasType);
+  }
+  if (context.reviewStatuses?.length) {
+    query.set("reviewStatuses", context.reviewStatuses.join(","));
+  }
+  if (context.targetKind && context.targetId) {
+    query.set("targetKind", context.targetKind);
+    query.set("targetId", context.targetId);
+  }
 
   try {
     return await api.getCatalogAliasReviewReadModel<CatalogAliasReviewReadModel>(query.toString());

@@ -1157,4 +1157,11 @@ export const checkoutEnglishTranslations = {
   "checkout.shared.policyLinks.refunds": "Refunds and returns",
   "checkout.shared.policyLinks.terms": "Terms of service",
   "checkout.shell.cart.label": "Buy Cart",
+  "checkout.sellList.attempt.confirming": "Confirming this Sell List action. Do not submit it again.",
+  "checkout.sellList.attempt.ambiguous":
+    "This action could not be confirmed. Other actions are disabled. Explicitly retry the same action to resolve it.",
+  "checkout.sellList.attempt.partial":
+    "This action completed only partly. Review each result before explicitly retrying.",
+  "checkout.sellList.attempt.failedSafe": "This action was refused without an unconfirmed write.",
+  "checkout.sellList.attempt.retry": "Retry the same action",
 } as const;
