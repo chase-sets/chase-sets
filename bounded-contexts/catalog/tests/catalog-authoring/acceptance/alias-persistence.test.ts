@@ -508,7 +508,12 @@ describe("Catalog Alias persistence (DB-backed)", () => {
       target_id: promoteResolution.catalogItemId,
       evidence: newer.evidence,
     });
-    expect(new Date(rows[0]!.updated_at).toISOString()).toBe(observedAt);
+    const intakeTimestamp = await pool.query<{ retained: boolean }>(
+      `SELECT updated_at = $2::timestamptz AS retained
+       FROM catalog_source_observation_alias_candidates WHERE alias_hash = $1`,
+      [resolved.aliasHash, observedAt],
+    );
+    expect(intakeTimestamp.rows).toEqual([{ retained: true }]);
     expect(new Date(rows[0]!.first_observed_at).toISOString()).toBe("2026-06-16T00:00:00.000Z");
     expect((await services.catalogAliases.getCatalogItemAlias(resolved.aliasHash))?.review_status).toBe("accepted");
 
