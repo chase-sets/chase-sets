@@ -22,7 +22,15 @@ The translator supports named interpolation with `{name}` tokens. Keep interpola
 
 ## Owner-Local Composition
 
-New owner-local catalogs use `localization/locales/en.ts` or `localization/locales/en/<slice>.ts` under their owning workspace or feature. Tracked files following this convention are discovered across `bounded-contexts`, `contracts`, `infrastructure`, `packages` and `deployables`; untracked files cannot become sources. For example, the generator's fixtures exercise feature-local `bounded-contexts/catalog/features/items/localization/locales/en/cards.ts`, technical `infrastructure/platform-runtime/localization/locales/en.ts`, and deployable-owner `deployables/marketplace/localization/locales/en.ts`. These are conventions, not a membership registry. Optional context declarations label ownership but never exclude undeclared tracked sources.
+New owner-local catalogs use `localization/locales/en.ts` or `localization/locales/en/<slice>.ts` under their owning workspace or feature. Tracked files following this convention are discovered across `bounded-contexts`, `contracts`, `infrastructure`, `packages` and `deployables`; untracked files cannot become sources. The generator's synthetic fixtures exercise these example paths, not production catalog migrations:
+
+```text
+bounded-contexts/catalog/features/items/localization/locales/en/cards.ts
+infrastructure/platform-runtime/localization/locales/en.ts
+deployables/marketplace/localization/locales/en.ts
+```
+
+These are conventions, not a membership registry. Optional context declarations label ownership but never exclude undeclared tracked sources.
 
 Catalog modules export exactly one statically keyed string-literal object (including `as const`, `satisfies`, computed literal keys and named export aliases). They are data, not executable registration. Generation parses sources without importing or executing them, and the legacy snapshot imports no owner module. Do not author a generated nested merge as a source.
 
