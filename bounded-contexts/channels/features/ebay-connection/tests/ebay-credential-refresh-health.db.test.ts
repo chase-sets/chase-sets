@@ -286,8 +286,15 @@ describe("ebay-credential-refresh paused completion", () => {
     expect(recovered.lease_id).not.toBe(claim.lease_id);
     expect(await r.maintenance.process(recovered)).toBe(true);
     expect(await f.rows()).toMatchObject([{ attempt: 6, last_outcome: "exhausted", due_at: null }]);
+    // Only the recovered attempt was observed; refresh retry budget is not the health failure count.
     expect((await r.health.readConnectionHealth({ accountId: f.owner, connectionId })).health.reasons).toMatchObject([
-      { reasonCode: "credential", state: "failing", consecutiveFailures: 1 },
+      {
+        reasonCode: "credential",
+        state: "degraded",
+        consecutiveFailures: 1,
+        trailingFailures: 1,
+        opening: { sourceAttempt: 6 },
+      },
     ]);
     expect((await f.db().query("SELECT reason_code,resolved_at FROM channel_connection_attention")).rows).toEqual([
       { reason_code: "credential", resolved_at: null },
