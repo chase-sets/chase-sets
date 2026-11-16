@@ -38,11 +38,14 @@ describe("ebay-account-deletion-consumer-rotation", () => {
     const r = f.runtime();
     await f.connect(r);
     await f.record();
-    await f
-      .db()
-      .query(
-        "ALTER TABLE channels_ebay_account_deletion_receipts DROP CONSTRAINT channels_ebay_account_deletion_receipts_subject_fingerprint_check",
-      );
+    await f.db().query(
+      `DO $$ DECLARE constraint_name text; BEGIN
+          SELECT conname INTO STRICT constraint_name FROM pg_constraint
+          WHERE conrelid='channels_ebay_account_deletion_receipts'::regclass AND contype='c'
+            AND pg_get_constraintdef(oid) LIKE '%subject_fingerprint%';
+          EXECUTE format('ALTER TABLE channels_ebay_account_deletion_receipts DROP CONSTRAINT %I', constraint_name);
+        END $$`,
+    );
     try {
       await f
         .db()
@@ -54,7 +57,7 @@ describe("ebay-account-deletion-consumer-rotation", () => {
       await f
         .db()
         .query(
-          "DELETE FROM channels_ebay_account_deletion_receipts; ALTER TABLE channels_ebay_account_deletion_receipts ADD CONSTRAINT channels_ebay_account_deletion_receipts_subject_fingerprint_check CHECK (subject_fingerprint ~ '^v1:ebay-subject-root-v1:[a-f0-9]{64}$')",
+          "DELETE FROM channels_ebay_account_deletion_receipts; ALTER TABLE channels_ebay_account_deletion_receipts ADD CONSTRAINT synthetic_receipt_fingerprint_check CHECK (subject_fingerprint ~ '^v1:ebay-subject-root-v1:[a-f0-9]{64}$')",
         );
     }
   });
