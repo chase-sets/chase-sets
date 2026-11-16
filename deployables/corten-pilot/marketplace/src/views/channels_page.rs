@@ -19,7 +19,7 @@ use crate::{
         ChannelsScreen, ConnectForm, ConnectionForm, ConnectionScreen, IngestForm, ListPlace, ManualSaid, ManualSyncForm,
         PublicationForm, PublicationPlace, PublicationSaid, PublicationScreen, STATUSES, actions,
     },
-    ebay::{EbayForm, EbayPlace, EbayScreen, EbayState},
+    ebay::{EbayForm, EbayPlace, EbayScreen, EbayState, MAX_PAIRS, POLICY_TYPES, SetupScreen, SetupState},
     text::{ChannelsMsg, Pilot},
     views::on_marketplace,
 };
@@ -311,6 +311,156 @@ fn ebay_state_word(t: ChannelsMsg, state: EbayState) -> &'static str {
     }
 }
 
+/// A seller list item's text at `key` (eBay's ids and names are strings).
+fn item_text<'a>(item: &'a serde_json::Value, key: &str) -> &'a str {
+    item.get(key).and_then(serde_json::Value::as_str).unwrap_or_default()
+}
+
+/// A policy type's words (`channels.ebay.setup.{type}`).
+fn policy_word(t: ChannelsMsg, kind: &str) -> &'static str {
+    match kind {
+        "fulfillment" => t.ebay_setup_fulfillment(),
+        "payment" => t.ebay_setup_payment(),
+        _ => t.ebay_setup_return(),
+    }
+}
+
+/// eBay seller setup (`EbaySellerSetup`): why it cannot be chosen yet, the current selection once
+/// the connection is active, and the form that saves a selection. Its selects take the form's
+/// width, and a pair's two selects sit side by side from 48rem.
+#[component(css = ChannelsPage)]
+fn EbaySetupPart<'a>(t: ChannelsMsg, setup: &'a SetupScreen, connection_id: &'a str, here: &'a str) -> impl Render {
+    let blocked = setup.blocked();
+    let empty = setup.empty();
+    let f = EbayForm::FIELDS;
+    let failed = setup.failed || matches!(setup.state, SetupState::Error);
+    html! {
+        <section class={Section} aria-labelledby="ebay-setup">
+            <h2 id="ebay-setup" class={PartTitle}>{t.ebay_setup_title()}</h2>
+            if failed {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.ebay_setup_error()}</p>
+                    <p>{t.ebay_setup_retry()}</p>
+                </div>
+            }
+            if blocked {
+                <div class={Banner} data-tone="warning" role="status">
+                    <p class={Strong}>{t.ebay_setup_incomplete()}</p>
+                    <p>{t.ebay_setup_retry()}</p>
+                </div>
+            }
+            if let SetupState::Loaded { setup: read, locations, active, draft } = &setup.state {
+                if *active {
+                    if let Some(selection) = &read.selection {
+                        <div class={Banner} data-tone="success" role="status">
+                            <p class={Strong}>{t.ebay_setup_activated()}</p>
+                            <p>{t.ebay_setup_saved()}</p>
+                        </div>
+                        <ul class={Scopes}>
+                            for choice in &selection.policies {
+                                <li>{format!("{}: {}", policy_word(t, &choice.policy_type), choice.policy_id)}</li>
+                            }
+                            for pair in &selection.location_pairs {
+                                <li>{format!("{}: {}", pair.storage_location_id, pair.merchant_location_key)}</li>
+                            }
+                        </ul>
+                    }
+                }
+                if !blocked && empty {
+                    <p>{t.ebay_setup_empty()}</p>
+                    <p class={Row}>
+                        <a class={(Button, Secondary)} href="https://www.sandbox.ebay.com/sh/ovw">{t.ebay_setup_seller_hub()}</a>
+                        <a class={(Button, Secondary)} href={url::inventory::Locations::default()}>{t.connections_locations()}</a>
+                    </p>
+                }
+                if !blocked && !empty {
+                    <form class={(Form, Setup)} method="post" action={here}>
+                        <input type="hidden" name={f.connection_id} value={connection_id}>
+                        <input
+                            type="hidden"
+                            name={f.setup_generation}
+                            value={read.selection.as_ref().map_or(0, |s| s.setup_generation).to_string()}
+                        >
+                        for (index, (kind, id_key)) in POLICY_TYPES.iter().enumerate() {
+                            <label class={Field}>
+                                <span class={Strong}>{policy_word(t, kind)}</span>
+                                <select
+                                    class={Control}
+                                    name={[f.fulfillment_policy_id, f.payment_policy_id, f.return_policy_id][index]}
+                                    required
+                                >
+                                    <option value="">{t.ebay_setup_choose()}</option>
+                                    for item in &[&read.lists.fulfillment, &read.lists.payment, &read.lists.return_][index].items {
+                                        <option
+                                            value={item_text(item, id_key)}
+                                            selected={item_text(item, id_key) == draft.policies[index]}
+                                        >
+                                            {item_text(item, "name")}
+                                        </option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        <p>{t.ebay_setup_pairs()}</p>
+                        <ol class={Pairs}>
+                            for pair in &draft.pairs {
+                                <li class={Pair}>
+                                    <label class={Field}>
+                                        <span class={Strong}>{t.connections_locations()}</span>
+                                        <select class={Control} name={f.storage_location_id}>
+                                            <option value="">{t.ebay_setup_unpaired()}</option>
+                                            for location in locations {
+                                                <option
+                                                    value={&location.storage_location_id}
+                                                    selected={location.storage_location_id == pair.storage_location_id}
+                                                >
+                                                    {&location.name}
+                                                </option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <label class={Field}>
+                                        <span class={Strong}>{t.ebay_setup_location()}</span>
+                                        <select class={Control} name={f.merchant_location_key}>
+                                            <option value="">{t.ebay_setup_unpaired()}</option>
+                                            for item in &read.lists.locations.items {
+                                                <option
+                                                    value={item_text(item, "merchantLocationKey")}
+                                                    selected={item_text(item, "merchantLocationKey") == pair.merchant_location_key}
+                                                >
+                                                    {match item_text(item, "name") {
+                                                        "" => item_text(item, "merchantLocationKey"),
+                                                        name => name,
+                                                    }}
+                                                </option>
+                                            }
+                                        </select>
+                                    </label>
+                                </li>
+                            }
+                        </ol>
+                        <p class={Row}>
+                            <button
+                                type="submit"
+                                class={(Button, Secondary)}
+                                name={f.intent}
+                                value="add-pair"
+                                formnovalidate
+                                disabled={draft.pairs.len() >= MAX_PAIRS}
+                            >
+                                {t.ebay_setup_add_pair()}
+                            </button>
+                            <button type="submit" class={Button} name={f.intent} value="select-setup">
+                                {if *active { t.ebay_setup_replace() } else { t.ebay_setup_activate() }}
+                            </button>
+                        </p>
+                    </form>
+                }
+            }
+        </section>
+    }
+}
+
 /// Connect eBay Sandbox (`EbayConnectionJourney`): where the journey is, consent's scopes with
 /// Continue (Reauthorize for a live connection) where eBay is configured, Disconnect for a live
 /// connection, and Back to channels.
@@ -326,6 +476,9 @@ pub fn EbayPage<'a>(t: ChannelsMsg, screen: &'a EbayScreen, place: &'a EbayPlace
                 <h1 class={Title}>{t.ebay_title()}</h1>
                 <p class={Muted}>{t.ebay_description()}</p>
             </header>
+            if let (Some(setup), Some(id)) = (&screen.setup, screen.connection_id.as_deref()) {
+                <EbaySetupPart t={t} setup={setup} connection_id={id} here={&here} />
+            }
             <section class={Section} aria-labelledby="ebay-state">
                 <h2 id="ebay-state" class={PartTitle}>{state}</h2>
                 if matches!(screen.state, EbayState::Failed | EbayState::Declined) {

@@ -69,6 +69,33 @@ describe("ebay-sandbox-setup-listing", () => {
       ? { next: `https://api.sandbox.ebay.com/sell/inventory/v1/location?offset=${offset + 100}&limit=100` }
       : {}),
   });
+  it("sends en-US language headers on every Inventory location page", async () => {
+    const transport = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      return Response.json(
+        url.includes("/location")
+          ? page(Number(new URL(url).searchParams.get("offset")))
+          : await setupRead(url, "synthetic-token", AbortSignal.timeout(1000)),
+      );
+    });
+    vi.stubGlobal("fetch", transport);
+    try {
+      expect((await readSetupLists("synthetic-token")).locations.items).toHaveLength(200);
+      const reads = transport.mock.calls.filter(([url]) => String(url).includes("/location"));
+      expect(reads.map(([url]) => String(url))).toEqual([
+        "https://api.sandbox.ebay.com/sell/inventory/v1/location?offset=0&limit=100",
+        "https://api.sandbox.ebay.com/sell/inventory/v1/location?offset=100&limit=100",
+      ]);
+      for (const [, options] of reads) {
+        const headers = new Headers(options?.headers);
+        expect(headers.get("authorization")).toBe("Bearer synthetic-token");
+        expect(headers.get("Accept-Language")).toBe("en-US");
+        expect(headers.get("Content-Language")).toBe("en-US");
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("reconciles all location pages and rejects a same-key duplicate", async () => {
     const read: SetupRead = async (url, token, signal) =>
       url.includes("/location") ? page(Number(new URL(url).searchParams.get("offset"))) : setupRead(url, token, signal);
