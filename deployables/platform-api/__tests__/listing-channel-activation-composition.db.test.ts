@@ -720,6 +720,17 @@ describe("listing channel activation real composition", () => {
     let writing: Promise<unknown> | undefined;
     let settled = false;
     let writeFailure: unknown;
+    const consumerHistory = async () =>
+      (
+        await pools.marketplace.query(
+          "SELECT sequence::text, record, digest FROM event_configuration_guard_history WHERE role = 'consumer' AND key = $1 ORDER BY sequence",
+          [configurationKey(f, predicate)],
+        )
+      ).rows;
+    let capturedHistory: Awaited<ReturnType<typeof consumerHistory>> | undefined;
+    appendProbe.before = async () => {
+      capturedHistory = await consumerHistory();
+    };
     appendProbe.mutant = mutant;
     appendProbe.beforeCommit = async () => {
       writing = invalidate(f, predicate)
@@ -737,15 +748,7 @@ describe("listing channel activation real composition", () => {
         await ownerEffects(predicate),
         "CLOSED-THROUGH must precede owner effects only after terminal COMMIT",
       ).toEqual(before);
-      expect(
-        (
-          await pools.marketplace.query(
-            "SELECT key FROM event_configuration_guard_history WHERE role = 'consumer' AND key = $1",
-            [configurationKey(f, predicate)],
-          )
-        ).rows,
-        "CLOSED-THROUGH cannot publish before terminal COMMIT",
-      ).toEqual([]);
+      expect(await consumerHistory(), "CLOSED-THROUGH cannot publish before terminal COMMIT").toEqual(capturedHistory);
     };
     try {
       const result = await f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal);
