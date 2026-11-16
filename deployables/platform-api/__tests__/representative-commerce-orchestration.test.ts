@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { drainContextRuntime, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
+import { drainProjectionGroups, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import {
   createProjectionGroupLeasePort,
   representativeCommerceStateDataProfiles,
@@ -30,9 +30,12 @@ vi.mock("@chase-sets/platform-runtime/api", async (original) => {
 });
 vi.mock("@chase-sets/bounded-context-runtime", async (original) => ({
   ...(await original<object>()),
-  getProjectionGroup: (_runtime: unknown, context: string, projection: string) => `${context}.${projection}`,
+  getProjectionGroup: (_runtime: unknown, context: string, projection: string) => ({
+    targetContextName: context,
+    projectionName: projection,
+  }),
   syncProjectionGroup: vi.fn(),
-  drainContextRuntime: vi.fn(),
+  drainProjectionGroups: vi.fn(),
 }));
 vi.mock("@chase-sets/catalog/server", async (original) => ({
   ...(await original<object>()),
@@ -150,7 +153,16 @@ function harness(currency: string | null = null, version = 0, fresh = false) {
   };
   const completed: string[] = [];
   const options = {
-    pools: { control: { query: vi.fn(async () => ({ rows: [] })), connect: vi.fn() } },
+    pools: {
+      control: {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => ({
+          rows: sql.includes("WITH claimable")
+            ? [{ lease_name: params?.[0], owner_id: params?.[1], fencing_token: "1", expires_at: "2026-11-16T00:00:00Z" }]
+            : [],
+        })),
+        connect: vi.fn(),
+      },
+    },
     runtime: { services, mountedContexts: [] },
     execution: { deploymentEnvironment: "staging", confirmation: "seed staging commerce" },
     evidenceOutPath: null,
@@ -178,15 +190,34 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     vi.useFakeTimers();
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    vi.mocked(drainContextRuntime).mockResolvedValue(undefined);
+    vi.mocked(drainProjectionGroups).mockResolvedValue(undefined);
     vi.mocked(syncProjectionGroup).mockResolvedValue(undefined);
     vi.mocked(seedApiHostIfEmpty).mockImplementation(async (_registry, _host, runtime, options) => {
-      if (!options?.seedContextDrain) await drainContextRuntime(runtime);
+      if (!options?.seedContextDrain) await drainProjectionGroups(runtime);
     });
   });
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("times out a contended direct sync with the representative error and never acquires after rejection", async () => {
+    const state = harness();
+    vi.stubEnv("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS", "150");
+    const query = vi.mocked(state.options.pools!.control.query);
+    query.mockResolvedValue({ rows: [], rowCount: 0 });
+    const run = runRepresentativeCommerceState(state.options);
+    const rejected = expect(run).rejects.toThrow("step 'sync catalog.catalog-item-projection' exceeded 150ms");
+    await vi.advanceTimersByTimeAsync(151);
+    await rejected;
+    const attempts = query.mock.calls.length;
+    expect(attempts).toBe(1);
+    query.mockResolvedValue({ rows: [{ lease_name: "projection-group:catalog.catalog-item-projection", owner_id: "seed:platform-api", fencing_token: "7", expires_at: "2026-11-16T00:00:00Z" }], rowCount: 1 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(query).toHaveBeenCalledTimes(attempts);
+    expect(syncProjectionGroup).not.toHaveBeenCalled();
+    expect(logged("representative-commerce-state.complete")).toEqual([]);
   });
 
   it.each([
@@ -198,7 +229,7 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     async (currency, version) => {
       const state = harness(currency, version);
       const drain = deferred();
-      vi.mocked(drainContextRuntime).mockReturnValue(drain.promise);
+      vi.mocked(drainProjectionGroups).mockReturnValue(drain.promise);
       const run = runRepresentativeCommerceState(state.options);
       const observed = run.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(0);
@@ -236,6 +267,45 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     expect(state.completed.indexOf("seed data profiles")).toBeLessThan(
       state.completed.indexOf("publish representative listings"),
     );
+    const calls = vi.mocked(syncProjectionGroup).mock.calls;
+    expect(calls.map(([group]) => `${group.targetContextName}.${group.projectionName}`)).toEqual([
+      "catalog.catalog-item-projection",
+      "catalog.catalog-blueprint-projection",
+      "catalog.catalog-dimension-projection",
+      "catalog.catalog-product-contents-projection",
+      "discovery.discovery-item-detail-projection",
+      "discovery.discovery-search-item-projection",
+      "marketplace.marketplace-identity-account-projection",
+      "inventory.inventory-item-projection",
+      "inventory.inventory-item-projection",
+      "inventory.inventory-hold-projection",
+      "marketplace.marketplace-inventory-supply-projection",
+      "ordering.ordering-inventory-supply-input-projection",
+      "marketplace.marketplace-listing-projection",
+      "marketplace.marketplace-listing-projection",
+      "discovery.discovery-market-projection",
+      "ordering.ordering-marketplace-supply-input-projection",
+      "marketplace.marketplace-offer-projection",
+      "marketplace.marketplace-offer-projection",
+      "marketplace.marketplace-offer-projection",
+      "ordering.ordering-marketplace-offer-acceptance",
+      "inventory.inventory-order-reservation-workflow",
+      "inventory.inventory-hold-projection",
+      "marketplace.marketplace-inventory-supply-projection",
+      "marketplace.marketplace-listing-projection",
+      "discovery.discovery-market-projection",
+      "ordering.ordering-marketplace-supply-input-projection",
+      "ordering.ordering-inventory-reservation-outcomes",
+      "ordering.ordering-order-projection",
+    ]);
+    for (const [, context] of calls) {
+      expect(context).toEqual(expect.objectContaining({ ownerId: "seed:platform-api", fencingToken: "1", signal: expect.any(AbortSignal), throwIfLeaseLost: expect.any(Function) }));
+    }
+    expect(drainProjectionGroups).toHaveBeenCalledExactlyOnceWith(
+      state.options.runtime,
+      { signal: expect.any(AbortSignal), settleIdleCheckpoints: true },
+      vi.mocked(createProjectionGroupLeasePort).mock.results[0]!.value.runWithLease,
+    );
     expect(state.createListing).toHaveBeenCalledWith(
       expect.objectContaining({ priceCurrencyCode: "USD", quantityCap: 2 }),
       expect.anything(),
@@ -248,10 +318,17 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
   it("reports the capped remaining-drain failure after repair, never complete, then resumes without another price event", async () => {
     const state = harness();
     const drain = deferred();
-    vi.mocked(drainContextRuntime).mockReturnValue(drain.promise);
+    vi.mocked(drainProjectionGroups).mockImplementation(async (_runtime, context) => {
+      await new Promise<void>((resolve) => context!.signal!.addEventListener("abort", () => resolve(), { once: true }));
+      await drain.promise;
+    });
     const run = runRepresentativeCommerceState(state.options);
     const rejected = expect(run).rejects.toThrow("exceeded 600000ms");
+    let settled = false;
+    void run.then(() => { settled = true; }, () => { settled = true; });
     await vi.advanceTimersByTimeAsync(600_001);
+    expect(settled).toBe(false);
+    drain.resolve();
     await rejected;
     expect(logged("representative-commerce-state.failed", "error")).toEqual([
       expect.objectContaining({
@@ -260,7 +337,7 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
       }),
     ]);
     expect(logged("representative-commerce-state.complete")).toEqual([]);
-    drain.resolve();
+    vi.mocked(drainProjectionGroups).mockResolvedValue(undefined);
     await runRepresentativeCommerceState(state.options);
     expect(state.updateListingPrice).toHaveBeenCalledTimes(1);
     expect(logged("representative-commerce-state.complete")).toHaveLength(1);
@@ -276,18 +353,18 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
       vi.mocked(seedApiHostIfEmpty).mockRejectedValueOnce(new Error("synthetic prerequisite failure"));
     else if (step.startsWith("sync"))
       vi.mocked(syncProjectionGroup).mockImplementation(async (group) => {
-        if (String(group) === "discovery.discovery-market-projection") throw new Error("synthetic projection failure");
+        if (group.targetContextName === "discovery" && group.projectionName === "discovery-market-projection") throw new Error("synthetic projection failure");
       });
     else state.row.visible_quantity = 0;
     await expect(runRepresentativeCommerceState(state.options)).rejects.toThrow();
     expect(logged("representative-commerce-state.failed", "error")[0]).toMatchObject({ failedStep: step });
     expect(logged("representative-commerce-state.complete")).toEqual([]);
-    expect(drainContextRuntime).not.toHaveBeenCalled();
+    expect(drainProjectionGroups).not.toHaveBeenCalled();
   });
 
   it("rechecks buyer visibility after the remaining drain and offer side effects before completion", async () => {
     const state = harness();
-    vi.mocked(drainContextRuntime).mockImplementation(async () => {
+    vi.mocked(drainProjectionGroups).mockImplementation(async () => {
       state.row.visible_quantity = 0;
     });
     await expect(runRepresentativeCommerceState(state.options)).rejects.toThrow("must be buyer-visible");

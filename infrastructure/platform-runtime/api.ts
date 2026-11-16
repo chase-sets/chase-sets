@@ -533,7 +533,7 @@ async function withSeedSubstepTimeout<T>(
   }
 }
 
-class SeedApiHostSubstepTimeoutError extends Error {
+export class SeedApiHostSubstepTimeoutError extends Error {
   readonly code = "BOOTSTRAP_SEED_SUBSTEP_TIMEOUT";
   readonly failureClass = "bootstrap-seed-substep-timeout";
 
