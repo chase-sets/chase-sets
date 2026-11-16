@@ -255,7 +255,10 @@ describeDb("Inventory stock reservation handshake", () => {
       CREATE TRIGGER stock_append_barrier BEFORE INSERT ON event_store_events
       FOR EACH ROW EXECUTE FUNCTION stock_append_barrier()`);
     try {
-      await expect(services.appendToStreams([adjustment()])).rejects.toThrow("synthetic stock append barrier");
+      await expect(services.appendToStreams([adjustment()])).rejects.toMatchObject({
+        code: "infrastructure_failure",
+        details: { cause: "synthetic stock append barrier" },
+      });
       expect(await terminal(binding)).toBe("ABORTED");
       expect(await eventCount()).toBe(before);
       for (const reservation of binding.reservations)
@@ -423,7 +426,14 @@ describeDb("Inventory stock reservation handshake", () => {
       () =>
         services.items.commandHandler({
           streamId: "inventory.item-inv_stock",
-          command: { type: "AdjustInventoryItemQuantity", quantityDelta: 1, heldQuantity: 1, reason: "Intake" },
+          command: {
+            type: "AdjustInventoryItemQuantity",
+            quantityDelta: 1,
+            heldQuantity: 1,
+            reason: "Intake",
+            acquisitionOccurrence: { kind: "unknown" },
+            commandOccurredAt: now,
+          },
           context,
         }),
     ],
