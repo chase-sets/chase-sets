@@ -12,7 +12,7 @@ import { inventoryWriterProbe, reserveOrderInventoryRequest } from "@chase-sets/
 import {
   connectionWriterProbe,
   createConnectionPersistence,
-  createConnectionEpochs,
+  createConnectionEpochsForWitness,
   disconnectChannelConnectionForWitness,
 } from "@chase-sets/channels/test-support";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
@@ -681,7 +681,7 @@ describe("listing channel activation real composition", () => {
     const pool = ownerPool(predicate);
     const epochs =
       predicate === "connection"
-        ? createConnectionEpochs(pool, consumers)
+        ? await createConnectionEpochsForWitness(pool, consumers)
         : predicate === "session" || predicate === "token"
           ? createAuthSessionEpochs(pool, consumers)
           : createIdentityOwnerEpochs(pool, consumers);
@@ -1182,7 +1182,7 @@ describe("listing channel activation real composition", () => {
       ).rows[0];
       const store = createConnectionPersistence(
         createPostgresEventStore({ pool: pools.channels }),
-        createConnectionEpochs(pools.channels, [
+        await createConnectionEpochsForWitness(pools.channels, [
           {
             identity: { storeId: consumer.store_id, incarnation: consumer.incarnation },
             pool: observedPool(pools.marketplace),

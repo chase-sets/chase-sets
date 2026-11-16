@@ -1,7 +1,7 @@
 export {
   connectionWriterProbe,
   createConnectionPersistence,
-  createConnectionEpochs,
+  createConnectionEpochsForWitness,
   disconnectChannelConnectionForWitness,
 } from "../../connections/tests/listing-activation-test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";

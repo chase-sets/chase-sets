@@ -1,7 +1,13 @@
 import { vi } from "vitest";
 import { withConfigurationEpochTransaction } from "@chase-sets/event-core-postgres";
 
-export { createConnectionPersistence, createConnectionEpochs } from "../api/owner-epochs";
+export { createConnectionPersistence } from "../api/owner-epochs";
+
+export async function createConnectionEpochsForWitness(
+  ...args: Parameters<typeof import("../api/owner-epochs").createConnectionEpochs>
+) {
+  return (await import("../api/owner-epochs")).createConnectionEpochs(...args);
+}
 
 type ConnectionRuntimeFactory = typeof import("../api/runtime").createChannelConnectionRuntime;
 export async function disconnectChannelConnectionForWitness(
