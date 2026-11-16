@@ -1063,11 +1063,8 @@ impl SellTerms {
 #[serde(rename_all = "camelCase", default)]
 pub struct OfferReview {
     pub line_id: String,
-    /// `ready` or `unavailable`.
-    pub status: String,
     pub terms: Option<SellTerms>,
     pub comparison: Option<TermsComparison>,
-    pub message: Option<String>,
     #[serde(deserialize_with = "present")]
     pub evidence: Option<Option<ListingEvidence>>,
 }
@@ -1087,9 +1084,7 @@ pub struct TermsComparison {
 #[serde(rename_all = "camelCase", default)]
 pub struct ProductOfferReview {
     pub line_id: String,
-    pub status: String,
     pub offers: Vec<ProductOffer>,
-    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1153,7 +1148,6 @@ pub struct SellListScreenReview {
 #[serde(rename_all = "camelCase", default)]
 pub struct SellListLineReview {
     pub ready: bool,
-    pub can_submit: bool,
     /// `ready`, `needs-refresh`, `needs-action` or `evidence-needs-action`.
     pub label_code: String,
     /// What the line needs or why it is ready, which the page puts in words.
@@ -1164,7 +1158,6 @@ pub struct SellListLineReview {
     pub message: Option<String>,
     pub setup_href: String,
     pub inventory_href: String,
-    pub recovery_href: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

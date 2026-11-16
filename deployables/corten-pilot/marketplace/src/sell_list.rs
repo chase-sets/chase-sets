@@ -302,7 +302,6 @@ pub struct Pick {
 pub struct Line {
     pub row: SellListRow,
     pub readiness: LineReadiness,
-    pub can_submit: bool,
     /// Checkout's review of the line, with its links, when the review was read.
     pub review: Option<SellListLineReview>,
     pub offer_review: Option<OfferReview>,
@@ -426,7 +425,6 @@ impl SellListScreen {
                 let inventory = inventory.get(&row.product_id).cloned().unwrap_or_default();
                 let line_review = screen.as_mut().and_then(|s| s.lines.remove(&row.line_id));
                 let readiness = readiness(line_review.as_ref(), row.is_offer());
-                let can_submit = line_review.as_ref().is_some_and(|r| r.can_submit);
                 let picks = match (&offer_review, &product_review) {
                     _ if row.is_offer() => row
                         .offer_id
@@ -461,7 +459,7 @@ impl SellListScreen {
                         .collect(),
                     _ => Vec::new(),
                 };
-                Line { row, readiness, can_submit, review: line_review, offer_review, product_review, inventory, picks }
+                Line { row, readiness, review: line_review, offer_review, product_review, inventory, picks }
             })
             .collect();
         let payout = match &screen {
@@ -1232,7 +1230,7 @@ mod tests {
         assert_eq!((reviewed.blocked(), reviewed.ready(), reviewed.can_continue(), reviewed.payout_ready()), (1, 1, false, true));
         assert_eq!(reviewed.recovery(), ("/account/inventory?catalogItemId=c".to_owned(), RecoveryLabel::Resolve));
         assert_eq!(reviewed.lines[0].setup_href(), Some("/account/listings/new?catalogItemId=c"));
-        assert_eq!((reviewed.lines[0].can_submit, reviewed.lines[1].inventory_href()), (true, None));
+        assert_eq!(reviewed.lines[1].inventory_href(), None);
         assert_eq!(reviewed.payout.as_ref().map(|p| p.status.as_str()), Some("ready"), "the review's payout readiness");
 
         let unreviewed = quoted_screen(true, 2, serde_json::Value::Null);
