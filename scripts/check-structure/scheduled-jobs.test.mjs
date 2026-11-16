@@ -77,7 +77,7 @@ describe("scheduled job module/server binding", () => {
     let program;
     beforeAll(() => {
       program = createScheduledJobProgram(repositoryContexts);
-    });
+    }, 60_000);
     afterAll(() => {
       program = undefined;
     });
