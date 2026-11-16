@@ -187,6 +187,12 @@ import {
 } from "./features/connection-attention/read-model/schema";
 import type { ConnectorOAuthService } from "./support/request-support/connector-oauth";
 import { createConnectorFeedRuntime } from "./features/connector-feed/api/runtime";
+import {
+  createConnectionEpochs,
+  createConnectionPersistence,
+  type ConnectionConsumerTopology,
+} from "./features/connections/api/owner-epochs";
+import { createVersionedConnectionAuthority } from "./features/connections/api/versioned-connection-authority";
 import { createConnectorCredentialRoutes } from "./features/connector-feed/api/routes";
 import { connectorFeedSchemaMigrations, connectorFeedSchemaSql } from "./features/connector-feed/read-model/schema";
 import {
@@ -245,6 +251,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
     channelSaleRecorder: RecordExternalChannelSale;
     readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
     connectorOAuth?: ConnectorOAuthService;
+    connectionConsumers?: ConnectionConsumerTopology;
     /** Governed TCGplayer order-pull authority; absent until bound, which denies scheduling. */
     resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
   }>;
@@ -288,7 +295,14 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
       pool,
       wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
     });
-    const connectorFeed = createConnectorFeedRuntime({ db: pool, eventStore, oauth: ports?.connectorOAuth });
+    const connectionEpochs = createConnectionEpochs(pool, ports.connectionConsumers);
+    const connectionStore = createConnectionPersistence(eventStore, connectionEpochs);
+    const connectorFeed = createConnectorFeedRuntime({
+      db: pool,
+      eventStore,
+      oauth: ports?.connectorOAuth,
+      connectionEpochs,
+    });
     const policies = createPolicyRuntime({ eventStore, db: pool });
     const storageLocationAuthority: ChannelStorageLocationAuthorityResolver = {
       resolve: async (input) => {
@@ -301,7 +315,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     };
     const connections = createChannelConnectionRuntime(
       {
-        eventStore,
+        eventStore: connectionStore,
         db: pool,
         disconnectChannelConnection: connectorFeed.disconnectChannelConnection,
       },
@@ -401,6 +415,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     const manualSync = createManualSyncRuntime({
       db: pool,
       connections,
+      connectionAuthority: createVersionedConnectionAuthority(pool, eventStore, connectionEpochs),
       tcgplayerCsv,
       connectorFeed,
       policies,

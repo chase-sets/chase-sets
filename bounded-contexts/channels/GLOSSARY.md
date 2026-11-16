@@ -12,6 +12,16 @@ A **Sales Channel** is an external or native commerce surface connected to an Ac
 
 A **Channel Connection** is the linked relationship between a Chase Sets Account and a Sales Channel.
 
+## Versioned Connection Authority
+
+**Versioned Connection Authority** captures an active, owned Channel Connection
+from its complete canonical stream, never a projection or client label. It binds
+Account, provider, environment, status and Owner-Stream Seal version to a class-C
+grant. Connection writers commit CLOSING before waiting for every registered
+consumer's CLOSED-THROUGH receipt, then install the next epoch with the change.
+Pre-enrollment connections are OPEN at creation epoch zero. A disconnected
+identity never reopens; reconnect uses a new connection identity.
+
 ## Storage Location Authority
 
 **Storage Location Authority** is the account-scoped Inventory read that proves a

@@ -6,6 +6,7 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type {
   ChannelConnectionServices,
   ChannelStorageLocationAuthorityResolver,
+  VersionedConnectionAuthority,
 } from "../../features/connections/domain/contracts";
 import type { ConnectionHealthServices } from "../../features/connection-health/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../features/listing-composition/api/runtime";
@@ -29,6 +30,7 @@ export type ChannelsServices = Readonly<{
   ebayReceiptExpiry: ReturnType<typeof createEbayReceiptExpiryStore>;
   credentials: ChannelCredentialServices;
   connections: ChannelConnectionServices;
+  connectionAuthority: VersionedConnectionAuthority;
   storageLocationAuthority: ChannelStorageLocationAuthorityResolver;
   connectionHealth: ConnectionHealthServices;
   connectionAttention: ConnectionAttentionServices;
@@ -54,6 +56,7 @@ export const channelsServicesMembers = defineChannelsServicesMembers([
   "ebayReceiptExpiry",
   "credentials",
   "connections",
+  "connectionAuthority",
   "storageLocationAuthority",
   "connectionHealth",
   "connectionAttention",
@@ -74,6 +77,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   if (!isObject(value) || !channelsServicesMembers.every((member) => Object.hasOwn(value, member))) return false;
 
   const connections = Reflect.get(value, "connections");
+  const connectionAuthority = Reflect.get(value, "connectionAuthority");
   const storageLocationAuthority = Reflect.get(value, "storageLocationAuthority");
   const credentials = Reflect.get(value, "credentials");
   const ebayAccountDeletionReceipts = Reflect.get(value, "ebayAccountDeletionReceipts");
@@ -106,6 +110,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(credentials, "rewrap") === "function" &&
     isObject(connections) &&
     typeof Reflect.get(connections, "getConnection") === "function" &&
+    isObject(connectionAuthority) &&
+    typeof Reflect.get(connectionAuthority, "capture") === "function" &&
+    typeof Reflect.get(connectionAuthority, "registerConsumer") === "function" &&
     isObject(storageLocationAuthority) &&
     typeof Reflect.get(storageLocationAuthority, "resolve") === "function" &&
     isObject(connectionHealth) &&

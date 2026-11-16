@@ -68,6 +68,55 @@ describe("owner writer enrollment census", () => {
       fence.indexOf("return store.appendToStreamsInTransaction(client, inputs)"),
     );
   });
+  it("closes Connection handlers, the installed disconnect transaction and bootstrap without treating health as seller status", () => {
+    expect(manifest.owners).toContain("channels");
+    expect(manifest.keys).toContain("connection/<connectionId>");
+    expect(manifest.consumedFields.connection).toEqual([
+      "accountId",
+      "providerKey",
+      "environment",
+      "status",
+      "version",
+    ]);
+    const installed = manifest.writers.find(
+      (row) =>
+        row.file === "bounded-contexts/channels/features/connector-feed/api/runtime.ts" &&
+        row.symbol.endsWith(" > disconnectChannelConnection"),
+    );
+    expect(installed).toMatchObject({ disposition: "enrolled", keys: ["connection"] });
+    expect(installed.enrollment).toContain("createConnectorFeedRuntime > transact");
+    const seed = manifest.writers.find(
+      (row) =>
+        row.file === "bounded-contexts/channels/features/manual-sync/api/seed.ts" && row.keys.includes("connection"),
+    );
+    expect(seed).toMatchObject({ disposition: "enrolled" });
+    for (const feature of ["connection-health", "connection-attention", "credentials", "ebay-account-deletion"]) {
+      const rows = manifest.writers.filter((row) =>
+        row.file.startsWith(`bounded-contexts/channels/features/${feature}/`),
+      );
+      expect(rows.length, feature).toBeGreaterThan(0);
+      expect(
+        rows.every((row) => row.disposition === "excluded" && row.foldTest),
+        feature,
+      ).toBe(true);
+    }
+  });
+  it.each([
+    "function planted() { return store.appendToStreamInTransaction(db, { streamId: 'channels.connection-' + id, events: disconnectEvents }); }",
+    "const hidden = 'channels.' + 'connection-' + id; const save = store.appendToStreams; function callback() { return save([{streamId: hidden, events}]); }",
+    "function planted() { return deps.disconnectChannelConnection(input, context); }",
+    "function planted() { return db.query('UPDATE channel_connections SET status = $1 WHERE connection_id = $2', [status, id]); }",
+    "function callback() { return receiptQuery(db, 'INSERT INTO channels_ebay_account_deletion_receipts (notification_id) VALUES ($1)', [id]); }",
+    "function refresh() { return query(db, 'UPDATE channels_connection_credentials SET token_generation=$1', [generation]); }",
+  ])(
+    "rejects planted unenrolled Connection writers, callbacks and wrapped SQL outside the connections path",
+    (code) => {
+      const sites = discoverOwnerWriters({ "packages/innocent/provider-callback.ts": code });
+      expect(sites).toHaveLength(1);
+      expect(sites[0].keys).toContain("connection");
+      expect(enrollmentErrors(sites, { writers: [] })).toEqual([expect.stringContaining("UNKNOWN writer")]);
+    },
+  );
   it.each([
     `const hidden = 'identity.account-' + id; function planted() { return store.appendToStream({ streamId: hidden, events }); }`,
     `const hidden = 'identity.user-' + id; function planted() { return renamed.appendToStreams([{ streamId: hidden, events }]); }`,
