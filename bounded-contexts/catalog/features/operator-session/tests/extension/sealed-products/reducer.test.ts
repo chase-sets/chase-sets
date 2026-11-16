@@ -117,12 +117,12 @@ describe("sealed product reduction and run", () => {
   it("splits maximum valid SKU/attribute details at the UTF-8 byte cap, not only the product count", () => {
     const large = {
       ...detail(),
-      customAttributes: { cardType: Array(256).fill("a".repeat(256)) },
+      customAttributes: { cardType: Array(256).fill("\u754c".repeat(256)) },
       skus: Array.from({ length: 250 }, (_, index) => ({
         sku: index + 1,
-        condition: "a".repeat(256),
-        variant: "a".repeat(256),
-        language: "a".repeat(256),
+        condition: "\u754c".repeat(256),
+        variant: "\u754c".repeat(256),
+        language: "\u754c".repeat(256),
       })),
     };
     const entries = Array.from({ length: 12 }, (_, index) => ({

@@ -21,7 +21,7 @@ export type TcgplayerSetNameEndpointResult = Readonly<{
 }>;
 
 const jsonContentType = (value: string | null) =>
-  value?.toLowerCase().split(";", 1)[0].trim().endsWith("json") ?? false;
+  /^application\/(?:[a-z0-9!#$&^_.+-]+\+)?json$/.test(value?.toLowerCase().split(";", 1)[0].trim() ?? "");
 
 export async function fetchTcgplayerSetNames(
   productLineId: string,

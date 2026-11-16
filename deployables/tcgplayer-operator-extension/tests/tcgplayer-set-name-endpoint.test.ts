@@ -226,6 +226,8 @@ describe("sealed search and detail endpoints", () => {
   it.each([
     response("{}", { status: 403 }),
     response("{}", { headers: { "content-type": "text/html" } }),
+    response("{}", { headers: { "content-type": "text/notjson" } }),
+    response("{}", { headers: { "content-type": "application/notjson" } }),
     response("not-json"),
   ])("rejects HTTP, content-type and JSON bypass mutants", async (body) => {
     const fetcher = vi.fn(async () => body);
