@@ -63,9 +63,14 @@ describe("opaque Listing recovery model", () => {
     };
     const path = listingRecoveryUrl("/account/listings", prepared);
     let reopened: Awaited<ReturnType<typeof loadListingRecovery>>;
-    const server = http.createServer(async (request, response) => {
-      reopened = await loadListingRecovery(api, new Request(`http://127.0.0.1${request.url}`), accountId);
-      response.end("ok");
+    const server = http.createServer((request, response) => {
+      void loadListingRecovery(api, new Request(`http://127.0.0.1${request.url}`), accountId).then(
+        (result) => {
+          reopened = result;
+          response.end("ok");
+        },
+        (error: unknown) => response.destroy(error instanceof Error ? error : new Error("Recovery lookup failed")),
+      );
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
