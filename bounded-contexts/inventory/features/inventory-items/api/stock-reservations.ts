@@ -132,13 +132,24 @@ export function createInventoryStockReservations(
   async function appendInTransaction(db: PgQueryable, inputs: readonly AppendToStreamInput[]) {
     await enroll(db, inputs);
     const results = await store.appendToStreamsInTransaction(db, inputs);
+    await markInboundApplied(db, inputs);
+    return results;
+  }
+
+  async function appendSingleInTransaction(db: PgQueryable, input: AppendToStreamInput) {
+    await enroll(db, [input]);
+    const events = await store.appendToStreamInTransaction(db, input);
+    await markInboundApplied(db, [input]);
+    return events;
+  }
+
+  async function markInboundApplied(db: PgQueryable, inputs: readonly AppendToStreamInput[]) {
     for (const input of inputs) {
       if (input.events.some((event) => event.eventType === "inventory.external-channel-sale.recorded"))
         await db.query("UPDATE event_owner_stream_inbound_evidence SET status = 'APPLIED' WHERE evidence_id = $1", [
           input.streamId,
         ]);
     }
-    return results;
   }
 
   const persistence: EventStore = {
@@ -152,7 +163,7 @@ export function createInventoryStockReservations(
           "Request terminals and configuration grants require appendToStreams.",
         );
       if (!input.events.length) return [];
-      return (await transaction((db) => appendInTransaction(db, [input])))[0].storedEvents;
+      return transaction((db) => appendSingleInTransaction(db, input));
     },
   };
 
@@ -207,6 +218,7 @@ export function createInventoryStockReservations(
     transaction,
     enroll,
     appendInTransaction,
+    appendSingleInTransaction,
     recordInboundSale,
     status,
     invalidateStock,

@@ -73,6 +73,10 @@ vi.mock("../features/inventory-items/api/stock-reservations", async (importOrigi
               db: Parameters<typeof enrolled.appendInTransaction>[0],
               inputs: readonly AppendToStreamInput[],
             ) => args[1].appendToStreamsInTransaction(db, inputs),
+            appendSingleInTransaction: (
+              db: Parameters<typeof enrolled.appendSingleInTransaction>[0],
+              input: AppendToStreamInput,
+            ) => args[1].appendToStreamInTransaction(db, input),
           }
         : {}),
       ...(omissions.inboundEvidence

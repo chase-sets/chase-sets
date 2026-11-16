@@ -2512,6 +2512,15 @@
       "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
     },
     {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
+      "symbol": "createInventoryStockReservations > appendSingleInTransaction",
+      "sink": "store.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendSingleInTransaction"
+    },
+    {
       "file": "bounded-contexts/inventory/features/inventory-items/read-model/schema.ts",
       "symbol": "dataStep",
       "sink": "db.appendToStreamsInTransaction!",

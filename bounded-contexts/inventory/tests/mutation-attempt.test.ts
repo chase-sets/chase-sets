@@ -45,7 +45,8 @@ function harness() {
       sql: string,
       values: readonly unknown[] = [],
     ): Promise<PgQueryResult<Row>> => {
-      if (sql === "BEGIN") owner = { rows: structuredClone(rows), facts: [...committedFacts] };
+      if (sql === "BEGIN" || sql === "BEGIN ISOLATION LEVEL READ COMMITTED")
+        owner = { rows: structuredClone(rows), facts: [...committedFacts] };
       else if (sql === "COMMIT") {
         rows.clear();
         for (const [key, value] of owner!.rows) rows.set(key, value);

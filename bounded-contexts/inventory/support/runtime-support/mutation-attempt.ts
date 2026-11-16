@@ -189,10 +189,7 @@ export function createInventoryMutationRuntime(
     appendToStream: (input) => {
       const active = transactions.getStore();
       return active
-        ? protectedWrite(
-            active.client,
-            async () => (await stockReservations.appendInTransaction(active.client, [input]))[0].storedEvents,
-          )
+        ? protectedWrite(active.client, () => stockReservations.appendSingleInTransaction(active.client, input))
         : stockReservations.persistence.appendToStream(input);
     },
     appendToStreams: (inputs) => {
