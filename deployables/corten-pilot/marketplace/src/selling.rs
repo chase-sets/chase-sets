@@ -9,7 +9,8 @@
 //! | Add offer to Sell List | `add-to-sell-list` | the same line |
 //! | Add product to Sell List | `add-product-to-sell-list` | a `product` line for the quantity |
 //!
-//! Each form posts the page's address, the offer or product the rail showed and the quantity.
+//! Each form posts the page's address, the offer or product the rail showed, the quantity and an
+//! attempt (`SubmitKey`).
 //! The pilot reads the item again and builds the line from it: the offer from the item's own
 //! offers (it must still be `submitted`), the product from the address's choices, the words from
 //! the catalog's read, not the form (chase-sets/chase-sets#10592). A guest's line goes to a guest
@@ -17,8 +18,12 @@
 //!
 //! The Sell List API refuses every `selected-offer` line without a listing
 //! (chase-sets/chase-sets#8830); the rail shows its message, as it shows any refusal (422).
-//! A sell-list add has no attempt id, so a product line sent twice adds its quantity twice
-//! (chase-sets/chase-sets#9995).
+//!
+//! An add is one Checkout command attempt (`submitCheckoutSellListAdd`,
+//! chase-sets/chase-sets#9995): the form's `SubmitKey` is its id, so a form sent twice adds its
+//! line once. An answer that may have been lost is looked up once; an add not known to have
+//! applied holds the rail's sell forms and offers the same add again, with the same attempt
+//! (409), as the cart does.
 use corten::{
     extract::State,
     http::{HeaderMap, StatusCode, header},
@@ -28,10 +33,11 @@ use corten::{
 use serde::Serialize;
 
 use crate::{
-    api::{ApiError, Caller, Discovery as _, Item, Offer, Selected, SellList as _},
+    api::{Caller, CartWrite, Discovery as _, Item, Offer, Selected},
     app::{GUEST_CHECKOUT, Shared, sign_in_at, url},
     auth::Session,
     buying::{BuyNotice, quantity},
+    cart_attempt::{self, State as Attempted},
     items::{self, Address, ItemScreen, Raw},
     text::ItemMsg,
 };
@@ -49,6 +55,7 @@ const OFFERS_MANAGE: &str = "offers.manage";
 #[allow(dead_code)]
 pub struct SellFields {
     intent: String,
+    attempt: Option<SubmitKey>,
     offer: String,
     product: String,
     quantity: String,
@@ -58,6 +65,7 @@ pub struct SellFields {
 pub mod field {
     use super::SellFields;
     pub const INTENT: &str = SellFields::FIELDS.intent.as_str();
+    pub const ATTEMPT: &str = SellFields::FIELDS.attempt.as_str();
     pub const OFFER: &str = SellFields::FIELDS.offer.as_str();
     pub const PRODUCT: &str = SellFields::FIELDS.product.as_str();
     pub const QUANTITY: &str = SellFields::FIELDS.quantity.as_str();
@@ -371,44 +379,43 @@ pub(crate) async fn add(
             product_line(&item, &screen, &product, quantity)
         }
     };
+    let attempt = cart_attempt::attempt_id(&first(field::ATTEMPT));
     let guest = (!account).then(|| guest_sell_list(&headers));
-    let receipt = match caller.add_sell_list_line(&line, guest.as_deref()).await {
-        Ok(receipt) => receipt.map(|r| r.param()).unwrap_or_default(),
-        Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
+    let write = CartWrite::sell_list_add(&line, guest.clone());
+    let outcome = match cart_attempt::submit(&caller, &attempt, &write).await {
+        Ok(outcome) => outcome,
+        Err(StatusCode::UNAUTHORIZED) => {
             return match sign_in_at(&url::Item { slug: &slug, state: Address::default(), after: Default::default() }.href()) {
                 Some(to) => req.redirect(&to),
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             };
         }
-        Err(error) => return refusal(&req, session, &caller, item, &address, intent.form(), typed, error).await,
+        Err(status) => return Err(corten::Error::status(status)),
     };
-    let to = sell_list_href(&receipt).parse::<corten::http::Uri>().map_err(corten::Error::new)?;
-    let mut res = req.redirect(&to)?;
+    let mut res = match outcome.state {
+        Attempted::Succeeded => {
+            let receipt = outcome.receipt.as_ref().map(|r| r.param()).unwrap_or_default();
+            req.redirect(&sell_list_href(&receipt).parse::<corten::http::Uri>().map_err(corten::Error::new)?)?
+        }
+        Attempted::Ambiguous => {
+            let resend = cart_attempt::resend(&raw, field::ATTEMPT, &attempt);
+            let notice = BuyNotice::SellAmbiguous { resend };
+            let reads = items::sell_reads(&req, session, &caller, &item, &address, false).await;
+            items::render(&req, session, item, &address, Some(&notice), StatusCode::CONFLICT, reads)?
+        }
+        Attempted::Partial | Attempted::FailedSafe => {
+            let message = outcome
+                .message
+                .or_else(|| outcome.not_applied.into_iter().flatten().next())
+                .unwrap_or_else(|| t.sell_attempt_failed_safe().to_owned());
+            refused(&req, session, &caller, item, &address, intent.form(), typed, message).await?
+        }
+    };
+    // A guest's list is kept whatever the add came to: an add not known to have applied is on it.
     if let Some(id) = guest {
         let keep = cookie::SetCookie::new(ANONYMOUS_SELL_LIST_COOKIE, &id).max_age(GUEST_SELL_LIST_SECONDS);
         let keep = if config.proto == "https" { keep } else { keep.insecure() };
         res.headers_mut().append(header::SET_COOKIE, keep.header());
     }
     Ok(res)
-}
-
-/// A write the API refused shows its reason on the rail; anything else is the API failing.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
-)]
-async fn refusal(
-    req: &Req,
-    session: Option<&Session>,
-    caller: &Caller<'_>,
-    item: Item,
-    address: &Address,
-    form: SellForm,
-    typed: String,
-    error: ApiError,
-) -> HtmlResult {
-    match error.refusal() {
-        Some(message) => refused(req, session, caller, item, address, form, typed, message.to_owned()).await,
-        None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
-    }
 }

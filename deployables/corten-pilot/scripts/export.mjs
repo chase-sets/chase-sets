@@ -73,7 +73,7 @@
 //   as select.*).
 // - marketplace/locales/sell_list.en.json: the Sell List page's English catalog
 //   (checkout.features.sellList.ui.sellListPage.* as page.*, checkout.routes.accountSellList.* as route.*,
-//   marketplace.features.listings.evidenceCoverage.* as coverage.*).
+//   checkout.sellList.attempt.* as attempt.*, marketplace.features.listings.evidenceCoverage.* as coverage.*).
 // - marketplace/locales/sell_checkout.en.json: seller checkout's English catalog
 //   (checkout.features.sellList.ui.signedInSellCheckoutPage.* as signed.*, .guestSellCheckoutPage.* as guest.*,
 //   checkout.routes.sellCheckoutSession.* as route.*, checkout.shared.policyLinks.* as policy.*, and the link to
@@ -84,8 +84,9 @@
 //   start's checkout.routes.checkoutStart.* as start.*).
 // - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
 //   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the language
-//   labels the details list uses, an item's display identity, and Collections' Add to List words,
-//   collections.features.savedLists.ui.addToList.* and .api.route.*).
+//   labels the details list uses, an item's display identity, Collections' Add to List words,
+//   collections.features.savedLists.ui.addToList.* and .api.route.*, and a Sell List add's attempt words,
+//   checkout.sellList.attempt.* as sell_attempt.*).
 // - marketplace/locales/search.en.json: marketplace search's English catalog (discovery.features.search.ui.searchPage.*,
 //   discovery.routes.search.*, the home page's discovery.features.home.ui.homeMerchandising.*, a set's page's
 //   discovery.routes.set.*, and the listing card's, language labels' and display identity's words).
@@ -1241,6 +1242,8 @@ const outputs = [
       ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
         ["checkout.features.sellList.ui.sellListPage.", "page"],
         ["checkout.routes.accountSellList.", "route"],
+        // A line write that did not fully apply (`SellListAttemptBoundary`).
+        ["checkout.sellList.attempt.", "attempt"],
       ])),
       // A listing's unmet evidence codes (`evidenceCoverageCodeLocaleKey`).
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
@@ -1326,6 +1329,10 @@ const outputs = [
       ...(await catalog("collections.ts", "collectionsEnglishTranslations", [
         ["collections.features.savedLists.ui.addToList.", "saved"],
         ["collections.features.savedLists.api.route.", "saved_api"],
+      ])),
+      // A sell form's Sell List add that did not fully apply (`SellListAttemptBoundary`).
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.sellList.attempt.", "sell_attempt"],
       ])),
     }),
   ],

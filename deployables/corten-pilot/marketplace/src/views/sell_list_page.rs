@@ -23,9 +23,10 @@ use platform::{
 use crate::{
     api::{ListingEvidence, OfferReview, SellListConfirmation, SellTerms},
     app::url,
+    cart_attempt::State as Attempted,
     sell_list::{
-        Line, LineReadiness, Merged, Pick, ReadinessDetail, ReadinessLabel, Recovery, RecoveryLabel, SellListScreen, Surface,
-        support_reference,
+        AttemptNotice, Declined, Line, LineForm, LineReadiness, Merged, Pick, ReadinessDetail, ReadinessLabel, Recovery,
+        RecoveryLabel, SellListScreen, Surface, support_reference,
     },
     text::{Pilot, SellListMsg},
 };
@@ -205,7 +206,6 @@ pub fn SellListPage<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen) ->
     let register = crate::register::href(&back);
     let sign_in = crate::app::sign_in_back_to(&back).map(|u| u.to_string()).unwrap_or_default();
     let continue_label = if screen.account { t.page_continue_to_seller_checkout() } else { t.page_create_account_to_continue() };
-    let _ = p;
     html! {
         <header class={Header}>
             <div class={Heading}>
@@ -248,6 +248,9 @@ pub fn SellListPage<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen) ->
                     <p class={Strong}>{t.page_checkout_issue()}</p>
                     <p>{message}</p>
                 </div>
+            }
+            if let Some(attempt) = &screen.attempt {
+                <AttemptBanner t={t} p={p} screen={screen} attempt={attempt} />
             }
         </div>
         if let Some(confirmation) = &screen.confirmation {
@@ -292,6 +295,50 @@ pub fn SellListPage<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen) ->
     }
 }
 
+/// A line write not known to have applied, or applied in part: what it came to, and the same
+/// write to send again (marketplace's `SellListAttemptBoundary`). Decline selected's offers are
+/// named by their lines' items, each with what its decline came to.
+#[component(css = SellListPage)]
+fn AttemptBanner<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen, attempt: &'a AttemptNotice) -> impl Render {
+    let title = if attempt.state == Attempted::Partial { t.attempt_partial() } else { t.attempt_ambiguous() };
+    let offer = |id: &'a str| -> &'a str {
+        screen.lines.iter().find(|l| l.row.offer_id.as_deref() == Some(id)).map_or(id, |l| l.row.item_title.as_str())
+    };
+    html! {
+        <div class={Banner} data-tone="warning" role="alert" tabindex="-1" autofocus>
+            <p class={Strong}>{title}</p>
+            if let Some(message) = &attempt.message {
+                <p>{message}</p>
+            }
+            for message in attempt.not_applied.iter().flatten() {
+                <p>{message}</p>
+            }
+            if !attempt.declines.is_empty() {
+                <dl class={Facts} aria-label={p.sell_list_results()}>
+                    for (id, declined) in &attempt.declines {
+                        <div>
+                            <dt>{offer(id)}</dt>
+                            <dd>
+                                {match declined {
+                                    Declined::Yes => p.sell_list_declined(),
+                                    Declined::Unconfirmed => p.sell_list_unconfirmed(),
+                                    Declined::NotSent => p.sell_list_not_sent(),
+                                }}
+                            </dd>
+                        </div>
+                    }
+                </dl>
+            }
+            <form class={Row} method="post" action={screen.surface.path()}>
+                for (name, value) in &attempt.resend {
+                    <input type="hidden" name={name} value={value}>
+                }
+                <button class={Button} type="submit">{t.attempt_retry()}</button>
+            </form>
+        </div>
+    }
+}
+
 /// The lines, the readiness and the summary.
 #[component(css = SellListPage)]
 fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a str) -> impl Render {
@@ -303,7 +350,10 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
         RecoveryLabel::Resolve => t.page_resolve_items(),
         RecoveryLabel::KeepSelling => t.page_keep_selling(),
     };
-    let can = screen.can_continue();
+    // A line write not known to have applied holds the page's writes until it is sent again
+    // (`SellListAttemptBoundary`).
+    let held = screen.attempt.is_some();
+    let can = screen.can_continue() && !held;
     let here = screen.surface.path();
     let any_offer = screen.lines.iter().any(|l| !l.picks.is_empty());
     let payout_value = match screen.payout.as_ref().map(|p| p.status.as_str()) {
@@ -332,7 +382,9 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
         t.page_readiness_ready((screen.lines.len() - blocked) as u64).to_string()
     };
     html! {
-        <form id={SellListFormId} class={Hidden} method="post" action={here}></form>
+        <form id={SellListFormId} class={Hidden} method="post" action={here}>
+            {SubmitKey::field(LineForm::FIELDS.attempt_id)}
+        </form>
         <div class={Layout}>
             <div class={Main}>
                 <details class={(Card, Folded)}>
@@ -390,7 +442,7 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
                     <h2 id="sell-list-items-title" class={PartTitle}>{t.page_review_items()}</h2>
                     <ul class={Cards}>
                         for line in &screen.lines {
-                            <LineCard t={t} line={line} surface={screen.surface} selectable={screen.account} />
+                            <LineCard t={t} line={line} surface={screen.surface} selectable={screen.account} held={held} />
                         }
                     </ul>
                 </section>
@@ -431,6 +483,7 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
                                     type="button"
                                     command="show-modal"
                                     commandfor={DeclineDialogId}
+                                    disabled={held}
                                 >
                                     {t.page_decline_selected()}
                                 </button>
@@ -565,7 +618,7 @@ fn Summary<'a>(
 
 /// A line's card: what it is, what it needs, Remove, and its offers and terms folded.
 #[component(css = SellListPage)]
-fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bool) -> impl Render {
+fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bool, held: bool) -> impl Render {
     let row = &line.row;
     let ready = &line.readiness;
     let best = line.best();
@@ -674,7 +727,8 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                 <form method="post" action={surface.path()}>
                     <input type="hidden" name="intent" value="remove-sell-list-line">
                     <input type="hidden" name="lineId" value={&row.line_id}>
-                    <button class={(Button, Secondary)} type="submit">{t.page_remove()}</button>
+                    {SubmitKey::field(LineForm::FIELDS.attempt_id)}
+                    <button class={(Button, Secondary)} type="submit" disabled={held}>{t.page_remove()}</button>
                 </form>
                 if !ready.ready && row.is_offer() {
                     <a class={(Button, Secondary)} href={line.setup_href()}>{t.page_create_matching_listing()}</a>
