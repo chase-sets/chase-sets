@@ -11,6 +11,8 @@ import { parseEbayOAuthConfiguration } from "../domain/configuration";
 import { testContext } from "../../connections/tests/test-support";
 import { payload } from "../../credentials/tests/fixtures";
 import type { ChannelCredentialKeyring } from "../../credentials/domain/contracts";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { module as channelsModule } from "../../../index";
 
 export const owner = "acc_owner";
 export const context = (accountId = owner) => ({
@@ -36,13 +38,15 @@ export function signal() {
 export function fixture(suffix: string) {
   const db = credentialDatabase(`ebay_${suffix}`);
   beforeAll(async () => {
+    await bootstrapContextDatabase(channelsModule, db());
     await db().query(
       eventCorePostgresSchemaSql + channelConnectionSchemaSql + connectorFeedSchemaSql + outboundSyncSchemaSql,
     );
   });
   beforeEach(async () => {
-    await db()
-      .query(`TRUNCATE channels_ebay_oauth_attempts,channels_ebay_disconnect_records,channels_ebay_seller_bindings,
+    await db().query(`TRUNCATE channels_ebay_credential_refresh,channels_ebay_credential_refresh_outcomes,
+    channel_connection_health,channel_health_observations,channel_connection_attention,
+    channels_ebay_oauth_attempts,channels_ebay_disconnect_records,channels_ebay_seller_bindings,
     channels_connection_credentials,channels_ebay_account_deletion_receipts,channel_connections,channel_connector_pairings,
     channel_outbound_operations,event_store_events,event_store_streams CASCADE`);
   });
@@ -50,7 +54,14 @@ export function fixture(suffix: string) {
     const provider: EbayOAuthProvider = {
       exchange: vi.fn(async () => ({
         ...payload,
+        issuedAt: new Date().toISOString(),
+        accessExpiresAt: new Date(Date.now() + 7200000).toISOString(),
         refresh: { kind: "present" as const, token: "synthetic-refresh", expiresAt: "2030-01-01T00:00:00Z" },
+      })),
+      refresh: vi.fn(async (tokens) => ({
+        ...tokens,
+        issuedAt: new Date().toISOString(),
+        accessExpiresAt: new Date(Date.now() + 7200000).toISOString(),
       })),
       identity: vi.fn(async () => "synthetic-subject"),
       revoke: vi.fn(async () => 200),

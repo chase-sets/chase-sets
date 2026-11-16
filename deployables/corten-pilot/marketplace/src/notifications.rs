@@ -482,7 +482,7 @@ async fn apply(
 
 /// The alerts' section when the read after a write failed: the write was saved, the section says
 /// so and that a reload shows it (502).
-fn unconfirmed<Kind>(req: &Req, error: ApiError) -> HtmlResult<Kind> {
+fn unconfirmed<Kind: corten::answer::PatchingKind>(req: &Req, error: ApiError) -> HtmlResult<Kind> {
     tracing::warn!("the product alerts' read after a write failed: {error}");
     let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
     req.patch_with_status(
@@ -493,7 +493,7 @@ fn unconfirmed<Kind>(req: &Req, error: ApiError) -> HtmlResult<Kind> {
 
 /// The alerts' section as a patch; while the read is catching up with a write it asks to be read
 /// again from `from`, the settings' address with the write's receipt, which answers this again.
-fn alerts_patch<Kind>(req: &Req, alerts: &Alerts, from: &url::Notifications) -> HtmlResult<Kind> {
+fn alerts_patch<Kind: corten::answer::PatchingKind>(req: &Req, alerts: &Alerts, from: &url::Notifications) -> HtmlResult<Kind> {
     let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
     let again = matches!(alerts, Alerts::CatchingUp).then(|| ReadAgain { after: Duration::from_secs(2) }.from(from));
     req.patch(html! {

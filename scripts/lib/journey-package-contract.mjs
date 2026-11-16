@@ -286,6 +286,7 @@ const entryKeys = Object.freeze({
 });
 
 const convergenceDiagnosticKeys = ["evaluations", "productWork", "diagnosticsReadError", "projectionStreamVersion"];
+const fulfillmentAuthorityKeys = ["authorityObservedAt", "authority", "authorityReadError"];
 const fulfillmentIntegerKeys = [
   "seller_available_quantity",
   "quantity_requested",
@@ -432,9 +433,15 @@ function validateEntry(entry, path) {
   if (!isPlainObject(entry)) refuse("timeline-invalid", { path });
   const kind = requireEnum(entry.kind, Object.keys(entryKeys), "timeline-invalid", `${path}.kind`);
   const hasDiagnostics = kind === "convergence" && convergenceDiagnosticKeys.some((key) => Object.hasOwn(entry, key));
+  const hasAuthority =
+    kind === "seller-match-fulfillment" && fulfillmentAuthorityKeys.some((key) => Object.hasOwn(entry, key));
   requireClosed(
     entry,
-    hasDiagnostics ? [...entryKeys[kind], ...convergenceDiagnosticKeys] : entryKeys[kind],
+    hasDiagnostics
+      ? [...entryKeys[kind], ...convergenceDiagnosticKeys]
+      : hasAuthority
+        ? [...entryKeys[kind], ...fulfillmentAuthorityKeys]
+        : entryKeys[kind],
     "timeline-invalid",
     path,
   );
@@ -491,6 +498,69 @@ function validateEntry(entry, path) {
     return { ...entry, eventTypes: [...entry.eventTypes] };
   }
   if (kind === "seller-match-fulfillment") {
+    if (hasAuthority) {
+      nullable(entry.authorityObservedAt, (value) => requireInstant(value, `${path}.authorityObservedAt`));
+      nullable(entry.authorityReadError, (value) =>
+        requireEnum(value, ["Managed Offer authority diagnostics read failed."], code, `${path}.authorityReadError`),
+      );
+      nullable(entry.authority, (authority) => {
+        const root = `${path}.authority`;
+        const integer = (value, key) => nullable(value, (n) => requireInteger(n, 0, 1_000_000, code, key));
+        requireClosed(authority, ["policy", "audit", "consent"], code, root);
+        requireClosed(
+          authority.policy,
+          ["status", "revision", "projectionVersion", "streamVersion"],
+          code,
+          `${root}.policy`,
+        );
+        nullable(authority.policy.status, (value) =>
+          requireEnum(value, ["draft", "active", "paused", "stopped"], code, `${root}.policy.status`),
+        );
+        for (const key of ["revision", "projectionVersion", "streamVersion"])
+          integer(authority.policy[key], `${root}.policy.${key}`);
+        for (const key of ["audit", "consent"]) {
+          const evaluation = authority[key];
+          const base = `${root}.${key}`;
+          requireClosed(
+            evaluation,
+            [
+              "status",
+              "reason",
+              key === "audit" ? "streamVersion" : "amount",
+              "policyRevision",
+              "marketPrice",
+              "evaluatedAt",
+            ],
+            code,
+            base,
+          );
+          nullable(evaluation.status, (value) =>
+            requireEnum(value, key === "audit" ? ["held", "applied"] : ["held", "target"], code, `${base}.status`),
+          );
+          nullable(evaluation.reason, (value) => requireEnum(value, evaluationReasons, code, `${base}.reason`));
+          if (key === "audit") integer(evaluation.streamVersion, `${base}.streamVersion`);
+          else nullable(evaluation.amount, (value) => requirePattern(value, amountPattern, code, `${base}.amount`));
+          integer(evaluation.policyRevision, `${base}.policyRevision`);
+          nullable(evaluation.evaluatedAt, (value) => requireInstant(value, `${base}.evaluatedAt`));
+          nullable(evaluation.marketPrice, (price) => {
+            const pricePath = `${base}.marketPrice`;
+            requireClosed(
+              price,
+              ["catalogItemId", "productId", "estimateVersion", "amount", "currencyCode", "estimatedAt", "freshUntil"],
+              code,
+              pricePath,
+            );
+            requirePattern(price.catalogItemId, catalogItemPattern, code, `${pricePath}.catalogItemId`);
+            requirePattern(price.productId, productPattern, code, `${pricePath}.productId`);
+            requirePattern(price.estimateVersion, /^[1-9][0-9]{0,18}$/, code, `${pricePath}.estimateVersion`);
+            requirePattern(price.amount, amountPattern, code, `${pricePath}.amount`);
+            requirePattern(price.currencyCode, /^[A-Za-z]{3}$/, code, `${pricePath}.currencyCode`);
+            requireInstant(price.estimatedAt, `${pricePath}.estimatedAt`);
+            requireInstant(price.freshUntil, `${pricePath}.freshUntil`);
+          });
+        }
+      });
+    }
     const boolean = (value, key) => {
       if (typeof value !== "boolean") refuse(code, { path: `${path}.${key}` });
     };
