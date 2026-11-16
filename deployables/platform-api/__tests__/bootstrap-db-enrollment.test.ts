@@ -637,7 +637,7 @@ const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2
   "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
   "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
 });
-const derivedBootBearingCaseCeilings = Object.freeze({ "test:db:1": 18, "test:db:2": 32, "test:db:3": 19 });
+const derivedBootBearingCaseCeilings = Object.freeze({ "test:db:1": 26, "test:db:2": 32, "test:db:3": 19 });
 
 function minimalityViolationFor(observedUnitCount: number, minimumUnitCount: number) {
   return (
@@ -1083,7 +1083,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(71);
+    expect(result.expectedCaseCount).toBe(79);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(12);
     expect(result.partitionUnitCount).toBe(3);
@@ -2743,7 +2743,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1692003,
+      1708003,
     );
   });
 
@@ -2755,7 +2755,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       currentProjectedMakespans.map((makespanMs, index) => [`test:db:${index + 1}`, makespanMs]),
     );
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [18, 18],
+      [26, 26],
       [32, 32],
       [19, 19],
     ]);

@@ -318,7 +318,7 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     for (const [, context] of calls) {
       expect(context).toEqual(
         expect.objectContaining({
-          ownerId: "seed:platform-api",
+          ownerId: expect.stringMatching(/^seed:platform-api:[0-9a-f-]{36}$/),
           fencingToken: "1",
           signal: expect.any(AbortSignal),
           throwIfLeaseLost: expect.any(Function),

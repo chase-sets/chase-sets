@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   bootstrapContextDatabase,
   countEventsWithPrefix,
@@ -119,6 +120,7 @@ export function createProjectionGroupLeasePort(
   return {
     runWithLease: async (group, signal, work) => {
       const leaseName = createProjectionGroupRunnerLeaseName(group);
+      const ownerId = `seed:${hostName}:${randomUUID()}`;
       const run = (async () => {
         if (signal?.aborted) {
           throw new Error(`Seed projection lease '${leaseName}' was cancelled before acquisition.`);
@@ -137,7 +139,7 @@ export function createProjectionGroupLeasePort(
             controlPlane,
             {
               leaseName,
-              ownerId: `seed:${hostName}`,
+              ownerId,
               ttlMs: SEED_PROJECTION_LEASE_TTL_MS,
               renewIntervalMs: SEED_PROJECTION_LEASE_RENEW_INTERVAL_MS,
               acquireTimeoutMs: 0,

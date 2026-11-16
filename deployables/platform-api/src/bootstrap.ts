@@ -143,7 +143,6 @@ async function runBootstrapPhase<T>(phase: string, action: () => T | Promise<T>)
   }
 }
 
-// https://github.com/chase-sets/chase-sets/issues/10490
 export async function syncBootstrapProjectionGroups(
   runtime: Parameters<typeof syncContextProjectionGroups>[0],
   contextName: string,

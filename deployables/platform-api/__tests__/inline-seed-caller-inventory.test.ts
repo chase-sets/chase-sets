@@ -7,6 +7,7 @@ import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { closePlatformApiPools, createSeedCommandPools } from "../src/database-pools";
 import { runAdminQaActorFixtures } from "../src/admin-qa-actor-fixtures";
+import { bootstrap, syncBootstrapProjectionGroups } from "../src/bootstrap";
 import type { PlatformApiConfig } from "../src/config";
 
 // Executes each deployable seedApiHostIfEmpty caller with the real control-plane and lease-port
@@ -145,7 +146,6 @@ describe("inline seed caller inventory (deployable callers)", () => {
     "aborts and awaits the %s admin drain before reporting its seed timeout",
     async (contextName) => {
       vi.useFakeTimers();
-      const { syncBootstrapProjectionGroups } = await import("../src/bootstrap");
       let complete!: () => void;
       const cleanup = new Promise<void>((resolve) => {
         complete = resolve;
@@ -184,7 +184,6 @@ describe("inline seed caller inventory (deployable callers)", () => {
     const pools = seedCommandPools();
     const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
 
-    const { bootstrap } = await import("../src/bootstrap");
     await bootstrap();
     expect(closePlatformApiPools).toHaveBeenCalledTimes(1);
 
