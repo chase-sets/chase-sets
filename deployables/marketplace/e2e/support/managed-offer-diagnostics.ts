@@ -3,6 +3,23 @@ import type { StoredEvent } from "@chase-sets/event-core/storage";
 
 type DiagnosticEvent = Pick<StoredEvent, "eventType" | "streamVersion" | "occurredAt" | "payload">;
 
+export function managedOfferFulfillmentSnapshot(match: Readonly<Record<string, unknown>>) {
+  return {
+    can_fulfill: match.can_fulfill ?? null,
+    managed_status: match.managed_status ?? null,
+    seller_listing_availability_status: match.seller_listing_availability_status ?? null,
+    status: match.status ?? null,
+    seller_available_quantity: match.seller_available_quantity ?? null,
+    quantity_requested: match.quantity_requested ?? null,
+    price_amount: match.price_amount ?? null,
+    listing_id: match.listing_id ?? null,
+    last_stream_version: match.last_stream_version ?? null,
+    listing_stream_version: match.listing_stream_version ?? null,
+    listing_quantity_cap: match.listing_quantity_cap ?? null,
+    listing_visible_quantity: match.listing_visible_quantity ?? null,
+  };
+}
+
 export function managedOfferEvaluations(events: readonly DiagnosticEvent[]) {
   return events
     .filter((event) => event.eventType === "marketplace.offer.managed-evaluated")

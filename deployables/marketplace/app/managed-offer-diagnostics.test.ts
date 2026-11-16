@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
-import { managedOfferEvaluations, readManagedOfferWorkDiagnostics } from "../e2e/support/managed-offer-diagnostics";
+import {
+  managedOfferEvaluations,
+  managedOfferFulfillmentSnapshot,
+  readManagedOfferWorkDiagnostics,
+} from "../e2e/support/managed-offer-diagnostics";
 
 const workId = "a".repeat(64);
 const product = { catalogItemId: "cat_fixture", productId: "cat_fixture::" };
@@ -37,6 +41,40 @@ const work = {
 };
 
 describe("managed Offer convergence diagnostics", () => {
+  it.each([
+    { managed_status: "held" },
+    { managed_status: "refresh_required" },
+    { managed_status: "unavailable" },
+    { seller_listing_availability_status: "unavailable" },
+    { status: "paused" },
+    { seller_available_quantity: 0 },
+  ])("retains every fulfillment operand from the exact failed Match response: %j", (blocked) => {
+    const match = {
+      can_fulfill: false,
+      managed_status: null,
+      seller_listing_availability_status: "available",
+      status: "submitted",
+      seller_available_quantity: 2,
+      quantity_requested: 2,
+      price_amount: "135.00",
+      listing_id: "lst_fixture",
+      last_stream_version: 4,
+      listing_stream_version: 2,
+      listing_quantity_cap: 2,
+      listing_visible_quantity: 2,
+      ...blocked,
+    };
+    expect(
+      managedOfferFulfillmentSnapshot({ ...match, shipping_destination_snapshot: { name: "Not retained" } }),
+    ).toEqual(match);
+  });
+
+  it("makes missing fulfillment inputs explicit without inventing readiness", () => {
+    const snapshot = managedOfferFulfillmentSnapshot({});
+    expect(Object.keys(snapshot)).toHaveLength(12);
+    expect(Object.values(snapshot)).toEqual(Array(12).fill(null));
+  });
+
   it("retains held reasons and exact Pricing evidence independently of an applied price pair", () => {
     expect(managedOfferEvaluations([held])).toEqual([{ streamVersion: 3, occurredAt, ...held.payload }]);
     const applied = {
