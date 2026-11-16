@@ -147,4 +147,14 @@ describe("TCGplayer host and credential boundary", () => {
       policy.hostExceptions["bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer/adapter.ts"],
     ).toEqual(["sourceUrl"]);
   });
+  it("admits only the market observation privacy test's exact credential absence assertion entry", () => {
+    const file =
+      "bounded-contexts/catalog/features/operator-session/tests/operator-session-observation-privacy.test.ts";
+    expect(policy.credentialExceptions[file]).toEqual(["TCGAuthTicket"]);
+    expect(scan({ [file]: 'expect(evidence).not.toContain("TCGAuthTicket=synthetic");' }).violations).toEqual([]);
+    expect(
+      scan({ [file.replace("privacy", "other")]: 'expect(evidence).not.toContain("TCGAuthTicket=synthetic");' })
+        .violations,
+    ).toHaveLength(1);
+  });
 });
