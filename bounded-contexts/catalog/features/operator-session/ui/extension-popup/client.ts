@@ -8,6 +8,9 @@ export {
   isProbeSetNamesMessage,
 } from "../../domain/extension/bridge";
 export { operatorExtensionId } from "../../domain/extension/protocol";
+export { isSealedRequestMessage } from "../../domain/extension/sealed-products/bridge";
+export { sealedProductLines } from "../../domain/extension/sealed-products/collector";
+export type { SealedFetch, SealedRequest } from "../../domain/extension/sealed-products/collector";
 export {
   probeTcgplayerSetNames,
   serializeSetNamesProbeReport,
@@ -22,6 +25,8 @@ export type {
 export { isSetNamesRequestResult } from "../../domain/extension/set-names/probe";
 import type { SetNamesRequest } from "../../domain/extension/set-names/probe";
 import type { SetNamesPost } from "../../domain/extension/set-names/transport";
+import type { SealedFetch } from "../../domain/extension/sealed-products/collector";
+import type { SealedPost } from "../../domain/extension/sealed-products/transport";
 export type { OperatorCommand, OperatorStatus, OperatorEnvironment } from "../../domain/extension/protocol";
 export async function renderOperatorExtensionPopup(
   element: HTMLElement,
@@ -29,6 +34,8 @@ export async function renderOperatorExtensionPopup(
   options: Readonly<{
     setNameRequest?: SetNamesRequest;
     postSetNames?: SetNamesPost;
+    sealedRequest?: SealedFetch;
+    postSealedProducts?: SealedPost;
     copyProbeReport?: (text: string) => Promise<void>;
     extensionVersion?: string;
     buildCommit?: string;

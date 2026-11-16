@@ -8,8 +8,12 @@ import {
 } from "./set-names/transport";
 import type { TcgplayerSetNameObservationPost } from "./set-names/contract";
 import type { OperatorEnvironment } from "./protocol";
+import { isSealedRequestMessage, type SealedRequestMessage } from "./sealed-products/bridge";
+import { isSealedPostMessage, isSealedPostResult, type SealedPostMessage } from "./sealed-products/transport";
 
 export type OperatorBridgeMessage =
+  | SealedRequestMessage
+  | SealedPostMessage
   | OperatorCommand
   | SetNamesPostMessage
   | { action: "probe-set-names"; productLineId: string }
@@ -62,6 +66,22 @@ export function installOperatorBridge(
   };
   const receive = (event: MessageEvent<unknown>) => {
     if (event.source !== frame.contentWindow || event.origin !== "null") return;
+    if (
+      closed(event.data, ["sealedId", "message"]) &&
+      safeInteger(event.data.sealedId) &&
+      (isSealedRequestMessage(event.data.message) || isSealedPostMessage(event.data.message))
+    ) {
+      const { sealedId, message } = event.data;
+      void send(message)
+        .then((result) => {
+          if (isSealedRequestMessage(message) ? isSetNamesRequestResult(result) : isSealedPostResult(result))
+            frame.contentWindow?.postMessage({ sealedId, result }, "*");
+        })
+        .catch(() => {
+          /* The sandbox deadline supplies a fixed error. */
+        });
+      return;
+    }
     if (
       closed(event.data, ["id", "message"]) &&
       safeInteger(event.data.id) &&

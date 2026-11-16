@@ -1,5 +1,5 @@
 import { createOperatorBackground, type OperatorAdapters } from "@chase-sets/catalog/client";
-import { fetchTcgplayerSetNames } from "./tcgplayer-set-name-endpoint";
+import { fetchTcgplayerSetNames, createTcgplayerSealedFetch } from "./tcgplayer-set-name-endpoint";
 
 const adapters: OperatorAdapters = {
   storage: {
@@ -16,9 +16,25 @@ const adapters: OperatorAdapters = {
   },
   fetch: globalThis.fetch.bind(globalThis),
   setNames: fetchTcgplayerSetNames,
+  sealedProducts: createTcgplayerSealedFetch(),
 };
 const background = createOperatorBackground(adapters);
 chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
+  if (
+    typeof message === "object" &&
+    message !== null &&
+    "action" in message &&
+    (message.action === "fetch-sealed-products" || message.action === "post-sealed-products")
+  ) {
+    void background
+      .receiveSealedProducts(
+        message,
+        { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
+        chrome.runtime.id,
+      )
+      .then(respond);
+    return true;
+  }
   void background
     .receiveSetNamePost(
       message,
