@@ -20106,6 +20106,8 @@ async fn ebay_consent_lists_its_scopes_and_a_connection_its_state_for_who_may_ma
         assert!(words.contains(expected), "{expected}: {words}");
     }
     assert!(!words.contains("sell.inventory") && !html.contains(r#"value="disconnect""#), "{html}");
+    // The consent is tinted furniture, as marketplace's Card elevation="tinted" (#11388).
+    assert!(html.contains(r#"<div class="channels-page__card channels-page__tinted">"#), "{html}");
     assert!(html.contains(r#"name="publication" value="false""#) && html.contains(r#"name="connectionId" value="""#), "{html}");
     let (_, _, html) = pilot.send(get(&format!("{EBAY_SCREEN}?publication=true"), Some("channeler"))).await;
     assert!(text(&html).contains("sell.inventory") && html.contains(r#"name="publication" value="true""#), "{html}");

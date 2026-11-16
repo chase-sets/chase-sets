@@ -211,7 +211,7 @@ function importJobSeverity(operatorStatus: string): CatalogAttentionItem["severi
 // --- Source 5: pending alias-equivalence candidates -------------------------
 export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateAttentionRow[]): CatalogAttentionItem[] {
   return rows
-    .filter((row) => row.review_status === "pending")
+    .filter((row) => row.review_status === "pending" && Boolean(row.target_id))
     .map((row) => ({
       itemKey: `alias-candidate:${row.alias_hash}`,
       kind: "alias-candidate" as const,

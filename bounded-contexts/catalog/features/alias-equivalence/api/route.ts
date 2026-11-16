@@ -25,7 +25,7 @@ import type { CatalogAliasServices } from "./runtime";
 
 export type CatalogAliasRouteServices = Pick<
   CatalogAliasServices,
-  "getCatalogAliasReviewReadModel" | "catalogAliasCommandHandler"
+  "getCatalogAliasReviewReadModel" | "getSourceObservationAliasCandidate" | "catalogAliasCommandHandler"
 >;
 
 /** The review actions an operator may dispatch over HTTP against the aggregate. */
@@ -144,6 +144,23 @@ export function catalogAliasRoutes(services: CatalogAliasRouteServices) {
     const context = c.get("context");
     const actor = context.audit.performedByUserId;
     const applied: Array<{ aliasHash: string; reviewStatus: string | null; version: number }> = [];
+
+    // Validate the entire selection before dispatch so an unresolved hash in a
+    // mixed bulk request cannot cause a partial write.
+    for (const aliasHash of aliasHashes) {
+      const candidate = await services.getSourceObservationAliasCandidate(aliasHash);
+      if (!candidate?.target_id) {
+        return c.json(
+          {
+            error: {
+              code: "alias_review_no_candidates",
+              message: t("catalog.features.aliasEquivalence.api.route.no.candidates"),
+            },
+          },
+          400,
+        );
+      }
+    }
 
     for (const aliasHash of aliasHashes) {
       const result = await services.catalogAliasCommandHandler({

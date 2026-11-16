@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { isDeepStrictEqual } from "node:util";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION } from "../../source-observations/api/catalog-integration-data-governance";
 import { assert, assertNever } from "../../../support/runtime-support/common";
@@ -163,9 +164,9 @@ export const decideCatalogAlias: AggregateDecider<CatalogAliasState, CatalogAlia
       // terminal trusted/untrusted state, emit nothing.
       if (
         state.aliasHash === candidate.aliasHash &&
-        state.reviewStatus === candidate.reviewStatus &&
         state.confidence === candidate.confidence &&
-        JSON.stringify(state.evidence) === JSON.stringify(candidate.evidence) &&
+        isDeepStrictEqual(state.evidence, candidate.evidence) &&
+        state.sourceLanguageCode === candidate.sourceLanguageCode &&
         (state.target?.targetId ?? null) === candidate.target.targetId
       ) {
         return [];
@@ -183,7 +184,7 @@ export const decideCatalogAlias: AggregateDecider<CatalogAliasState, CatalogAlia
             sourceLanguageCode: candidate.sourceLanguageCode,
             aliasType: candidate.aliasType,
             confidence: candidate.confidence,
-            reviewStatus: candidate.reviewStatus,
+            reviewStatus: state.aliasHash ? "pending" : candidate.reviewStatus,
             provenance: candidate.provenance,
             evidence: candidate.evidence,
             actor: command.actor.trim(),
