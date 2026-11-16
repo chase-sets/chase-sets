@@ -15,6 +15,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
+import { createConnectorOAuthService } from "@chase-sets/auth/server";
 import { module as channelsModule } from "../../../index";
 import * as epochModule from "../api/owner-epochs";
 import { createConnectionEpochs, createConnectionPersistence, type ConnectionEpochs } from "../api/owner-epochs";
@@ -72,6 +73,42 @@ describeDb("Connection acknowledged epoch closure", () => {
     await connectFixture(services);
     if (writer.name !== "activation") await activateFixture(services);
     if (writer.name === "resume") await services.pauseChannelConnection(target, testContext);
+    const revokePairing = vi.fn(async () => {});
+    const oauth = {
+      ...createConnectorOAuthService(
+        () => {
+          throw new Error("unused fixture Auth store");
+        },
+        { connectorRedirectUris: ["https://synthetic.invalid/callback"] },
+      ),
+      revokePairing,
+    };
+    if (writer.name === "installed Connector Feed disconnect") {
+      await pool.query(
+        "INSERT INTO channel_connector_pairings (pairing_id,connection_id,account_id,user_id,state,revision,code_hash,code_expires_at,created_at) VALUES ('pairing_synthetic',$1,$2,'usr_channels','code',1,'synthetic-code-hash','2099-01-01',clock_timestamp())",
+        [target.connectionId, target.accountId],
+      );
+      await raw.appendToStream({
+        streamId: "channels.connector-pairing-pairing_synthetic",
+        expectedVersion: "no_stream",
+        context: testContext,
+        events: [{ eventType: "channels.connector-pairing.code-created", payload: {} }],
+      });
+    }
+    async function effects() {
+      return {
+        history: await raw.readStream({ streamId }),
+        pairing: (
+          await pool.query("SELECT pairing_id,state,revision FROM channel_connector_pairings ORDER BY pairing_id")
+        ).rows,
+        liveness: (
+          await pool.query(
+            "SELECT connection_id,authority_generation,live_pairing_id FROM channel_connector_liveness_authority ORDER BY connection_id",
+          )
+        ).rows,
+        revocations: revokePairing.mock.calls.length,
+      };
+    }
     const authority = createVersionedConnectionAuthority(pool, raw, epochs);
     await authority.registerConsumer(input);
     const source = await epochs.source();
@@ -91,6 +128,7 @@ describeDb("Connection acknowledged epoch closure", () => {
         const substitute = vi.spyOn(epochModule, "createConnectionEpochs").mockReturnValue(active);
         try {
           const installed = channelsModule.createServices(pool, {
+            connectorOAuth: oauth,
             channelSaleRecorder: async () => {
               throw new Error("unused fixture port");
             },
@@ -114,7 +152,7 @@ describeDb("Connection acknowledged epoch closure", () => {
         },
       ]);
     }
-    return { raw, epochs, authority, source, grant, terminalStore, terminal, write };
+    return { raw, epochs, authority, source, grant, terminalStore, terminal, write, effects };
   }
 
   it.each(writers)(
@@ -137,7 +175,7 @@ describeDb("Connection acknowledged epoch closure", () => {
 
   it.each(writers)("$name: terminal-first installs only after consumer COMMIT", async (writer) => {
     const f = await fixture(writer);
-    const before = await f.raw.readStream({ streamId });
+    const before = await f.effects();
     const client = await terminalPool.connect();
     let writing: Promise<unknown> | undefined;
     try {
@@ -150,7 +188,7 @@ describeDb("Connection acknowledged epoch closure", () => {
         status = await f.source.status(key);
       }
       expect(status.status).toBe("PENDING");
-      expect(await f.raw.readStream({ streamId })).toEqual(before);
+      expect(await f.effects()).toEqual(before);
       await client.query("COMMIT");
       await writing;
       expect((await f.source.status(key)).epoch).toBe(f.grant.epoch + 1);
@@ -180,9 +218,9 @@ describeDb("Connection acknowledged epoch closure", () => {
     "$name: unavailable consumer retains CLOSING with zero business effects; recovery installs",
     async (writer) => {
       const f = await fixture(writer);
-      const before = await f.raw.readStream({ streamId });
+      const before = await f.effects();
       await expect(f.write(createConnectionEpochs(pool))).rejects.toMatchObject({ code: "connection-change-pending" });
-      expect(await f.raw.readStream({ streamId })).toEqual(before);
+      expect(await f.effects()).toEqual(before);
       expect((await f.source.status(key)).status).toBe("BLOCKED");
       expect((await f.authority.capture(input)).kind).toBe("denied");
       await f.write();
@@ -191,6 +229,22 @@ describeDb("Connection acknowledged epoch closure", () => {
       });
     },
   );
+
+  it("a foreign installed disconnect cannot even begin closure of an owned Connection", async () => {
+    const f = await fixture(writers[1]);
+    const before = await f.effects();
+    const status = await f.source.status(key);
+    const installed = channelsModule.createServices(pool, {
+      channelSaleRecorder: async () => {
+        throw new Error("unused fixture port");
+      },
+    });
+    await expect(
+      installed.connections.disconnectChannelConnection({ ...target, accountId: "acc_foreign" }, testContext),
+    ).rejects.toMatchObject({ code: "connection-not-found" });
+    expect(await f.source.status(key)).toEqual(status);
+    expect(await f.effects()).toEqual(before);
+  });
 
   it("creation without Guard History starts OPEN at creation epoch zero and captures only after COMMIT", async () => {
     const raw = createPostgresEventStore({ pool });
