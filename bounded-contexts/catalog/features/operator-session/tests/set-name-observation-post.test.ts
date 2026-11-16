@@ -269,16 +269,19 @@ describe("tcgplayer set-name post guard", () => {
       mappingsProposed: 0,
     });
     expect(h.events).toEqual(["authorize", "serialize", "record"]);
-    expect(h.record).toHaveBeenCalledExactlyOnceWith({
-      unitKey: "tcgplayer:lorcana:single-card:source-observation-import",
-      productLineId: 71,
-      sets,
-      provenance,
-      context: {
-        tenantId: "tnt_identity",
-        audit: { performedByUserId: provenance.creatorUserId, forAccountId: "acc_identity_system" },
+    expect(h.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        unitKey: "tcgplayer:lorcana:single-card:source-observation-import",
+        productLineId: 71,
+        sets,
+        provenance,
+        context: {
+          tenantId: "tnt_identity",
+          audit: { performedByUserId: provenance.creatorUserId, forAccountId: "acc_identity_system" },
+        },
       },
-    });
+      undefined,
+    );
   });
 
   it("records one valid post with grant provenance and returns only the three counts", async () => {
@@ -625,7 +628,7 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
           provenance,
           context: testContext,
         }),
-      ).resolves.toMatchObject({ observationCount: [1, 3].includes(unit.productLineId!) ? 2 : 1 });
+      ).resolves.toMatchObject({ observationCount: [1, 3, 71].includes(unit.productLineId!) ? 2 : 1 });
     }
   });
 });
