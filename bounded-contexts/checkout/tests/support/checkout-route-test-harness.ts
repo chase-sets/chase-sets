@@ -1,3 +1,4 @@
+import type { SellListReviewReadiness } from "../../features/sell-list/api/review-plan-contracts";
 import { expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
@@ -231,8 +232,25 @@ export function readyCartReadinessResponse() {
   };
 }
 
-export function readySellListReadinessResponse() {
+export function readySellListReadinessResponse(): SellListReviewReadiness {
   return {
+    reviewPlan: {
+      version: 1,
+      lines: [
+        {
+          lineId: "sll_1",
+          lineType: "selected-offer",
+          itemTitle: "Mewtwo",
+          productId: "prod_1",
+          quantity: 1,
+          selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+          productOfferTargets: [],
+          fallbackListing: null,
+          skippedReasons: [],
+        },
+      ],
+    },
+    decisions: { lineActions: [{ lineId: "sll_1", action: "selected-offer" }], lineOutcomes: [] },
     readiness: {
       schemaVersion: "checkout.sell-list-readiness.v1",
       source: "sell-list",

@@ -112,8 +112,6 @@ export type SignedInSellCheckoutPageProps = Readonly<{
   defaultValues: SignedInSellCheckoutFormValues;
   savedShipFromAddresses: readonly SignedInSellCheckoutShipFromAddress[];
   payoutSummary: SignedInSellCheckoutPayoutSummary | null;
-  readinessDecisions: string;
-  sellListReviewPlan: string;
   actionState?: SignedInSellCheckoutActionState | null;
   initialEditSection?: SignedInSellCheckoutEditSection | null;
 }>;
@@ -340,8 +338,6 @@ export function SignedInSellCheckoutPage({
   defaultValues,
   savedShipFromAddresses,
   payoutSummary,
-  readinessDecisions,
-  sellListReviewPlan,
   actionState = { status: "idle" },
   initialEditSection = null,
 }: SignedInSellCheckoutPageProps) {
@@ -429,8 +425,6 @@ export function SignedInSellCheckoutPage({
               <HiddenInput type="hidden" name="sessionId" value={sessionId} />
               <HiddenInput type="hidden" name="readinessSnapshotId" value={readiness?.snapshotId ?? ""} />
               <HiddenInput type="hidden" name="readinessSourceRevision" value={readiness?.sourceRevision ?? ""} />
-              <HiddenInput type="hidden" name="readinessDecisions" value={readinessDecisions} />
-              <HiddenInput type="hidden" name="sellListReviewPlan" value={sellListReviewPlan} />
               {hiddenCheckoutState(values)}
 
               {fieldErrors.form ? (
