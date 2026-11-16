@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 25,
-      authoritativeSites: 23,
+      discoveredCallCandidates: 26,
+      authoritativeSites: 24,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -220,10 +220,31 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-eight green grammar instances across thirty-four live locations without a registry", () => {
+  it("derives forty-one green grammar instances across thirty-six live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(38);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(34);
+    expect(green).toHaveLength(41);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(36);
+    expect(
+      green
+        .filter((entry) => entry.file.includes("/inventory-items/api/stock-"))
+        .map(({ category, file, symbol }) => ({ category, file, symbol })),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
+        symbol: "createInventoryStockReservations.persistence.readStream",
+      },
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/inventory/features/inventory-items/api/stock-authority.ts",
+        symbol: "createInventoryStockAuthority.captureInTransaction.eventStore.readStream",
+      },
+      {
+        category: "type-position",
+        file: "bounded-contexts/inventory/features/inventory-items/api/stock-authority.ts",
+        symbol: "createInventoryStockAuthority.captureInTransaction.eventStore.readStream",
+      },
+    ]);
     expect(
       green
         .filter((entry) => entry.file.startsWith("bounded-contexts/auth/"))

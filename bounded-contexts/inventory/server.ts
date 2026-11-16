@@ -4,6 +4,9 @@ export {
   withInventoryMutationAttempt,
 } from "./support/runtime-support/mutation-attempt";
 export { createStorageLocationAuthority } from "./features/storage-locations/api/authority";
+export { createInventoryStockAuthorityForPool } from "./support/runtime-support/services";
+export { InventoryStockChangePending } from "./features/inventory-items/api/stock-reservations";
+export type { InventoryStockAuthority, InventoryStockTarget } from "./features/inventory-items/api/stock-authority";
 export type {
   InventoryAccountSellerSkuItemResolution,
   InventoryCatalogItemSnapshot,
