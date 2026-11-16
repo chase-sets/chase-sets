@@ -27,7 +27,8 @@ if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required f
 const describeDb = baseUrl ? describe : describe.skip;
 const names = ["channels", "marketplace"] as const;
 const consumer = { storeId: "synthetic-connection-terminal", incarnation: "synthetic-connection-terminal-v1" };
-const input = { accountId: "acc_owner", connectionId: "connection_1", consumer };
+const target = { accountId: "acc_owner", connectionId: "connection_1" };
+const input = { ...target, consumer };
 const streamId = `channels.connection-${input.connectionId}`;
 const key = `connection/${input.connectionId}`;
 const writers = [
@@ -70,7 +71,7 @@ describeDb("Connection acknowledged epoch closure", () => {
     const services = servicesFor(epochs);
     await connectFixture(services);
     if (writer.name !== "activation") await activateFixture(services);
-    if (writer.name === "resume") await services.pauseChannelConnection(input, testContext);
+    if (writer.name === "resume") await services.pauseChannelConnection(target, testContext);
     const authority = createVersionedConnectionAuthority(pool, raw, epochs);
     await authority.registerConsumer(input);
     const source = await epochs.source();
@@ -94,14 +95,14 @@ describeDb("Connection acknowledged epoch closure", () => {
               throw new Error("unused fixture port");
             },
           });
-          return await installed.connections.disconnectChannelConnection(input, testContext);
+          return await installed.connections.disconnectChannelConnection(target, testContext);
         } finally {
           substitute.mockRestore();
         }
       }
-      if (writer.name === "handler disconnect") return current.disconnectChannelConnection(input, testContext);
-      if (writer.name === "pause") return current.pauseChannelConnection(input, testContext);
-      if (writer.name === "resume") return current.resumeChannelConnection(input, testContext);
+      if (writer.name === "handler disconnect") return current.disconnectChannelConnection(target, testContext);
+      if (writer.name === "pause") return current.pauseChannelConnection(target, testContext);
+      if (writer.name === "resume") return current.resumeChannelConnection(target, testContext);
       if (writer.name === "activation") return activateFixture(current);
       const version = (await raw.readStream({ streamId })).at(-1)!.streamVersion;
       return createConnectionPersistence(raw, active).appendToStreams!([

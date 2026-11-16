@@ -415,7 +415,6 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     const manualSync = createManualSyncRuntime({
       db: pool,
       connections,
-      connectionAuthority: createVersionedConnectionAuthority(pool, eventStore, connectionEpochs),
       tcgplayerCsv,
       connectorFeed,
       policies,
@@ -424,6 +423,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     const ebayAccountDeletionReceipts = createEbayAccountDeletionRuntime(pool, ports.channelCredentialKeyring);
     return {
       connections,
+      connectionAuthority: createVersionedConnectionAuthority(pool, eventStore, connectionEpochs),
       ebayAccountDeletion: {
         config: ports.ebayAccountDeletionConfiguration ?? null,
         telemetry: ports.webhookTelemetry,

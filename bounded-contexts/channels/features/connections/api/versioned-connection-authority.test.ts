@@ -13,20 +13,22 @@ import { connectionAuthorityEventClassification, createConnectionEpochs } from "
 import { createVersionedConnectionAuthority } from "./versioned-connection-authority";
 
 const consumer = { storeId: "synthetic-terminal", incarnation: "synthetic-terminal-v1" };
-const input = { accountId: "acc_owner", connectionId: "connection_1", consumer };
+const target = { accountId: "acc_owner", connectionId: "connection_1" };
+const input = { ...target, consumer };
 
 afterEach(() => vi.restoreAllMocks());
 
 async function fixture() {
   const h = createConnectionHarness();
-  const query = vi.fn(async <Row>(sql: string) => {
+  const query: PgTransactionalPool["query"] = async <Row = Record<string, unknown>>(sql: string) => {
     if (sql.includes("channel_connections")) throw new Error("poisoned projection SQL");
     const rows = sql.startsWith("SELECT current_version")
       ? [{ current_version: h.memory.streams.get("channels.connection-connection_1")?.length ?? 0 }]
       : [];
     return { rows: rows as Row[] };
-  });
-  const pool: PgTransactionalPool = { query, connect: async () => ({ query, release() {} }) };
+  };
+  const pool: PgTransactionalPool = { query, connect: async () => ({ query: pool.query, release() {} }) };
+  const querySpy = vi.spyOn(pool, "query");
   const raw = createPostgresEventStore({ pool });
   vi.spyOn(raw, "readStreamInTransaction").mockImplementation((_db, request) =>
     h.memory.eventStore.readStream(request),
@@ -55,7 +57,7 @@ async function fixture() {
     .spyOn(projections, "getPublicChannelConnection")
     .mockRejectedValue(new Error("poisoned getConnection"));
   const authority = createVersionedConnectionAuthority(pool, raw, epochs);
-  return { ...h, pool, query, authority, captureGrant, poisoned };
+  return { ...h, pool, query: querySpy, authority, captureGrant, poisoned };
 }
 
 describe("Versioned Connection Authority", () => {
@@ -84,8 +86,8 @@ describe("Versioned Connection Authority", () => {
       const f = await fixture();
       if (state !== "absent") await connectFixture(f.services);
       if (["foreign", "paused", "disconnected"].includes(state)) await activateFixture(f.services);
-      if (state === "paused") await f.services.pauseChannelConnection(input, testContext);
-      if (state === "disconnected") await f.services.disconnectChannelConnection(input, testContext);
+      if (state === "paused") await f.services.pauseChannelConnection(target, testContext);
+      if (state === "disconnected") await f.services.disconnectChannelConnection(target, testContext);
       expect(
         await f.authority.capture({ ...input, accountId: state === "foreign" ? "acc_foreign" : input.accountId }),
       ).toEqual({
@@ -150,8 +152,13 @@ describe("Versioned Connection Authority", () => {
     const f = await fixture();
     await connectFixture(f.services);
     await activateFixture(f.services);
-    await f.services.disconnectChannelConnection(input, testContext);
-    await f.memory.eventStore.appendToStream({ streamId: "channels.connection-connection_1", expectedVersion: 3, context: testContext, events: [{ eventType: "channels.connection.resumed", payload: { connectionId: input.connectionId } }] });
+    await f.services.disconnectChannelConnection(target, testContext);
+    await f.memory.eventStore.appendToStream({
+      streamId: "channels.connection-connection_1",
+      expectedVersion: 3,
+      context: testContext,
+      events: [{ eventType: "channels.connection.resumed", payload: { connectionId: input.connectionId } }],
+    });
     expect(await f.authority.capture(input)).toEqual({ kind: "denied", reason: "connection-authority-unavailable" });
     expect(f.captureGrant).not.toHaveBeenCalled();
   });
