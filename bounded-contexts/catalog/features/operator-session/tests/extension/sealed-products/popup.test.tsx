@@ -33,7 +33,7 @@ function mount(
               entry({
                 categoryId: selection().productLineId,
                 setNameId: selection().setId,
-                name: selection().setName,
+                name: "Display-only set label",
                 cleanSetName: selection().setName,
               }),
             ],
@@ -100,6 +100,7 @@ describe("sealed products popup", () => {
     await act(async () => resolve({ outcome: "recorded", ...counts }));
     await screen.findByText("Catalog sealed products recorded");
     expect(provider).toHaveBeenCalledTimes(2);
+    expect(provider.mock.calls[0]![0]).toMatchObject({ endpoint: "search", setName: selection().setName });
     expect(
       screen.getByText("Catalog recorded: 1; changed: 1; unchanged: 0; candidates: 1; exclusions: 0"),
     ).toBeTruthy();

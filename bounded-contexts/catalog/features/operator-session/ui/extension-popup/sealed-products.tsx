@@ -62,7 +62,7 @@ export function SealedProductsAction({
     setCopyFailed(false);
     try {
       const result = await runSealedProducts({
-        selection: { productLineId: Number(line), setId: set.setNameId, setName: set.name },
+        selection: { productLineId: Number(line), setId: set.setNameId, setName: set.cleanSetName },
         environment,
         request,
         post,
