@@ -18,10 +18,12 @@ describe("eBay deletion consumer runner", () => {
     const runner = createEbayAccountDeletionConsumerRunner(consumer, logger, control, () => now);
     const first = await runner.runOnce();
     expect(first.processed).toBe(0);
+    expect(logger.info).not.toHaveBeenCalled();
     expect(runner.rescheduleOnCompletion?.(first)).toBe(true);
     expect(control.recordScheduledRunnerCompleted).not.toHaveBeenCalled();
     const second = await runner.runOnce();
     expect(second.processed).toBe(1);
+    expect(logger.info).toHaveBeenCalledTimes(1);
     expect(consumer.batch).toHaveBeenNthCalledWith(2, page.at(-1));
     expect(runner.rescheduleOnCompletion?.(second)).toBe(false);
     await runner.runOnce();
@@ -31,6 +33,7 @@ describe("eBay deletion consumer runner", () => {
     expect(consumer.batch).toHaveBeenLastCalledWith(null);
     await createEbayAccountDeletionConsumerRunner(consumer, logger, control, () => now).runOnce();
     expect(consumer.batch).toHaveBeenCalledTimes(4);
+    expect(logger.info).toHaveBeenCalledTimes(1);
   });
   it("never consumes after interruption or lease loss, and retries incomplete work", async () => {
     const consumer = { batch: vi.fn(async () => ["synthetic-notice"]), consume: vi.fn(async () => 1) };

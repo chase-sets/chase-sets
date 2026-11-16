@@ -52,7 +52,12 @@ export function createEbayAccountDeletionConsumerRunner(
           await controlPlane?.recordScheduledRunnerCompleted({ runnerName: name });
           sweeping = false;
         }
-        logger.info("eBay deletion batch completed.", { type: "channels.ebay-deletion.batch", processed, unavailable });
+        if (processed)
+          logger.info("eBay deletion batch completed.", {
+            type: "channels.ebay-deletion.batch",
+            processed,
+            unavailable,
+          });
         return { processed, lastGlobalPosition: "0" as never };
       } catch {
         sweeping = false;

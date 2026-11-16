@@ -84,8 +84,14 @@ export function createEbayAccountDeletionConsumer(deps: {
         return await deps.connectionEpochs.transaction(
           targets.map((target) => `connection/${target.current_connection_id}`),
           async (db) => {
+            // Runner -> consumer -> transactional connector disconnect -> eBay custody removal.
+            // After epoch admission: attempts table -> receipt -> attempts -> bindings.
+            // No provider I/O is inside this boundary. Start/callback take the compatible
+            // table lock first, so completion also fences unbound and already-consumed work.
+            await db.query("LOCK TABLE channels_ebay_oauth_attempts IN EXCLUSIVE MODE");
             const current = await receipt(db, notificationId, true);
             if (!current) return 0;
+            await db.query("DELETE FROM channels_ebay_oauth_attempts");
             const live = await matches(db, current.subject_fingerprint, true);
             // A successor not covered by this closure is retried, never written unfenced.
             if (

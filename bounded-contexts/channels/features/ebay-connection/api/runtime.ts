@@ -168,8 +168,9 @@ export function createEbayConnectionRuntime(deps: {
       assertOpaqueId(accountId, "accountId");
       if (typeof publication !== "boolean") throw new EbayConnectionError("invalid-request");
       const state = createOAuthState();
-      const at = now();
       await withPgTransaction(deps.db, async (db) => {
+        await db.query("LOCK TABLE channels_ebay_oauth_attempts IN ROW EXCLUSIVE MODE");
+        const at = now();
         const expected = connectionId ? await current(db, { accountId, connectionId }) : null;
         await db.query(
           `INSERT INTO channels_ebay_oauth_attempts
@@ -222,7 +223,9 @@ export function createEbayConnectionRuntime(deps: {
       const fingerprint = cipher.fingerprint(subject);
       const creationKey = `connection/${attempt.candidate_connection_id}`;
       return connectionEpochs.transaction([creationKey], async (db: PgQueryable) => {
-        // Receipt locks precede the binding lock in both the callback and consumer.
+        // Local admission order: attempts table, receipts, exact attempt, seller binding.
+        // Completion takes the exclusive table lock and removes even consumed attempts.
+        await db.query("LOCK TABLE channels_ebay_oauth_attempts IN ROW EXCLUSIVE MODE");
         const receipts = await db.query<{ notification_id: string }>(
           `SELECT notification_id FROM channels_ebay_account_deletion_receipts
           WHERE subject_fingerprint=$1 AND expires_at>statement_timestamp()
@@ -237,6 +240,13 @@ export function createEbayConnectionRuntime(deps: {
           );
           if (completed.rows.length) throw new EbayConnectionError("stale-authorization");
         }
+        const valid = await db.query(
+          `SELECT 1 FROM channels_ebay_oauth_attempts
+          WHERE state_hash=$1 AND account_id=$2 AND candidate_connection_id=$3
+          AND consumed_at IS NOT NULL AND expires_at>$4 FOR UPDATE`,
+          [hashOAuthState(state), accountId, attempt.candidate_connection_id, now()],
+        );
+        if (!valid.rows.length) throw new EbayConnectionError("stale-authorization");
         const bindingId = randomUUID();
         const sealed = cipher.seal(bindingId, subject);
         await db.query(
