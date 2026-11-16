@@ -29,9 +29,6 @@ import {
 import {
   confirmationPathForSession,
   confirmationIdForSession,
-  encodeSellListReadinessDecisions,
-  parseSellListReadinessDecisions,
-  parseSellListReviewPlan,
   reviewedLinesForConfirmation,
 } from "./sell-checkout-readiness";
 import { SellListReviewPlanStaleError } from "./sell-checkout-types";
@@ -76,13 +73,9 @@ export async function action({
       };
     }
     if (existingConfirmation) return redirect(confirmationPathForSession(sessionId));
-    const readinessDecisions = parseSellListReadinessDecisions(normalizeText(formData.get("readinessDecisions")));
     const state = await loadSignedInSellCheckoutState(request, sessionId, {
       readinessSnapshotId: normalizeText(formData.get("readinessSnapshotId")),
       readinessSourceRevision: normalizeText(formData.get("readinessSourceRevision")),
-      readinessDecisions,
-      readinessDecisionsJson: encodeSellListReadinessDecisions(readinessDecisions),
-      sellListReviewPlanJson: normalizeText(formData.get("sellListReviewPlan")),
     });
     const values = applySelectedSavedShipFromAddress(submittedValues, state.savedShipFromAddresses);
 
@@ -120,8 +113,8 @@ export async function action({
     }
 
     try {
-      const reviewPlan = parseSellListReviewPlan(state.sellListReviewPlan);
-      const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, reviewPlan);
+      const readinessDecisions = state.readinessDecisions;
+      const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, state.reviewPlan);
       const marketplaceApi = createMarketplaceRequestApiClient(request);
       const sellerEvidence = buildSellerEvidence(values, state.payoutSummary);
       const choices = {
@@ -145,7 +138,7 @@ export async function action({
         sellerEvidence,
         confirmationId,
         entryReadinessSnapshotId: state.readiness.snapshotId,
-        reviewPlan: state.sellListReviewPlan,
+        entryReadinessSourceRevision: state.readiness.sourceRevision,
       });
       if (
         sellerReadiness.readiness.status !== "ready" ||

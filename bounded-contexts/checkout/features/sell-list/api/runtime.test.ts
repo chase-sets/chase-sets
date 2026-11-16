@@ -1,3 +1,5 @@
+import { buildSellListReviewPlan, readinessDecisionsFromReviewPlan } from "./review-plan";
+import type { CheckoutSellOfferMatch } from "../read-model/queries";
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -852,8 +854,21 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
           },
         ],
       };
-      const initial = await f.services.createReadinessSnapshot({ sellerAccountId: "acc_seller", decisions });
-      const assess = vi.fn(async (body: Record<string, unknown>) => ({
+      const issued = await f.services.createReviewReadiness({
+        sellerAccountId: "acc_seller",
+        selections: { lines: [{
+          lineId: line.line_id,
+          selectedOfferFeeQuoteFingerprint: "synthetic_quote",
+          productOffers: scenario === "smart-match" ? [{ offerId: "off_fixture", feeQuoteFingerprint: "synthetic_quote" }] : [],
+        }] },
+      }, context);
+      const initial = issued.readiness;
+      const assess = vi.fn(async (body: Record<string, unknown>) => body.readinessSnapshotId
+        ? f.services.getReviewReadiness({
+          sellerAccountId: "acc_seller", snapshotId: String(body.readinessSnapshotId),
+          sourceRevision: String(body.readinessSourceRevision), confirmationId: String(body.confirmationId),
+        })
+        : ({
         readiness: await f.services.createReadinessSnapshot(
           {
             sellerAccountId: "acc_seller",
@@ -862,7 +877,7 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
             ...(body.entryReadinessSnapshotId
               ? { entryReadinessSnapshotId: String(body.entryReadinessSnapshotId) }
               : {}),
-            ...(body.reviewPlan ? { reviewPlan: String(body.reviewPlan) } : {}),
+            ...(body.entryReadinessSourceRevision ? { entryReadinessSourceRevision: String(body.entryReadinessSourceRevision) } : {}),
             ...parseSellerCheckoutChoices(body),
           },
           context,
@@ -1014,7 +1029,9 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
             },
           });
           expect(f.memory.allEvents.map((event) => event.eventType)).toEqual(
-            scenario === "missing-fulfillment" ? [] : ["checkout.sell-list.handoff-prepared"],
+            scenario === "missing-fulfillment"
+              ? ["checkout.sell-list.review-planned"]
+              : ["checkout.sell-list.review-planned", "checkout.sell-list.handoff-prepared"],
           );
           if (scenario === "missing-fulfillment") expect(confirm).not.toHaveBeenCalled();
           return;
@@ -1190,5 +1207,186 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
     await expect(f.services.mergeSellListIntoAccount(params, context)).rejects.toThrow("cannot be invalidated");
     expect(read).not.toHaveBeenCalled();
     expect(f.memory.allEvents).toEqual([]);
+  });
+});
+
+
+describe("API builds the existing Sell List review allocation", () => {
+  const product = { ...productLine, quantity: 5 };
+  const fallback = { inventoryItemId: "inv_1", priceAmount: "12.50", priceCurrencyCode: "USD", quantityCap: "9" };
+  const target = (offerId: string, feeQuoteFingerprint = "quote_" + offerId) => ({ offerId, feeQuoteFingerprint });
+  const match = vi.fn(async (offerId: string): Promise<CheckoutSellOfferMatch | null> => {
+    if (offerId === "unavailable") throw new Error("Offer match not found.");
+    return {
+      offer_id: offerId, listing_id: "lst_" + offerId,
+      product_id: offerId === "wrong" ? "other_product" : product.product_id,
+      quantity_requested: offerId === "two" ? 2 : offerId === "large" ? 5 : 1,
+    } as CheckoutSellOfferMatch;
+  });
+
+  it("preserves selected Offers and requires their fingerprint", async () => {
+    const plan = await buildSellListReviewPlan(match, [selectedOfferLine], { lines: [{
+      lineId: selectedOfferLine.line_id, selectedOfferFeeQuoteFingerprint: "selected_quote",
+    }] });
+    expect(plan.lines[0]).toEqual({
+      lineId: selectedOfferLine.line_id, lineType: "selected-offer", itemTitle: "Charizard",
+      productId: selectedOfferLine.product_id, quantity: 1,
+      selectedOffer: { offerId: "off_ready", listingId: "lst_ready", feeQuoteFingerprint: "selected_quote" },
+      productOfferTargets: [], fallbackListing: null, skippedReasons: [],
+    });
+    expect(readinessDecisionsFromReviewPlan(plan)).toEqual({
+      lineActions: [{ lineId: "sll_offer", action: "selected-offer" }], lineOutcomes: [],
+    });
+    const missing = await buildSellListReviewPlan(match, [selectedOfferLine], { lines: [] });
+    expect(missing.lines[0]!.selectedOffer).toBeNull();
+    expect(missing.lines[0]!.skippedReasons).toEqual(["Charizard: offer terms need refresh."]);
+    expect(readinessDecisionsFromReviewPlan(missing).lineOutcomes).toEqual([{ lineId: "sll_offer", outcome: "keep-in-list" }]);
+    const absent = await buildSellListReviewPlan(match, [{ ...selectedOfferLine, offer_id: null }], { lines: [] });
+    expect(absent.lines[0]!.skippedReasons).toEqual(["Charizard: selected offer is missing."]);
+  });
+
+  it("keeps ordered splits, deduplicates targets and caps fallback at the remainder", async () => {
+    match.mockClear();
+    const plan = await buildSellListReviewPlan(match, [product], { lines: [{
+      lineId: product.line_id, productOffers: [target("two"), target("one"), target("two")], fallbackListing: fallback,
+    }] });
+    expect(plan.lines[0]!.productOfferTargets).toEqual([
+      { offerId: "two", listingId: "lst_two", feeQuoteFingerprint: "quote_two", quantity: 2 },
+      { offerId: "one", listingId: "lst_one", feeQuoteFingerprint: "quote_one", quantity: 1 },
+    ]);
+    expect(plan.lines[0]!.fallbackListing).toEqual({ ...fallback, quantityCap: 2 });
+    expect(plan.lines[0]!.skippedReasons).toEqual([]);
+    expect(match.mock.calls.map(([id]) => id)).toEqual(["two", "one"]);
+    expect(readinessDecisionsFromReviewPlan(plan)).toEqual({
+      lineActions: [{ lineId: "sll_product", action: "smart-match" }], lineOutcomes: [],
+    });
+  });
+
+  it.each([
+    ["wrong", "quote", "Blastoise: matching offer wrong no longer matches this product."],
+    ["unavailable", "quote", "Blastoise: Offer match not found."],
+    ["large", "quote", "Blastoise: matching offer large exceeds remaining quantity."],
+    ["one", "", "Blastoise: matching offer terms need refresh."],
+  ])("retains skipped reasons for %s without overallocating", async (offerId, fingerprint, reason) => {
+    const plan = await buildSellListReviewPlan(match, [product], { lines: [{
+      lineId: product.line_id, productOffers: [target("two"), target(offerId!, fingerprint)], fallbackListing: fallback,
+    }] });
+    expect(plan.lines[0]!.productOfferTargets).toEqual([
+      { offerId: "two", listingId: "lst_two", feeQuoteFingerprint: "quote_two", quantity: 2 },
+    ]);
+    expect(plan.lines[0]!.fallbackListing?.quantityCap).toBe(3);
+    expect(plan.lines[0]!.skippedReasons).toEqual([reason]);
+    expect(readinessDecisionsFromReviewPlan(plan)).toEqual({
+      lineActions: [], lineOutcomes: [{ lineId: "sll_product", outcome: "keep-in-list" }],
+    });
+  });
+
+  it("keeps fallback-only partial caps and unresolved remainder behavior", async () => {
+    const plan = await buildSellListReviewPlan(match, [product], { lines: [{
+      lineId: product.line_id, fallbackListing: { ...fallback, quantityCap: "1" },
+    }] });
+    expect(plan.lines[0]!.fallbackListing).toEqual({ ...fallback, quantityCap: 1 });
+    expect(readinessDecisionsFromReviewPlan(plan).lineActions).toEqual([{ lineId: "sll_product", action: "fallback-listing" }]);
+    const unresolved = await buildSellListReviewPlan(match, [product], { lines: [] });
+    expect(unresolved.lines[0]!.skippedReasons).toEqual(["Blastoise: matching offers do not cover the requested quantity."]);
+    const invalid = await buildSellListReviewPlan(match, [product], { lines: [{
+      lineId: product.line_id, fallbackListing: { ...fallback, inventoryItemId: "" },
+    }] });
+    expect(invalid.lines[0]!.fallbackListing).toBeNull();
+    expect(invalid.lines[0]!.skippedReasons).toEqual(["Blastoise: listing needs inventory, price, currency, and quantity."]);
+  });
+
+  it("filters bulk selections, retains unselected lines, and never adds fallback", async () => {
+    const plan = await buildSellListReviewPlan(match, [selectedOfferLine, product], {
+      bulkOfferIds: ["one"],
+      lines: [
+        { lineId: selectedOfferLine.line_id, selectedOfferFeeQuoteFingerprint: "quote" },
+        { lineId: product.line_id, productOffers: [target("two"), target("one")], fallbackListing: fallback },
+      ],
+    });
+    expect(plan.lines).toHaveLength(2);
+    expect(plan.lines[0]).toMatchObject({ selectedOffer: null, skippedReasons: [] });
+    expect(plan.lines[1]).toMatchObject({
+      productOfferTargets: [{ offerId: "one", listingId: "lst_one", feeQuoteFingerprint: "quote_one", quantity: 1 }],
+      fallbackListing: null, skippedReasons: [],
+    });
+    expect(readinessDecisionsFromReviewPlan(plan)).toEqual({
+      lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+      lineOutcomes: [{ lineId: "sll_offer", outcome: "keep-in-list" }],
+    });
+  });
+});
+
+describe("durable API-owned review plans", () => {
+  const selections = { lines: [{ lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "quote" }] };
+  it("retrieves the bound plan after constructing a fresh runtime over the same store", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    const issued = await f.services.createReviewReadiness({ sellerAccountId: "acc_seller", selections }, context);
+    const fresh = createCheckoutSellListRuntime(f.deps);
+    await expect(fresh.getReviewReadiness({
+      sellerAccountId: "acc_seller", snapshotId: issued.readiness.snapshotId, sourceRevision: issued.readiness.sourceRevision,
+    })).resolves.toEqual(issued);
+    expect(issued.reviewPlan.lines[0]!.selectedOffer).toEqual({
+      offerId: "off_fixture", listingId: "lst_fixture", feeQuoteFingerprint: "quote",
+    });
+    const replay = await fresh.createReviewReadiness({ sellerAccountId: "acc_seller", selections }, context);
+    expect(replay).toEqual(issued);
+    expect(f.memory.allEvents.filter((event) => event.eventType === "checkout.sell-list.review-planned")).toHaveLength(1);
+  });
+
+  it.each(["missing", "foreign", "revision", "stale"])("refuses %s plans", async (kind) => {
+    const f = checkoutOwnerRuntimeFixture();
+    const issued = await f.services.createReviewReadiness({ sellerAccountId: "acc_seller", selections }, context);
+    if (kind === "stale") f.setLines([{ ...fixtureLine, quantity: 2 }]);
+    await expect(f.services.getReviewReadiness({
+      sellerAccountId: kind === "foreign" ? "acc_other" : "acc_seller",
+      snapshotId: kind === "missing" ? "missing" : issued.readiness.snapshotId,
+      sourceRevision: kind === "revision" ? "wrong" : issued.readiness.sourceRevision,
+    })).rejects.toThrow("Sell List readiness snapshot is stale.");
+  });
+
+  it("does not alias same-action allocations with different targets", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    f.setLines([{ ...fixtureLine, line_type: "product", offer_id: null, listing_id: null }]);
+    const issue = (inventoryItemId: string) => f.services.createReviewReadiness({
+      sellerAccountId: "acc_seller", selections: { lines: [{
+        lineId: fixtureLine.line_id, fallbackListing: { inventoryItemId, priceAmount: "10.00", priceCurrencyCode: "USD" },
+      }] },
+    }, context);
+    const a = await issue("inv_a");
+    const b = await issue("inv_b");
+    expect(a.decisions).toEqual(b.decisions);
+    expect(a.readiness.sourceRevision).toBe(b.readiness.sourceRevision);
+    expect(a.readiness.snapshotId).not.toBe(b.readiness.snapshotId);
+    const fresh = createCheckoutSellListRuntime(f.deps);
+    for (const issued of [a,b]) await expect(fresh.getReviewReadiness({
+      sellerAccountId: "acc_seller", snapshotId: issued.readiness.snapshotId, sourceRevision: issued.readiness.sourceRevision,
+    })).resolves.toEqual(issued);
+  });
+
+  it("preparation retains allocation and refuses a changed review identity", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
+    const issued = await f.services.createReviewReadiness({ sellerAccountId: "acc_seller", selections }, context);
+    const request = {
+      sellerAccountId: "acc_seller", confirmationId: "slc_review", ...choices,
+      entryReadinessSnapshotId: issued.readiness.snapshotId,
+      entryReadinessSourceRevision: issued.readiness.sourceRevision,
+    };
+    await f.services.createReadinessSnapshot(request, context);
+    const fresh = createCheckoutSellListRuntime(f.deps);
+    f.setOfferAvailable(false);
+    await expect(fresh.getReviewReadiness({
+      sellerAccountId: "acc_seller", snapshotId: issued.readiness.snapshotId,
+      sourceRevision: issued.readiness.sourceRevision, confirmationId: "slc_review",
+    })).resolves.toEqual(issued);
+    await expect(fresh.createReadinessSnapshot(request, context)).resolves.toMatchObject({ status: "ready" });
+    const changed = await f.services.createReviewReadiness({
+      sellerAccountId: "acc_seller", selections: { lines: [{ ...selections.lines[0]!, selectedOfferFeeQuoteFingerprint: "changed" }] },
+    }, context);
+    await expect(fresh.createReadinessSnapshot({
+      ...request, entryReadinessSnapshotId: changed.readiness.snapshotId,
+    }, context)).rejects.toThrow("Sell List confirmation changed.");
+    expect(f.memory.allEvents.filter((event) => event.eventType === "checkout.sell-list.handoff-prepared")).toHaveLength(1);
   });
 });

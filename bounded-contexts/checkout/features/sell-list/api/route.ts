@@ -1,3 +1,4 @@
+import { parseSellListReviewSelections } from "./review-plan-selections";
 import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import { computeCheckoutCommandAttemptRequestHash } from "../../command-attempts/api/contracts";
@@ -457,6 +458,23 @@ export function createAccountSellListRoutes(
 
     const body = await c.req.json().catch(() => ({}));
     try {
+      if (body.selections !== undefined) {
+        const context = c.get("context");
+        if (!context) throw new CheckoutDomainError("Sell List review requires authenticated context.");
+        return c.json(await services.createReviewReadiness({
+          sellerAccountId: access.actor.accountId,
+          selections: parseSellListReviewSelections(body.selections),
+        }, context));
+      }
+      if (body.readinessSnapshotId !== undefined || body.readinessSourceRevision !== undefined) {
+        return c.json(await services.getReviewReadiness({
+          sellerAccountId: access.actor.accountId,
+          snapshotId: String(body.readinessSnapshotId ?? ""),
+          sourceRevision: String(body.readinessSourceRevision ?? ""),
+          ...(body.confirmationId ? { confirmationId: String(body.confirmationId) } : {}),
+        }));
+      }
+
       const snapshot = await services.createReadinessSnapshot(
         {
           sellerAccountId: access.actor.accountId,
@@ -468,8 +486,8 @@ export function createAccountSellListRoutes(
           ...((body as Record<string, unknown>).entryReadinessSnapshotId
             ? { entryReadinessSnapshotId: String((body as Record<string, unknown>).entryReadinessSnapshotId) }
             : {}),
-          ...((body as Record<string, unknown>).reviewPlan
-            ? { reviewPlan: String((body as Record<string, unknown>).reviewPlan) }
+          ...((body as Record<string, unknown>).entryReadinessSourceRevision
+            ? { entryReadinessSourceRevision: String((body as Record<string, unknown>).entryReadinessSourceRevision) }
             : {}),
           ...parseSellerCheckoutChoices(body),
         },

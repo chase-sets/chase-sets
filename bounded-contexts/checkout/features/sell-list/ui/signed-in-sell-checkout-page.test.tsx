@@ -82,7 +82,6 @@ const payoutSummary = {
   missingRequirements: [],
 };
 
-const sellListReviewPlan = '{"version":1,"lines":[{"lineId":"sll_1","lineType":"selected-offer"}]}';
 
 const defaultValues = {
   ...signedInSellCheckoutDefaultValues,
@@ -109,8 +108,6 @@ describe("signed-in sell checkout page", () => {
         defaultValues={defaultValues}
         savedShipFromAddresses={[savedShipFromAddress]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[{"lineId":"sll_1","action":"selected-offer"}],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
       />,
     );
 
@@ -151,8 +148,6 @@ describe("signed-in sell checkout page", () => {
         defaultValues={defaultValues}
         savedShipFromAddresses={[savedShipFromAddress]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
         initialEditSection="ship-from"
       />,
     );
@@ -161,7 +156,7 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Address line 1");
     expect(markup).toContain('name="email"');
     expect(markup).toContain('value="seller@example.com"');
-    expect(markup).toContain('name="sellListReviewPlan"');
+    expect(markup).not.toContain('name="sellListReviewPlan"');
   });
 
   it("falls back to the ship-from form when saved ship-from is incomplete", () => {
@@ -174,8 +169,6 @@ describe("signed-in sell checkout page", () => {
         defaultValues={{ ...defaultValues, shipFromLine1: "" }}
         savedShipFromAddresses={[{ ...savedShipFromAddress, line1: "" }]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
       />,
     );
 
@@ -193,8 +186,6 @@ describe("signed-in sell checkout page", () => {
         defaultValues={defaultValues}
         savedShipFromAddresses={[savedShipFromAddress]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
       />,
     );
 

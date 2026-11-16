@@ -59,14 +59,19 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     const services = createCheckoutSellListRuntime({ ...f.deps, eventStore: store() });
     await seedSelectedLine(services);
     f.setLines([{ ...fixtureLine, offer_stream_version: "1" as never, listing_stream_version: "1" as never }]);
-    const entry = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
+    const issued = await services.createReviewReadiness({
+      sellerAccountId: "acc_seller", selections: { lines: [{
+        lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "synthetic_quote",
+      }] },
+    }, context);
+    const entry = issued.readiness;
     await expect(
       services.createReadinessSnapshot(
         {
           sellerAccountId: "acc_seller",
           confirmationId: "slc_synthetic_bigint",
           entryReadinessSnapshotId: entry.snapshotId,
-          reviewPlan: "synthetic reviewed targets",
+          entryReadinessSourceRevision: entry.sourceRevision,
           ...choices,
         },
         context,
@@ -351,8 +356,13 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     ).toEqual(entry);
     expect(await restarted.createReadinessSnapshot(preparation, context)).toEqual(ready);
     expect((await real.readAll()).length).toBe(beforeReplay);
+    const changed = await services.createReviewReadiness({
+      sellerAccountId: "acc_seller", selections: { lines: [{
+        lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "changed_quote",
+      }] },
+    }, context);
     await expect(
-      restarted.createReadinessSnapshot({ ...preparation, reviewPlan: "changed targets" }, context),
+      restarted.createReadinessSnapshot({ ...preparation, entryReadinessSnapshotId: changed.readiness.snapshotId }, context),
     ).rejects.toMatchObject({ code: "checkout_confirmation_changed" });
     f.setPayout("restricted");
     await expect(restarted.createReadinessSnapshot(preparation, context)).rejects.toMatchObject({
@@ -374,6 +384,7 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
       {
         sellerAccountId: "acc_seller" as never,
         confirmationId: preparation.confirmationId,
+        readinessDecisions: issued.decisions,
         readinessSnapshotId: ready.snapshotId,
         readinessSourceRevision: ready.sourceRevision,
         ...choices,

@@ -1349,11 +1349,9 @@ describe("checkout web routes: account sell list", () => {
     expect(url.pathname).toMatch(/^\/checkout\/sell\/session\/chk_/);
     expect(url.searchParams.get("readinessSnapshotId")).toBe("slr_ready");
     expect(url.searchParams.get("readinessSourceRevision")).toBe("slr_source");
-    return {
-      url,
-      readinessDecisions: JSON.parse(url.searchParams.get("readinessDecisions") ?? "{}") as Record<string, unknown>,
-      sellListReviewPlan: JSON.parse(url.searchParams.get("sellListReviewPlan") ?? "{}") as Record<string, unknown>,
-    };
+    expect(url.searchParams.has("sellListReviewPlan")).toBe(false);
+    expect(url.searchParams.has("readinessDecisions")).toBe(false);
+    return { url };
   }
 
   it("starts signed-in seller checkout from Sell List readiness without sale side effects", async () => {
@@ -1389,21 +1387,8 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    const redirect = expectSignedInSellCheckoutRedirect(response);
-    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-      lineOutcomes: [],
-    });
-    expect(redirect.readinessDecisions).toEqual({
-      lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-      lineOutcomes: [],
-    });
-    expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
-      expect.objectContaining({
-        lineId: "sll_1",
-        selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
-      }),
-    );
+    expectSignedInSellCheckoutRedirect(response);
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({ selections: { bulkOfferIds: [], lines: [{ lineId: "sll_1", selectedOfferFeeQuoteFingerprint: "quote_1", productOffers: [], fallbackListing: null }] } });
     expectNoSellerCommitSideEffects();
   });
 
@@ -1467,10 +1452,7 @@ describe("checkout web routes: account sell list", () => {
       "Sell List readiness must be resolved before seller checkout starts.",
     );
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
-    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-      lineOutcomes: [],
-    });
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({ selections: { bulkOfferIds: [], lines: [{ lineId: "sll_1", selectedOfferFeeQuoteFingerprint: "quote_1", productOffers: [], fallbackListing: null }] } });
     expectNoSellerCommitSideEffects();
   });
 
@@ -1517,30 +1499,9 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    const redirect = expectSignedInSellCheckoutRedirect(response);
-    expect(mockGetOfferMatch).toHaveBeenCalledWith("off_product_1");
-    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [{ lineId: "sll_product", action: "smart-match" }],
-      lineOutcomes: [],
-    });
-    expect(redirect.readinessDecisions).toEqual({
-      lineActions: [{ lineId: "sll_product", action: "smart-match" }],
-      lineOutcomes: [],
-    });
-    expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
-      expect.objectContaining({
-        lineId: "sll_product",
-        productOfferTargets: [
-          {
-            offerId: "off_product_1",
-            listingId: "lst_product_1",
-            feeQuoteFingerprint: "quote_product_1",
-            quantity: 2,
-          },
-        ],
-        fallbackListing: null,
-      }),
-    );
+    expectSignedInSellCheckoutRedirect(response);
+    expect(mockGetOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({ selections: { bulkOfferIds: [], lines: [{ lineId: "sll_product", selectedOfferFeeQuoteFingerprint: "", productOffers: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1" }], fallbackListing: null }] } });
     expectNoSellerCommitSideEffects();
   });
 
@@ -1582,28 +1543,9 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    const redirect = expectSignedInSellCheckoutRedirect(response);
+    expectSignedInSellCheckoutRedirect(response);
     expect(mockGetOfferMatch).not.toHaveBeenCalled();
-    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [{ lineId: "sll_product", action: "fallback-listing" }],
-      lineOutcomes: [],
-    });
-    expect(redirect.readinessDecisions).toEqual({
-      lineActions: [{ lineId: "sll_product", action: "fallback-listing" }],
-      lineOutcomes: [],
-    });
-    expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
-      expect.objectContaining({
-        lineId: "sll_product",
-        productOfferTargets: [],
-        fallbackListing: {
-          inventoryItemId: "inv_1",
-          priceAmount: "12.00",
-          priceCurrencyCode: "USD",
-          quantityCap: 1,
-        },
-      }),
-    );
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({ selections: { bulkOfferIds: [], lines: [{ lineId: "sll_product", selectedOfferFeeQuoteFingerprint: "", productOffers: [], fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", priceCurrencyCode: "USD", quantityCap: "1" } }] } });
     expectNoSellerCommitSideEffects();
   });
 
@@ -1657,10 +1599,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as { error: string };
 
-    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [],
-      lineOutcomes: [{ lineId: "sll_product", outcome: "keep-in-list" }],
-    });
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({ selections: { bulkOfferIds: [], lines: [{ lineId: "sll_product", selectedOfferFeeQuoteFingerprint: "", productOffers: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1" }], fallbackListing: { inventoryItemId: "", priceAmount: "", priceCurrencyCode: "", quantityCap: "" } }] } });
     expect(result.error).toBe("Sell List readiness must be resolved before seller checkout starts.");
     expectNoSellerCommitSideEffects();
   });
@@ -1754,30 +1693,8 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    const redirect = expectSignedInSellCheckoutRedirect(response);
-    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [{ lineId: "sll_product", action: "smart-match" }],
-      lineOutcomes: [],
-    });
-    expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
-      expect.objectContaining({
-        lineId: "sll_product",
-        productOfferTargets: [
-          {
-            offerId: "off_product_1",
-            listingId: "lst_product_1",
-            feeQuoteFingerprint: "quote_product_1",
-            quantity: 1,
-          },
-        ],
-        fallbackListing: {
-          inventoryItemId: "inv_1",
-          priceAmount: "12.00",
-          priceCurrencyCode: "USD",
-          quantityCap: 1,
-        },
-      }),
-    );
+    expectSignedInSellCheckoutRedirect(response);
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({ selections: { bulkOfferIds: [], lines: [{ lineId: "sll_product", selectedOfferFeeQuoteFingerprint: "", productOffers: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1" }], fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", priceCurrencyCode: "USD", quantityCap: "1" } }] } });
     expectNoSellerCommitSideEffects();
   });
 

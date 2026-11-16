@@ -1,3 +1,4 @@
+import type { SellListReviewPlan, SellListReadinessDecisionInput } from "../support/request-support/api-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
@@ -221,11 +222,6 @@ describe("checkout web routes: sell checkout session", () => {
     const params = new URLSearchParams({
       readinessSnapshotId: "slr_ready",
       readinessSourceRevision: "slr_source",
-      readinessDecisions: JSON.stringify({
-        lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-        lineOutcomes: [],
-      }),
-      sellListReviewPlan: JSON.stringify({ version: 1, lines: [{ lineId: "sll_1", lineType: "selected-offer" }] }),
       ...overrides,
     });
     return `http://localhost/checkout/sell/session/chk_sell_1?${params.toString()}`;
@@ -249,8 +245,8 @@ describe("checkout web routes: sell checkout session", () => {
     expect(result.mode).toBe("signed-in");
     expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
       confirmationId: "slc_chk_sell_1",
-      lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-      lineOutcomes: [],
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
     });
     expect(result.recovery).toBeNull();
     expect(result.readiness?.snapshotId).toBe("slr_ready");
@@ -258,12 +254,13 @@ describe("checkout web routes: sell checkout session", () => {
     expect(result.mode === "signed-in" ? result.defaultValues.email : "").toBe("seller@example.com");
     expect(result.mode === "signed-in" ? result.defaultValues.shipFromLine1 : "").toBe("100 Market Street");
     expect(result.mode === "signed-in" ? result.payoutSummary?.status : "").toBe("ready");
-    expect(result.mode === "signed-in" ? result.sellListReviewPlan : "").toContain('"version":1');
+    expect(result.mode === "signed-in" ? result.reviewPlan : null).toEqual(readySellListReadinessResponse().reviewPlan);
   });
 
   it("fails signed-in seller checkout closed when Sell List readiness is stale", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         snapshotId: "slr_new",
@@ -315,30 +312,22 @@ describe("checkout web routes: sell checkout session", () => {
     return form;
   }
 
+  function mockStoredReview(plan: SellListReviewPlan, decisions: SellListReadinessDecisionInput = readySellListReadinessResponse().decisions) {
+    const prior = mockCreateSellListReadiness.getMockImplementation();
+    mockCreateSellListReadiness.mockImplementation(async (...args) => ({
+      ...(await prior?.(...args)), reviewPlan: plan, decisions,
+    }));
+  }
+
   function signedInSellCheckoutForm(overrides: Record<string, string> = {}) {
+    const { storedReviewPlan, storedReadinessDecisions, ...fields } = overrides;
+    mockStoredReview(
+      storedReviewPlan ? JSON.parse(storedReviewPlan) : readySellListReadinessResponse().reviewPlan,
+      storedReadinessDecisions ? JSON.parse(storedReadinessDecisions) : readySellListReadinessResponse().decisions,
+    );
     const form = new URLSearchParams({
       readinessSnapshotId: "slr_ready",
       readinessSourceRevision: "slr_source",
-      readinessDecisions: JSON.stringify({
-        lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-        lineOutcomes: [],
-      }),
-      sellListReviewPlan: JSON.stringify({
-        version: 1,
-        lines: [
-          {
-            lineId: "sll_1",
-            lineType: "selected-offer",
-            itemTitle: "Mewtwo",
-            productId: "prod_1",
-            quantity: 1,
-            selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
-            productOfferTargets: [],
-            fallbackListing: null,
-            skippedReasons: [],
-          },
-        ],
-      }),
       sellerName: "Jane Seller",
       email: "jane@example.com",
       phone: "555-0100",
@@ -359,7 +348,7 @@ describe("checkout web routes: sell checkout session", () => {
       riskState: "clear",
       labelState: "ready",
       sellerReadinessState: "ready",
-      ...overrides,
+      ...fields,
     });
     return form;
   }
@@ -616,6 +605,7 @@ describe("checkout web routes: sell checkout session", () => {
       minimum_listing_price_amount: null,
     });
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 1,
@@ -646,11 +636,11 @@ describe("checkout web routes: sell checkout session", () => {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: signedInSellCheckoutForm({
-          readinessDecisions: JSON.stringify({
+          storedReadinessDecisions: JSON.stringify({
             lineActions: [{ lineId: "sll_product", action: "smart-match" }],
             lineOutcomes: [],
           }),
-          sellListReviewPlan: JSON.stringify({
+          storedReviewPlan: JSON.stringify({
             version: 1,
             lines: [
               {
@@ -999,6 +989,7 @@ describe("checkout web routes: sell checkout session", () => {
     api.getSellList.mockResolvedValue({ items: lines, count: 3 });
     const readiness = readySellListReadinessResponse().readiness;
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readiness,
         includedLineIds: lines.map((line) => line.line_id),
@@ -1011,7 +1002,7 @@ describe("checkout web routes: sell checkout session", () => {
       },
     });
     const form = signedInSellCheckoutForm();
-    const plan = JSON.parse(form.get("sellListReviewPlan")!);
+    const plan = structuredClone(readySellListReadinessResponse().reviewPlan) as { version: 1; lines: SellListReviewPlan["lines"][number][] };
     plan.lines.push(
       {
         ...plan.lines[0],
@@ -1031,17 +1022,13 @@ describe("checkout web routes: sell checkout session", () => {
         },
       },
     );
-    form.set("sellListReviewPlan", JSON.stringify(plan));
-    form.set(
-      "readinessDecisions",
-      JSON.stringify({
+    mockStoredReview(plan, {
         lineActions: lines.map((line) => ({
           lineId: line.line_id,
           action: line.line_type === "product" ? "fallback-listing" : "selected-offer",
         })),
         lineOutcomes: [],
-      }),
-    );
+    });
     const receipts = new Map<string, { id: string; version: number }>();
     const writes: string[] = [];
     let lose = true;
@@ -1187,11 +1174,11 @@ describe("checkout web routes: sell checkout session", () => {
     });
   });
 
-  it("rejects hidden fallback listing facts on selected-offer confirmation before side effects", async () => {
+  it("rejects inconsistent stored fallback listing facts before side effects", async () => {
     mockSignedInSellCheckoutState();
 
     const form = signedInSellCheckoutForm({
-      sellListReviewPlan: JSON.stringify({
+      storedReviewPlan: JSON.stringify({
         version: 1,
         lines: [
           {
@@ -1234,6 +1221,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("records fallback-only listing work without claiming sale or payout side effects", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 1,
@@ -1275,11 +1263,11 @@ describe("checkout web routes: sell checkout session", () => {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: signedInSellCheckoutForm({
-          readinessDecisions: JSON.stringify({
+          storedReadinessDecisions: JSON.stringify({
             lineActions: [{ lineId: "sll_product", action: "fallback-listing" }],
             lineOutcomes: [],
           }),
-          sellListReviewPlan: JSON.stringify({
+          storedReviewPlan: JSON.stringify({
             version: 1,
             lines: [
               {
@@ -1343,6 +1331,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("performs Smart Match handoff without re-reading Marketplace offer terms", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 2,
@@ -1395,11 +1384,11 @@ describe("checkout web routes: sell checkout session", () => {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: signedInSellCheckoutForm({
-          readinessDecisions: JSON.stringify({
+          storedReadinessDecisions: JSON.stringify({
             lineActions: [{ lineId: "sll_product", action: "smart-match" }],
             lineOutcomes: [],
           }),
-          sellListReviewPlan: JSON.stringify({
+          storedReviewPlan: JSON.stringify({
             version: 1,
             lines: [
               {
@@ -1442,6 +1431,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("records Smart Match and fallback listing work with remaining Sell List quantity on publish replay", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 4,
@@ -1487,11 +1477,11 @@ describe("checkout web routes: sell checkout session", () => {
     });
 
     const form = signedInSellCheckoutForm({
-      readinessDecisions: JSON.stringify({
+      storedReadinessDecisions: JSON.stringify({
         lineActions: [{ lineId: "sll_product", action: "smart-match" }],
         lineOutcomes: [],
       }),
-      sellListReviewPlan: JSON.stringify({
+      storedReviewPlan: JSON.stringify({
         version: 1,
         lines: [
           {
@@ -1578,6 +1568,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("rejects signed-in seller confirmation when the reviewed plan exceeds current line quantity", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         includedLineIds: ["sll_product"],
@@ -1613,11 +1604,11 @@ describe("checkout web routes: sell checkout session", () => {
     });
 
     const form = signedInSellCheckoutForm({
-      readinessDecisions: JSON.stringify({
+      storedReadinessDecisions: JSON.stringify({
         lineActions: [{ lineId: "sll_product", action: "smart-match" }],
         lineOutcomes: [],
       }),
-      sellListReviewPlan: JSON.stringify({
+      storedReviewPlan: JSON.stringify({
         version: 1,
         lines: [
           {
@@ -1762,4 +1753,68 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
     expectNoSellerCommitSideEffects();
   });
+
+  it("stored review plan survives reload and preparation", async () => {
+    mockSignedInSellCheckoutState();
+    const first = await sellCheckoutSessionLoader({
+      request: new Request(signedInSellCheckoutUrl()), params: { sessionId: "chk_sell_1" }, context: undefined,
+    } as never);
+    const second = await sellCheckoutSessionLoader({
+      request: new Request(signedInSellCheckoutUrl({ sellListReviewPlan: '{"version":1,"lines":[]}' })),
+      params: { sessionId: "chk_sell_1" }, context: undefined,
+    } as never);
+    expect(first.mode === "signed-in" ? first.reviewPlan : null).toEqual(readySellListReadinessResponse().reviewPlan);
+    expect(second).toEqual(first);
+    const form = signedInSellCheckoutForm();
+    expect(form.has("sellListReviewPlan")).toBe(false);
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" }, context: undefined,
+    } as never);
+    await expectSellConfirmationRedirect(result);
+    expect(mockCreateSellListReadiness).toHaveBeenLastCalledWith(expect.objectContaining({
+      entryReadinessSnapshotId: "slr_ready", entryReadinessSourceRevision: "slr_source",
+    }));
+    expect(mockCreateSellListReadiness.mock.calls.at(-1)![0]).not.toHaveProperty("reviewPlan");
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", expect.objectContaining({ listingId: "lst_1" }));
+  });
+
+  it.each(["missing", "foreign", "stale", "mismatched"])("stale or foreign review plan refuses before handoff: %s", async () => {
+    mockSignedInSellCheckoutState();
+    const form = signedInSellCheckoutForm();
+    mockCreateSellListReadiness.mockRejectedValue(new MockCheckoutApiError(400, {
+      error: { code: "checkout_readiness_stale" },
+    }));
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" }, context: undefined,
+    } as never);
+    expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
+    expectNoSellerCommitSideEffects();
+  });
+
+  it("posted review plan cannot change confirmation", async () => {
+    mockSignedInSellCheckoutState();
+    const form = signedInSellCheckoutForm();
+    form.set("sellListReviewPlan", JSON.stringify({
+      version: 1, lines: [{ lineId: "sll_1", selectedOffer: { offerId: "off_attacker", listingId: "lst_attacker" } }],
+    }));
+    form.set("readinessDecisions", JSON.stringify({ lineActions: [], lineOutcomes: [] }));
+    const post = () => sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" }, context: undefined,
+    } as never);
+    await expectSellConfirmationRedirect(await post());
+    expect(mockAcceptOfferMatch).toHaveBeenCalledExactlyOnceWith("off_1", expect.objectContaining({
+      listingId: "lst_1", feeQuoteFingerprint: "quote_1",
+    }));
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(expect.objectContaining({
+      readinessDecisions: readySellListReadinessResponse().decisions,
+    }));
+    mockGetSellListConfirmation.mockResolvedValue({ confirmation_id: "slc_chk_sell_1" });
+    await expectSellConfirmationRedirect(await post(), { freshWrite: "absent" });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledOnce();
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledOnce();
+  });
+
 });
