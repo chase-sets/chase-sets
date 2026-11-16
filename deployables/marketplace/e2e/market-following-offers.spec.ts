@@ -124,7 +124,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
     await testInfo.attach(checkpoint, { body, contentType: "image/png" });
   };
   try {
-    await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
+    await test.step("Prepare the supported synthetic Pricing estimate before Preview (not worker proof)", async () => {
       removeEstimates.push(await seedSyntheticOfferMarketPrice(pool, fixture));
     });
     const credentials = marketplaceBrowserE2eBuyerCredentials();
