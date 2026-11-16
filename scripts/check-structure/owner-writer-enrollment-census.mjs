@@ -22,13 +22,14 @@ const sinkNames = new Set([
   "pauseChannelConnection",
   "resumeChannelConnection",
   "disconnectChannelConnection",
+  "disconnectChannelConnectionInTransaction",
   "upsertRow",
   "updateRow",
   "transitionStatus",
   "expired",
 ]);
 const possibleSink =
-  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|receiptQuery|upsertRow|updateRow|transitionStatus|expired|connectChannel|(?:activate|pause|resume|disconnect)ChannelConnection)\b|\[\s*[^\s\]]/u;
+  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|receiptQuery|upsertRow|updateRow|transitionStatus|expired|connectChannel|(?:activate|pause|resume|disconnect)ChannelConnection(?:InTransaction)?)\b|\[\s*[^\s\]]/u;
 const ownerPatterns = ["account", "user", "membership"].map((kind) => [
   kind,
   new RegExp(
@@ -42,7 +43,7 @@ ownerPatterns.push([
 ]);
 ownerPatterns.push([
   "connection",
-  /channels\.connection[-.]|\bChannelConnection(?:Event|Command|State)\b|channelConnectionEventCodec|\b(?:[Cc]onnectChannel|[Aa]ctivateChannelConnection|[Pp]auseChannelConnection|[Rr]esumeChannelConnection|[Dd]isconnectChannelConnection)\b/u,
+  /channels\.connection[-.]|\bChannelConnection(?:Event|Command|State)\b|channelConnectionEventCodec|\b(?:[Cc]onnectChannel|[Aa]ctivateChannelConnection|[Pp]auseChannelConnection|[Rr]esumeChannelConnection|[Dd]isconnectChannelConnection(?:InTransaction)?)\b/u,
 ]);
 export function ownerWriterSourcePaths() {
   return execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {

@@ -9,6 +9,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import { channelCredentialSchemaSql } from "../read-model/schema";
 import { ebayConnectionSchemaSql } from "../../ebay-connection/read-model/schema";
 import { ebayReceiptSchemaSql } from "../../ebay-account-deletion/read-model/schema";
+import { ebayDeletionConsumerSchemaSql } from "../../ebay-account-deletion/read-model/consumer-schema";
 
 export function credentialDatabase(suffix: string, initialize = true) {
   let pools: Readonly<Record<"channels", PgTransactionalPool>>;
@@ -19,7 +20,9 @@ export function credentialDatabase(suffix: string, initialize = true) {
     await ensureMultiContextTestDatabases(base, urls);
     pools = createMultiContextTestPools(urls);
     if (initialize)
-      await pools.channels.query(channelCredentialSchemaSql + ebayConnectionSchemaSql + ebayReceiptSchemaSql);
+      await pools.channels.query(
+        channelCredentialSchemaSql + ebayConnectionSchemaSql + ebayReceiptSchemaSql + ebayDeletionConsumerSchemaSql,
+      );
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);

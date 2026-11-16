@@ -135,6 +135,10 @@ function validCandidate() {
       cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
       batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
     } satisfies ChannelsServices["ebayReceiptExpiry"],
+    ebayAccountDeletionConsumer: {
+      batch: vi.fn<ChannelsServices["ebayAccountDeletionConsumer"]["batch"]>(),
+      consume: vi.fn<ChannelsServices["ebayAccountDeletionConsumer"]["consume"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletionConsumer"],
     credentials: { create: vi.fn(), replace: vi.fn(), rewrap: vi.fn(), resolve: vi.fn() },
     connections: { getConnection: async () => null },
     storageLocationAuthority: { resolve: async () => null },

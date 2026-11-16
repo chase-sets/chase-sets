@@ -3,6 +3,7 @@ import type { EbayConnectionServices } from "../../features/ebay-connection/api/
 import type { EbayAccountDeletionOptions } from "../../features/ebay-account-deletion/api/route";
 import type { EbayAccountDeletionServices } from "../../features/ebay-account-deletion/api/runtime";
 import type { createEbayReceiptExpiryStore } from "../../features/ebay-account-deletion/read-model/expiry";
+import type { EbayAccountDeletionConsumer } from "../../features/ebay-account-deletion/api/consumer";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type {
   ChannelConnectionServices,
@@ -30,6 +31,7 @@ export type ChannelsServices = Readonly<{
   ebayAccountDeletion: EbayAccountDeletionOptions;
   ebayAccountDeletionReceipts: EbayAccountDeletionServices;
   ebayReceiptExpiry: ReturnType<typeof createEbayReceiptExpiryStore>;
+  ebayAccountDeletionConsumer: EbayAccountDeletionConsumer;
   credentials: ChannelCredentialServices;
   connections: ChannelConnectionServices;
   connectionAuthority: VersionedConnectionAuthority;
@@ -57,6 +59,7 @@ export const channelsServicesMembers = defineChannelsServicesMembers([
   "ebayAccountDeletion",
   "ebayAccountDeletionReceipts",
   "ebayReceiptExpiry",
+  "ebayAccountDeletionConsumer",
   "credentials",
   "connections",
   "connectionAuthority",
@@ -108,6 +111,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     isObject(ebayReceiptExpiry) &&
     typeof Reflect.get(ebayReceiptExpiry, "cutoff") === "function" &&
     typeof Reflect.get(ebayReceiptExpiry, "batch") === "function" &&
+    isObject(Reflect.get(value, "ebayAccountDeletionConsumer")) &&
+    typeof Reflect.get(Reflect.get(value, "ebayAccountDeletionConsumer"), "consume") === "function" &&
+    typeof Reflect.get(Reflect.get(value, "ebayAccountDeletionConsumer"), "batch") === "function" &&
     isObject(credentials) &&
     typeof Reflect.get(credentials, "resolve") === "function" &&
     typeof Reflect.get(credentials, "create") === "function" &&

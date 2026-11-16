@@ -198,6 +198,7 @@ export {
 
 export {
   createChannelsEbayAccountDeletionReceiptExpiryRunners,
+  createChannelsEbayAccountDeletionConsumerRunners,
   createChannelsConnectorLivenessSweepRunners,
   createChannelsOutboundRunners,
   createChannelsReconciliationRunners,
