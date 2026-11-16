@@ -147,8 +147,6 @@ pub struct Watching {
     pub id: String,
     pub watch: Watch,
     pub guest: bool,
-    /// The address, for the step's script once Stripe confirms.
-    pub href: String,
 }
 
 /// A status part's address: an account's payment's, or a guest's.
@@ -182,6 +180,12 @@ impl Watching {
 }
 
 impl PaymentScreen {
+    /// The status part's address without its query, which the secure step's status form sends
+    /// once Stripe confirms.
+    pub fn status_action(&self) -> String {
+        WatchRoute::new(&self.payment.payment_id, Watch::default(), self.guest).href()
+    }
+
     /// Waiting for the buyer: the secure payment step is on the page.
     pub fn pending(&self) -> bool {
         self.payment.status == "pending-confirmation"
@@ -286,8 +290,7 @@ async fn read(
     };
     let watch = (payment.status == "pending-confirmation" && now() < until).then(|| {
         let watch = Watch { since: Some(payment.status.clone()), until: Some(until) };
-        let href = WatchRoute::new(id, watch.clone(), guest).href();
-        Watching { id: id.to_owned(), watch, guest, href }
+        Watching { id: id.to_owned(), watch, guest }
     });
     Ok(PaymentScreen {
         defaults: defaults(&payment, &orders),
