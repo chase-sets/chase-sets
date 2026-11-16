@@ -1,6 +1,8 @@
 import { vi } from "vitest";
 import { withConfigurationEpochTransaction } from "@chase-sets/event-core-postgres";
 
+export { createAuthSessionEpochs } from "../api/owner-epochs";
+
 export const upsertSessionToken: typeof import("../../../support/auth-support/store").upsertSessionToken = async (
   ...args
 ) => (await import("../../../support/auth-support/store")).upsertSessionToken(...args);

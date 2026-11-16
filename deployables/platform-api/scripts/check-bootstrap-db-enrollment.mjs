@@ -571,12 +571,12 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "case 3c: class C every predicate refuses durable CLOSING before recapture",
         referenceDurationMs: 6000,
-        identity: "70c24190fc455242",
+        identity: "964600a771a024f3",
       },
       {
         name: "case 3d: class C every unavailable consumer remains BLOCKED with zero owner effects",
         referenceDurationMs: 6000,
-        identity: "7ff30df8dea815e9",
+        identity: "9eb620ff0b0df60f",
       },
       {
         name: "case 3e: class C old consumer incarnation after capture refuses zero events",
@@ -586,7 +586,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "case 3e: class C expired Session token grant after capture refuses zero events",
         referenceDurationMs: 1000,
-        identity: "a29f86ae6a082847",
+        identity: "b251d00e26f2bb7a",
       },
       {
         name: "case 3f: class C every partial consumer journal refuses zero events",

@@ -38,7 +38,7 @@ describe("listing attempt caller partition", () => {
     const callers = enumerateListingAttemptCallers([{ path: file, source }]);
     expect(callers).toHaveLength(1);
     expect(unpartitionedListingAttemptCallers(callers)).toEqual([]);
-    const mutant = source.replace('idempotencyKey: "synthetic-create",', "");
+    const mutant = source.replace('idempotencyKey: "synthetic-listing-create-attempt",', "");
     expect(mutant).not.toBe(source);
     expect(
       unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source: mutant }])),

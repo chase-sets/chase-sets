@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Register owner-local omission mocks before loading host/context modules.
-import { authWriterProbe, upsertSessionToken, seedSessionToken, revokeSession } from "@chase-sets/auth/test-support";
-import { identityWriterProbe } from "@chase-sets/identity/test-support";
+import {
+  authWriterProbe,
+  upsertSessionToken,
+  seedSessionToken,
+  revokeSession,
+  createAuthSessionEpochs,
+} from "@chase-sets/auth/test-support";
+import { identityWriterProbe, createIdentityOwnerEpochs } from "@chase-sets/identity/test-support";
 import { inventoryWriterProbe, reserveOrderInventoryRequest } from "@chase-sets/inventory/test-support";
 import {
   connectionWriterProbe,
@@ -32,7 +38,7 @@ import { module as marketplaceModule } from "@chase-sets/marketplace";
 import type { MarketplaceServices, AcceptListingTargetPriceInput } from "@chase-sets/marketplace/server";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { createPostgresConfigurationEpochStore, createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import {
   createPlatformApiBootstrapTestHarness,
@@ -43,6 +49,8 @@ import {
 const appendProbe = vi.hoisted(() => ({
   before: undefined as ((inputs: readonly AppendToStreamInput[]) => Promise<void>) | undefined,
   beforeCommit: undefined as (() => Promise<void>) | undefined,
+  commitProbeError: undefined as unknown,
+  validationNow: undefined as string | undefined,
   loseReply: false,
   targetInFlight: false,
   mutant: "none" as "none" | "shared-lock" | "closed-through-wait" | "abort-cas",
@@ -88,9 +96,17 @@ function observedPool(pool: PgTransactionalPool): PgTransactionalPool {
         if (sql === "COMMIT" && appendProbe.targetInFlight && appendProbe.beforeCommit) {
           const before = appendProbe.beforeCommit;
           appendProbe.beforeCommit = undefined;
-          await before();
+          try {
+            await before();
+          } catch (error) {
+            appendProbe.commitProbeError = error;
+            throw error;
+          }
         }
-        return client.query<Row>(sql, values);
+        const result = await client.query<Row>(sql, values);
+        if (appendProbe.validationNow && appendProbe.targetInFlight && sql.includes("clock_timestamp()::text AS now"))
+          return { ...result, rows: result.rows.map((row) => ({ ...row, now: appendProbe.validationNow })) };
+        return result;
       };
       return { query, release: client.release.bind(client) };
     },
@@ -118,6 +134,7 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
         }
         if (!store.appendToStreams) throw new Error("Atomic append is unavailable.");
         appendProbe.targetInFlight = targetCommand;
+        if (targetCommand) appendProbe.commitProbeError = undefined;
         let result;
         try {
           result = await store.appendToStreams(
@@ -125,6 +142,9 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
               ? inputs.map((input) => ({ ...input, configurationGrants: undefined }))
               : inputs,
           );
+        } catch (error) {
+          // The adapter has rolled back; preserve a probe assertion hidden by error normalization.
+          throw targetCommand && appendProbe.commitProbeError ? appendProbe.commitProbeError : error;
         } finally {
           appendProbe.targetInFlight = false;
         }
@@ -151,6 +171,8 @@ describe("listing channel activation real composition", () => {
   beforeEach(async () => {
     appendProbe.before = undefined;
     appendProbe.beforeCommit = undefined;
+    appendProbe.commitProbeError = undefined;
+    appendProbe.validationNow = undefined;
     appendProbe.loseReply = false;
     appendProbe.targetInFlight = false;
     appendProbe.mutant = "none";
@@ -195,7 +217,7 @@ describe("listing channel activation real composition", () => {
       locationId = createId("loc");
     const connectionId = `synthetic-${accountId}`;
     const context = { tenantId: createId("tnt"), audit: { performedByUserId: userId, forAccountId: accountId } };
-    const principal = { userId, membershipId, sessionId, tokenHash: "synthetic-session-token-hash" };
+    const principal = { userId, membershipId, sessionId, tokenHash: `synthetic-session-token-hash-${sessionId}` };
     const expiresAt = "2099-01-01T00:00:00.000Z";
     const address = {
       name: "Synthetic",
@@ -490,7 +512,7 @@ describe("listing channel activation real composition", () => {
         await epochs.transaction([`session/${f.principal.sessionId}`], async (db) => {
           await db.query(
             "UPDATE identity_session_tokens SET token_hash = $2, revision = revision + 1 WHERE session_id = $1",
-            [f.principal.sessionId, "synthetic-rotated-token"],
+            [f.principal.sessionId, `synthetic-rotated-token-${f.principal.sessionId}`],
           );
         });
       }
@@ -619,7 +641,7 @@ describe("listing channel activation real composition", () => {
         pools.auth,
         {
           sessionId: f.principal.sessionId,
-          tokenHash: "synthetic-rotated-token",
+          tokenHash: `synthetic-rotated-token-${f.principal.sessionId}`,
           expiresAt: "2099-01-01T00:00:00.000Z",
         },
         f.auth.sessionEpochs,
@@ -646,7 +668,7 @@ describe("listing channel activation real composition", () => {
       },
     });
   }
-  function sourceFor(
+  async function sourceFor(
     inputs: readonly AppendToStreamInput[],
     f: Fixture,
     predicate: ConfigurationPredicate,
@@ -655,11 +677,15 @@ describe("listing channel activation real composition", () => {
     const key = configurationKey(f, predicate);
     const grant = inputs.flatMap((input) => input.configurationGrants ?? []).find((grant) => grant.key === key);
     if (!grant) throw new Error(`Missing captured grant: ${key}`);
-    return createPostgresConfigurationEpochStore({
-      pool: ownerPool(predicate),
-      sourceIncarnation: grant.sourceIncarnation,
-      consumers: available ? [{ identity: grant.consumer, pool: observedPool(pools.marketplace) }] : [],
-    });
+    const consumers = available ? [{ identity: grant.consumer, pool: observedPool(pools.marketplace) }] : [];
+    const pool = ownerPool(predicate);
+    const epochs =
+      predicate === "connection"
+        ? createConnectionEpochs(pool, consumers)
+        : predicate === "session" || predicate === "token"
+          ? createAuthSessionEpochs(pool, consumers)
+          : createIdentityOwnerEpochs(pool, consumers);
+    return epochs.source();
   }
   async function waitForLock(namespace: string, key: string, settled: () => boolean) {
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -752,7 +778,7 @@ describe("listing channel activation real composition", () => {
       const f = await fixture();
       const before = await f.businessEvents();
       appendProbe.before = async (inputs) => {
-        const source = sourceFor(inputs, f, predicate);
+        const source = await sourceFor(inputs, f, predicate);
         await source.beginClosure(configurationKey(f, predicate));
         await source.driveClosure(configurationKey(f, predicate));
       };
@@ -775,7 +801,7 @@ describe("listing channel activation real composition", () => {
       const ownerBefore = await ownerEffects(predicate);
       let status: string | undefined;
       appendProbe.before = async (inputs) => {
-        const source = sourceFor(inputs, f, predicate, false);
+        const source = await sourceFor(inputs, f, predicate, false);
         await source.beginClosure(configurationKey(f, predicate));
         status = (await source.driveClosure(configurationKey(f, predicate))).status;
         throw new Error("synthetic blocked consumer");
@@ -805,7 +831,7 @@ describe("listing channel activation real composition", () => {
     const f = await fixture();
     const before = await f.businessEvents();
     appendProbe.before = async () => {
-      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2100-01-01T00:00:00.000Z"));
+      appendProbe.validationNow = "2100-01-01T00:00:00.000Z";
     };
     await expect(f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal)).rejects.toThrow();
     expect(appendProbe.before).toBeUndefined();
@@ -1129,7 +1155,11 @@ describe("listing channel activation real composition", () => {
     if (writer === "token rotation" || writer === "seed token")
       return (writer === "seed token" ? seedSessionToken : upsertSessionToken)(
         pools.auth,
-        { sessionId: f.principal.sessionId, tokenHash: "synthetic-next-token", expiresAt: "2099-01-01T00:00:00.000Z" },
+        {
+          sessionId: f.principal.sessionId,
+          tokenHash: `synthetic-next-token-${f.principal.sessionId}`,
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
         f.auth.sessionEpochs,
       );
     if (writer === "installed disconnect") return f.channels.connections.disconnectChannelConnection(target, context);
@@ -1192,7 +1222,6 @@ describe("listing channel activation real composition", () => {
           quantityDelta: -1,
           heldQuantity: 0,
           reason: "Synthetic adjustment",
-          acquisitionOccurrence: { kind: "unknown" },
           commandOccurredAt: new Date().toISOString(),
         },
       });
@@ -1295,11 +1324,15 @@ describe("listing channel activation real composition", () => {
         : undefined;
       const before = await f.businessEvents();
       let wrote = false;
+      let writeFailure: unknown;
       appendProbe.before = async () => {
         appendProbe.omit = omit ? physicalWriters[writer] : "none";
         try {
           await writePhysical(f, writer);
           wrote = true;
+        } catch (error) {
+          writeFailure = error;
+          throw error;
         } finally {
           appendProbe.omit = "none";
         }
@@ -1312,7 +1345,9 @@ describe("listing channel activation real composition", () => {
         () => true,
         () => false,
       );
-      expect(wrote, `${writer} must execute the physical writer, not fail during setup`).toBe(true);
+      expect(wrote, `${writer} must execute the physical writer, not fail during setup: ${String(writeFailure)}`).toBe(
+        true,
+      );
       expect(committed, `${writer} REMOVE_PHYSICAL_WRITER_ENROLLMENT=${omit}`).toBe(omit);
       const after = await f.businessEvents();
       if (omit) {

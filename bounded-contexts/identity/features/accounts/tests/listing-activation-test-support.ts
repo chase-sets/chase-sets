@@ -1,5 +1,7 @@
 import { vi } from "vitest";
 
+export { createIdentityOwnerEpochs } from "../api/owner-epochs";
+
 const control = vi.hoisted(() => ({ omit: (): boolean => false }));
 export const identityWriterProbe = control;
 
