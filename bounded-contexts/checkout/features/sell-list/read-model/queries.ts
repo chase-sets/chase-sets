@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { deriveSellListCompositeReview, type SellListScreenReview } from "./screen-review";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import {
   evaluateEvidenceCoverage,
@@ -255,11 +256,13 @@ export type CheckoutSellListProductOfferReview = Readonly<{
   message: string | null;
 }>;
 
-export type CheckoutSellListCompositeReview = Readonly<{
+export type CheckoutSellListRawReview = Readonly<{
   offerReviews: readonly CheckoutSellListOfferReview[];
   productOfferReviews: readonly CheckoutSellListProductOfferReview[];
   inventoryItems: readonly CheckoutSellListInventoryItemOption[];
 }>;
+
+export type CheckoutSellListCompositeReview = CheckoutSellListRawReview & Readonly<{ screen: SellListScreenReview }>;
 
 type SellOfferPageRow = Readonly<{
   offer_id: string;
@@ -1027,16 +1030,17 @@ export async function listCheckoutSellListInventoryItems(
   return result.rows.map(mapInventoryItem);
 }
 
-export async function loadCheckoutSellListCompositeReview(
+export async function loadCheckoutSellListRawReview(
   db: PgQueryable,
   commercialTermsResolver: CheckoutCommercialTermsResolver,
   params: Readonly<{
     sellerAccountId: string;
     lines: readonly CheckoutSellListLineRow[];
     includeStandardComparison?: boolean;
+    sellListPath?: string;
     offerAcceptanceTermsSource?: CheckoutOfferAcceptanceTermsSource;
   }>,
-): Promise<CheckoutSellListCompositeReview> {
+): Promise<CheckoutSellListRawReview> {
   const selectedOfferLines = params.lines.filter((line) => line.line_type === "selected-offer" && line.offer_id);
   const productLines = params.lines.filter((line) => line.line_type === "product");
   const selectedOfferIds = selectedOfferLines.map((line) => line.offer_id as string);
@@ -1172,6 +1176,28 @@ export async function loadCheckoutSellListCompositeReview(
     productOfferReviews,
     inventoryItems: productLines.length > 0 ? await listCheckoutSellListInventoryItems(db, params.sellerAccountId) : [],
   };
+}
+
+export async function loadCheckoutSellListCompositeReview(
+  db: PgQueryable,
+  commercialTermsResolver: CheckoutCommercialTermsResolver,
+  params: Parameters<typeof loadCheckoutSellListRawReview>[2],
+): Promise<CheckoutSellListCompositeReview> {
+  const [review, payoutReadiness] = await Promise.all([
+    loadCheckoutSellListRawReview(db, commercialTermsResolver, params),
+    getSellPayoutReadiness(db, params.sellerAccountId).catch(() => null),
+  ]);
+  return deriveSellListCompositeReview({ lines: params.lines, review, payoutReadiness, isAccount: true, sellListPath: params.sellListPath });
+}
+
+export async function loadCheckoutGuestSellListCompositeReview(
+  commercialTermsResolver: CheckoutCommercialTermsResolver,
+  lines: readonly CheckoutSellListLineRow[],
+): Promise<CheckoutSellListCompositeReview> {
+  return deriveSellListCompositeReview({ lines, isAccount: false, review: {
+    offerReviews: await loadCheckoutGuestSellListOfferReviews(commercialTermsResolver, lines),
+    productOfferReviews: [], inventoryItems: [],
+  } });
 }
 
 export async function loadCheckoutGuestSellListOfferReviews(

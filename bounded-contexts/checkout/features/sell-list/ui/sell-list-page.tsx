@@ -22,17 +22,13 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
+import type { CheckoutSellListCompositeReview, CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
 import { SELLER_CHECKOUT_REGISTER_HREF, SELLER_CHECKOUT_SIGN_IN_HREF } from "./registration-return";
 import { LatestSellListConfirmationPanel } from "./sell-list-confirmation-panel";
 import { formatMoney } from "./sell-list-formatting";
 import { SellListReviewGrid } from "./sell-list-review-grid";
 import { useSellListPageModel } from "./use-sell-list-page-model";
 import type {
-  PayoutReadiness,
-  SellListInventoryItem,
-  SellListOfferReview,
-  SellListProductOfferReview,
   SellListRecoveryState,
 } from "./sell-list-page-types";
 
@@ -63,10 +59,7 @@ function payoutRequirementLabel(requirement: string) {
 export function CheckoutSellListPage({
   sellListLines,
   isSignedIn = true,
-  offerReviews = [],
-  productOfferReviews = [],
-  inventoryItems = [],
-  payoutReadiness = null,
+  compositeReview = null,
   latestConfirmation = null,
   registrationReturn = null,
   mergedLineCount = 0,
@@ -80,10 +73,7 @@ export function CheckoutSellListPage({
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
-  offerReviews?: readonly SellListOfferReview[];
-  productOfferReviews?: readonly SellListProductOfferReview[];
-  inventoryItems?: readonly SellListInventoryItem[];
-  payoutReadiness?: PayoutReadiness | null;
+  compositeReview?: CheckoutSellListCompositeReview | null;
   latestConfirmation?: CheckoutSellListConfirmationRow | null;
   registrationReturn?: "seller-checkout" | null;
   mergedLineCount?: number;
@@ -96,16 +86,12 @@ export function CheckoutSellListPage({
   sellListPath?: string;
 }) {
   const model = useSellListPageModel({
-    sellListLines,
     isSignedIn,
-    offerReviews,
-    productOfferReviews,
-    inventoryItems,
-    payoutReadiness,
-    sellListPath,
+    compositeReview,
   });
+  const payoutReadiness = compositeReview?.screen?.payoutReadiness;
   const payoutAmount =
-    model.expectedSellerPayout === null
+    model.expectedSellerPayout == null
       ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
       : formatMoney(model.expectedSellerPayout);
 
@@ -114,10 +100,10 @@ export function CheckoutSellListPage({
       <PriceBreakdown
         lines={[
           { label: t("checkout.features.sellList.ui.sellListPage.items"), value: model.totalQuantity },
-          { label: t("checkout.features.sellList.ui.sellListPage.sell.list.lines"), value: sellListLines.length },
+          { label: t("checkout.features.sellList.ui.sellListPage.sell.list.lines"), value: model.lineCount },
           {
             label: t("checkout.features.sellList.ui.sellListPage.selected.offer.gross"),
-            value: formatMoney(model.selectedOfferGross),
+            value: formatMoney(model.selectedOfferGross ?? null),
           },
           {
             label: model.expectedSellerPayoutLabel,
@@ -125,12 +111,12 @@ export function CheckoutSellListPage({
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.future.listing.gross"),
-            value: formatMoney(model.futureListingGross),
+            value: formatMoney(model.futureListingGross ?? null),
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.estimated.sales.fees"),
             value:
-              model.estimatedSalesFees === null
+              model.estimatedSalesFees == null
                 ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
                 : formatMoney(model.estimatedSalesFees),
           },
@@ -311,6 +297,8 @@ export function CheckoutSellListPage({
               <LinkButton href="/search">{t("checkout.features.sellList.ui.sellListPage.browse.products")}</LinkButton>
             }
           />
+        ) : !compositeReview?.screen || sellListLines.some((line) => !compositeReview.screen.lines[line.line_id]) ? (
+          <MarketplaceNotice tone="warning" title={t("checkout.features.sellList.ui.sellListPage.needs.refresh")} description={t("checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh")} />
         ) : (
           <CheckoutLayout
             summaryLabel={t("checkout.features.sellList.ui.sellListPage.sale.checkout.summary")}
@@ -342,7 +330,7 @@ export function CheckoutSellListPage({
                 }
               />
 
-              {isSignedIn && payoutReadiness?.status !== "ready" ? (
+              {isSignedIn && !model.payoutIsReady ? (
                 <MarketplaceNotice
                   tone="warning"
                   title={t("checkout.features.sellList.ui.sellListPage.payout.setup.required")}
@@ -383,6 +371,7 @@ export function CheckoutSellListPage({
                   offerReviewsByLineId={model.offerReviewsByLineId}
                   productOfferReviewsByLineId={model.productOfferReviewsByLineId}
                   inventoryByProductId={model.inventoryByProductId}
+                  lineAnswers={compositeReview.screen.lines}
                   canAccept={model.canContinue}
                 />
               </PageSection>

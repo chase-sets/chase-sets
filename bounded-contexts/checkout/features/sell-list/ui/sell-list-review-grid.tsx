@@ -16,6 +16,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
+import type { SellListScreenReview } from "../read-model/screen-review";
 import { buyerLabel, formatMoney, moneyNumber } from "./sell-list-formatting";
 import { ProductLineRow, SelectedOfferRow } from "./sell-list-line-rows";
 import type { SellListInventoryItem, SellListOfferReview, SellListProductOfferReview } from "./sell-list-page-types";
@@ -142,12 +143,14 @@ export function SellListReviewGrid({
   productOfferReviewsByLineId,
   inventoryByProductId,
   canAccept,
+  lineAnswers,
 }: {
   lines: readonly CheckoutSellListLineRow[];
   offerReviewsByLineId: ReadonlyMap<string, SellListOfferReview>;
   productOfferReviewsByLineId: ReadonlyMap<string, SellListProductOfferReview>;
   inventoryByProductId: ReadonlyMap<string, readonly SellListInventoryItem[]>;
   canAccept: boolean;
+  lineAnswers: SellListScreenReview["lines"];
 }) {
   const [activeLineId, setActiveLineId] = useState<string | null>(null);
   const activeLine = lines.find((line) => line.line_id === activeLineId) ?? null;
@@ -418,13 +421,14 @@ export function SellListReviewGrid({
                 {offerReviewsByLineId.get(activeLine.line_id) ? (
                   <TermsComparison review={offerReviewsByLineId.get(activeLine.line_id)!} />
                 ) : null}
-                <SelectedOfferRow line={activeLine} review={offerReviewsByLineId.get(activeLine.line_id)} />
+                <SelectedOfferRow line={activeLine} review={offerReviewsByLineId.get(activeLine.line_id)} answer={lineAnswers[activeLine.line_id]!} />
               </>
             ) : (
               <ProductLineRow
                 line={activeLine}
                 review={productOfferReviewsByLineId.get(activeLine.line_id)}
                 inventoryOptions={inventoryByProductId.get(activeLine.product_id) ?? []}
+                answer={lineAnswers[activeLine.line_id]!}
               />
             )}
             {bulk.selectedCount === 0 ? (

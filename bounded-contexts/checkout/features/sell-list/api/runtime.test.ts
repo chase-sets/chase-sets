@@ -1514,3 +1514,30 @@ describe("durable API-owned review plans", () => {
     ).rejects.toThrow("Sell List readiness snapshot is stale.");
   });
 });
+
+
+describe("Sell List screen read services", () => {
+  it("loads account-scoped inputs and one payout read without changing plan authority", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    const result = await f.services.loadCompositeReview("acc_seller");
+    expect(result.screen.canContinue).toBe(true);
+    expect(result.offerReviews[0]?.terms?.fee_quote_fingerprint).toBeTruthy();
+    const payoutReads = f.db.query.mock.calls.filter(([sql]) => String(sql).includes("checkout_sell_payout_readiness_pages"));
+    expect(payoutReads).toHaveLength(1);
+    expect(payoutReads[0]?.[1]).toEqual(["acc_seller"]);
+    const foreign = await f.services.loadCompositeReview("acc_foreign");
+    expect(foreign.screen).toMatchObject({ lineCount: 0, canContinue: false });
+    expect(foreign.offerReviews).toEqual([]);
+  });
+
+  it("does not read account inventory or payout readiness for anonymous composites", async () => {
+    const f = checkoutOwnerRuntimeFixture("anon_fixture");
+    const result = await f.services.loadGuestCompositeReview("anon_fixture");
+    expect(result.screen.payoutReadiness).toBeNull();
+    expect(result.inventoryItems).toEqual([]);
+    expect(f.db.query.mock.calls.every(([sql]) => !/payout_readiness|inventory_items/.test(String(sql)))).toBe(true);
+    f.db.query.mockClear();
+    expect((await f.services.loadGuestCompositeReview(null)).screen.lineCount).toBe(0);
+    expect(f.db.query).not.toHaveBeenCalled();
+  });
+});

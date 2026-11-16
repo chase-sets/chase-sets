@@ -1,3 +1,4 @@
+import { deriveSellListCompositeReview } from "../../features/sell-list/read-model/screen-review";
 import type { SellListReviewReadiness } from "../../features/sell-list/api/review-plan-contracts";
 import { expect, vi } from "vitest";
 import { createHash } from "node:crypto";
@@ -64,6 +65,7 @@ export const mockGetGuestCartCommandAttempt = vi.fn();
 export const mockGetGuestSellList = vi.fn();
 export const mockGetSellListCompositeReview = vi.fn();
 export const mockGetGuestSellListOfferReviews = vi.fn();
+export const mockGetGuestSellListCompositeReview = vi.fn();
 export const mockGetOfferMatch = vi.fn();
 export const mockGetPublicOffer = vi.fn();
 export const mockListOfferMatches = vi.fn();
@@ -137,12 +139,9 @@ export function applyCheckoutRouteMockDefaults() {
   mockCreateIdentityRequestApiClient.mockReturnValue({
     listShippingAddresses: mockListShippingAddresses.mockResolvedValue({ items: [] }),
   });
-  mockGetSellListCompositeReview.mockResolvedValue({
-    offerReviews: [],
-    productOfferReviews: [],
-    inventoryItems: [],
-  });
+  mockGetSellListCompositeReview.mockResolvedValue(deriveSellListCompositeReview({ lines: [], isAccount: true, payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null }, review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] } }));
   mockGetGuestSellListOfferReviews.mockResolvedValue({ offerReviews: [] });
+  mockGetGuestSellListCompositeReview.mockResolvedValue(deriveSellListCompositeReview({ lines: [], isAccount: false, review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] } }));
   mockListSellListShipFromAddresses.mockResolvedValue({
     items: [
       {

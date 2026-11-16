@@ -424,6 +424,7 @@ export function createAccountSellListRoutes(
     return c.json(
       await services.loadCompositeReview(access.actor.accountId, {
         includeStandardComparison: c.req.query("includeStandardComparison") === "true",
+        sellListPath: c.req.query("sellListPath") === "/account/desk/offers" ? "/account/desk/offers" : "/account/sell-list",
       }),
     );
   });
@@ -708,6 +709,10 @@ export function createGuestSellListRoutes(
       items,
       count: items.reduce((sum, item) => sum + item.quantity, 0),
     });
+  });
+
+  app.get("/sell-list/composite-review", async (c) => {
+    return c.json(await services.loadGuestCompositeReview(requireAnonymousSellListId(c)));
   });
 
   app.get("/sell-list/offer-reviews", async (c) => {
