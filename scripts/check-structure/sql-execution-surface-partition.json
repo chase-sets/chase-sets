@@ -105,6 +105,8 @@
     "bounded-contexts/channels/features/connection-health/api/policy.ts",
     "bounded-contexts/channels/features/connection-health/api/runtime.ts",
     "bounded-contexts/channels/features/connection-health/read-model/store.ts",
+    "bounded-contexts/channels/features/connections/api/owner-epochs.ts",
+    "bounded-contexts/channels/features/connections/api/versioned-connection-authority.ts",
     "bounded-contexts/channels/features/connections/read-model/operator-read-source.ts",
     "bounded-contexts/channels/features/connections/read-model/projection.ts",
     "bounded-contexts/channels/features/connections/read-model/queries.ts",

@@ -162,6 +162,12 @@ describe("channel-listing-composition-scope-fence", () => {
     ]);
     expect(contextManifest.hostPorts).toEqual([
       {
+        portName: "connectionConsumers",
+        providedBy: "platform-api",
+        purpose:
+          "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
+      },
+      {
         portName: "ebayAccountDeletionConfiguration",
         providedBy: "platform-api",
         purpose:
