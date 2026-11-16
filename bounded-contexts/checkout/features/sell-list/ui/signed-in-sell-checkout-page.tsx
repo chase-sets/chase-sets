@@ -27,6 +27,7 @@ import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
 import { CheckoutPolicyLinks } from "../../sessions/ui/checkout-policy-links";
+import type { SellListAttemptState } from "./sell-list-attempt-boundary";
 
 export type SignedInSellCheckoutRecoveryKind =
   | "access-required"
@@ -98,6 +99,7 @@ export type SignedInSellCheckoutActionState =
       values: SignedInSellCheckoutFormValues;
       fieldErrors: SignedInSellCheckoutFieldErrors;
       recovery?: SignedInSellCheckoutRecovery | null;
+      attempt?: SellListAttemptState;
     }>;
 
 export type SignedInSellCheckoutEditSection = "contact" | "ship-from" | "payout" | "label";

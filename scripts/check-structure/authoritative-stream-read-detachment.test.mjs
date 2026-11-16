@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 26,
-      authoritativeSites: 24,
+      discoveredCallCandidates: 27,
+      authoritativeSites: 25,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives forty-one green grammar instances across thirty-six live locations without a registry", () => {
+  it("derives forty-two green grammar instances across thirty-seven live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(41);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(36);
+    expect(green).toHaveLength(42);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(37);
     expect(
       green
         .filter((entry) => entry.file.includes("/inventory-items/api/stock-"))

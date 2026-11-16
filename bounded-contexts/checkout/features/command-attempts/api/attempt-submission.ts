@@ -2,14 +2,14 @@ import {
   checkoutCommandAttemptStateForResult,
   computeCheckoutCommandAttemptRequestHash,
   parseCheckoutCommandAttemptResult,
-  type CheckoutCartAttemptKind,
+  type CheckoutLineAttemptKind,
   type CheckoutCommandAttemptResult,
   type CheckoutCommandAttemptResolvedState,
 } from "./contracts";
 
 export type CheckoutCartAttemptQuery = Readonly<{
   attemptId: string;
-  kind: CheckoutCartAttemptKind;
+  kind: CheckoutLineAttemptKind;
   target: string;
   requestHash: string;
 }>;
@@ -66,7 +66,7 @@ function isPossibleSendLoss(status: number | null) {
 export async function submitCheckoutCartAttempt<TResponse extends Readonly<{ attempt: unknown }>>(
   input: Readonly<{
     attemptId: string;
-    kind: CheckoutCartAttemptKind;
+    kind: CheckoutLineAttemptKind;
     target: string;
     body: unknown;
     send: () => Promise<TResponse>;

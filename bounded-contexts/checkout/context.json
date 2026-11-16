@@ -919,8 +919,22 @@
         "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/:lineId/remove",
         "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/confirm",
         "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/merge-to-account",
-        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/readiness"
+        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/readiness",
+        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/commands"
       ],
+      "commandAttempt": {
+        "writes": [
+          { "surface": "POST /account|/guest/sell-list", "kind": "sell-list-line", "target": "sell-list" },
+          { "surface": "POST /account|/guest/sell-list/:lineId/remove", "kind": "sell-list-line", "target": "lineId" },
+          { "surface": "decline-sell-list-offers; POST /sell-list/commands", "kind": "sell-list-batch", "target": "sell-list" },
+          { "surface": "POST /sell-list/confirm", "kind": "confirmationIdForSession", "target": "confirmationId" },
+          { "surface": "POST /sell-list/readiness with entryReadinessSnapshotId", "kind": "sell-list-handoff-prepared", "target": "confirmationIdForSession" }
+        ],
+        "exempt": [{ "surface": "POST /sell-list/merge-to-account", "reason": "Shipped idempotent merge by line id; owner-read-lifecycle.db.test.ts covers restart." }],
+        "stream": "Line/batch: checkout.command-attempt-v1-<fingerprint> atomically with checkout.sell-list-<owner>; confirmation: checkout.sell-list-<seller> at expected version; handoff preparation: checkout.sell-list-handoff-v1-<seller-confirmation-sha256> with seller-stream version guard",
+        "lookup": "GET /account|/guest/command-attempts/:attemptId?kind=&target=&requestHash=; GET /sell-list/confirmations/:confirmationId reads seller stream",
+        "replay": "Exact line/batch retry returns the first closed vector and receipt, zero appends; changed hash conflicts. Confirm uses the Session-derived confirmation id and canonical request hash on the stream; exact replay returns the first snapshot, changed payload is 409 checkout_confirmation_changed, zero writes. Readiness replays the retained server-owned commercial basis across Offer consumption while rechecking live seller owners and Listing evidence; changed plan, choices or seller revision refuses. Offer completion requires the exact Marketplace acceptance attempt's actor, target, key fingerprint and canonical request hash, never a generic success or receipt."
+      },
       "visibleDestination": {
         "description": "Sell List API commands return Checkout-owned command snapshots: line id/version/status for line commands, merge counts for account adoption, checkout.sell-list-readiness.v1 for readiness, and the persisted confirmation snapshot for seller checkout confirmation."
       },
@@ -939,6 +953,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-attempt-boundary.tsx:H1abed2c1c746#1",
         "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#3",

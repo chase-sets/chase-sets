@@ -3,6 +3,90 @@ import type { StoredEvent } from "@chase-sets/event-core/storage";
 
 type DiagnosticEvent = Pick<StoredEvent, "eventType" | "streamVersion" | "occurredAt" | "payload">;
 
+function pricingEvidence(evidence: Record<string, unknown> | null) {
+  const price = evidence?.marketPrice;
+  return {
+    policyRevision: evidence?.policyRevision ?? null,
+    evaluatedAt: evidence?.evaluatedAt ?? null,
+    marketPrice:
+      price && typeof price === "object" && !Array.isArray(price)
+        ? Object.fromEntries(
+            [
+              "catalogItemId",
+              "productId",
+              "estimateVersion",
+              "amount",
+              "currencyCode",
+              "estimatedAt",
+              "freshUntil",
+            ].map((key) => [key, (price as Record<string, unknown>)[key] ?? null]),
+          )
+        : null,
+  };
+}
+
+/** Follow-up SQL snapshot of the two held branches in the seller Match query, not an HTTP observation. */
+export async function readManagedOfferFulfillmentAuthority(db: PgQueryable, offerId: string, policyId: string) {
+  const result = await db.query<{
+    policy_status: string | null;
+    policy_revision: number | null;
+    policy_projection_version: number | null;
+    policy_stream_version: number | null;
+    audit_status: string | null;
+    audit_reason: string | null;
+    audit_stream_version: number | null;
+    audit_evidence: Record<string, unknown> | null;
+    consent_result: {
+      status?: string;
+      reason?: string;
+      unitItemAmount?: string;
+      evidence?: Record<string, unknown>;
+    } | null;
+  }>(
+    `SELECT policy.state->>'status' AS policy_status, (policy.state->>'revision')::integer AS policy_revision,
+            policy.last_stream_version AS policy_projection_version, stream.current_version::integer AS policy_stream_version,
+            audit.status AS audit_status, audit.reason AS audit_reason, audit.last_stream_version AS audit_stream_version,
+            audit.evidence AS audit_evidence, consent.result AS consent_result
+     FROM (VALUES ($1::text, $2::text)) AS target(offer_id, policy_id)
+     LEFT JOIN marketplace_buyer_offer_policy_pages AS policy ON policy.policy_id = target.policy_id
+     LEFT JOIN event_store_streams AS stream ON stream.stream_id = 'marketplace.offer-policy-' || target.policy_id
+     LEFT JOIN marketplace_managed_offer_audit AS audit ON audit.offer_id = target.offer_id
+     LEFT JOIN LATERAL (
+       SELECT selected.value->'result' AS result
+       FROM event_store_events AS authorized
+       CROSS JOIN LATERAL jsonb_array_elements(authorized.payload->'outcomes') AS selected(value)
+       WHERE authorized.stream_id = 'marketplace.offer-policy-' || target.policy_id
+         AND authorized.event_type = 'marketplace.offer-policy.authorized'
+         AND authorized.payload->>'revision' = policy.state->>'revision'
+         AND selected.value->>'offerId' = target.offer_id
+       ORDER BY authorized.stream_version DESC LIMIT 1
+     ) AS consent ON TRUE`,
+    [offerId, policyId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("Managed Offer authority snapshot missing.");
+  return {
+    policy: {
+      status: row.policy_status,
+      revision: row.policy_revision,
+      projectionVersion: row.policy_projection_version,
+      streamVersion: row.policy_stream_version,
+    },
+    audit: {
+      status: row.audit_status,
+      reason: row.audit_reason,
+      streamVersion: row.audit_stream_version,
+      ...pricingEvidence(row.audit_evidence),
+    },
+    consent: {
+      status: row.consent_result?.status ?? null,
+      reason: row.consent_result?.reason ?? null,
+      amount: row.consent_result?.unitItemAmount ?? null,
+      ...pricingEvidence(row.consent_result?.evidence ?? null),
+    },
+  };
+}
+
 export function managedOfferFulfillmentSnapshot(match: Readonly<Record<string, unknown>>) {
   return {
     can_fulfill: match.can_fulfill ?? null,

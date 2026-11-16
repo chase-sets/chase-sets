@@ -59,6 +59,7 @@ import {
   parsePositiveQuantity,
   parseSelectedOptions,
   saveGuestSelectedOfferToSellList,
+  saveSellListLine,
   selectedOfferSellListLineFromPublicOffer,
   shipFromAddressFromForm,
 } from "./action-helpers";
@@ -512,12 +513,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "sell-now") {
+      const attemptId = isCheckoutCommandAttemptId(formData.get("attemptId"))
+        ? String(formData.get("attemptId"))
+        : mintCheckoutCommandAttemptId();
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const offerId = String(formData.get("offerId") ?? "").trim();
 
       if (!canUseAccountSellList(actor)) {
-        return saveGuestSelectedOfferToSellList(request, checkoutApi, item, offerId);
+        return saveGuestSelectedOfferToSellList(request, checkoutApi, item, offerId, attemptId);
       }
 
       await requireActorFromAuthApi({
@@ -526,22 +530,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
 
       const offer = getPublicSelectedOfferForSellList(item, offerId);
-      const result = await checkoutApi.addSellListLine(selectedOfferSellListLineFromPublicOffer(item, offer));
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
-          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-        }),
-      );
+      return saveSellListLine(request, checkoutApi, {
+        ...selectedOfferSellListLineFromPublicOffer(item, offer),
+        attemptId,
+      });
     }
 
     if (intent === "add-to-sell-list") {
+      const attemptId = isCheckoutCommandAttemptId(formData.get("attemptId"))
+        ? String(formData.get("attemptId"))
+        : mintCheckoutCommandAttemptId();
       const actor = await resolveActorFromAuthApi({ request });
 
       const item = await discoveryApi.getItemDetail(params.id!);
       const offerId = String(formData.get("offerId") ?? "").trim();
 
       if (!canUseAccountSellList(actor)) {
-        return saveGuestSelectedOfferToSellList(request, checkoutApi, item, offerId);
+        return saveGuestSelectedOfferToSellList(request, checkoutApi, item, offerId, attemptId);
       }
 
       await requireActorFromAuthApi({
@@ -550,12 +555,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
 
       const offer = getPublicSelectedOfferForSellList(item, offerId);
-      const result = await checkoutApi.addSellListLine(selectedOfferSellListLineFromPublicOffer(item, offer));
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
-          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-        }),
-      );
+      return saveSellListLine(request, checkoutApi, {
+        ...selectedOfferSellListLineFromPublicOffer(item, offer),
+        attemptId,
+      });
     }
 
     if (intent === "add-product-to-sell-list") {
@@ -564,6 +567,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const item = await discoveryApi.getItemDetail(params.id!);
       const quantity = parsePositiveQuantity(formData.get("quantity"));
       const sellListLine = {
+        attemptId: isCheckoutCommandAttemptId(formData.get("attemptId"))
+          ? String(formData.get("attemptId"))
+          : mintCheckoutCommandAttemptId(),
         lineType: "product",
         offerId: null,
         buyerAccountId: null,
@@ -582,22 +588,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       if (!canUseAccountSellList(actor)) {
         const anonymousSellListId = ensureAnonymousSellListId(request);
-        const result = await checkoutApi.addGuestSellListLine(anonymousSellListId, sellListLine);
-        const response = redirect(
-          await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
-            handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-          }),
-        );
-        appendAnonymousSellListCookie(response.headers, anonymousSellListId, request);
-        return response;
+        return saveSellListLine(request, checkoutApi, sellListLine, anonymousSellListId);
       }
 
-      const result = await checkoutApi.addSellListLine(sellListLine);
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
-          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-        }),
-      );
+      return saveSellListLine(request, checkoutApi, sellListLine);
     }
 
     if (intent === "create-listing-stock-location") {

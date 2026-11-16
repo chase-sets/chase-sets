@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData } from "react-router";
+import { useActionData, useLoaderData, useNavigation } from "react-router";
+import { SellListAttemptBoundary } from "../features/sell-list/ui/sell-list-attempt-boundary";
 import {
   GuestSellCheckoutPage,
   type GuestSellCheckoutActionState,
@@ -24,9 +25,18 @@ export const meta: MetaFunction = () =>
 export default function GuestSellCheckoutRoute() {
   const loaderData = useLoaderData<typeof loader>();
   const actionState = useActionData<typeof action>() ?? { status: "idle" as const };
+  const navigation = useNavigation();
 
   if (loaderData.mode === "signed-in") {
-    return <SignedInSellCheckoutPage {...loaderData} actionState={actionState as SignedInSellCheckoutActionState} />;
+    const signedInState = actionState as SignedInSellCheckoutActionState;
+    return (
+      <SellListAttemptBoundary
+        attempt={signedInState.status === "error" ? signedInState.attempt : null}
+        pending={navigation.state !== "idle"}
+      >
+        <SignedInSellCheckoutPage {...loaderData} actionState={signedInState} />
+      </SellListAttemptBoundary>
+    );
   }
 
   return <GuestSellCheckoutPage {...loaderData} actionState={actionState as GuestSellCheckoutActionState} />;

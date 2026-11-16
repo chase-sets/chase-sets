@@ -65,22 +65,55 @@ export function parseTokenResponse(value: unknown, issuedAt: string): ChannelOAu
   text(value.access_token, 16384);
   text(value.refresh_token, 16384);
   if (value.token_type !== "User Access Token") throw new EbayConnectionError("invalid-provider-response");
-  const expiry = (seconds: unknown) => {
-    if (
-      typeof seconds !== "number" ||
-      !Number.isSafeInteger(seconds) ||
-      seconds < 1 ||
-      seconds > 315360000 ||
-      !Number.isFinite(Date.parse(issuedAt))
-    )
-      throw new EbayConnectionError("invalid-provider-response");
-    return new Date(Date.parse(issuedAt) + seconds * 1000).toISOString();
-  };
+  const expiry = (seconds: unknown) => tokenExpiry(seconds, issuedAt);
   return {
     format: "ChannelOAuthTokenSet/v1",
     accessToken: value.access_token,
     refresh: { kind: "present", token: value.refresh_token, expiresAt: expiry(value.refresh_token_expires_in) },
     accessExpiresAt: expiry(value.expires_in),
+    issuedAt,
+  };
+}
+function tokenExpiry(seconds: unknown, issuedAt: string): string {
+  if (
+    typeof seconds !== "number" ||
+    !Number.isSafeInteger(seconds) ||
+    seconds < 1 ||
+    seconds > 315360000 ||
+    !Number.isFinite(Date.parse(issuedAt)) ||
+    Date.parse(issuedAt) < 0 ||
+    Date.parse(issuedAt) + seconds * 1000 > 253402300799999
+  )
+    throw new EbayConnectionError("invalid-provider-response");
+  return new Date(Date.parse(issuedAt) + seconds * 1000).toISOString();
+}
+
+export function parseRefreshResponse(
+  value: unknown,
+  issuedAt: string,
+  retained: ChannelOAuthTokenSet,
+): ChannelOAuthTokenSet {
+  const replacement = !!value && typeof value === "object" && Object.hasOwn(value, "refresh_token");
+  closed(value, [
+    "access_token",
+    "expires_in",
+    "token_type",
+    ...(replacement ? ["refresh_token", "refresh_token_expires_in"] : []),
+  ]);
+  text(value.access_token, 16384);
+  if (value.token_type !== "User Access Token") throw new EbayConnectionError("invalid-provider-response");
+  if (replacement) text(value.refresh_token, 16384);
+  return {
+    format: "ChannelOAuthTokenSet/v1",
+    accessToken: value.access_token,
+    refresh: replacement
+      ? {
+          kind: "present",
+          token: value.refresh_token as string,
+          expiresAt: tokenExpiry(value.refresh_token_expires_in, issuedAt),
+        }
+      : retained.refresh,
+    accessExpiresAt: tokenExpiry(value.expires_in, issuedAt),
     issuedAt,
   };
 }

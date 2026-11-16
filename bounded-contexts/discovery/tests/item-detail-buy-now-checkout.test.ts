@@ -68,6 +68,7 @@ vi.mock("@chase-sets/checkout/server", async () => {
     isCheckoutCommandAttemptId: actual.isCheckoutCommandAttemptId,
     mintCheckoutCommandAttemptId: actual.mintCheckoutCommandAttemptId,
     submitCheckoutCartAttempt: actual.submitCheckoutCartAttempt,
+    submitCheckoutSellListAdd: actual.submitCheckoutSellListAdd,
     ACCOUNT_CART_ADD_LINE_HANDOFF: {
       kind: "checkout.cart.add-line",
       expectation: "collection-non-empty",
@@ -171,6 +172,8 @@ function commandResult<T extends { id?: string; session_id?: string }>(value: T,
     },
     enumerable: false,
   });
+  if (id.startsWith("sll_"))
+    Object.assign(value, { attempt: { ...addLineAttempt("committed"), kind: "sell-list-line", target: "sell-list" } });
   return value;
 }
 
@@ -1059,6 +1062,7 @@ describe("item detail buy now checkout actions", () => {
       request: expect.any(Request),
     });
     expect(mockAddSellListLine).toHaveBeenCalledWith({
+      attemptId: expect.any(String),
       lineType: "product",
       offerId: null,
       buyerAccountId: null,
@@ -1112,6 +1116,7 @@ describe("item detail buy now checkout actions", () => {
 
     expect(mockEnsureAnonymousSellListId).toHaveBeenCalledWith(expect.any(Request));
     expect(mockAddGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", {
+      attemptId: expect.any(String),
       lineType: "product",
       offerId: null,
       buyerAccountId: null,
@@ -1187,6 +1192,7 @@ describe("item detail buy now checkout actions", () => {
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
     expect(mockEnsureAnonymousSellListId).toHaveBeenCalledWith(expect.any(Request));
     expect(mockAddGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", {
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "offer_charizard",
       buyerAccountId: null,
@@ -1280,6 +1286,7 @@ describe("item detail buy now checkout actions", () => {
       expect(mockEnsureAnonymousSellListId).not.toHaveBeenCalled();
       expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
       expect(mockAddSellListLine).toHaveBeenCalledWith({
+        attemptId: expect.any(String),
         lineType: "selected-offer",
         offerId: "offer_charizard",
         buyerAccountId: null,
@@ -1354,6 +1361,7 @@ describe("item detail buy now checkout actions", () => {
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockEnsureAnonymousSellListId).toHaveBeenCalledWith(expect.any(Request));
     expect(mockAddGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", {
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "offer_charizard",
       buyerAccountId: null,

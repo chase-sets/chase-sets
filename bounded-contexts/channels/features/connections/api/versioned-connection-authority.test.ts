@@ -127,10 +127,17 @@ describe("Versioned Connection Authority", () => {
       "channels.connector.paired",
       "channels.credential.replaced",
       "channels.ebay-account-deletion.received",
+      "channels.ebay-credential-refresh.completed",
     ]) {
       expect(() => channelConnectionEventCodec.decode({ ...history[0], eventType, payload: {} })).toThrow();
     }
-    for (const sibling of ["connection-health", "connection-attention", "connector-pairing", "tcgplayer-sync-run"]) {
+    for (const sibling of [
+      "connection-health",
+      "connection-attention",
+      "connector-pairing",
+      "tcgplayer-sync-run",
+      "ebay-credential-refresh",
+    ]) {
       await f.memory.eventStore.appendToStream({
         streamId: `channels.${sibling}-${input.connectionId}`,
         expectedVersion: "no_stream",

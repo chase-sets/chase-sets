@@ -182,7 +182,7 @@ export function discoverOwnerWriters(sources, { mutant } = {}) {
         );
       const connectionSql =
         querySink &&
-        /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?(?:channel_connections|channel_connection_(?:health|attention)|channels_connection_credentials|channels_ebay_account_deletion_receipts)"?\b/iu.test(
+        /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?(?:channel_connections|channel_connection_(?:health|attention)|channels_connection_credentials|channels_ebay_account_deletion_receipts|channels_ebay_credential_refresh(?:_outcomes)?)"?\b/iu.test(
           statement,
         );
       const sql =
