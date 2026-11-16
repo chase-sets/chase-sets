@@ -27,7 +27,6 @@ export type SellListReviewPlanLine = Readonly<{
   skippedReasons: readonly string[];
 }>;
 
-
 export type SellListReviewSelections = Readonly<{
   bulkOfferIds?: readonly string[];
   lines: readonly Readonly<{

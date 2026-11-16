@@ -82,7 +82,6 @@ const payoutSummary = {
   missingRequirements: [],
 };
 
-
 const defaultValues = {
   ...signedInSellCheckoutDefaultValues,
   sellerName: "Jane Seller",

@@ -841,34 +841,51 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       const assessed = await assessSeller({ sellerAccountId: params.sellerAccountId, decisions }, "readiness");
       if (createSellListReadinessSnapshot(lines, decisions).sourceRevision !== assessed.snapshot.sourceRevision)
         throw staleSellListReview();
-      const snapshotId = "slrp_" + await computeCheckoutCommandAttemptRequestHash({
-        sellerAccountId: params.sellerAccountId, readiness: assessed.snapshot, reviewPlan,
-      });
-      const stored = await reviewPlans.save({
-        sellerAccountId: params.sellerAccountId,
-        assessedSnapshotId: assessed.snapshot.snapshotId,
-        readiness: { ...assessed.snapshot, snapshotId },
-        reviewPlan,
-        decisions,
-      }, context);
+      const snapshotId =
+        "slrp_" +
+        (await computeCheckoutCommandAttemptRequestHash({
+          sellerAccountId: params.sellerAccountId,
+          readiness: assessed.snapshot,
+          reviewPlan,
+        }));
+      const stored = await reviewPlans.save(
+        {
+          sellerAccountId: params.sellerAccountId,
+          assessedSnapshotId: assessed.snapshot.snapshotId,
+          readiness: { ...assessed.snapshot, snapshotId },
+          reviewPlan,
+          decisions,
+        },
+        context,
+      );
       return { readiness: stored.readiness, reviewPlan: stored.reviewPlan, decisions: stored.decisions };
     },
     getReviewReadiness: async (params) => {
       const stored = await reviewPlans.read(params.sellerAccountId, params.snapshotId);
       if (stored.readiness.sourceRevision !== params.sourceRevision) throw staleSellListReview();
       const preparation = params.confirmationId
-        ? await preparations.read(params.sellerAccountId, params.confirmationId) : null;
+        ? await preparations.read(params.sellerAccountId, params.confirmationId)
+        : null;
       if (preparation) {
         const aggregate = await repository.load(sellListStreamId(params.sellerAccountId));
-        if (preparation.sellListVersion !== aggregate.version ||
+        if (
+          preparation.sellListVersion !== aggregate.version ||
           preparation.entry.snapshotId !== params.snapshotId ||
           preparation.entry.sourceRevision !== params.sourceRevision ||
-          await computeCheckoutCommandAttemptRequestHash(preparation.reviewPlan) !==
-            await computeCheckoutCommandAttemptRequestHash(stored.reviewPlan)) throw staleSellListReview();
+          (await computeCheckoutCommandAttemptRequestHash(preparation.reviewPlan)) !==
+            (await computeCheckoutCommandAttemptRequestHash(stored.reviewPlan))
+        )
+          throw staleSellListReview();
       } else {
-        const assessed = await assessSeller({ sellerAccountId: params.sellerAccountId, decisions: stored.decisions }, "readiness");
-        if (assessed.snapshot.snapshotId !== stored.assessedSnapshotId ||
-          assessed.snapshot.sourceRevision !== params.sourceRevision) throw staleSellListReview();
+        const assessed = await assessSeller(
+          { sellerAccountId: params.sellerAccountId, decisions: stored.decisions },
+          "readiness",
+        );
+        if (
+          assessed.snapshot.snapshotId !== stored.assessedSnapshotId ||
+          assessed.snapshot.sourceRevision !== params.sourceRevision
+        )
+          throw staleSellListReview();
       }
       return { readiness: stored.readiness, reviewPlan: stored.reviewPlan, decisions: stored.decisions };
     },
@@ -878,10 +895,14 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       const preparation = params.confirmationId
         ? await preparations.read(params.sellerAccountId, params.confirmationId)
         : null;
-      const storedReview = params.entryReadinessSnapshotId
-        ? await reviewPlans.read(params.sellerAccountId, params.entryReadinessSnapshotId) : null;
+      const storedSnapshotId = params.entryReadinessSnapshotId ?? preparation?.entry.snapshotId;
+      const storedReview = storedSnapshotId ? await reviewPlans.read(params.sellerAccountId, storedSnapshotId) : null;
       if (storedReview) {
-        if (storedReview.readiness.sourceRevision !== params.entryReadinessSourceRevision) throw staleSellListReview();
+        if (
+          params.entryReadinessSnapshotId &&
+          storedReview.readiness.sourceRevision !== params.entryReadinessSourceRevision
+        )
+          throw staleSellListReview();
         params = { ...params, decisions: storedReview.decisions };
       }
       const decisionsHash = await computeCheckoutCommandAttemptRequestHash(params.decisions ?? {});

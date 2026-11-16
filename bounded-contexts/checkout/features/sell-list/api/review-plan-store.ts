@@ -1,4 +1,3 @@
-// https://github.com/chase-sets/chase-sets/issues/10505
 import { createHash } from "node:crypto";
 import { EventStreamTooLongError, readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
@@ -9,17 +8,20 @@ import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { computeCheckoutCommandAttemptRequestHash } from "../../command-attempts/api/contracts";
 import type { SellListReviewReadiness } from "./review-plan-contracts";
 
-export type StoredSellListReview = SellListReviewReadiness & Readonly<{
-  sellerAccountId: string;
-  assessedSnapshotId: string;
-}>;
+export type StoredSellListReview = SellListReviewReadiness &
+  Readonly<{
+    sellerAccountId: string;
+    assessedSnapshotId: string;
+  }>;
 
 export const staleSellListReview = () =>
   new CheckoutDomainError("Sell List readiness snapshot is stale.", "checkout_readiness_stale");
 
 export function createSellListReviewPlans(eventStore: EventStore) {
   const streamId = (seller: string, snapshotId: string) =>
-    `checkout.sell-list-review-v1-${createHash("sha256").update(JSON.stringify([seller, snapshotId])).digest("hex")}`;
+    `checkout.sell-list-review-v1-${createHash("sha256")
+      .update(JSON.stringify([seller, snapshotId]))
+      .digest("hex")}`;
 
   async function read(seller: string, snapshotId: string): Promise<StoredSellListReview> {
     let events;
@@ -40,8 +42,9 @@ export function createSellListReviewPlans(eventStore: EventStore) {
       !review.assessedSnapshotId ||
       review.reviewPlan?.version !== 1 ||
       !Array.isArray(review.reviewPlan.lines) ||
-      integrityHash !== await computeCheckoutCommandAttemptRequestHash(review)
-    ) throw staleSellListReview();
+      integrityHash !== (await computeCheckoutCommandAttemptRequestHash(review))
+    )
+      throw staleSellListReview();
     return review;
   }
 
@@ -51,17 +54,25 @@ export function createSellListReviewPlans(eventStore: EventStore) {
         streamId: streamId(review.sellerAccountId, review.readiness.snapshotId),
         expectedVersion: "no_stream",
         context,
-        events: [{
-          eventType: "checkout.sell-list.review-planned",
-          payload: { ...review, integrityHash: await computeCheckoutCommandAttemptRequestHash(review) } as unknown as JsonObject,
-        }],
+        events: [
+          {
+            eventType: "checkout.sell-list.review-planned",
+            payload: {
+              ...review,
+              integrityHash: await computeCheckoutCommandAttemptRequestHash(review),
+            } as unknown as JsonObject,
+          },
+        ],
       });
-      recordCommittedEvents(result.storedEvents);
+      recordCommittedEvents(result);
       return review;
     } catch (error) {
       if ((error as { code?: unknown })?.code !== "concurrency_conflict") throw error;
       const prior = await read(review.sellerAccountId, review.readiness.snapshotId);
-      if (await computeCheckoutCommandAttemptRequestHash(prior) !== await computeCheckoutCommandAttemptRequestHash(review))
+      if (
+        (await computeCheckoutCommandAttemptRequestHash(prior)) !==
+        (await computeCheckoutCommandAttemptRequestHash(review))
+      )
         throw staleSellListReview();
       return prior;
     }

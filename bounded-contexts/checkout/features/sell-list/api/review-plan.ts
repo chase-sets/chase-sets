@@ -1,4 +1,3 @@
-// https://github.com/chase-sets/chase-sets/issues/10505
 import { t } from "@chase-sets/localization";
 import type { SellListReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutSellListLineRow, CheckoutSellOfferMatch } from "../read-model/queries";
@@ -57,12 +56,16 @@ export async function buildSellListReviewPlan(
     }> = [];
     let plannedRemainingQuantity = line.quantity;
 
-    for (const offerId of [...new Set((selection?.productOffers ?? [])
-      .map((target) => target.offerId.trim())
-      .filter((value) => Boolean(value) && (!isBulkOfferReview || bulkOfferIds.has(value))))]) {
+    for (const offerId of [
+      ...new Set(
+        (selection?.productOffers ?? [])
+          .map((target) => target.offerId.trim())
+          .filter((value) => Boolean(value) && (!isBulkOfferReview || bulkOfferIds.has(value))),
+      ),
+    ]) {
       try {
         const offer = await getOfferMatch(offerId);
-        if (!offer) throw new Error("Offer match not found.");
+        if (!offer) throw new Error(t("checkout.features.sellList.api.route.offer.match.not.found"));
         if (offer.product_id !== line.product_id) {
           skippedReasons.push(`${line.item_title}: matching offer ${offerId} no longer matches this product.`);
           continue;
@@ -71,7 +74,9 @@ export async function buildSellListReviewPlan(
           skippedReasons.push(`${line.item_title}: matching offer ${offerId} exceeds remaining quantity.`);
           continue;
         }
-        const feeQuoteFingerprint = selection?.productOffers?.find((target) => target.offerId.trim() === offerId)?.feeQuoteFingerprint.trim();
+        const feeQuoteFingerprint = selection?.productOffers
+          ?.find((target) => target.offerId.trim() === offerId)
+          ?.feeQuoteFingerprint.trim();
         if (!feeQuoteFingerprint) {
           skippedReasons.push(`${line.item_title}: matching offer terms need refresh.`);
           continue;
@@ -88,18 +93,21 @@ export async function buildSellListReviewPlan(
       }
     }
 
-    const createFallbackListing =
-      !isBulkOfferReview && Boolean(selection?.fallbackListing);
+    const createFallbackListing = !isBulkOfferReview && Boolean(selection?.fallbackListing);
     let fallbackListing: SellListReviewPlanLine["fallbackListing"] = null;
     if (plannedRemainingQuantity > 0 && createFallbackListing) {
       const inventoryItemId = selection!.fallbackListing!.inventoryItemId.trim();
       const priceAmount = selection!.fallbackListing!.priceAmount.trim();
       const priceCurrencyCode = selection!.fallbackListing!.priceCurrencyCode.trim();
-      const requestedQuantityCap = Number(
-        selection!.fallbackListing!.quantityCap || plannedRemainingQuantity,
-      );
+      const requestedQuantityCap = Number(selection!.fallbackListing!.quantityCap || plannedRemainingQuantity);
       const quantityCap = Math.min(plannedRemainingQuantity, requestedQuantityCap);
-      if (!inventoryItemId || !priceAmount || !priceCurrencyCode || !Number.isSafeInteger(quantityCap) || quantityCap < 1) {
+      if (
+        !inventoryItemId ||
+        !priceAmount ||
+        !priceCurrencyCode ||
+        !Number.isSafeInteger(quantityCap) ||
+        quantityCap < 1
+      ) {
         skippedReasons.push(`${line.item_title}: listing needs inventory, price, currency, and quantity.`);
       } else {
         fallbackListing = { inventoryItemId, priceAmount, priceCurrencyCode, quantityCap };
@@ -158,4 +166,3 @@ export function readinessDecisionsFromReviewPlan(plan: SellListReviewPlan): Sell
 
   return { lineActions, lineOutcomes };
 }
-

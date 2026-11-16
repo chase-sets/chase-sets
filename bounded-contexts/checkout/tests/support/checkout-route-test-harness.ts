@@ -234,11 +234,22 @@ export function readyCartReadinessResponse() {
 
 export function readySellListReadinessResponse(): SellListReviewReadiness {
   return {
-    reviewPlan: { version: 1, lines: [{
-      lineId: "sll_1", lineType: "selected-offer", itemTitle: "Mewtwo", productId: "prod_1", quantity: 1,
-      selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
-      productOfferTargets: [], fallbackListing: null, skippedReasons: [],
-    }] },
+    reviewPlan: {
+      version: 1,
+      lines: [
+        {
+          lineId: "sll_1",
+          lineType: "selected-offer",
+          itemTitle: "Mewtwo",
+          productId: "prod_1",
+          quantity: 1,
+          selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+          productOfferTargets: [],
+          fallbackListing: null,
+          skippedReasons: [],
+        },
+      ],
+    },
     decisions: { lineActions: [{ lineId: "sll_1", action: "selected-offer" }], lineOutcomes: [] },
     readiness: {
       schemaVersion: "checkout.sell-list-readiness.v1",

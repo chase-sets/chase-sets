@@ -312,10 +312,15 @@ describe("checkout web routes: sell checkout session", () => {
     return form;
   }
 
-  function mockStoredReview(plan: SellListReviewPlan, decisions: SellListReadinessDecisionInput = readySellListReadinessResponse().decisions) {
+  function mockStoredReview(
+    plan: SellListReviewPlan,
+    decisions: SellListReadinessDecisionInput = readySellListReadinessResponse().decisions,
+  ) {
     const prior = mockCreateSellListReadiness.getMockImplementation();
     mockCreateSellListReadiness.mockImplementation(async (...args) => ({
-      ...(await prior?.(...args)), reviewPlan: plan, decisions,
+      ...(await prior?.(...args)),
+      reviewPlan: plan,
+      decisions,
     }));
   }
 
@@ -1002,7 +1007,10 @@ describe("checkout web routes: sell checkout session", () => {
       },
     });
     const form = signedInSellCheckoutForm();
-    const plan = structuredClone(readySellListReadinessResponse().reviewPlan) as { version: 1; lines: SellListReviewPlan["lines"][number][] };
+    const plan = structuredClone(readySellListReadinessResponse().reviewPlan) as {
+      version: 1;
+      lines: SellListReviewPlan["lines"][number][];
+    };
     plan.lines.push(
       {
         ...plan.lines[0],
@@ -1023,11 +1031,11 @@ describe("checkout web routes: sell checkout session", () => {
       },
     );
     mockStoredReview(plan, {
-        lineActions: lines.map((line) => ({
-          lineId: line.line_id,
-          action: line.line_type === "product" ? "fallback-listing" : "selected-offer",
-        })),
-        lineOutcomes: [],
+      lineActions: lines.map((line) => ({
+        lineId: line.line_id,
+        action: line.line_type === "product" ? "fallback-listing" : "selected-offer",
+      })),
+      lineOutcomes: [],
     });
     const receipts = new Map<string, { id: string; version: number }>();
     const writes: string[] = [];
@@ -1757,11 +1765,14 @@ describe("checkout web routes: sell checkout session", () => {
   it("stored review plan survives reload and preparation", async () => {
     mockSignedInSellCheckoutState();
     const first = await sellCheckoutSessionLoader({
-      request: new Request(signedInSellCheckoutUrl()), params: { sessionId: "chk_sell_1" }, context: undefined,
+      request: new Request(signedInSellCheckoutUrl()),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
     } as never);
     const second = await sellCheckoutSessionLoader({
       request: new Request(signedInSellCheckoutUrl({ sellListReviewPlan: '{"version":1,"lines":[]}' })),
-      params: { sessionId: "chk_sell_1" }, context: undefined,
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
     } as never);
     expect(first.mode === "signed-in" ? first.reviewPlan : null).toEqual(readySellListReadinessResponse().reviewPlan);
     expect(second).toEqual(first);
@@ -1769,52 +1780,88 @@ describe("checkout web routes: sell checkout session", () => {
     expect(form.has("sellListReviewPlan")).toBe(false);
     const result = await sellCheckoutSessionAction({
       request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
-      params: { sessionId: "chk_sell_1" }, context: undefined,
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
     } as never);
     await expectSellConfirmationRedirect(result);
-    expect(mockCreateSellListReadiness).toHaveBeenLastCalledWith(expect.objectContaining({
-      entryReadinessSnapshotId: "slr_ready", entryReadinessSourceRevision: "slr_source",
-    }));
+    expect(mockCreateSellListReadiness).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        entryReadinessSnapshotId: "slr_ready",
+        entryReadinessSourceRevision: "slr_source",
+      }),
+    );
     expect(mockCreateSellListReadiness.mock.calls.at(-1)![0]).not.toHaveProperty("reviewPlan");
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", expect.objectContaining({ listingId: "lst_1" }));
   });
 
-  it.each(["missing", "foreign", "stale", "mismatched"])("stale or foreign review plan refuses before handoff: %s", async () => {
-    mockSignedInSellCheckoutState();
-    const form = signedInSellCheckoutForm();
-    mockCreateSellListReadiness.mockRejectedValue(new MockCheckoutApiError(400, {
-      error: { code: "checkout_readiness_stale" },
-    }));
-    const result = await sellCheckoutSessionAction({
-      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
-      params: { sessionId: "chk_sell_1" }, context: undefined,
-    } as never);
-    expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
-    expectNoSellerCommitSideEffects();
-  });
+  it.each(["missing", "foreign", "stale", "mismatched"])(
+    "stale or foreign review plan refuses before handoff: %s",
+    async () => {
+      mockSignedInSellCheckoutState();
+      const form = signedInSellCheckoutForm();
+      mockCreateSellListReadiness.mockRejectedValue(
+        new MockCheckoutApiError(400, {
+          error: { code: "checkout_readiness_stale" },
+        }),
+      );
+      const result = await sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+      expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
+      expectNoSellerCommitSideEffects();
+    },
+  );
 
   it("posted review plan cannot change confirmation", async () => {
     mockSignedInSellCheckoutState();
     const form = signedInSellCheckoutForm();
-    form.set("sellListReviewPlan", JSON.stringify({
-      version: 1, lines: [{ lineId: "sll_1", selectedOffer: { offerId: "off_attacker", listingId: "lst_attacker" } }],
-    }));
+    form.set(
+      "sellListReviewPlan",
+      JSON.stringify({
+        version: 1,
+        lines: [{ lineId: "sll_1", selectedOffer: { offerId: "off_attacker", listingId: "lst_attacker" } }],
+      }),
+    );
     form.set("readinessDecisions", JSON.stringify({ lineActions: [], lineOutcomes: [] }));
-    const post = () => sellCheckoutSessionAction({
-      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
-      params: { sessionId: "chk_sell_1" }, context: undefined,
-    } as never);
+    const post = () =>
+      sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
     await expectSellConfirmationRedirect(await post());
-    expect(mockAcceptOfferMatch).toHaveBeenCalledExactlyOnceWith("off_1", expect.objectContaining({
-      listingId: "lst_1", feeQuoteFingerprint: "quote_1",
-    }));
-    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(expect.objectContaining({
-      readinessDecisions: readySellListReadinessResponse().decisions,
-    }));
+    expect(mockAcceptOfferMatch).toHaveBeenCalledExactlyOnceWith(
+      "off_1",
+      expect.objectContaining({
+        listingId: "lst_1",
+        feeQuoteFingerprint: "quote_1",
+      }),
+    );
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        readinessDecisions: readySellListReadinessResponse().decisions,
+      }),
+    );
     mockGetSellListConfirmation.mockResolvedValue({ confirmation_id: "slc_chk_sell_1" });
     await expectSellConfirmationRedirect(await post(), { freshWrite: "absent" });
     expect(mockAcceptOfferMatch).toHaveBeenCalledOnce();
     expect(mockConfirmSellListCheckout).toHaveBeenCalledOnce();
   });
-
+  it("recovers a review that becomes stale during preparation before handoff", async () => {
+    mockSignedInSellCheckoutState();
+    const form = signedInSellCheckoutForm();
+    const stored = readySellListReadinessResponse();
+    mockCreateSellListReadiness
+      .mockResolvedValueOnce(stored)
+      .mockRejectedValueOnce(new MockCheckoutApiError(400, { error: { code: "checkout_readiness_stale" } }));
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
+    expectNoSellerCommitSideEffects();
+  });
 });

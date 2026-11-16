@@ -826,25 +826,37 @@ function selectedOfferLineFromPostedSnapshot(formData: FormData): Omit<AddChecko
 
 function reviewSelectionsFromForm(formData: FormData): SellListReviewSelections {
   const prefixes = ["offerFeeQuoteFingerprint:", "productOfferId:", "fallbackMode:"];
-  const lineIds = new Set([...formData.keys()].flatMap((key) => {
-    const prefix = prefixes.find((prefix) => key.startsWith(prefix));
-    return prefix ? [key.slice(prefix.length)] : [];
-  }));
+  const lineIds = new Set(
+    [...formData.keys()].flatMap((key) => {
+      const prefix = prefixes.find((prefix) => key.startsWith(prefix));
+      return prefix ? [key.slice(prefix.length)] : [];
+    }),
+  );
   return {
-    bulkOfferIds: formData.getAll("bulkOfferId").map(String).map((value) => value.trim()).filter(Boolean),
+    bulkOfferIds: formData
+      .getAll("bulkOfferId")
+      .map(String)
+      .map((value) => value.trim())
+      .filter(Boolean),
     lines: [...lineIds].map((lineId) => ({
       lineId,
       selectedOfferFeeQuoteFingerprint: formValue(formData, `offerFeeQuoteFingerprint:${lineId}`),
       productOffers: formData.getAll(`productOfferId:${lineId}`).map((value) => {
         const offerId = String(value).trim();
-        return { offerId, feeQuoteFingerprint: formValue(formData, `productOfferFeeQuoteFingerprint:${lineId}:${offerId}`) };
+        return {
+          offerId,
+          feeQuoteFingerprint: formValue(formData, `productOfferFeeQuoteFingerprint:${lineId}:${offerId}`),
+        };
       }),
-      fallbackListing: formValue(formData, `fallbackMode:${lineId}`) === "create-listing" ? {
-        inventoryItemId: formValue(formData, `inventoryItemId:${lineId}`),
-        priceAmount: formValue(formData, `priceAmount:${lineId}`),
-        priceCurrencyCode: formValue(formData, `priceCurrencyCode:${lineId}`),
-        quantityCap: formValue(formData, `quantityCap:${lineId}`),
-      } : null,
+      fallbackListing:
+        formValue(formData, `fallbackMode:${lineId}`) === "create-listing"
+          ? {
+              inventoryItemId: formValue(formData, `inventoryItemId:${lineId}`),
+              priceAmount: formValue(formData, `priceAmount:${lineId}`),
+              priceCurrencyCode: formValue(formData, `priceCurrencyCode:${lineId}`),
+              quantityCap: formValue(formData, `quantityCap:${lineId}`),
+            }
+          : null,
     })),
   };
 }
@@ -1056,10 +1068,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       }
 
       return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(
-          readiness,
-          sellCheckoutRedirectUrl(readiness),
-        ),
+        await navigateAfterWriteWithPlatformPostWriteToken(readiness, sellCheckoutRedirectUrl(readiness)),
       );
     }
 

@@ -957,40 +957,67 @@ describe("checkout sell list routes", () => {
   });
 });
 
-
 describe("API-owned Sell List review readiness", () => {
   it("returns the authenticated API-built plan and decisions", async () => {
     const f = checkoutOwnerRuntimeFixture();
     const app = buildApp({ actor: sellerActor(), services: f.services });
-    const response = await app.fetch(new Request("http://checkout.test/account/sell-list/readiness", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sellerAccountId: "acc_foreign", selections: { lines: [{
-        lineId: "sll_fixture", selectedOfferFeeQuoteFingerprint: "quote",
-      }] } }),
-    }));
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerAccountId: "acc_foreign",
+          selections: {
+            lines: [
+              {
+                lineId: "sll_fixture",
+                selectedOfferFeeQuoteFingerprint: "quote",
+              },
+            ],
+          },
+        }),
+      }),
+    );
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result).toMatchObject({
-      reviewPlan: { version: 1, lines: [{
-        lineId: "sll_fixture", selectedOffer: { offerId: "off_fixture", listingId: "lst_fixture", feeQuoteFingerprint: "quote" },
-      }] },
+      reviewPlan: {
+        version: 1,
+        lines: [
+          {
+            lineId: "sll_fixture",
+            selectedOffer: { offerId: "off_fixture", listingId: "lst_fixture", feeQuoteFingerprint: "quote" },
+          },
+        ],
+      },
       decisions: { lineActions: [{ lineId: "sll_fixture", action: "selected-offer" }], lineOutcomes: [] },
       readiness: { status: "ready" },
     });
-    const load = await app.fetch(new Request("http://checkout.test/account/sell-list/readiness", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        readinessSnapshotId: result.readiness.snapshotId, readinessSourceRevision: result.readiness.sourceRevision,
-        reviewPlan: { lines: [] }, lineActions: [],
+    const load = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          readinessSnapshotId: result.readiness.snapshotId,
+          readinessSourceRevision: result.readiness.sourceRevision,
+          reviewPlan: { lines: [] },
+          lineActions: [],
+        }),
       }),
-    }));
+    );
     expect(load.status).toBe(200);
     expect(await load.json()).toEqual(result);
-    const foreign = buildApp({ actor: { ...sellerActor(), accountId: "acc_foreign" as never }, services: f.services });
-    const refused = await foreign.fetch(new Request("http://checkout.test/account/sell-list/readiness", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ readinessSnapshotId: result.readiness.snapshotId, readinessSourceRevision: result.readiness.sourceRevision }),
-    }));
+    const foreign = buildApp({ actor: { ...sellerActor()!, accountId: "acc_foreign" as never }, services: f.services });
+    const refused = await foreign.fetch(
+      new Request("http://checkout.test/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          readinessSnapshotId: result.readiness.snapshotId,
+          readinessSourceRevision: result.readiness.sourceRevision,
+        }),
+      }),
+    );
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ error: { code: "checkout_readiness_stale" } });
   });
@@ -999,9 +1026,13 @@ describe("API-owned Sell List review readiness", () => {
     const f = checkoutOwnerRuntimeFixture();
     for (const actor of [null, sellerActor()]) {
       const app = buildApp({ actor, services: f.services });
-      const response = await app.fetch(new Request("http://checkout.test/account/sell-list/readiness", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ selections: { lines: "invalid" } }),
-      }));
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/sell-list/readiness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selections: { lines: "invalid" } }),
+        }),
+      );
       expect(response.status).toBe(actor ? 400 : 401);
     }
     expect(f.memory.allEvents).toHaveLength(0);
@@ -1010,14 +1041,19 @@ describe("API-owned Sell List review readiness", () => {
   it("keeps no-selection guest readiness unchanged", async () => {
     const services = createServices();
     const app = buildApp({ actor: null, services });
-    const response = await app.fetch(new Request("http://checkout.test/guest/sell-list/readiness", {
-      method: "POST", headers: { "Content-Type": "application/json", "x-checkout-anonymous-sell-list-id": "anon_sell_1" },
-      body: "{}",
-    }));
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-sell-list-id": "anon_sell_1" },
+        body: "{}",
+      }),
+    );
     expect(response.status).toBe(200);
     expect(Object.keys(await response.json())).toEqual(["readiness"]);
     expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
-      sellerAccountId: "anon_sell_1", decisions: { lineActions: [], lineOutcomes: [] }, sellerEvidence: null,
+      sellerAccountId: "anon_sell_1",
+      decisions: { lineActions: [], lineOutcomes: [] },
+      sellerEvidence: null,
     });
   });
 });

@@ -1,8 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  CheckoutSellListLineRow,
-  SellListReadinessSnapshot,
-} from "../../request-support/api-client";
+import type { CheckoutSellListLineRow, SellListReadinessSnapshot } from "../../request-support/api-client";
 import type { GuestSellCheckoutRecovery } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import type { SignedInSellCheckoutRecovery } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
 import { normalizeQueryText } from "./sell-checkout-form";

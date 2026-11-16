@@ -11,6 +11,7 @@ import {
   applySelectedSavedShipFromAddress,
   hasFieldErrors,
   normalizeText,
+  objectValue,
   signedInValuesFromFormData,
   validateSignedInSellCheckoutValues,
   valuesFromFormData,
@@ -198,6 +199,17 @@ export async function action({
             fields: retainedFields,
             lines: error.lines.map((line) => ({ id: line.lineId, status: line.status })),
           },
+        };
+      }
+      if (
+        error instanceof CheckoutApiError &&
+        objectValue(objectValue(error.body)?.error)?.code === "checkout_readiness_stale"
+      ) {
+        return {
+          status: "error",
+          values,
+          recovery: { kind: "readiness-stale" },
+          fieldErrors: { form: error.message },
         };
       }
       if (error instanceof SellListReviewPlanStaleError) {

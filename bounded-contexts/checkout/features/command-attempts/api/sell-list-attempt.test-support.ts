@@ -59,11 +59,20 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     const services = createCheckoutSellListRuntime({ ...f.deps, eventStore: store() });
     await seedSelectedLine(services);
     f.setLines([{ ...fixtureLine, offer_stream_version: "1" as never, listing_stream_version: "1" as never }]);
-    const issued = await services.createReviewReadiness({
-      sellerAccountId: "acc_seller", selections: { lines: [{
-        lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "synthetic_quote",
-      }] },
-    }, context);
+    const issued = await services.createReviewReadiness(
+      {
+        sellerAccountId: "acc_seller",
+        selections: {
+          lines: [
+            {
+              lineId: fixtureLine.line_id,
+              selectedOfferFeeQuoteFingerprint: "synthetic_quote",
+            },
+          ],
+        },
+      },
+      context,
+    );
     const entry = issued.readiness;
     await expect(
       services.createReadinessSnapshot(
@@ -83,7 +92,14 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     const f = checkoutOwnerRuntimeFixture();
     const services = createCheckoutSellListRuntime({ ...f.deps, eventStore: real });
     await seedSelectedLine(services);
-    const entry = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
+    const issued = await services.createReviewReadiness(
+      {
+        sellerAccountId: "acc_seller",
+        selections: { lines: [{ lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "synthetic_quote" }] },
+      },
+      context,
+    );
+    const entry = issued.readiness;
     await services.commandHandler({
       streamId: "checkout.sell-list-acc_seller",
       context,
@@ -94,7 +110,7 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
       sellerAccountId: "acc_seller",
       confirmationId: "slc_synthetic_lagged",
       entryReadinessSnapshotId: entry.snapshotId,
-      reviewPlan: "synthetic targets",
+      entryReadinessSourceRevision: entry.sourceRevision,
       ...choices,
     };
     await expect(services.createReadinessSnapshot(params, context)).rejects.toMatchObject({
@@ -102,10 +118,26 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     });
     expect((await real.readAll()).length).toBe(before);
     f.setLines([{ ...fixtureLine, quantity: 2 }]);
-    const current = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
+    const current = (
+      await services.createReviewReadiness(
+        {
+          sellerAccountId: "acc_seller",
+          selections: { lines: [{ lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "synthetic_quote" }] },
+        },
+        context,
+      )
+    ).readiness;
     expect(
-      (await services.createReadinessSnapshot({ ...params, entryReadinessSnapshotId: current.snapshotId }, context))
-        .status,
+      (
+        await services.createReadinessSnapshot(
+          {
+            ...params,
+            entryReadinessSnapshotId: current.snapshotId,
+            entryReadinessSourceRevision: current.sourceRevision,
+          },
+          context,
+        )
+      ).status,
     ).toBe("ready");
   });
   for (const owner of ["acc_seller", "anon_attempt_seller"]) {
@@ -332,12 +364,19 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     const f = checkoutOwnerRuntimeFixture();
     const services = createCheckoutSellListRuntime({ ...f.deps, eventStore: real });
     await seedSelectedLine(services);
-    const entry = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
+    const issued = await services.createReviewReadiness(
+      {
+        sellerAccountId: "acc_seller",
+        selections: { lines: [{ lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "synthetic_quote" }] },
+      },
+      context,
+    );
+    const entry = issued.readiness;
     const preparation = {
       sellerAccountId: "acc_seller",
       confirmationId: "slc_synthetic_retained",
       entryReadinessSnapshotId: entry.snapshotId,
-      reviewPlan: "synthetic reviewed targets",
+      entryReadinessSourceRevision: entry.sourceRevision,
       ...choices,
     };
     const ready = await services.createReadinessSnapshot(preparation, context);
@@ -356,13 +395,25 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     ).toEqual(entry);
     expect(await restarted.createReadinessSnapshot(preparation, context)).toEqual(ready);
     expect((await real.readAll()).length).toBe(beforeReplay);
-    const changed = await services.createReviewReadiness({
-      sellerAccountId: "acc_seller", selections: { lines: [{
-        lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "changed_quote",
-      }] },
-    }, context);
+    const changed = await services.createReviewReadiness(
+      {
+        sellerAccountId: "acc_seller",
+        selections: {
+          lines: [
+            {
+              lineId: fixtureLine.line_id,
+              selectedOfferFeeQuoteFingerprint: "changed_quote",
+            },
+          ],
+        },
+      },
+      context,
+    );
     await expect(
-      restarted.createReadinessSnapshot({ ...preparation, entryReadinessSnapshotId: changed.readiness.snapshotId }, context),
+      restarted.createReadinessSnapshot(
+        { ...preparation, entryReadinessSnapshotId: changed.readiness.snapshotId },
+        context,
+      ),
     ).rejects.toMatchObject({ code: "checkout_confirmation_changed" });
     f.setPayout("restricted");
     await expect(restarted.createReadinessSnapshot(preparation, context)).rejects.toMatchObject({

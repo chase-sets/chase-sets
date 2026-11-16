@@ -1,4 +1,3 @@
-// https://github.com/chase-sets/chase-sets/issues/10505
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { SellListReviewSelections } from "./review-plan-contracts";
 
@@ -31,12 +30,14 @@ export function parseSellListReviewSelections(value: unknown): SellListReviewSel
           const target = object(input);
           return { offerId: text(target.offerId), feeQuoteFingerprint: text(target.feeQuoteFingerprint) };
         }),
-        fallbackListing: fallback ? {
-          inventoryItemId: text(fallback.inventoryItemId),
-          priceAmount: text(fallback.priceAmount),
-          priceCurrencyCode: text(fallback.priceCurrencyCode),
-          quantityCap: text(fallback.quantityCap),
-        } : null,
+        fallbackListing: fallback
+          ? {
+              inventoryItemId: text(fallback.inventoryItemId),
+              priceAmount: text(fallback.priceAmount),
+              priceCurrencyCode: text(fallback.priceCurrencyCode),
+              quantityCap: text(fallback.quantityCap),
+            }
+          : null,
       };
     }),
   };
