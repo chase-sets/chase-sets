@@ -66,8 +66,7 @@ export function createEbaySellerSetupRuntime(deps: {
               pool: { query: db.query.bind(db), connect: deps.db.connect.bind(deps.db) },
             });
             const store: EventStore = {
-              readStream: reader.readStream.bind(reader),
-              readAll: reader.readAll.bind(reader),
+              ...reader,
               appendToStream: (input) => deps.eventStore.appendToStreamInTransaction(db, input),
             };
             const { state } = await loadOwned(store, target.accountId, target.connectionId);
