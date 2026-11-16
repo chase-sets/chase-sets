@@ -66,6 +66,33 @@ import {
   type CheckoutSellPayoutReadinessRow,
 } from "../read-model/queries";
 
+function ownedLineFromProjection(line: CheckoutSellListLineRow): CheckoutSellListLine {
+  return {
+    lineId: line.line_id as SellListLineId,
+    sellerAccountId: line.seller_account_id as AccountId,
+    lineType: line.line_type,
+    offerId: line.offer_id,
+    listingId: line.listing_id,
+    buyerAccountId: line.buyer_account_id,
+    buyerDisplayName: line.buyer_display_name,
+    offerPriceAmount: line.offer_price_amount,
+    offerPriceCurrencyCode: line.offer_price_currency_code ?? null,
+    offerStreamVersion: line.offer_stream_version ?? null,
+    listingPriceAmount: line.listing_price_amount ?? null,
+    listingPriceCurrencyCode: line.listing_price_currency_code ?? null,
+    listingStreamVersion: line.listing_stream_version ?? null,
+    catalogItemId: line.catalog_catalog_item_id,
+    productId: line.product_id,
+    itemTitle: line.item_title,
+    itemSubtitle: line.item_subtitle,
+    selectedOptions: line.selected_options,
+    productSummary: line.product_summary,
+    quantity: line.quantity,
+    fallbackMode: line.fallback_mode,
+    minimumListingPriceAmount: line.minimum_listing_price_amount,
+  };
+}
+
 function isIdempotentMergeReplay(error: unknown) {
   return (
     error instanceof Error &&
@@ -823,6 +850,13 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         return preparation.readiness;
       }
       if (params.confirmationId && params.entryReadinessSnapshotId) {
+        const byId = (left: CheckoutSellListLine, right: CheckoutSellListLine) =>
+          left.lineId.localeCompare(right.lineId);
+        if (
+          (await computeCheckoutCommandAttemptRequestHash([...aggregate!.state.lines].sort(byId))) !==
+          (await computeCheckoutCommandAttemptRequestHash(assessed.lines.map(ownedLineFromProjection).sort(byId)))
+        )
+          throw new CheckoutDomainError("Sell List confirmation changed.", "checkout_confirmation_changed");
         const entry = (
           await assessSeller({ sellerAccountId: params.sellerAccountId, decisions: params.decisions }, "readiness")
         ).snapshot;

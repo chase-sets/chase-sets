@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 26,
-      authoritativeSites: 24,
+      discoveredCallCandidates: 27,
+      authoritativeSites: 25,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -98,6 +98,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/channels/features/connections/api/owner-epochs.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
+      ["bounded-contexts/checkout/features/command-attempts/api/sell-list-attempt.test-support.ts", "CANONICAL"],
       ["bounded-contexts/fulfillment/features/seller-checkout-readiness/api/test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/api.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],

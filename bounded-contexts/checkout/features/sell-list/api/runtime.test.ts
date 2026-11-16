@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { buildTransportEvent, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
@@ -17,6 +17,7 @@ import { createSellListReadinessSnapshot, parseSellListReadinessDecisionInput } 
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { listSellListReadinessLines, type CheckoutSellListLineRow } from "../read-model/queries";
 import { createCheckoutSellListRuntime } from "./runtime";
+import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "../../cart/integrations/marketplace/marketplace-projection";
 import * as checkoutRequest from "../../../support/request-support/api-client";
 import * as marketplaceRequest from "@chase-sets/marketplace/server";
 import * as auth from "@chase-sets/platform-runtime/auth";
@@ -827,14 +828,26 @@ describe("sell list checkout runtime readiness boundary", () => {
 });
 
 describe("AC4 composed readiness, pre-confirm and merge timing", () => {
-  it.each(["manual", "saved", "missing-fulfillment", "evidence-drift"])(
+  it.each(["manual", "saved", "smart-match", "missing-fulfillment", "evidence-drift"])(
     "runs the fully-ready selected offer through the real seller review action and owner reread: %s",
     async (scenario) => {
       const f = checkoutOwnerRuntimeFixture();
+      const line =
+        scenario === "smart-match"
+          ? { ...fixtureLine, line_type: "product" as const, offer_id: null, listing_id: null }
+          : fixtureLine;
+      f.setLines([line]);
       if (scenario === "missing-fulfillment")
         f.ports.resolveOrigin.mockResolvedValue({ status: "blocked", fact: "missing" });
-      await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
-      const decisions = { lineActions: [{ lineId: fixtureLine.line_id, action: "selected-offer" as const }] };
+      await seedSellListAggregate(f.services, [line], f.memory.allEvents);
+      const decisions = {
+        lineActions: [
+          {
+            lineId: fixtureLine.line_id,
+            action: scenario === "smart-match" ? ("smart-match" as const) : ("selected-offer" as const),
+          },
+        ],
+      };
       const initial = await f.services.createReadinessSnapshot({ sellerAccountId: "acc_seller", decisions });
       const assess = vi.fn(async (body: Record<string, unknown>) => ({
         readiness: await f.services.createReadinessSnapshot(
@@ -866,7 +879,7 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
           permissions: ["accounts.view"],
         } as never),
         vi.spyOn(checkoutRequest, "createCheckoutRequestApiClient").mockReturnValue({
-          getSellList: async () => ({ items: [fixtureLine] }),
+          getSellList: async () => ({ items: [line] }),
           listSellListShipFromAddresses: async () => (scenario === "saved" ? [f.address] : []),
           getSellListPayoutReadiness: async () => ({ status: "ready" }),
           getSellListConfirmation: (id: string) =>
@@ -882,6 +895,21 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
             f.setOfferAvailable(false);
             if (scenario === "evidence-drift")
               f.getListingEvidence()!.evidence_requirements.policyHash = "synthetic_policy_changed";
+            const refreshedAt = "2026-11-07T01:02:03.000Z";
+            await buildCheckoutMarketplaceSellerOptionsProjectionHandlers(f.db as never)[
+              "marketplace.listing.evidence-requirements-refreshed"
+            ]!(
+              buildTransportEvent(
+                "marketplace.listing.evidence-requirements-refreshed",
+                {
+                  evidenceRequirements: { ...f.getListingEvidence()!.evidence_requirements, evaluatedAt: refreshedAt },
+                },
+                {
+                  streamId: "marketplace.listing-lst_fixture",
+                  timing: { occurredAt: refreshedAt, recordedAt: refreshedAt },
+                },
+              ),
+            );
             return { status: "accepted" };
           }),
           getOfferAcceptanceAttempt: async (
@@ -914,16 +942,29 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
             lines: [
               {
                 lineId: fixtureLine.line_id,
-                lineType: "selected-offer",
+                lineType: line.line_type,
                 itemTitle: fixtureLine.item_title,
                 productId: fixtureLine.product_id,
                 quantity: fixtureLine.quantity,
-                selectedOffer: {
-                  offerId: fixtureLine.offer_id,
-                  listingId: fixtureLine.listing_id,
-                  feeQuoteFingerprint: "synthetic_quote",
-                },
-                productOfferTargets: [],
+                selectedOffer:
+                  scenario === "smart-match"
+                    ? null
+                    : {
+                        offerId: fixtureLine.offer_id,
+                        listingId: fixtureLine.listing_id,
+                        feeQuoteFingerprint: "synthetic_quote",
+                      },
+                productOfferTargets:
+                  scenario === "smart-match"
+                    ? [
+                        {
+                          offerId: fixtureLine.offer_id,
+                          listingId: fixtureLine.listing_id,
+                          feeQuoteFingerprint: "synthetic_quote",
+                          quantity: 1,
+                        },
+                      ]
+                    : [],
                 fallbackListing: null,
                 skippedReasons: [],
               },

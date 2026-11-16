@@ -54,6 +54,36 @@ async function seedSelectedLine(services: ReturnType<typeof createCheckoutSellLi
 }
 
 export function sellListAttemptCases(store: () => EventStore, db: () => PgQueryable = () => catalogDb) {
+  it("refuses preparation when the owned line projection lags the stream, then accepts the current projection", async () => {
+    const real = store();
+    const f = checkoutOwnerRuntimeFixture();
+    const services = createCheckoutSellListRuntime({ ...f.deps, eventStore: real });
+    await seedSelectedLine(services);
+    const entry = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
+    await services.commandHandler({
+      streamId: "checkout.sell-list-acc_seller",
+      context,
+      command: { type: "SetSellListLineQuantity", lineId: fixtureLine.line_id as never, quantity: 2 },
+    });
+    const before = (await real.readAll()).length;
+    const params = {
+      sellerAccountId: "acc_seller",
+      confirmationId: "slc_synthetic_lagged",
+      entryReadinessSnapshotId: entry.snapshotId,
+      reviewPlan: "synthetic targets",
+      ...choices,
+    };
+    await expect(services.createReadinessSnapshot(params, context)).rejects.toMatchObject({
+      code: "checkout_confirmation_changed",
+    });
+    expect((await real.readAll()).length).toBe(before);
+    f.setLines([{ ...fixtureLine, quantity: 2 }]);
+    const current = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
+    expect(
+      (await services.createReadinessSnapshot({ ...params, entryReadinessSnapshotId: current.snapshotId }, context))
+        .status,
+    ).toBe("ready");
+  });
   for (const owner of ["acc_seller", "anon_attempt_seller"]) {
     it(`commit then loss: new add, merge and remove replay once for ${owner}`, async () => {
       const real = store();

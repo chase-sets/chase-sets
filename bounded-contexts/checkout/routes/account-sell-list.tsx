@@ -1106,7 +1106,17 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       }
 
       const marketplaceApi = createMarketplaceRequestApiClient(request);
-      const sellList = await api.getSellList();
+      if (!formData.has("declinedLineTargetsCaptured")) {
+        const sellList = await api.getSellList();
+        const declined = new Set(offerIds);
+        formData.delete("declinedLineId");
+        for (const line of sellList.items) {
+          if (line.line_type === "selected-offer" && line.offer_id && declined.has(line.offer_id))
+            formData.append("declinedLineId", line.line_id);
+        }
+        formData.set("declinedLineTargetsCaptured", "true");
+      }
+      const lineIds = formData.getAll("declinedLineId").map(String);
       const outcomes: { id: string; status: string }[] = [];
       for (const offerId of offerIds) {
         try {
@@ -1124,15 +1134,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           return attemptResult("partial", error instanceof Error ? error.message : null, outcomes);
         }
       }
-      const declined = new Set(offerIds);
-      const lineIds = formData.has("declinedLineId")
-        ? formData.getAll("declinedLineId").map(String)
-        : sellList.items
-            .filter((line) => line.line_type === "selected-offer" && line.offer_id && declined.has(line.offer_id))
-            .map((line) => line.line_id);
       if (!lineIds.length) return redirect(sellListSurfacePath);
-      for (const lineId of lineIds)
-        if (!formData.getAll("declinedLineId").includes(lineId)) formData.append("declinedLineId", lineId);
       const body = { attemptId, lineIds };
       return finishSubmission(
         await submitCheckoutCartAttempt({

@@ -87,7 +87,9 @@ async function mount(path: string, options: { desk?: boolean; cart?: boolean } =
     { initialEntries: [path] },
   );
   await act(settleRouter);
-  render(<RouterProvider router={router} />);
+  await act(async () => {
+    render(<RouterProvider router={router} />);
+  });
 }
 
 async function tick(ms = 2_000) {
@@ -149,10 +151,15 @@ describe("Sell List bounded receipt recovery through the data router", () => {
       .mockRejectedValueOnce(new TypeError("synthetic response loss"))
       .mockResolvedValue({ attempt: sellListAttemptResult() });
     let finishLookup!: (value: ReturnType<typeof sellListAttemptResult>) => void;
+    let lookupStarted!: () => void;
+    const lookupReady = new Promise<void>((resolve) => {
+      lookupStarted = resolve;
+    });
     const getSellListCommandAttempt = vi.fn().mockImplementation(
       () =>
         new Promise((resolve) => {
           finishLookup = resolve;
+          lookupStarted();
         }),
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -162,12 +169,13 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     });
     await mount("/account/sell-list");
     let submission!: Promise<void>;
+    const formData = new FormData();
+    formData.set("intent", "remove-sell-list-line");
+    formData.set("lineId", line.line_id);
+    formData.set("attemptId", "sell-list-recovery-synthetic");
     await act(async () => {
-      submission = submit({
-        intent: "remove-sell-list-line",
-        lineId: line.line_id,
-        attemptId: "sell-list-recovery-synthetic",
-      });
+      submission = router.navigate("/account/sell-list", { formMethod: "post", formData });
+      await lookupReady;
     });
     expect(screen.getByRole("alert").textContent).toContain("Confirming");
     expect(removeSellListLine).toHaveBeenCalledTimes(1);
@@ -189,88 +197,99 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     expect(getSellListCommandAttempt).toHaveBeenCalledTimes(1);
   });
 
-  it("bulk decline loss is partial per Offer, with one Marketplace owner lookup and one keyed removal batch only on explicit retry", async () => {
-    const actual = await vi.importActual<typeof import("@chase-sets/marketplace/server")>(
-      "@chase-sets/marketplace/server",
-    );
-    const committed = new Map<string, object>();
-    const sends: string[] = [];
-    const lookups: string[] = [];
-    let lose = true;
-    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input), "http://localhost");
-      if (url.pathname.includes("/mutation-attempts/")) {
-        lookups.push(url.searchParams.get("target")!);
-        return Response.json({});
+  it.each([true, false])(
+    "bulk decline loss retains its original removal targets, including an empty set (%s)",
+    async (hasOriginalLines) => {
+      const actual = await vi.importActual<typeof import("@chase-sets/marketplace/server")>(
+        "@chase-sets/marketplace/server",
+      );
+      const committed = new Map<string, object>();
+      const sends: string[] = [];
+      const lookups: string[] = [];
+      let lose = true;
+      const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname.includes("/mutation-attempts/")) {
+          lookups.push(url.searchParams.get("target")!);
+          return Response.json({});
+        }
+        const offerId = url.pathname.split("/").at(-2)!;
+        const body = JSON.parse(String(init?.body));
+        const key = `${offerId}:${body.attemptId}`;
+        if (!committed.has(key)) {
+          sends.push(offerId);
+          committed.set(key, { id: offerId, version: 2 });
+        }
+        if (offerId === "off_two" && lose) {
+          lose = false;
+          throw new TypeError("synthetic response loss");
+        }
+        return Response.json(committed.get(key));
+      });
+      const marketplace = actual.createMarketplaceApiClient({
+        baseUrl: "http://localhost/api/marketplace",
+        fetch: transport,
+      });
+      mockCreateMarketplaceRequestApiClient.mockReturnValue(marketplace);
+      const removeSellListLines = vi
+        .fn()
+        .mockResolvedValue({ attempt: sellListAttemptResult("committed", "sell-list-batch") });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        ...mockCreateCheckoutRequestApiClient(),
+        getSellList: vi.fn().mockResolvedValue({
+          items: (hasOriginalLines ? ["one", "two"] : []).map((id) => ({
+            ...line,
+            line_id: `sll_${id}`,
+            line_type: "selected-offer",
+            offer_id: `off_${id}`,
+          })),
+          count: hasOriginalLines ? 2 : 0,
+        }),
+        removeSellListLines,
+      });
+      await mount("/account/sell-list");
+      const formData = new FormData();
+      formData.set("intent", "decline-sell-list-offers");
+      formData.set("attemptId", "sell-list-bulk-recovery-synthetic");
+      for (const id of ["off_one", "off_two", "off_three"]) formData.append("bulkOfferId", id);
+      await act(async () => {
+        await router.navigate("/account/sell-list", { formMethod: "post", formData });
+      });
+      expect(screen.getByText("off_one: declined")).toBeTruthy();
+      expect(screen.getByText("off_two: ambiguous")).toBeTruthy();
+      expect(screen.getByText("off_three: not-attempted")).toBeTruthy();
+      expect(lookups).toEqual(["off_two"]);
+      expect(sends).toEqual(["off_one", "off_two"]);
+      expect(removeSellListLines).not.toHaveBeenCalled();
+      mockCreateCheckoutRequestApiClient().getSellList.mockResolvedValue({
+        items: [{ ...line, line_id: "sll_readded", line_type: "selected-offer", offer_id: "off_one" }],
+        count: 1,
+      });
+      await act(async () => {
+        fireEvent.submit(screen.getByRole("button", { name: "Retry the same action" }).closest("form")!);
+        await settleRouter();
+      });
+      expect(sends).toEqual(["off_one", "off_two", "off_three"]);
+      expect(lookups).toEqual(["off_two"]);
+      if (hasOriginalLines) {
+        expect(removeSellListLines).toHaveBeenCalledExactlyOnceWith({
+          attemptId: "sell-list-bulk-recovery-synthetic",
+          lineIds: ["sll_one", "sll_two"],
+        });
+      } else {
+        expect(removeSellListLines).not.toHaveBeenCalled();
       }
-      const offerId = url.pathname.split("/").at(-2)!;
-      const body = JSON.parse(String(init?.body));
-      const key = `${offerId}:${body.attemptId}`;
-      if (!committed.has(key)) {
-        sends.push(offerId);
-        committed.set(key, { id: offerId, version: 2 });
-      }
-      if (offerId === "off_two" && lose) {
-        lose = false;
-        throw new TypeError("synthetic response loss");
-      }
-      return Response.json(committed.get(key));
-    });
-    const marketplace = actual.createMarketplaceApiClient({
-      baseUrl: "http://localhost/api/marketplace",
-      fetch: transport,
-    });
-    mockCreateMarketplaceRequestApiClient.mockReturnValue(marketplace);
-    const removeSellListLines = vi
-      .fn()
-      .mockResolvedValue({ attempt: sellListAttemptResult("committed", "sell-list-batch") });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      ...mockCreateCheckoutRequestApiClient(),
-      getSellList: vi.fn().mockResolvedValue({
-        items: ["one", "two"].map((id) => ({
-          ...line,
-          line_id: `sll_${id}`,
-          line_type: "selected-offer",
-          offer_id: `off_${id}`,
-        })),
-        count: 2,
-      }),
-      removeSellListLines,
-    });
-    await mount("/account/sell-list");
-    const formData = new FormData();
-    formData.set("intent", "decline-sell-list-offers");
-    formData.set("attemptId", "sell-list-bulk-recovery-synthetic");
-    for (const id of ["off_one", "off_two", "off_three"]) formData.append("bulkOfferId", id);
-    await act(async () => {
-      await router.navigate("/account/sell-list", { formMethod: "post", formData });
-    });
-    expect(screen.getByText("off_one: declined")).toBeTruthy();
-    expect(screen.getByText("off_two: ambiguous")).toBeTruthy();
-    expect(screen.getByText("off_three: not-attempted")).toBeTruthy();
-    expect(lookups).toEqual(["off_two"]);
-    expect(sends).toEqual(["off_one", "off_two"]);
-    expect(removeSellListLines).not.toHaveBeenCalled();
-    await act(async () => {
-      fireEvent.submit(screen.getByRole("button", { name: "Retry the same action" }).closest("form")!);
-      await settleRouter();
-    });
-    expect(sends).toEqual(["off_one", "off_two", "off_three"]);
-    expect(lookups).toEqual(["off_two"]);
-    expect(removeSellListLines).toHaveBeenCalledExactlyOnceWith({
-      attemptId: "sell-list-bulk-recovery-synthetic",
-      lineIds: ["sll_one", "sll_two"],
-    });
-    const sentKeys = transport.mock.calls
-      .filter(([url]) => !String(url).includes("mutation-attempts"))
-      .map(([, init]) => JSON.parse(String(init?.body)).attemptId);
-    expect(sentKeys[0]).toBe(
-      createHash("sha256")
-        .update(JSON.stringify(["sell-list-decline", "sell-list-bulk-recovery-synthetic", "off_one"]))
-        .digest("base64url"),
-    );
-    expect(sentKeys.slice(2, 4)).toEqual(sentKeys.slice(0, 2));
-  });
+      const sentKeys = transport.mock.calls
+        .filter(([url]) => !String(url).includes("mutation-attempts"))
+        .map(([, init]) => JSON.parse(String(init?.body)).attemptId);
+      expect(sentKeys[0]).toBe(
+        createHash("sha256")
+          .update(JSON.stringify(["sell-list-decline", "sell-list-bulk-recovery-synthetic", "off_one"]))
+          .digest("base64url"),
+      );
+      expect(sentKeys.slice(2, 4)).toEqual(sentKeys.slice(0, 2));
+    },
+  );
 
   it.each([false, true])(
     "recovers compact-receipt Sell List review after a transient composite timeout (Desk reuse: %s)",
@@ -560,7 +579,9 @@ describe("Sell List bounded receipt recovery through the data router", () => {
       initialEntries: ["/account/sell-list?postWriteToken=pwt_test9082000000000002"],
     });
     await act(settleRouter);
-    render(<RouterProvider router={router} />);
+    await act(async () => {
+      render(<RouterProvider router={router} />);
+    });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
