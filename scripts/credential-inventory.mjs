@@ -50,6 +50,8 @@ const AGENT_TIER_REFUSED_PREFIXES = Object.freeze(["DIGITALOCEAN_", "SES_", "TCG
 const AGENT_TIER_REFUSED_INFIX = "ADMIN_PASSWORD";
 // The STRIPE_KEY_CASES family each Stripe key role's value belongs to.
 const STRIPE_KEY_FAMILIES = new Map([
+  ["STRIPE_P1_PUBLISHABLE_KEY", "publishable"],
+  ["STRIPE_P1_SECRET_KEY", "server"],
   ["STRIPE_PUBLISHABLE_KEY", "publishable"],
   ["STRIPE_SECRET_KEY", "server"],
 ]);
