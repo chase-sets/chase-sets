@@ -9,6 +9,8 @@ import { createRefreshSchedule, scheduleCredentialRefresh, type RefreshClaim } f
 import { ebayMaintenanceRevision } from "../domain/credential-maintenance";
 import { healthDigest } from "../../connection-health/domain/identity";
 import { parseTokenResponse } from "../domain/oauth";
+import { observeReason } from "../../connection-health/domain/reducer";
+import { channelHealthPolicy } from "../../connection-health/domain/policy";
 
 const at = new Date("2026-11-16T00:00:00.000Z");
 const context: EventStoreContext = {
@@ -90,7 +92,7 @@ describe("ebay-credential-refresh laws and mutation oracles", () => {
   });
   it("omitted-cycle identity mutant: otherwise identical attempts remain different work and use producer, not health, policy identity", async () => {
     const f = database();
-    const read: ChannelHealthRead = {
+    let read: ChannelHealthRead = {
       schemaVersion: "ChannelHealthRead/v1",
       connection: { connectionId: envelope.connectionId, accountId: envelope.accountId, status: "pending-setup" },
       health: {
@@ -106,10 +108,11 @@ describe("ebay-credential-refresh laws and mutation oracles", () => {
       pollingAllowed: false,
       verifiedInboundSaleAllowed: true,
     };
-    const submit = vi.fn<ConnectionHealthServices["submitObservation"]>(async () => ({
-      outcome: "accepted",
-      health: read,
-    }));
+    const submit = vi.fn<ConnectionHealthServices["submitObservation"]>(async (observation) => {
+      const reason = observeReason(read.health.reasons[0], observation, 0, channelHealthPolicy.defaultValue);
+      read = { ...read, health: { ...read.health, reasons: [reason] } };
+      return { outcome: "accepted", health: read };
+    });
     const health: ConnectionHealthServices = {
       submitObservation: submit,
       readConnectionHealth: async () => read,
@@ -138,7 +141,7 @@ describe("ebay-credential-refresh laws and mutation oracles", () => {
     expect(submit).toHaveBeenCalledTimes(2);
     const observations = submit.mock.calls.map(([observation]) => observation);
     expect(observations.map((o) => o.fingerprint)).toEqual(
-      [1, 2].map(() => healthDigest(["ebay-credential", envelope.connectionId])),
+      [1, 2].map(() => healthDigest(["ebay-credential-reason", envelope.connectionId, 1])),
     );
     expect(observations.map((o) => o.sourceWorkId)).toEqual(
       [1, 2].map((cycle) =>
@@ -155,6 +158,12 @@ describe("ebay-credential-refresh laws and mutation oracles", () => {
       .at(-1)!;
     expect(failure.values[5]).toBe("retryable");
     expect(failure.values[6]).toEqual(new Date(at.getTime() + 60000));
+    const episode = submit.mock.calls.at(-1)![0].fingerprint;
+    expect(episode).not.toBe(observations[0].fingerprint);
+    expect(read.health.reasons[0]).toMatchObject({ generation: 2, state: "degraded", fingerprint: episode });
+    await maintenance.process({ ...claim, schedule_generation: "3", attempt: 2 });
+    expect(submit.mock.calls.at(-1)![0].fingerprint).toBe(episode);
+    expect(read.health.reasons[0]).toMatchObject({ generation: 2, state: "closed", fingerprint: episode });
     expect(JSON.stringify(submit.mock.calls)).not.toContain("synthetic-private-provider-body");
   });
 });

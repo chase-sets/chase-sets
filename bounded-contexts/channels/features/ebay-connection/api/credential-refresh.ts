@@ -42,6 +42,13 @@ export function createEbayCredentialRefresh(deps: {
       },
       db,
     );
+    const previous = snapshot.health.reasons.find((reason) => reason.reasonCode === "credential");
+    // A new failure after recovery opens a new reason episode. Retries and matching recovery
+    // retain that episode across token changes; work-cycle identity remains independent.
+    const fingerprint =
+      previous && (success || previous.state !== "closed")
+        ? previous.fingerprint
+        : healthDigest(["ebay-credential-reason", claim.connection_id, (previous?.generation ?? 0) + 1]);
     const observation: ChannelHealthObservation = {
       schemaVersion: "ChannelHealthObservation/v1",
       sourceKind: "credential",
@@ -58,7 +65,7 @@ export function createEbayCredentialRefresh(deps: {
       policyRevision: snapshot.health.policyRevision,
       evaluationGeneration: snapshot.health.evaluationGeneration,
       connectionId: claim.connection_id,
-      fingerprint: healthDigest(["ebay-credential", claim.connection_id]),
+      fingerprint,
       outcome: success ? "success" : "failure",
       occurredAt: deps.now().toISOString(),
     };

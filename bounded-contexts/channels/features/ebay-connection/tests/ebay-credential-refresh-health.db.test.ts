@@ -68,7 +68,13 @@ describe("ebay-credential-refresh-health", () => {
     await r.maintenance.sweep();
     const observations = await f.observations();
     expect(observations.map((o) => o.outcome)).toEqual(["success", "success", "failure", "success"]);
-    expect(new Set(observations.map((o) => o.fingerprint)).size).toBe(1);
+    expect(observations.map((o) => o.fingerprint)).toEqual([
+      observations[0].fingerprint,
+      observations[0].fingerprint,
+      observations[2].fingerprint,
+      observations[2].fingerprint,
+    ]);
+    expect(observations[2].fingerprint).not.toBe(observations[0].fingerprint);
     const accepted = await f.db().query("SELECT observation FROM channel_health_observations ORDER BY occurred_at");
     expect(accepted.rows.map((row) => row.observation)).toEqual(observations);
     expect((await r.health.readConnectionHealth({ connectionId, accountId: f.owner })).health.reasons).toMatchObject([
@@ -131,6 +137,76 @@ describe("ebay-credential-refresh-health", () => {
       expect(
         (await f.db().query("SELECT resolved_at,resolution_reason FROM channel_connection_attention")).rows,
       ).toEqual([{ resolved_at: f.now(), resolution_reason: "recovered-automatically" }]);
+      expect((await r.maintenance.replay(connectionId)).every((result) => result.outcome === "replayed")).toBe(true);
+    },
+  );
+  it.each(["exhausted", "lifetime"])(
+    "reopens reconnect attention after successful cycles, %s and reauthorization without changing the health law",
+    async (mode) => {
+      const r = f.runtime();
+      const { connectionId } = await f.connect(r);
+      for (let i = 0; i < 2; i++) {
+        f.advance(5400);
+        await r.maintenance.sweep();
+      }
+      const before = await f.observations();
+      expect(before[0].fingerprint).toBe(before[1].fingerprint);
+      f.advance(5400);
+      if (mode === "exhausted") {
+        r.provider.refresh.mockRejectedValue(new Error("synthetic-unmapped-refusal"));
+        for (let n = 0; n < 6; n++) {
+          await r.maintenance.sweep();
+          if (n < 5) f.advance([60, 300, 1800, 7200, 21600][n]);
+        }
+      } else {
+        r.provider.refresh.mockImplementationOnce(async (tokens) =>
+          parseRefreshResponse(
+            { access_token: tokens.accessToken, expires_in: 2250, token_type: "User Access Token" },
+            f.now().toISOString(),
+            tokens,
+          ),
+        );
+        await r.maintenance.sweep();
+      }
+      const observations = await f.observations();
+      const failures = observations.filter((o) => o.outcome === "failure");
+      expect(failures).toHaveLength(mode === "exhausted" ? 6 : 1);
+      expect(new Set(failures.map((o) => o.fingerprint)).size).toBe(1);
+      expect(failures[0].fingerprint).not.toBe(before[0].fingerprint);
+      expect(
+        (
+          await f
+            .db()
+            .query("SELECT reason_generation,resolved_at FROM channel_connection_attention ORDER BY reason_generation")
+        ).rows,
+      ).toEqual([
+        { reason_generation: "1", resolved_at: new Date(before[0].occurredAt) },
+        { reason_generation: "2", resolved_at: null },
+      ]);
+      expect((await f.rows())[0]).toMatchObject({
+        last_outcome: mode === "exhausted" ? "exhausted" : "terminal",
+        due_at: null,
+      });
+      await r.service.callback(
+        f.owner,
+        await f.authorize(r, f.owner, connectionId),
+        "synthetic-reauthorization",
+        f.context(),
+      );
+      r.provider.refresh.mockImplementation(async (tokens) =>
+        parseRefreshResponse(
+          { access_token: tokens.accessToken, expires_in: 7200, token_type: "User Access Token" },
+          f.now().toISOString(),
+          tokens,
+        ),
+      );
+      f.advance(5400);
+      await r.maintenance.sweep();
+      expect(
+        (await f.db().query("SELECT resolved_at FROM channel_connection_attention WHERE reason_generation=2")).rows,
+      ).toEqual([{ resolved_at: f.now() }]);
+      const after = await f.observations();
+      expect(after.at(-1)!.fingerprint).toBe(failures[0].fingerprint);
       expect((await r.maintenance.replay(connectionId)).every((result) => result.outcome === "replayed")).toBe(true);
     },
   );
