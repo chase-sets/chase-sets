@@ -177,7 +177,8 @@ export function createEbayConnectionRuntime(deps: {
       const candidate = await provider.exchange(code, signal);
       const subject = await provider.identity(candidate.accessToken, signal);
       const fingerprint = cipher.fingerprint(subject);
-      return connectionEpochs.transaction([`connection/${attempt.candidate_connection_id}`], async (db: PgQueryable) => {
+      const creationKey = `connection/${attempt.candidate_connection_id}`;
+      return connectionEpochs.transaction([creationKey], async (db: PgQueryable) => {
         const bindingId = randomUUID();
         const sealed = cipher.seal(bindingId, subject);
         await db.query(

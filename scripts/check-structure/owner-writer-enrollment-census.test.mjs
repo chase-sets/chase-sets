@@ -94,7 +94,8 @@ describe("owner writer enrollment census", () => {
       path.join(repoRoot, "bounded-contexts/channels/features/ebay-connection/api/runtime.ts"),
       "utf8",
     );
-    const enrollment = "return connectionEpochs.transaction([`connection/${attempt.candidate_connection_id}`]";
+    const enrollment = "return connectionEpochs.transaction([creationKey]";
+    expect(callbackSource).toContain("const creationKey = `connection/${attempt.candidate_connection_id}`");
     expect(callbackSource).toContain(enrollment);
     expect(callbackSource.indexOf(enrollment)).toBeLessThan(
       callbackSource.indexOf("await deps.eventStore.appendToStreamInTransaction(db"),
