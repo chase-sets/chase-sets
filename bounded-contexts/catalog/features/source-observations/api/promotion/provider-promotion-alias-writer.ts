@@ -7,6 +7,7 @@ import type {
   CatalogAliasState,
 } from "../../../alias-equivalence/domain/domain";
 import type { CatalogAliasCandidate } from "../../../alias-equivalence/domain/alias";
+import type { CatalogAliasServices } from "../../../alias-equivalence/api/runtime";
 import {
   planPromotionAliases,
   type PromotionAliasCandidate,
@@ -52,6 +53,7 @@ export type PromotionAliasReader = Readonly<{
 export type PromotionAliasServices = PromotionAliasReader &
   Readonly<{
     catalogAliasCommandHandler: CommandHandler<CatalogAliasCommand, CatalogAliasState, CatalogAliasEvent>;
+    upsertSourceObservationAliasCandidates: CatalogAliasServices["upsertSourceObservationAliasCandidates"];
   }>;
 
 export type WritePromotionAliasesInput = Readonly<{
@@ -90,6 +92,10 @@ export async function writePromotionAliases(input: WritePromotionAliasesInput): 
     publishedReferenceRecordAliasesByRecordId,
   });
 
+  // Reconcile even when the aggregate emits nothing, including pre-existing
+  // settled streams and idempotent promotion replays.
+  await input.services.upsertSourceObservationAliasCandidates(plan.candidates, new Date().toISOString());
+
   return executePromotionAliasPlan({
     plan,
     catalogAliasCommandHandler: input.services.catalogAliasCommandHandler,
@@ -121,9 +127,9 @@ export async function executePromotionAliasPlan(input: {
 
   for (const action of input.plan.actions) {
     if (action.kind === "propose") {
-      await proposeAlias(input, action.candidate);
+      const result = await proposeAlias(input, action.candidate);
       proposed += 1;
-      if (action.accept) {
+      if (action.accept && result.version === 1) {
         await acceptAlias(input, action.candidate);
         accepted += 1;
       }
@@ -142,8 +148,8 @@ async function proposeAlias(
     context: EventStoreContext;
   },
   candidate: CatalogAliasCandidate,
-): Promise<void> {
-  await input.catalogAliasCommandHandler({
+) {
+  return input.catalogAliasCommandHandler({
     streamId: catalogAliasStreamId(candidate.aliasHash),
     command: { type: "ProposeCatalogAlias", candidate, actor: PROMOTION_ALIAS_SYSTEM_ACTOR },
     context: input.context,

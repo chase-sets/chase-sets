@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { buildCatalogAliasCandidate } from "../domain/alias";
 import { catalogAliasStreamId } from "../domain/domain";
 import { buildCatalogAliasProjectionHandlers, upsertSourceObservationAliasCandidates } from "./projection";
+import {
+  getSourceObservationAliasCandidate,
+  listSourceObservationAliasCandidates,
+  readPendingAliasCandidateAttentionWindow,
+} from "./queries";
 
 function candidate(kind: "catalog-item" | "reference-record" = "catalog-item") {
   return buildCatalogAliasCandidate(
@@ -44,6 +49,53 @@ function candidate(kind: "catalog-item" | "reference-record" = "catalog-item") {
 }
 
 describe("Source Observation alias candidate persistence", () => {
+  it("reconciles the null-target intake hash into the event's resolved identity and preserves first observation", async () => {
+    const c = candidate();
+    const intake = buildCatalogAliasCandidate({ ...c, target: { ...c.target, targetId: null } });
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildCatalogAliasProjectionHandlers({ query });
+    await handlers["catalog.alias.proposed"]?.({
+      streamId: catalogAliasStreamId(c.aliasHash),
+      data: { ...c, actor: "system", policyVersion: "alias-source-governance-v1" },
+      timing: { recordedAt: "2026-06-16T00:00:00.000Z" },
+    } as never);
+    const write = query.mock.calls.find(([sql]) =>
+      sql.includes("INSERT INTO catalog_source_observation_alias_candidates"),
+    );
+    expect(write?.[0]).toContain("DELETE FROM catalog_source_observation_alias_candidates");
+    expect(write?.[0]).toContain("MIN(first_observed_at)");
+    expect(write?.[1]?.[0]).toBe(c.aliasHash);
+    expect(write?.[1]?.[2]).toBe("cat_1");
+    expect(write?.[1]?.[19]).toBe(intake.aliasHash);
+  });
+
+  it("reuses the resolved target and hash on unchanged null-target re-intake", async () => {
+    const c = candidate();
+    const intake = buildCatalogAliasCandidate({ ...c, target: { ...c.target, targetId: null } });
+    const query = vi.fn(async (sql: string, _params?: readonly unknown[]) => ({
+      rows: sql.startsWith("SELECT target_id") ? [{ target_id: "cat_1" }] : [],
+    }));
+    await upsertSourceObservationAliasCandidates({ query }, [intake], "2026-06-17T00:00:00.000Z");
+    expect(query.mock.calls[1]?.[1]?.[0]).toBe(c.aliasHash);
+    expect(query.mock.calls[1]?.[1]?.[2]).toBe("cat_1");
+  });
+
+  it("reloads and filters candidate status from aggregate projections, never intake review_status", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    await listSourceObservationAliasCandidates({ query }, { reviewStatuses: ["rejected"] });
+    await getSourceObservationAliasCandidate({ query }, candidate().aliasHash);
+    await readPendingAliasCandidateAttentionWindow(
+      { query },
+      { now: "2026-06-17T00:00:00.000Z", limit: 20, offset: 0 },
+    );
+    for (const [sql] of query.mock.calls) {
+      expect(sql).toContain("COALESCE(item.review_status, reference.review_status, 'pending')");
+      expect(sql).toContain("LEFT JOIN catalog_item_aliases");
+      expect(sql).toContain("LEFT JOIN catalog_reference_record_aliases");
+      expect(sql).not.toContain("candidate.review_status, 'pending'");
+    }
+  });
+
   it("upserts each candidate by alias hash idempotently", async () => {
     const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
     await upsertSourceObservationAliasCandidates({ query }, [candidate()], "2026-06-16T00:00:00.000Z");

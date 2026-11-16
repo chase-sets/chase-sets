@@ -246,6 +246,15 @@ function aliasCandidate(overrides: Partial<CatalogAliasCandidateRow>): CatalogAl
 }
 
 describe("collectAliasCandidateItems", () => {
+  it("never offers row or bulk commands for unresolved item or reference aliases", () => {
+    expect(
+      collectAliasCandidateItems([
+        aliasCandidate({ target_id: null }),
+        aliasCandidate({ target_kind: "reference-record", target_id: null }),
+      ]),
+    ).toEqual([]);
+  });
+
   it("surfaces pending candidates as info with inline accept + reject", () => {
     const items = collectAliasCandidateItems([
       aliasCandidate({ alias_hash: "h1", review_status: "pending" }),

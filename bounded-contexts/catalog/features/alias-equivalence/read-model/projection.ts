@@ -11,6 +11,7 @@ import type {
   CatalogAliasTarget,
   CatalogAliasTypeKey,
 } from "../domain/alias";
+import { buildCatalogAliasCandidate } from "../domain/alias";
 import {
   enqueueCatalogItemAliasRecomputeWork,
   enqueueReferenceRecordAliasRecomputeWork,
@@ -72,9 +73,45 @@ export async function upsertSourceObservationAliasCandidates(
   candidates: readonly CatalogAliasCandidate[],
   observedAt: string,
 ): Promise<void> {
-  for (const candidate of candidates) {
+  for (const incoming of candidates) {
+    let candidate = incoming;
+    if (!incoming.target.targetId && incoming.provenance.observationId) {
+      const resolved = await db.query<{ target_id: string }>(
+        `SELECT target_id FROM catalog_source_observation_alias_candidates
+         WHERE target_id IS NOT NULL AND observation_id = $1
+           AND target_kind = $2 AND target_key = $3 AND normalized_alias_text = $4
+           AND alias_language_code = $5 AND alias_type = $6 AND provider_key = $7 AND source_category = $8
+         ORDER BY alias_hash LIMIT 1`,
+        [
+          incoming.provenance.observationId,
+          incoming.target.kind,
+          incoming.target.targetKey,
+          incoming.normalizedAliasText,
+          incoming.aliasLanguageCode,
+          incoming.aliasType,
+          incoming.provenance.providerKey,
+          incoming.provenance.sourceCategory,
+        ],
+      );
+      if (resolved.rows[0]) {
+        candidate = buildCatalogAliasCandidate({
+          ...incoming,
+          target: { ...incoming.target, targetId: resolved.rows[0].target_id },
+        });
+      }
+    }
+    const unresolvedHash = buildCatalogAliasCandidate({
+      ...candidate,
+      target: { ...candidate.target, targetId: null },
+    }).aliasHash;
     await db.query(
-      `INSERT INTO catalog_source_observation_alias_candidates (
+      `WITH reconciled AS (
+         DELETE FROM catalog_source_observation_alias_candidates
+         WHERE alias_hash = $20 AND alias_hash <> $1 AND target_id IS NULL
+           AND observation_id IS NOT DISTINCT FROM $13
+         RETURNING first_observed_at
+       )
+       INSERT INTO catalog_source_observation_alias_candidates (
          alias_hash,
          target_kind,
          target_id,
@@ -95,9 +132,11 @@ export async function upsertSourceObservationAliasCandidates(
          evidence,
          first_observed_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+         COALESCE((SELECT MIN(first_observed_at) FROM reconciled), $19::timestamptz), $19)
        ON CONFLICT (alias_hash) DO UPDATE SET
          target_id = EXCLUDED.target_id,
+         first_observed_at = LEAST(catalog_source_observation_alias_candidates.first_observed_at, EXCLUDED.first_observed_at),
          alias_text = EXCLUDED.alias_text,
          source_language_code = EXCLUDED.source_language_code,
          confidence = EXCLUDED.confidence,
@@ -128,6 +167,7 @@ export async function upsertSourceObservationAliasCandidates(
         candidate.provenance.mappingFingerprint,
         JSON.stringify(candidate.evidence),
         observedAt,
+        unresolvedHash,
       ],
     );
   }
@@ -145,6 +185,8 @@ export function buildCatalogAliasProjectionHandlers(db: PgQueryable): ProjectorH
       } else {
         await upsertReferenceRecordAlias(db, data, recordedAt, reviewedAt);
       }
+
+      await upsertSourceObservationAliasCandidates(db, [data], recordedAt);
 
       await enqueueAliasRecompute(
         db,
