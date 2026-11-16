@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 24,
-      authoritativeSites: 22,
+      discoveredCallCandidates: 25,
+      authoritativeSites: 23,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
