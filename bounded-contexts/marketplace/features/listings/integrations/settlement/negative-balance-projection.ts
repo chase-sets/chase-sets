@@ -1,4 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { createHash } from "node:crypto";
+import { listingCommandInput } from "../../../../support/request-support/listing-attempt";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceListingServices } from "../../api/runtime";
@@ -26,12 +28,16 @@ export function buildMarketplaceSettlementNegativeBalanceProjectionHandlers(
       };
 
       await listings.disableSellerListingAvailability(
-        {
+        listingCommandInput("seller.availability", {
+          status: "unavailable",
           accountId: data.accountId,
+          idempotencyKey: createHash("sha256")
+            .update(JSON.stringify(["negative-balance", event.id, data.accountId]))
+            .digest("hex"),
           reasonCategory: "operations",
           availableAgainOn: null,
           availableAgainAt: null,
-        },
+        }),
         marketplaceSystemContext(data.accountId),
       );
     },

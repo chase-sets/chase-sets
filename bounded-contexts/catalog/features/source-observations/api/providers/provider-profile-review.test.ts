@@ -51,6 +51,7 @@ describe("Catalog provider profile review", () => {
       ["tcgplayer", "2026.06.23", "valid"],
       ["tcgplayer", "2026.06.23", "valid"],
       ["tcgplayer", "2026.06.23", "valid"],
+      ["tcgplayer", "2026.11.15", "valid"],
       ["tcgplayer", "2026.06.05", "valid"],
       ["tcgplayer", "2026.07.13", "valid"],
     ]);

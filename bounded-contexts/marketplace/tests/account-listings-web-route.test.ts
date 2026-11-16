@@ -136,6 +136,7 @@ describe("marketplace listings workbench route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "disable-listing-availability");
     form.set("reasonCategory", "operations");
 
@@ -330,8 +331,8 @@ describe("marketplace listings workbench route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "bulk-pause-listings");
-    form.set("batchId", "listing_batch_0000000000000001");
     form.append("listingIds", "lst_1");
     form.append("listingIds", "lst_2");
 
@@ -357,9 +358,13 @@ describe("marketplace listings workbench route", () => {
     expect(bulkResult.bulkActionOutcomes.find((outcome) => outcome.listingId === "lst_2")).toMatchObject({
       outcome: "error",
     });
-    // One batch identity for the whole submission; the resubmitted form's id is reused, not re-minted.
+    // The mounted form's attempt plus intent identifies every retry of this submission.
     expect(batchBodies).toEqual([
-      { batchId: "listing_batch_0000000000000001", family: "listing.pause", listingIds: ["lst_1", "lst_2"] },
+      {
+        batchId: "test_form_attempt_10923_bulk-pause-listings",
+        family: "listing.pause",
+        listingIds: ["lst_1", "lst_2"],
+      },
     ]);
   });
 
@@ -420,6 +425,7 @@ describe("marketplace listings workbench route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "bulk-withdraw-listings");
     form.append("listingIds", "lst_3");
 
@@ -434,8 +440,7 @@ describe("marketplace listings workbench route", () => {
     } as never);
 
     expect(withdrawnIds).toEqual(["lst_3"]);
-    // A form without a batch id gets one minted for the whole submission.
-    expect(batchIds).toEqual([expect.stringMatching(/^listing_batch_[a-f0-9]{32}$/)]);
+    expect(batchIds).toEqual(["test_form_attempt_10923_bulk-withdraw-listings"]);
     const bulkResult = result as { bulkActionOutcomes: Array<{ listingId: string; outcome: string }> };
     expect(bulkResult.bulkActionOutcomes).toEqual([
       { listingId: "lst_3", label: expect.any(String), outcome: "success", message: null },

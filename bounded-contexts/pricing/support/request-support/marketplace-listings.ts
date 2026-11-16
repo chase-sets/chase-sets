@@ -1,6 +1,12 @@
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import type { PricingMarketplaceListingGateway } from "../../features/recommendations/api/runtime";
 
+export type {
+  MarketplaceApiClient,
+  MarketplaceCreateListingInput,
+  MarketplaceListingServices,
+} from "@chase-sets/marketplace/server";
+
 function createdListingResponse(value: unknown) {
   if (!value || typeof value !== "object") {
     return {};

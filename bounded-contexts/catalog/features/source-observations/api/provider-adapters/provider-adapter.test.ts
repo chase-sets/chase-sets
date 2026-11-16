@@ -1189,7 +1189,7 @@ describe("ProviderAdapterRegistry", () => {
     });
     expect(lorcanaSealedProduct).toMatchObject({
       unitKey: TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      profileVersion: "2026.06.23",
+      profileVersion: "2026.11.15",
       observations: [
         {
           providerKey: "tcgplayer",

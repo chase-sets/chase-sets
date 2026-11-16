@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./listing-attempt-test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
@@ -163,7 +164,10 @@ describeDb("inventory capacity recovery through stored events and projections", 
     expect(await source()).toHaveLength(0);
     await f.hold("hold_again", 1);
     await f.release("hold_again", "released", restart);
-    await restart.pauseListing({ accountId: "acc_seller", listingId: "lst_blocked" }, context);
+    await restart.pauseListing(
+      listingTestCommand("listing.pause", { accountId: "acc_seller", listingId: "lst_blocked" }),
+      context,
+    );
     await f.project();
     expect(await f.row("lst_blocked")).toMatchObject({
       pause_reason: "seller",
@@ -220,8 +224,15 @@ describeDb("inventory capacity recovery through stored events and projections", 
           if (!raced && inputs.some((i) => i.events.some((e) => e.eventType === "marketplace.listing.published"))) {
             raced = true;
             if (action === "pause")
-              await f.listings.pauseListing({ accountId: "acc_seller", listingId: "lst_race" }, context);
-            else await f.listings.withdrawListing({ accountId: "acc_seller", listingId: "lst_race" }, context);
+              await f.listings.pauseListing(
+                listingTestCommand("listing.pause", { accountId: "acc_seller", listingId: "lst_race" }),
+                context,
+              );
+            else
+              await f.listings.withdrawListing(
+                listingTestCommand("listing.withdraw", { accountId: "acc_seller", listingId: "lst_race" }),
+                context,
+              );
           }
           return inner.appendToStreams!(inputs);
         },
@@ -256,7 +267,10 @@ describeDb("inventory capacity recovery through stored events and projections", 
   it("upgrades existing Listing rows without inventing historical capacity provenance", async () => {
     const f = await fixture(pools.marketplace, 1);
     await f.create("lst_legacy", 1);
-    await f.listings.pauseListing({ accountId: "acc_seller", listingId: "lst_legacy" }, context);
+    await f.listings.pauseListing(
+      listingTestCommand("listing.pause", { accountId: "acc_seller", listingId: "lst_legacy" }),
+      context,
+    );
     await f.project();
     await pools.marketplace.query(
       "ALTER TABLE marketplace_listing_pages DROP COLUMN pause_reason, DROP COLUMN inventory_capacity_recovery_block",
@@ -385,17 +399,20 @@ async function fixture(pool: PgTransactionalPool, total: number) {
       ).rows[0],
     create: async (id: string, quantityCap: number) => {
       await listings.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_shared",
           priceAmount: "10.00",
           priceCurrencyCode: "USD",
           quantityCap,
           listingIdOverride: id as never,
-        },
+        }),
         context,
       );
-      await listings.publishListing({ accountId: "acc_seller", listingId: id }, context);
+      await listings.publishListing(
+        listingTestCommand("listing.publish", { accountId: "acc_seller", listingId: id }),
+        context,
+      );
       await project();
     },
     hold: (id: string, quantity: number) =>

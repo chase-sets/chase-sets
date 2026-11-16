@@ -1,3 +1,4 @@
+import { listingFormAttempt } from "@chase-sets/marketplace/server";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
@@ -638,11 +639,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
         });
         const quote = await marketplaceApi.previewListingTerms({ priceAmount });
         const priceResult = await marketplaceApi.updateListingPrice(listingId, {
+          ...listingFormAttempt(formData, "updateListingPrice"),
           priceAmount,
           priceCurrencyCode,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
         const result = await marketplaceApi.updateListingQuantityCap(listingId, {
+          ...listingFormAttempt(formData, "updateListingQuantityCap"),
           quantityCap,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
@@ -702,13 +705,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
               })
             ).snapshot,
           };
-      const result = (await marketplaceApi.createListing(listingBody)) as ListingCommandResult;
+      const result = (await marketplaceApi.createListing({
+        ...listingBody,
+        ...listingFormAttempt(formData, "create"),
+      })) as ListingCommandResult;
       const createdListingId = listingCommandId(result);
       const writeResults: unknown[] = [result];
 
       if (createdListingId) {
         writeResults.push(
           await marketplaceApi.publishListing(createdListingId, {
+            ...listingFormAttempt(formData, "publishListing"),
             feeQuoteFingerprint: listingFeeQuoteFingerprint(result),
           }),
         );

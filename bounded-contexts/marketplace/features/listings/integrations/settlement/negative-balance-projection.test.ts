@@ -13,6 +13,7 @@ describe("marketplace settlement negative-balance projection", () => {
     const handlers = buildMarketplaceSettlementNegativeBalanceProjectionHandlers(listings);
 
     await handlers["settlement.wallet.negative-balance-collections-opened"]!({
+      id: "evt_negative_balance_1",
       data: {
         accountId: "acc_seller",
         balanceAmount: "-125.00",
@@ -25,6 +26,9 @@ describe("marketplace settlement negative-balance projection", () => {
 
     expect(listings.disableSellerListingAvailability).toHaveBeenCalledWith(
       {
+        idempotencyKey: expect.stringMatching(/^[a-f0-9]{64}$/),
+        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        status: "unavailable",
         accountId: "acc_seller",
         reasonCategory: "operations",
         availableAgainOn: null,
