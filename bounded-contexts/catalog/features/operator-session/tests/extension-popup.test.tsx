@@ -26,8 +26,8 @@ const validBody = {
   ],
 };
 
-function mount(setNameRequest = vi.fn(), copyProbeReport?: (text: string) => Promise<void>) {
-  return render(
+async function mount(setNameRequest = vi.fn(), copyProbeReport?: (text: string) => Promise<void>) {
+  const view = render(
     <ChaseRoot>
       <OperatorExtensionPopup
         request={vi.fn().mockResolvedValue(status)}
@@ -36,14 +36,15 @@ function mount(setNameRequest = vi.fn(), copyProbeReport?: (text: string) => Pro
       />
     </ChaseRoot>,
   );
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Run probe" }) as HTMLButtonElement).disabled).toBe(false),
+  );
+  return view;
 }
 
 describe("TCGplayer SetNames popup states", () => {
   it("starts empty only after all product-line inputs are cleared and disables Run", async () => {
-    mount();
-    await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Run probe" }) as HTMLButtonElement).disabled).toBe(false),
-    );
+    await mount();
     for (const input of screen
       .getAllByRole("textbox")
       .filter((element) => element.getAttribute("inputmode") === "numeric"))
@@ -63,7 +64,7 @@ describe("TCGplayer SetNames popup states", () => {
       body: typeof validBody;
     }) => void;
     const request = vi.fn(() => new Promise((done) => (resolve = done))).mockName("setNamesRequest");
-    mount(request);
+    await mount(request);
     for (const input of screen
       .getAllByRole("textbox")
       .filter((element) => element.getAttribute("inputmode") === "numeric")
@@ -110,7 +111,7 @@ describe("TCGplayer SetNames popup states", () => {
     const request = vi.fn(async () => response);
     const copyProbeReport = vi.fn(async () => {});
     try {
-      mount(request, copyProbeReport);
+      await mount(request, copyProbeReport);
       for (const input of screen
         .getAllByRole("textbox")
         .filter((element) => element.getAttribute("inputmode") === "numeric")
@@ -156,7 +157,7 @@ describe("TCGplayer SetNames popup states", () => {
     const copyProbeReport = vi.fn(async () => {
       throw new Error("clipboard unavailable");
     });
-    mount(request, copyProbeReport);
+    await mount(request, copyProbeReport);
     fireEvent.click(screen.getByRole("button", { name: "Run probe" }));
     await waitFor(() => expect(screen.getByLabelText("Report")).toBeTruthy(), { timeout: 10_000 });
     const report = screen.getByLabelText("Report") as HTMLTextAreaElement;
@@ -186,7 +187,7 @@ describe("TCGplayer SetNames popup states", () => {
       body: null,
       code: "timeout" as const,
     }));
-    mount(request);
+    await mount(request);
     fireEvent.click(screen.getByRole("button", { name: "Run probe" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("timeout"), { timeout: 10_000 });
   });
