@@ -627,6 +627,9 @@ pub struct CommandOutcome {
     pub index: usize,
     /// `succeeded`, `conflict` or `error`.
     pub outcome: String,
+    /// The Sell List line it wrote, when it names one (a Sell List attempt's).
+    #[serde(default)]
+    pub line_id: Option<String>,
     /// What it did to the cart: `added` or `merged` for an add, among others.
     #[serde(default)]
     pub status: Option<String>,
@@ -660,38 +663,100 @@ struct ErrorMessage {
     message: Option<String>,
 }
 
+/// What a cart attempt's lookup names as its target: the whole cart.
 const CART_ATTEMPT_TARGET: &str = "cart";
 
-/// One cart write the Checkout API keeps as a command attempt (`submitCheckoutCartAttempt`): the
-/// cart's line commands, or an item page's new line, for the account's cart or a guest's. `body`
-/// is what is sent less the attempt id, which the lookup names by its hash.
+/// What a Sell List add's or batch's lookup names as its target: the whole list.
+const SELL_LIST_ATTEMPT_TARGET: &str = "sell-list";
+
+/// The lines a write changes: the buy cart's or the Sell List's. Both are Checkout's command
+/// attempts, sent and looked up the same way (marketplace sends both with
+/// `submitCheckoutCartAttempt`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lines {
+    Cart,
+    SellList,
+}
+
+impl Lines {
+    fn path(self) -> &'static str {
+        match self {
+            Lines::Cart => "/cart",
+            Lines::SellList => "/sell-list",
+        }
+    }
+
+    /// The header a guest's lines are named by.
+    fn guest_header(self) -> &'static str {
+        match self {
+            Lines::Cart => ANONYMOUS_CART_HEADER,
+            Lines::SellList => ANONYMOUS_SELL_LIST_HEADER,
+        }
+    }
+}
+
+/// One write the Checkout API keeps as a command attempt (`submitCheckoutCartAttempt`): the
+/// cart's line commands or an item page's new line, or a Sell List line added or removed, for the
+/// account's lines or a guest's. `body` is what is sent less the attempt id, which the lookup
+/// names by its hash.
 #[derive(Clone, Debug)]
 pub struct CartWrite {
-    /// After the cart's path: `/commands`, or nothing for a new line.
-    path: &'static str,
+    lines: Lines,
+    /// After the lines' path: `/commands`, a line's `/{id}/remove`, or nothing for a new line.
+    path: String,
     /// `CheckoutCommandAttemptKind`.
     kind: &'static str,
+    /// What the lookup names: the cart, the Sell List, or the Sell List line removed.
+    target: String,
     pub body: serde_json::Value,
-    /// A guest cart (`anon_...`), written through the guest routes.
+    /// A guest cart or guest Sell List (`anon_...`), written through the guest routes.
     guest: Option<String>,
 }
 
 impl CartWrite {
+    fn cart(path: &str, kind: &'static str, body: serde_json::Value, guest: Option<String>) -> Self {
+        CartWrite { lines: Lines::Cart, path: path.to_owned(), kind, target: CART_ATTEMPT_TARGET.to_owned(), body, guest }
+    }
+
+    fn sell_list(path: String, kind: &'static str, target: &str, body: serde_json::Value, guest: Option<String>) -> Self {
+        CartWrite { lines: Lines::SellList, path, kind, target: target.to_owned(), body, guest }
+    }
+
     /// The cart page's commands, applied all or nothing per command (`POST /account/cart/commands`).
     pub fn commands(commands: &[CartCommand]) -> Self {
-        CartWrite { path: "/commands", kind: "cart.commands", body: serde_json::json!({ "commands": commands }), guest: None }
+        CartWrite::cart("/commands", "cart.commands", serde_json::json!({ "commands": commands }), None)
     }
 
     /// A new line (`POST /account/cart`, or `/guest/cart` for a guest cart).
     pub fn add_line(line: &impl Serialize, guest: Option<String>) -> Self {
-        let body = serde_json::to_value(line).unwrap_or_default();
-        CartWrite { path: "", kind: "cart.add-line", body, guest }
+        CartWrite::cart("", "cart.add-line", serde_json::to_value(line).unwrap_or_default(), guest)
     }
 
     /// Many new lines in one attempt (`POST /account/cart/bulk`, or `/guest/cart/bulk`), each
     /// line's outcome in the attempt's vector at its index.
     pub fn add_lines(lines: &[serde_json::Value], guest: Option<String>) -> Self {
-        CartWrite { path: "/bulk", kind: "cart.add-lines", body: serde_json::json!({ "lines": lines }), guest }
+        CartWrite::cart("/bulk", "cart.add-lines", serde_json::json!({ "lines": lines }), guest)
+    }
+
+    /// A Sell List line (`POST /account/sell-list`, or `/guest/sell-list` for the guest Sell List
+    /// `guest`; `submitCheckoutSellListAdd`): a `sell-list-line` attempt for the list, so a line
+    /// sent twice is added once.
+    pub fn sell_list_add(line: &impl Serialize, guest: Option<String>) -> Self {
+        let body = serde_json::to_value(line).unwrap_or_default();
+        CartWrite::sell_list(String::new(), "sell-list-line", SELL_LIST_ATTEMPT_TARGET, body, guest)
+    }
+
+    /// A Sell List line removed (`POST /account/sell-list/{line}/remove`): a `sell-list-line`
+    /// attempt for that line.
+    pub fn sell_list_remove(line: &str, guest: Option<String>) -> Self {
+        CartWrite::sell_list(format!("/{}/remove", segment(line)), "sell-list-line", line, serde_json::json!({}), guest)
+    }
+
+    /// The account's Sell List lines removed in one attempt (`POST /account/sell-list/commands`, a
+    /// `sell-list-batch`), as Decline selected removes the declined offers' lines.
+    pub fn sell_list_remove_lines(lines: &[String]) -> Self {
+        let body = serde_json::json!({ "lineIds": lines });
+        CartWrite::sell_list("/commands".to_owned(), "sell-list-batch", SELL_LIST_ATTEMPT_TARGET, body, None)
     }
 
     /// The same write to the guest cart `guest` (`/guest/cart/commands`), or the account's.
@@ -711,12 +776,9 @@ const ANONYMOUS_CART_HEADER: &str = "x-checkout-anonymous-cart-id";
 const ANONYMOUS_SELL_LIST_HEADER: &str = "x-checkout-anonymous-sell-list-id";
 
 /// The sell list's calls (`/account/sell-list`, `/guest/sell-list` for a guest's). `guest` is
-/// the guest sell list a browser presents; `None` is the account's.
+/// the guest sell list a browser presents; `None` is the account's. A line added or removed is a
+/// command attempt, sent as a [`CartWrite`] (`cart_attempt::submit`).
 pub trait SellList {
-    /// Adds a line (`AddCheckoutSellListLineRequest`) to the account's sell list, or to the guest
-    /// sell list `guest`. The API takes no attempt id: a product line sent again adds its
-    /// quantity again (chase-sets/chase-sets#9995). The answer is the write's receipt.
-    async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
     /// The sell list's lines, their quantity and (the account's) latest seller confirmation.
     async fn sell_list(&self, guest: Option<&str>) -> Result<SellListRead, ApiError>;
     /// The account's offer and Smart Match reviews and the inventory a fallback listing ships
@@ -728,28 +790,44 @@ pub trait SellList {
     /// Whether the account's payouts are set up (`getSellListPayoutReadiness`).
     async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError>;
     /// The sell list's readiness with the seller's `decisions`, as a snapshot seller checkout starts
-    /// from, and the write's receipt.
+    /// from, and the write's receipt. Seller checkout names its `confirmation`, which Checkout
+    /// checks the snapshot against (chase-sets/chase-sets#9995).
     async fn sell_list_readiness(
         &self,
         decisions: &ReadinessDecisions,
         guest: Option<&str>,
+        confirmation: Option<&str>,
     ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
     /// The account's readiness with the seller's `decisions`, the ship-from and label `choices`
     /// Checkout works seller readiness out from, and the seller confirmation evidence seller
-    /// checkout sends before its handoff.
+    /// checkout sends before its handoff, for the confirmation and the snapshot and plan it
+    /// started from (`entry`).
     async fn seller_readiness(
         &self,
         decisions: &ReadinessDecisions,
         choices: &SellerChoices,
         evidence: &SellerEvidence,
+        entry: &ReadinessEntry<'_>,
     ) -> Result<SellListSnapshot, ApiError>;
     /// A seller confirmation (`GET /sell-list/confirmations/{id}`); 404 while it is not saved.
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError>;
     /// Confirms seller checkout (`POST /sell-list/confirm`): the write's receipt.
     async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
-    async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
     /// Moves the guest sell list's lines into the account's: how many moved, and the receipt.
     async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError>;
+}
+
+/// What seller checkout's readiness names (`confirmationId`, `entryReadinessSnapshotId`,
+/// `reviewPlan`): the confirmation it is for, and the snapshot and review plan the page started
+/// from. Checkout refuses one that no longer matches (409, `checkout_confirmation_changed`).
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessEntry<'a> {
+    pub confirmation_id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub entry_readiness_snapshot_id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub review_plan: &'a str,
 }
 
 fn sell_list_path(guest: Option<&str>, rest: &str) -> String {
@@ -767,11 +845,6 @@ fn sell_list_request(caller: &Caller<'_>, method: Method, guest: Option<&str>, r
 }
 
 impl SellList for Caller<'_> {
-    async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
-        let req = sell_list_request(self, Method::POST, guest, "").json(line);
-        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
-    }
-
     async fn sell_list(&self, guest: Option<&str>) -> Result<SellListRead, ApiError> {
         // A read, sent as `write` sends a request (its answer checked, then its JSON).
         Ok(self.write(sell_list_request(self, Method::GET, guest, "")).await?.0)
@@ -801,12 +874,22 @@ impl SellList for Caller<'_> {
         &self,
         decisions: &ReadinessDecisions,
         guest: Option<&str>,
+        confirmation: Option<&str>,
     ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Sent<'a> {
+            #[serde(flatten)]
+            decisions: &'a ReadinessDecisions,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            confirmation_id: Option<&'a str>,
+        }
         #[derive(Deserialize)]
         struct Body {
             readiness: SellListSnapshot,
         }
-        let req = sell_list_request(self, Method::POST, guest, "/readiness").json(decisions);
+        let sent = Sent { decisions, confirmation_id: confirmation };
+        let req = sell_list_request(self, Method::POST, guest, "/readiness").json(&sent);
         let (body, receipt): (Body, _) = self.write(req).await?;
         Ok((body.readiness, receipt))
     }
@@ -816,6 +899,7 @@ impl SellList for Caller<'_> {
         decisions: &ReadinessDecisions,
         choices: &SellerChoices,
         evidence: &SellerEvidence,
+        entry: &ReadinessEntry<'_>,
     ) -> Result<SellListSnapshot, ApiError> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -825,6 +909,8 @@ impl SellList for Caller<'_> {
             #[serde(flatten)]
             choices: &'a SellerChoices,
             seller_evidence: &'a SellerEvidence,
+            #[serde(flatten)]
+            entry: &'a ReadinessEntry<'a>,
         }
         #[derive(Deserialize)]
         struct Body {
@@ -834,6 +920,7 @@ impl SellList for Caller<'_> {
             decisions,
             choices,
             seller_evidence: evidence,
+            entry,
         });
         Ok(self.write::<Body>(req).await?.0.readiness)
     }
@@ -844,12 +931,6 @@ impl SellList for Caller<'_> {
 
     async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
         let req = sell_list_request(self, Method::POST, None, "/confirm").json(body);
-        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
-    }
-
-    async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
-        let req =
-            sell_list_request(self, Method::POST, guest, &format!("/{}/remove", segment(line))).json(&serde_json::json!({}));
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
@@ -1530,9 +1611,10 @@ impl Checkout for Caller<'_> {
         if let Some(fields) = body.as_object_mut() {
             fields.insert("attemptId".to_owned(), attempt.into());
         }
-        let mut req = self.request(Method::POST, &format!("{}/cart{}", write.owner(), write.path), CHECKOUT).json(&body);
+        let path = format!("{}{}{}", write.owner(), write.lines.path(), write.path);
+        let mut req = self.request(Method::POST, &path, CHECKOUT).json(&body);
         if let Some(id) = &write.guest {
-            req = req.header(ANONYMOUS_CART_HEADER, id);
+            req = req.header(write.lines.guest_header(), id);
         }
         let sent = req.send().await;
         let Ok(res) = sent else { return CartAnswer::Lost };
@@ -1554,10 +1636,11 @@ impl Checkout for Caller<'_> {
     async fn cart_attempt(&self, attempt: &str, write: &CartWrite) -> Option<CartAttempt> {
         let hash = crate::cart_attempt::request_hash(&write.body);
         let path = format!(
-            "{}/command-attempts/{}?kind={}&target={CART_ATTEMPT_TARGET}&requestHash={hash}",
+            "{}/command-attempts/{}?kind={}&target={}&requestHash={hash}",
             write.owner(),
             segment(attempt),
             write.kind,
+            segment(&write.target),
         );
         #[derive(Deserialize)]
         struct Found {
@@ -1565,7 +1648,7 @@ impl Checkout for Caller<'_> {
         }
         let mut req = self.request(Method::GET, &path, CHECKOUT);
         if let Some(id) = &write.guest {
-            req = req.header(ANONYMOUS_CART_HEADER, id);
+            req = req.header(write.lines.guest_header(), id);
         }
         match self.write::<Found>(req).await {
             Ok((found, _)) => Some(found.attempt),

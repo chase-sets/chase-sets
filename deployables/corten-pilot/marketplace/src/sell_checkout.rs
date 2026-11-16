@@ -15,6 +15,14 @@
 //! `POST /sell-list/confirm` with what it did and the same choices. The confirmation page is read
 //! after that write.
 //!
+//! A confirm converges as marketplace's does (chase-sets/chase-sets#9995): a confirmation saved
+//! already is looked for first; readiness names the confirmation and the snapshot and plan the page
+//! started from; each acceptance is checked against the attempt Marketplace kept for it (this
+//! seller's, this offer's, this request's), so an offer accepted another way stops the handoff;
+//! a handoff that stops part way draws the page with each line's result, its form held and the
+//! same form to send again (409); and a confirm whose answer was lost is looked up, the page held
+//! the same way when it is not found.
+//!
 //! A guest's page is the same review of the guest sell list; confirming checks the fields and goes
 //! to marketplace's registration, back to the Sell List.
 //!
@@ -36,16 +44,18 @@ use serde_json::{Value, json};
 use crate::{
     api::{
         ApiError, CheckoutSessions as _, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus, LabelChoice,
-        LineAction, LineKept, Listings as _, OfferMatchCalls as _, ReadinessDecisions, SavedAddress, SellList as _,
-        SellListConfirmation, SellListRow, SellListSnapshot, SellPayoutReadiness, SellerChoices, SellerEvidence, ShipFromChoice,
+        LineAction, LineKept, Listings as _, OfferMatchCalls as _, OfferPolicyCalls as _, ReadinessDecisions, ReadinessEntry,
+        SavedAddress, SellList as _, SellListConfirmation, SellListRow, SellListSnapshot, SellPayoutReadiness, SellerChoices,
+        SellerEvidence, ShipFromChoice,
     },
     app::{Shared, read_failed, sign_in_back_to, url},
     auth::Session,
+    cart_attempt::{self, State as Attempted},
     items::Raw,
     listing_new::first,
     sell_list::{self, Plan, PlanLine, PlanListing, PlanOffer, PlanTarget, guest_id},
     selling::account_sell_list,
-    text::{SellCheckoutMsg, SellListMsg},
+    text::{Pilot, SellCheckoutMsg, SellListMsg},
     views::{self, Layout},
 };
 
@@ -317,6 +327,32 @@ pub struct Screen {
     /// The decisions and the review plan, as the form sends them back.
     pub decisions: String,
     pub plan: String,
+    /// The last confirm, when it is not known to have finished or finished in part.
+    pub attempt: Option<Attempt>,
+}
+
+/// A confirm not known to have finished, or finished only in part (marketplace's
+/// `SellListAttemptState`): each line's result, and the form as posted to send again. The page's
+/// form waits until it is.
+#[derive(Clone, Debug)]
+pub struct Attempt {
+    /// `Ambiguous` or `Partial`.
+    pub state: Attempted,
+    pub lines: Vec<(String, LineResult)>,
+    pub resend: Vec<(String, String)>,
+}
+
+/// What a line came to when the handoff stopped (`SellListHandoffLineResult`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineResult {
+    Completed,
+    Partial,
+    /// Its offer was accepted, but not as this sale's.
+    Conflict,
+    /// Its write failed or its answer was lost: not known.
+    Unconfirmed,
+    /// Not sent: an earlier line stopped the handoff.
+    NotSent,
 }
 
 impl Screen {
@@ -599,7 +635,16 @@ const STALE: &[&str] = &[
 pub enum Stopped {
     /// What the seller reviewed changed: back to the Sell List, with why.
     Stale(String),
+    /// An offer accepted already, but not as this sale's acceptance (`offer_already_accepted`).
+    Taken(String),
     Failed(ApiError),
+}
+
+/// A handoff that stopped part way: why, and each line's result (`SellListHandoffInterruptedError`).
+#[derive(Debug)]
+pub struct Interrupted {
+    pub stop: Stopped,
+    pub lines: Vec<(String, LineResult)>,
 }
 
 /// What the handoff did: the confirm's body parts and every write's receipt.
@@ -614,6 +659,8 @@ pub struct Handoff {
 /// The calls the handoff makes, so tests can stand in for Marketplace.
 pub trait Market {
     async fn accept(&self, offer: &str, body: &Value) -> Result<Option<Receipt>, ApiError>;
+    /// The attempt Marketplace kept for an acceptance (`getOfferAcceptanceAttempt`), unparsed.
+    async fn acceptance(&self, offer: &str, key: &str, hash: &str) -> Result<Value, ApiError>;
     async fn create(&self, body: &Value) -> Result<(String, Option<String>, Option<Receipt>), ApiError>;
     async fn publish(&self, listing: &str, fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError>;
 }
@@ -621,6 +668,10 @@ pub trait Market {
 impl Market for platform::api::Caller<'_> {
     async fn accept(&self, offer: &str, body: &Value) -> Result<Option<Receipt>, ApiError> {
         self.accept_offer_match(offer, body).await
+    }
+
+    async fn acceptance(&self, offer: &str, key: &str, hash: &str) -> Result<Value, ApiError> {
+        self.marketplace_attempt(key, "offer.accept", offer, hash).await
     }
 
     async fn create(&self, body: &Value) -> Result<(String, Option<String>, Option<Receipt>), ApiError> {
@@ -633,16 +684,63 @@ impl Market for platform::api::Caller<'_> {
     }
 }
 
-/// One acceptance: an offer already accepted (a resent form) counts with no write; a stale one stops
-/// the handoff (`acceptOfferMatchWithRecovery`).
-async fn accept(m: &impl Market, t: SellListMsg, offer: &str, title: &str, body: Value) -> Result<Option<Receipt>, Stopped> {
+/// The canonical request an acceptance's attempt is kept with (`marketplaceOfferCanonicalRequest`),
+/// hashed (`hashMarketplaceRequest`).
+pub fn acceptance_hash(offer: &str, body: &Value) -> String {
+    let field = |name: &str| body.get(name).cloned().unwrap_or(Value::Null);
+    crate::market_following::request_hash(&json!({
+        "offerId": offer, "listingId": field("listingId"), "feeQuoteFingerprint": field("feeQuoteFingerprint"),
+        "acceptanceBatchId": field("acceptanceBatchId"), "acceptanceBatchSize": field("acceptanceBatchSize"),
+    }))
+}
+
+/// SHA-256, in hex, of an acceptance's key, as Marketplace keeps it (`attemptKeyFingerprint`).
+pub fn key_fingerprint(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(key.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Whether the attempt Marketplace kept is this acceptance: committed, `offer.accept`, by
+/// `seller`, of `offer`, with this key and request.
+fn accepted_as(observed: &Value, seller: &str, offer: &str, key: &str, hash: &str) -> bool {
+    let at = |pointer: &str| observed.pointer(pointer).and_then(Value::as_str);
+    at("/ownerStatus") == Some("committed")
+        && at("/mutationKind") == Some("offer.accept")
+        && at("/actorBinding/accountId") == Some(seller)
+        && at("/target/kind") == Some("offer")
+        && at("/target/id") == Some(offer)
+        && at("/attemptKeyFingerprint") == Some(key_fingerprint(key).as_str())
+        && at("/canonicalRequestHash") == Some(hash)
+        && at("/ownerReceipt/id") == Some(offer)
+}
+
+/// One acceptance (`acceptOfferMatchWithRecovery`): applied, it must be the attempt Marketplace
+/// kept for this seller, offer and request, or the offer was taken another way; an offer accepted
+/// already is taken, not counted; a stale one stops the handoff for review.
+async fn accept(
+    m: &impl Market,
+    t: SellListMsg,
+    p: Pilot,
+    seller: &str,
+    offer: &str,
+    title: &str,
+    body: Value,
+) -> Result<Option<Receipt>, Stopped> {
     let error = match m.accept(offer, &body).await {
-        Ok(receipt) => return Ok(receipt),
+        Ok(receipt) => {
+            let key = body["sourceActionKey"].as_str().unwrap_or_default();
+            let hash = acceptance_hash(offer, &body);
+            return match m.acceptance(offer, key, &hash).await {
+                Ok(observed) if accepted_as(&observed, seller, offer, key, &hash) => Ok(receipt),
+                Ok(_) => Err(Stopped::Taken(p.sell_list_offer_taken(title).to_string())),
+                Err(error) => Err(Stopped::Failed(error)),
+            };
+        }
         Err(error) => error,
     };
     let code = error.code().unwrap_or_default().to_owned();
     if code == "offer_already_accepted" {
-        Ok(None)
+        Err(Stopped::Taken(error.refusal().map_or_else(|| p.sell_list_offer_taken(title).to_string(), str::to_owned)))
     } else if STALE.contains(&code.as_str()) && code.starts_with("managed_offer_") {
         Err(Stopped::Stale(t.route_managed_offer_refresh_detail(title).to_string()))
     } else if STALE.contains(&code.as_str()) {

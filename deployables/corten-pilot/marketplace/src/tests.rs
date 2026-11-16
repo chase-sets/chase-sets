@@ -724,10 +724,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = sell_confirmations(&stand, &method, uri.path(), &headers, &body) {
         return answer;
     }
-    if let Some(answer) = sell_list_page(session, &method, &uri, &headers, &body) {
+    if let Some(answer) = sell_list_page(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = sell_list(&method, uri.path(), &headers, &body) {
+    if let Some(answer) = sell_list(&stand, &method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = product_alerts(&method, uri.path(), &headers, &body) {
@@ -1373,11 +1373,12 @@ const GUEST_ATTEMPTS: &str = "/api/marketplace/guest/command-attempts/";
 /// An item page's cart add, as the stand-in answers it, to the account's cart or (with its id) a
 /// guest's. The quantity says what happens: 7 is refused with nothing applied, 8 applies and its
 /// answer is lost, 9's answer is lost and nothing is kept; any other applies, at position 12. A
-/// guest's lookup answers what was kept.
+/// guest's lookup (with its cart's or its Sell List's id) answers what was kept.
 fn cart_add(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
     if let Some(id) = path.strip_prefix(GUEST_ATTEMPTS) {
-        return Some(match (guest, stand.kept.lock().unwrap().get(id)) {
+        let list = headers.get("x-checkout-anonymous-sell-list-id").and_then(|v| v.to_str().ok());
+        return Some(match (guest.or(list.filter(|id| id.starts_with("anon_"))), stand.kept.lock().unwrap().get(id)) {
             (None, _) => refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "Sign in."),
             (Some(_), Some(attempt)) => Json(json!({ "attempt": attempt })).into_response(),
             (Some(_), None) => refusal(StatusCode::NOT_FOUND, "command_attempt_not_found", "Command attempt not found."),
@@ -1418,8 +1419,10 @@ const STANDARD_TERMS: &str = "/api/marketplace/terms/public-standard/listing-pre
 
 /// A sell-list add and the public standard terms, as the stand-in answers them. An offer's line
 /// is refused as the API refuses one without a listing (chase-sets/chase-sets#8830); a product's
-/// is added at position 13. The terms are a 5% fee and a 5% shipping allowance.
-fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// is added at position 13, as its attempt (chase-sets/chase-sets#9995), which a lookup answers:
+/// quantity 8's answer is lost after it applies, and 9's is lost with nothing kept. The terms are
+/// a 5% fee and a 5% shipping allowance.
+fn sell_list(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     if *method != Method::POST {
         return None;
     }
@@ -1451,10 +1454,23 @@ fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Op
             "Selected offer sell-list lines must reference an Offer and exact Listing.",
         ));
     }
+    if sent["quantity"].as_u64() == Some(9) {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    let kept = json!({
+        "ownerStatus": "committed",
+        "vector": [{ "lineId": "sll_new", "outcome": "succeeded", "message": null }],
+        "commitReceipt": { "eventId": "evt_sell", "globalPosition": "13" },
+    });
+    stand.kept.lock().unwrap().insert(sent["attemptId"].as_str().unwrap_or_default().to_owned(), kept.clone());
+    if sent["quantity"].as_u64() == Some(8) {
+        return Some(StatusCode::BAD_GATEWAY.into_response());
+    }
     let receipt = r#"[{"sourceContextName":"checkout","maxGlobalPosition":"13","eventIds":["evt_sell"]}]"#;
     let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "13".to_owned()), ("chase-sets-commit-receipt", receipt)];
-    Some((StatusCode::CREATED, headers, Json(json!({ "id": "sll_new", "version": 1, "status": "added" }))).into_response())
+    let answer = json!({ "id": "sll_new", "version": 1, "status": "added", "attempt": kept });
+    Some((StatusCode::CREATED, headers, Json(answer)).into_response())
 }
 
 /// A listing's evidence as the sell list reviews it: a front matched by `ph_front`, an unmatched
@@ -1513,8 +1529,10 @@ fn sell_terms(fingerprint: &str) -> Value {
 /// `trader`'s latest seller confirmation is `slc_01J`; any other account's list is empty. A read that
 /// waits for 43 is still catching up. The guest list `anon_one` has the offer line, which merging
 /// moves at 73; any other guest's is empty. Readiness with a line action, or for `anon_one`, is ready
-/// at 71, and otherwise needs resolution; a removal applies at 72.
-fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// at 71, and otherwise needs resolution. A removal, or a batch of them (`/commands`), applies at 72
+/// as its attempt, which a lookup answers; `sll_unknown`'s answer is lost with nothing kept, and in a
+/// batch `sll_gone` is no longer on the list (its removal a conflict, the others applied).
+fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     let (guest_path, rest) = match (path.strip_prefix(GUEST_SELL_LIST), path.strip_prefix(ACCOUNT_SELL_LIST)) {
         (Some(rest), _) => (true, rest),
@@ -1612,7 +1630,28 @@ fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap
         }
         ("POST", "/merge-to-account") => Json(json!({ "mergedLineCount": 0 })).into_response(),
         ("POST", rest) if rest.ends_with("/remove") => {
-            committed(StatusCode::OK, "checkout", "72", json!({ "status": "removed" }))
+            let line = rest.trim_start_matches('/').trim_end_matches("/remove");
+            if line == "sll_unknown" {
+                return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+            }
+            let vector = json!([{ "lineId": line, "outcome": "succeeded", "message": null }]);
+            let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_72", "globalPosition": "72" } });
+            stand.kept.lock().unwrap().insert(sent["attemptId"].as_str().unwrap_or_default().to_owned(), kept.clone());
+            committed(StatusCode::OK, "checkout", "72", json!({ "status": "removed", "attempt": kept }))
+        }
+        ("POST", "/commands") => {
+            let vector: Vec<Value> = sent["lineIds"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|line| match line.as_str() {
+                    Some("sll_gone") => json!({ "lineId": line, "outcome": "conflict", "message": "Sell List line not found." }),
+                    _ => json!({ "lineId": line, "outcome": "succeeded", "message": null }),
+                })
+                .collect();
+            let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_72", "globalPosition": "72" } });
+            stand.kept.lock().unwrap().insert(sent["attemptId"].as_str().unwrap_or_default().to_owned(), kept.clone());
+            committed(StatusCode::OK, "checkout", "72", json!({ "status": "committed", "attempt": kept }))
         }
         _ => return None,
     })

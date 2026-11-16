@@ -115,6 +115,42 @@ pub fn attempt_id(presented: &str) -> String {
     if valid { presented.to_owned() } else { uuid::Uuid::new_v4().to_string() }
 }
 
+/// A form as it was posted, with the attempt `attempt` in `field` (where the form had one, or one
+/// drawn for it): sending it again is the same attempt, so it cannot apply twice.
+pub fn resend(raw: &crate::items::Raw, field: &str, attempt: &str) -> Vec<(String, String)> {
+    let mut pairs = posted(raw);
+    pairs.retain(|(key, _)| key != field);
+    pairs.push((field.to_owned(), attempt.to_owned()));
+    pairs
+}
+
+/// A form as it was posted, every value of every field, to send again as it is.
+pub fn posted(raw: &crate::items::Raw) -> Vec<(String, String)> {
+    raw.iter().flat_map(|(key, values)| values.all().iter().map(move |value| (key.clone(), value.to_string()))).collect()
+}
+
+/// The Marketplace attempt Decline selected declines `offer` as, made from the form's attempt
+/// (marketplace's `createHash("sha256").update(JSON.stringify(["sell-list-decline", attemptId,
+/// offerId])).digest("base64url")`), so sending the form again declines each offer as the same
+/// attempt.
+pub fn decline_attempt(attempt: &str, offer: &str) -> String {
+    let text = serde_json::to_string(&["sell-list-decline", attempt, offer]).expect("strings serialize");
+    base64url(&Sha256::digest(text.as_bytes()))
+}
+
+/// Base64url without padding, as Node's `digest("base64url")` writes it.
+fn base64url(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..=chunk.len() {
+            out.push(char::from(ALPHABET[(n >> (18 - 6 * i)) as usize & 63]));
+        }
+    }
+    out
+}
+
 /// The attempt's request hash (`computeCheckoutCommandAttemptRequestHash`): SHA-256, in hex, of
 /// `checkout-command-attempt-request/v1\n` and the body as sent without its attempt id, as JSON
 /// with every object's keys sorted.
@@ -186,7 +222,7 @@ mod tests {
             owner_status: status.into(),
             vector: outcomes
                 .iter()
-                .map(|o| CommandOutcome { index: 0, outcome: (*o).into(), status: None, message: None })
+                .map(|o| CommandOutcome { index: 0, outcome: (*o).into(), line_id: None, status: None, message: None })
                 .collect(),
             commit_receipt: None,
         };
@@ -197,6 +233,34 @@ mod tests {
         assert_eq!(state_of(&attempt("failed-safe", &[])), State::FailedSafe);
         assert_eq!(state_of(&attempt("not-observed", &[])), State::Ambiguous);
         assert_eq!(state_of(&attempt("ambiguous", &[])), State::Ambiguous);
+    }
+
+    #[test]
+    fn a_sell_list_write_hashes_as_the_web_hosts() {
+        // computeCheckoutCommandAttemptRequestHash({ attemptId }) for a line removed, and
+        // ({ attemptId, lineIds }) for Decline selected's batch, run with Node on the same bodies.
+        assert_eq!(
+            request_hash(&CartWrite::sell_list_remove("sll_offer", None).body),
+            "80b632f508327a345fa9aa57ed6fe9757f3fa5c99399fe19a6cfc3b3f565d82c"
+        );
+        let lines = ["sll_offer".to_owned(), "sll_two".to_owned()];
+        assert_eq!(
+            request_hash(&CartWrite::sell_list_remove_lines(&lines).body),
+            "c00d47482ce86243ea20826fc15b3722e0f9b8d9f76c3c9c6c45d44007f4f0b9"
+        );
+    }
+
+    #[test]
+    fn a_decline_s_attempt_is_marketplace_s() {
+        // createHash("sha256").update(JSON.stringify(["sell-list-decline", attemptId, offerId]))
+        // .digest("base64url"), run with Node.
+        assert_eq!(
+            decline_attempt("3f2504e0-4f89-41d3-9a0c-0305e82c3301", "off_ready"),
+            "Apm-cmT8CsgKuwxjl8A032YreUa18nMG2dX5LjfU4w4"
+        );
+        assert_eq!(base64url(&[0xfb]), "-w");
+        assert_eq!(base64url(&[0xfb, 0xff]), "-_8");
+        assert_eq!(base64url(&[0xfb, 0xff, 0x01]), "-_8B");
     }
 
     #[test]
