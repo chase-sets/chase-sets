@@ -9,10 +9,12 @@
 //!
 //! Writes, each a form posting an `intent` to the offer match's page, as marketplace's do:
 //! `add-selected-offer` (Accept offer match and Add selected offer to Sell List) reads the offer
-//! as Checkout's sell list does and adds its line, then goes to marketplace's sell list, which
-//! reads the write; `decline-offer` declines it as the form's attempt (`attemptId`, a `SubmitKey`;
-//! a post without one is still one attempt) and goes back to the list with its receipt. A
-//! refusal draws the offer match's page with the API's words.
+//! as Checkout's sell list does and adds its line as the form's attempt (a Sell List command
+//! attempt, chase-sets/chase-sets#9995), then goes to the sell list, which reads the write;
+//! `decline-offer` declines it as the form's attempt (`attemptId`, a `SubmitKey`; a post without
+//! one is still one attempt) and goes back to the list with its receipt. A refusal draws the
+//! offer match's page with the API's words; an add not known to have applied draws it saying so
+//! (409). Adding the same offer again keeps one line for it, so sending again is safe.
 //!
 //! The list is drawn again on each change to the account's offers (`<corten-live>` on
 //! `account:{id}:offers`), which the offers projection writes to every seller with an active
@@ -28,11 +30,12 @@ use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 
 use crate::{
-    api::{AcceptanceTerms, ApiError, CommandError, OfferMatch, OfferMatchCalls as _, SellList as _},
+    api::{AcceptanceTerms, ApiError, CartWrite, CommandError, OfferMatch, OfferMatchCalls as _},
     app::{Shared, read_failed, sign_in, url},
     auth::{OfferReviewer, Viewer},
+    cart_attempt::{self, State as Attempted},
     selling::{SellListLine, sell_list_href},
-    text::{OfferMatchesMsg, Pilot},
+    text::{OfferMatchesMsg, Pilot, SellListMsg},
     views::{self, Layout},
 };
 
@@ -44,7 +47,7 @@ pub struct Place {
     pub after_write: Option<String>,
 }
 
-/// An offer match's forms: the intent and, for a decline, its attempt (a `SubmitKey`).
+/// An offer match's forms: the intent and its attempt (a `SubmitKey`).
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OfferForm {
@@ -199,14 +202,27 @@ pub(crate) async fn write(
                 }
                 Err(error) => return read_failed(&req, Some(&viewer), error, None),
             };
-            match caller.add_sell_list_line(&SellListLine::offer_match(&offer), None).await {
-                Ok(receipt) => {
-                    let receipt = receipt.as_ref().map(Receipt::param).unwrap_or_default();
+            let attempt = cart_attempt::attempt_id(attempt_text(&form.attempt_id));
+            let write = CartWrite::sell_list_add(&SellListLine::offer_match(&offer), None);
+            let outcome = match cart_attempt::submit(&caller, &attempt, &write).await {
+                Ok(outcome) => outcome,
+                Err(StatusCode::UNAUTHORIZED) => return sign_in(&req),
+                Err(status) => return Err(corten::Error::status(status)),
+            };
+            let s: SellListMsg = req.t();
+            let refusal = match outcome.state {
+                Attempted::Succeeded => {
+                    let receipt = outcome.receipt.as_ref().map(Receipt::param).unwrap_or_default();
                     let to = sell_list_href(&receipt).parse::<corten::http::Uri>().map_err(corten::Error::new)?;
                     return req.redirect(&to);
                 }
-                Err(error) => error,
-            }
+                Attempted::Ambiguous => (s.attempt_ambiguous().to_owned(), StatusCode::CONFLICT),
+                Attempted::Partial | Attempted::FailedSafe => {
+                    let message = outcome.message.or_else(|| outcome.not_applied.into_iter().flatten().next());
+                    (message.unwrap_or_else(|| s.attempt_failed_safe().to_owned()), StatusCode::UNPROCESSABLE_ENTITY)
+                }
+            };
+            return render(&req, &viewer, &config, &headers, &id, Some(refusal.0), refusal.1).await;
         }
         "decline-offer" => {
             match caller.decline_offer_match(&id, &crate::cart_attempt::attempt_id(attempt_text(&form.attempt_id))).await {

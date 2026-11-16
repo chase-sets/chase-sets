@@ -1515,6 +1515,13 @@ fn SellForms<'a>(
     };
     let error = move |form: SellForm| refused.filter(|(_, f, _)| *f == form).map(|(m, _, _)| m);
     let typed = refused.filter(|(_, f, _)| *f == SellForm::Product).map_or("1", |(_, _, q)| q);
+    // An add not known to have applied holds both forms until it is sent again or the page is read
+    // again (`SellListAttemptBoundary`).
+    let resend = match notice {
+        Some(BuyNotice::SellAmbiguous { resend }) => Some(resend.as_slice()),
+        _ => None,
+    };
+    let held = resend.is_some();
     let action = url::ItemSellList { slug }.href();
     let accept = if screen.seller_features { SellIntent::SellNow } else { SellIntent::AddOffer };
     // A seller's match says whether their listing can fill the offer and whether it is already on
@@ -1535,6 +1542,15 @@ fn SellForms<'a>(
     let accept_labels = [offer_workflow, offer_selection, "accept_offer", "commit"];
     let sell_list_labels = [offer_workflow, offer_selection, "offer_sell_list", "sell_list"];
     html! {
+        if let Some(resend) = resend {
+            <div class={Banner} role="status">
+                <p class={Strong} tabindex="-1" autofocus>{t.sell_attempt_ambiguous()}</p>
+                <form class={Resend} method="post" action={&action}>
+                    <Hidden pairs={resend} />
+                    <button type="submit" class={Button}>{t.sell_attempt_retry()}</button>
+                </form>
+            </div>
+        }
         if let Some(o) = offer {
             <form
                 class={Buy}
@@ -1542,6 +1558,7 @@ fn SellForms<'a>(
                 action={&action}
                 on:submit={analytics::submitted(event, "sell", accept_labels, sell_list_labels, SellIntent::AddOffer.as_str())}
             >
+                {SubmitKey::field(selling::SellFields::FIELDS.attempt)}
                 <Hidden pairs={page} />
                 <input type="hidden" name={selling::field::OFFER} value={&o.offer_id}>
                 if let Some(total) = &total {
@@ -1566,7 +1583,7 @@ fn SellForms<'a>(
                         {message}
                     </p>
                 }
-                <fieldset class={BuyActions}>
+                <fieldset class={BuyActions} disabled={held}>
                     <button
                         type="submit"
                         class={(Button, Primary)}
@@ -1604,6 +1621,7 @@ fn SellForms<'a>(
                     action={&action}
                     on:submit={analytics::submitted(event, "sell", ["selected_product", "", "product_sell_list", ""], ONE_WAY, "")}
                 >
+                    {SubmitKey::field(selling::SellFields::FIELDS.attempt)}
                     <Hidden pairs={page} />
                     <input type="hidden" name={selling::field::PRODUCT} value={product}>
                     if let Some(message) = error(SellForm::Product) {
@@ -1621,6 +1639,7 @@ fn SellForms<'a>(
                         class={(Button, offer.is_none().then_some(Primary))}
                         name={selling::field::INTENT}
                         value={SellIntent::AddProduct.as_str()}
+                        disabled={held}
                     >
                         {t.route_add_product_to_sell_list()}
                     </button>

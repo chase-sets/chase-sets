@@ -15,6 +15,14 @@
 //! `POST /sell-list/confirm` with what it did and the same choices. The confirmation page is read
 //! after that write.
 //!
+//! A confirm converges as marketplace's does (chase-sets/chase-sets#9995): a confirmation saved
+//! already is looked for first; readiness names the confirmation and the snapshot and plan the page
+//! started from; each acceptance is checked against the attempt Marketplace kept for it (this
+//! seller's, this offer's, this request's), so an offer accepted another way stops the handoff;
+//! a handoff that stops part way draws the page with each line's result, its form held and the
+//! same form to send again (409); and a confirm whose answer was lost is looked up, the page held
+//! the same way when it is not found.
+//!
 //! A guest's page is the same review of the guest sell list; confirming checks the fields and goes
 //! to marketplace's registration, back to the Sell List.
 //!
@@ -36,16 +44,18 @@ use serde_json::{Value, json};
 use crate::{
     api::{
         ApiError, CheckoutSessions as _, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus, LabelChoice,
-        LineAction, LineKept, Listings as _, OfferMatchCalls as _, ReadinessDecisions, SavedAddress, SellList as _,
-        SellListConfirmation, SellListRow, SellListSnapshot, SellPayoutReadiness, SellerChoices, SellerEvidence, ShipFromChoice,
+        LineAction, LineKept, Listings as _, OfferMatchCalls as _, OfferPolicyCalls as _, ReadinessDecisions, ReadinessEntry,
+        SavedAddress, SellList as _, SellListConfirmation, SellListRow, SellListSnapshot, SellPayoutReadiness, SellerChoices,
+        SellerEvidence, ShipFromChoice,
     },
     app::{Shared, read_failed, sign_in_back_to, url},
     auth::Session,
+    cart_attempt::{self, State as Attempted},
     items::Raw,
     listing_new::first,
     sell_list::{self, Plan, PlanLine, PlanListing, PlanOffer, PlanTarget, guest_id},
     selling::account_sell_list,
-    text::{SellCheckoutMsg, SellListMsg},
+    text::{Pilot, SellCheckoutMsg, SellListMsg},
     views::{self, Layout},
 };
 
@@ -317,6 +327,32 @@ pub struct Screen {
     /// The decisions and the review plan, as the form sends them back.
     pub decisions: String,
     pub plan: String,
+    /// The last confirm, when it is not known to have finished or finished in part.
+    pub attempt: Option<Attempt>,
+}
+
+/// A confirm not known to have finished, or finished only in part (marketplace's
+/// `SellListAttemptState`): each line's result, and the form as posted to send again. The page's
+/// form waits until it is.
+#[derive(Clone, Debug)]
+pub struct Attempt {
+    /// `Ambiguous` or `Partial`.
+    pub state: Attempted,
+    pub lines: Vec<(String, LineResult)>,
+    pub resend: Vec<(String, String)>,
+}
+
+/// What a line came to when the handoff stopped (`SellListHandoffLineResult`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineResult {
+    Completed,
+    Partial,
+    /// Its offer was accepted, but not as this sale's.
+    Conflict,
+    /// Its write failed or its answer was lost: not known.
+    Unconfirmed,
+    /// Not sent: an earlier line stopped the handoff.
+    NotSent,
 }
 
 impl Screen {
@@ -599,7 +635,16 @@ const STALE: &[&str] = &[
 pub enum Stopped {
     /// What the seller reviewed changed: back to the Sell List, with why.
     Stale(String),
+    /// An offer accepted already, but not as this sale's acceptance (`offer_already_accepted`).
+    Taken(String),
     Failed(ApiError),
+}
+
+/// A handoff that stopped part way: why, and each line's result (`SellListHandoffInterruptedError`).
+#[derive(Debug)]
+pub struct Interrupted {
+    pub stop: Stopped,
+    pub lines: Vec<(String, LineResult)>,
 }
 
 /// What the handoff did: the confirm's body parts and every write's receipt.
@@ -614,6 +659,8 @@ pub struct Handoff {
 /// The calls the handoff makes, so tests can stand in for Marketplace.
 pub trait Market {
     async fn accept(&self, offer: &str, body: &Value) -> Result<Option<Receipt>, ApiError>;
+    /// The attempt Marketplace kept for an acceptance (`getOfferAcceptanceAttempt`), unparsed.
+    async fn acceptance(&self, offer: &str, key: &str, hash: &str) -> Result<Value, ApiError>;
     async fn create(&self, body: &Value) -> Result<(String, Option<String>, Option<Receipt>), ApiError>;
     async fn publish(&self, listing: &str, fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError>;
 }
@@ -621,6 +668,10 @@ pub trait Market {
 impl Market for platform::api::Caller<'_> {
     async fn accept(&self, offer: &str, body: &Value) -> Result<Option<Receipt>, ApiError> {
         self.accept_offer_match(offer, body).await
+    }
+
+    async fn acceptance(&self, offer: &str, key: &str, hash: &str) -> Result<Value, ApiError> {
+        self.marketplace_attempt(key, "offer.accept", offer, hash).await
     }
 
     async fn create(&self, body: &Value) -> Result<(String, Option<String>, Option<Receipt>), ApiError> {
@@ -633,16 +684,63 @@ impl Market for platform::api::Caller<'_> {
     }
 }
 
-/// One acceptance: an offer already accepted (a resent form) counts with no write; a stale one stops
-/// the handoff (`acceptOfferMatchWithRecovery`).
-async fn accept(m: &impl Market, t: SellListMsg, offer: &str, title: &str, body: Value) -> Result<Option<Receipt>, Stopped> {
+/// The canonical request an acceptance's attempt is kept with (`marketplaceOfferCanonicalRequest`),
+/// hashed (`hashMarketplaceRequest`).
+pub fn acceptance_hash(offer: &str, body: &Value) -> String {
+    let field = |name: &str| body.get(name).cloned().unwrap_or(Value::Null);
+    crate::market_following::request_hash(&json!({
+        "offerId": offer, "listingId": field("listingId"), "feeQuoteFingerprint": field("feeQuoteFingerprint"),
+        "acceptanceBatchId": field("acceptanceBatchId"), "acceptanceBatchSize": field("acceptanceBatchSize"),
+    }))
+}
+
+/// SHA-256, in hex, of an acceptance's key, as Marketplace keeps it (`attemptKeyFingerprint`).
+pub fn key_fingerprint(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(key.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Whether the attempt Marketplace kept is this acceptance: committed, `offer.accept`, by
+/// `seller`, of `offer`, with this key and request.
+fn accepted_as(observed: &Value, seller: &str, offer: &str, key: &str, hash: &str) -> bool {
+    let at = |pointer: &str| observed.pointer(pointer).and_then(Value::as_str);
+    at("/ownerStatus") == Some("committed")
+        && at("/mutationKind") == Some("offer.accept")
+        && at("/actorBinding/accountId") == Some(seller)
+        && at("/target/kind") == Some("offer")
+        && at("/target/id") == Some(offer)
+        && at("/attemptKeyFingerprint") == Some(key_fingerprint(key).as_str())
+        && at("/canonicalRequestHash") == Some(hash)
+        && at("/ownerReceipt/id") == Some(offer)
+}
+
+/// One acceptance (`acceptOfferMatchWithRecovery`): applied, it must be the attempt Marketplace
+/// kept for this seller, offer and request, or the offer was taken another way; an offer accepted
+/// already is taken, not counted; a stale one stops the handoff for review.
+async fn accept(
+    m: &impl Market,
+    t: SellListMsg,
+    p: Pilot,
+    seller: &str,
+    offer: &str,
+    title: &str,
+    body: Value,
+) -> Result<Option<Receipt>, Stopped> {
     let error = match m.accept(offer, &body).await {
-        Ok(receipt) => return Ok(receipt),
+        Ok(receipt) => {
+            let key = body["sourceActionKey"].as_str().unwrap_or_default();
+            let hash = acceptance_hash(offer, &body);
+            return match m.acceptance(offer, key, &hash).await {
+                Ok(observed) if accepted_as(&observed, seller, offer, key, &hash) => Ok(receipt),
+                Ok(_) => Err(Stopped::Taken(p.sell_list_offer_taken(title).to_string())),
+                Err(error) => Err(Stopped::Failed(error)),
+            };
+        }
         Err(error) => error,
     };
     let code = error.code().unwrap_or_default().to_owned();
     if code == "offer_already_accepted" {
-        Ok(None)
+        Err(Stopped::Taken(error.refusal().map_or_else(|| p.sell_list_offer_taken(title).to_string(), str::to_owned)))
     } else if STALE.contains(&code.as_str()) && code.starts_with("managed_offer_") {
         Err(Stopped::Stale(t.route_managed_offer_refresh_detail(title).to_string()))
     } else if STALE.contains(&code.as_str()) {
@@ -652,20 +750,33 @@ async fn accept(m: &impl Market, t: SellListMsg, offer: &str, title: &str, body:
     }
 }
 
-/// Marketplace's handoff (`performMarketplaceHandoff`), line by line in the snapshot's order.
+/// Marketplace's handoff (`performMarketplaceHandoff`), line by line in the snapshot's order, for
+/// `seller`. A line that stops stops the handoff: the lines before it say what they came to, it is
+/// a conflict (its offer taken) or not known, and the rest were not sent.
+#[allow(clippy::too_many_arguments)]
 pub async fn handoff(
     m: &impl Market,
     t: SellListMsg,
     c: SellCheckoutMsg,
+    p: Pilot,
+    seller: &str,
     confirmation: &str,
     lines: &[Reviewed],
-) -> Result<Handoff, Stopped> {
+) -> Result<Handoff, Interrupted> {
     let mut done = Handoff::default();
     let (mut accepted_count, mut published_count) = (0u64, 0u64);
-    let mut outcomes = Vec::new();
-    for Reviewed { line, plan, action } in lines {
+    let mut outcomes: Vec<Value> = Vec::new();
+    let mut results: Vec<(String, LineResult)> = Vec::new();
+    for (at, Reviewed { line, plan, action }) in lines.iter().enumerate() {
         let id = &line.line_id;
         let title = &line.item_title;
+        let stopped = |stop: Stopped, results: &[(String, LineResult)]| {
+            let here = if matches!(stop, Stopped::Taken(_)) { LineResult::Conflict } else { LineResult::Unconfirmed };
+            let mut lines_now = results.to_vec();
+            lines_now.push((id.clone(), here));
+            lines_now.extend(lines[at + 1..].iter().map(|r| (r.line.line_id.clone(), LineResult::NotSent)));
+            Interrupted { stop, lines: lines_now }
+        };
         let mut accepted: Vec<&str> = Vec::new();
         let mut listing = None;
         let mut completed = 0u64;
@@ -676,7 +787,8 @@ pub async fn handoff(
                 "listingId": o.listing_id, "feeQuoteFingerprint": o.fee_quote_fingerprint,
                 "sourceActionKey": format!("sell-confirm:{confirmation}:{id}:selected:{}", o.offer_id),
             });
-            done.receipts.extend(accept(m, t, &o.offer_id, title, body).await?);
+            let receipt = accept(m, t, p, seller, &o.offer_id, title, body).await.map_err(|s| stopped(s, &results))?;
+            done.receipts.extend(receipt);
             accepted.push(&o.offer_id);
             completed += line.quantity;
             accepted_count += 1;
@@ -689,7 +801,8 @@ pub async fn handoff(
                     "sourceActionKey": format!("sell-confirm:{confirmation}:{id}:match:{}", target.offer_id),
                     "acceptanceBatchId": batch, "acceptanceBatchSize": plan.product_offer_targets.len(),
                 });
-                done.receipts.extend(accept(m, t, &target.offer_id, title, body).await?);
+                let receipt = accept(m, t, p, seller, &target.offer_id, title, body).await.map_err(|s| stopped(s, &results))?;
+                done.receipts.extend(receipt);
                 accepted.push(&target.offer_id);
                 completed += target.quantity;
                 accepted_count += 1;
@@ -701,14 +814,14 @@ pub async fn handoff(
                 "inventoryItemId": f.inventory_item_id, "priceAmount": f.price_amount,
                 "priceCurrencyCode": f.price_currency_code, "quantityCap": f.quantity_cap, "listingIdOverride": over,
             });
-            let (created, fingerprint, receipt) = m.create(&body).await.map_err(Stopped::Failed)?;
+            let (created, fingerprint, receipt) = m.create(&body).await.map_err(|e| stopped(Stopped::Failed(e), &results))?;
             done.receipts.extend(receipt);
             let created = if created.is_empty() { over } else { created };
             match m.publish(&created, fingerprint.as_deref()).await {
                 Ok(receipt) => done.receipts.extend(receipt),
                 // Published already: a resent confirm.
                 Err(error) if error.refusal().is_some_and(|m| m.contains("already active")) => {}
-                Err(error) => return Err(Stopped::Failed(error)),
+                Err(error) => return Err(stopped(Stopped::Failed(error), &results)),
             }
             listing = Some(created);
             completed += f.quantity_cap;
@@ -738,6 +851,7 @@ pub async fn handoff(
         } else {
             c.route_confirmation_line_completed(title).to_string()
         };
+        results.push((id.clone(), if remaining > 0 { LineResult::Partial } else { LineResult::Completed }));
         outcomes.push(json!({
             "lineId": id, "itemTitle": title, "status": if remaining > 0 { "partial" } else { "completed" },
             "action": kind, "quantity": line.quantity, "remainingQuantity": remaining, "detail": detail,
@@ -782,6 +896,7 @@ async fn load(
         payout: None,
         decisions: serde_json::to_string(&started.decisions).unwrap_or_default(),
         plan: started.plan.clone(),
+        attempt: None,
     };
     let guest = guest_id(headers);
     if account {
@@ -809,7 +924,8 @@ async fn load(
         return Ok(screen);
     }
     let decisions = if account { started.decisions.clone() } else { ReadinessDecisions::default() };
-    let readiness = match caller.sell_list_readiness(&decisions, owner).await {
+    let confirmation = account.then(|| confirmation_id(id));
+    let readiness = match caller.sell_list_readiness(&decisions, owner, confirmation.as_deref()).await {
         Ok((readiness, _)) => readiness,
         Err(error) => {
             tracing::warn!("seller checkout readiness: {error}");
@@ -865,7 +981,7 @@ fn render(req: &Req, session: Option<&Session>, screen: Screen, status: StatusCo
         status,
         html! {
             <Layout req={req} viewer={session.and_then(Session::viewer)} title={t.route_meta_title()} head={head}>
-                <views::SellCheckoutPage t={t} screen={&screen} />
+                <views::SellCheckoutPage t={t} s={req.t()} p={req.t()} screen={&screen} />
             </Layout>
         },
     )
@@ -892,11 +1008,34 @@ pub(crate) async fn write(
         Some(&first(&raw, "readinessDecisions")),
         Some(&first(&raw, "sellListReviewPlan")),
     );
+    // A confirmation saved already (a resent form) is its page, before anything else is read. One
+    // that cannot be looked for is not known: the page waits for the same form again.
+    let mut unknown = false;
+    if account_sell_list(session) {
+        match caller.sell_list_confirmation(&confirmation_id(&id)).await {
+            Ok(_) => return req.redirect(&confirmed(&id).parse::<Uri>().map_err(corten::Error::new)?),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {}
+            Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
+                return match sign_in_back_to(&format!("/checkout/sell/session/{}", stable(&id))) {
+                    Some(to) => req.redirect(&to),
+                    None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
+                };
+            }
+            Err(error) => {
+                tracing::warn!("seller checkout's confirmation lookup: {error}");
+                unknown = true;
+            }
+        }
+    }
     let mut screen = match load(t, &caller, session, &headers, &id, &started).await {
         Ok(screen) => screen,
         Err(error) => return read_failed(&req, session.and_then(Session::viewer), error, None),
     };
     screen.values = Values::read(&raw).with_saved(&screen.addresses);
+    if unknown {
+        screen.attempt = Some(Attempt { state: Attempted::Ambiguous, lines: Vec::new(), resend: cart_attempt::posted(&raw) });
+        return render(&req, session, screen, StatusCode::CONFLICT);
+    }
     if screen.recovery.is_some() {
         return refuse(&req, session, screen, t.route_validation_readiness_recovery());
     }
@@ -911,7 +1050,12 @@ pub(crate) async fn write(
         let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
         return req.redirect(&url::Register { join: crate::register::Join::back_to(&back) });
     }
-    confirm(&req, session, &caller, screen, &started).await
+    confirm(&req, session, &caller, screen, &started, cart_attempt::posted(&raw)).await
+}
+
+/// The saved confirmation's page, as a resent form finds it.
+fn confirmed(session: &str) -> String {
+    url::SellConfirmation { id: &stable(session), place: ConfirmationPlace::default() }.href()
 }
 
 /// The page again with the whole form's refusal (422).
@@ -921,28 +1065,27 @@ fn refuse(req: &Req, session: Option<&Session>, mut screen: Screen, message: &st
 }
 
 /// An account's confirm: once per session, after the plan, readiness with the seller's evidence
-/// and the handoff; then the confirmation, read after it.
+/// and the handoff; then the confirmation, read after it. `resend` is the form as posted, which a
+/// confirm that is not known to have finished offers to send again.
 async fn confirm(
     req: &Req,
     session: Option<&Session>,
     caller: &platform::api::Caller<'_>,
     mut screen: Screen,
     started: &Started,
+    resend: Vec<(String, String)>,
 ) -> HtmlResult {
     let t: SellCheckoutMsg = req.t();
     let list: SellListMsg = req.t();
+    let p: Pilot = req.t();
     let Some(readiness) = screen.readiness.clone() else {
+        return refuse(req, session, screen, t.route_validation_readiness_recovery());
+    };
+    let Some(seller) = session.and_then(Session::viewer).map(|v| v.actor.account_id.clone()) else {
         return refuse(req, session, screen, t.route_validation_readiness_recovery());
     };
     let confirmation = confirmation_id(&screen.session_id);
     let key = stable(&screen.session_id);
-    let done = url::SellConfirmation { id: &key, place: ConfirmationPlace::default() };
-    match caller.sell_list_confirmation(&confirmation).await {
-        // Confirmed already (a resent form): its page.
-        Ok(_) => return req.redirect(&done.href().parse::<Uri>().map_err(corten::Error::new)?),
-        Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {}
-        Err(error) => return failed(req, session, screen, error, t),
-    }
     let plan = parse_plan(&started.plan);
     let Some(lines) = reviewed(&screen.lines, &readiness, plan.as_ref()) else {
         return refuse(req, session, screen, t.route_validation_review_plan_required());
@@ -950,15 +1093,32 @@ async fn confirm(
     let payout = screen.payout.clone().unwrap_or(Payout::Unavailable);
     let evidence = evidence(&screen.values, &payout);
     let choices = choices(&screen.values);
-    match caller.seller_readiness(&started.decisions, &choices, &evidence).await {
+    let entry = ReadinessEntry {
+        confirmation_id: &confirmation,
+        entry_readiness_snapshot_id: &readiness.snapshot_id,
+        review_plan: &started.plan,
+    };
+    match caller.seller_readiness(&started.decisions, &choices, &evidence, &entry).await {
         Ok(now) if now.status == "ready" && now.unresolved_line_ids.is_empty() && now.seller_readiness.status == "ready" => {
-            let handed = match handoff(caller, list, t, &confirmation, &lines).await {
+            let handed = match handoff(caller, list, t, p, &seller, &confirmation, &lines).await {
                 Ok(handed) => handed,
-                Err(Stopped::Stale(detail)) => {
-                    screen.recovery = Some(Recovery::ReadinessStale(Some(detail.clone())));
-                    return refuse(req, session, screen, &detail);
+                // A session that ended is a sign-in, as before anything was written.
+                Err(Interrupted { stop: Stopped::Failed(error), .. }) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
+                    return failed(req, session, screen, error, t);
                 }
-                Err(Stopped::Failed(error)) => return failed(req, session, screen, error, t),
+                Err(Interrupted { stop, lines }) => {
+                    let message = match stop {
+                        Stopped::Stale(detail) => {
+                            screen.recovery = Some(Recovery::ReadinessStale(Some(detail.clone())));
+                            detail
+                        }
+                        Stopped::Taken(message) => message,
+                        Stopped::Failed(error) => error.refusal().unwrap_or(t.route_validation_review_plan_required()).to_owned(),
+                    };
+                    screen.errors.insert("form", message);
+                    screen.attempt = Some(Attempt { state: Attempted::Partial, lines, resend });
+                    return render(req, session, screen, StatusCode::CONFLICT);
+                }
             };
             let remaining: Vec<Value> =
                 handed.remaining.iter().map(|(line, quantity)| json!({ "lineId": line, "quantity": quantity })).collect();
@@ -971,6 +1131,17 @@ async fn confirm(
             });
             let receipt = match caller.confirm_sell_list(&body).await {
                 Ok(receipt) => receipt,
+                // An answer that may have been lost: the confirmation is looked for once.
+                Err(error) if error.status().is_none_or(|s| s == StatusCode::REQUEST_TIMEOUT || s.is_server_error()) => {
+                    tracing::warn!("seller checkout's confirm: {error}");
+                    return match caller.sell_list_confirmation(&confirmation).await {
+                        Ok(_) => req.redirect(&confirmed(&screen.session_id).parse::<Uri>().map_err(corten::Error::new)?),
+                        Err(_) => {
+                            screen.attempt = Some(Attempt { state: Attempted::Ambiguous, lines: Vec::new(), resend });
+                            render(req, session, screen, StatusCode::CONFLICT)
+                        }
+                    };
+                }
                 Err(error) => return failed(req, session, screen, error, t),
             };
             let latest = handed.receipts.into_iter().chain(receipt).reduce(Receipt::later);
