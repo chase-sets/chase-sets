@@ -4,8 +4,21 @@ import { materialFingerprint, parsePolicyItem, parseLocationItem } from "../doma
 import { choice, location, policy, setupRead } from "./setup-fixtures";
 import { ebaySellerSetupSelectedCodec, parseSetupCommand, parseSetupSelection } from "../domain/setup-selection";
 import { decideChannelConnection, initialChannelConnectionState } from "../../connections/domain/domain";
+import { readEbayProviderJson } from "../api/provider";
 
 describe("ebay-sandbox-setup-listing", () => {
+  it("bounds streamed setup and OAuth response bytes and refuses malformed or failed responses", async () => {
+    await expect(readEbayProviderJson(new Response("{"))).rejects.toMatchObject({ code: "invalid-provider-response" });
+    await expect(readEbayProviderJson(new Response("synthetic-provider-error", { status: 500 }))).rejects.toMatchObject(
+      { code: "provider-unavailable" },
+    );
+    await expect(readEbayProviderJson(new Response(" ".repeat(65537)))).rejects.toMatchObject({
+      code: "invalid-provider-response",
+    });
+    await expect(readEbayProviderJson(new Response(" ".repeat(1048577)), 1048576)).rejects.toMatchObject({
+      code: "invalid-provider-response",
+    });
+  });
   it("accepts complete and empty captured lists without inventing a choice", async () => {
     const result = await readSetupLists("synthetic-token", setupRead);
     expect(Object.values(result).every((list) => list.status === "complete" && list.items.length === 1)).toBe(true);

@@ -5,6 +5,7 @@ import {
   type PolicyType,
   type SetupItem,
 } from "../domain/setup-material";
+import { readEbayProviderJson } from "./provider";
 
 export type SetupList =
   | Readonly<{ status: "complete"; items: readonly SetupItem[] }>
@@ -19,26 +20,7 @@ export const readEbaySetupJson: SetupRead = async (url, accessToken, signal) => 
     cache: "no-store",
     headers: { authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok || !response.body) throw new Error("incomplete");
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > 1048576) {
-        await reader.cancel();
-        throw new Error("incomplete");
-      }
-      chunks.push(value);
-    }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-  } finally {
-    for (const chunk of chunks) chunk.fill(0);
-    reader.releaseLock();
-  }
+  return readEbayProviderJson(response, 1048576);
 };
 function record(value: unknown, allowed: readonly string[]): Record<string, unknown> {
   if (

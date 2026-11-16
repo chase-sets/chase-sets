@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import {
   createPostgresEventStore,
+  type PgQueryable,
   type PgTransactionalPool,
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
@@ -57,7 +58,7 @@ export function createEbaySellerSetupRuntime(deps: {
     },
     async select(target: Target, value: unknown, context: EventStoreContext) {
       const command = parseSetupCommand(value);
-      return epochs.transaction([`connection/${target.connectionId}`], (db) =>
+      return epochs.transaction([`connection/${target.connectionId}`], (db: PgQueryable) =>
         deps.ebayConnection.withSellerSetupCredential(
           target,
           async (_db, envelope, material) => {

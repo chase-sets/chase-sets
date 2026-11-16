@@ -69,12 +69,26 @@ describe("ebay-sandbox-setup-selection", () => {
       reason: { code: "generation-conflict" },
     });
     expect((await s.snapshot()).selection?.setupGeneration).toBe(1);
-    const next = await s.runtime().select(s.target, choice(1), context());
-    expect(next).toMatchObject({ status: "active", selection: { setupGeneration: 2 } });
+    const reselections = await Promise.allSettled([
+      s.runtime().select(s.target, choice(1), context()),
+      s.runtime().select(s.target, choice(1), context()),
+    ]);
+    expect(reselections.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(reselections.find((result) => result.status === "rejected")).toMatchObject({
+      reason: { code: "generation-conflict" },
+    });
     await expect(s.runtime().select(s.target, choice(1), context())).rejects.toMatchObject({
       code: "generation-conflict",
     });
     expect((await s.snapshot()).selection?.setupGeneration).toBe(2);
+    const replacement = {
+      ...choice(2),
+      locationPairs: [{ storageLocationId: "storage-2", merchantLocationKey: "warehouse-1" }],
+    };
+    await s.runtime().select(s.target, replacement, context());
+    expect((await loadOwned(s.r.eventStore, owner, s.target.connectionId)).state.bindings).toEqual([
+      { storageLocationId: "storage-2", revision: 1 },
+    ]);
   });
   it("rejects every invalid selection without changing its baseline or event stream", async () => {
     const s = await setup();
