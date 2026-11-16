@@ -257,3 +257,33 @@
   width: 100%;
   min-width: 0;
 }
+
+/* eBay seller setup: a select takes its field's width, however long eBay's policy names are, and a
+   location pair's two selects sit side by side once there is room. */
+.setup {
+  max-width: 48rem;
+}
+.setup .control {
+  width: 100%;
+  min-width: 0;
+}
+.pairs {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pair {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+@media (--md) {
+  .pair {
+    grid-template-columns: 1fr 1fr;
+  }
+}

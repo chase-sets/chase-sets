@@ -19611,9 +19611,75 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
 /// know, and `ebay_other` someone else's (`null`). Start answers eBay Sandbox's consent, but
 /// another site's for `ebay_paused` and a 409 for `ebay_pending`; the callback commits
 /// `ebay_new` for the code `good`; declined refuses the state `used`.
+///
+/// Seller setup: `ebay_pending` has none yet and `conn_active` has generation 3; eBay's lists
+/// hold one policy of each type and two inventory locations, `wh_2` without a name.
+/// `ebay_partial` (pending) has an incomplete return list, `ebay_empty` (pending) no payment
+/// policy, and `ebay_broken`'s (pending) setup cannot be read. A save that names the
+/// generation the connection holds activates it; any other is a `generation-conflict`.
 fn ebay_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix("/api/channels/ebay/")?;
     let refused = || (StatusCode::CONFLICT, Json(json!({ "error": { "code": "stale-authorization" } }))).into_response();
+    if let Some(id) = rest.strip_prefix("connections/").and_then(|r| r.strip_suffix("/setup")) {
+        let conflict = || (StatusCode::CONFLICT, Json(json!({ "error": { "code": "generation-conflict" } }))).into_response();
+        let generation = match id {
+            "conn_active" => 3,
+            "ebay_pending" | "ebay_partial" | "ebay_empty" => 0,
+            "ebay_broken" => return Some(conflict()),
+            _ => return Some((StatusCode::CONFLICT, Json(json!({ "error": { "code": "invalid-selection" } }))).into_response()),
+        };
+        let complete = |items: Value| json!({ "status": "complete", "items": items });
+        let selection = (generation > 0).then(|| {
+            json!({
+                "connectionId": id,
+                "setupGeneration": generation,
+                "policies": [
+                    { "policyType": "fulfillment", "policyId": "fp_1", "materialFingerprint": "v1:a" },
+                    { "policyType": "payment", "policyId": "pp_1", "materialFingerprint": "v1:b" },
+                    { "policyType": "return", "policyId": "rp_1", "materialFingerprint": "v1:c" },
+                ],
+                "locationPairs": [{ "storageLocationId": "loc_main", "merchantLocationKey": "wh_1", "materialFingerprint": "v1:d" }],
+            })
+        });
+        if method == Method::POST {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            return Some(if sent["expectedSetupGeneration"] == json!(generation) {
+                Json(json!({ "selection": sent, "status": "active" })).into_response()
+            } else {
+                conflict()
+            });
+        }
+        let returns = if id == "ebay_partial" {
+            json!({ "status": "incomplete", "items": [] })
+        } else {
+            complete(json!([{ "returnPolicyId": "rp_1", "name": "30 day returns", "marketplaceId": "EBAY_US" }]))
+        };
+        let payments = if id == "ebay_empty" {
+            complete(json!([]))
+        } else {
+            complete(json!([{ "paymentPolicyId": "pp_1", "name": "Immediate pay", "marketplaceId": "EBAY_US" }]))
+        };
+        return Some(
+            Json(json!({
+                "selection": selection,
+                "lists": {
+                    "fulfillment": complete(json!([
+                        { "fulfillmentPolicyId": "fp_1", "name": "Ground shipping", "marketplaceId": "EBAY_US" },
+                        { "fulfillmentPolicyId": "fp_2", "name": "Expedited shipping", "marketplaceId": "EBAY_US" },
+                    ])),
+                    "payment": payments,
+                    "return": returns,
+                    "locations": complete(json!([
+                        { "merchantLocationKey": "wh_1", "name": "Dallas warehouse", "merchantLocationStatus": "ENABLED",
+                          "locationTypes": ["WAREHOUSE"], "location": {} },
+                        { "merchantLocationKey": "wh_2", "merchantLocationStatus": "ENABLED", "locationTypes": ["STORE"],
+                          "location": {} },
+                    ])),
+                },
+            }))
+            .into_response(),
+        );
+    }
     Some(match (method.as_str(), rest) {
         ("GET", "consent") => {
             let mut scopes = vec!["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.account"];
@@ -19627,7 +19693,7 @@ fn ebay_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
             let (status, available) = match id {
                 "conn_active" => ("active", true),
                 "ebay_paused" => ("paused", true),
-                "ebay_pending" => ("pending-setup", true),
+                "ebay_pending" | "ebay_partial" | "ebay_empty" | "ebay_broken" => ("pending-setup", true),
                 "ebay_off" => ("disconnected", true),
                 "ebay_bare" => ("active", false),
                 "ebay_odd" => ("revoked", true),
@@ -20151,6 +20217,122 @@ async fn ebays_return_commits_consent_or_says_it_was_declined_or_failed() {
         let (_, headers, _) = pilot.send(get(&format!("/channels/ebay/declined?{refused}"), Some("channeler"))).await;
         assert_eq!(headers[header::LOCATION], failed, "{refused}");
     }
+}
+
+#[tokio::test]
+async fn ebay_seller_setup_picks_policies_and_location_pairs_and_activates_the_connection() {
+    let pilot = Pilot::new().await;
+    let at = |id: &str| format!("{EBAY_SCREEN}?connectionId={id}");
+    let setup_reads =
+        || pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::GET && c.path.ends_with("/setup")).count();
+
+    // Pending setup: eBay's lists and the active storage locations, nothing chosen yet.
+    let (status, _, html) = pilot.send(get(&at("ebay_pending"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Seller policies and locations") && words.contains("Save selection and activate"), "{words}");
+    for expected in [
+        r#"<option value="fp_2">Expedited shipping</option>"#,
+        r#"<option value="pp_1">Immediate pay</option>"#,
+        r#"<option value="rp_1">30 day returns</option>"#,
+        r#"<option value="wh_1">Dallas warehouse</option>"#,
+        r#"<option value="wh_2">wh_2</option>"#,
+        r#"<option value="loc_main">Main shelf</option>"#,
+        r#"name="setupGeneration" value="0""#,
+        r#"name="intent" value="add-pair" formnovalidate"#,
+    ] {
+        assert!(html.contains(expected), "{expected}: {html}");
+    }
+    assert_eq!(html.matches(r#"name="storageLocationId""#).count(), 1, "one blank pair: {html}");
+    assert!(
+        pilot
+            .stand
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.path == "/api/inventory/storage-locations?includeArchived=false&limit=200"),
+        "the active storage locations, as marketplace reads them"
+    );
+
+    // Active: the current selection, and Replace with it chosen.
+    let (_, _, html) = pilot.send(get(&at("conn_active"), Some("channeler"))).await;
+    let words = text(&html);
+    assert!(words.contains("Sandbox connection activated") && words.contains("Fulfillment policy: fp_1"), "{words}");
+    assert!(words.contains("loc_main: wh_1") && words.contains("Replace selection"), "{words}");
+    assert!(html.contains(r#"<option value="fp_1" selected>"#) && html.contains(r#"name="setupGeneration" value="3""#), "{html}");
+    assert!(html.contains(r#"<option value="loc_main" selected>"#) && html.contains(r#"<option value="wh_1" selected>"#));
+
+    // A list eBay answered in part, an empty one, and a read that failed: words, and no form.
+    let (_, _, html) = pilot.send(get(&at("ebay_partial"), Some("channeler"))).await;
+    assert!(text(&html).contains("eBay returned an incomplete list") && !html.contains(r#"value="select-setup""#), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_empty"), Some("channeler"))).await;
+    assert!(text(&html).contains("Create the missing policies") && !html.contains(r#"value="select-setup""#), "{html}");
+    assert!(
+        html.contains(r#"href="https://www.sandbox.ebay.com/sh/ovw""#) && html.contains(r#"href="/account/inventory/locations""#)
+    );
+    let (status, _, html) = pilot.send(get(&at("ebay_broken"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "the journey still draws: {html}");
+    assert!(text(&html).contains("Seller setup could not be saved or loaded"), "{html}");
+    // A connection not pending setup or active, or where eBay is not configured, reads no setup.
+    let before = setup_reads();
+    for id in ["ebay_paused", "ebay_off", "ebay_bare"] {
+        let (_, _, html) = pilot.send(get(&at(id), Some("channeler"))).await;
+        assert!(!text(&html).contains("Seller policies and locations"), "{id}: {html}");
+    }
+    assert_eq!(setup_reads(), before);
+
+    // Add location pair draws the form again with what was chosen and one more pair, writing nothing.
+    let chosen = "connectionId=ebay_pending&setupGeneration=0&fulfillmentPolicyId=fp_2&paymentPolicyId=pp_1&returnPolicyId=\
+                  &storageLocationId=loc_main&merchantLocationKey=wh_2";
+    let (status, _, html) = pilot.send(post(&at("ebay_pending"), "channeler", &format!("intent=add-pair&{chosen}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(html.matches(r#"name="storageLocationId""#).count(), 2, "{html}");
+    assert!(html.contains(r#"<option value="fp_2" selected>"#) && html.contains(r#"<option value="loc_main" selected>"#));
+    assert!(html.contains(r#"<option value="wh_2" selected>"#), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap().iter().any(|c| c.method == Method::POST && c.path.ends_with("/setup")));
+
+    // Save: the policies and the pairs chosen (a blank pair left out), then the connection.
+    let save = "intent=select-setup&connectionId=ebay_pending&setupGeneration=0&fulfillmentPolicyId=fp_1\
+                &paymentPolicyId=pp_1&returnPolicyId=rp_1&storageLocationId=loc_main&merchantLocationKey=wh_1\
+                &storageLocationId=&merchantLocationKey=";
+    let (status, headers, _) = pilot.send(post(&at("ebay_pending"), "channeler", save, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?connectionId=ebay_pending");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/ebay_pending/setup")).unwrap().body.clone();
+    let sent: Value = serde_json::from_str(&sent).unwrap();
+    assert_eq!(
+        sent,
+        json!({
+            "expectedSetupGeneration": 0,
+            "policies": [
+                { "policyType": "fulfillment", "policyId": "fp_1" },
+                { "policyType": "payment", "policyId": "pp_1" },
+                { "policyType": "return", "policyId": "rp_1" },
+            ],
+            "locationPairs": [{ "storageLocationId": "loc_main", "merchantLocationKey": "wh_1" }],
+        })
+    );
+
+    // A selection that names a generation the connection no longer holds is refused, and the form
+    // keeps what was chosen with the generation it now holds.
+    let stale = "intent=select-setup&connectionId=conn_active&setupGeneration=2&fulfillmentPolicyId=fp_2\
+                 &paymentPolicyId=pp_1&returnPolicyId=rp_1&storageLocationId=loc_old&merchantLocationKey=wh_2";
+    let (status, _, html) = pilot.send(post(&at("conn_active"), "channeler", stale, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Seller setup could not be saved or loaded"), "{html}");
+    assert!(html.contains(r#"<option value="fp_2" selected>"#) && html.contains(r#"<option value="loc_old" selected>"#));
+    assert!(html.contains(r#"name="setupGeneration" value="3""#), "{html}");
+    // A generation that is not a number is not sent.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, _) = pilot
+        .send(post(&at("ebay_pending"), "channeler", "intent=select-setup&connectionId=ebay_pending&setupGeneration=x", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.method == Method::POST && c.path.ends_with("/setup")));
+    let (status, _, _) = pilot.send(post(&at("ebay_pending"), "channel_reader", save, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

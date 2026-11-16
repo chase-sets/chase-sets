@@ -9509,6 +9509,113 @@ struct EbayCallbackAnswer {
     connection_id: Option<String>,
 }
 
+/// One of eBay's seller lists as Channels read it (`SetupList`): `complete` with its items, or
+/// `incomplete` with none when eBay's answer could not be read whole.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetupList {
+    pub status: String,
+    /// eBay's items as Channels captured them; the page reads an item's id, name and key.
+    pub items: Vec<serde_json::Value>,
+}
+
+impl EbaySetupList {
+    pub fn complete(&self) -> bool {
+        self.status == "complete"
+    }
+}
+
+/// eBay's three policy lists and its inventory locations (`SetupLists`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetupLists {
+    pub fulfillment: EbaySetupList,
+    pub payment: EbaySetupList,
+    #[serde(rename = "return")]
+    pub return_: EbaySetupList,
+    pub locations: EbaySetupList,
+}
+
+/// A policy the seller chose (`SetupSelection.policies`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayPolicyChoice {
+    /// `fulfillment`, `payment` or `return`.
+    pub policy_type: String,
+    pub policy_id: String,
+}
+
+/// A Chase storage location paired with an eBay inventory location (`SetupSelection.locationPairs`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayLocationPair {
+    pub storage_location_id: String,
+    pub merchant_location_key: String,
+}
+
+/// The seller's current setup (`SetupSelection`): its generation, which a new selection names as
+/// the one it replaces, its policies and its location pairs.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbaySetupSelection {
+    pub setup_generation: u64,
+    pub policies: Vec<EbayPolicyChoice>,
+    pub location_pairs: Vec<EbayLocationPair>,
+}
+
+/// A connection's seller setup (`GET /connections/{id}/setup`): what was chosen, if anything,
+/// and eBay's lists to choose from.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetup {
+    pub selection: Option<EbaySetupSelection>,
+    pub lists: EbaySetupLists,
+}
+
+/// A selection to save (`SelectEbaySellerSetup`), as marketplace's action builds it.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EbaySetupCommand {
+    pub expected_setup_generation: u64,
+    pub policies: Vec<EbaySetupPolicy>,
+    pub location_pairs: Vec<EbaySetupPair>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EbaySetupPolicy {
+    pub policy_type: &'static str,
+    pub policy_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EbaySetupPair {
+    pub storage_location_id: String,
+    pub merchant_location_key: String,
+}
+
+/// What saving a selection answered: the connection's status after it (`active` once activated).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetupSaved {
+    pub status: String,
+}
+
+/// A storage location a pair may name (marketplace's `readConnectionSetupLocations`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SetupLocation {
+    pub storage_location_id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct SetupLocations {
+    items: Vec<SetupLocation>,
+}
+
 /// The eBay Sandbox connection's calls.
 pub trait EbayCalls {
     /// The scopes eBay is asked for, with `publication` or without.
@@ -9521,6 +9628,12 @@ pub trait EbayCalls {
     async fn ebay_callback(&self, state: &str, code: &str) -> Result<Option<String>, ApiError>;
     /// eBay's answer that consent was declined: the state is used up.
     async fn ebay_declined(&self, state: &str) -> Result<(), ApiError>;
+    /// Connection `id`'s seller setup and eBay's lists, read with the connection's credential.
+    async fn ebay_setup(&self, id: &str) -> Result<EbaySetup, ApiError>;
+    /// Save a selection for connection `id`, which activates it.
+    async fn select_ebay_setup(&self, id: &str, command: &EbaySetupCommand) -> Result<EbaySetupSaved, ApiError>;
+    /// The seller's active storage locations, the first 200, as marketplace reads them for pairing.
+    async fn setup_locations(&self) -> Result<Vec<SetupLocation>, ApiError>;
 }
 
 impl EbayCalls for Caller<'_> {
@@ -9549,6 +9662,20 @@ impl EbayCalls for Caller<'_> {
         let body = serde_json::json!({ "state": state });
         let req = self.request(Method::POST, &format!("{EBAY}/declined"), CHANNELS).json(&body);
         self.write::<serde::de::IgnoredAny>(req).await.map(|_| ())
+    }
+
+    async fn ebay_setup(&self, id: &str) -> Result<EbaySetup, ApiError> {
+        self.read(&format!("{EBAY}/connections/{}/setup", segment(id)), CHANNELS).await
+    }
+
+    async fn select_ebay_setup(&self, id: &str, command: &EbaySetupCommand) -> Result<EbaySetupSaved, ApiError> {
+        let req = self.request(Method::POST, &format!("{EBAY}/connections/{}/setup", segment(id)), CHANNELS).json(command);
+        Ok(self.write::<EbaySetupSaved>(req).await?.0)
+    }
+
+    async fn setup_locations(&self) -> Result<Vec<SetupLocation>, ApiError> {
+        let list: SetupLocations = self.read(&format!("{LOCATIONS}?includeArchived=false&limit=200"), INVENTORY).await?;
+        Ok(list.items)
     }
 }
 
