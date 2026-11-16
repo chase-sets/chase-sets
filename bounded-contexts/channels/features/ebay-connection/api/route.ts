@@ -2,8 +2,11 @@ import { Hono } from "hono";
 import type { ChannelsApiEnv } from "../../../api";
 import { EbayConnectionError } from "../domain/oauth";
 import type { EbayConnectionServices } from "./runtime";
+import type { EbaySellerSetupServices } from "./setup-runtime";
+import { EbaySetupError } from "../domain/setup-material";
+import { ChannelConnectionError } from "../../connections/domain/contracts";
 
-export function createEbayConnectionRoutes(service: EbayConnectionServices) {
+export function createEbayConnectionRoutes(service: EbayConnectionServices, setup?: EbaySellerSetupServices) {
   const app = new Hono<ChannelsApiEnv>();
   app.use("*", async (c, next) => {
     c.header("Cache-Control", "no-store");
@@ -88,11 +91,42 @@ export function createEbayConnectionRoutes(service: EbayConnectionServices) {
       return safeError(error);
     }
   });
+  app.get("/connections/:id/setup", async (c) => {
+    try {
+      if (!setup) throw new EbayConnectionError("unavailable");
+      return c.json(await setup.load({ accountId: c.get("actor").accountId, connectionId: c.req.param("id") }));
+    } catch (error) {
+      return safeError(error);
+    }
+  });
+  app.post("/connections/:id/setup", async (c) => {
+    try {
+      if (!setup) throw new EbayConnectionError("unavailable");
+      return c.json(
+        await setup.select(
+          { accountId: c.get("actor").accountId, connectionId: c.req.param("id") },
+          await c.req.json(),
+          c.get("context"),
+        ),
+      );
+    } catch (error) {
+      return safeError(error);
+    }
+  });
   return app;
 }
 function safeError(error: unknown) {
   return Response.json(
-    { error: { code: error instanceof EbayConnectionError ? error.code : "unavailable" } },
+    {
+      error: {
+        code:
+          error instanceof EbayConnectionError ||
+          error instanceof EbaySetupError ||
+          error instanceof ChannelConnectionError
+            ? error.code
+            : "unavailable",
+      },
+    },
     { status: 409, headers: { "Cache-Control": "no-store" } },
   );
 }

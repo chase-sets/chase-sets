@@ -12,6 +12,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
+import { EbaySellerSetup, type SellerSetupState } from "./seller-setup";
 
 export type EbayJourneyState =
   | "connect"
@@ -29,17 +30,26 @@ export function EbayConnectionJourney({
   connectionId,
   publication = false,
   authorizationAvailable = true,
+  setup,
+  setupPending,
+  setupFailed,
 }: {
   state: EbayJourneyState;
   scopes: readonly string[];
   connectionId: string | null;
   publication?: boolean;
   authorizationAvailable?: boolean;
+  setup?: SellerSetupState;
+  setupPending?: boolean;
+  setupFailed?: boolean;
 }) {
   const live = connectionId !== null && state !== "disconnected";
   return (
     <Page>
       <PageHeader title={t("channels.ebay.title")} description={t("channels.ebay.description")} />
+      {setup && connectionId ? (
+        <EbaySellerSetup state={setup} connectionId={connectionId} pending={setupPending} failed={setupFailed} />
+      ) : null}
       <PageSection title={t(`channels.ebay.state.${state}`)}>
         <Stack gap={4}>
           {state === "failed" || state === "declined" ? (

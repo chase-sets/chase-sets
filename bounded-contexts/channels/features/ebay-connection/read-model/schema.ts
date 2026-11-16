@@ -44,3 +44,19 @@ export const ebayConnectionSchemaMigrations: readonly BcSchemaMigration[] = [
     ),
   },
 ];
+
+const setupStatement = `CREATE TABLE IF NOT EXISTS channels_ebay_seller_setup (
+  connection_id text PRIMARY KEY, account_id text NOT NULL,
+  setup_generation bigint NOT NULL CHECK (setup_generation > 0),
+  selection jsonb NOT NULL, selected_at timestamptz NOT NULL,
+  CHECK (selection->>'connectionId' = connection_id),
+  CHECK ((selection->>'setupGeneration')::bigint = setup_generation)
+)`;
+export const ebaySellerSetupSchemaSql = setupStatement + ";";
+export const ebaySellerSetupSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261116_channels_ebay_seller_setup",
+    description: "Retain current seller setup generation and selection-time material fingerprints.",
+    statements: [setupStatement],
+  },
+];
