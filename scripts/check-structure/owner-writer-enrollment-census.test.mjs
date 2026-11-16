@@ -15,6 +15,27 @@ const manifest = JSON.parse(
 const sourcePaths = ownerWriterSourcePaths();
 const sourceScopes = Map.groupBy(sourcePaths, (file) => file.split("/").slice(0, 2).join("/"));
 describe("owner writer enrollment census", () => {
+  it("discovers stock streams through aliases, computed appends and SQL dataflow and rejects an unenrolled writer", () => {
+    expect(manifest.owners).toContain("inventory");
+    expect(manifest.keys).toContain("stock/<accountId>/<inventoryItemId>");
+    for (const source of [
+      'const stream = "inventory.item-" + itemId; const payload = {streamId: stream}; const sink = store.appendToStreams; sink([payload]);',
+      'const method = "appendToStream"; store[method]({streamId: `inventory.channel-stock-allocation-${itemId}`});',
+      "const statement = \"INSERT INTO event_store_events (stream_id) VALUES (\\'inventory.item-foreign\\')\"; const execute = db.query; execute(statement);",
+    ]) {
+      const planted = discoverOwnerWriters({ "packages/arbitrary/generated.ts": source });
+      expect(planted.length).toBeGreaterThan(0);
+      expect(planted.some((row) => row.keys.includes("stock"))).toBe(true);
+      expect(enrollmentErrors(planted, manifest).some((error) => error.startsWith("UNKNOWN writer"))).toBe(true);
+      const omitStockClassification = discoverOwnerWriters(
+        { "packages/arbitrary/generated.ts": source },
+        { mutant: "omit-stock-classification" },
+      );
+      expect(
+        enrollmentErrors(omitStockClassification, manifest).some((error) => error.startsWith("UNKNOWN writer")),
+      ).toBe(false);
+    }
+  });
   it.each([...sourceScopes])("closes every append, handler and SQL writer in %s", (_scope, files) => {
     const selected = new Set(files);
     expect(

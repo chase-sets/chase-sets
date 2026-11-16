@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createInventoryStockReservations } from "../../features/inventory-items/api/stock-reservations";
 import {
-  withPgTransaction,
   type PgPoolClient,
   type PgQueryable,
   type PgTransactionalPool,
@@ -130,7 +130,11 @@ function validateReceipt(receipt: Receipt) {
   );
 }
 
-export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgresEventStore: PostgresEventStore) {
+export function createInventoryMutationRuntime(
+  pool: PgTransactionalPool,
+  postgresEventStore: PostgresEventStore,
+  stockReservations = createInventoryStockReservations(pool, postgresEventStore),
+) {
   type Transaction = Readonly<{
     client: PgPoolClient;
     context: EventStoreContext;
@@ -185,14 +189,17 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
     appendToStream: (input) => {
       const active = transactions.getStore();
       return active
-        ? protectedWrite(active.client, () => postgresEventStore.appendToStreamInTransaction(active.client, input))
-        : postgresEventStore.appendToStream(input);
+        ? protectedWrite(
+            active.client,
+            async () => (await stockReservations.appendInTransaction(active.client, [input]))[0].storedEvents,
+          )
+        : stockReservations.persistence.appendToStream(input);
     },
     appendToStreams: (inputs) => {
       const active = transactions.getStore();
       return active
-        ? protectedWrite(active.client, () => postgresEventStore.appendToStreamsInTransaction(active.client, inputs))
-        : postgresEventStore.appendToStreams!(inputs);
+        ? protectedWrite(active.client, () => stockReservations.appendInTransaction(active.client, inputs))
+        : stockReservations.persistence.appendToStreams!(inputs);
     },
     readStream: (input) => {
       const client = transactions.getStore()?.client;
@@ -304,7 +311,7 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
     };
     return active
       ? protectedWrite(active.client, accept)
-      : withPgTransaction(pool, (client) =>
+      : stockReservations.transaction((client) =>
           transactions.run({ client, context, root: identity.id, executing: new Set() }, accept),
         );
   }

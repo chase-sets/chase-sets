@@ -26,9 +26,18 @@ const sinkNames = new Set([
   "updateRow",
   "transitionStatus",
   "expired",
+  "createItem",
+  "adjustItem",
+  "ensureListingStock",
+  "createHold",
+  "releaseHold",
+  "consumeHold",
+  "planCreateHold",
+  "planConvertCheckoutHold",
+  "reduceItem",
 ]);
 const possibleSink =
-  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|receiptQuery|upsertRow|updateRow|transitionStatus|expired|connectChannel|(?:activate|pause|resume|disconnect)ChannelConnection)\b|\[\s*[^\s\]]/u;
+  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|receiptQuery|upsertRow|updateRow|transitionStatus|expired|createItem|adjustItem|ensureListingStock|createHold|releaseHold|consumeHold|planCreateHold|planConvertCheckoutHold|reduceItem|connectChannel|(?:activate|pause|resume|disconnect)ChannelConnection)\b|\[\s*[^\s\]]/u;
 const ownerPatterns = ["account", "user", "membership"].map((kind) => [
   kind,
   new RegExp(
@@ -43,6 +52,10 @@ ownerPatterns.push([
 ownerPatterns.push([
   "connection",
   /channels\.connection[-.]|\bChannelConnection(?:Event|Command|State)\b|channelConnectionEventCodec|\b(?:[Cc]onnectChannel|[Aa]ctivateChannelConnection|[Pp]auseChannelConnection|[Rr]esumeChannelConnection|[Dd]isconnectChannelConnection)\b/u,
+]);
+ownerPatterns.push([
+  "stock",
+  /inventory\.(?:item|hold|channel-stock-allocation)[-.]|\bInventory(?:Item|Hold)(?:Event|Command|State)\b|channelStockAllocationStreamId|\b(?:items\.(?:createItem|adjustItem|ensureListingStock)|holds\.(?:createHold|releaseHold|consumeHold|planCreateHold|planConvertCheckoutHold)|holdCollisions\.reduceItem)\b/u,
 ]);
 export function ownerWriterSourcePaths() {
   return execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
@@ -76,7 +89,7 @@ function owner(node) {
 }
 
 /** Tracks stream/event expressions into append/handler/SQL sinks, not file-name vocabulary. */
-export function discoverOwnerWriters(sources) {
+export function discoverOwnerWriters(sources, { mutant } = {}) {
   const sites = [];
   for (const [file, text] of Object.entries(sources)) {
     if (!possibleSink.test(text)) continue;
@@ -183,7 +196,11 @@ export function discoverOwnerWriters(sources) {
       if (sink || sql) {
         const callee = node.expression.getText(source);
         const data = `${callee} ${resolved.target} ${node.arguments.map((arg) => flow(arg)).join(" ")}`;
-        const kinds = ownerPatterns.filter(([, pattern]) => pattern.test(data)).map(([kind]) => kind);
+        const kinds = ownerPatterns
+          .filter(
+            ([kind, pattern]) => !(mutant === "omit-stock-classification" && kind === "stock") && pattern.test(data),
+          )
+          .map(([kind]) => kind);
         if (delegationSql) kinds.push("delegation");
         if (sessionSql && !kinds.includes("session")) kinds.push("session");
         if (connectionSql && !kinds.includes("connection")) kinds.push("connection");
@@ -198,7 +215,8 @@ export function discoverOwnerWriters(sources) {
           kinds.length ||
           file.startsWith("bounded-contexts/identity/") ||
           file.startsWith("bounded-contexts/auth/") ||
-          file.startsWith("bounded-contexts/channels/")
+          file.startsWith("bounded-contexts/channels/") ||
+          file.startsWith("bounded-contexts/inventory/")
         ) {
           const symbol = owner(node);
           const sinkName = delegationSql

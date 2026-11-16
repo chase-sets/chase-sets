@@ -46,6 +46,22 @@ Notes:
 
 **Stock Authority** is the Inventory Item stream's serialization boundary for quantity reductions and new hold commitments. Both operations claim it so concurrent requests resolve in commit order and can never commit the same unit twice.
 
+## Stock Reservation For Listing Activation
+
+A **Stock Reservation for Listing activation** is the Owner-Stream Reservation on
+`stock/<accountId>/<inventoryItemId>`. Inventory captures canonical Item and complete
+Hold history together with authoritative Channel Stock Allocation under the physical
+writer locks. Prepare binds both Item and allocation seals, Inventory incarnation,
+consumer request identity, target and command fingerprint.
+
+Every Item, allocation and Hold writer persists its invalidation intent in its own
+transaction before requesting abort outside owner locks. Unknown stays pending;
+business effects and mutation receipts are not applied early. Only the original
+COMMITTED or ABORTED terminal releases a reservation, never elapsed time. An owner
+transfer invalidates reservations for both account scopes on the physical streams.
+Inbound external sales are durably recorded before settlement. Their retained
+command can be settled after restart; sale effects and APPLIED commit together.
+
 ## Hold
 
 A **Hold** is a temporary block against available stock while checkout or another in-progress commerce flow completes.
