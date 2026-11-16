@@ -859,7 +859,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST Hafb45c76765c#1",
-        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST He0322e08a297#1",
+        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST H07ff92fc036e#1",
         "api-client:bounded-contexts/channels/features/ebay-connection/ui/api-client.ts:POST H547d4165826d#1",
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /callback",
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /declined",
