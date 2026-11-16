@@ -513,8 +513,8 @@ describe("credential tiers CLI (AC2)", () => {
     const lines = result.stdout.split("\n").filter(Boolean);
     const headings = lines.filter((line) => !/^ {2}[A-Z_][A-Z0-9_]*$/.test(line));
     expect(headings).toEqual([
-      "Agent tier (Bitwarden project chase-sets-agent-dev), 12 names:",
-      `CI/deploy-only, ${repositoryInventory.secrets.length - 12} names:`,
+      "Agent tier (Bitwarden project chase-sets-agent-dev), 17 names:",
+      `CI/deploy-only, ${repositoryInventory.secrets.length - 17} names:`,
     ]);
     const printed = lines.filter((line) => !headings.includes(line)).map((line) => line.trim());
     const names = repositoryInventory.secrets.map((secret) => secret.name);
