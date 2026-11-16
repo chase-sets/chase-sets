@@ -13,8 +13,12 @@ afterEach(() => vi.unstubAllEnvs());
 type Input = WorkerJobInput<PlatformWorkerConfig>;
 type Registry = WorkerJobRegistry<Input>;
 const registry: Registry = workerContextRegistry;
+type RunnerCensus = Record<
+  keyof (typeof baseline.profiles)["proof:enabled"],
+  { name: string; lease: string; intervalMs: number | null }[]
+>;
 function expectedCensus(profile: "landing" | "proof" | "public", enabled = true) {
-  const expected = structuredClone(baseline.profiles[`${profile}:${enabled ? "enabled" : "disabled"}`]);
+  const expected: RunnerCensus = structuredClone(baseline.profiles[`${profile}:${enabled ? "enabled" : "disabled"}`]);
   if (profile !== "landing")
     expected.scheduled.unshift({
       name: "channels.ebay-account-deletion-consumer",
