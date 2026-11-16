@@ -55,7 +55,7 @@ import {
   TARGET_GROUP,
   TARGET_LEASE_NAME,
   type TargetProjectionHooks,
-} from "../../../infrastructure/platform-runtime/inline-seed-db-test-support";
+} from "@chase-sets/platform-runtime/inline-seed-db-test-support";
 import {
   createPlatformApiBootstrapTestHarness,
   hasSettledWithin,
