@@ -210,9 +210,22 @@ describe("sealed search and detail endpoints", () => {
       expect(fetcher).toHaveBeenCalledOnce();
     },
   );
+  it("fetches bound Lorcana 71 with a credential-free Disney Lorcana filter", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => response("{}"));
+    await expect(createTcgplayerSealedFetch(fetcher)({ ...search, productLineId: 71 })).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+      "https://mp-search-api.tcgplayer.com/v1/search/request",
+      expect.objectContaining({ method: "POST", credentials: "omit", redirect: "error", cache: "no-store" }),
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body)).filters.term).toEqual({
+      productLineName: ["Disney Lorcana"],
+      setName: [search.setName],
+    });
+  });
   it.each([
     { ...search, productLineId: 82 },
-    { ...search, productLineId: 71 },
     { ...search, from: -1 },
     { ...search, from: 12_000 },
     { ...search, setName: "" },

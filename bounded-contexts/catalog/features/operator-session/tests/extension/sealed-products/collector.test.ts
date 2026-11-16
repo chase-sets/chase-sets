@@ -95,13 +95,13 @@ describe("sealed product collector", () => {
     );
     expect((await collectSealedProducts({ selection: selection(), request })).receipt.verdict).toBe("incomplete");
   });
-  it.each([2, 68, 71, 82])("refuses unsupported or unbound line %s without any request", async (productLineId) => {
+  it.each([2, 68, 82])("refuses unsupported or unbound line %s without any request", async (productLineId) => {
     const request = vi.fn();
     expect(
       (await collectSealedProducts({ selection: { ...selection(), productLineId }, request })).receipt.verdict,
     ).toBe("unqualified");
     expect(request).not.toHaveBeenCalled();
-    expect(sealedProductLines().map((line) => line.id)).toEqual([1, 3]);
+    expect(sealedProductLines().map((line) => line.id)).toEqual([1, 3, 71]);
   });
   it.each([
     "productId",

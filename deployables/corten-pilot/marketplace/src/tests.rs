@@ -1520,6 +1520,24 @@ fn sell_terms(fingerprint: &str) -> Value {
     })
 }
 
+/// A Sell List readiness answer for `snapshot` (at `rev_7`) with the line actions in `decisions`:
+/// ready with each as a line seller checkout takes, else needing resolution; the seller's readiness
+/// `seller`, or not evaluated.
+fn sell_review(snapshot: &str, decisions: &Value, seller: Option<&str>) -> Value {
+    let acts: Vec<Value> = decisions["lineActions"].as_array().cloned().unwrap_or_default();
+    let ready = !acts.is_empty();
+    let outcomes: Vec<Value> =
+        acts.iter().map(|a| json!({ "lineId": a["lineId"], "outcome": "checkout", "action": a["action"] })).collect();
+    let included: Vec<Value> = outcomes.iter().map(|o| o["lineId"].clone()).collect();
+    json!({ "readiness": {
+        "snapshotId": snapshot, "sourceRevision": "rev_7",
+        "status": if ready { "ready" } else { "needs-resolution" },
+        "unresolvedLineIds": if ready { json!([]) } else { json!(["sll_offer"]) },
+        "includedLineIds": included, "lineOutcomes": outcomes,
+        "sellerReadiness": { "status": seller.unwrap_or("not-evaluated") },
+    } })
+}
+
 /// The Sell List page's reads and writes, as the stand-in answers them. `trader`'s, `lister`'s and
 /// `lookout`'s lists have the offer line and a product line (`sll_product`, 3 of Pikachu, a listing
 /// for the rest from 20.00) whose Smart Match offer is `off_short` for 2, with inventory `inv_pika`;
@@ -1528,7 +1546,11 @@ fn sell_terms(fingerprint: &str) -> Value {
 /// know), `lookout_pending`'s pending and `lookout_restricted`'s restricted.
 /// `trader`'s latest seller confirmation is `slc_01J`; any other account's list is empty. A read that
 /// waits for 43 is still catching up. The guest list `anon_one` has the offer line, which merging
-/// moves at 73; any other guest's is empty. Readiness with a line action, or for `anon_one`, is ready
+/// moves at 73; any other guest's is empty. Continue's review (`selections`) decides the offer line
+/// with a fee quote and the product line with an offer, keeping `sell_plan("off_short", 1)` as the
+/// plan; seller checkout's read of a kept review answers the one a test kept for its snapshot
+/// (`keep_review`), `srs_1` the default, and refuses any other, or another revision, as stale; seller
+/// readiness from `srs_moved` is stale too. Readiness with a line action, or for `anon_one`, is ready
 /// at 71, and otherwise needs resolution. A removal, or a batch of them (`/commands`), applies at 72
 /// as its attempt, which a lookup answers; `sll_unknown`'s answer is lost with nothing kept, and in a
 /// batch `sll_gone` is no longer on the list (its removal a conflict, the others applied).
@@ -1596,6 +1618,48 @@ fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
             terms["source_kind"] = json!("public-standard-seller-terms");
             terms["source_label"] = json!("Standard seller terms");
             Json(json!({ "offerReviews": [{ "lineId": "sll_offer", "status": "ready", "terms": terms }] })).into_response()
+        }
+        ("POST", "/readiness") if !guest_path && sent["selections"].is_object() => {
+            let lines = sent["selections"]["lines"].as_array().cloned().unwrap_or_default();
+            let filled = |l: &Value, key: &str| l[key].as_str().is_some_and(|s| !s.is_empty());
+            let mut acts = Vec::new();
+            if lines.iter().any(|l| l["lineId"] == "sll_offer" && filled(l, "selectedOfferFeeQuoteFingerprint")) {
+                acts.push(json!({ "lineId": "sll_offer", "action": "selected-offer" }));
+            }
+            if lines.iter().any(|l| l["lineId"] == "sll_product" && l["productOffers"].as_array().is_some_and(|o| !o.is_empty()))
+            {
+                acts.push(json!({ "lineId": "sll_product", "action": "smart-match" }));
+            }
+            let decisions = json!({ "lineActions": acts, "lineOutcomes": [] });
+            let mut review = sell_review("srs_1", &decisions, None);
+            review["reviewPlan"] = serde_json::from_str(&sell_plan("off_short", 1)).unwrap();
+            review["decisions"] = decisions;
+            committed(StatusCode::OK, "checkout", "71", review)
+        }
+        ("POST", "/readiness") if !guest_path && sent["readinessSnapshotId"].is_string() => {
+            let snapshot = sent["readinessSnapshotId"].as_str().unwrap_or_default();
+            let kept = stand.kept.lock().unwrap().get(&format!("sell_review:{snapshot}")).cloned();
+            let kept = kept.or_else(|| {
+                (snapshot == "srs_1").then(|| {
+                    json!({ "reviewPlan": serde_json::from_str::<Value>(&sell_plan("off_short", 1)).unwrap(),
+                        "decisions": serde_json::from_str::<Value>(SELL_DECISIONS).unwrap() })
+                })
+            });
+            match kept {
+                Some(kept) if sent["readinessSourceRevision"] == "rev_7" => {
+                    let mut review = sell_review(snapshot, &kept["decisions"], None);
+                    for key in ["reviewPlan", "decisions"] {
+                        if let Some(value) = kept.get(key) {
+                            review[key] = value.clone();
+                        }
+                    }
+                    Json(review).into_response()
+                }
+                _ => refusal(StatusCode::CONFLICT, "checkout_readiness_stale", "Sell List readiness snapshot is stale."),
+            }
+        }
+        ("POST", "/readiness") if sent["entryReadinessSnapshotId"] == "srs_moved" => {
+            refusal(StatusCode::CONFLICT, "checkout_readiness_stale", "Sell List readiness snapshot is stale.")
         }
         ("POST", "/readiness") => {
             let acts: Vec<Value> = sent["lineActions"].as_array().cloned().unwrap_or_default();
@@ -18176,7 +18240,7 @@ async fn a_photo_is_classified_or_added_to_the_offers_listing_from_the_sell_list
 }
 
 #[tokio::test]
-async fn continue_plans_each_line_asks_for_readiness_and_starts_seller_checkout_after_it() {
+async fn continue_sends_what_the_seller_chose_for_checkouts_review_and_starts_seller_checkout_after_it() {
     let pilot = Pilot::new().await;
     let body = [
         "intent=review-sell-list-checkout",
@@ -18194,32 +18258,27 @@ async fn continue_plans_each_line_asks_for_readiness_and_starts_seller_checkout_
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/checkout/sell/session/chk_"), "{to}");
+    // The address names the snapshot only: Checkout keeps the review with it
+    // (chase-sets/chase-sets#10505).
     let q = query(to);
+    let mut names: Vec<&str> = q.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["afterWrite", "readinessSnapshotId", "readinessSourceRevision"], "{to}");
     assert_eq!((q["readinessSnapshotId"].as_str(), q["readinessSourceRevision"].as_str()), ("srs_1", "rev_7"));
     assert!(q["afterWrite"].contains(r#""commitPosition":"71""#), "{to}");
-    let decisions: Value = serde_json::from_str(&q["readinessDecisions"]).unwrap();
+    // What the seller chose, for Checkout to plan from; the page reads no offer to plan with.
     assert_eq!(
-        decisions,
-        json!({ "lineActions": [
-            { "lineId": "sll_offer", "action": "selected-offer" }, { "lineId": "sll_product", "action": "smart-match" },
-        ], "lineOutcomes": [] })
+        last_body(&pilot, "/api/marketplace/account/sell-list/readiness"),
+        json!({ "selections": { "bulkOfferIds": [], "lines": [
+            { "lineId": "sll_product", "selectedOfferFeeQuoteFingerprint": "",
+              "productOffers": [{ "offerId": "off_short", "feeQuoteFingerprint": "fq_short" }],
+              "fallbackListing": { "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD",
+                  "quantityCap": "3" } },
+            { "lineId": "sll_offer", "selectedOfferFeeQuoteFingerprint": "fq_offer", "productOffers": [],
+              "fallbackListing": null },
+        ] } })
     );
-    let plan: Value = serde_json::from_str(&q["sellListReviewPlan"]).unwrap();
-    assert_eq!(
-        plan["lines"][0]["selectedOffer"],
-        json!({ "offerId": "off_ready", "listingId": "lst_pika", "feeQuoteFingerprint": "fq_offer" })
-    );
-    assert_eq!(
-        plan["lines"][1]["productOfferTargets"],
-        json!([{ "offerId": "off_short", "listingId": "lst_pika", "feeQuoteFingerprint": "fq_short", "quantity": 2 }])
-    );
-    // The third unit is listed: the cap is what the offers leave.
-    assert_eq!(
-        plan["lines"][1]["fallbackListing"],
-        json!({ "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD", "quantityCap": 1 })
-    );
-    let readiness = pilot.stand.calls.lock().unwrap().iter().rfind(|c| c.path.ends_with("/readiness")).cloned().unwrap();
-    assert_eq!(serde_json::from_str::<Value>(&readiness.body).unwrap(), decisions);
+    assert!(list_calls(&pilot, "/api/marketplace/account/sell-list/offer-matches/").is_empty(), "Checkout reads the offers");
 
     // With nothing chosen every line stays, readiness needs resolution, and the page says so.
     let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", "intent=review-sell-list-checkout", false)).await;
@@ -18247,11 +18306,11 @@ async fn the_seller_desks_offers_are_the_sell_list_on_the_desk_and_need_an_accou
     assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"), "{headers:?}");
 }
 
-/// The decisions Continue made for \`trader\`'s list: the offer line's offer, the product line's Smart Match.
+/// The decisions Checkout kept for `trader`'s list: the offer line's offer, the product line's Smart Match.
 const SELL_DECISIONS: &str = r#"{"lineActions":[{"lineId":"sll_offer","action":"selected-offer"},{"lineId":"sll_product","action":"smart-match"}],"lineOutcomes":[]}"#;
 
-/// \`trader\`'s review plan: \`off_ready\` for the offer line; \`target\` for 2 of the product line and a
-/// listing for the third at 21.00 (\`cap\`).
+/// A review plan Checkout kept for `trader`: `off_ready` for the offer line; `target` for 2 of the
+/// product line and a listing for the third at 21.00 (`cap`).
 fn sell_plan(target: &str, cap: u64) -> String {
     json!({ "version": 1, "lines": [
         { "lineId": "sll_offer", "lineType": "selected-offer", "itemTitle": "Pikachu", "productId": "cat_pika::form:raw",
@@ -18271,22 +18330,26 @@ fn encode(v: &str) -> String {
 }
 
 /// Seller checkout's address as Continue writes it.
-fn sell_checkout(session: &str, snapshot: &str, decisions: &str, plan: &str) -> String {
-    format!(
-        "/checkout/sell/session/{session}?readinessSnapshotId={snapshot}&readinessSourceRevision=rev_7&readinessDecisions={}&sellListReviewPlan={}",
-        encode(decisions),
-        encode(plan)
-    )
+fn sell_checkout(session: &str, snapshot: &str) -> String {
+    format!("/checkout/sell/session/{session}?readinessSnapshotId={snapshot}&readinessSourceRevision=rev_7")
 }
 
-/// The seller checkout form, complete with a typed ship-from, with \`changes\` (an empty value leaves
+/// Has the stand-in's Checkout keep `plan` (none when empty) and `decisions` as the review for
+/// `snapshot`.
+fn keep_review(pilot: &Pilot, snapshot: &str, plan: &str, decisions: &str) {
+    let mut kept = json!({ "decisions": serde_json::from_str::<Value>(decisions).unwrap() });
+    if !plan.is_empty() {
+        kept["reviewPlan"] = serde_json::from_str(plan).unwrap();
+    }
+    pilot.stand.kept.lock().unwrap().insert(format!("sell_review:{snapshot}"), kept);
+}
+
+/// The seller checkout form, complete with a typed ship-from, with `changes` (an empty value leaves
 /// the field out).
-fn sell_form(plan: &str, changes: &[(&str, &str)]) -> String {
+fn sell_form(changes: &[(&str, &str)]) -> String {
     let mut fields: Vec<(String, String)> = [
         ("readinessSnapshotId", "srs_1"),
         ("readinessSourceRevision", "rev_7"),
-        ("readinessDecisions", SELL_DECISIONS),
-        ("sellListReviewPlan", plan),
         ("sellerName", "Demo Collector"),
         ("email", "Collector@ChaseSets.test"),
         ("shipFromAddressId", "__manual"),
@@ -18313,7 +18376,7 @@ fn sell_form(plan: &str, changes: &[(&str, &str)]) -> String {
     fields.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect::<Vec<_>>().join("&")
 }
 
-/// The handoff's and the confirm's calls, as \`METHOD path\`.
+/// The handoff's and the confirm's calls, as `METHOD path`.
 fn handoff_calls(pilot: &Pilot) -> Vec<String> {
     let calls = pilot.stand.calls.lock().unwrap();
     calls
@@ -18335,10 +18398,9 @@ fn last_body(pilot: &Pilot, path: &str) -> Value {
 }
 
 #[tokio::test]
-async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_that_keeps_the_plan() {
+async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_from_the_kept_review() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
-    let (status, _, html) = pilot.send(get(&sell_checkout("chk_one", "srs_1", SELL_DECISIONS, &plan), Some("trader"))).await;
+    let (status, _, html) = pilot.send(get(&sell_checkout("chk_one", "srs_1"), Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"<meta name="robots" content="noindex""#), "{html}");
     let page = text(&html);
@@ -18347,14 +18409,15 @@ async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_that_k
         assert!(page.contains(words), "{words}: {page}");
     }
     assert!(html.contains(r#"method="post""#) && !html.contains(r#"type="submit" disabled"#), "{html}");
-    assert!(html.contains(&format!(r#"name="sellListReviewPlan" value="{}""#, plan.replace('"', "&quot;"))), "{html}");
     assert!(html.contains(r#"name="readinessSnapshotId" value="srs_1""#), "{html}");
-    // The page asks for readiness with the decisions and its confirmation (chase-sets/chase-sets#9995);
-    // seller evidence is the confirm's.
-    let readiness = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
-    let mut expected: Value = serde_json::from_str(SELL_DECISIONS).unwrap();
-    expected["confirmationId"] = json!("slc_chk_one");
-    assert_eq!(readiness, expected);
+    // The form carries the snapshot only: the plan and decisions stay with Checkout.
+    assert!(!html.contains("sellListReviewPlan") && !html.contains("readinessDecisions"), "{html}");
+    // The page reads the review Checkout kept with the snapshot, for its confirmation
+    // (chase-sets/chase-sets#9995); seller evidence is the confirm's.
+    assert_eq!(
+        last_body(&pilot, "/api/marketplace/account/sell-list/readiness"),
+        json!({ "readinessSnapshotId": "srs_1", "readinessSourceRevision": "rev_7", "confirmationId": "slc_chk_one" })
+    );
     assert!(handoff_calls(&pilot).is_empty(), "a read writes nothing");
 }
 
@@ -18362,12 +18425,16 @@ async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_that_k
 async fn seller_checkout_says_why_it_cannot_go_on_and_refuses_a_confirm_then() {
     let pilot = Pilot::new().await;
     let plan = sell_plan("off_short", 1);
+    // A review whose readiness needs resolution, and one kept without its plan.
+    keep_review(&pilot, "srs_blocked", &plan, "{}");
+    keep_review(&pilot, "srs_planless", "", SELL_DECISIONS);
     let cases = [
         (get("/checkout/sell/session/chk_one", Some("trader")), "Review Sell List first"),
-        (get(&sell_checkout("chk_one", "srs_0", SELL_DECISIONS, &plan), Some("trader")), "Sell List changed"),
-        (get(&sell_checkout("chk_one", "srs_1", "{}", &plan), Some("trader")), "Some items need attention"),
-        (get(&sell_checkout("chk_one", "srs_1", SELL_DECISIONS, &plan), Some("watcher")), "Your Sell List is empty"),
-        (get(&sell_checkout("chk_one", "srs_1", SELL_DECISIONS, &plan), None), "Sell List access expired"),
+        (get(&sell_checkout("chk_one", "srs_0"), Some("trader")), "Sell List changed"),
+        (get(&sell_checkout("chk_one", "srs_planless"), Some("trader")), "Sell List changed"),
+        (get(&sell_checkout("chk_one", "srs_blocked"), Some("trader")), "Some items need attention"),
+        (get(&sell_checkout("chk_one", "srs_1"), Some("watcher")), "Your Sell List is empty"),
+        (get(&sell_checkout("chk_one", "srs_1"), None), "Sell List access expired"),
     ];
     for (req, words) in cases {
         let (status, _, html) = pilot.send(req).await;
@@ -18377,21 +18444,28 @@ async fn seller_checkout_says_why_it_cannot_go_on_and_refuses_a_confirm_then() {
         assert!(html.contains(r#"type="submit" disabled"#), "no confirm while it cannot go on: {words}");
         assert_eq!(hrefs(&html, "Review Sell List").first(), Some(&"/account/sell-list"), "{words}: {html}");
     }
-    let body = sell_form(&plan, &[("readinessSnapshotId", "srs_0")]);
+    let body = sell_form(&[("readinessSnapshotId", "srs_0")]);
     let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Seller checkout readiness is no longer current."), "{html}");
+    // A list that changes between the page and its confirm: Checkout's readiness refuses it as
+    // stale, and the page says so with the way back to the Sell List.
+    keep_review(&pilot, "srs_moved", &plan, SELL_DECISIONS);
+    let body = sell_form(&[("readinessSnapshotId", "srs_moved")]);
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Sell List changed") && page.contains("Sell List readiness snapshot is stale."), "{page}");
+    assert_eq!(hrefs(&html, "Review Sell List").first(), Some(&"/account/sell-list"), "{html}");
     assert!(handoff_calls(&pilot).is_empty());
 }
 
 #[tokio::test]
 async fn seller_checkout_checks_each_field_and_the_payout_before_it_sends_anything() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
     let at = "/checkout/sell/session/chk_one";
-    let (status, _, html) = pilot
-        .send(post(at, "trader", &sell_form(&plan, &[("sellerName", ""), ("termsAccepted", ""), ("email", "nope")]), false))
-        .await;
+    let (status, _, html) =
+        pilot.send(post(at, "trader", &sell_form(&[("sellerName", ""), ("termsAccepted", ""), ("email", "nope")]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let page = text(&html);
     for words in [
@@ -18403,32 +18477,36 @@ async fn seller_checkout_checks_each_field_and_the_payout_before_it_sends_anythi
     }
     assert!(html.contains(r#"value="collector""#) || html.contains(r#"value="nope""#), "what was typed is kept: {html}");
 
-    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[("shipFromState", "PR")]), false)).await;
+    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&[("shipFromState", "PR")]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("This ship-from region is not supported for seller checkout yet."), "{html}");
-    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[("shipFromCountry", "CA")]), false)).await;
+    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&[("shipFromCountry", "CA")]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Seller checkout currently supports US ship-from addresses."), "{html}");
 
-    // \`lookout\` has not set up payouts.
-    let (status, _, html) = pilot.send(post(at, "lookout", &sell_form(&plan, &[]), false)).await;
+    // `lookout` has not set up payouts.
+    let (status, _, html) = pilot.send(post(at, "lookout", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Payout setup is required before seller checkout can continue."), "{html}");
     assert!(handoff_calls(&pilot).is_empty(), "nothing was sent");
 }
 
 #[tokio::test]
-async fn seller_checkout_refuses_a_plan_that_is_not_the_one_readiness_decided() {
+async fn seller_checkout_refuses_a_kept_plan_that_is_not_the_one_readiness_decided() {
     let pilot = Pilot::new().await;
     let at = "/checkout/sell/session/chk_one";
+    // The handoff still checks the plan against the snapshot until Checkout runs it
+    // (chase-sets/chase-sets#10754): another offer for the offer line, or more than the line has.
     let mut other_offer: Value = serde_json::from_str(&sell_plan("off_short", 1)).unwrap();
     other_offer["lines"][0]["selectedOffer"]["offerId"] = json!("off_other");
-    for plan in [String::new(), "not json".to_owned(), other_offer.to_string(), sell_plan("off_short", 4)] {
-        let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[]), false)).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{plan}: {html}");
+    keep_review(&pilot, "srs_other", &other_offer.to_string(), SELL_DECISIONS);
+    keep_review(&pilot, "srs_over", &sell_plan("off_short", 4), SELL_DECISIONS);
+    for snapshot in ["srs_other", "srs_over"] {
+        let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&[("readinessSnapshotId", snapshot)]), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{snapshot}: {html}");
         assert!(
             text(&html).contains("Return to the Sell List and refresh the reviewed sale plan before confirming."),
-            "{plan}: {html}"
+            "{snapshot}: {html}"
         );
     }
     assert!(handoff_calls(&pilot).is_empty(), "nothing was accepted or listed");
@@ -18437,9 +18515,8 @@ async fn seller_checkout_refuses_a_plan_that_is_not_the_one_readiness_decided() 
 #[tokio::test]
 async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
     let at = "/checkout/sell/session/chk_one";
-    let (status, headers, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[]), false)).await;
+    let (status, headers, html) = pilot.send(post(at, "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/checkout/sell/session/chk_one/confirmation?afterWrite="), "{to}");
@@ -18469,14 +18546,17 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
         json!({ "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD", "quantityCap": 1,
             "listingIdOverride": "lst_slc_chk_one_sll_product" })
     );
-    // Readiness with the seller's evidence came first, for the confirmation and the snapshot and
-    // plan the page started from.
+    // Readiness with the seller's evidence came first, with the kept review's decisions, for the
+    // confirmation and the snapshot the page started from; the plan stays with Checkout.
     let evidence = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
+    let decisions: Value = serde_json::from_str(SELL_DECISIONS).unwrap();
     assert_eq!(evidence["sellerEvidence"]["payout"]["readinessStatus"], "ready");
     assert_eq!(
-        (&evidence["confirmationId"], &evidence["entryReadinessSnapshotId"], &evidence["reviewPlan"]),
-        (&json!("slc_chk_one"), &json!("srs_1"), &json!(plan))
+        (&evidence["confirmationId"], &evidence["entryReadinessSnapshotId"], &evidence["entryReadinessSourceRevision"]),
+        (&json!("slc_chk_one"), &json!("srs_1"), &json!("rev_7"))
     );
+    assert_eq!((&evidence["lineActions"], &evidence["lineOutcomes"]), (&decisions["lineActions"], &decisions["lineOutcomes"]));
+    assert!(evidence.get("reviewPlan").is_none(), "{evidence}");
     // Each acceptance was checked against the attempt Marketplace kept for it.
     let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
     assert_eq!(lookups.len(), 2, "{lookups:?}");
@@ -18500,6 +18580,7 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
     assert_eq!(confirm["shipFrom"], typed);
     assert_eq!(confirm["label"], json!({ "preference": "prepaid-label" }));
     assert_eq!(confirm["confirmationId"], "slc_chk_one");
+    assert_eq!(confirm["readinessDecisions"], decisions);
     assert_eq!(confirm["completedLineIds"], json!(["sll_offer", "sll_product"]));
     assert_eq!(confirm["remainingLineQuantities"], json!([]));
     assert_eq!(confirm["handoffSummary"]["acceptedOfferCount"], 2);
@@ -18514,7 +18595,7 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
 
     // The same form again goes to the saved confirmation and hands nothing off twice.
     let sent = handoff_calls(&pilot).len();
-    let (status, headers, _) = pilot.send(post(at, "trader", &sell_form(&plan, &[]), false)).await;
+    let (status, headers, _) = pilot.send(post(at, "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION], "/checkout/sell/session/chk_one/confirmation");
     assert_eq!(handoff_calls(&pilot).len(), sent);
@@ -18523,8 +18604,9 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
 #[tokio::test]
 async fn an_offer_whose_terms_changed_sends_the_seller_back_to_the_sell_list_without_confirming() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_stale", 1);
-    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &sell_form(&plan, &[]), false)).await;
+    keep_review(&pilot, "srs_off_stale", &sell_plan("off_stale", 1), SELL_DECISIONS);
+    let body = sell_form(&[("readinessSnapshotId", "srs_off_stale")]);
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &body, false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     let page = text(&html);
     assert!(page.contains("Sell List changed") && page.contains("Pikachu"), "{page}");
@@ -18546,7 +18628,9 @@ async fn an_offer_whose_terms_changed_sends_the_seller_back_to_the_sell_list_wit
     // seller's acceptance.
     for (offer, words) in [("off_accepted", "Offer match has already been accepted."), ("off_borrowed", "not as this sale")] {
         let at = format!("/checkout/sell/session/chk_{offer}");
-        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&sell_plan(offer, 1), &[]), false)).await;
+        let snapshot = format!("srs_{offer}");
+        keep_review(&pilot, &snapshot, &sell_plan(offer, 1), SELL_DECISIONS);
+        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[("readinessSnapshotId", &snapshot)]), false)).await;
         assert_eq!(status, StatusCode::CONFLICT, "{offer}: {html}");
         let page = text(&html);
         assert!(page.contains(words) && page.contains("Not applied"), "{offer}: {page}");
@@ -18557,14 +18641,12 @@ async fn an_offer_whose_terms_changed_sends_the_seller_back_to_the_sell_list_wit
 #[tokio::test]
 async fn a_confirm_whose_answer_is_lost_is_looked_up_and_one_not_found_waits_for_the_same_form() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
     // Kept, it is its confirmation's page.
-    let (status, headers, html) =
-        pilot.send(post("/checkout/sell/session/chk_lost", "trader", &sell_form(&plan, &[]), false)).await;
+    let (status, headers, html) = pilot.send(post("/checkout/sell/session/chk_lost", "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert_eq!(headers[header::LOCATION], "/checkout/sell/session/chk_lost/confirmation");
     // Not kept, it is not known: the same form to send again, and the form held.
-    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_gone", "trader", &sell_form(&plan, &[]), false)).await;
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_gone", "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("This action could not be confirmed."), "{html}");
     let retry = html.split("<form").find(|f| f.contains("Retry the same action")).expect("a retry");
@@ -18575,7 +18657,7 @@ async fn a_confirm_whose_answer_is_lost_is_looked_up_and_one_not_found_waits_for
     assert!(html.contains(r#"type="submit" disabled"#), "{html}");
     // A confirmation that cannot be looked for first is not known either, and nothing is sent.
     let before = handoff_calls(&pilot).len();
-    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_dark", "trader", &sell_form(&plan, &[]), false)).await;
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_dark", "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("This action could not be confirmed."), "{html}");
     assert_eq!(handoff_calls(&pilot).len(), before, "nothing handed off");
@@ -18584,20 +18666,19 @@ async fn a_confirm_whose_answer_is_lost_is_looked_up_and_one_not_found_waits_for
 #[tokio::test]
 async fn a_guests_seller_checkout_checks_the_form_and_goes_to_registration() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
-    let page = sell_checkout("chk_guest", "srs_1", "{}", &plan);
+    let page = sell_checkout("chk_guest", "srs_1");
     let (status, _, html) = pilot.send(with_guest(get(&page, None), None, "anon_one")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Pikachu") && html.contains(r#"name="payoutHandoff""#), "{html}");
     assert!(!html.contains(r#"name="payoutMethod""#), "a guest has no saved payout: {html}");
 
     let at = "/checkout/sell/session/chk_guest";
-    let missing = sell_form(&plan, &[("readinessDecisions", "{}"), ("payoutHandoff", "")]);
+    let missing = sell_form(&[("payoutHandoff", "")]);
     let (status, _, html) = pilot.send(with_guest(post_signed_out(at, &missing), None, "anon_one")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Create account and payout setup is required before the final sale step."), "{html}");
 
-    let body = sell_form(&plan, &[("readinessDecisions", "{}")]);
+    let body = sell_form(&[]);
     let (status, headers, html) = pilot.send(with_guest(post_signed_out(at, &body), None, "anon_one")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert_eq!(headers[header::LOCATION], "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout");

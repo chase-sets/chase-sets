@@ -6,7 +6,7 @@
 //! The page's writes are marketplace's intents: Remove (a line), Decline selected (the checked
 //! offers, declined on Marketplace, then their lines removed), Classify and Add photo (a listing's
 //! evidence, on Marketplace) and Continue to seller checkout, which posts the seller's choices,
-//! asks Checkout for the sell list's readiness with them, and starts the pilot's seller checkout
+//! asks Checkout to review the sell list with them, and starts the pilot's seller checkout
 //! with the snapshot (`/checkout/sell/session/{id}`, in [`crate::sell_checkout`]). A guest's Continue checks the guest
 //! sell list's readiness and goes to marketplace's registration.
 //!
@@ -19,12 +19,11 @@
 //! send again (409), as marketplace's `SellListAttemptBoundary` does; one refused draws the
 //! page with the API's words (422).
 //!
-//! Two of the page's rules are marketplace's web layer's, copied here until the API has them: each
+//! One of the page's rules is marketplace's web layer's, copied here until the API has it: each
 //! line's readiness and the list's payout totals
 //! ([chase-sets/chase-sets#10749](https://github.com/chase-sets/chase-sets/issues/10749)), worked
-//! out in whole cents where marketplace's page adds floats (`moneyNumber`), and the review plan
-//! Continue sends to seller checkout with its readiness decisions
-//! ([chase-sets/chase-sets#10505](https://github.com/chase-sets/chase-sets/issues/10505)).
+//! out in whole cents where marketplace's page adds floats (`moneyNumber`). Continue's review plan
+//! is Checkout's: the page sends what the seller chose, and Checkout plans and keeps it.
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
@@ -33,13 +32,12 @@ use corten::{
     security::cookie,
 };
 use platform::{api::segment, money, receipt::Receipt};
-use serde::Serialize;
 
 use crate::{
     api::{
-        ApiError, CartWrite, CommandError, CompositeReview, InventoryOption, LineAction, LineKept, ListingCommand,
-        ListingEvidence, OfferMatchCalls as _, OfferReview, Photo, ProductOfferReview, ReadinessDecisions, SellList as _,
-        SellListConfirmation, SellListRow, SellPayoutReadiness, SellerListings as _,
+        ApiError, CartWrite, CommandError, CompositeReview, InventoryOption, LineSelection, ListingCommand, ListingEvidence,
+        ListingSelection, OfferMatchCalls as _, OfferReview, OfferSelection, Photo, ProductOfferReview, ReviewSelections,
+        SellList as _, SellListConfirmation, SellListRow, SellPayoutReadiness, SellerListings as _,
     },
     app::{Config, Shared, read_failed, sign_in_back_to, url},
     auth::{DeskSeller, Session},
@@ -606,204 +604,49 @@ pub enum RecoveryLabel {
     KeepSelling,
 }
 
-/// What Continue sends to seller checkout (`SellListReviewPlan`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct Plan {
-    pub version: u8,
-    pub lines: Vec<PlanLine>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanLine {
-    pub line_id: String,
-    pub line_type: &'static str,
-    pub item_title: String,
-    pub product_id: Option<String>,
-    pub quantity: u64,
-    pub selected_offer: Option<PlanOffer>,
-    pub product_offer_targets: Vec<PlanTarget>,
-    pub fallback_listing: Option<PlanListing>,
-    pub skipped_reasons: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanOffer {
-    pub offer_id: String,
-    pub listing_id: String,
-    pub fee_quote_fingerprint: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanTarget {
-    pub offer_id: String,
-    pub listing_id: String,
-    pub fee_quote_fingerprint: String,
-    pub quantity: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanListing {
-    pub inventory_item_id: String,
-    pub price_amount: String,
-    pub price_currency_code: String,
-    pub quantity_cap: u64,
-}
-
-/// A Smart Match offer as Checkout reads it now, for the plan: its product, quantity and listing.
-pub struct Matched {
-    pub product_id: String,
-    pub quantity: u64,
-    pub listing_id: String,
-}
-
 /// The form's every value for `key`, trimmed, the empty ones left out.
 fn all(raw: &Raw, key: &str) -> Vec<String> {
     raw.get(key).map(|v| v.all().iter().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
 }
 
-/// The review plan for `lines` from the posted form (`buildSellListReviewPlan`): each selected
-/// offer with its fee quote, each product line's Smart Match offers as Checkout reads them now
-/// (`read`, by id) while they fit its quantity, and a listing for the rest when the seller chose
-/// one. With offers checked (`bulkOfferId`) only those are planned; the other lines stay in the
-/// sell list. A reason a line was skipped is written as marketplace's route writes it.
-pub async fn plan<F, Fut>(t: SellListMsg, lines: &[SellListRow], raw: &Raw, read: F) -> Plan
-where
-    F: Fn(String) -> Fut,
-    Fut: std::future::Future<Output = Result<Matched, String>>,
-{
-    let bulk: Vec<String> = all(raw, "bulkOfferId");
-    let is_bulk = !bulk.is_empty();
-    let mut planned = Vec::new();
-    for line in lines {
-        let title = &line.item_title;
-        let mut skipped = Vec::new();
-        if line.is_offer() {
-            let fingerprint = first(raw, &format!("offerFeeQuoteFingerprint:{}", line.line_id));
-            let mut selected = None;
-            let picked = line.offer_id.as_ref().is_some_and(|id| bulk.contains(id));
-            if is_bulk && !picked {
-                // Unchecked lines stay in the sell list.
-            } else if let (Some(offer), Some(listing)) = (&line.offer_id, &line.listing_id) {
-                if fingerprint.is_empty() {
-                    skipped.push(t.route_offer_terms_need_refresh_detail(title).to_string());
-                } else {
-                    selected = Some(PlanOffer {
-                        offer_id: offer.clone(),
-                        listing_id: listing.clone(),
-                        fee_quote_fingerprint: fingerprint,
-                    });
-                }
-            } else {
-                skipped.push(t.route_selected_offer_missing_detail(title).to_string());
-            }
-            planned.push(PlanLine {
-                line_id: line.line_id.clone(),
-                line_type: "selected-offer",
-                item_title: title.clone(),
-                product_id: Some(line.product_id.clone()),
-                quantity: line.quantity,
-                selected_offer: selected,
-                product_offer_targets: Vec::new(),
-                fallback_listing: None,
-                skipped_reasons: skipped,
-            });
-            continue;
-        }
-        let mut remaining = line.quantity;
-        let mut targets = Vec::new();
-        let mut ids: Vec<String> = Vec::new();
-        for id in all(raw, &format!("productOfferId:{}", line.line_id)) {
-            if !ids.contains(&id) && (!is_bulk || bulk.contains(&id)) {
-                ids.push(id);
-            }
-        }
-        for id in ids {
-            match read(id.clone()).await {
-                Ok(offer) if offer.product_id != line.product_id => {
-                    skipped.push(format!("{title}: matching offer {id} no longer matches this product."));
-                }
-                Ok(offer) if offer.quantity > remaining => {
-                    skipped.push(format!("{title}: matching offer {id} exceeds remaining quantity."));
-                }
-                Ok(offer) => {
-                    let fingerprint = first(raw, &format!("productOfferFeeQuoteFingerprint:{}:{id}", line.line_id));
-                    if fingerprint.is_empty() {
-                        skipped.push(format!("{title}: matching offer terms need refresh."));
-                        continue;
-                    }
-                    remaining -= offer.quantity;
-                    targets.push(PlanTarget {
-                        offer_id: id,
-                        listing_id: offer.listing_id,
-                        fee_quote_fingerprint: fingerprint,
-                        quantity: offer.quantity,
-                    });
-                }
-                Err(message) => skipped.push(format!("{title}: {message}")),
-            }
-        }
-        let mut listing = None;
-        let fallback = !is_bulk && first(raw, &format!("fallbackMode:{}", line.line_id)) == "create-listing";
-        if remaining > 0 && fallback {
-            let field = |name: &str| first(raw, &format!("{name}:{}", line.line_id));
-            let (inventory, price, currency) = (field("inventoryItemId"), field("priceAmount"), field("priceCurrencyCode"));
-            let asked = field("quantityCap");
-            let cap = if asked.is_empty() { Some(remaining) } else { asked.parse::<u64>().ok() }.map(|c| c.min(remaining));
-            match cap.filter(|c| *c >= 1) {
-                Some(cap) if !inventory.is_empty() && !price.is_empty() && !currency.is_empty() => {
-                    listing = Some(PlanListing {
-                        inventory_item_id: inventory,
-                        price_amount: price,
-                        price_currency_code: currency,
-                        quantity_cap: cap,
-                    });
-                }
-                _ => skipped.push(format!("{title}: listing needs inventory, price, currency, and quantity.")),
-            }
-        } else if remaining > 0 && !is_bulk {
-            skipped.push(t.route_matching_offers_do_not_cover_quantity_detail(title).to_string());
-        }
-        planned.push(PlanLine {
-            line_id: line.line_id.clone(),
-            line_type: "product",
-            item_title: title.clone(),
-            product_id: Some(line.product_id.clone()),
-            quantity: line.quantity,
-            selected_offer: None,
-            product_offer_targets: targets,
-            fallback_listing: listing,
-            skipped_reasons: skipped,
-        });
-    }
-    Plan { version: 1, lines: planned }
-}
-
-/// The readiness decisions a plan makes (`readinessDecisionsFromReviewPlan`): a skipped line, or one with
-/// nothing to do, stays in the sell list.
-pub fn decisions(plan: &Plan) -> ReadinessDecisions {
-    let mut decisions = ReadinessDecisions::default();
-    for line in &plan.lines {
-        let action = if !line.skipped_reasons.is_empty() {
-            None
-        } else if line.line_type == "selected-offer" && line.selected_offer.is_some() {
-            Some("selected-offer")
-        } else if !line.product_offer_targets.is_empty() {
-            Some("smart-match")
-        } else if line.fallback_listing.is_some() {
-            Some("fallback-listing")
-        } else {
-            None
-        };
-        match action {
-            Some(action) => decisions.line_actions.push(LineAction { line_id: line.line_id.clone(), action }),
-            None => decisions.line_outcomes.push(LineKept { line_id: line.line_id.clone(), outcome: "keep-in-list" }),
+/// What the seller chose, from the posted form, as Continue sends it (marketplace's
+/// `reviewSelectionsFromForm`): each line the form names a selected offer's fee quote, a Smart
+/// Match offer or a fallback mode for, with those, and a listing when the seller chose to create
+/// one. Checkout plans from these against the lines as it reads them.
+pub fn selections(raw: &Raw) -> ReviewSelections {
+    const PREFIXES: [&str; 3] = ["offerFeeQuoteFingerprint:", "productOfferId:", "fallbackMode:"];
+    let mut ids: Vec<&str> = Vec::new();
+    for key in raw.keys() {
+        if let Some(id) = PREFIXES.iter().find_map(|prefix| key.strip_prefix(prefix))
+            && !ids.contains(&id)
+        {
+            ids.push(id);
         }
     }
-    decisions
+    let lines = ids
+        .into_iter()
+        .map(|id| {
+            let field = |name: &str| first(raw, &format!("{name}:{id}"));
+            LineSelection {
+                line_id: id.to_owned(),
+                selected_offer_fee_quote_fingerprint: field("offerFeeQuoteFingerprint"),
+                product_offers: all(raw, &format!("productOfferId:{id}"))
+                    .into_iter()
+                    .map(|offer| OfferSelection {
+                        fee_quote_fingerprint: first(raw, &format!("productOfferFeeQuoteFingerprint:{id}:{offer}")),
+                        offer_id: offer,
+                    })
+                    .collect(),
+                fallback_listing: (field("fallbackMode") == "create-listing").then(|| ListingSelection {
+                    inventory_item_id: field("inventoryItemId"),
+                    price_amount: field("priceAmount"),
+                    price_currency_code: field("priceCurrencyCode"),
+                    quantity_cap: field("quantityCap"),
+                }),
+            }
+        })
+        .collect();
+    ReviewSelections { bulk_offer_ids: all(raw, "bulkOfferId"), lines }
 }
 
 /// A seller confirmation's support reference (`sellListConfirmationSupportReference`).
@@ -1229,17 +1072,17 @@ async fn decline(caller: &platform::api::Caller<'_>, raw: &Raw, attempt: &str, s
     submit(caller, attempt, CartWrite::sell_list_remove_lines(&lines), resend, surface, false, failed).await
 }
 
-/// Continue to seller checkout (`review-sell-list-checkout`). An account's: the plan from the posted form,
-/// its decisions sent for the sell list's readiness, and marketplace's seller checkout with the
-/// snapshot, the decisions and the plan, read after the readiness write. A guest's: the guest
-/// sell list's readiness, then marketplace's registration, back to the sell list.
+/// Continue to seller checkout (`review-sell-list-checkout`). An account's: what the seller chose
+/// sent for Checkout's review, which plans each line and keeps the plan with the snapshot, then
+/// marketplace's seller checkout with the snapshot, read after the review's write. A guest's: the
+/// guest sell list's readiness, then marketplace's registration, back to the sell list.
 async fn review(t: SellListMsg, caller: &platform::api::Caller<'_>, raw: &Raw, account: bool, guest: Option<&str>) -> Done {
     let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
     if !account {
         let Some(id) = guest else {
             return Done::To(sign_in_back_to(&back).map(|u| u.to_string()).unwrap_or_else(|| back.clone()));
         };
-        return match caller.sell_list_readiness(&ReadinessDecisions::default(), Some(id), None).await {
+        return match caller.guest_sell_list_readiness(id).await {
             Ok((snapshot, _)) if snapshot.status == "ready" && snapshot.unresolved_line_ids.is_empty() => {
                 Done::To(crate::register::href(&back))
             }
@@ -1247,46 +1090,25 @@ async fn review(t: SellListMsg, caller: &platform::api::Caller<'_>, raw: &Raw, a
             Err(error) => Done::Failed(error),
         };
     }
-    let list = match caller.sell_list(None).await {
-        Ok(list) => list,
-        Err(error) => return Done::Failed(error),
-    };
-    let read = |id: String| async move {
-        match caller.sell_list_offer(&id).await {
-            Ok(Some(offer)) => {
-                Ok(Matched { product_id: offer.product_id, quantity: offer.quantity_requested, listing_id: offer.listing_id })
-            }
-            Ok(None) => Err("offer match failed".to_owned()),
-            Err(error) => Err(error.refusal().map_or_else(|| "offer match failed".to_owned(), str::to_owned)),
-        }
-    };
-    let plan = plan(t, &list.items, raw, read).await;
-    let decisions = decisions(&plan);
-    let (snapshot, receipt) = match caller.sell_list_readiness(&decisions, None, None).await {
+    let (review, receipt) = match caller.review_sell_list(&selections(raw)).await {
         Ok(answer) => answer,
         Err(error) => return Done::Failed(error),
     };
+    let snapshot = review.readiness;
     if snapshot.status != "ready" || !snapshot.unresolved_line_ids.is_empty() {
         return Done::Refused(t.route_sell_list_readiness_must_be_resolved().to_owned());
     }
-    Done::To(checkout_path(&snapshot.snapshot_id, &snapshot.source_revision, &decisions, &plan, receipt.as_ref()))
+    Done::To(checkout_path(&snapshot.snapshot_id, &snapshot.source_revision, receipt.as_ref()))
 }
 
 /// Seller checkout for a readiness snapshot (marketplace's `sellCheckoutRedirectUrl`): a new session
-/// id, with the write's receipt.
-pub fn checkout_path(
-    snapshot: &str,
-    revision: &str,
-    decisions: &ReadinessDecisions,
-    plan: &Plan,
-    receipt: Option<&Receipt>,
-) -> String {
+/// id, with the write's receipt. Checkout keeps the snapshot's review, so the address names only
+/// the snapshot.
+pub fn checkout_path(snapshot: &str, revision: &str, receipt: Option<&Receipt>) -> String {
     let id = format!("chk_{}", ulid::Ulid::new());
     let place = crate::sell_checkout::Place {
         readiness_snapshot_id: Some(snapshot.to_owned()),
         readiness_source_revision: Some(revision.to_owned()),
-        readiness_decisions: Some(serde_json::to_string(decisions).unwrap_or_default()),
-        sell_list_review_plan: Some(serde_json::to_string(plan).unwrap_or_default()),
         after_write: receipt.map(Receipt::param),
     };
     url::SellCheckout { id: &id, place }.href()
@@ -1477,27 +1299,48 @@ mod tests {
     }
 
     #[test]
-    fn a_skipped_line_or_one_with_nothing_to_do_stays_in_the_sell_list() {
-        let line = |id: &str, skipped: bool, listing: bool| PlanLine {
-            line_id: id.into(),
-            line_type: "product",
-            item_title: "Pikachu".into(),
-            product_id: None,
-            quantity: 1,
-            selected_offer: None,
-            product_offer_targets: Vec::new(),
-            fallback_listing: listing.then(|| PlanListing {
+    fn continue_sends_each_line_the_form_names_with_its_offers_and_a_listing_only_when_one_was_chosen() {
+        let mut raw = Raw::new();
+        for (k, v) in [
+            ("bulkOfferId", " off_a "),
+            ("offerFeeQuoteFingerprint:sll_offer", " fq_offer "),
+            ("productOfferId:sll_product", "off_a"),
+            ("productOfferId:sll_product", " "),
+            ("productOfferId:sll_product", "off_b"),
+            ("productOfferFeeQuoteFingerprint:sll_product:off_a", "fq_a"),
+            ("fallbackMode:sll_product", "create-listing"),
+            ("inventoryItemId:sll_product", "inv_1"),
+            ("priceAmount:sll_product", "21.00"),
+            ("priceCurrencyCode:sll_product", "USD"),
+            ("fallbackMode:sll_kept", "keep-in-list"),
+            ("inventoryItemId:sll_kept", "inv_2"),
+            ("intent", "review-sell-list-checkout"),
+        ] {
+            crate::items::put(&mut raw, k.to_owned(), v.to_owned());
+        }
+        let sent = selections(&raw);
+        assert_eq!(sent.bulk_offer_ids, ["off_a"]);
+        let ids: Vec<_> = sent.lines.iter().map(|l| l.line_id.as_str()).collect();
+        assert_eq!(ids, ["sll_kept", "sll_product", "sll_offer"], "one entry per line the form names");
+        let line = |id: &str| sent.lines.iter().find(|l| l.line_id == id).unwrap();
+        assert_eq!(line("sll_offer").selected_offer_fee_quote_fingerprint, "fq_offer");
+        assert_eq!(
+            line("sll_product").product_offers,
+            [
+                OfferSelection { offer_id: "off_a".into(), fee_quote_fingerprint: "fq_a".into() },
+                OfferSelection { offer_id: "off_b".into(), fee_quote_fingerprint: String::new() },
+            ],
+            "an empty offer is left out; one without terms is sent for Checkout to skip"
+        );
+        assert_eq!(
+            line("sll_product").fallback_listing,
+            Some(ListingSelection {
                 inventory_item_id: "inv_1".into(),
-                price_amount: "1.00".into(),
+                price_amount: "21.00".into(),
                 price_currency_code: "USD".into(),
-                quantity_cap: 1,
-            }),
-            skipped_reasons: if skipped { vec!["no".into()] } else { Vec::new() },
-        };
-        let plan = Plan { version: 1, lines: vec![line("a", false, true), line("b", true, true), line("c", false, false)] };
-        let d = decisions(&plan);
-        assert_eq!(d.line_actions, [LineAction { line_id: "a".into(), action: "fallback-listing" }]);
-        let kept: Vec<_> = d.line_outcomes.iter().map(|k| k.line_id.as_str()).collect();
-        assert_eq!(kept, ["b", "c"]);
+                quantity_cap: String::new(),
+            })
+        );
+        assert_eq!(line("sll_kept").fallback_listing, None, "a listing only when the seller chose to create one");
     }
 }

@@ -320,10 +320,6 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, s: SellListMsg, p: Pilot, screen
                         name="readinessSourceRevision"
                         value={screen.readiness.as_ref().map_or("", |r| r.source_revision.as_str())}
                     >
-                    if screen.account {
-                        <input type="hidden" name="readinessDecisions" value={&screen.decisions}>
-                        <input type="hidden" name="sellListReviewPlan" value={&screen.plan}>
-                    }
                     if let Some(message) = screen.errors.get("form") {
                         <div class={Banner} data-tone="danger" role="alert">
                             <p class={Strong}>{w.fix_details}</p>

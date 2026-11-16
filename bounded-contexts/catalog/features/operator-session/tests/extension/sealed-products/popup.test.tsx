@@ -64,13 +64,13 @@ async function select() {
   fireEvent.change(screen.getByLabelText("Set"), { target: { value: String(selection().setId) } });
 }
 describe("sealed products popup", () => {
-  it("starts empty, excludes unbound lines and uses only the last set-name fetch for the chosen line", async () => {
+  it("starts empty, includes bound Lorcana and uses only the last set-name fetch for the chosen line", async () => {
     mount();
     expect(
       Array.from((screen.getByLabelText("Sealed product line") as HTMLSelectElement).options).map(
         (option) => option.value,
       ),
-    ).toEqual(["", "1", "3"]);
+    ).toEqual(["", "1", "3", "71"]);
     expect((screen.getByRole("button", { name: "Run sealed products" }) as HTMLButtonElement).disabled).toBe(true);
     await select();
     expect((screen.getByRole("button", { name: "Run sealed products" }) as HTMLButtonElement).disabled).toBe(false);
