@@ -774,11 +774,11 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                     if let Some(review) = &line.offer_review {
                         <OfferTerms t={t} review={review} quantity={row.quantity} />
                         if let Some(evidence) = &review.evidence {
-                            <Evidence t={t} evidence={evidence.as_ref()} surface={surface} />
+                            <Evidence t={t} evidence={evidence.as_ref()} surface={surface} held={held} />
                         }
                     }
                     if !row.is_offer() {
-                        <ProductAction t={t} line={line} surface={surface} />
+                        <ProductAction t={t} line={line} surface={surface} held={held} />
                     }
                 </div>
             </details>
@@ -1009,12 +1009,13 @@ fn Payout<'a>(t: SellListMsg, review: &'a OfferReview, terms: &'a SellTerms, qua
 }
 
 /// A listing's required evidence: what it misses, its photos (each unmatched one with Classify),
-/// and Add photo while it is not complete (`SellListOfferEvidenceReview`).
+/// and Add photo while it is not complete (`SellListOfferEvidenceReview`). Classify and Add photo
+/// wait, as the page's other writes do, while a write is held.
 #[component(css = SellListPage)]
-fn Evidence<'a>(t: SellListMsg, evidence: Option<&'a ListingEvidence>, surface: Surface) -> impl Render {
+fn Evidence<'a>(t: SellListMsg, evidence: Option<&'a ListingEvidence>, surface: Surface, held: bool) -> impl Render {
     html! {
         if let Some(e) = evidence {
-            <EvidenceReview t={t} e={e} surface={surface} />
+            <EvidenceReview t={t} e={e} surface={surface} held={held} />
         } else {
             <p class={Hint}>{t.page_evidence_unavailable()}</p>
         }
@@ -1022,7 +1023,7 @@ fn Evidence<'a>(t: SellListMsg, evidence: Option<&'a ListingEvidence>, surface: 
 }
 
 #[component(css = SellListPage)]
-fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) -> impl Render {
+fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface, held: bool) -> impl Render {
     let matched: Vec<&str> = e.coverage.slots.iter().filter_map(|s| s.matched_photo_id.as_deref()).collect();
     let slots = &e.requirements.required_slots;
     html! {
@@ -1067,7 +1068,9 @@ fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) 
                                         }
                                     </select>
                                 </label>
-                                <button class={(Button, Secondary)} type="submit">{t.page_evidence_classify_action()}</button>
+                                <button class={(Button, Secondary)} type="submit" disabled={held}>
+                                    {t.page_evidence_classify_action()}
+                                </button>
                             </form>
                         }
                     </li>
@@ -1082,7 +1085,7 @@ fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) 
                         <span class={Hint}>{t.page_evidence_photo_description()}</span>
                         <input type="file" name="listingPhoto" accept="image/jpeg,image/png,image/webp" required>
                     </label>
-                    <button class={(Button, Secondary)} type="submit">{t.page_evidence_add_action()}</button>
+                    <button class={(Button, Secondary)} type="submit" disabled={held}>{t.page_evidence_add_action()}</button>
                 </form>
             }
         </section>
@@ -1095,7 +1098,7 @@ fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) 
 /// whenever there is inventory; Keep in Sell List then needs them too until a script or the
 /// browser can make a field required for one choice (todd-skelton/corten#269).
 #[component(css = SellListPage)]
-fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface) -> impl Render {
+fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface, held: bool) -> impl Render {
     let row = &line.row;
     let inventory = line.default_inventory();
     let fallback = line.fallback_default();
@@ -1115,7 +1118,7 @@ fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface) -> impl R
                         </span>
                     </p>
                     if let Some(evidence) = &o.evidence {
-                        <Evidence t={t} evidence={evidence.as_ref()} surface={surface} />
+                        <Evidence t={t} evidence={evidence.as_ref()} surface={surface} held={held} />
                     }
                 </div>
             }

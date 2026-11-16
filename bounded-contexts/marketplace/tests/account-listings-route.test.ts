@@ -285,5 +285,6 @@ describe("account listings route", () => {
       away_window_ends_at: "2026-08-10T05:00:00.000Z",
       away_window_reason_category: "travel",
     });
+    expect(mockCreateMarketplaceRequestApiClient).toHaveBeenCalledTimes(2);
   });
 });

@@ -10,6 +10,7 @@ import {
 import { ListingRequestConflictError } from "./listing-request";
 import { ListingTargetCommandError } from "./target-contracts";
 import { ZodError } from "zod";
+import { listingRecoveryIdentitySchema, listingRecoveryReferenceSchema } from "../ui/contracts";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { authoredTextListingErrors, listingAttemptErrors, listingErrorResponse } from "./listing-errors";
 import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
@@ -1627,6 +1628,39 @@ export function createAccountListingRoutes(
         "bulk-price-update-invalid",
         ...listingAttemptErrors,
       ]);
+    }
+  });
+
+  app.get("/listings/batch/:batchId", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.view");
+      if (access.response) return access.response;
+      const parsedBatchId = marketplaceAttemptIdSchema.safeParse(c.req.param("batchId"));
+      if (!parsedBatchId.success)
+        throw new MarketplaceAttemptError("invalid_attempt", "A valid bulk batch id is required.");
+      const batchId = parsedBatchId.data;
+      const parsedFamily = listingRecoveryReferenceSchema.shape.mutationKind.safeParse(c.req.query("family"));
+      if (!parsedFamily.success)
+        throw new MarketplaceAttemptError("invalid_attempt", "A valid Listing batch family is required.");
+      const family = parsedFamily.data;
+      return c.json(await services.lookupListingBatch({ accountId: access.actor.accountId, batchId, family }));
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "id-invalid", ...listingAttemptErrors]);
+    }
+  });
+
+  app.post("/listings/batch/prepare", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) return access.response;
+      const context = c.get("context");
+      if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
+      const parsed = listingRecoveryIdentitySchema.safeParse(await c.req.json().catch(() => null));
+      if (!parsed.success) throw new MarketplaceAttemptError("invalid_attempt", "Invalid Listing vector identity.");
+      await services.prepareListingBatch(access.actor.accountId, parsed.data, context);
+      return c.json({ prepared: true });
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "id-invalid", ...listingAttemptErrors]);
     }
   });
 

@@ -118,6 +118,7 @@
     "bounded-contexts/channels/features/connector-feed/read-model/inbound.ts",
     "bounded-contexts/channels/features/connector-feed/read-model/liveness.ts",
     "bounded-contexts/channels/features/credentials/api/runtime.ts",
+    "bounded-contexts/channels/features/ebay-account-deletion/api/consumer.ts",
     "bounded-contexts/channels/features/ebay-account-deletion/api/runtime.ts",
     "bounded-contexts/channels/features/ebay-connection/api/credential-refresh.ts",
     "bounded-contexts/channels/features/ebay-connection/api/runtime.ts",
@@ -553,7 +554,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 282,
+    "count": 283,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -619,7 +620,7 @@
       "bounded-contexts/inventory/features/storage-locations/api/route.ts": 2,
       "bounded-contexts/inventory/index.ts": 2,
       "bounded-contexts/inventory/support/runtime-support/seed.ts": 1,
-      "bounded-contexts/marketplace/features/listings/api/route.ts": 13,
+      "bounded-contexts/marketplace/features/listings/api/route.ts": 14,
       "bounded-contexts/marketplace/features/mutation-recovery/api/route.ts": 3,
       "bounded-contexts/marketplace/features/offer-policy/api/route.ts": 2,
       "bounded-contexts/marketplace/features/offers/api/route.ts": 9,

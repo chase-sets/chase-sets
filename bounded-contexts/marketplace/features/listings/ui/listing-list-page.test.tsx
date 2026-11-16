@@ -2,6 +2,9 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import ts from "@chase-sets/typescript-compiler-api";
 import { t } from "@chase-sets/localization";
 import type { SellerBehavioralMetricsSummary } from "../../../support/request-support/seller-metrics-client";
 import { MarketplaceListingListPage } from "./listing-list-page";
@@ -10,6 +13,44 @@ import type {
   MarketplaceSellerListingAvailability,
   MarketplaceSellerOrderCapacity,
 } from "./contracts";
+
+it("keeps the partial/retry result on design-system primitives and rejects a raw-element negative control", () => {
+  const paths = ["features/listings/ui/listing-list-page.tsx", "features/listings/ui/listing-batch-recovery.tsx"];
+  const tracked = execFileSync("git", ["ls-files", "-z", "--", ...paths], { encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+  expect(new Set(tracked)).toEqual(new Set(paths));
+  const page = readFileSync("features/listings/ui/listing-list-page.tsx", "utf8");
+  const notice = readFileSync("features/listings/ui/listing-batch-recovery.tsx", "utf8");
+  const assertPrimitives = (source: string) => {
+    const parsed = ts.createSourceFile(
+      "listing-list-page.tsx",
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const tags: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        ts.isIdentifier(node.tagName) &&
+        /^[a-z]/.test(node.tagName.text)
+      )
+        tags.push(node.tagName.text);
+      ts.forEachChild(node, visit);
+    };
+    visit(parsed);
+    expect(tags).toEqual([]);
+  };
+  assertPrimitives(page);
+  assertPrimitives(notice);
+  expect(notice).toContain("<MarketplaceNotice");
+  expect(notice).toContain("<VisuallyHidden");
+  expect(() =>
+    assertPrimitives(page.replace("<ListingRecoveryNotice />", '<div role="alert">Partial result</div>')),
+  ).toThrow();
+});
 
 const defaultOrderCapacity = {
   account_id: "acc_seller",
