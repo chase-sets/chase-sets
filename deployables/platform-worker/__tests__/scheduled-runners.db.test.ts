@@ -56,8 +56,8 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-// Includes the context-owned seller compliance replay runner.
-const EXPECTED_REGISTERED_RUNNER_COUNT = 35;
+// Includes the context-owned seller compliance and eBay deletion runners.
+const EXPECTED_REGISTERED_RUNNER_COUNT = 36;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
@@ -221,6 +221,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     expect(registeredRunners.length).toBe(EXPECTED_REGISTERED_RUNNER_COUNT);
     expect(names.filter((name) => name === "channels.connector-liveness-sweep")).toHaveLength(1);
     expect(names.filter((name) => name === "channels.ebay-account-deletion-receipt-expiry")).toHaveLength(1);
+    expect(names.filter((name) => name === "channels.ebay-account-deletion-consumer")).toHaveLength(1);
     expect(names).not.toContain("pricing.tcgplayer-market-capture");
     expect(new Set(names).size).toBe(names.length);
   });
