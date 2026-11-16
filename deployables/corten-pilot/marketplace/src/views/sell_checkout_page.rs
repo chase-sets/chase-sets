@@ -8,6 +8,10 @@
 //! sections are all open. One column on a phone with the estimated payout and the call to action
 //! in a bar at the bottom and the summary folded above the form; the summary beside the form from
 //! 64rem, and the fields two across from 40rem.
+//!
+//! A confirm not known to have finished, or finished in part, draws each line's result above the
+//! form with the same form to send again, and holds the form's buttons (marketplace's
+//! `SellListAttemptBoundary`).
 use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
@@ -20,9 +24,10 @@ use platform::{
 use crate::{
     api::{SavedAddress, SellListConfirmation, SellListRow},
     app::url,
-    sell_checkout::{Errors, MANUAL, Payout, Recovery, Screen, Values, line_value},
+    cart_attempt::State as Attempted,
+    sell_checkout::{Attempt, Errors, LineResult, MANUAL, Payout, Recovery, Screen, Values, line_value},
     sell_list::support_reference,
-    text::{SellCheckoutMsg, SellListMsg},
+    text::{Pilot, SellCheckoutMsg, SellListMsg},
     views::on_marketplace,
 };
 
@@ -265,10 +270,10 @@ fn refused(errors: &Errors, fields: &[&str]) -> bool {
 
 /// The page.
 #[component(css)]
-pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Render {
+pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, s: SellListMsg, p: Pilot, screen: &'a Screen) -> impl Render {
     let w = Words::of(t, screen.account);
     let total = dollars(t, screen.total());
-    let blocked = screen.recovery.is_some();
+    let blocked = screen.recovery.is_some() || screen.attempt.is_some();
     let quantity: u64 = screen.lines.iter().map(|l| l.quantity).sum();
     let count = screen.lines.len() as u64;
     let collapsed = if screen.account {
@@ -287,6 +292,9 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Rend
             <a class={(Button, Secondary)} href={back}>{w.back_to_sell_list}</a>
         </header>
         <p><a class={(Button, Secondary)} href={url::ShippingSetup::PATH}>{t.shipping_setup()}</a></p>
+        if let Some(attempt) = &screen.attempt {
+            <AttemptBanner s={s} p={p} screen={screen} attempt={attempt} />
+        }
         if let Some(recovery) = &screen.recovery {
             <div class={Banner} data-tone="warning" role="status">
                 <p class={Strong}>{recovery_title(t, screen.account, recovery)}</p>
@@ -378,6 +386,43 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Rend
                     <Summary t={t} w={w} screen={screen} total={&total} quantity={quantity} />
                 </div>
             </aside>
+        </div>
+    }
+}
+
+/// A confirm not known to have finished, or finished in part: each line's result by its item, and
+/// the same form to send again.
+#[component(css = SellCheckoutPage)]
+fn AttemptBanner<'a>(s: SellListMsg, p: Pilot, screen: &'a Screen, attempt: &'a Attempt) -> impl Render {
+    let title = if attempt.state == Attempted::Partial { s.attempt_partial() } else { s.attempt_ambiguous() };
+    let item = |id: &'a str| -> &'a str { screen.lines.iter().find(|l| l.line_id == id).map_or(id, |l| l.item_title.as_str()) };
+    html! {
+        <div class={Banner} data-tone="warning" role="alert" tabindex="-1" autofocus>
+            <p class={Strong}>{title}</p>
+            if !attempt.lines.is_empty() {
+                <dl class={Facts} aria-label={p.sell_list_results()}>
+                    for (id, result) in &attempt.lines {
+                        <div>
+                            <dt>{item(id)}</dt>
+                            <dd>
+                                {match result {
+                                    LineResult::Completed => p.sell_list_completed(),
+                                    LineResult::Partial => p.sell_list_partial(),
+                                    LineResult::Conflict => p.sell_list_conflict(),
+                                    LineResult::Unconfirmed => p.sell_list_unconfirmed(),
+                                    LineResult::NotSent => p.sell_list_not_sent(),
+                                }}
+                            </dd>
+                        </div>
+                    }
+                </dl>
+            }
+            <form class={Row} method="post">
+                for (name, value) in &attempt.resend {
+                    <input type="hidden" name={name} value={value}>
+                }
+                <button class={Button} type="submit">{s.attempt_retry()}</button>
+            </form>
         </div>
     }
 }

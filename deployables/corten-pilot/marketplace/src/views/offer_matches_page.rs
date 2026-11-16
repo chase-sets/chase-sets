@@ -271,6 +271,7 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
         <div class={Row}>
             <form method="post" action={&open}>
                 <input type="hidden" name={f.intent} value="add-selected-offer">
+                {SubmitKey::field(f.attempt_id)}
                 <button
                     class={(Button, Secondary)}
                     type="submit"
@@ -465,10 +466,12 @@ fn OfferActions<'a>(t: OfferMatchesMsg, offer: &'a OfferMatch, price: &'a str, r
             <div class={Actions}>
                 <form method="post">
                     <input type="hidden" name={f.intent} value="add-selected-offer">
+                    {SubmitKey::field(f.attempt_id)}
                     <button class={Button} type="submit" disabled={!offer.can_fulfill}>{t.detail_accept_offer_match()}</button>
                 </form>
                 <form method="post">
                     <input type="hidden" name={f.intent} value="add-selected-offer">
+                    {SubmitKey::field(f.attempt_id)}
                     <button class={(Button, Secondary)} type="submit">{t.detail_add_to_sell_list()}</button>
                 </form>
                 // Marketplace's Decline here is off while the seller cannot fulfill the offer, which is

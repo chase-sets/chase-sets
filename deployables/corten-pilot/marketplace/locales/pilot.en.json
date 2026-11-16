@@ -209,6 +209,16 @@
     "new_buyer": "New",
     "seller_terms": "Seller terms"
   },
+  "sell_list": {
+    "results": "Results",
+    "declined": "Declined",
+    "completed": "Completed",
+    "partial": "Partly completed",
+    "conflict": "Not applied",
+    "unconfirmed": "Not confirmed",
+    "not_sent": "Not sent",
+    "offer_taken": "{title}: this offer was accepted, but not as this sale. Review the Sell List."
+  },
   "submitted_offers": {
     "choose": "Check the Offers to change first.",
     "open_for": "Open your Offer for {title}",

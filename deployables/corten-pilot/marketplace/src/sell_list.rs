@@ -10,6 +10,15 @@
 //! with the snapshot (`/checkout/sell/session/{id}`, in [`crate::sell_checkout`]). A guest's Continue checks the guest
 //! sell list's readiness and goes to marketplace's registration.
 //!
+//! A line added or removed is one Checkout command attempt (chase-sets/chase-sets#9995): the
+//! form's `SubmitKey` (`attemptId`) is its id, so a form sent twice applies once. Decline
+//! selected declines each offer as an attempt made from the form's, then removes the declined
+//! offers' lines in one batch attempt; the lines are found with the first send and carried by the
+//! form from then on (marketplace's `declinedLineTargetsCaptured`). A write not known to have
+//! applied, or applied only in part, draws the page with its writes held and the same write to
+//! send again (409), as marketplace's `SellListAttemptBoundary` does; one refused draws the
+//! page with the API's words (422).
+//!
 //! Two of the page's rules are marketplace's web layer's, copied here until the API has them: each
 //! line's readiness and the list's payout totals
 //! ([chase-sets/chase-sets#10749](https://github.com/chase-sets/chase-sets/issues/10749)), worked
@@ -28,12 +37,13 @@ use serde::Serialize;
 
 use crate::{
     api::{
-        ApiError, CommandError, CompositeReview, InventoryOption, LineAction, LineKept, ListingCommand, ListingEvidence,
-        OfferMatchCalls as _, OfferReview, Photo, ProductOfferReview, ReadinessDecisions, SellList as _, SellListConfirmation,
-        SellListRow, SellPayoutReadiness, SellerListings as _,
+        ApiError, CartWrite, CommandError, CompositeReview, InventoryOption, LineAction, LineKept, ListingCommand,
+        ListingEvidence, OfferMatchCalls as _, OfferReview, Photo, ProductOfferReview, ReadinessDecisions, SellList as _,
+        SellListConfirmation, SellListRow, SellPayoutReadiness, SellerListings as _,
     },
     app::{Config, Shared, read_failed, sign_in_back_to, url},
     auth::{DeskSeller, Session},
+    cart_attempt::{self, State as Attempted},
     items::Raw,
     listing_new::{LIMITS, first},
     selling::{ANONYMOUS_SELL_LIST_COOKIE, SellListLine, account_sell_list},
@@ -47,6 +57,54 @@ use crate::{
 pub const ADD_LINE_HANDOFF: &str =
     r#"{"kind":"checkout.sell-list.add-line","expectation":"collection-non-empty","surface":"account-sell-list"}"#;
 const ADD_LINE_KIND: &str = "checkout.sell-list.add-line";
+
+/// A line write's attempt (a `SubmitKey`), as marketplace's Sell List forms name it.
+pub const ATTEMPT: &str = "attemptId";
+
+/// The field a Sell List line write's form carries its attempt in ([`ATTEMPT`]).
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LineForm {
+    pub attempt_id: Option<SubmitKey>,
+}
+/// Decline selected's lines to remove, as the first send found them, and that it found them
+/// (marketplace's `declinedLineId` and `declinedLineTargetsCaptured`).
+const DECLINED_LINE: &str = "declinedLineId";
+const DECLINED_CAPTURED: &str = "declinedLineTargetsCaptured";
+
+/// What the page says above the lines after a write: why it was refused, or what it came to when
+/// it did not fully apply.
+#[derive(Clone, Debug)]
+pub enum Notice {
+    Refused(String),
+    Attempt(AttemptNotice),
+}
+
+/// A line write not known to have applied, or applied only in part (marketplace's
+/// `SellListAttemptState`): the page's writes wait while `resend`, the form as posted with its
+/// attempt, is offered to send again.
+#[derive(Clone, Debug)]
+pub struct AttemptNotice {
+    /// `Ambiguous` or `Partial`.
+    pub state: Attempted,
+    /// The API's words, when it gave any.
+    pub message: Option<String>,
+    /// The messages of the lines a batch did not apply.
+    pub not_applied: Vec<Option<String>>,
+    /// Decline selected's offers, each with what its decline came to.
+    pub declines: Vec<(String, Declined)>,
+    pub resend: Vec<(String, String)>,
+}
+
+/// What an offer's decline came to, when Decline selected stopped on one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Declined {
+    Yes,
+    /// Its decline failed or its answer was lost: not known.
+    Unconfirmed,
+    /// Not sent: an earlier offer's stopped the batch.
+    NotSent,
+}
 
 /// Where the page is: the Sell List, or the Seller Desk's Offers & sell list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -375,6 +433,8 @@ pub struct SellListScreen {
     pub recovery: Option<Recovery>,
     /// Why the last write did not happen.
     pub notice: Option<String>,
+    /// The last write, when it is not known to have applied or applied in part.
+    pub attempt: Option<AttemptNotice>,
 }
 
 /// The list's totals in cents (`useSellListPageModel`). The fees and the payout are none while a
@@ -468,6 +528,7 @@ impl SellListScreen {
             payout,
             recovery: None,
             notice: None,
+            attempt: None,
         }
     }
 
@@ -800,7 +861,8 @@ pub(crate) async fn desk_page(
     render(&req, Some(&session), &config, &headers, Surface::DeskOffers, &place, None).await
 }
 
-/// The page, read after the address's write, with `notice` (a write that did not happen, 422).
+/// The page, read after the address's write, with `notice`: a write that did not happen (422), or
+/// one not known to have applied or applied in part (409).
 #[allow(clippy::too_many_arguments)]
 async fn render(
     req: &Req,
@@ -809,7 +871,7 @@ async fn render(
     headers: &HeaderMap,
     surface: Surface,
     place: &Place,
-    notice: Option<String>,
+    notice: Option<Notice>,
 ) -> HtmlResult {
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
@@ -903,8 +965,16 @@ async fn render(
     screen.merged = merged.filter(|_| screen.registration);
     screen.confirmation = confirmation.filter(|_| account);
     screen.recovery = recovery;
-    let status = if notice.is_some() { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::OK };
-    screen.notice = notice;
+    let status = match &notice {
+        None => StatusCode::OK,
+        Some(Notice::Refused(_)) => StatusCode::UNPROCESSABLE_ENTITY,
+        Some(Notice::Attempt(_)) => StatusCode::CONFLICT,
+    };
+    match notice {
+        Some(Notice::Refused(message)) => screen.notice = Some(message),
+        Some(Notice::Attempt(attempt)) => screen.attempt = Some(attempt),
+        None => {}
+    }
     let reads_again = matches!(screen.recovery, Some(Recovery::Pending | Recovery::ConfirmationPending));
     let head = html! {
         <meta name="description" content={t.route_review_selected_offers_and_product_level()}>
@@ -954,6 +1024,10 @@ enum Done {
     To(String),
     Refused(String),
     Failed(ApiError),
+    /// Not known to have applied, or applied in part.
+    Attempt(AttemptNotice),
+    /// The caller's answer, not the attempt's (401, 403).
+    Status(StatusCode),
 }
 
 async fn act(
@@ -972,32 +1046,35 @@ async fn act(
     let guest = guest_id(headers);
     let caller = config.platform.caller(headers, config.proto, None);
     let failed = t.route_sell_list_request_failed().to_owned();
+    let attempt = cart_attempt::attempt_id(&first(&raw, ATTEMPT));
     let done = match first(&raw, "intent").as_str() {
         "remove-sell-list-line" => {
             let line = first(&raw, "lineId");
             match (account, guest.as_deref()) {
                 _ if line.is_empty() => Done::Refused(failed),
                 (false, None) => Done::Refused(failed),
-                (account, guest) => match caller.remove_sell_list_line(&line, if account { None } else { guest }).await {
-                    Ok(receipt) => Done::To(surface.href(Place::after(receipt.as_ref(), false))),
-                    Err(error) => Done::Failed(error),
-                },
+                (account, guest) => {
+                    let write = CartWrite::sell_list_remove(&line, guest.filter(|_| !account).map(str::to_owned));
+                    let resend = cart_attempt::resend(&raw, ATTEMPT, &attempt);
+                    submit(&caller, &attempt, write, resend, surface, false, failed).await
+                }
             }
         }
         "add-selected-offer" if !account => Done::Refused(t.page_sign_in_required().to_owned()),
         "add-selected-offer" => {
             let id = first(&raw, "offerId");
             match caller.sell_list_offer(&id).await {
-                Ok(Some(offer)) => match caller.add_sell_list_line(&SellListLine::offer_match(&offer), None).await {
-                    Ok(receipt) => Done::To(surface.href(Place::after(receipt.as_ref(), true))),
-                    Err(error) => Done::Failed(error),
-                },
+                Ok(Some(offer)) => {
+                    let write = CartWrite::sell_list_add(&SellListLine::offer_match(&offer), None);
+                    let resend = cart_attempt::resend(&raw, ATTEMPT, &attempt);
+                    submit(&caller, &attempt, write, resend, surface, true, failed).await
+                }
                 Ok(None) => Done::Refused(failed),
                 Err(error) => Done::Failed(error),
             }
         }
         "decline-sell-list-offers" if !account => Done::Refused(t.page_sign_in_required().to_owned()),
-        "decline-sell-list-offers" => decline(&caller, &raw, surface, failed).await,
+        "decline-sell-list-offers" => decline(&caller, &raw, &attempt, surface, failed).await,
         "classify-listing-evidence" if !account => Done::Refused(t.page_sign_in_required().to_owned()),
         "classify-listing-evidence" => {
             let listing = first(&raw, "listingId");
@@ -1024,7 +1101,17 @@ async fn act(
             let to = to.parse::<Uri>().map_err(corten::Error::new)?;
             req.redirect(&to)
         }
-        Done::Refused(message) => render(req, session, config, headers, surface, &Place::default(), Some(message)).await,
+        Done::Refused(message) => {
+            render(req, session, config, headers, surface, &Place::default(), Some(Notice::Refused(message))).await
+        }
+        Done::Attempt(attempt) => {
+            render(req, session, config, headers, surface, &Place::default(), Some(Notice::Attempt(attempt))).await
+        }
+        Done::Status(StatusCode::UNAUTHORIZED) => match sign_in_back_to(surface.path()) {
+            Some(to) => req.redirect(&to),
+            None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
+        },
+        Done::Status(status) => Err(corten::Error::status(status)),
         Done::Failed(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => match sign_in_back_to(surface.path()) {
                 Some(to) => req.redirect(&to),
@@ -1033,10 +1120,41 @@ async fn act(
             Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             Some(status) if status.is_client_error() => {
                 let message = error.refusal().unwrap_or(t.route_sell_list_request_failed()).to_owned();
-                render(req, session, config, headers, surface, &Place::default(), Some(message)).await
+                render(req, session, config, headers, surface, &Place::default(), Some(Notice::Refused(message))).await
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
+    }
+}
+
+/// A line write sent as the form's attempt (`submitCheckoutCartAttempt`): the page read after it,
+/// the API's words for a refusal, or the page held with `resend` when it is not known to have
+/// applied or applied in part.
+async fn submit(
+    caller: &platform::api::Caller<'_>,
+    attempt: &str,
+    write: CartWrite,
+    resend: Vec<(String, String)>,
+    surface: Surface,
+    add: bool,
+    failed: String,
+) -> Done {
+    let outcome = match cart_attempt::submit(caller, attempt, &write).await {
+        Ok(outcome) => outcome,
+        Err(status) => return Done::Status(status),
+    };
+    match outcome.state {
+        Attempted::Succeeded => Done::To(surface.href(Place::after(outcome.receipt.as_ref(), add))),
+        Attempted::FailedSafe => {
+            Done::Refused(outcome.message.or_else(|| outcome.not_applied.into_iter().flatten().next()).unwrap_or(failed))
+        }
+        state => Done::Attempt(AttemptNotice {
+            state,
+            message: outcome.message,
+            not_applied: outcome.not_applied,
+            declines: Vec::new(),
+            resend,
+        }),
     }
 }
 
@@ -1054,9 +1172,11 @@ fn listing_written(result: Result<Option<Receipt>, CommandError>, surface: Surfa
 }
 
 /// Decline selected (`decline-sell-list-offers`): each checked offer (at most 100) declined on
-/// Marketplace (each as the attempt `decline_{id}`, padded to 22 with `_`), then the
-/// selected-offer lines for them removed, as marketplace's action does.
-async fn decline(caller: &platform::api::Caller<'_>, raw: &Raw, surface: Surface, failed: String) -> Done {
+/// Marketplace as an attempt made from the form's, then the selected-offer lines for them removed
+/// in one batch attempt, as marketplace's action does. The lines are the ones the first send found;
+/// the form carries them from then on. A decline that fails stops the batch, and the page says
+/// which offers were declined.
+async fn decline(caller: &platform::api::Caller<'_>, raw: &Raw, attempt: &str, surface: Surface, failed: String) -> Done {
     let mut ids: Vec<String> = Vec::new();
     for id in all(raw, "bulkOfferId") {
         if !ids.contains(&id) && ids.len() < 100 {
@@ -1066,29 +1186,47 @@ async fn decline(caller: &platform::api::Caller<'_>, raw: &Raw, surface: Surface
     if ids.is_empty() {
         return Done::Refused(failed);
     }
-    let list = match caller.sell_list(None).await {
-        Ok(list) => list,
-        Err(error) => return Done::Failed(error),
+    let mut resend = cart_attempt::resend(raw, ATTEMPT, attempt);
+    let lines = if first(raw, DECLINED_CAPTURED) == "true" {
+        all(raw, DECLINED_LINE)
+    } else {
+        let list = match caller.sell_list(None).await {
+            Ok(list) => list,
+            Err(error) => return Done::Failed(error),
+        };
+        let lines: Vec<String> = list
+            .items
+            .iter()
+            .filter(|l| l.is_offer() && l.offer_id.as_ref().is_some_and(|id| ids.contains(id)))
+            .map(|l| l.line_id.clone())
+            .collect();
+        resend.retain(|(key, _)| key != DECLINED_LINE && key != DECLINED_CAPTURED);
+        resend.extend(lines.iter().map(|line| (DECLINED_LINE.to_owned(), line.clone())));
+        resend.push((DECLINED_CAPTURED.to_owned(), "true".to_owned()));
+        lines
     };
-    for id in &ids {
-        // The offer's own attempt, as marketplace's action names it, so declining it again is the same one.
-        match caller.decline_offer_match(id, &format!("{:_<22}", format!("decline_{id}"))).await {
-            Ok(_) => {}
-            Err(CommandError::Api(error)) => return Done::Failed(error),
+    let mut declines = Vec::new();
+    for (at, id) in ids.iter().enumerate() {
+        let message = match caller.decline_offer_match(id, &cart_attempt::decline_attempt(attempt, id)).await {
+            Ok(_) => {
+                declines.push((id.clone(), Declined::Yes));
+                continue;
+            }
+            Err(CommandError::Api(error)) => error.refusal().map(str::to_owned),
+            Err(CommandError::EvidenceIncomplete { message, .. }) => Some(message),
             Err(other) => {
                 tracing::warn!("a decline was refused with a listing's conflict: {other:?}");
-                return Done::Refused(failed);
+                None
             }
-        }
+        };
+        declines.push((id.clone(), Declined::Unconfirmed));
+        declines.extend(ids[at + 1..].iter().map(|id| (id.clone(), Declined::NotSent)));
+        return Done::Attempt(AttemptNotice { state: Attempted::Partial, message, not_applied: Vec::new(), declines, resend });
     }
-    let mut last = None;
-    for line in list.items.iter().filter(|l| l.is_offer() && l.offer_id.as_ref().is_some_and(|id| ids.contains(id))) {
-        match caller.remove_sell_list_line(&line.line_id, None).await {
-            Ok(receipt) => last = receipt.or(last),
-            Err(error) => return Done::Failed(error),
-        }
+    if lines.is_empty() {
+        return Done::To(surface.href(Place::default()));
     }
-    Done::To(surface.href(Place::after(last.as_ref(), false)))
+    submit(caller, attempt, CartWrite::sell_list_remove_lines(&lines), resend, surface, false, failed).await
 }
 
 /// Continue to seller checkout (`review-sell-list-checkout`). An account's: the plan from the posted form,
@@ -1101,7 +1239,7 @@ async fn review(t: SellListMsg, caller: &platform::api::Caller<'_>, raw: &Raw, a
         let Some(id) = guest else {
             return Done::To(sign_in_back_to(&back).map(|u| u.to_string()).unwrap_or_else(|| back.clone()));
         };
-        return match caller.sell_list_readiness(&ReadinessDecisions::default(), Some(id)).await {
+        return match caller.sell_list_readiness(&ReadinessDecisions::default(), Some(id), None).await {
             Ok((snapshot, _)) if snapshot.status == "ready" && snapshot.unresolved_line_ids.is_empty() => {
                 Done::To(crate::register::href(&back))
             }
@@ -1124,7 +1262,7 @@ async fn review(t: SellListMsg, caller: &platform::api::Caller<'_>, raw: &Raw, a
     };
     let plan = plan(t, &list.items, raw, read).await;
     let decisions = decisions(&plan);
-    let (snapshot, receipt) = match caller.sell_list_readiness(&decisions, None).await {
+    let (snapshot, receipt) = match caller.sell_list_readiness(&decisions, None, None).await {
         Ok(answer) => answer,
         Err(error) => return Done::Failed(error),
     };
@@ -1170,14 +1308,23 @@ pub(crate) async fn evidence(
         Err(UploadError::TooLarge { .. }) => {
             let p: crate::text::Pilot = req.t();
             let message = p.seller_listing_photos_too_large().to_owned();
-            return render(&req, session, &config, &headers, Surface::SellList, &Place::default(), Some(message)).await;
+            return render(
+                &req,
+                session,
+                &config,
+                &headers,
+                Surface::SellList,
+                &Place::default(),
+                Some(Notice::Refused(message)),
+            )
+            .await;
         }
         Err(other) => return Err(other.into()),
     };
     let surface = Surface::read(&first(&posted.fields, "surface"));
     if !account_sell_list(session) {
         let message = t.page_sign_in_required().to_owned();
-        return render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await;
+        return render(&req, session, &config, &headers, surface, &Place::default(), Some(Notice::Refused(message))).await;
     }
     let listing = first(&posted.fields, "listingId");
     let file = posted.files.into_iter().find(|u| u.field == "listingPhoto" && !u.bytes.is_empty());
@@ -1191,7 +1338,7 @@ pub(crate) async fn evidence(
         (Some(file), None) => file,
         (_, refusal) => {
             let message = refusal.unwrap_or(t.page_evidence_photo()).to_owned();
-            return render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await;
+            return render(&req, session, &config, &headers, surface, &Place::default(), Some(Notice::Refused(message))).await;
         }
     };
     let photo = Photo { filename: file.filename, content_type: file.content_type, bytes: file.bytes };
@@ -1200,10 +1347,16 @@ pub(crate) async fn evidence(
     let failed = t.route_sell_list_request_failed().to_owned();
     match listing_written(caller.add_listing_photos(&listing, &[photo], Some(&alt)).await, surface, &failed) {
         Done::To(to) => req.redirect(&to.parse::<Uri>().map_err(corten::Error::new)?),
-        Done::Refused(message) => render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await,
+        Done::Refused(message) => {
+            render(&req, session, &config, &headers, surface, &Place::default(), Some(Notice::Refused(message))).await
+        }
+        Done::Attempt(attempt) => {
+            render(&req, session, &config, &headers, surface, &Place::default(), Some(Notice::Attempt(attempt))).await
+        }
+        Done::Status(status) => Err(corten::Error::status(status)),
         Done::Failed(error) => {
             let message = error.refusal().map_or(failed, str::to_owned);
-            render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await
+            render(&req, session, &config, &headers, surface, &Place::default(), Some(Notice::Refused(message))).await
         }
     }
 }
