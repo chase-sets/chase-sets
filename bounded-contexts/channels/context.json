@@ -884,25 +884,29 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST Hafb45c76765c#1",
-        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST H5e8c3b3f2828#1",
+        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST Hb4bf3d7f7bc7#1",
         "api-client:bounded-contexts/channels/features/ebay-connection/ui/api-client.ts:POST H547d4165826d#1",
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /callback",
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /declined",
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /start",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /connections/:id/setup",
         "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#1",
         "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/channels/features/ebay-connection/ui/seller-setup.tsx:Hb08a81ecfd73#1",
         "route-action:bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx"
       ],
       "visibleDestination": {
         "routeId": "channels-ebay-connection",
-        "description": "OAuth callbacks return only the committed connection identity. The journey reads locked binding and event-stream state directly, not an asynchronous projection."
+        "description": "OAuth callbacks return only the committed connection identity. Seller setup returns its committed selection and active status. The journey reads locked binding, current selection and event-stream state directly, not an asynchronous projection."
       },
       "proof": {
-        "authoritativeResponse": "Start returns a single-use consent redirect, not connected status. Callback and composed disconnect commit before the journey can render pending setup or terminal disconnected. Failed commits return failure, never success.",
+        "authoritativeResponse": "Start returns a single-use consent redirect, not connected status. Callback and composed disconnect commit before the journey can render pending setup or terminal disconnected. Setup selection, baseline event and guarded activation commit together before returning active. Failed commits return failure, never success.",
         "tests": [
           "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-seller-binding.db.test.ts",
           "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-credential-custody-law.db.test.ts",
-          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-connection-journey.test.tsx"
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-connection-journey.test.tsx",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-setup-selection.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-setup-page.test.tsx"
         ]
       }
     },
@@ -1156,7 +1160,7 @@
   "directoryIntent": {
     "ebay-connection": {
       "classification": "slice",
-      "purpose": "Own Sandbox eBay consent attempts, stable seller binding and single-lineage credential lifecycle.",
+      "purpose": "Own Sandbox eBay consent attempts, stable seller binding, single-lineage credentials and generation-fenced seller setup with selection-time material baselines.",
       "expectedConsumers": [
         "Channels module composition",
         "Account channels routes"

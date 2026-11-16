@@ -12,7 +12,11 @@ import {
 import { createEbaySubjectCipher } from "../../ebay-account-deletion/domain/subject";
 import { createChannelCredentialRuntime } from "../../credentials/api/runtime";
 import { decodeTokenSet } from "../../credentials/domain/codecs";
-import type { ChannelCredentialEnvelope, ChannelCredentialKeyring } from "../../credentials/domain/contracts";
+import type {
+  ChannelCredentialEnvelope,
+  ChannelCredentialKeyring,
+  ChannelOAuthTokenSet,
+} from "../../credentials/domain/contracts";
 import type { ChannelConnectionState } from "../../connections/domain/contracts";
 import {
   decideChannelConnection,
@@ -42,6 +46,7 @@ import { createConnectionHealthRuntime } from "../../connection-health/api/runti
 import { resolveChannelHealthPolicy } from "../../connection-health/api/policy";
 import { createConnectorLivenessReader } from "../../connector-feed/read-model/liveness";
 import type { ConnectionHealthServices } from "../../connection-health/domain/contracts";
+import { EbaySetupError } from "../domain/setup-material";
 
 type Target = Readonly<{ accountId: string; connectionId: string }>;
 type Attempt = {
@@ -155,9 +160,51 @@ export function createEbayConnectionRuntime(deps: {
         now: () => now().toISOString(),
       }),
   });
+  async function withSellerSetupCredential<T>(
+    target: Target,
+    work: (db: PgQueryable, envelope: ChannelCredentialEnvelope, material: ChannelOAuthTokenSet) => Promise<T>,
+    transaction?: PgQueryable,
+  ): Promise<T> {
+    configured();
+    const execute = async (db: PgQueryable) => {
+      const { binding, envelope } = await current(db, target);
+      const material = await tokens(db, envelope);
+      if (
+        binding.environment !== "sandbox" ||
+        !binding.capabilities.includes("sellerSetup") ||
+        !material.accessExpiresAt ||
+        Date.parse(material.accessExpiresAt) <= now().getTime()
+      )
+        throw new EbaySetupError("credential-not-current");
+      return work(db, envelope, material);
+    };
+    return transaction ? execute(transaction) : withPgTransaction(deps.db, execute);
+  }
   return {
     credentialRefresh,
     enabled: config !== null,
+    withSellerSetupCredential,
+    credentialAuthority: {
+      async resolve(reference: string) {
+        try {
+          const envelope = await credentials.readMetadata(deps.db, reference);
+          if (!envelope || envelope.providerKey !== "ebay") return null;
+          return await withSellerSetupCredential(envelope, async (_db, current) =>
+            current.rowId === reference
+              ? {
+                  accountId: current.accountId,
+                  providerKey: "ebay",
+                  environment: "sandbox" as const,
+                  generation: current.tokenGeneration,
+                  status: "current" as const,
+                }
+              : null,
+          );
+        } catch {
+          return null;
+        }
+      },
+    },
     consent: (publication: boolean) => ({
       scopes: scopesForCapabilities(publication),
       capabilities: capabilitiesForConsent(publication),

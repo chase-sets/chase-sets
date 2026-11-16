@@ -48,7 +48,8 @@ export function buildChannelsApi(
     await next();
   });
 
-  if (services.ebayConnection) app.route("/ebay", createEbayConnectionRoutes(services.ebayConnection));
+  if (services.ebayConnection)
+    app.route("/ebay", createEbayConnectionRoutes(services.ebayConnection, services.ebaySellerSetup));
   app.route(
     "/connections",
     channelConnectionRoutes(services.connections, {

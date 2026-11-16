@@ -205,3 +205,14 @@ export {
   accountScopedWorkerContext,
   createChannelsScheduledReconciliationRunners,
 } from "./support/runtime-support/worker-jobs";
+export {
+  materialFingerprint,
+  parsePolicyItem,
+  parseLocationItem,
+} from "./features/ebay-connection/domain/setup-material";
+export {
+  ebaySellerSetupSelectedCodec,
+  parseSetupSelection,
+  type SetupSelection,
+  type EbaySellerSetupSelectedV1,
+} from "./features/ebay-connection/domain/setup-selection";

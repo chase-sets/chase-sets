@@ -467,3 +467,20 @@ grant. Connection writers commit CLOSING before waiting for every registered
 consumer's CLOSED-THROUGH receipt, then install the next epoch with the change.
 Pre-enrollment connections are OPEN at creation epoch zero. A disconnected
 identity never reopens; reconnect uses a new connection identity.
+
+## eBay Seller Setup Selection
+
+An **eBay Seller Setup Selection** is the current choice of one fulfillment,
+payment and return policy and one or more Chase storage location / eBay inventory
+location pairs for a Sandbox connection. `SelectEbaySellerSetup` replaces the
+whole selection with a generation-fenced command and activates through the
+connection setup guard. Reselection on an active connection replaces its bindings.
+Paused connections must be resumed before reselection; disconnect is terminal.
+
+Each `setupGeneration` binds the selected items' `materialFingerprint` values to
+the command's complete provider read. A fingerprint is `v1:` plus SHA-256 of
+canonical UTF-8 JSON, with sorted object keys and retained array order. All fields
+admitted by the closed item parser are material; list metadata is not. Raw provider
+items are not persisted. `channels.ebay-seller-setup.selected` publishes the closed
+`EbaySellerSetupSelectedV1` payload and selection instant in envelope `occurredAt`.
+Recurring observation consumes that baseline; it never creates one retroactively.
