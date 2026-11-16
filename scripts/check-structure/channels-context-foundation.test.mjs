@@ -243,6 +243,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
       {
+        portName: "connectionConsumers",
+        providedBy: "platform-api",
+        purpose:
+          "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
+      },
+      {
         portName: "ebayOAuthConfiguration",
         providedBy: "platform-api",
         purpose:
@@ -466,6 +472,12 @@ describe("channels-context-foundation", () => {
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "connectionConsumers",
+          providedBy: "platform-api",
+          purpose:
+            "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
+        },
         {
           portName: "ebayOAuthConfiguration",
           providedBy: "platform-api",

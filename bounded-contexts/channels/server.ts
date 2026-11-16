@@ -11,6 +11,13 @@ export {
 } from "./features/order-fulfillment-observations/domain/contracts";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export type { ChannelStorageLocationAuthorityResolver } from "./features/connections/domain/contracts";
+export type {
+  VersionedConnectionAuthority,
+  ConnectionAuthorityInput,
+  ConnectionAuthorityResult,
+} from "./features/connections/domain/contracts";
+export { createVersionedConnectionAuthority } from "./features/connections/api/versioned-connection-authority";
+export { createConnectionEpochs, type ConnectionConsumerTopology } from "./features/connections/api/owner-epochs";
 export {
   composeTcgplayerOrderInbound,
   assertTcgplayerOrderRecord,

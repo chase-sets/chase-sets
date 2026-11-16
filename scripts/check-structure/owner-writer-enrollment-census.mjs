@@ -16,13 +16,19 @@ const sinkNames = new Set([
   "commandHandler",
   "createAggregateCommandHandler",
   "query",
+  "receiptQuery",
+  "connectChannel",
+  "activateChannelConnection",
+  "pauseChannelConnection",
+  "resumeChannelConnection",
+  "disconnectChannelConnection",
   "upsertRow",
   "updateRow",
   "transitionStatus",
   "expired",
 ]);
 const possibleSink =
-  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|upsertRow|updateRow|transitionStatus|expired)\b|\[\s*[^\s\]]/u;
+  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|receiptQuery|upsertRow|updateRow|transitionStatus|expired|connectChannel|(?:activate|pause|resume|disconnect)ChannelConnection)\b|\[\s*[^\s\]]/u;
 const ownerPatterns = ["account", "user", "membership"].map((kind) => [
   kind,
   new RegExp(
@@ -33,6 +39,10 @@ const ownerPatterns = ["account", "user", "membership"].map((kind) => [
 ownerPatterns.push([
   "session",
   /auth\.session[-.]|\bsessions\.commandHandler|\bSession(?:Event|Command|State)\b|\b(?:StartSession|RevokeSession|ExpireSession|SwitchSessionAccount)\b|sessionEventCodec|toSessionStreamId|identity_session_tokens|identity_sessions/u,
+]);
+ownerPatterns.push([
+  "connection",
+  /channels\.connection[-.]|\bChannelConnection(?:Event|Command|State)\b|channelConnectionEventCodec|\b(?:[Cc]onnectChannel|[Aa]ctivateChannelConnection|[Pp]auseChannelConnection|[Rr]esumeChannelConnection|[Dd]isconnectChannelConnection)\b/u,
 ]);
 export function ownerWriterSourcePaths() {
   return execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
@@ -142,22 +152,31 @@ export function discoverOwnerWriters(sources) {
     for (const node of calls) {
       const resolved = resolveSink(node.expression);
       if (!resolved) continue;
-      const sink = resolved && resolved.name !== "query";
-      const statement = resolved?.name === "query" ? flow(node.arguments[0]) : "";
+      const querySink = ["query", "receiptQuery"].includes(resolved.name);
+      const sink = !querySink;
+      const statement = querySink
+        ? `${flow(node.arguments[0])} ${ts.isIdentifier(node.expression) ? flow(node.arguments[1]) : ""}`
+        : "";
       const delegationSql =
-        resolved?.name === "query" &&
+        querySink &&
         /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?identity_linked_platform_authorizations"?\b/iu.test(
           statement,
         );
       const sessionSql =
-        resolved.name === "query" &&
+        querySink &&
         /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?identity_session(?:_tokens|s)"?\b/iu.test(
+          statement,
+        );
+      const connectionSql =
+        querySink &&
+        /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?(?:channel_connections|channel_connection_(?:health|attention)|channels_connection_credentials|channels_ebay_account_deletion_receipts)"?\b/iu.test(
           statement,
         );
       const sql =
         delegationSql ||
         sessionSql ||
-        (resolved?.name === "query" &&
+        connectionSql ||
+        (querySink &&
           /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?event_store_(?:events|streams)"?\b/iu.test(
             statement,
           ));
@@ -167,25 +186,30 @@ export function discoverOwnerWriters(sources) {
         const kinds = ownerPatterns.filter(([, pattern]) => pattern.test(data)).map(([kind]) => kind);
         if (delegationSql) kinds.push("delegation");
         if (sessionSql && !kinds.includes("session")) kinds.push("session");
+        if (connectionSql && !kinds.includes("connection")) kinds.push("connection");
         if (
           ["upsertRow", "updateRow", "transitionStatus", "expired"].includes(resolved.name) &&
-          !kinds.includes("session")
+          !kinds.includes("session") &&
+          !kinds.includes("connection")
         )
           continue;
         // Dynamic Identity sinks are deliberately UNKNOWN until explicitly classified.
         if (
           kinds.length ||
           file.startsWith("bounded-contexts/identity/") ||
-          file.startsWith("bounded-contexts/auth/")
+          file.startsWith("bounded-contexts/auth/") ||
+          file.startsWith("bounded-contexts/channels/")
         ) {
           const symbol = owner(node);
           const sinkName = delegationSql
             ? "delegation SQL"
             : sessionSql
               ? "session SQL"
-              : sql
-                ? "event-store SQL"
-                : callee;
+              : connectionSql
+                ? "connection SQL"
+                : sql
+                  ? "event-store SQL"
+                  : callee;
           const ordinal =
             sites.filter((site) => site.file === file && site.symbol === symbol && site.sink === sinkName).length + 1;
           sites.push({ file, symbol, sink: sinkName, ordinal, keys: kinds });

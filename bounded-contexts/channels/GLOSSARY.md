@@ -457,3 +457,13 @@ A **Channel Outbound Hold** is the outbound-only admission result composed from 
 `channels.receipt.lookup` is the Channels permission carried by the staging receipt
 lookup service actor for the bounded eBay account-deletion receipt lookup operation.
 It authorizes only that operation; human sessions and cookies never satisfy it.
+
+## Versioned Connection Authority
+
+**Versioned Connection Authority** captures an active, owned Channel Connection
+from its complete canonical stream, never a projection or client label. It binds
+Account, provider, environment, status and Owner-Stream Seal version to a class-C
+grant. Connection writers commit CLOSING before waiting for every registered
+consumer's CLOSED-THROUGH receipt, then install the next epoch with the change.
+Pre-enrollment connections are OPEN at creation epoch zero. A disconnected
+identity never reopens; reconnect uses a new connection identity.

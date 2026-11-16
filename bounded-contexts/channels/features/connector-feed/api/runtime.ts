@@ -17,6 +17,8 @@ import {
 } from "../../../support/request-support/connector-oauth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
+import { createConnectionEpochs, type ConnectionEpochs } from "../../connections/api/owner-epochs";
+import { loadOwned } from "../../connections/api/runtime";
 import {
   decideChannelConnection,
   evolveChannelConnection,
@@ -58,11 +60,13 @@ export function createConnectorFeedRuntime(
     eventStore: PostgresEventStore;
     oauth?: ConnectorOAuthService;
     now?: () => Date;
+    connectionEpochs?: ConnectionEpochs;
     beforeConnectionLock?: (db: PgQueryable, input: ConnectionQuery) => Promise<void>;
     disconnectEffect?: (db: PgQueryable, state: ChannelConnectionState) => Promise<void>;
   }>,
 ) {
   const now = deps.now ?? (() => new Date());
+  const connectionEpochs = deps.connectionEpochs ?? createConnectionEpochs(deps.db);
   function oauth(): ConnectorOAuthService {
     if (!deps.oauth) throw new ConnectorPairingError("unavailable");
     return deps.oauth;
@@ -74,9 +78,10 @@ export function createConnectorFeedRuntime(
   async function transact<T>(
     input: ConnectionQuery,
     work: (db: PgQueryable, state: ChannelConnectionState, version: number) => Promise<T>,
+    changingConnection = false,
   ): Promise<T> {
     const checked = query(input);
-    return withPgTransaction(deps.db, async (db) => {
+    const perform = async (db: PgQueryable) => {
       await deps.beforeConnectionLock?.(db, checked);
       const streamId = `channels.connection-${checked.connectionId}`;
       await db.query("SELECT stream_id FROM event_store_streams WHERE stream_id = $1 FOR UPDATE", [streamId]);
@@ -94,7 +99,11 @@ export function createConnectorFeedRuntime(
         checked.connectionId,
       ]);
       return work(db, state, events.at(-1)?.streamVersion ?? 0);
-    });
+    };
+    // The installed disconnect closes before pairing/token or stream effects.
+    return changingConnection
+      ? connectionEpochs.transaction([`connection/${checked.connectionId}`], perform)
+      : withPgTransaction(deps.db, perform);
   }
   async function latest(db: PgQueryable, connectionId: string): Promise<PairingRow | null> {
     const rows = await db.query<PairingRow>(
@@ -361,27 +370,33 @@ export function createConnectorFeedRuntime(
     context: EventStoreContext,
   ) => {
     try {
-      return await transact(input, async (db, state, version) => {
-        const pairing = await latest(db, input.connectionId);
-        if (pairing) await close(db, pairing);
-        if (state.status !== "disconnected") await deps.disconnectEffect?.(db, state);
-        const newEvents = decideChannelConnection(state, { type: "DisconnectChannelConnection" });
-        const storedEvents = newEvents.length
-          ? await deps.eventStore.appendToStreamInTransaction(db, {
-              streamId: `channels.connection-${input.connectionId}`,
-              expectedVersion: version,
-              events: newEvents.map(channelConnectionEventCodec.encode),
-              context,
-              wakeSourceContextName: "channels",
-            })
-          : [];
-        return {
-          state: newEvents.reduce(evolveChannelConnection, state),
-          version: version + newEvents.length,
-          newEvents,
-          storedEvents,
-        };
-      });
+      const checked = query(input);
+      await loadOwned(deps.eventStore, checked.accountId, checked.connectionId);
+      return await transact(
+        input,
+        async (db, state, version) => {
+          const pairing = await latest(db, input.connectionId);
+          if (pairing) await close(db, pairing);
+          if (state.status !== "disconnected") await deps.disconnectEffect?.(db, state);
+          const newEvents = decideChannelConnection(state, { type: "DisconnectChannelConnection" });
+          const storedEvents = newEvents.length
+            ? await deps.eventStore.appendToStreamInTransaction(db, {
+                streamId: `channels.connection-${input.connectionId}`,
+                expectedVersion: version,
+                events: newEvents.map(channelConnectionEventCodec.encode),
+                context,
+                wakeSourceContextName: "channels",
+              })
+            : [];
+          return {
+            state: newEvents.reduce(evolveChannelConnection, state),
+            version: version + newEvents.length,
+            newEvents,
+            storedEvents,
+          };
+        },
+        true,
+      );
     } catch (error) {
       if (error instanceof ConnectorPairingError && error.code === "connection-not-found")
         throw new ChannelConnectionError("connection-not-found");

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { PgQueryable, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
@@ -18,19 +19,34 @@ import {
   createSandboxPostageLabelProvider,
 } from "../../platform-worker/src/test-support/provider-gateways";
 
-const stores = vi.hoisted(() => ({ current: undefined as unknown }));
+const stores = vi.hoisted((): { current?: PostgresEventStore } => ({}));
 const testContext: EventStoreContext = {
   tenantId: "tnt_channels_composition" as TenantId,
   audit: { performedByUserId: "usr_channels_composition" as UserId, forAccountId: "acc_owner" as AccountId },
 };
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@chase-sets/event-core-postgres")>()),
-  createPostgresEventStore: () => stores.current,
+  createPostgresEventStore: () => {
+    if (!stores.current) throw new Error("Event store fixture missing");
+    return stores.current;
+  },
 }));
+
+function createStoreFixture() {
+  const memory = createInMemoryEventStore();
+  stores.current = {
+    ...memory.eventStore,
+    readStream: (input) => memory.eventStore.readStream(input),
+    appendToStreamInTransaction: (_client, input) => memory.eventStore.appendToStream(input),
+    appendToStreamsInTransaction: (_client, inputs) => memory.eventStore.appendToStreams!(inputs),
+    readStreamInTransaction: (_client, input) => memory.eventStore.readStream(input),
+  };
+  return memory;
+}
 
 describe("channels-services-production-ports", () => {
   it("the API host without an Inventory pool reaches the named Channels createServices guard", () => {
-    stores.current = createInMemoryEventStore().eventStore;
+    createStoreFixture();
     const unavailable = async (): Promise<never> => {
       throw new Error("composition must not query storage");
     };
@@ -56,9 +72,12 @@ describe("channels-services-production-ports", () => {
   it.each(["platform-api", "platform-worker", "bootstrap"] as const)(
     "%s composes both real authorities and refuses unavailable storage with zero activation events",
     async (host) => {
-      const memory = createInMemoryEventStore();
-      stores.current = memory.eventStore;
-      const query = vi.fn(async () => ({ rows: [] }));
+      const memory = createStoreFixture();
+      const query = vi.fn<PgQueryable["query"]>(async <Row>(sql: string) => ({
+        rows: (sql.startsWith("SELECT store_id, incarnation")
+          ? [{ store_id: "channels", incarnation: "synthetic-channels-host-v1" }]
+          : []) as Row[],
+      }));
       const pool = { query, connect: async () => ({ query, release: () => {} }) };
       const pools = Object.fromEntries(apiContextRegistry.map((entry) => [entry.contextName, pool]));
       const processorGateway = createFakePaymentProcessorGateway();

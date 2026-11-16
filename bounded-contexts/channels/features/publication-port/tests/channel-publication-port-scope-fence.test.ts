@@ -31,6 +31,12 @@ describe("channel-publication-port-scope-fence", () => {
     ]);
     expect(manifest.hostPorts).toEqual([
       {
+        portName: "connectionConsumers",
+        providedBy: "platform-api",
+        purpose:
+          "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
+      },
+      {
         portName: "ebayOAuthConfiguration",
         providedBy: "platform-api",
         purpose:

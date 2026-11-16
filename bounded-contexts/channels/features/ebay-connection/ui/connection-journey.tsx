@@ -58,7 +58,7 @@ export function EbayConnectionJourney({
           ) : null}
           {state === "pending-setup" ? <Text>{t("channels.ebay.setupRequired")}</Text> : null}
           {authorizationAvailable && state !== "awaiting-callback" ? (
-            <Card>
+            <Card elevation="tinted" data-elevation-role="furniture">
               <Stack gap={3}>
                 <Text>{t("channels.ebay.consent")}</Text>
                 {scopes.map((scope) => (

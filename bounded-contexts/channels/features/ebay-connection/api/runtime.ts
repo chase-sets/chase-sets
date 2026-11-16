@@ -25,6 +25,7 @@ import {
 } from "../../connections/domain/domain";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
 import { assertOpaqueId } from "../../connections/domain/validation";
+import { createConnectionEpochs, type ConnectionEpochs } from "../../connections/api/owner-epochs";
 import type { EbayOAuthConfiguration } from "../domain/configuration";
 import {
   capabilitiesForConsent,
@@ -56,12 +57,14 @@ export function createEbayConnectionRuntime(deps: {
   provider?: EbayOAuthProvider;
   now?: () => Date;
   retireWork?: (db: PgQueryable, connectionId: string) => Promise<void>;
+  connectionEpochs?: ConnectionEpochs;
 }) {
   const config = deps.configuration;
   const provider = deps.provider ?? (config ? createEbayOAuthProvider(config) : null);
   const credentials = createChannelCredentialRuntime(deps.keyring);
   const cipher = createEbaySubjectCipher(deps.keyring);
   const now = deps.now ?? (() => new Date());
+  const connectionEpochs = deps.connectionEpochs ?? createConnectionEpochs(deps.db);
   const configured = () => {
     if (!config || !provider) throw new EbayConnectionError("unavailable");
     return { config, provider };
@@ -174,7 +177,8 @@ export function createEbayConnectionRuntime(deps: {
       const candidate = await provider.exchange(code, signal);
       const subject = await provider.identity(candidate.accessToken, signal);
       const fingerprint = cipher.fingerprint(subject);
-      return withPgTransaction(deps.db, async (db) => {
+      const creationKey = `connection/${attempt.candidate_connection_id}`;
+      return connectionEpochs.transaction([creationKey], async (db: PgQueryable) => {
         const bindingId = randomUUID();
         const sealed = cipher.seal(bindingId, subject);
         await db.query(
