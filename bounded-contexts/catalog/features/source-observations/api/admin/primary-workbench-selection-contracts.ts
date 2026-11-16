@@ -45,6 +45,10 @@ export type CatalogPrimaryWorkbenchRouteContextKey =
   | "scope"
   | "importScope"
   | "profileVersion"
+  | "aliasType"
+  | "reviewStatuses"
+  | "targetKind"
+  | "targetId"
   | "sourceObservationFilters"
   | "selectedObservationIds"
   | "reviewOffset"
@@ -78,6 +82,10 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   scope?: CatalogPrimaryWorkbenchScopeContext;
   importScope: string | null;
   profileVersion: string | null;
+  aliasType?: string | null;
+  reviewStatuses?: readonly string[];
+  targetKind?: string | null;
+  targetId?: string | null;
   sourceObservationFilters: Readonly<Record<string, string>>;
   selectedObservationIds: readonly string[];
   // Source Observation review page window. reviewOffset is the durable, URL-backed
