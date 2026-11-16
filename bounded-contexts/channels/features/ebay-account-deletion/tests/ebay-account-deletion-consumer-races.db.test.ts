@@ -13,12 +13,10 @@ describe("ebay-account-deletion-consumer-races", () => {
       const key = `connection/${target.connectionId}`;
       await createConnectionEpochs(f.db()).source();
       const identity = (
-        await f
-          .db()
-          .query<{
-            store_id: string;
-            incarnation: string;
-          }>("SELECT store_id,incarnation FROM event_configuration_store_identity WHERE singleton=true")
+        await f.db().query<{
+          store_id: string;
+          incarnation: string;
+        }>("SELECT store_id,incarnation FROM event_configuration_store_identity WHERE singleton=true")
       ).rows[0]!;
       const consumer = { storeId: identity.store_id, incarnation: identity.incarnation };
       const epochs = createConnectionEpochs(f.db(), [{ identity: consumer, pool: f.db() }]);

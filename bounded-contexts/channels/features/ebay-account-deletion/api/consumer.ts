@@ -115,8 +115,10 @@ export function createEbayAccountDeletionConsumer(deps: {
           },
         );
       } catch (error) {
+        // Destroy the session on failure, including uncertain advisory-lock acquisition.
+        releaseError = new EbayReceiptError("storage-unavailable");
         if (error instanceof EbayReceiptError && error.code === "unavailable") throw error;
-        throw new EbayReceiptError("storage-unavailable");
+        throw releaseError;
       } finally {
         try {
           if (locked)
