@@ -213,9 +213,14 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     const state = harness();
     vi.stubEnv("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS", "150");
     const query = vi.mocked(state.options.pools!.control.query);
-    query.mockResolvedValue({ rows: [], rowCount: 0 });
+    const attempted = deferred();
+    query.mockImplementation(async () => {
+      attempted.resolve();
+      return { rows: [], rowCount: 0 };
+    });
     const run = runRepresentativeCommerceState(state.options);
     const rejected = expect(run).rejects.toThrow("step 'sync catalog.catalog-item-projection' exceeded 150ms");
+    await attempted.promise;
     await vi.advanceTimersByTimeAsync(151);
     await rejected;
     const attempts = query.mock.calls.length;
@@ -342,7 +347,9 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
   it("reports the capped remaining-drain failure after repair, never complete, then resumes without another price event", async () => {
     const state = harness();
     const drain = deferred();
+    const draining = deferred();
     vi.mocked(drainProjectionGroups).mockImplementation(async (_runtime, context) => {
+      draining.resolve();
       await new Promise<void>((resolve) => context!.signal!.addEventListener("abort", () => resolve(), { once: true }));
       await drain.promise;
     });
@@ -357,6 +364,7 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
         settled = true;
       },
     );
+    await draining.promise;
     await vi.advanceTimersByTimeAsync(600_001);
     expect(settled).toBe(false);
     drain.resolve();

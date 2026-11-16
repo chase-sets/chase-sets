@@ -995,7 +995,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "d9bef7a8ecf9f3feb1e5dbb2e81f4d507c4b7f1daef7d5203433f3d774897b02",
+      "b8e4d04c3be4ef1155813343533203d10c6e1615b1f688551ff22076b278bd6c",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -3958,7 +3958,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
-  it("evaluates an unmistakably synthetic twelve-file 66-case shipped-shaped enrollment without changing main", async () => {
+  it("evaluates an unmistakably synthetic twelve-file 74-case shipped-shaped enrollment without changing main", async () => {
     const files = shippedShapedFiles()
       .filter((file) => file.fileName !== "connector-mount-gate-isolation.db.test.ts")
       .map((file, index) => ({
@@ -3970,7 +3970,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         })),
       }));
     expect(files).toHaveLength(11);
-    expect(files.reduce((count, file) => count + file.cases.length, 0)).toBe(61);
+    expect(files.reduce((count, file) => count + file.cases.length, 0)).toBe(69);
     files.push({
       fileName: "synthetic-twelfth-enrollment.db.test.ts",
       databaseSuffix: "synthetic_twelfth_enrollment",
@@ -3986,7 +3986,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = runFixture(fixture);
     expect(result.violations).toEqual([]);
     expect(result.fileCount).toBe(12);
-    expect(result.caseCount).toBe(66);
+    expect(result.caseCount).toBe(74);
     expect(result.schedule.minimumUnitCount).toBe(2);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(runFixture({ ...fixture, model: { ...fixture.model, maximumScheduledFileCount: 11 } }).violations).toContain(
