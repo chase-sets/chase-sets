@@ -1,3 +1,9 @@
+import type { SellListReviewSelections, SellListReviewPlan } from "./features/sell-list/api/review-plan-contracts";
+export type {
+  SellListReviewSelections,
+  SellListReviewPlan,
+  SellListReviewPlanLine,
+} from "./features/sell-list/api/review-plan-contracts";
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
@@ -619,9 +625,18 @@ export function createCheckoutApiClient({
           sellerEvidence?: SellListSellerConfirmationEvidence | null;
           confirmationId?: string;
           entryReadinessSnapshotId?: string;
-          reviewPlan?: string;
+          entryReadinessSourceRevision?: string;
+          readinessSnapshotId?: string;
+          readinessSourceRevision?: string;
+          selections?: SellListReviewSelections;
         } = {},
-    ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
+    ): Promise<
+      CheckoutMutationResult<{
+        readiness: SellListReadinessSnapshot;
+        reviewPlan?: SellListReviewPlan;
+        decisions?: SellListReadinessDecisionInput;
+      }>
+    > {
       return parseJsonResponse(await client.account["sell-list"].readiness.$post({ json: body, header: headers }));
     },
     async createGuestSellListReadiness(

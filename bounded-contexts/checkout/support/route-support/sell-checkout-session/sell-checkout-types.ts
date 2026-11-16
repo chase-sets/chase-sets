@@ -1,3 +1,5 @@
+import type { SellListReviewPlan, SellListReviewPlanLine } from "../../../features/sell-list/api/review-plan-contracts";
+export type { SellListReviewPlan, SellListReviewPlanLine } from "../../../features/sell-list/api/review-plan-contracts";
 import { t } from "@chase-sets/localization";
 import type { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import type {
@@ -36,41 +38,14 @@ export type SignedInSellCheckoutLoaderData = Readonly<{
   defaultValues: SignedInSellCheckoutFormValues;
   savedShipFromAddresses: readonly SignedInSellCheckoutShipFromAddress[];
   payoutSummary: SignedInSellCheckoutPayoutSummary | null;
-  readinessDecisions: string;
-  sellListReviewPlan: string;
+  readinessDecisions: SellListReadinessDecisionInput;
+  reviewPlan: SellListReviewPlan | null;
 }>;
 
 export type SellCheckoutLoaderData = GuestSellCheckoutLoaderData | SignedInSellCheckoutLoaderData;
 
 export type ParsedSellListLineAction = NonNullable<SellListReadinessDecisionInput["lineActions"]>[number];
 export type ParsedSellListLineOutcome = NonNullable<SellListReadinessDecisionInput["lineOutcomes"]>[number];
-
-export type SellListReviewPlan = Readonly<{
-  version: 1;
-  lines: readonly SellListReviewPlanLine[];
-}>;
-
-export type SellListReviewPlanLine = Readonly<{
-  lineId: string;
-  lineType: "selected-offer" | "product";
-  itemTitle: string;
-  productId: string | null;
-  quantity: number;
-  selectedOffer: Readonly<{ offerId: string; listingId: string; feeQuoteFingerprint: string }> | null;
-  productOfferTargets: readonly Readonly<{
-    offerId: string;
-    listingId: string;
-    feeQuoteFingerprint: string;
-    quantity: number;
-  }>[];
-  fallbackListing: Readonly<{
-    inventoryItemId: string;
-    priceAmount: string;
-    priceCurrencyCode: string;
-    quantityCap: number;
-  }> | null;
-  skippedReasons: readonly string[];
-}>;
 
 export type SellListReviewedLine = Readonly<{
   line: CheckoutSellListLineRow;
