@@ -545,6 +545,13 @@ impl SellListScreen {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryLabel {
+    SetUpPayouts,
+    Resolve,
+    KeepSelling,
+}
+
 /// The form's every value for `key`, trimmed, the empty ones left out.
 fn all(raw: &Raw, key: &str) -> Vec<String> {
     raw.get(key).map(|v| v.all().iter().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
