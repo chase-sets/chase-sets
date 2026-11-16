@@ -13,6 +13,16 @@ afterEach(() => vi.unstubAllEnvs());
 type Input = WorkerJobInput<PlatformWorkerConfig>;
 type Registry = WorkerJobRegistry<Input>;
 const registry: Registry = workerContextRegistry;
+function expectedCensus(profile: "landing" | "proof" | "public", enabled = true) {
+  const expected = structuredClone(baseline.profiles[`${profile}:${enabled ? "enabled" : "disabled"}`]);
+  if (profile !== "landing")
+    expected.scheduled.unshift({
+      name: "channels.ebay-account-deletion-consumer",
+      lease: "job:channels.ebay-account-deletion-consumer",
+      intervalMs: null,
+    });
+  return expected;
+}
 async function census(input: ReturnType<typeof censusInput>, entries: Registry = registry) {
   const groups = createPlatformWorkerJobComposition(input, censusRetention, entries);
   const expectedIntervals = new Set(
@@ -50,12 +60,12 @@ async function census(input: ReturnType<typeof censusInput>, entries: Registry =
 }
 
 describe("static worker job registry", () => {
-  it("registry composes the same runner set as the hand-wired list", async () => {
+  it("registry preserves the historical runner census plus the deletion consumer", async () => {
     expect(baseline.head).toBe("7102e3d56ac12516cde7ee3ef8638c4afd38bfa5");
     for (const profile of ["landing", "proof", "public"] as const)
       for (const enabled of [false, true]) {
         const input = censusInput(profile, enabled);
-        expect(await census(input)).toEqual(baseline.profiles[`${profile}:${enabled ? "enabled" : "disabled"}`]);
+        expect(await census(input)).toEqual(expectedCensus(profile, enabled));
         expect(input.logger.info).toHaveBeenCalledExactlyOnceWith(
           "Worker registry jobs composed.",
           expect.objectContaining({ runtimeProfile: profile, type: "worker.registry-jobs" }),
@@ -76,7 +86,22 @@ describe("static worker job registry", () => {
         },
       },
     }));
-    expect(await census(censusInput("proof"), removed)).not.toEqual(baseline.profiles["proof:enabled"]);
+    expect(await census(censusInput("proof"), removed)).not.toEqual(expectedCensus("proof"));
+    const omittedDeletion = registry.map((entry) =>
+      entry.contextName !== "channels"
+        ? entry
+        : {
+            ...entry,
+            module: {
+              ...entry.module,
+              workerJobFactories: {
+                ...entry.module.workerJobFactories,
+                createChannelsEbayAccountDeletionConsumerRunners: () => [],
+              },
+            },
+          },
+    );
+    expect(await census(censusInput("proof"), omittedDeletion)).not.toEqual(expectedCensus("proof"));
     const duplicate = change((entry) => ({
       ...entry,
       manifest: {
@@ -106,10 +131,10 @@ describe("static worker job registry", () => {
         scheduledJobs: entry.manifest.scheduledJobs!.map((job) => ({ ...job, runtimeProfiles: ["public"] })),
       },
     }));
-    expect(await census(censusInput("proof"), profile)).not.toEqual(baseline.profiles["proof:enabled"]);
+    expect(await census(censusInput("proof"), profile)).not.toEqual(expectedCensus("proof"));
     const schedule = censusInput("proof");
     Reflect.set(schedule.config, "paymentReconciliationIntervalMs", 87654);
-    expect(await census(schedule)).not.toEqual(baseline.profiles["proof:enabled"]);
+    expect(await census(schedule)).not.toEqual(expectedCensus("proof"));
     const metadata = change((entry) => ({
       ...entry,
       manifest: {
@@ -158,7 +183,7 @@ describe("static worker job registry", () => {
     for (const profile of ["landing", "proof", "public"] as const) {
       for (const enabled of [false, true]) {
         const { input } = prepare(profile, enabled);
-        const expected = structuredClone(baseline.profiles[`${profile}:${enabled ? "enabled" : "disabled"}`]);
+        const expected = expectedCensus(profile, enabled);
         expected.scheduled = expected.scheduled.map((runner) => (runner.name === mainName ? captured.runner : runner));
         expect(await census(input)).toEqual(expected);
         const absent = prepare(profile, enabled, false).input;

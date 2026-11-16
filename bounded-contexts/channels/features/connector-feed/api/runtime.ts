@@ -19,6 +19,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
 import { createConnectionEpochs, type ConnectionEpochs } from "../../connections/api/owner-epochs";
 import { loadOwned } from "../../connections/api/runtime";
+import type { EbayConnectionServices } from "../../ebay-connection/api/runtime";
 import {
   decideChannelConnection,
   evolveChannelConnection,
@@ -62,11 +63,7 @@ export function createConnectorFeedRuntime(
     now?: () => Date;
     connectionEpochs?: ConnectionEpochs;
     beforeConnectionLock?: (db: PgQueryable, input: ConnectionQuery) => Promise<void>;
-    disconnectEffect?: (
-      db: PgQueryable,
-      state: ChannelConnectionState,
-      remoteRevocation?: "unconfirmed",
-    ) => Promise<void>;
+    disconnectEffect?: EbayConnectionServices["disconnectEffect"];
   }>,
 ) {
   const now = deps.now ?? (() => new Date());
