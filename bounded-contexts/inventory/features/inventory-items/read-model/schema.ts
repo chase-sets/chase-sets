@@ -1,5 +1,6 @@
 import type { BcSchemaMigration, BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import type { JsonObject } from "@chase-sets/primitives/json";
+import { enrollInventoryStockStreamsInTransaction, stockOwnerStreams } from "../api/stock-reservations";
 
 export const inventoryItemSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_items (
@@ -569,6 +570,9 @@ $migration$`,
           });
         }
         const itemIds = [...groups.keys()].map((itemId) => `inventory.item-${itemId}`);
+        // The migration owns its transaction and cannot drive a consumer abort here.
+        // OPEN reservations refuse the entire migration; owner recovery runs outside it before retry.
+        await enrollInventoryStockStreamsInTransaction(db, [...groups.keys()].flatMap(stockOwnerStreams));
         const itemRows = itemIds.length
           ? await query<{
               stream_id: string;

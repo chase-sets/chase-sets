@@ -1,12 +1,13 @@
 {
-  "owners": ["identity", "auth", "channels"],
+  "owners": ["identity", "auth", "channels", "inventory"],
   "keys": [
     "account/<accountId>",
     "user/<userId>",
     "membership/<membershipId>",
     "delegation/<delegationId>",
     "session/<sessionId>",
-    "connection/<connectionId>"
+    "connection/<connectionId>",
+    "stock/<accountId>/<inventoryItemId>"
   ],
   "consumedFields": {
     "account": ["id", "status"],
@@ -25,7 +26,18 @@
       "absoluteExpiresAt"
     ],
     "session": ["id", "userId", "status", "streamRevision", "tokenRevision", "expiresAt"],
-    "connection": ["accountId", "providerKey", "environment", "status", "version"]
+    "connection": ["accountId", "providerKey", "environment", "status", "version"],
+    "stock": [
+      "accountId",
+      "inventoryItemId",
+      "catalogItemId",
+      "productId",
+      "selectedOptions",
+      "availableQuantity",
+      "allocationRevision",
+      "allocationMode",
+      "partitions"
+    ]
   },
   "principalScope": {
     "apiKey": "Excluded: resolveActorFromRequest in bounded-contexts/auth/support/runtime-support/runtime.ts admits sessions, guest checkout and linked-platform tokens, not Identity API keys.",
@@ -2243,6 +2255,697 @@
       "sourceSymbol": "bounded-contexts/channels/features/ebay-connection/read-model/refresh-schedule.ts::scheduleCredentialRefresh",
       "foldTest": "bounded-contexts/channels/features/connections/api/versioned-connection-authority.test.ts::excludes sibling facts and credentials from the canonical Connection fold",
       "reason": "Refresh schedule, lease and observation writes leave canonical Connection identity, status and version unchanged; custody completion uses the physical seller-binding fence shared with reauthorization and disconnect."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/channel-allocations/api/runtime.ts",
+      "symbol": "createInventoryChannelStockAllocationRuntime > set",
+      "sink": "deps.eventStore.appendToStream",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/channel-sales/api/runtime.ts",
+      "symbol": "createInventoryExternalChannelSaleRuntime > record",
+      "sink": "holdCollisions.reduceItem",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts",
+      "symbol": "createInventoryHoldCollisionRuntime > reduceItem",
+      "sink": "appendToStreams",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts",
+      "symbol": "createInventoryHoldCollisionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts",
+      "symbol": "createInventoryHoldCollisionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 2,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts",
+      "symbol": "createInventoryHoldCollisionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 3,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/route.ts",
+      "symbol": "inventoryCheckoutReservationRoutes > work",
+      "sink": "services.createHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/route.ts",
+      "symbol": "inventoryCheckoutReservationRoutes > work",
+      "sink": "services.releaseHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/route.ts",
+      "symbol": "inventoryHoldRoutes",
+      "sink": "services.releaseHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "consumeInventoryHoldAtomically",
+      "sink": "appendToStreams",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "createInventoryHoldRuntime > createHold",
+      "sink": "appendToStreams",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "createInventoryHoldRuntime > createHold",
+      "sink": "planCreateHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "createInventoryHoldRuntime > expireDueCheckoutHolds > expire",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "createInventoryHoldRuntime > extendCheckoutHold",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "createInventoryHoldRuntime > releaseHold",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "createInventoryHoldRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/holds/api/runtime.ts",
+      "symbol": "createInventoryHoldRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 2,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/import-batches/api/runtime.ts",
+      "symbol": "createInventoryImportBatchRuntime > commitBatchRows",
+      "sink": "deps.items.adjustItem",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/import-batches/api/runtime.ts",
+      "symbol": "createInventoryImportBatchRuntime > commitBatchRows",
+      "sink": "deps.items.createItem",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/import-batches/api/runtime.ts",
+      "symbol": "createInventoryImportBatchRuntime > commitSingleRow > work",
+      "sink": "itemServices.adjustItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/import-batches/api/runtime.ts::createInventoryImportBatchRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/import-batches/api/runtime.ts",
+      "symbol": "createInventoryImportBatchRuntime > commitSingleRow > work",
+      "sink": "itemServices.createItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/import-batches/api/runtime.ts::createInventoryImportBatchRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/mcp.ts",
+      "symbol": "createInventoryItemMcpHandlers > adjustItem",
+      "sink": "holdCollisions.reduceItem",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/mcp.ts",
+      "symbol": "createInventoryItemMcpHandlers > adjustItem",
+      "sink": "services.adjustItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/route.ts",
+      "symbol": "inventoryItemRoutes",
+      "sink": "holdCollisions.reduceItem",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/route.ts",
+      "symbol": "inventoryItemRoutes",
+      "sink": "holdCollisions.reduceItem",
+      "ordinal": 2,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/route.ts",
+      "symbol": "inventoryItemRoutes",
+      "sink": "holds.createHold",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/route.ts",
+      "symbol": "inventoryItemRoutes",
+      "sink": "items.adjustItem",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/route.ts",
+      "symbol": "inventoryItemRoutes",
+      "sink": "items.createItem",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/route.ts",
+      "symbol": "inventoryItemRoutes",
+      "sink": "items.ensureListingStock",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/runtime.ts",
+      "symbol": "appendAuthoritativeNegativeAdjustment",
+      "sink": "input.deps.eventStore.appendToStream",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/runtime.ts",
+      "symbol": "createInventoryItemRuntime > adjustItem",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/runtime.ts",
+      "symbol": "createInventoryItemRuntime > createItem",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/runtime.ts",
+      "symbol": "createInventoryItemRuntime > ensureListingStock",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/runtime.ts",
+      "symbol": "createInventoryItemRuntime > ensureListingStock",
+      "sink": "commandHandler",
+      "ordinal": 2,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/runtime.ts",
+      "symbol": "createInventoryItemRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/stock-authority.ts",
+      "symbol": "createInventoryStockAuthority > captureInTransaction",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
+      "symbol": "createInventoryStockReservations > appendInTransaction",
+      "sink": "store.appendToStreamsInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
+      "symbol": "createInventoryStockReservations > appendSingleInTransaction",
+      "sink": "store.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendSingleInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/read-model/schema.ts",
+      "symbol": "dataStep",
+      "sink": "db.appendToStreamsInTransaction!",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/read-model/schema.ts::dataStep > enrollInventoryStockStreamsInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/recovered-items/api/runtime.ts",
+      "symbol": "createRecoveredItemRuntime > createFromFacilityIntake",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/recovered-items/api/runtime.ts::createRecoveredItemRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/recovered-items/api/runtime.ts",
+      "symbol": "createRecoveredItemRuntime > execute",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/recovered-items/api/runtime.ts::createRecoveredItemRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/recovered-items/api/runtime.ts",
+      "symbol": "createRecoveredItemRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/recovered-items/api/runtime.ts::createRecoveredItemRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/reservations/api/order-reservation-workflow.ts",
+      "symbol": "reserveOrderInventoryRequest",
+      "sink": "services.appendToStreams",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/reservations/api/order-reservation-workflow.ts",
+      "symbol": "reserveOrderInventoryRequest",
+      "sink": "services.holds.planConvertCheckoutHold",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/reservations/api/order-reservation-workflow.ts",
+      "symbol": "reserveOrderInventoryRequest",
+      "sink": "services.holds.planCreateHold",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/reservations/api/order-reservation-workflow.ts",
+      "symbol": "reserveOrderInventoryRequest",
+      "sink": "services.reservations.commandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/reservations/api/runtime.ts",
+      "symbol": "createInventoryReservationRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts",
+      "symbol": "createRestockDecisionRuntime > markPending",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts::createRestockDecisionRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts",
+      "symbol": "createRestockDecisionRuntime > recordDecision",
+      "sink": "deps.eventStore.appendToStream",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts::createRestockDecisionRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts",
+      "symbol": "createRestockDecisionRuntime > recordDecision",
+      "sink": "inventoryItems.adjustItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts::createRestockDecisionRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts",
+      "symbol": "createRestockDecisionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts::createRestockDecisionRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/storage-locations/api/authority.ts",
+      "symbol": "createStorageLocationAuthority",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/storage-locations/api/authority.ts::createStorageLocationAuthority",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts",
+      "symbol": "createStorageLocationRuntime > createStorageLocation",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts::createStorageLocationRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts",
+      "symbol": "createStorageLocationRuntime > updateStorageLocation",
+      "sink": "commandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts::createStorageLocationRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts",
+      "symbol": "createStorageLocationRuntime > updateStorageLocation",
+      "sink": "commandHandler",
+      "ordinal": 2,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts::createStorageLocationRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts",
+      "symbol": "createStorageLocationRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/features/storage-locations/api/runtime.ts::createStorageLocationRuntime",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/index.ts",
+      "symbol": "buildSubscriptions > \"ordering.inventory-order-reservation-workflow\" > \"ordering.order.cancelled\"",
+      "sink": "services.holds.releaseHold",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "bounded-contexts/inventory/index.ts",
+      "symbol": "buildSubscriptions > \"ordering.inventory-order-reservation-workflow\" > \"ordering.order.cancelled\"",
+      "sink": "services.reservations.commandHandler",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/index.ts::buildSubscriptions",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx",
+      "symbol": "\"adjust-item\"",
+      "sink": "createInventoryRequestApiClient(request, {\n        mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n      }).adjustItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx::\"adjust-item\"",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx",
+      "symbol": "\"create-hold\"",
+      "sink": "createInventoryRequestApiClient(request, {\n          mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n        }).createHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx::\"create-hold\"",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx",
+      "symbol": "\"release-hold\"",
+      "sink": "createInventoryRequestApiClient(request, {\n          mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n        }).releaseHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx::\"release-hold\"",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx",
+      "symbol": "\"create-item\"",
+      "sink": "createInventoryRequestApiClient(request, {\n        mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n      }).createItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx::\"create-item\"",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
+      "symbol": "recoverInventoryHolds > createHold",
+      "sink": "raw.createHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts::recoverInventoryHolds",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
+      "symbol": "recoverInventoryHolds > releaseHold",
+      "sink": "raw.releaseHold",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts::recoverInventoryHolds",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
+      "symbol": "recoverInventoryItems > adjustItem",
+      "sink": "raw.adjustItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts::recoverInventoryItems",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
+      "symbol": "recoverInventoryItems > createItem",
+      "sink": "raw.createItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts::recoverInventoryItems",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
+      "symbol": "recoverInventoryItems > ensureListingStock",
+      "sink": "raw.ensureListingStock",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts::recoverInventoryItems",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
+      "symbol": "recoverInventoryReductions > reduceItem",
+      "sink": "raw.reduceItem",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts::recoverInventoryReductions",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
+      "symbol": "recoverInventoryReductions > reduceItem",
+      "sink": "raw.reduceItem",
+      "ordinal": 2,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts::recoverInventoryReductions",
+      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
+      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
+    },
+    {
+      "file": "bounded-contexts/inventory/support/seed-support/representative-services.ts",
+      "symbol": "createInventoryRepresentativeSeedServices > ensureListingStock",
+      "sink": "services.items.ensureListingStock",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
+    },
+    {
+      "file": "contracts/catalog-seed/representative-commerce-state.ts",
+      "symbol": "ensureRepresentativeInventoryStock",
+      "sink": "services.items.ensureListingStock",
+      "ordinal": 1,
+      "keys": ["stock"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts::createInventoryStockReservations > appendInTransaction"
     }
   ]
 }

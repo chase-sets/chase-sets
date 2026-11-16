@@ -263,6 +263,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "stockReservationConsumerPool",
+      "providedBy": "composition root",
+      "purpose": "Supplies the durable request-terminal consumer store for Inventory stock reservation invalidation; unavailable terminal authority remains pending. Marketplace composition is separate."
+    },
+    {
       "portName": "checkoutReservationAuthority",
       "providedBy": "platform-api",
       "purpose": "Resolves stock account authority from the authenticated buyer's retained Checkout session, never from request seller IDs."
