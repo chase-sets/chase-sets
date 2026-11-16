@@ -1,4 +1,19 @@
 import { listingFormAttempt } from "../support/request-support/listing-attempt";
+import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
+import {
+  listingRecoveryForForm,
+  listingRecoveryResult,
+  listingRecoveryUrl,
+  loadListingRecovery,
+  recoverListingBatch,
+  sameListingRecovery,
+  type ListingRecoveryIdentity,
+} from "../features/listings/ui/listing-batch";
+import {
+  ListingRecoveryErrorBoundary,
+  ListingRecoveryNotice,
+  ListingRecoveryScope,
+} from "../features/listings/ui/listing-batch-recovery";
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -44,7 +59,9 @@ const ACCOUNT_LISTING_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/listings/:listingId",
 } as const satisfies PlatformPostWriteTelemetry;
 
-export { ListingDetailErrorBoundary as ErrorBoundary };
+export function ErrorBoundary() {
+  return <ListingRecoveryErrorBoundary fallback={<ListingDetailErrorBoundary />} />;
+}
 
 function requestWithoutFreshWrite(request: Request) {
   const url = new URL(request.url);
@@ -119,7 +136,7 @@ function parseOrderedPhotoIds(value: FormDataEntryValue | null) {
   }
 }
 
-async function navigateToAccountListingAfterWrite(commandResult: unknown, destinationRoute: string) {
+async function navigateToAccountListingWithReceipt(commandResult: unknown, destinationRoute: string) {
   return navigateAfterWriteWithCompactToken(commandResult, destinationRoute, {
     postWriteTokenStore: await resolveMarketplacePostWriteTokenStore(),
     telemetry: ACCOUNT_LISTING_POST_WRITE_TELEMETRY,
@@ -127,7 +144,7 @@ async function navigateToAccountListingAfterWrite(commandResult: unknown, destin
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "listings.view" });
+  const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
   const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
   const api = createMarketplaceRequestApiClient(resolvedRequest);
   const nonFreshApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest));
@@ -143,6 +160,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       listing: null,
       feeHistory: { items: [], total: 0, count: 0 },
       recovery: "fresh-write-preparing" as const,
+      accountId: actor.accountId,
+      listingRecovery: await loadListingRecovery(nonFreshApi, request, actor.accountId),
     };
   }
 
@@ -160,13 +179,33 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   return {
+    accountId: actor.accountId,
+    listingRecovery: await loadListingRecovery(nonFreshApi, request, actor.accountId),
     listing: listingRead.data,
     feeHistory: await nonFreshApi.getSellerListingFeeHistory(params.listingId!),
   };
 }
 
-async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
+async function handleAction(intent: string, { request, params, formData, actor }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
+  const retained = await loadListingRecovery(api, request, actor!.accountId);
+  let identity: ListingRecoveryIdentity | null;
+  try {
+    identity = await listingRecoveryForForm(formData, params.listingId ?? null, actor!.accountId);
+  } catch {
+    return { listingRecovery: { identity: null, items: [], phase: "failed-safe" as const } };
+  }
+  if (retained) {
+    if (retained.phase === "ambiguous") return { listingRecovery: retained };
+    if (!identity || !retained.identity || !sameListingRecovery(retained.identity, identity))
+      return { listingRecovery: { ...retained, phase: "failed-safe" as const } };
+    if (retained.items.some((item) => item.outcome !== "unknown")) return { listingRecovery: retained };
+  }
+  const navigateToAccountListingAfterWrite = (commandResult: unknown, destinationRoute: string) =>
+    navigateToAccountListingWithReceipt(
+      commandResult,
+      identity ? listingRecoveryUrl(destinationRoute, identity) : destinationRoute,
+    );
   const priceDraftAmount = String(formData.get("priceAmount") ?? "");
   const priceDraftCurrencyCode = String(formData.get("priceCurrencyCode") ?? "");
 
@@ -300,11 +339,27 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 
     return redirect(pathname);
   } catch (error) {
+    if (
+      identity &&
+      (!(error instanceof MarketplaceApiError) ||
+        error.status >= 500 ||
+        marketplaceApiErrorAdapter.getErrorCode(error) === "history_incomplete")
+    )
+      return { listingRecovery: await recoverListingBatch(api, identity, actor!.accountId) };
     if (error instanceof MarketplaceApiError) {
       const currentQuote = staleQuoteFromError(error);
       const currentEvidenceReadiness = evidenceReadinessFromError(error);
       const altTextRecovery = intent === "classify-photo" ? authoredTextRecoveryFromApiError(error.body) : null;
       return {
+        listingRecovery: identity
+          ? listingRecoveryResult(
+              identity,
+              identity.targets.map((target) => ({
+                targetId: target.id,
+                outcome: error.status === 409 ? "conflict" : "error",
+              })),
+            )
+          : null,
         evidenceAltTextRecovery: altTextRecovery
           ? {
               photoId: String(formData.get("photoId") ?? ""),
@@ -349,6 +404,21 @@ export const action = defineFormAction({
   onUnknownIntent: (context) => handleAction("", context),
 });
 
+export function shouldRevalidate({
+  actionResult,
+  defaultShouldRevalidate,
+}: {
+  actionResult?: unknown;
+  defaultShouldRevalidate: boolean;
+}) {
+  return actionResult &&
+    typeof actionResult === "object" &&
+    "listingRecovery" in actionResult &&
+    actionResult.listingRecovery
+    ? false
+    : defaultShouldRevalidate;
+}
+
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
     title: t("marketplace.routes.accountListing.listing.marketplace"),
@@ -389,21 +459,33 @@ export default function MarketplaceAccountListingRoute() {
   }, [data.listing?.listing_id, readiness, requestedEvidenceEvent]);
 
   if (!data.listing) {
-    return <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
+    return (
+      <ListingRecoveryScope recovery={actionData?.listingRecovery ?? data.listingRecovery} accountId={data.accountId}>
+        <ListingRecoveryNotice />
+        <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />
+      </ListingRecoveryScope>
+    );
   }
 
   const currentListing = actionData?.evidenceReadiness
     ? { ...data.listing, evidence_readiness: actionData.evidenceReadiness }
     : data.listing;
   return (
-    <MarketplaceListingDetailPage
-      listing={currentListing as MarketplaceListingDetail}
-      feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
-      priceDraftAmount={actionData?.priceDraftAmount ?? null}
-      priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
-      pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
-      errorMessage={actionData?.error ?? null}
-      evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
-    />
+    <ListingRecoveryScope
+      recovery={actionData?.listingRecovery ?? data.listingRecovery}
+      listingId={currentListing.listing_id}
+      accountId={data.accountId}
+    >
+      <ListingRecoveryNotice />
+      <MarketplaceListingDetailPage
+        listing={currentListing as MarketplaceListingDetail}
+        feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
+        priceDraftAmount={actionData?.priceDraftAmount ?? null}
+        priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
+        pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
+        errorMessage={actionData?.error ?? null}
+        evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
+      />
+    </ListingRecoveryScope>
   );
 }

@@ -306,6 +306,64 @@ const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
   permissions: ["listings.view", "listings.manage"],
 };
 
+describe("read-only Listing batch recovery API", () => {
+  const batchId = "listing_batch_lookup_0000001";
+  it("binds vector lookup to the authenticated owner, not supplied account data, without executing a command", async () => {
+    const services = {
+      ...createServices(),
+      lookupListingBatch: vi.fn(async () => ({
+        batchId,
+        family: "listing.pause" as const,
+        items: [{ targetId: "lst_one", outcome: "unknown" as const, version: 0 }],
+      })),
+      applyListingBatch: vi.fn(),
+    };
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request(`/account/listings/batch/${batchId}?family=listing.pause&accountId=acc_other`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ batchId, items: [{ targetId: "lst_one", outcome: "unknown" }] });
+    expect(services.lookupListingBatch).toHaveBeenCalledWith({
+      batchId,
+      family: "listing.pause",
+      accountId: "acc_seller",
+    });
+    expect(services.applyListingBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["bad", "listing.pause"],
+    [batchId, "listing.publish"],
+  ])("rejects invalid lookup identity %s / %s", async (id, family) => {
+    const services = { ...createServices(), lookupListingBatch: vi.fn() };
+    const response = await buildApp({ actor: sellerActor, services }).request(
+      `/account/listings/batch/${id}?family=${family}`,
+    );
+    expect(response.status).toBe(400);
+    expect(services.lookupListingBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { ...sellerActor!, permissions: [] }])(
+    "requires authenticated Listing view authority",
+    async (actor) => {
+      const services = { ...createServices(), lookupListingBatch: vi.fn() };
+      const response = await buildApp({ actor, services }).request(
+        `/account/listings/batch/${batchId}?family=listing.pause`,
+      );
+      expect(response.status).toBe(actor ? 403 : 401);
+      expect(services.lookupListingBatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns an explicitly absent batch instead of manufacturing outcomes", async () => {
+    const services = { ...createServices(), lookupListingBatch: vi.fn(async () => null) };
+    const response = await buildApp({ actor: sellerActor, services }).request(
+      `/account/listings/batch/${batchId}?family=listing.withdraw`,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toBeNull();
+  });
+});
+
 const validShipFromAddress = {
   name: "Seller shelf",
   company: null,

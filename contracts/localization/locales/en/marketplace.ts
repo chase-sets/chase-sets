@@ -9,7 +9,20 @@ export const marketplaceEnglishTranslations = {
   "marketplace.recovery.ambiguous":
     "We could not confirm the result. This action is disabled to avoid duplicating your work.",
   "marketplace.listingRecovery.submitting": "Sending your Listing change...",
-  "marketplace.listingRecovery.confirming": "Confirming your first result. Do not submit this change again.",
+  "marketplace.listingRecovery.loading": "Checking the recorded Listing results...",
+  "marketplace.listingRecovery.conflict":
+    "This Listing change conflicts with its recorded result. It was not sent again.",
+  "marketplace.listingRecovery.target": "{target}: {outcome}",
+  "marketplace.listingRecovery.outcome.succeeded": "succeeded, will not send again",
+  "marketplace.listingRecovery.outcome.conflict": "conflict, will not send again",
+  "marketplace.listingRecovery.outcome.error": "failed safely, will not send again",
+  "marketplace.listingRecovery.outcome.unknown": "unknown, available for explicit retry",
+  "marketplace.listingRecovery.outcome.ambiguous": "unconfirmed, changes disabled",
+  "marketplace.listingRecovery.reenter":
+    "No result is recorded. Re-enter the same details to retry this attempt; changed details will not be sent.",
+  "marketplace.listingRecovery.continue": "Start another change",
+  "marketplace.listingRecovery.checkAgain": "Check the recorded result again",
+  "marketplace.listingRecovery.confirming": "Confirming the result of your Listing change.",
   "marketplace.listingRecovery.succeeded": "Your Listing change is confirmed.",
   "marketplace.listingRecovery.failedSafe": "The change was not sent. Review your inputs before trying again.",
   "marketplace.listingRecovery.ambiguous":

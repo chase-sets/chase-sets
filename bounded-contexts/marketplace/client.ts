@@ -250,6 +250,21 @@ export function createMarketplaceApiClient({
     );
 
   return {
+    lookupListingAttempt: lookupAttempt,
+    async lookupListingBatch(
+      batchId: string,
+      family: "listing.pause" | "listing.withdraw",
+    ): Promise<MarketplaceListingBatchResult | null> {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(
+            baseUrl,
+            `/account/listings/batch/${encodeURIComponent(batchId)}?${new URLSearchParams({ family })}`,
+          ),
+          { headers },
+        ),
+      );
+    },
     async listBuyerOfferPolicies(
       offerIds: readonly string[] = [],
     ): Promise<{ items: BuyerOfferPolicySnapshot[]; nextCursor: string | null }> {

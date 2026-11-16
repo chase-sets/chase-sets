@@ -1543,6 +1543,23 @@ export function createAccountListingRoutes(
     }
   });
 
+  app.get("/listings/batch/:batchId", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.view");
+      if (access.response) return access.response;
+      const parsedBatchId = marketplaceAttemptIdSchema.safeParse(c.req.param("batchId"));
+      if (!parsedBatchId.success)
+        throw new MarketplaceAttemptError("invalid_attempt", "A valid bulk batch id is required.");
+      const batchId = parsedBatchId.data;
+      const family = c.req.query("family");
+      if (family !== "listing.pause" && family !== "listing.withdraw")
+        throw new MarketplaceAttemptError("invalid_attempt", "A valid Listing batch family is required.");
+      return c.json(await services.lookupListingBatch({ accountId: access.actor.accountId, batchId, family }));
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "id-invalid", ...listingAttemptErrors]);
+    }
+  });
+
   app.post("/listings/batch", async (c) => {
     try {
       const access = requireListingAccess(c, "listings.manage");
