@@ -421,7 +421,11 @@ export function SellListReviewGrid({
                 {offerReviewsByLineId.get(activeLine.line_id) ? (
                   <TermsComparison review={offerReviewsByLineId.get(activeLine.line_id)!} />
                 ) : null}
-                <SelectedOfferRow line={activeLine} review={offerReviewsByLineId.get(activeLine.line_id)} answer={lineAnswers[activeLine.line_id]!} />
+                <SelectedOfferRow
+                  line={activeLine}
+                  review={offerReviewsByLineId.get(activeLine.line_id)}
+                  answer={lineAnswers[activeLine.line_id]!}
+                />
               </>
             ) : (
               <ProductLineRow

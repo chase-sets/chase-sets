@@ -1059,7 +1059,6 @@ describe("API-owned Sell List review readiness", () => {
   });
 });
 
-
 describe("Sell List composite HTTP reads", () => {
   it("serializes account decimal answers and enforces account access", async () => {
     const f = checkoutOwnerRuntimeFixture();
@@ -1067,8 +1066,18 @@ describe("Sell List composite HTTP reads", () => {
     const app = buildApp({ actor: sellerActor(), services: f.services });
     const response = await app.request("/account/sell-list/composite-review");
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ screen: { selectedOfferGross: "20.00", expectedSellerPayout: "20.00", estimatedSalesFees: "0.00", futureListingGross: "0.00", canContinue: true } });
-    expect((await buildApp({ actor: null, services: f.services }).request("/account/sell-list/composite-review")).status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      screen: {
+        selectedOfferGross: "20.00",
+        expectedSellerPayout: "20.00",
+        estimatedSalesFees: "0.00",
+        futureListingGross: "0.00",
+        canContinue: true,
+      },
+    });
+    expect(
+      (await buildApp({ actor: null, services: f.services }).request("/account/sell-list/composite-review")).status,
+    ).toBe(401);
   });
 
   it("uses only the anonymous header for the guest composite client and returns an empty envelope without it", async () => {
@@ -1079,9 +1088,24 @@ describe("Sell List composite HTTP reads", () => {
     const client = createCheckoutApiClient({ baseUrl: "http://checkout.test", fetch });
     const guest = await client.getGuestSellListCompositeReview("anon_fixture");
     expect(loadGuestCompositeReview).toHaveBeenCalledWith("anon_fixture");
-    expect(guest).toMatchObject({ inventoryItems: [], productOfferReviews: [], screen: { payoutReadiness: null, payoutIsReady: true, canContinue: false, selectedOfferGross: "10.00", expectedSellerPayout: "10.00" } });
+    expect(guest).toMatchObject({
+      inventoryItems: [],
+      productOfferReviews: [],
+      screen: {
+        payoutReadiness: null,
+        payoutIsReady: true,
+        canContinue: false,
+        selectedOfferGross: "10.00",
+        expectedSellerPayout: "10.00",
+      },
+    });
     const empty = await client.getGuestSellListCompositeReview(null);
     expect(loadGuestCompositeReview).toHaveBeenLastCalledWith(null);
-    expect(empty.screen).toMatchObject({ lineCount: 0, canContinue: false, selectedOfferGross: "0.00", expectedSellerPayout: "0.00" });
+    expect(empty.screen).toMatchObject({
+      lineCount: 0,
+      canContinue: false,
+      selectedOfferGross: "0.00",
+      expectedSellerPayout: "0.00",
+    });
   });
 });

@@ -6,9 +6,20 @@ import { CheckoutSellListPage } from "./sell-list-page";
 import type { ComponentProps } from "react";
 import { deriveSellListCompositeReview } from "../read-model/screen-review";
 import type { CheckoutSellListRawReview, CheckoutSellPayoutReadinessRow } from "../read-model/queries";
-import type { SellListOfferReview, SellListProductOfferReview, SellListInventoryItem, PayoutReadiness } from "./sell-list-page-types";
+import type {
+  SellListOfferReview,
+  SellListProductOfferReview,
+  SellListInventoryItem,
+  PayoutReadiness,
+} from "./sell-list-page-types";
 
-function FixtureSellListPage({ offerReviews = [], productOfferReviews = [], inventoryItems = [], payoutReadiness = null, ...props }: ComponentProps<typeof CheckoutSellListPage> & {
+function FixtureSellListPage({
+  offerReviews = [],
+  productOfferReviews = [],
+  inventoryItems = [],
+  payoutReadiness = null,
+  ...props
+}: ComponentProps<typeof CheckoutSellListPage> & {
   offerReviews?: readonly SellListOfferReview[];
   productOfferReviews?: readonly SellListProductOfferReview[];
   inventoryItems?: readonly SellListInventoryItem[];
@@ -18,7 +29,13 @@ function FixtureSellListPage({ offerReviews = [], productOfferReviews = [], inve
     lines: props.sellListLines,
     review: { offerReviews, productOfferReviews, inventoryItems } as CheckoutSellListRawReview,
     isAccount: props.isSignedIn !== false,
-    payoutReadiness: payoutReadiness ? { ...payoutReadiness, account_id: "acc_seller", updated_at: "2026-11-16T00:00:00.000Z" } as CheckoutSellPayoutReadinessRow : null,
+    payoutReadiness: payoutReadiness
+      ? ({
+          ...payoutReadiness,
+          account_id: "acc_seller",
+          updated_at: "2026-11-16T00:00:00.000Z",
+        } as CheckoutSellPayoutReadinessRow)
+      : null,
     sellListPath: props.sellListPath,
   });
   return <CheckoutSellListPage {...props} compositeReview={props.compositeReview ?? compositeReview} />;
@@ -134,31 +151,60 @@ const outlinedSurfaceExcluded = ["surface-border", "ds-glass", "shadow-tokenSm",
 
 describe("checkout sell list page", () => {
   it("renders API readiness, permission, totals and recovery unchanged when raw inputs disagree", () => {
-    const compositeReview = deriveSellListCompositeReview({ lines: [selectedOfferLine], isAccount: true, review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] } });
+    const compositeReview = deriveSellListCompositeReview({
+      lines: [selectedOfferLine],
+      isAccount: true,
+      review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+    });
     const answer = compositeReview.screen.lines[selectedOfferLine.line_id]!;
-    render(<CheckoutSellListPage sellListLines={[selectedOfferLine]} compositeReview={{ ...compositeReview, screen: {
-      ...compositeReview.screen,
-      canContinue: true,
-      payoutIsReady: true,
-      blockedLineCount: 0,
-      readyLineCount: 7,
-      lineCount: 7,
-      totalQuantity: 9,
-      selectedOfferGross: "123.45",
-      futureListingGross: "23.45",
-      estimatedSalesFees: "3.45",
-      expectedSellerPayout: "120.00",
-      recoveryHref: "/account/inventory?api=chosen",
-      recoveryCode: "resolve-items",
-      hasMultipleOffers: true,
-      lines: { [selectedOfferLine.line_id]: { ...answer, ready: true, canSubmit: false, labelCode: "ready", detailCode: "smart-match-ready", parameters: { count: 7 } } },
-    } }} />);
-    expect(screen.getAllByRole("button", { name: "Continue to seller checkout" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        compositeReview={{
+          ...compositeReview,
+          screen: {
+            ...compositeReview.screen,
+            canContinue: true,
+            payoutIsReady: true,
+            blockedLineCount: 0,
+            readyLineCount: 7,
+            lineCount: 7,
+            totalQuantity: 9,
+            selectedOfferGross: "123.45",
+            futureListingGross: "23.45",
+            estimatedSalesFees: "3.45",
+            expectedSellerPayout: "120.00",
+            recoveryHref: "/account/inventory?api=chosen",
+            recoveryCode: "resolve-items",
+            hasMultipleOffers: true,
+            lines: {
+              [selectedOfferLine.line_id]: {
+                ...answer,
+                ready: true,
+                canSubmit: false,
+                labelCode: "ready",
+                detailCode: "smart-match-ready",
+                parameters: { count: 7 },
+              },
+            },
+          },
+        }}
+      />,
+    );
+    expect(
+      screen
+        .getAllByRole("button", { name: "Continue to seller checkout" })
+        .every((button) => !button.hasAttribute("disabled")),
+    ).toBe(true);
     expect(screen.getAllByText("$123.45").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$23.45").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$3.45").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$120.00").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "Resolve items" }).every((link) => link.getAttribute("href") === "/account/inventory?api=chosen")).toBe(true);
+    expect(
+      screen
+        .getAllByRole("link", { name: "Resolve items" })
+        .every((link) => link.getAttribute("href") === "/account/inventory?api=chosen"),
+    ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     expect(screen.getByRole("dialog").textContent).toContain("7");
     expect(within(screen.getByRole("dialog")).getByText("Ready")).toBeTruthy();

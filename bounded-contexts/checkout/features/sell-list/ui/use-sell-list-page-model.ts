@@ -37,17 +37,25 @@ export function useSellListPageModel({ isSignedIn, compositeReview }: SellListPa
     expectedSellerPayout: null,
     ...screen,
     offerReviewsByLineId: new Map(compositeReview?.offerReviews?.map((review) => [review.lineId, review])),
-    productOfferReviewsByLineId: new Map(compositeReview?.productOfferReviews?.map((review) => [review.lineId, review])),
+    productOfferReviewsByLineId: new Map(
+      compositeReview?.productOfferReviews?.map((review) => [review.lineId, review]),
+    ),
     inventoryByProductId,
-    expectedSellerPayoutLabel: t(screen?.hasMultipleOffers
-      ? "checkout.features.sellList.ui.sellListPage.expected.seller.payout.all.offers"
-      : "checkout.features.sellList.ui.sellListPage.expected.seller.payout"),
+    expectedSellerPayoutLabel: t(
+      screen?.hasMultipleOffers
+        ? "checkout.features.sellList.ui.sellListPage.expected.seller.payout.all.offers"
+        : "checkout.features.sellList.ui.sellListPage.expected.seller.payout",
+    ),
     recoveryLabel: screen ? t(recoveryKeys[screen.recoveryCode]) : "",
-    primarySellerCheckoutLabel: t(isSignedIn
-      ? "checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout"
-      : "checkout.features.sellList.ui.sellListPage.create.account.to.continue"),
-    readinessSummary: screen ? screen.blockedLineCount > 0
-      ? t("checkout.features.sellList.ui.sellListPage.readiness.needs.action", { count: screen.blockedLineCount })
-      : t("checkout.features.sellList.ui.sellListPage.readiness.ready", { count: screen.readyLineCount }) : "",
+    primarySellerCheckoutLabel: t(
+      isSignedIn
+        ? "checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout"
+        : "checkout.features.sellList.ui.sellListPage.create.account.to.continue",
+    ),
+    readinessSummary: screen
+      ? screen.blockedLineCount > 0
+        ? t("checkout.features.sellList.ui.sellListPage.readiness.needs.action", { count: screen.blockedLineCount })
+        : t("checkout.features.sellList.ui.sellListPage.readiness.ready", { count: screen.readyLineCount })
+      : "",
   };
 }

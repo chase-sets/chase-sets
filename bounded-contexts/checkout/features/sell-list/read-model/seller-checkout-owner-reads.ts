@@ -12,11 +12,7 @@ import type { CheckoutShipFromAddressRow } from "../../cart/integrations/identit
 import type { SellListSellerConfirmationEvidence } from "../domain/domain";
 import type { SellerCheckoutChoices, SellerCheckoutOwnerReadCapture } from "../domain/owner-reads";
 import type { SellListReadinessLine, SellListReadinessSnapshot } from "../domain/readiness";
-import type {
-  CheckoutSellListRawReview,
-  CheckoutSellListLineRow,
-  CheckoutSellPayoutReadinessRow,
-} from "./queries";
+import type { CheckoutSellListRawReview, CheckoutSellListLineRow, CheckoutSellPayoutReadinessRow } from "./queries";
 
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)

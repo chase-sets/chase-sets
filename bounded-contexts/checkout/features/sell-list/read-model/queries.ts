@@ -1187,17 +1187,28 @@ export async function loadCheckoutSellListCompositeReview(
     loadCheckoutSellListRawReview(db, commercialTermsResolver, params),
     getSellPayoutReadiness(db, params.sellerAccountId).catch(() => null),
   ]);
-  return deriveSellListCompositeReview({ lines: params.lines, review, payoutReadiness, isAccount: true, sellListPath: params.sellListPath });
+  return deriveSellListCompositeReview({
+    lines: params.lines,
+    review,
+    payoutReadiness,
+    isAccount: true,
+    sellListPath: params.sellListPath,
+  });
 }
 
 export async function loadCheckoutGuestSellListCompositeReview(
   commercialTermsResolver: CheckoutCommercialTermsResolver,
   lines: readonly CheckoutSellListLineRow[],
 ): Promise<CheckoutSellListCompositeReview> {
-  return deriveSellListCompositeReview({ lines, isAccount: false, review: {
-    offerReviews: await loadCheckoutGuestSellListOfferReviews(commercialTermsResolver, lines),
-    productOfferReviews: [], inventoryItems: [],
-  } });
+  return deriveSellListCompositeReview({
+    lines,
+    isAccount: false,
+    review: {
+      offerReviews: await loadCheckoutGuestSellListOfferReviews(commercialTermsResolver, lines),
+      productOfferReviews: [],
+      inventoryItems: [],
+    },
+  });
 }
 
 export async function loadCheckoutGuestSellListOfferReviews(

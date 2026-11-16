@@ -603,7 +603,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
   if (requestHasFreshWriteSource(resolvedRequest, "settlement")) {
     const available = Boolean(sellListCompositeReview?.screen?.payoutReadiness);
-    recordPayoutReadinessPostWriteConsistencyOutcome(available ? "projection_hit" : "freshness_timeout", freshWriteOutcomeForRequest(resolvedRequest), available ? "none" : "reload_prompt");
+    recordPayoutReadinessPostWriteConsistencyOutcome(
+      available ? "projection_hit" : "freshness_timeout",
+      freshWriteOutcomeForRequest(resolvedRequest),
+      available ? "none" : "reload_prompt",
+    );
   }
   return {
     isSignedIn: true,

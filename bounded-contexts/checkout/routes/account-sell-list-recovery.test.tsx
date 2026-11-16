@@ -56,7 +56,12 @@ const line = {
   created_at: "2026-10-07T00:00:00.000Z",
   updated_at: "2026-10-07T00:00:00.000Z",
 };
-const review = deriveSellListCompositeReview({ lines: [line], isAccount: true, payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null }, review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] } });
+const review = deriveSellListCompositeReview({
+  lines: [line],
+  isAccount: true,
+  payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null },
+  review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+});
 const lag = () => new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
 let router: ReturnType<typeof createMemoryRouter>;
 
@@ -106,7 +111,8 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
     applyCheckoutRouteMockDefaults();
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn().mockResolvedValue({ items: [line], count: 1 }),
       getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellListPayoutReadiness: vi.fn().mockResolvedValue({ status: "ready", missing_requirements: [] }),
@@ -133,8 +139,9 @@ describe("Sell List bounded receipt recovery through the data router", () => {
   it("pre-send refusal sends zero commands through the actual account action", async () => {
     const removeSellListLine = vi.fn();
     const getSellListCommandAttempt = vi.fn();
-    mockCreateCheckoutRequestApiClient.mockReturnValue({getSellListCompositeReview: mockGetSellListCompositeReview,
-getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       ...mockCreateCheckoutRequestApiClient(),
       removeSellListLine,
       getSellListCommandAttempt,
@@ -164,8 +171,9 @@ getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
           lookupStarted();
         }),
     );
-    mockCreateCheckoutRequestApiClient.mockReturnValue({getSellListCompositeReview: mockGetSellListCompositeReview,
-getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       ...mockCreateCheckoutRequestApiClient(),
       removeSellListLine,
       getSellListCommandAttempt,
@@ -237,8 +245,9 @@ getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       const removeSellListLines = vi
         .fn()
         .mockResolvedValue({ attempt: sellListAttemptResult("committed", "sell-list-batch") });
-      mockCreateCheckoutRequestApiClient.mockReturnValue({getSellListCompositeReview: mockGetSellListCompositeReview,
-getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getSellListCompositeReview: mockGetSellListCompositeReview,
+        getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
         ...mockCreateCheckoutRequestApiClient(),
         getSellList: vi.fn().mockResolvedValue({
           items: (hasOriginalLines ? ["one", "two"] : []).map((id) => ({
@@ -357,7 +366,8 @@ getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [line], count: 1 });
     mockGetGuestSellListCompositeReview.mockRejectedValueOnce(lag()).mockResolvedValue(review);
-    mockCreateCheckoutRequestApiClient.mockReturnValue({getSellListCompositeReview: mockGetSellListCompositeReview,
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
       getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
     });
@@ -475,7 +485,8 @@ getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF, nowMs: Date.now() - 27_000 },
     );
     const getSellList = vi.fn().mockResolvedValue({ items: [], count: 0 });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
       getSellListCompositeReview: mockGetSellListCompositeReview,
     });
@@ -511,7 +522,8 @@ getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
 
   it.each(["ready", "empty"])("keeps %s routes inert on later loader calls", async (state) => {
     if (state === "empty")
-      mockCreateCheckoutRequestApiClient.mockReturnValue({getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
         getSellList: vi.fn().mockResolvedValue({ items: [], count: 0 }),
         getSellListCompositeReview: mockGetSellListCompositeReview,
       });
@@ -545,8 +557,11 @@ getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
 
   it.each(["legacy", "compact"])("preserves the unchanged Cart caller's %s behavior", async (receipt) => {
     const getCart = vi.fn().mockRejectedValueOnce(lag()).mockResolvedValue({ items: [], count: 0 });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({getSellListCompositeReview: mockGetSellListCompositeReview,
-getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview, getCart });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+      getCart,
+    });
     const path =
       receipt === "legacy"
         ? appendFreshWriteToken("/account/cart", checkoutCommit("13", "evt_cart_line"))

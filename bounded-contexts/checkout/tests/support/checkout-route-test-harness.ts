@@ -139,9 +139,22 @@ export function applyCheckoutRouteMockDefaults() {
   mockCreateIdentityRequestApiClient.mockReturnValue({
     listShippingAddresses: mockListShippingAddresses.mockResolvedValue({ items: [] }),
   });
-  mockGetSellListCompositeReview.mockResolvedValue(deriveSellListCompositeReview({ lines: [], isAccount: true, payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null }, review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] } }));
+  mockGetSellListCompositeReview.mockResolvedValue(
+    deriveSellListCompositeReview({
+      lines: [],
+      isAccount: true,
+      payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null },
+      review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+    }),
+  );
   mockGetGuestSellListOfferReviews.mockResolvedValue({ offerReviews: [] });
-  mockGetGuestSellListCompositeReview.mockResolvedValue(deriveSellListCompositeReview({ lines: [], isAccount: false, review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] } }));
+  mockGetGuestSellListCompositeReview.mockResolvedValue(
+    deriveSellListCompositeReview({
+      lines: [],
+      isAccount: false,
+      review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+    }),
+  );
   mockListSellListShipFromAddresses.mockResolvedValue({
     items: [
       {

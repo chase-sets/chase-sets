@@ -11,7 +11,8 @@ const labelKeys = {
 } as const;
 
 const detailKeys = {
-  "public-standard-preview-ready": "checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail",
+  "public-standard-preview-ready":
+    "checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail",
   "selected-offer-ready": "checkout.features.sellList.ui.sellListPage.selected.offer.ready.detail",
   "offer-terms-need-refresh": "checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh",
   "evidence-unavailable": "checkout.features.sellList.ui.sellListPage.evidence.unavailable",
@@ -25,9 +26,11 @@ export function formatLineReadiness(answer: SellListLineScreenReview): LineReadi
   return {
     ready: answer.ready,
     label: t(labelKeys[answer.labelCode]),
-    detail: answer.message ?? (answer.detailCode === "evidence-incomplete"
-      ? answer.unmetEvidenceCodes.map((code) => t(evidenceCoverageCodeLocaleKey(code))).join(" ")
-      : t(detailKeys[answer.detailCode], answer.parameters)),
+    detail:
+      answer.message ??
+      (answer.detailCode === "evidence-incomplete"
+        ? answer.unmetEvidenceCodes.map((code) => t(evidenceCoverageCodeLocaleKey(code))).join(" ")
+        : t(detailKeys[answer.detailCode], answer.parameters)),
     tone: answer.ready ? "success" : "warning",
   };
 }

@@ -615,7 +615,10 @@ export function createCheckoutApiClient({
     ): Promise<CheckoutSellListCompositeReview> {
       return parseJsonResponse(
         await client.guest["sell-list"]["composite-review"].$get({
-          header: mergeHeaders(headers, anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {}),
+          header: mergeHeaders(
+            headers,
+            anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {},
+          ),
         }),
       );
     },

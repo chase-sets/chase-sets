@@ -22,15 +22,17 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import type { CheckoutSellListCompositeReview, CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
+import type {
+  CheckoutSellListCompositeReview,
+  CheckoutSellListConfirmationRow,
+  CheckoutSellListLineRow,
+} from "../read-model/queries";
 import { SELLER_CHECKOUT_REGISTER_HREF, SELLER_CHECKOUT_SIGN_IN_HREF } from "./registration-return";
 import { LatestSellListConfirmationPanel } from "./sell-list-confirmation-panel";
 import { formatMoney } from "./sell-list-formatting";
 import { SellListReviewGrid } from "./sell-list-review-grid";
 import { useSellListPageModel } from "./use-sell-list-page-model";
-import type {
-  SellListRecoveryState,
-} from "./sell-list-page-types";
+import type { SellListRecoveryState } from "./sell-list-page-types";
 
 export type {
   PayoutReadiness,
@@ -298,7 +300,11 @@ export function CheckoutSellListPage({
             }
           />
         ) : !compositeReview?.screen || sellListLines.some((line) => !compositeReview.screen.lines[line.line_id]) ? (
-          <MarketplaceNotice tone="warning" title={t("checkout.features.sellList.ui.sellListPage.needs.refresh")} description={t("checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh")} />
+          <MarketplaceNotice
+            tone="warning"
+            title={t("checkout.features.sellList.ui.sellListPage.needs.refresh")}
+            description={t("checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh")}
+          />
         ) : (
           <CheckoutLayout
             summaryLabel={t("checkout.features.sellList.ui.sellListPage.sale.checkout.summary")}

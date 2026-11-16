@@ -68,17 +68,23 @@ function setupTargets(line: CheckoutSellListLineRow, inventoryItemId?: string) {
   }
   const inventoryHref = `/account/inventory?${inventoryParams.toString()}`;
   const setupHref = `/account/listings/new?${listingParams.toString()}`;
-  return { setupHref, inventoryHref, recoveryHref: line.line_type === "product" && !inventoryItemId ? inventoryHref : setupHref };
+  return {
+    setupHref,
+    inventoryHref,
+    recoveryHref: line.line_type === "product" && !inventoryItemId ? inventoryHref : setupHref,
+  };
 }
 
 // Screen answers are read-only hints, never confirmation authority.
-export function deriveSellListCompositeReview(options: Readonly<{
-  lines: readonly CheckoutSellListLineRow[];
-  review: CheckoutSellListRawReview;
-  isAccount: boolean;
-  payoutReadiness?: CheckoutSellPayoutReadinessRow | null;
-  sellListPath?: string;
-}>): CheckoutSellListCompositeReview {
+export function deriveSellListCompositeReview(
+  options: Readonly<{
+    lines: readonly CheckoutSellListLineRow[];
+    review: CheckoutSellListRawReview;
+    isAccount: boolean;
+    payoutReadiness?: CheckoutSellPayoutReadinessRow | null;
+    sellListPath?: string;
+  }>,
+): CheckoutSellListCompositeReview {
   const { lines, review } = options;
   const selected = new Map(review.offerReviews.map((item) => [item.lineId, item]));
   const products = new Map(review.productOfferReviews.map((item) => [item.lineId, item]));
@@ -105,10 +111,35 @@ export function deriveSellListCompositeReview(options: Readonly<{
       const termsReady = selectedReview?.status === "ready" && Boolean(selectedReview.terms);
       const evidence = selectedReview?.evidence;
       answer = !termsReady
-        ? { ...base, ready: false, canSubmit: false, labelCode: "needs-refresh", detailCode: "offer-terms-need-refresh", message: selectedReview?.message ?? null }
+        ? {
+            ...base,
+            ready: false,
+            canSubmit: false,
+            labelCode: "needs-refresh",
+            detailCode: "offer-terms-need-refresh",
+            message: selectedReview?.message ?? null,
+          }
         : evidence === null || (evidence && !evidence.coverage.complete)
-          ? { ...base, ready: false, canSubmit: false, labelCode: "evidence-needs-action", detailCode: evidence === null ? "evidence-unavailable" : "evidence-incomplete", unmetEvidenceCodes: evidence?.coverage.unmetCodes ?? [] }
-          : { ...base, ready: true, canSubmit: true, labelCode: "ready", detailCode: selectedReview?.terms && "source_kind" in selectedReview.terms && selectedReview.terms.source_kind === "public-standard-seller-terms" ? "public-standard-preview-ready" : "selected-offer-ready" };
+          ? {
+              ...base,
+              ready: false,
+              canSubmit: false,
+              labelCode: "evidence-needs-action",
+              detailCode: evidence === null ? "evidence-unavailable" : "evidence-incomplete",
+              unmetEvidenceCodes: evidence?.coverage.unmetCodes ?? [],
+            }
+          : {
+              ...base,
+              ready: true,
+              canSubmit: true,
+              labelCode: "ready",
+              detailCode:
+                selectedReview?.terms &&
+                "source_kind" in selectedReview.terms &&
+                selectedReview.terms.source_kind === "public-standard-seller-terms"
+                  ? "public-standard-preview-ready"
+                  : "selected-offer-ready",
+            };
       gross += moneyToCents(line.offer_price_amount ?? "0") * BigInt(line.quantity);
       if (!selectedReview?.terms) unquoted = true;
       else {
@@ -116,14 +147,45 @@ export function deriveSellListCompositeReview(options: Readonly<{
         payout += moneyToCents(selectedReview.terms.seller_net_unit_amount) * BigInt(line.quantity);
       }
     } else {
-      const blockedOffer = offers.find((item) => item.evidence !== undefined && (!item.evidence || !item.evidence.coverage.complete));
-      const fallbackReady = line.fallback_mode === "create-listing" && Boolean(inventoryItemId) && positivePrice(line.minimum_listing_price_amount);
+      const blockedOffer = offers.find(
+        (item) => item.evidence !== undefined && (!item.evidence || !item.evidence.coverage.complete),
+      );
+      const fallbackReady =
+        line.fallback_mode === "create-listing" &&
+        Boolean(inventoryItemId) &&
+        positivePrice(line.minimum_listing_price_amount);
       const ready = offers.length > 0 || Boolean(inventoryItemId);
       answer = blockedOffer
-        ? { ...base, ready: false, canSubmit: false, labelCode: "evidence-needs-action", detailCode: blockedOffer.evidence === null ? "evidence-unavailable" : "evidence-incomplete", unmetEvidenceCodes: blockedOffer.evidence?.coverage.unmetCodes ?? [] }
+        ? {
+            ...base,
+            ready: false,
+            canSubmit: false,
+            labelCode: "evidence-needs-action",
+            detailCode: blockedOffer.evidence === null ? "evidence-unavailable" : "evidence-incomplete",
+            unmetEvidenceCodes: blockedOffer.evidence?.coverage.unmetCodes ?? [],
+          }
         : ready
-          ? { ...base, ready: true, canSubmit: true, labelCode: "ready", detailCode: offers.length > 0 ? "smart-match-ready" : fallbackReady ? "fallback-listing-ready" : "fallback-listing-form-ready", parameters: offers.length > 0 ? { count: offers.length } : {} }
-          : { ...base, ready: false, canSubmit: false, labelCode: "needs-action", detailCode: "choose-sale-action", message: productReview?.message ?? null };
+          ? {
+              ...base,
+              ready: true,
+              canSubmit: true,
+              labelCode: "ready",
+              detailCode:
+                offers.length > 0
+                  ? "smart-match-ready"
+                  : fallbackReady
+                    ? "fallback-listing-ready"
+                    : "fallback-listing-form-ready",
+              parameters: offers.length > 0 ? { count: offers.length } : {},
+            }
+          : {
+              ...base,
+              ready: false,
+              canSubmit: false,
+              labelCode: "needs-action",
+              detailCode: "choose-sale-action",
+              message: productReview?.message ?? null,
+            };
       hasMultipleOffers ||= offers.length > 1;
       unquoted ||= offers.length === 0;
       let matchedQuantity = 0;
@@ -132,7 +194,8 @@ export function deriveSellListCompositeReview(options: Readonly<{
         fees += moneyToCents(terms.marketplace_sales_fee_unit_amount) * BigInt(offer.quantity_requested);
         payout += moneyToCents(terms.seller_net_unit_amount) * BigInt(offer.quantity_requested);
       }
-      const fallbackQuantity = line.fallback_mode === "create-listing" ? Math.max(0, line.quantity - matchedQuantity) : 0;
+      const fallbackQuantity =
+        line.fallback_mode === "create-listing" ? Math.max(0, line.quantity - matchedQuantity) : 0;
       futureGross += moneyToCents(line.minimum_listing_price_amount ?? "0") * BigInt(fallbackQuantity);
     }
     lineAnswers[line.line_id] = answer;
@@ -140,27 +203,36 @@ export function deriveSellListCompositeReview(options: Readonly<{
   const answers = lines.map((line) => lineAnswers[line.line_id]!);
   const blockedLineCount = answers.filter((answer) => !answer.ready).length;
   const blockedSubmissionLineCount = answers.filter((answer) => !answer.canSubmit).length;
-  const firstBlockedLine = lines.find((line) => !lineAnswers[line.line_id]!.canSubmit) ?? lines.find((line) => !lineAnswers[line.line_id]!.ready);
-  const payoutReadiness = options.isAccount ? options.payoutReadiness ?? null : null;
+  const firstBlockedLine =
+    lines.find((line) => !lineAnswers[line.line_id]!.canSubmit) ??
+    lines.find((line) => !lineAnswers[line.line_id]!.ready);
+  const payoutReadiness = options.isAccount ? (options.payoutReadiness ?? null) : null;
   const payoutIsReady = !options.isAccount || payoutReadiness?.status === "ready";
   const payoutSetupHref = `/account/payouts/setup?returnTo=${encodeURIComponent(options.sellListPath ?? "/account/sell-list")}`;
-  return { ...review, screen: {
-    lines: lineAnswers,
-    lineCount: lines.length,
-    totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
-    readyLineCount: lines.length - blockedLineCount,
-    blockedLineCount,
-    blockedSubmissionLineCount,
-    canContinue: payoutIsReady && blockedSubmissionLineCount === 0 && lines.length > 0,
-    payoutIsReady,
-    payoutReadiness,
-    payoutSetupHref,
-    recoveryHref: !payoutIsReady ? payoutSetupHref : firstBlockedLine ? lineAnswers[firstBlockedLine.line_id]!.recoveryHref : "/search",
-    recoveryCode: !payoutIsReady ? "set-up-payouts" : blockedLineCount > 0 ? "resolve-items" : "keep-selling",
-    hasMultipleOffers,
-    selectedOfferGross: centsToMoneyAmount(gross),
-    futureListingGross: centsToMoneyAmount(futureGross),
-    estimatedSalesFees: unquoted ? null : centsToMoneyAmount(fees),
-    expectedSellerPayout: unquoted ? null : centsToMoneyAmount(payout),
-  } };
+  return {
+    ...review,
+    screen: {
+      lines: lineAnswers,
+      lineCount: lines.length,
+      totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+      readyLineCount: lines.length - blockedLineCount,
+      blockedLineCount,
+      blockedSubmissionLineCount,
+      canContinue: payoutIsReady && blockedSubmissionLineCount === 0 && lines.length > 0,
+      payoutIsReady,
+      payoutReadiness,
+      payoutSetupHref,
+      recoveryHref: !payoutIsReady
+        ? payoutSetupHref
+        : firstBlockedLine
+          ? lineAnswers[firstBlockedLine.line_id]!.recoveryHref
+          : "/search",
+      recoveryCode: !payoutIsReady ? "set-up-payouts" : blockedLineCount > 0 ? "resolve-items" : "keep-selling",
+      hasMultipleOffers,
+      selectedOfferGross: centsToMoneyAmount(gross),
+      futureListingGross: centsToMoneyAmount(futureGross),
+      estimatedSalesFees: unquoted ? null : centsToMoneyAmount(fees),
+      expectedSellerPayout: unquoted ? null : centsToMoneyAmount(payout),
+    },
+  };
 }

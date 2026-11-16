@@ -424,7 +424,8 @@ export function createAccountSellListRoutes(
     return c.json(
       await services.loadCompositeReview(access.actor.accountId, {
         includeStandardComparison: c.req.query("includeStandardComparison") === "true",
-        sellListPath: c.req.query("sellListPath") === "/account/desk/offers" ? "/account/desk/offers" : "/account/sell-list",
+        sellListPath:
+          c.req.query("sellListPath") === "/account/desk/offers" ? "/account/desk/offers" : "/account/sell-list",
       }),
     );
   });
