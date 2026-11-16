@@ -18136,7 +18136,7 @@ async fn back_from_registration_the_guest_sell_list_moves_into_the_account_and_i
     let read = calls.iter().skip(merge).find(|c| c.path == ACCOUNT_SELL_LIST).unwrap();
     assert_eq!(waits_for(&read.headers).as_deref(), Some("73"), "the read waits for the merge");
     let review = calls.iter().find(|c| c.path.contains("/composite-review")).unwrap();
-    assert!(review.path.ends_with("?includeStandardComparison=true"), "{}", review.path);
+    assert!(review.path.ends_with("?sellListPath=%2Faccount%2Fsell-list&includeStandardComparison=true"), "{}", review.path);
 }
 
 #[tokio::test]
