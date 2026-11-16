@@ -6444,7 +6444,7 @@
       "confirmation": true,
       "idempotency": "required",
       "dry_run": true,
-      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"inventoryItemId\",\n    \"priceAmount\",\n    \"priceCurrencyCode\",\n    \"quantityCap\",\n    \"idempotencyKey\",\n    \"confirmationText\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"inventoryItemId\": {\n      \"type\": \"string\",\n      \"description\": \"Account-owned inventory item identifier resolved from Catalog or Inventory natural keys.\"\n    },\n    \"priceAmount\": {\n      \"type\": \"string\",\n      \"description\": \"Listing unit price in decimal currency format.\"\n    },\n    \"priceCurrencyCode\": {\n      \"type\": \"string\",\n      \"description\": \"Seller-authored three-letter ISO-4217 listing price currency code.\"\n    },\n    \"quantityCap\": {\n      \"type\": \"integer\",\n      \"description\": \"Maximum listed quantity.\"\n    },\n    \"purchaseLimits\": {\n      \"type\": \"object\",\n      \"description\": \"Optional per-listing purchase limits.\",\n      \"additionalProperties\": false,\n      \"properties\": {\n        \"maxUnitsPerOrder\": {\n          \"type\": \"integer\",\n          \"description\": \"Maximum units per order.\"\n        },\n        \"maxUnitsPerDay\": {\n          \"type\": \"integer\",\n          \"description\": \"Maximum units per day.\"\n        },\n        \"maxUnitsPerCustomerAccount\": {\n          \"type\": \"integer\",\n          \"description\": \"Maximum units per customer account.\"\n        }\n      }\n    },\n    \"listingIdOverride\": {\n      \"type\": \"string\",\n      \"description\": \"Optional deterministic listing id for idempotent handoffs.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    }\n  }\n}",
+      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"inventoryItemId\",\n    \"priceAmount\",\n    \"priceCurrencyCode\",\n    \"quantityCap\",\n    \"idempotencyKey\",\n    \"requestHash\",\n    \"confirmationText\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"inventoryItemId\": {\n      \"type\": \"string\",\n      \"description\": \"Account-owned inventory item identifier resolved from Catalog or Inventory natural keys.\"\n    },\n    \"priceAmount\": {\n      \"type\": \"string\",\n      \"description\": \"Listing unit price in decimal currency format.\"\n    },\n    \"priceCurrencyCode\": {\n      \"type\": \"string\",\n      \"description\": \"Seller-authored three-letter ISO-4217 listing price currency code.\"\n    },\n    \"quantityCap\": {\n      \"type\": \"integer\",\n      \"description\": \"Maximum listed quantity.\"\n    },\n    \"purchaseLimits\": {\n      \"type\": \"object\",\n      \"description\": \"Optional per-listing purchase limits.\",\n      \"additionalProperties\": false,\n      \"properties\": {\n        \"maxUnitsPerOrder\": {\n          \"type\": \"integer\",\n          \"description\": \"Maximum units per order.\"\n        },\n        \"maxUnitsPerDay\": {\n          \"type\": \"integer\",\n          \"description\": \"Maximum units per day.\"\n        },\n        \"maxUnitsPerCustomerAccount\": {\n          \"type\": \"integer\",\n          \"description\": \"Maximum units per customer account.\"\n        }\n      }\n    },\n    \"listingIdOverride\": {\n      \"type\": \"string\",\n      \"description\": \"Optional deterministic listing id for idempotent handoffs.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"requestHash\": {\n      \"type\": \"string\",\n      \"description\": \"SHA-256 of the canonical Marketplace Listing command.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    }\n  }\n}",
       "output_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"id\",\n    \"listingId\",\n    \"version\",\n    \"status\",\n    \"resourceUri\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"id\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"version\": {\n      \"type\": \"integer\",\n      \"description\": \"Committed listing stream version.\"\n    },\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"Lifecycle write result.\"\n    },\n    \"resourceUri\": {\n      \"type\": \"string\",\n      \"description\": \"MCP resource URI for the listing.\"\n    },\n    \"inventoryItemId\": {\n      \"type\": \"string\",\n      \"description\": \"Inventory item used to create the listing.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Marketplace sales-fee quote fingerprint.\"\n    }\n  }\n}",
       "manifest": {
         "name": "marketplace.create-listing",
@@ -6463,6 +6463,7 @@
             "priceCurrencyCode",
             "quantityCap",
             "idempotencyKey",
+            "requestHash",
             "confirmationText"
           ],
           "properties": {
@@ -6512,6 +6513,10 @@
             "idempotencyKey": {
               "type": "string",
               "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+            },
+            "requestHash": {
+              "type": "string",
+              "description": "SHA-256 of the canonical Marketplace Listing command."
             },
             "confirmationText": {
               "type": "string",
@@ -7527,7 +7532,7 @@
       "confirmation": true,
       "idempotency": "required",
       "dry_run": true,
-      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"listingId\",\n    \"idempotencyKey\",\n    \"confirmationText\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing to publish.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Current marketplace sales-fee quote fingerprint.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    }\n  }\n}",
+      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"listingId\",\n    \"idempotencyKey\",\n    \"requestHash\",\n    \"confirmationText\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing to publish.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Current marketplace sales-fee quote fingerprint.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"requestHash\": {\n      \"type\": \"string\",\n      \"description\": \"SHA-256 of the canonical Marketplace Listing command.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    }\n  }\n}",
       "output_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"id\",\n    \"listingId\",\n    \"version\",\n    \"status\",\n    \"resourceUri\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"id\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"version\": {\n      \"type\": \"integer\",\n      \"description\": \"Committed listing stream version.\"\n    },\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"Lifecycle write result.\"\n    },\n    \"resourceUri\": {\n      \"type\": \"string\",\n      \"description\": \"MCP resource URI for the listing.\"\n    },\n    \"inventoryItemId\": {\n      \"type\": \"string\",\n      \"description\": \"Inventory item used to create the listing.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Marketplace sales-fee quote fingerprint.\"\n    }\n  }\n}",
       "manifest": {
         "name": "marketplace.publish-listing",
@@ -7543,6 +7548,7 @@
             "accountId",
             "listingId",
             "idempotencyKey",
+            "requestHash",
             "confirmationText"
           ],
           "properties": {
@@ -7561,6 +7567,10 @@
             "idempotencyKey": {
               "type": "string",
               "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+            },
+            "requestHash": {
+              "type": "string",
+              "description": "SHA-256 of the canonical Marketplace Listing command."
             },
             "confirmationText": {
               "type": "string",
@@ -7933,7 +7943,7 @@
       "confirmation": true,
       "idempotency": "required",
       "dry_run": true,
-      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"listingId\",\n    \"reason\",\n    \"idempotencyKey\",\n    \"confirmationText\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing to unpublish.\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"Business reason for the action.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    }\n  }\n}",
+      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"listingId\",\n    \"reason\",\n    \"idempotencyKey\",\n    \"confirmationText\",\n    \"requestHash\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing to unpublish.\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"Business reason for the action.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    },\n    \"requestHash\": {\n      \"type\": \"string\",\n      \"description\": \"SHA-256 of the canonical Marketplace Listing command.\"\n    }\n  }\n}",
       "output_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"id\",\n    \"listingId\",\n    \"version\",\n    \"status\",\n    \"resourceUri\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"id\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"version\": {\n      \"type\": \"integer\",\n      \"description\": \"Committed listing stream version.\"\n    },\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"Lifecycle write result.\"\n    },\n    \"resourceUri\": {\n      \"type\": \"string\",\n      \"description\": \"MCP resource URI for the listing.\"\n    },\n    \"inventoryItemId\": {\n      \"type\": \"string\",\n      \"description\": \"Inventory item used to create the listing.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Marketplace sales-fee quote fingerprint.\"\n    }\n  }\n}",
       "manifest": {
         "name": "marketplace.unpublish-listing",
@@ -7950,7 +7960,8 @@
             "listingId",
             "reason",
             "idempotencyKey",
-            "confirmationText"
+            "confirmationText",
+            "requestHash"
           ],
           "properties": {
             "accountId": {
@@ -7976,6 +7987,10 @@
             "dryRun": {
               "type": "boolean",
               "description": "Validate the action without committing it."
+            },
+            "requestHash": {
+              "type": "string",
+              "description": "SHA-256 of the canonical Marketplace Listing command."
             }
           }
         },
@@ -8074,7 +8089,7 @@
       "confirmation": true,
       "idempotency": "required",
       "dry_run": true,
-      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"listingId\",\n    \"priceAmount\",\n    \"priceCurrencyCode\",\n    \"idempotencyKey\",\n    \"confirmationText\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing to update.\"\n    },\n    \"priceAmount\": {\n      \"type\": \"string\",\n      \"description\": \"New listing unit price in decimal currency format.\"\n    },\n    \"priceCurrencyCode\": {\n      \"type\": \"string\",\n      \"description\": \"Seller-authored three-letter ISO-4217 listing price currency code.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Current marketplace sales-fee quote fingerprint.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    }\n  }\n}",
+      "input_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"listingId\",\n    \"priceAmount\",\n    \"priceCurrencyCode\",\n    \"idempotencyKey\",\n    \"requestHash\",\n    \"confirmationText\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing to update.\"\n    },\n    \"priceAmount\": {\n      \"type\": \"string\",\n      \"description\": \"New listing unit price in decimal currency format.\"\n    },\n    \"priceCurrencyCode\": {\n      \"type\": \"string\",\n      \"description\": \"Seller-authored three-letter ISO-4217 listing price currency code.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Current marketplace sales-fee quote fingerprint.\"\n    },\n    \"idempotencyKey\": {\n      \"type\": \"string\",\n      \"description\": \"Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.\"\n    },\n    \"requestHash\": {\n      \"type\": \"string\",\n      \"description\": \"SHA-256 of the canonical Marketplace Listing command.\"\n    },\n    \"confirmationText\": {\n      \"type\": \"string\",\n      \"description\": \"Exact user or policy confirmation text.\"\n    },\n    \"dryRun\": {\n      \"type\": \"boolean\",\n      \"description\": \"Validate the action without committing it.\"\n    }\n  }\n}",
       "output_schema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"accountId\",\n    \"id\",\n    \"listingId\",\n    \"version\",\n    \"status\",\n    \"resourceUri\"\n  ],\n  \"properties\": {\n    \"accountId\": {\n      \"type\": \"string\",\n      \"description\": \"Authenticated account scope.\"\n    },\n    \"id\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"listingId\": {\n      \"type\": \"string\",\n      \"description\": \"Listing identifier.\"\n    },\n    \"version\": {\n      \"type\": \"integer\",\n      \"description\": \"Committed listing stream version.\"\n    },\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"Lifecycle write result.\"\n    },\n    \"resourceUri\": {\n      \"type\": \"string\",\n      \"description\": \"MCP resource URI for the listing.\"\n    },\n    \"inventoryItemId\": {\n      \"type\": \"string\",\n      \"description\": \"Inventory item used to create the listing.\"\n    },\n    \"feeQuoteFingerprint\": {\n      \"type\": \"string\",\n      \"description\": \"Marketplace sales-fee quote fingerprint.\"\n    }\n  }\n}",
       "manifest": {
         "name": "marketplace.update-listing-price",
@@ -8092,6 +8107,7 @@
             "priceAmount",
             "priceCurrencyCode",
             "idempotencyKey",
+            "requestHash",
             "confirmationText"
           ],
           "properties": {
@@ -8118,6 +8134,10 @@
             "idempotencyKey": {
               "type": "string",
               "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+            },
+            "requestHash": {
+              "type": "string",
+              "description": "SHA-256 of the canonical Marketplace Listing command."
             },
             "confirmationText": {
               "type": "string",

@@ -1,3 +1,4 @@
+import { listingFormAttempt } from "../support/request-support/listing-attempt";
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -184,6 +185,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingPrice(params.listingId!, {
+              ...listingFormAttempt(formData, "updateListingPrice"),
               priceAmount: priceDraftAmount,
               priceCurrencyCode: priceDraftCurrencyCode,
               feeQuoteFingerprint:
@@ -198,6 +200,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingQuantityCap(params.listingId!, {
+              ...listingFormAttempt(formData, "updateListingQuantityCap"),
               quantityCap: Number(formData.get("quantityCap") ?? 0),
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
@@ -208,6 +211,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingPurchaseLimits(params.listingId!, {
+              ...listingFormAttempt(formData, "updateListingPurchaseLimits"),
               purchaseLimits: {
                 maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
                 maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
@@ -270,16 +274,25 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.publishListing(params.listingId!, {
+              ...listingFormAttempt(formData, "publishListing"),
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
             `${pathname}?evidenceEvent=publication_succeeded`,
           ),
         );
       case "pause":
-        return redirect(await navigateToAccountListingAfterWrite(await api.pauseListing(params.listingId!), pathname));
+        return redirect(
+          await navigateToAccountListingAfterWrite(
+            await api.pauseListing(params.listingId!, listingFormAttempt(formData, "pauseListing")),
+            pathname,
+          ),
+        );
       case "withdraw":
         return redirect(
-          await navigateToAccountListingAfterWrite(await api.withdrawListing(params.listingId!), pathname),
+          await navigateToAccountListingAfterWrite(
+            await api.withdrawListing(params.listingId!, listingFormAttempt(formData, "withdrawListing")),
+            pathname,
+          ),
         );
       default:
         break;

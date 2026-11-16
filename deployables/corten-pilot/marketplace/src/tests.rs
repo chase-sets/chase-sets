@@ -14480,8 +14480,11 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(html.contains("collector@chasesets.test") && html.contains("60201"), "the billing details: {html}");
     assert_eq!(html.matches("data-payment-confirm").count(), 2, "{html}");
     assert!(page.contains("Stripe can only load in the browser."), "{page}");
-    // The watch over its status.
+    // The watch over its status, and the step's status form, which Confirm sends for the runtime
+    // to read the part (a script's markup string would be refused under Trusted Types).
     assert!(html.contains("/account/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    assert!(html.contains(r#"method="get" action="/account/payments/pay_1/status" data-patch hidden>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="since" value="pending-confirmation">"#), "{html}");
     // A Checkout Session's secret goes to the script as it is.
     let (_, _, html) = pilot.send(get("/account/payments/pay_cs", Some("payer"))).await;
     assert!(html.contains("cs_test_1_secret"), "{html}");
@@ -20374,6 +20377,7 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_1", "")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("/checkout/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    assert!(html.contains(r#"method="get" action="/checkout/payments/pay_1/status" data-patch hidden>"#), "{html}");
     assert!(!html.contains(r#"href="/account/purchases""#), "no Back to purchases: {html}");
     assert!(!html.contains(r#"href="/account/purchases/ord_pay""#), "no Open purchase: {html}");
     let until = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 60;
@@ -20411,9 +20415,14 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("This payment cannot be retried."), "{html}");
 
-    // Paid: Save this order (see the claim's own test).
+    // Paid: Save this order, a link to the claim that carries the receipt the page was read after;
+    // the page asks Auth nothing (see the claim's own test).
     let (_, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
-    assert!(text(&html).contains("Save this order"), "{html}");
+    assert!(text(&html).contains("Save this order") && html.contains(r#"href="/checkout/claim/pay_paid""#), "{html}");
+    let after = format!("/checkout/payments/pay_paid?afterWrite={}", receipt_at("43"));
+    let (_, _, html) = pilot.send(as_guest(Method::GET, &after, "")).await;
+    assert!(html.contains(r#"href="/checkout/claim/pay_paid?afterWrite="#), "{html}");
+    assert!(auth_calls(&pilot, "/api/auth/guest-checkout/claim-context").is_empty());
 
     // An account goes to its own payment page; no guest checkout, or one Payments refuses, is told
     // the link is no longer good.
@@ -20435,9 +20444,9 @@ fn claim_sent(pilot: &Pilot, claim: &str) -> Vec<Value> {
 #[tokio::test]
 async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_link() {
     let pilot = Pilot::new().await;
-    // Save this order, for the contact Auth reports bound: a passkey for its email (the passkey
-    // step, which asks the sign-in's challenge route), and a claim link sent there.
-    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
+    // Save this order (`/checkout/claim/{id}`), for the contact Auth reports bound: a passkey for its
+    // email (the passkey step, which asks the sign-in's challenge route), and a claim link sent there.
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/claim/pay_paid", "")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
     for says in [
@@ -20462,19 +20471,42 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
         assert_eq!(internal.as_deref(), claim.then_some(INTERNAL), "{}", call.path);
     }
 
-    // An unbound contact, or a read Auth refuses, leaves Save this order off a page that still
-    // shows the payment (chase-sets/chase-sets#11253).
+    // An unbound contact, or a read Auth refuses, says the order cannot be saved now and links back
+    // to its payment, instead of failing the page or drawing a prompt with no email
+    // (chase-sets/chase-sets#11253).
     for id in ["pay_unbound", "pay_limited"] {
-        let (status, _, html) = pilot.send(as_guest(Method::GET, &format!("/checkout/payments/{id}"), "")).await;
+        let (status, _, html) = pilot.send(as_guest(Method::GET, &format!("/checkout/claim/{id}"), "")).await;
         assert_eq!(status, StatusCode::OK, "{id}: {html}");
-        assert!(!text(&html).contains("Save this order") && text(&html).contains("Payment Status"), "{id}: {html}");
+        let page = text(&html);
+        assert!(page.contains("This order cannot be saved to an account right now."), "{id}: {html}");
+        assert!(
+            !page.contains("Save with passkey")
+                && html.contains(&format!(r#"href="/checkout/payments/{id}">Back to payment</a>"#)),
+            "{html}"
+        );
     }
+    // A payment not paid yet says it can be saved after payment, without asking Auth.
+    let asked = claim_sent(&pilot, "claim-context").len();
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/claim/pay_1", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
+    assert!(html.contains(r#"href="/checkout/payments/pay_1">Back to payment</a>"#), "{html}");
+    assert_eq!(claim_sent(&pilot, "claim-context").len(), asked);
+    // An account goes to its own payment page; no guest checkout is told the link is no longer good.
+    let (status, headers, _) = pilot.send(get("/checkout/claim/pay_1", Some("payer"))).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/payments/pay_1"));
+    let (status, _, html) = pilot.send(get("/checkout/claim/pay_paid", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    // Save this order's intents no longer post to the payment page, which goes back to itself.
+    let (status, headers, _) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-request")).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/checkout/payments/pay_paid"));
 
     // The passkey: the credential, the name and Auth's label go to Auth, which signs the guest in;
     // the account's payment, read after the claim, with the guest checkout's cookie cleared.
     let body = "intent=claim-passkey&displayName=Guest+Buyer&email=guest%40example.test&label=Passkey\
                 &challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=crd_ext&webauthnResponse=created";
-    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", body)).await;
+    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
     let set = cookies_set(&headers);
@@ -20488,60 +20520,62 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     );
     // Without a credential (no script) nothing is sent; Auth's refusal says what was wrong.
     let (status, _, html) =
-        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-passkey&displayName=Guest")).await;
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-passkey&displayName=Guest")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Could not save order") && text(&html).contains("Passkey registration failed."), "{html}");
     assert_eq!(claim_sent(&pilot, "claim-with-passkey").len(), 1);
     let forged = "intent=claim-passkey&displayName=Guest&challengeId=cmd_1&challenge=x&webauthnResponse=forged";
-    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", forged)).await;
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", forged)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Passkey registration failed."), "{html}");
 
     // A claim link: sent to the contact, from the page's origin; the page says so and shows no
     // token, which only the email carries here.
-    let (status, _, html) = pilot
-        .send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer"))
-        .await;
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("We sent a claim link to guest@example.test."), "{html}");
     assert!(!html.contains("clm_1"), "{html}");
     let sent = claim_sent(&pilot, "claim-link/request").pop().unwrap();
     assert_eq!(sent, json!({ "paymentId": "pay_paid", "origin": "http://localhost:7791" }));
     let (status, _, html) =
-        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-consume&token=clm_1")).await;
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-consume&token=clm_1")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Claim token entry is not available here."), "{html}");
     assert!(claim_sent(&pilot, "claim-with-magic-link").is_empty());
     // A payment not yet paid cannot be saved.
-    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_1", "intent=claim-link-request")).await;
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_1", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
     // A link sent when the contact cannot be read again still says it was sent; a request Auth
     // rate limits says why.
-    let (status, _, html) =
-        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_limited", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
     assert!(page.contains("We sent a claim link to this order") && page.contains("contact email."), "{html}");
     assert!(!page.contains("Email me a claim link"), "{html}");
-    let (status, _, html) =
-        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_unbound", "intent=claim-link-request")).await;
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_unbound", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let page = text(&html);
     assert!(page.contains("Could not save order") && page.contains("Too many claim link requests. Try again later."), "{html}");
 
-    // The link's landing claims with its continuation, in any browser, and signs in the same way;
-    // a spent or unknown one says the link is no longer good.
-    let (status, headers, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_1", None)).await;
+    // The link opens the payment's address, which goes on to the claim with the same query.
+    let (status, headers, _) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_1&afterWrite=x", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/checkout/claim/pay_paid?afterWrite=x&claimContinuation=cc_1");
+    assert!(claim_sent(&pilot, "claim-with-continuation").is_empty());
+    // The landing claims with its continuation, in any browser, and signs in the same way; a spent
+    // or unknown one says the link is no longer good.
+    let (status, headers, html) = pilot.send(get("/checkout/claim/pay_paid?claimContinuation=cc_1", None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
     assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_claimed"), "{headers:?}");
     assert_eq!(claim_sent(&pilot, "claim-with-continuation"), [json!({ "continuation": "cc_1", "paymentId": "pay_paid" })]);
-    let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_old", None)).await;
+    let (status, _, html) = pilot.send(get("/checkout/claim/pay_paid?claimContinuation=cc_old", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
     assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
     // One Auth rate limits says to wait, not that the link is spent.
-    let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_busy", None)).await;
+    let (status, _, html) = pilot.send(get("/checkout/claim/pay_paid?claimContinuation=cc_busy", None)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     let page = text(&html);
     assert!(page.contains("Too many attempts") && page.contains("Try the link again later."), "{html}");
@@ -20560,26 +20594,24 @@ async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
     );
 
     let pilot = Pilot::configured(|config| config.claim_token_entry = true).await;
-    let (status, _, html) = pilot
-        .send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer"))
-        .await;
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"value="claim-link-consume""#) && html.contains(r#"value="clm_1""#), "{html}");
     assert!(text(&html).contains("Verify email and save order"), "{html}");
     let (status, _, html) = pilot
-        .send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-consume&displayName=Guest&token=clm_2"))
+        .send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-consume&displayName=Guest&token=clm_2"))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
     // A link sent when the contact cannot be read again says so and draws no form, so no token:
     // the emailed link still claims.
-    let (status, _, html) =
-        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_limited", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("We sent a claim link to this order"), "{html}");
     assert!(!html.contains("clm_1") && !html.contains(r#"value="claim-link-consume""#), "{html}");
     let body = "intent=claim-link-consume&displayName=Guest+Buyer&token=clm_1";
-    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", body)).await;
+    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
     let sent = claim_sent(&pilot, "claim-with-magic-link").pop().unwrap();
@@ -20587,11 +20619,15 @@ async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
 }
 
 #[tokio::test]
-async fn without_the_internal_capability_a_paid_guest_page_shows_no_save_this_order() {
+async fn without_the_internal_capability_a_paid_guest_order_cannot_be_saved() {
     let pilot = Pilot::configured(|config| config.platform = config.platform.clone().with_internal_auth(None)).await;
-    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/claim/pay_paid", "")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(!text(&html).contains("Save this order"), "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains("This order cannot be saved to an account right now.") && !page.contains("Save with passkey"),
+        "{html}"
+    );
     let calls = auth_calls(&pilot, "/api/auth/guest-checkout/claim-context");
     assert!(calls.len() == 1 && !calls[0].headers.contains_key("x-chase-sets-internal-auth"), "{calls:?}");
 }

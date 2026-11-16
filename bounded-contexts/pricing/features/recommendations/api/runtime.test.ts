@@ -531,6 +531,7 @@ describe("pricing recommendation runtime", () => {
     expect(gateway.createListing).toHaveBeenCalledWith(
       {
         inventoryItemId: "inv_2",
+        idempotencyKey: pricingRecommendationAttemptKey("acc_1", "rec_create"),
         priceAmount: "5.00",
         priceCurrencyCode: "USD",
         quantityCap: 3,

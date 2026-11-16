@@ -1945,6 +1945,9 @@ jobs:
 
       - name: Apply staging Kubernetes runtime secrets
         env:
+          EBAY_SANDBOX_APP_ID: ${{ secrets.EBAY_SANDBOX_APP_ID || '' }}
+          EBAY_SANDBOX_CERT_ID: ${{ secrets.EBAY_SANDBOX_CERT_ID || '' }}
+          EBAY_SANDBOX_RUNAME: ${{ secrets.EBAY_SANDBOX_RUNAME || '' }}
           EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON: ${{ secrets.EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON || '' }}
           CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256: ${{ secrets.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 || '' }}
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}

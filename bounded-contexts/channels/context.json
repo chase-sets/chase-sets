@@ -129,6 +129,7 @@
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
   "slices": [
+    "ebay-connection",
     "ebay-account-deletion",
     "connector-feed",
     "connections",
@@ -151,6 +152,11 @@
   "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
+    {
+      "portName": "ebayOAuthConfiguration",
+      "providedBy": "platform-api",
+      "purpose": "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection."
+    },
     {
       "portName": "ebayAccountDeletionConfiguration",
       "providedBy": "platform-api",
@@ -551,6 +557,90 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "channels-ebay-connection",
+          "routePath": "account/channels/ebay",
+          "fileExport": "./routes/marketplace/account-channels-ebay",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": [
+              "channels.manage"
+            ]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Account connection state is private."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "OAuth consent uses the web provider redirect."
+          }
+        },
+        {
+          "routeId": "channels-ebay-callback",
+          "routePath": "channels/ebay/callback",
+          "fileExport": "./routes/marketplace/ebay-callback",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": [
+              "channels.manage"
+            ]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Account connection state is private."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "placement": "root",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "OAuth consent uses the web provider redirect."
+          }
+        },
+        {
+          "routeId": "channels-ebay-declined",
+          "routePath": "channels/ebay/declined",
+          "fileExport": "./routes/marketplace/ebay-callback",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": [
+              "channels.manage"
+            ]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Account connection state is private."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "placement": "root",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "OAuth consent uses the web provider redirect."
+          }
+        },
+        {
           "routeId": "channels-connections",
           "routePath": "account/channels",
           "fileExport": "./routes/marketplace/account-channels",
@@ -757,6 +847,35 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "channels.ebay-oauth-committed-state",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST Hafb45c76765c#1",
+        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST He0322e08a297#1",
+        "api-client:bounded-contexts/channels/features/ebay-connection/ui/api-client.ts:POST H547d4165826d#1",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /callback",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /declined",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /start",
+        "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-ebay-connection",
+        "description": "OAuth callbacks return only the committed connection identity. The journey reads locked binding and event-stream state directly, not an asynchronous projection."
+      },
+      "proof": {
+        "authoritativeResponse": "Start returns a single-use consent redirect, not connected status. Callback and composed disconnect commit before the journey can render pending setup or terminal disconnected. Failed commits return failure, never success.",
+        "tests": [
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-seller-binding.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-credential-custody-law.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-connection-journey.test.tsx"
+        ]
+      }
+    },
     {
       "id": "channels.ebay-account-deletion-signed-receipt",
       "owner": "channels",
@@ -1005,6 +1124,14 @@
     }
   ],
   "directoryIntent": {
+    "ebay-connection": {
+      "classification": "slice",
+      "purpose": "Own Sandbox eBay consent attempts, stable seller binding and single-lineage credential lifecycle.",
+      "expectedConsumers": [
+        "Channels module composition",
+        "Account channels routes"
+      ]
+    },
     "ebay-account-deletion": {
       "classification": "slice",
       "purpose": "Channels owns ebay-account-deletion challenge GET, deployment configuration, encrypted receipt custody, stable subject matching, expiry and staff exact lookup.",

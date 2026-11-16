@@ -7,6 +7,8 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { channelCredentialSchemaSql } from "../read-model/schema";
+import { ebayConnectionSchemaSql } from "../../ebay-connection/read-model/schema";
+import { ebayReceiptSchemaSql } from "../../ebay-account-deletion/read-model/schema";
 
 export function credentialDatabase(suffix: string, initialize = true) {
   let pools: Readonly<Record<"channels", PgTransactionalPool>>;
@@ -16,7 +18,8 @@ export function credentialDatabase(suffix: string, initialize = true) {
     const urls = createMultiContextTestDatabaseUrls(base, ["channels"], `credential_${suffix}`);
     await ensureMultiContextTestDatabases(base, urls);
     pools = createMultiContextTestPools(urls);
-    if (initialize) await pools.channels.query(channelCredentialSchemaSql);
+    if (initialize)
+      await pools.channels.query(channelCredentialSchemaSql + ebayConnectionSchemaSql + ebayReceiptSchemaSql);
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);

@@ -1,4 +1,8 @@
 export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
+export {
+  parseEbayOAuthConfiguration,
+  type EbayOAuthConfiguration,
+} from "./features/ebay-connection/domain/configuration";
 export { readAcceptedReadyToShipMembership } from "./features/order-fulfillment-observations/api/runtime";
 export {
   acceptedReadyToShipReferenceLimit,

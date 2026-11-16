@@ -58,7 +58,10 @@ vi.mock("../support/request-support/anonymous-product-alert", () => ({
   readAnonymousProductAlertOwnerId: mockReadAnonymousProductAlertOwnerId,
 }));
 
-vi.mock("@chase-sets/marketplace/server", () => ({
+vi.mock("@chase-sets/marketplace/server", async () => ({
+  listingFormAttempt: (
+    await vi.importActual<typeof import("@chase-sets/marketplace/server")>("@chase-sets/marketplace/server")
+  ).listingFormAttempt,
   appendAnonymousListingDraftCookie: mockAppendAnonymousListingDraftCookie,
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
   ensureAnonymousListingDraftOwnerId: mockEnsureAnonymousListingDraftOwnerId,
@@ -1959,6 +1962,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
@@ -2065,6 +2069,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
@@ -2111,6 +2116,7 @@ describe("item detail buy now validation and watch intents", () => {
       quantity: 1,
     });
     expect(createListing).toHaveBeenCalledWith({
+      idempotencyKey: "discovery_listing_attempt_0001_create",
       inventoryItemId: "",
       priceAmount: "24.35",
       priceCurrencyCode: "USD",
@@ -2118,6 +2124,7 @@ describe("item detail buy now validation and watch intents", () => {
       inventorySnapshot: expect.anything(),
     });
     expect(publishListing).toHaveBeenCalledWith("lst_item_detail", {
+      idempotencyKey: "discovery_listing_attempt_0001_publishListing",
       feeQuoteFingerprint: "quote_1",
     });
   });
@@ -2167,6 +2174,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("listingId", "lst_item_detail");
     form.set("priceAmount", "26.75");
     form.set("priceCurrencyCode", "EUR");
@@ -2207,11 +2215,13 @@ describe("item detail buy now validation and watch intents", () => {
     });
     expect(previewListingTerms).toHaveBeenCalledWith({ priceAmount: "26.75" });
     expect(updateListingPrice).toHaveBeenCalledWith("lst_item_detail", {
+      idempotencyKey: "discovery_listing_attempt_0001_updateListingPrice",
       priceAmount: "26.75",
       priceCurrencyCode: "EUR",
       feeQuoteFingerprint: "quote_2",
     });
     expect(updateListingQuantityCap).toHaveBeenCalledWith("lst_item_detail", {
+      idempotencyKey: "discovery_listing_attempt_0001_updateListingQuantityCap",
       quantityCap: 2,
       feeQuoteFingerprint: "quote_2",
     });
@@ -2236,6 +2246,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("priceAmount", "0");
@@ -2277,6 +2288,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("priceAmount", "350.00");

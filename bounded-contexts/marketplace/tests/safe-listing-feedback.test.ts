@@ -22,6 +22,7 @@ function actionArgs(intent: string) {
     request: new Request("http://localhost/account/listings", {
       method: "POST",
       body: new URLSearchParams({
+        idempotencyKey: "feedback_form_attempt_0001",
         intent,
         listingIds: "lst_1",
         inventoryItemId: "inv_1",
@@ -148,12 +149,14 @@ describe("presents only allowlisted Listing feedback", () => {
         ),
       ),
     });
-    await expect(client.pauseListing("lst_1")).rejects.toMatchObject({
+    await expect(client.pauseListing("lst_1", { idempotencyKey: "client_pause_attempt_0001" })).rejects.toMatchObject({
       status: 400,
       body: { error: { code: "listing_command_rejected" } },
       message: t("marketplace.features.listings.api.route.error.commandRejected"),
     });
-    await expect(client.pauseListing("lst_1")).rejects.toBeInstanceOf(MarketplaceApiError);
+    await expect(client.pauseListing("lst_1", { idempotencyKey: "client_pause_attempt_0002" })).rejects.toBeInstanceOf(
+      MarketplaceApiError,
+    );
   });
 
   it("stamps attempt identities on quantity-cap, purchase-limit, and bulk Listing edits", async () => {
@@ -168,9 +171,10 @@ describe("presents only allowlisted Listing feedback", () => {
     });
     const client = createMarketplaceApiClient({ baseUrl: "http://localhost/api/marketplace", fetch });
 
-    await client.updateListingQuantityCap("lst_1", { quantityCap: 2 });
-    await client.updateListingPurchaseLimits("lst_1", { maxPerBuyer: 3 });
+    await client.updateListingQuantityCap("lst_1", { quantityCap: 2, idempotencyKey: "client_quantity_attempt_0001" });
+    await client.updateListingPurchaseLimits("lst_1", { maxPerBuyer: 3, idempotencyKey: "client_limits_attempt_0001" });
     await client.applyBulkListingPriceUpdates({
+      batchId: "client_bulk_attempt_0001",
       updates: [{ listingId: "lst_1", priceAmount: "10.00", priceCurrencyCode: "USD" }],
     });
 

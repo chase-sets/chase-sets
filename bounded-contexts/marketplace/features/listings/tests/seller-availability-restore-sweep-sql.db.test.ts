@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./listing-attempt-test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -117,24 +118,26 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
 
     // Due: an authoritative resume instant in the past.
     await services.listings.disableSellerListingAvailability(
-      {
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
         accountId: "acc_away_due",
         reasonCategory: "travel",
         availableAgainOn: null,
         availableAgainAt: dueAt,
-      },
+      }),
       context("acc_away_due"),
     );
     await catchUpAvailabilityProjection(pool, "acc_away_due");
 
     // Not due: an authoritative resume instant in the future.
     await services.listings.disableSellerListingAvailability(
-      {
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
         accountId: "acc_away_not_yet",
         reasonCategory: "travel",
         availableAgainOn: null,
         availableAgainAt: notYetAt,
-      },
+      }),
       context("acc_away_not_yet"),
     );
     await catchUpAvailabilityProjection(pool, "acc_away_not_yet");
@@ -180,32 +183,35 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
     const now = daysAfter(disableClock, 4);
 
     await services.listings.disableSellerListingAvailability(
-      {
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
         accountId: "acc_away_earliest",
         reasonCategory: "travel",
         availableAgainOn: null,
         availableAgainAt: earliestAt,
-      },
+      }),
       context("acc_away_earliest"),
     );
     await catchUpAvailabilityProjection(pool, "acc_away_earliest");
     await services.listings.disableSellerListingAvailability(
-      {
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
         accountId: "acc_away_middle",
         reasonCategory: "travel",
         availableAgainOn: null,
         availableAgainAt: middleAt,
-      },
+      }),
       context("acc_away_middle"),
     );
     await catchUpAvailabilityProjection(pool, "acc_away_middle");
     await services.listings.disableSellerListingAvailability(
-      {
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
         accountId: "acc_away_latest",
         reasonCategory: "travel",
         availableAgainOn: null,
         availableAgainAt: latestAt,
-      },
+      }),
       context("acc_away_latest"),
     );
     await catchUpAvailabilityProjection(pool, "acc_away_latest");
@@ -241,12 +247,13 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
     const extendedUntil = daysAfter(disableClock, 3);
 
     await services.listings.disableSellerListingAvailability(
-      {
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
         accountId,
         reasonCategory: "travel",
         availableAgainOn: null,
         availableAgainAt: initiallyDueAt,
-      },
+      }),
       context(accountId),
     );
     await catchUpAvailabilityProjection(pool, accountId);
@@ -260,12 +267,13 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
     // Before the sweep's command reaches the aggregate, the seller extends
     // their away period -- a concurrent, later-landing action.
     await services.listings.disableSellerListingAvailability(
-      {
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
         accountId,
         reasonCategory: "travel",
         availableAgainOn: null,
         availableAgainAt: extendedUntil,
-      },
+      }),
       context(accountId),
     );
     await catchUpAvailabilityProjection(pool, accountId);
@@ -273,7 +281,12 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
     // The sweep now issues its enable using the stale `dueBy` it captured
     // above -- this must no-op, not clobber the seller's extension.
     await services.listings.enableSellerListingAvailability(
-      { accountId, enabledBy: "scheduled", dueBy: staleDueBy },
+      listingTestCommand("seller.availability", {
+        status: "available",
+        accountId,
+        enabledBy: "scheduled",
+        dueBy: staleDueBy,
+      }),
       context("system"),
     );
 

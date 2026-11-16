@@ -744,7 +744,11 @@ function tcgplayerSealedProductForm(detail: TcgplayerSealedProductDetail) {
   const normalized = `${detail.productTypeName} ${detail.productName}`.trim().toLowerCase();
   if (normalized.includes("booster box")) return "booster-box";
   if (normalized.includes("booster pack") || normalized.includes(" pack")) return "booster-pack";
-  if (normalized.includes("bundle")) return "bundle";
+  if (normalized.includes("bundle")) {
+    return ["lorcana", "disney lorcana"].includes(normalizeTcgName(detail.productLineName))
+      ? "sealed-product"
+      : "bundle";
+  }
   if (normalized.includes("deck")) return "deck";
   return "sealed-product";
 }

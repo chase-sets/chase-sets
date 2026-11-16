@@ -206,7 +206,14 @@ function renderListState(state: ChannelConnectionListPageState) {
                   <Badge tone={statusTones[connection.status]}>{t(statusLabelKeys[connection.status])}</Badge>
                   <Badge tone="neutral">{connection.environment}</Badge>
                 </Stack>
-                <LinkButton href={connectionHref(connection.connectionId)} tone="secondary">
+                <LinkButton
+                  href={
+                    connection.providerKey === "ebay"
+                      ? `/account/channels/ebay?connectionId=${encodeURIComponent(connection.connectionId)}`
+                      : connectionHref(connection.connectionId)
+                  }
+                  tone="secondary"
+                >
                   {t("channels.connections.open")}
                 </LinkButton>
               </Stack>

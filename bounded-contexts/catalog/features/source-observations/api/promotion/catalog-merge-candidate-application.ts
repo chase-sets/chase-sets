@@ -361,7 +361,19 @@ async function isReferenceOnlyMember(
       sameKey(version.profileKey, revision.sourceProfileKey) &&
       version.profileVersion === revision.sourceProfileVersion,
   );
-  return reviewed.length === 1 && !reviewed[0]!.profile.capabilities.includes("catalog-item-promotion");
+  const own = reviewed.length === 1 ? reviewed[0] : undefined;
+  if (!own || own.profile.capabilities.includes("catalog-item-promotion")) return false;
+  if (
+    own.lifecycle === "deprecated" &&
+    versions.some((version) => isActivePromotionProfile(version) && catalogProviderProfileVersionsCompete(version, own))
+  ) {
+    requirePinnedProfileEligible(versions, {
+      providerKey: own.providerKey,
+      profileKey: own.profileKey,
+      profileVersion: own.profileVersion,
+    });
+  }
+  return true;
 }
 
 /**
@@ -421,6 +433,13 @@ const promotionFacts = [
     required: false,
   },
   { fieldPath: "catalogItem.rarity", fieldIdKey: "rarity", valueKind: "raw", factKey: "rarity", required: false },
+  {
+    fieldPath: "catalogItem.productForm",
+    fieldIdKey: "cardVariant",
+    valueKind: "raw",
+    factKey: "productForm",
+    required: false,
+  },
   {
     fieldPath: "catalogItem.releaseYear",
     fieldIdKey: "releaseYear",
@@ -924,15 +943,15 @@ function candidateCatalogMapping(
   const referenceFieldId =
     referenceField === "expansion" ? fieldIds.expansion : referenceField === "set" ? fieldIds.set : null;
   if (referenceField && !referenceFieldId) throw blocked("missing-reference-record-target", referenceField);
-  const fields: CatalogMergeCandidatePromotionFieldMapping[] = promotionFacts.map(
-    ({ fieldPath, fieldIdKey, valueKind, factKey, required }) => ({
+  const fields: CatalogMergeCandidatePromotionFieldMapping[] = promotionFacts
+    .filter((fact) => fact.factKey !== "productForm" || "sealedProductForm" in primary.normalized)
+    .map(({ fieldPath, fieldIdKey, valueKind, factKey, required }) => ({
       fieldPath,
       fieldId: fieldIds[fieldIdKey],
       valueKind,
       factKey,
       ...(required ? { required } : {}),
-    }),
-  );
+    }));
   if (referenceFieldId) {
     fields.push({
       fieldPath: referenceField === "expansion" ? "catalogItem.expansionName" : "catalogItem.setName",

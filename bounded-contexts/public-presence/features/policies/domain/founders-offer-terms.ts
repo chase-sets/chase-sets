@@ -27,8 +27,8 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:1359-1376; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:437-462; ${listingDomain}:592-631; ${listingDomain}:1099-1133; ${listingRuntime}:1891-1945; ${currentQuoteEvidence}`;
+const currentQuoteEvidence = `${listingRuntime}:1358-1377; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const creationEvidence = `${listingDomain}:437-462; ${listingDomain}:592-631; ${listingDomain}:1099-1133; ${listingRuntime}:1889-1944; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -92,7 +92,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:875-887",
-          `${listingRuntime}:2494-2681`,
+          `${listingRuntime}:2497-2684`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:2494-2526; ${listingRuntime}:2528-2598; ${listingRuntime}:1995-2095; ${feeQuotes}:154-176; ${listingDomain}:847-877; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:2497-2530; ${listingRuntime}:2531-2616; ${listingRuntime}:1993-2098; ${feeQuotes}:154-176; ${listingDomain}:847-877; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -127,16 +127,16 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:882-902; ${feeLock}:143-180; ${listingRuntime}:2641-2681; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:882-902; ${feeLock}:143-180; ${listingRuntime}:2644-2684; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:1085-1088; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:981-1110`,
+            evidenceRef: `${listingDomain}:1085-1088; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:1023-1159`,
           },
           {
             assertion:
               "Item or condition substitution requires recreation; the closed command union is structural evidence, and new listings use current quoted terms.",
-            evidenceRef: `${listingDomain}:553-568; ${creationEvidence}; ${runtimeTests}:981-1110`,
+            evidenceRef: `${listingDomain}:553-568; ${creationEvidence}; ${runtimeTests}:1023-1159`,
           },
           {
             assertion:

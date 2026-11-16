@@ -10,6 +10,14 @@ import {
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceListingPurchaseLimits } from "../domain/domain";
 import type { MarketplaceListingServices } from "./runtime";
+import { marketplaceAttemptIdSchema, recoveryHashSchema } from "../../mutation-recovery/domain/contracts";
+
+function readListingAttempt(args: Readonly<Record<string, unknown>>) {
+  return {
+    idempotencyKey: marketplaceAttemptIdSchema.parse(args.idempotencyKey),
+    requestHash: recoveryHashSchema.parse(args.requestHash),
+  };
+}
 
 export type MarketplaceListingMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -214,6 +222,7 @@ export function createMarketplaceListingMcpHandlers(
       "purchaseLimits",
       "listingIdOverride",
       "idempotencyKey",
+      "requestHash",
       "confirmationText",
       "dryRun",
     ]);
@@ -222,6 +231,7 @@ export function createMarketplaceListingMcpHandlers(
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const result = await services.createListing(
       {
+        ...readListingAttempt(args),
         accountId: scopedActor.accountId as AccountId,
         inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
         priceAmount: readRequiredString(args, "priceAmount"),
@@ -247,6 +257,7 @@ export function createMarketplaceListingMcpHandlers(
       "priceCurrencyCode",
       "feeQuoteFingerprint",
       "idempotencyKey",
+      "requestHash",
       "confirmationText",
       "dryRun",
     ]);
@@ -255,6 +266,7 @@ export function createMarketplaceListingMcpHandlers(
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const result = await services.updateListingPrice(
       {
+        ...readListingAttempt(args),
         accountId: scopedActor.accountId,
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
         priceAmount: readRequiredString(args, "priceAmount"),
@@ -273,6 +285,7 @@ export function createMarketplaceListingMcpHandlers(
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const result = await services.publishListing(
       {
+        ...readListingAttempt(args),
         accountId: scopedActor.accountId,
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
@@ -289,6 +302,7 @@ export function createMarketplaceListingMcpHandlers(
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const result = await services.pauseListing(
       {
+        ...readListingAttempt(args),
         accountId: scopedActor.accountId,
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
       },

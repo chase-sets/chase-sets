@@ -1,3 +1,4 @@
+import { listingFormAttempt } from "../support/request-support/listing-attempt";
 import { t } from "@chase-sets/localization";
 import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
 import { MutationFormProvider } from "../support/ui-support/mutation-form";
@@ -225,6 +226,7 @@ async function createListingFromMarketplaceSupplySnapshot(
     maxUnitsPerCustomerAccount: number | null;
   }>,
   listingPhotoFiles: readonly File[],
+  idempotencyKey: string,
 ) {
   const quantityCap = Number(createForm.quantityCap ?? 0);
   const inventoryItem = await loadSelectedMarketplaceSupplyItem(api, createForm.inventoryItemId);
@@ -233,6 +235,7 @@ async function createListingFromMarketplaceSupplySnapshot(
   }
 
   const listingBody = {
+    idempotencyKey,
     inventoryItemId: createForm.inventoryItemId,
     priceAmount: createForm.priceAmount,
     priceCurrencyCode: createForm.priceCurrencyCode,
@@ -436,8 +439,10 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       };
       const listingPhotoFiles = listingPhotoFilesFromForm(formData);
       const quantityCap = Number(createForm.quantityCap ?? 0);
+      const listingAttempt = listingFormAttempt(formData, "create");
       const listingBody = createForm.inventoryItemId
         ? {
+            ...listingAttempt,
             inventoryItemId: createForm.inventoryItemId,
             priceAmount: createForm.priceAmount,
             priceCurrencyCode: createForm.priceCurrencyCode,
@@ -445,6 +450,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             purchaseLimits,
           }
         : {
+            ...listingAttempt,
             inventoryItemId: "",
             priceAmount: createForm.priceAmount,
             priceCurrencyCode: createForm.priceCurrencyCode,
@@ -483,6 +489,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           },
           purchaseLimits,
           listingPhotoFiles,
+          listingAttempt.idempotencyKey,
         );
         if (recovered === null) {
           return { createForm, error: t("marketplace.routes.accountListingsNew.inventory.item.preparing") };
@@ -497,6 +504,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         try {
           redirectReceipts.push(
             await api.publishListing(result.id, {
+              ...listingFormAttempt(formData, "publishListing"),
               feeQuoteFingerprint: result.feeQuoteFingerprint,
             }),
           );

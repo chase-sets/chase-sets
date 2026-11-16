@@ -450,6 +450,7 @@ export function MarketplaceListingCreatePage({
   evidenceReadinessApiUrl?: string;
   backHref?: string;
 }) {
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [inventoryItemId, setInventoryItemId] = useState(createForm?.inventoryItemId?.trim() ?? "");
   const [priceAmount, setPriceAmount] = useState(createForm?.priceAmount?.trim() ?? "");
   const [priceCurrencyCode, setPriceCurrencyCode] = useState(createForm?.priceCurrencyCode?.trim() ?? "");
@@ -578,6 +579,7 @@ export function MarketplaceListingCreatePage({
             spacing="none"
             method="post"
             encType="multipart/form-data"
+            onChange={() => setIdempotencyKey(crypto.randomUUID())}
             onSubmit={(event) => {
               const photos = new FormData(event.currentTarget).getAll("evidence");
               if (photos.some((photo) => photo instanceof File && photo.size > 0)) {
@@ -614,6 +616,7 @@ export function MarketplaceListingCreatePage({
                   )}
                 />
               ) : null}
+              <HiddenInput name="idempotencyKey" value={idempotencyKey} />
               <HiddenInput type="hidden" name="catalogItemId" value={submittedCatalogItemId} />
               <HiddenInput type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
               <Grid columns={{ base: 1, lg: 2 }} gap={5}>

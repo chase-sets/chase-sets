@@ -280,9 +280,9 @@ describe("portable route manifest contract", () => {
       }),
     );
     expect({ routeCount, portableCount, webResourceOnlyCount }).toEqual({
-      routeCount: 91,
+      routeCount: 94,
       portableCount: 3,
-      webResourceOnlyCount: 3,
+      webResourceOnlyCount: 5,
     });
   });
 
@@ -291,7 +291,7 @@ describe("portable route manifest contract", () => {
       ({ route }) => route.delivery === "web-resource-only",
     );
 
-    expect(resourceModules).toHaveLength(3);
+    expect(resourceModules).toHaveLength(5);
     for (const { route, source, modulePath } of resourceModules) {
       expect(route.pageComponentExport).toBeUndefined();
       expect(validatePageComponentExport({ route, source, modulePath })).toEqual([]);
