@@ -567,6 +567,9 @@
       "@chase-sets/localization": [
         "./contracts/localization/index.ts"
       ],
+      "@chase-sets/localization/core": [
+        "./contracts/localization/core.ts"
+      ],
       "@chase-sets/localization/locales/en": [
         "./contracts/localization/locales/en.ts"
       ],

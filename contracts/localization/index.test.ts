@@ -12,6 +12,8 @@ import {
   resolveLocale,
   supportedLocales,
   translationCatalogs,
+  t,
+  hasTranslation,
 } from "./index";
 
 const knownEnglishTranslationKey: EnglishTranslationKey = "localization.testGreeting";
@@ -35,6 +37,20 @@ describe("localization", () => {
     const translator = createTranslator();
 
     expect(translator.t("localization.testGreeting", { name: "Ada" })).toBe("Hello, Ada.");
+  });
+
+  it("retains root defaults, explicit helper translators and legacy namespace subpaths", async () => {
+    const { localizationEnglishTranslations } = await import("@chase-sets/localization/locales/en/localization");
+    expect(t("localization.testGreeting", { name: "Ada" })).toBe("Hello, Ada.");
+    expect(hasTranslation("localization.testGreeting")).toBe(true);
+    expect(hasTranslation("absent.root.key")).toBe(false);
+    expect(t("absent.root.key")).toBe("[missing:en:absent.root.key]");
+    expect(translationCatalogs.en["localization.testGreeting"]).toBe(
+      localizationEnglishTranslations["localization.testGreeting"],
+    );
+    const translate = (key: string) => `owner:${key}`;
+    expect(formatLanguageCodeLabel("en", translate)).toBe("owner:localization.languageCode.en");
+    expect(formatDisplayIdentity("Title", null, translate)).toBe("owner:localization.displayIdentity.title");
   });
 
   it("distinguishes live workers from informational expired heartbeat history", () => {

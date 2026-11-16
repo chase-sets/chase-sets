@@ -1,4 +1,4 @@
-import type { Translate } from "./index";
+import type { Translate } from "./core";
 
 const MAX_SAFE_MACHINE_TOKEN_LENGTH = 40;
 const SAFE_MACHINE_TOKEN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
