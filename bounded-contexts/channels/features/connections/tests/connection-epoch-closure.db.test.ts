@@ -248,7 +248,7 @@ describeDb("Connection acknowledged epoch closure", () => {
 
   it("creation without Guard History starts OPEN at creation epoch zero and captures only after COMMIT", async () => {
     const raw = createPostgresEventStore({ pool });
-    const epochs = createConnectionEpochs(pool);
+    const epochs = createConnectionEpochs(pool, [{ identity: consumer, pool: terminalPool }]);
     const authority = createVersionedConnectionAuthority(pool, raw, epochs);
     expect(await authority.capture(input)).toEqual({ kind: "denied", reason: "connection-not-found" });
     const current = createChannelConnectionRuntime({ eventStore: raw, db: pool }, createConnectionHarness().ports);
