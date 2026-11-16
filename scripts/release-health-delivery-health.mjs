@@ -1273,7 +1273,13 @@ function summarizeQualificationMetrics(evidence) {
         outcome,
         elapsedSeconds:
           kind === "advisory" && event ? (Date.parse(event.completedAt) - Date.parse(event.startedAt)) / 1000 : null,
-        provisioned: kind === "advisory" && event ? event.provisioned : false,
+        provisioned: event
+          ? kind === "advisory"
+            ? event.provisioned
+            : false
+          : attempt.status === "not-required"
+            ? false
+            : null,
         headroomRuns: kind === "advisory" && event ? (event.providerHeadroom?.headroomRuns ?? null) : null,
         staging: {
           status: stagingExcluded
@@ -1309,6 +1315,7 @@ function summarizeQualificationMetrics(evidence) {
       rate: counts.unknown === 0 && denominator ? counts.success / denominator : null,
     },
     namespaceCount: latestOutcomes.filter((entry) => entry.provisioned).length,
+    namespaceUnknownCount: latestOutcomes.filter((entry) => entry.provisioned === null).length,
     elapsedSeconds: {
       sampleCount: durations.length,
       p50: nearestRank(durations, 0.5),
@@ -1986,14 +1993,14 @@ export function renderDeliveryHealthMarkdown(record) {
       `Qualification success: ${metrics.success.numerator} / ${metrics.success.denominator}; evictions excluded.`,
       `Elapsed p50 / p90 / p95: ${formatSeconds(metrics.elapsedSeconds.p50)} / ${formatSeconds(metrics.elapsedSeconds.p90)} / ${formatSeconds(metrics.elapsedSeconds.p95)} (${metrics.elapsedSeconds.sampleCount} samples).`,
       `Qualification staging catches: ${metrics.staging.catches} / ${metrics.staging.denominator}; orphans: ${metrics.staging.orphans}; unknown disposition: ${metrics.staging.unknown}.`,
-      `Namespaces: ${metrics.namespaceCount}; headroom min / max: ${metrics.headroom.min ?? "unknown"} / ${metrics.headroom.max ?? "unknown"}; unknown: ${metrics.headroom.unknownCount}.`,
+      `Namespace observations: ${metrics.namespaceCount}; unknown provisioning: ${metrics.namespaceUnknownCount}; headroom min / max: ${metrics.headroom.min ?? "unknown"} / ${metrics.headroom.max ?? "unknown"}; unknown: ${metrics.headroom.unknownCount}.`,
       "",
       "| Latest attempt | Outcome | Elapsed | Provisioned | Headroom | Staging disposition | Catch class | Catch |",
       "| --- | --- | ---: | --- | ---: | --- | --- | --- |",
     );
     for (const outcome of metrics.latestOutcomes)
       lines.push(
-        `| ${outcome.runId} / ${outcome.runAttempt} | ${outcome.outcome} | ${formatSeconds(outcome.elapsedSeconds)} | ${outcome.provisioned} | ${outcome.headroomRuns ?? "unknown"} | ${outcome.staging.status} | ${outcome.staging.rootCauseCode ?? outcome.staging.classification} | ${outcome.staging.catch} |`,
+        `| ${outcome.runId} / ${outcome.runAttempt} | ${outcome.outcome} | ${formatSeconds(outcome.elapsedSeconds)} | ${outcome.provisioned ?? "unknown"} | ${outcome.headroomRuns ?? "unknown"} | ${outcome.staging.status} | ${outcome.staging.rootCauseCode ?? outcome.staging.classification} | ${outcome.staging.catch} |`,
       );
     lines.push(
       "",

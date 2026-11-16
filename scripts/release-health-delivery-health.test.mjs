@@ -836,6 +836,7 @@ describe("canonical advisory collection", () => {
       counts: { ...totals, unknown: 0 },
       success: { numerator: 5, denominator: 15, rate: 1 / 3 },
       namespaceCount: namespaces,
+      namespaceUnknownCount: 0,
       elapsedSeconds: { sampleCount: elapsed.length, p50: elapsed[9], p90: elapsed[17], p95: elapsed[18] },
       staging: { catches: 1, denominator: 1, orphans: 0, unknown: 4, application: 1, infrastructure: 0 },
       headroom: {
@@ -869,6 +870,15 @@ describe("canonical advisory collection", () => {
       expect(refused.record.qualification.status, defect).toBe("partial");
       expect(refused.record.qualification.metrics.counts, defect).toMatchObject({ application: 4, unknown: 1 });
       expect(refused.record.qualification.metrics.success.rate, defect).toBeNull();
+      expect(refused.record.qualification.metrics.namespaceUnknownCount, defect).toBe(1);
+      expect(
+        refused.record.qualification.metrics.latestOutcomes.find((entry) => entry.runId === "5001"),
+        defect,
+      ).toMatchObject({
+        provisioned: null,
+        staging: { status: "unknown" },
+      });
+      expect(refused.markdown, defect).toContain("unknown provisioning: 1");
       expect(refused.record.qualification.reasons, defect).toContain(
         `qualification:5001/2:${defect === "missing-latest" ? "missing" : "invalid"}`,
       );
@@ -1542,6 +1552,9 @@ describe("canonical advisory collection", () => {
       },
       (value) => {
         value.metrics.success.rate = 2;
+      },
+      (value) => {
+        value.metrics.namespaceUnknownCount = 1;
       },
       (value) => {
         value.metrics.elapsedSeconds.p50 = -1;
