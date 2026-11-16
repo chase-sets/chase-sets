@@ -253,7 +253,7 @@ async function createShippedFixture(
 ): Promise<Fixture> {
   return createFixture(files, {
     ...options,
-    model: { maximumScheduledFileCount: 12, ...options.model },
+    model: { maximumScheduledFileCount: bootstrapDbScheduleModel.maximumScheduledFileCount, ...options.model },
   });
 }
 
@@ -622,7 +622,7 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 // The current schedule model's own minimum unit count for the current manifest.
 // Capture-derived: an enrollment refreshes it with the projected schedule pins.
 const currentMinimumUnitCount = 2;
-const currentProjectedMakespans = [275267, 251960, 194055];
+const currentProjectedMakespans = [359404, 251960, 194055];
 const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2" | "test:db:3">> = Object.freeze({
   "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
   "authoritative-seed-resume-core.db.test.ts": "test:db:1",
@@ -1083,9 +1083,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(71);
+    expect(result.expectedCaseCount).toBe(134);
     expect(result.caseCount).toBe(result.expectedCaseCount);
-    expect(result.fileCount).toBe(12);
+    expect(result.fileCount).toBe(13);
     expect(result.partitionUnitCount).toBe(3);
   });
 
@@ -2739,11 +2739,11 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
     expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(55667);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
-    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(13);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1692003,
+      1801003,
     );
   });
 
@@ -2759,8 +2759,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [32, 32],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(721282);
-    expect(schedule.aggregateWithOverheadMs).toBe(776949);
+    expect(schedule.aggregateMs).toBe(805419);
+    expect(schedule.aggregateWithOverheadMs).toBe(861086);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
     expect(schedule.effectiveMinimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
@@ -3988,7 +3988,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.fileCount).toBe(12);
     expect(result.caseCount).toBe(66);
     expect(result.schedule.minimumUnitCount).toBe(2);
-    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(13);
     expect(runFixture({ ...fixture, model: { ...fixture.model, maximumScheduledFileCount: 11 } }).violations).toContain(
       "the schedule model refuses to enumerate 12 files, above its declared bound of 11; " +
         "re-derive the bound deliberately rather than sampling assignments",
