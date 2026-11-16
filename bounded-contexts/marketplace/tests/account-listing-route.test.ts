@@ -169,6 +169,8 @@ describe("marketplace listing detail route", () => {
       listing: null,
       feeHistory: { items: [], total: 0, count: 0 },
       recovery: "fresh-write-preparing",
+      accountId: "acc_1",
+      listingRecovery: null,
     });
   });
 
@@ -344,7 +346,15 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\/lst_1\?evidenceEvent=publication_succeeded&postWriteToken=/);
+    const destination = new URL(location, "http://localhost");
+    expect(destination.pathname).toBe("/account/listings/lst_1");
+    expect(destination.searchParams.get("evidenceEvent")).toBe("publication_succeeded");
+    expect(JSON.parse(destination.searchParams.get("listingRecovery")!)).toMatchObject({
+      batchId: "test_form_attempt_10923_publishListing",
+      mutationKind: "listing.publish",
+      bulk: false,
+    });
+    expect(location).not.toMatch(/targets|requestHash/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listing/);
     expect(location).not.toContain("afterWrite=");
     expect(location).not.toContain("postWriteHandoff=");
@@ -528,7 +538,15 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toBe("/account/listings/lst_1");
+    const destination = new URL(location, "http://localhost");
+    expect(destination.pathname).toBe("/account/listings/lst_1");
+    expect(JSON.parse(destination.searchParams.get("listingRecovery")!)).toMatchObject({
+      mutationKind: "listing.update-price",
+      bulk: false,
+    });
+    expect(location).not.toMatch(/targets|requestHash/);
+    expect(location).not.toContain("priceAmount");
+    expect(location).not.toContain("20.00");
     expect(location).not.toContain("postWriteToken=");
     expect(location).not.toContain("afterWrite=");
     expect(store.storeCalls).toHaveLength(0);

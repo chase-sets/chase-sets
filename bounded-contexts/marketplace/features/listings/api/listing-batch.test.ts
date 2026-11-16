@@ -3,7 +3,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { listingAttempt } from "./listing-attempt";
-import { lookupListingBatch, runListingBatch, type ListingBatchDecision } from "./listing-batch";
+import { lookupListingBatch, prepareListingBatch, runListingBatch, type ListingBatchDecision } from "./listing-batch";
 
 const context: EventStoreContext = {
   tenantId: "tnt_synthetic" as never,
@@ -27,6 +27,55 @@ const target = (reason = "seller", targetId = "lst_synthetic") => ({
 const terminal = { outcome: "error", version: 0 } as const;
 
 describe("durable Listing batch decisions", () => {
+  it("prepares only hashes, is owner bound and refuses changed targets or hashes without overwriting a terminal", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const identity = {
+      batchId: batch.batchId,
+      mutationKind: batch.family,
+      bulk: true,
+      targets: [{ id: target().targetId, requestHash: target().attempt.binding.canonicalRequestHash }],
+    };
+    await prepareListingBatch(eventStore, batch.accountId, identity, context);
+    await prepareListingBatch(eventStore, batch.accountId, identity, context);
+    expect(allEvents).toHaveLength(1);
+    expect((await lookupListingBatch(eventStore, batch))?.items[0]).toMatchObject({
+      outcome: "unknown",
+      requestHash: identity.targets[0]!.requestHash,
+    });
+    expect(await lookupListingBatch(eventStore, { ...batch, accountId: "acc_other" })).toBeNull();
+    await expect(
+      prepareListingBatch(
+        eventStore,
+        batch.accountId,
+        { ...identity, targets: [{ id: "lst_other", requestHash: identity.targets[0]!.requestHash }] },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "history_incomplete" });
+    await expect(
+      prepareListingBatch(
+        eventStore,
+        batch.accountId,
+        { ...identity, targets: [{ ...identity.targets[0]!, requestHash: "0".repeat(64) }] },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "history_incomplete" });
+    await runListingBatch({
+      store: eventStore,
+      batch,
+      context,
+      targets: [target()],
+      drive: async () => new Map([[target().targetId, { outcome: "succeeded", noOp: true, version: 4 }]]),
+    });
+    await prepareListingBatch(eventStore, batch.accountId, identity, context);
+    expect(allEvents).toHaveLength(2);
+    expect((await lookupListingBatch(eventStore, batch))?.items[0]).toMatchObject({
+      outcome: "succeeded",
+      noOp: true,
+      version: 4,
+      requestHash: identity.targets[0]!.requestHash,
+      attemptKeyFingerprint: target().attempt.binding.attemptKeyFingerprint,
+    });
+  });
   it("returns unknown after pre-commit failure, then retains the first durable terminal on retry", async () => {
     const { eventStore } = createInMemoryEventStore();
     let fail = true;
