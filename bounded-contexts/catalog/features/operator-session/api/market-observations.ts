@@ -223,7 +223,7 @@ export function createMarketObservationRoutes(deps: MarketObservationDeps) {
             );
             validateEndpointClocks(batch, current, admittedAt);
           } catch {
-            refuse("invalid-body");
+            return refuse("invalid-body");
           }
           eventType = tcgplayerMarketObservationBatchAdmitted;
         }
