@@ -10,7 +10,6 @@ import type { CatalogAliasSourceCategoryKey } from "../governance/catalog-integr
 import {
   listCatalogItemAliases,
   listReferenceRecordAliases,
-  listSourceObservationAliasCandidates,
   type CatalogAliasCandidateRow,
   type CatalogItemAliasRow,
   type CatalogReferenceRecordAliasRow,
@@ -28,26 +27,28 @@ import type { PromotionAliasReader } from "./provider-promotion-alias-writer";
 // root injects this; tests can inject an in-memory reader instead.
 // ---------------------------------------------------------------------------
 
-/** Review statuses promotion cares about: accept signals to publish, reject/revoke signals to retract. */
-const PROMOTION_RELEVANT_CANDIDATE_STATUSES: readonly CatalogAliasReviewStateKey[] = [
-  "accepted",
-  "auto-accepted",
-  "rejected",
-  "revoked",
-];
-
 export function createPromotionAliasReader(db: PgQueryable): PromotionAliasReader {
   return {
     listCandidatesForObservation: async (observationId) => {
-      const rows = await listSourceObservationAliasCandidates(db, {
-        observationId,
-        reviewStatuses: PROMOTION_RELEVANT_CANDIDATE_STATUSES,
-        // The candidate table is keyed by hash; the per-observation slice is
-        // small, but cap defensively so a pathological observation cannot
-        // unbound the promotion turn.
-        limit: 1000,
-      });
-      return rows.map(toPromotionAliasCandidate);
+      // Intake supplies evidence and policy intent, not the aggregate's review
+      // decision. Pending evidence must also reach promotion to resolve identity.
+      const result = await db.query<CatalogAliasCandidateRow & { promotion_review_status: CatalogAliasReviewStateKey }>(
+        `SELECT candidate.*,
+           CASE WHEN COALESCE(item.alias_hash, reference.alias_hash) IS NULL THEN candidate.review_status
+             WHEN candidate.evidence = COALESCE(item.evidence, reference.evidence)
+               AND candidate.confidence = COALESCE(item.confidence, reference.confidence)
+               AND candidate.source_language_code IS NOT DISTINCT FROM COALESCE(item.source_language_code, reference.source_language_code)
+             THEN COALESCE(item.review_status, reference.review_status)
+             ELSE 'pending' END AS promotion_review_status
+         FROM catalog_source_observation_alias_candidates candidate
+         LEFT JOIN catalog_item_aliases item ON item.alias_hash = candidate.alias_hash
+         LEFT JOIN catalog_reference_record_aliases reference ON reference.alias_hash = candidate.alias_hash
+         WHERE candidate.observation_id = $1 ORDER BY candidate.first_observed_at DESC, candidate.alias_hash ASC LIMIT 1000`,
+        [observationId],
+      );
+      return result.rows.map((row) =>
+        toPromotionAliasCandidate({ ...row, review_status: row.promotion_review_status }),
+      );
     },
     listPublishedCatalogItemAliases: async (catalogItemId) => {
       const rows = await listCatalogItemAliases(db, catalogItemId, {

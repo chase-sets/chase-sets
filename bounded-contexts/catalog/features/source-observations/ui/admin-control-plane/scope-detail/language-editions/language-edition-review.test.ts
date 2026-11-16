@@ -100,6 +100,16 @@ describe("catalogScopeHasLanguageEditionsToReview", () => {
 });
 
 describe("buildCatalogScopeLanguageEditionReviewReadModel", () => {
+  it("excludes unresolved reference aliases from every edition's commands", () => {
+    const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
+      scope: paldeanFatesScope,
+      aliasReview: aliasReview([candidate({ targetId: null, reviewable: false, availableActions: [] })]),
+    });
+    expect(
+      readModel.editions.flatMap((edition) => [...edition.pendingCandidates, ...edition.acceptedCandidates]),
+    ).toEqual([]);
+  });
+
   it("shows both editions for a scope imported in en+ja, canonical en linked with no aliases needed", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope: paldeanFatesScope,

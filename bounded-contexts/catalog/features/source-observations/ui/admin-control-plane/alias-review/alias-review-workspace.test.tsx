@@ -104,6 +104,19 @@ function renderWorkspace(input: Parameters<typeof readModel>[0], canManageAliase
 }
 
 describe("CatalogIntegrationAliasReviewWorkspace", () => {
+  it("renders neither row nor bulk commands for unresolved item and reference targets", () => {
+    const { container } = renderWorkspace({
+      candidateRows: [
+        candidateRow({ target_id: null }),
+        candidateRow({ alias_hash: "unresolved_reference", target_kind: "reference-record", target_id: null }),
+      ],
+    });
+    expect(container.querySelectorAll("[data-alias-review-command]")).toHaveLength(0);
+    expect(container.querySelector('[data-alias-review-bulk-actions="true"]')).toBeNull();
+    for (const checkbox of container.querySelectorAll<HTMLInputElement>('tbody input[type="checkbox"]'))
+      expect(checkbox.disabled).toBe(true);
+  });
+
   it("displays each candidate's proposed alias, native printed name, type, and source", () => {
     renderWorkspace({ candidateRows: [candidateRow()] });
 

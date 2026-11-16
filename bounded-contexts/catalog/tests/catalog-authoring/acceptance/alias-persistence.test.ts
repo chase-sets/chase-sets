@@ -433,6 +433,7 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     return {
       ...createPromotionAliasReader(pool),
       catalogAliasCommandHandler: services.catalogAliases.catalogAliasCommandHandler,
+      upsertSourceObservationAliasCandidates: services.catalogAliases.upsertSourceObservationAliasCandidates,
     };
   }
 
@@ -468,6 +469,139 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     catalogItemId: "cat_promoted_charizard",
     referenceRecordIdsByTypeKey: { expansion: "ref_expansion_promoted", series: "ref_series_promoted" },
   } as const;
+
+  it("preserves newer intake evidence across delayed proposal projection and reopens on re-promotion", async () => {
+    const intake = observationItemCandidate();
+    const resolved = buildCatalogAliasCandidate({
+      ...intake,
+      target: { ...intake.target, targetId: promoteResolution.catalogItemId },
+    });
+    const promote = () =>
+      writePromotionAliases({
+        services: promotionAliasServices(),
+        observationId: "obs_promote_1",
+        resolution: promoteResolution,
+        context,
+      });
+    const read = () => services.catalogAliases.listSourceObservationAliasCandidates({ observationId: "obs_promote_1" });
+
+    await seedCandidates([intake]);
+    await promote();
+    expect(await services.catalogAliases.getCatalogItemAlias(resolved.aliasHash)).toBeNull();
+    expect(await services.catalogAliases.getSourceObservationAliasCandidate(intake.aliasHash)).toBeNull();
+    expect(await read()).toMatchObject([
+      { alias_hash: resolved.aliasHash, target_id: promoteResolution.catalogItemId },
+    ]);
+
+    const newer = observationItemCandidate({
+      reviewStatus: "pending",
+      evidence: { sharedId: "sv1a-001", revision: "new" },
+    });
+    const observedAt = "2026-11-16T01:02:00.000Z";
+    await services.catalogAliases.upsertSourceObservationAliasCandidates([newer], observedAt);
+    await drainCatalogProjections();
+
+    let rows = await read();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      alias_hash: resolved.aliasHash,
+      target_id: promoteResolution.catalogItemId,
+      evidence: newer.evidence,
+    });
+    const intakeTimestamp = await pool.query<{ retained: boolean }>(
+      `SELECT updated_at = $2::timestamptz AS retained
+       FROM catalog_source_observation_alias_candidates WHERE alias_hash = $1`,
+      [resolved.aliasHash, observedAt],
+    );
+    expect(intakeTimestamp.rows).toEqual([{ retained: true }]);
+    expect(new Date(rows[0]!.first_observed_at).toISOString()).toBe("2026-06-16T00:00:00.000Z");
+    expect((await services.catalogAliases.getCatalogItemAlias(resolved.aliasHash))?.review_status).toBe("accepted");
+
+    await promote();
+    await drainCatalogProjections();
+    rows = await read();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      alias_hash: resolved.aliasHash,
+      target_id: promoteResolution.catalogItemId,
+      review_status: "pending",
+      evidence: newer.evidence,
+    });
+    expect(new Date(rows[0]!.first_observed_at).toISOString()).toBe("2026-06-16T00:00:00.000Z");
+    expect(await services.catalogAliases.getSourceObservationAliasCandidate(intake.aliasHash)).toBeNull();
+    expect(await services.catalogAliases.listCatalogItemAliases(promoteResolution.catalogItemId)).toMatchObject([
+      { alias_hash: resolved.aliasHash, review_status: "pending", evidence: newer.evidence },
+    ]);
+  });
+
+  it.each(["accepted", "rejected", "revoked"] as const)(
+    "keeps one resolved %s alias after unchanged intake/promotion and reopens changed evidence",
+    async (status) => {
+      const intake = observationItemCandidate({ reviewStatus: "pending" });
+      const promote = async () => {
+        await writePromotionAliases({
+          services: promotionAliasServices(),
+          observationId: "obs_promote_1",
+          resolution: promoteResolution,
+          context,
+        });
+        await drainCatalogProjections();
+      };
+      await seedCandidates([intake]);
+      await promote();
+      const read = () =>
+        services.catalogAliases.getCatalogAliasReviewReadModel({
+          generatedAt: "2026-11-16T00:00:00.000Z",
+          filter: { observationId: "obs_promote_1" },
+        });
+      let rows = (await read()).candidates;
+      expect(rows).toHaveLength(1);
+      const hash = rows[0]!.aliasHash;
+      expect(hash).not.toBe(intake.aliasHash);
+      expect(rows[0]).toMatchObject({
+        targetKind: "catalog-item",
+        targetId: promoteResolution.catalogItemId,
+        reviewStatus: "pending",
+      });
+      const review = async (type: "AcceptCatalogAlias" | "RejectCatalogAlias" | "RevokeCatalogAlias") => {
+        await services.catalogAliases.catalogAliasCommandHandler({
+          streamId: catalogAliasStreamId(hash),
+          command: { type, actor: "reviewer", reason: "Verified evidence" },
+          context,
+        });
+        await drainCatalogProjections();
+      };
+      if (status === "rejected") await review("RejectCatalogAlias");
+      else {
+        await review("AcceptCatalogAlias");
+        if (status === "revoked") await review("RevokeCatalogAlias");
+      }
+      for (let replay = 0; replay < 2; replay += 1) {
+        await seedCandidates([{ ...intake, reviewStatus: replay === 0 ? "auto-accepted" : "rejected" }]);
+        await promote();
+        rows = (await read()).candidates;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          aliasHash: hash,
+          targetKind: "catalog-item",
+          targetId: promoteResolution.catalogItemId,
+          reviewStatus: status,
+        });
+        expect(await services.catalogAliases.getSourceObservationAliasCandidate(intake.aliasHash)).toBeNull();
+      }
+      await seedCandidates([
+        observationItemCandidate({ reviewStatus: "pending", evidence: { sharedId: "sv1a-001", revised: true } }),
+      ]);
+      await promote();
+      rows = (await read()).candidates;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        aliasHash: hash,
+        targetId: promoteResolution.catalogItemId,
+        reviewStatus: "pending",
+      });
+    },
+  );
 
   it("promotes accepted item aliases into Catalog Item facts with the resolved id (#1909)", async () => {
     await seedCandidates([observationItemCandidate()]);
@@ -571,7 +705,14 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     await drainCatalogProjections();
     expect(await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard")).toHaveLength(1);
 
-    // The candidate is rejected in review, then promotion is re-run.
+    // Review is an aggregate event, never an intake-table status change.
+    const promoted = (await services.catalogAliases.listCatalogItemAliases("cat_promoted_charizard"))[0]!;
+    await services.catalogAliases.catalogAliasCommandHandler({
+      streamId: catalogAliasStreamId(promoted.alias_hash),
+      command: { type: "RejectCatalogAlias", actor: "reviewer", reason: "Not equivalent" },
+      context,
+    });
+    await drainCatalogProjections();
     await seedCandidates([observationItemCandidate({ reviewStatus: "rejected" })]);
     const result = await writePromotionAliases({
       services: promotionAliasServices(),
@@ -581,12 +722,12 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     });
     await drainCatalogProjections();
 
-    expect(result.retracted).toBe(1);
+    expect(result.retracted).toBe(0);
     expect(await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard")).toHaveLength(0);
-    // The row survives for audit; only the review_status flips to revoked.
+    // The row survives with the aggregate's rejection reason and state.
     const all = await services.catalogAliases.listCatalogItemAliases("cat_promoted_charizard");
     expect(all).toHaveLength(1);
-    expect(all[0]?.review_status).toBe("revoked");
+    expect(all[0]?.review_status).toBe("rejected");
   });
 
   it("retracts a promoted alias when its candidate is revoked, while a fresh accepted alias publishes (#1909)", async () => {
@@ -601,6 +742,13 @@ describe("Catalog Alias persistence (DB-backed)", () => {
 
     // The old candidate is revoked in review and a fresh accepted candidate is
     // recorded; re-promotion publishes the new alias and retracts the old one.
+    const oldAlias = (await services.catalogAliases.listCatalogItemAliases("cat_promoted_charizard"))[0]!;
+    await services.catalogAliases.catalogAliasCommandHandler({
+      streamId: catalogAliasStreamId(oldAlias.alias_hash),
+      command: { type: "RevokeCatalogAlias", actor: "reviewer", reason: "Superseded" },
+      context,
+    });
+    await drainCatalogProjections();
     await seedCandidates([
       observationItemCandidate({ aliasText: "Old Localized Name", reviewStatus: "revoked" }),
       observationItemCandidate({ aliasText: "New Localized Name", reviewStatus: "accepted" }),

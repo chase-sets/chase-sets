@@ -59,6 +59,49 @@ function runLoader(url: string) {
 }
 
 describe("Catalog scope-landing route loader", () => {
+  it("keeps Catalog home general alias review unresolved rows non-actionable on reload", async () => {
+    const aliases = buildCatalogAliasReviewReadModel({
+      generatedAt: "2026-11-16T00:00:00.000Z",
+      filter: aliasFilter,
+      candidateRows: ["catalog-item", "reference-record"].map((kind) => ({
+        alias_hash: `unresolved_${kind}`,
+        target_kind: kind as "catalog-item" | "reference-record",
+        target_id: null,
+        target_key: "name",
+        alias_text: "Sprigatito",
+        normalized_alias_text: "sprigatito",
+        alias_language_code: "en",
+        source_language_code: "ja",
+        alias_type: "official-equivalent",
+        confidence: "high",
+        review_status: "pending",
+        provider_key: "tcgdex",
+        observation_id: "obs_1",
+        source_category: "provider-same-id-localized-endpoint",
+        source_profile_key: "pokemon-tcg",
+        source_profile_version: "1",
+        mapping_fingerprint: "fp",
+        evidence: {},
+        first_observed_at: "2026-11-16T00:00:00.000Z",
+        updated_at: "2026-11-16T00:00:00.000Z",
+      })),
+      catalogItemAliasRows: [],
+      referenceRecordAliasRows: [],
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listCatalogScopeRecords: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getCatalogAliasReviewReadModel: vi.fn().mockResolvedValue(aliases),
+    });
+    for (let reload = 0; reload < 2; reload += 1) {
+      const data = await runLoader("https://admin.example/catalog/scopes");
+      expect(data.generalAliasReview?.candidates).toHaveLength(2);
+      for (const row of data.generalAliasReview?.candidates ?? []) {
+        expect(row.availableActions).toEqual([]);
+        expect(row.reviewable).toBe(false);
+      }
+    }
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });

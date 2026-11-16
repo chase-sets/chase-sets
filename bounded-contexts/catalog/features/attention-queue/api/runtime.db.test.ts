@@ -17,6 +17,7 @@ import type {
   SourceObservationIntegrationJob,
 } from "../../source-observations/api/runtime";
 import type { CatalogAttentionItemKind } from "../read-model/attention-item";
+import { catalogAliasEquivalenceSchemaSql } from "../../alias-equivalence/read-model/schema";
 import { catalogAttentionDismissalSchemaSql } from "../read-model/dismissal-schema";
 import type { CatalogAttentionQueueReadModel } from "./contracts";
 import { catalogAttentionQueueRoutes } from "./route";
@@ -46,14 +47,7 @@ CREATE TABLE catalog_provider_scope_mappings (
   last_actor text, last_reason text, policy_version text NOT NULL,
   proposed_at timestamptz NOT NULL, reviewed_at timestamptz, updated_at timestamptz NOT NULL
 );
-CREATE TABLE catalog_source_observation_alias_candidates (
-  alias_hash text PRIMARY KEY, target_kind text NOT NULL, target_id text, target_key text NOT NULL,
-  alias_text text NOT NULL, normalized_alias_text text NOT NULL, alias_language_code text NOT NULL,
-  source_language_code text, alias_type text NOT NULL, confidence text NOT NULL, review_status text NOT NULL,
-  provider_key text NOT NULL, observation_id text, source_category text NOT NULL, source_profile_key text NOT NULL,
-  source_profile_version text NOT NULL, mapping_fingerprint text NOT NULL, evidence jsonb NOT NULL,
-  first_observed_at timestamptz NOT NULL, updated_at timestamptz NOT NULL
-);
+${catalogAliasEquivalenceSchemaSql}
 CREATE TABLE catalog_scope_records (
   scope_record_id text PRIMARY KEY, product_domain text NOT NULL, scope_kind text NOT NULL,
   reference_type_key text NOT NULL, reference_record_id text NOT NULL, reference_record_key text NOT NULL,
@@ -103,6 +97,19 @@ async function seedAliases(db: PgQueryable, seed: Seed, reviewStatus = "pending"
             ${seedAt(seed)}, ${seedAt(seed)}
      FROM generate_series(1, $3) AS n`,
     [seed.prefix, seed.start, seed.count, reviewStatus],
+  );
+  await db.query(
+    `INSERT INTO catalog_item_aliases (
+       alias_hash, catalog_item_id, target_field, alias_text, normalized_alias_text, alias_language_code,
+       source_language_code, alias_type, confidence, review_status, provider_key, observation_id,
+       source_category, source_profile_key, source_profile_version, mapping_fingerprint, evidence,
+       policy_version, proposed_at, updated_at
+     ) SELECT alias_hash, target_id, target_key, alias_text, normalized_alias_text, alias_language_code,
+       source_language_code, alias_type, confidence, review_status, provider_key, observation_id,
+       source_category, source_profile_key, source_profile_version, mapping_fingerprint, evidence,
+       'v1', first_observed_at, updated_at
+     FROM catalog_source_observation_alias_candidates WHERE alias_hash LIKE $1`,
+    [`${seed.prefix}%`],
   );
 }
 
@@ -300,6 +307,25 @@ describeDb("catalog attention queue PostgreSQL sources", () => {
     expect(
       body.items.every((item) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(String(item.observedAt))),
     ).toBe(true);
+  });
+
+  it("uses projected alias status instead of stale intake status and excludes unresolved targets", async () => {
+    const db = pools!.catalog;
+    await seedAliases(db, { prefix: "pending-", count: 1, start: "2026-06-01T00:00:00Z" });
+    for (const status of ["accepted", "rejected", "revoked"]) {
+      await seedAliases(db, { prefix: `${status}-`, count: 1, start: "2026-06-01T00:00:00Z" }, status);
+    }
+    await seedAliases(db, { prefix: "unresolved-", count: 1, start: "2026-06-01T00:00:00Z" });
+    await db.query(
+      "UPDATE catalog_source_observation_alias_candidates SET review_status = 'pending', target_id = CASE WHEN alias_hash LIKE 'unresolved-%' THEN NULL ELSE target_id END",
+    );
+    await db.query(
+      "UPDATE catalog_source_observation_alias_candidates SET review_status = 'rejected' WHERE alias_hash LIKE 'pending-%'",
+    );
+
+    const body = await getQueue(queueApp(db), "kind=alias-candidate");
+    expect(keysOf(body, "alias-candidate")).toEqual(["alias-candidate:pending-0001"]);
+    expect(body.counts.byKind["alias-candidate"]).toBe(1);
   });
 
   it("counts 201 eligible rows per database kind past the first window, excluding ineligible and parked rows", async () => {
