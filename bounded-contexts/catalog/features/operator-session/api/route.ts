@@ -40,6 +40,13 @@ export function operatorSessionPublicRoutes(services: Services) {
     await next();
   });
   app.delete("/grant", (c) => services.execute("unpair", c.req.raw));
+  app.get("/observation-requests/current", (c) => services.marketObservations.current(c.req.raw));
+  app.put("/observation-batches/:batchId/parts/:partIndex", (c) =>
+    services.marketObservations.part(c.req.raw, c.req.param("batchId"), c.req.param("partIndex")),
+  );
+  app.post("/observation-batches/:batchId/complete", (c) =>
+    services.marketObservations.complete(c.req.raw, c.req.param("batchId")),
+  );
   app.post("/scope-observations/tcgplayer-set-names", (c) => services.recordTcgplayerSetNameObservations(c.req.raw));
   app.post("/catalog-observations/tcgplayer-sealed-products", (c) =>
     services.recordTcgplayerSealedProductObservations(c.req.raw),

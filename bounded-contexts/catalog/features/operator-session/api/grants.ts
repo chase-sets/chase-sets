@@ -1,9 +1,15 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  withPgTransaction,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import type { OperatorAuthority, OperatorAuthorityDecision, ResolvedActor } from "@chase-sets/auth-context";
 import { observationWriteLockId, withOperatorSessionBackend } from "./operation";
 import { OperatorSessionRequestError, readGrantBearer, requireEmptyBody } from "./request";
+import { createMarketObservationRoutes, type MarketObservationDeps } from "./market-observations";
 import {
   createTcgplayerSetNameObservationPost,
   type TcgplayerSetNameObservationRecorder,
@@ -42,6 +48,7 @@ export function createOperatorSessionGrants(
   pool: PgTransactionalPool,
   catalogOperatorAuthority?: Pick<CatalogOperatorAuthority, "forActor" | "forGrantCreator">,
   observationRecorders: OperatorObservationRecorders = {},
+  marketObservations?: Omit<MarketObservationDeps, "authorizeObservationGrant">,
 ) {
   const globalLimit = createInMemoryRateLimiter({ max: 120, windowMs: 60_000, maxBuckets: 1 });
   const grantLimit = createInMemoryRateLimiter({ max: 6, windowMs: 60_000 });
@@ -125,6 +132,17 @@ export function createOperatorSessionGrants(
   }
   return {
     authorizeObservationGrant,
+    marketObservations: createMarketObservationRoutes({
+      ...(marketObservations ?? {
+        requestSource: undefined,
+        store: createPostgresEventStore({ pool }),
+        databaseNow: async () => {
+          const result = await pool.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+          return result.rows[0]!.now.toISOString();
+        },
+      }),
+      authorizeObservationGrant,
+    }),
     recordTcgplayerSealedProductObservations: createTcgplayerSealedProductObservationPost({
       authorizeObservationGrant,
       record: observationRecorders.tcgplayerSealedProducts,

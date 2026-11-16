@@ -90,6 +90,29 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
 });
 
 describe("platform-api Catalog operator authority composition", () => {
+  it("forwards the real market-request port unchanged and leaves an absent source unavailable", async () => {
+    const pools = createPlatformApiPools({
+      runtimeProfile: "landing",
+      sharedDatabaseUrl: "postgresql://localhost/synthetic",
+      contextDatabaseUrls: {},
+      port: 6182,
+    });
+    const currentRequest = vi.fn(async () => null);
+    const catalogMarketObservationRequests = { currentRequest };
+    const hostPorts = {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+      processorGateway: createFakePaymentProcessorGateway(),
+    };
+    try {
+      createPlatformApiHost({ runtimeProfile: "landing", pools, hostPorts, catalogMarketObservationRequests });
+      expect(captured.ports?.catalogMarketObservationRequests).toBe(catalogMarketObservationRequests);
+      expect(currentRequest).not.toHaveBeenCalled();
+      createPlatformApiHost({ runtimeProfile: "landing", pools, hostPorts });
+      expect(captured.ports?.catalogMarketObservationRequests).toBeUndefined();
+    } finally {
+      await closePlatformApiPools(pools);
+    }
+  });
   it("passes the real Identity authority and evaluates the live Membership aggregate", async () => {
     const pools = createPlatformApiPools({
       runtimeProfile: "landing",

@@ -95,6 +95,7 @@
     "bounded-contexts/catalog/features/source-observations/read-model/queries.ts",
     "bounded-contexts/catalog/support/authoring-support/bulk-authoring-jobs.ts",
     "bounded-contexts/catalog/support/authoring-support/seed.ts",
+    "bounded-contexts/catalog/support/authoring-support/services.ts",
     "bounded-contexts/catalog/support/projection-support/read-model-support.ts",
     "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts",
     "bounded-contexts/channels/features/connection-attention/api/runtime.ts",

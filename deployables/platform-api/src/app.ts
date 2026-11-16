@@ -22,6 +22,7 @@ import {
   type CheckoutSupportLookupResult,
 } from "@chase-sets/checkout/server";
 import type { SavedListInventoryImportBatchCreator } from "@chase-sets/collections/server";
+import type { TcgplayerMarketObservationRequestSource } from "@chase-sets/tcgplayer-market-observations";
 import {
   authenticityFeePolicy,
   checkoutProcessingFeePolicy,
@@ -337,6 +338,7 @@ export function createPlatformApiHost(
       runtimeProfile?: PlatformApiRuntimeProfile;
       controlPlane?: PlatformControlPlane;
       workSignalStore?: ProjectionWakeStatusWorkSignalStore;
+      catalogMarketObservationRequests?: TcgplayerMarketObservationRequestSource;
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
@@ -737,6 +739,7 @@ export function createPlatformApiHost(
       registrationAdmission,
       operatorAuthority,
       catalogOperatorAuthority,
+      catalogMarketObservationRequests: options.catalogMarketObservationRequests,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),

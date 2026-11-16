@@ -137,6 +137,17 @@ describe("Catalog authoring API", () => {
 function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}): CatalogServices {
   return {
     operatorSession: {
+      marketObservations: {
+        current: async () => {
+          throw new Error("operatorSession not expected");
+        },
+        part: async () => {
+          throw new Error("operatorSession not expected");
+        },
+        complete: async () => {
+          throw new Error("operatorSession not expected");
+        },
+      },
       authorizeObservationGrant: async () => {
         throw new Error("operatorSession not expected");
       },

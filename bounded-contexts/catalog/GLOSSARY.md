@@ -60,9 +60,18 @@ A TCGplayer Operator Session is the pairing status Admin shows for the TCGplayer
 
 ### Operator Session Push Grant
 
-An Operator Session Push Grant is an opaque bearer pairing grant that a platform administrator with `catalog.manage`, authenticated within the last ten minutes, mints in Admin for the TCGplayer Operator Extension. It carries no provider credential. Catalog shows it once and stores only its hash. Mint requires the live Identity Membership aggregate, not the projected actor role, and replaces the previous active grant. The grant authorizes only the extension's observation posts and unpairing; it grants no Admin access. Every observation post rechecks the grant creator's live Identity Membership aggregate before reading the observation body; a missing, demoted, inactive, or unavailable authority commits `authority-lost` revocation and fails closed. Each successful authorization renews the grant's 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpairing is checked against the stored hash alone and revokes only that grant. Disconnect in Admin revokes every active grant. Neither proves that TCGplayer accepted anything, and neither logs out the browser or provider.
+An Operator Session Push Grant is an opaque bearer pairing grant that a platform administrator with `catalog.manage`, authenticated within the last ten minutes, mints in Admin for the TCGplayer Operator Extension. It carries no provider credential. Catalog shows it once and stores only its hash. Mint requires the live Identity Membership aggregate, not the projected actor role, and replaces the previous active grant. The grant authorizes only the extension's current-request reads, observation uploads and unpairing; it grants no Admin access. Every observation route rechecks the grant creator's live Identity Membership aggregate before reading the observation body; a missing, demoted, inactive, or unavailable authority commits `authority-lost` revocation and fails closed. Each successful authorization renews the grant's 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpairing is checked against the stored hash alone and revokes only that grant. Disconnect in Admin revokes every active grant. Neither proves that TCGplayer accepted anything, and neither logs out the browser or provider.
 
 ## Core Model
+
+### Market Observation Upload
+
+A Market Observation Upload is one grant-authorized, chunked TCGplayer market
+observation batch in Catalog. Pricing selects the current request through a
+host port. Catalog records ordered ASCII parts and admits a batch only after
+C0 assembly, digest, byte-count and endpoint-time validation. Admission records
+the grant creator and database time; it neither fetches provider data nor
+creates a Catalog market projection.
 
 ### TCGplayer Operator Extension
 
