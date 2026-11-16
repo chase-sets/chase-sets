@@ -31,6 +31,10 @@ import {
   type ObservationPackObjectStorage,
 } from "./observation-pack";
 import { assertDecodableProductAssetSource } from "./product-asset-normalization";
+import {
+  createRepresentativeCatalogAssetPreparation,
+  REPRESENTATIVE_CATALOG_ASSET_CONCURRENCY,
+} from "./representative-catalog-asset-preparation";
 import { recoverObservationPackAssetReferences } from "./observation-pack-asset-references";
 import { resolveTcgdexImageReference } from "../providers/tcgdex/image-reference";
 import type { ProviderAdapter, ProviderImportPlan, ProviderImportScope } from "../provider-adapters/provider-adapter";
@@ -162,8 +166,9 @@ export async function replayRepresentativeCatalogPacks(input: {
     throw new RepresentativeCatalogReplayError("representative-catalog-pack-source-invalid");
   });
   const summaries: RepresentativeCatalogPackReplaySummary[] = [];
+  const prepareAssets = createRepresentativeCatalogAssetPreparation();
   for (const source of sources) {
-    summaries.push(await replayRepresentativeCatalogPack({ ...input, source }));
+    summaries.push(await replayRepresentativeCatalogPack({ ...input, source, prepareAssets }));
   }
   return summaries;
 }
@@ -172,6 +177,7 @@ async function replayRepresentativeCatalogPack(input: {
   services: CatalogServices;
   source: LoadedPackSource;
   context: EventStoreContext;
+  prepareAssets: ReturnType<typeof createRepresentativeCatalogAssetPreparation>;
 }): Promise<RepresentativeCatalogPackReplaySummary> {
   const eventCountBefore = await countCatalogEvents(input.services);
   const assetSetCountBefore = await countCatalogProductAssetSets(input.services);
@@ -221,55 +227,66 @@ async function replayRepresentativeCatalogPack(input: {
   await drainLocalProjectionHandlerSets("catalog", input.services.pool, input.services.sourceObservations.projectors);
 
   const catalogItemIds: string[] = [];
-  for (const entry of prepared) {
-    const detail = await input.services.sourceObservations.getSourceObservationDetail(entry.observation.observationId);
-    if (!detail) {
-      throw new RepresentativeCatalogReplayError("representative-catalog-import-failed");
-    }
-    if (detail.status === "promoted" && detail.promoted_catalog_item_id) {
-      const reconciled = await input.services.sourceObservations
-        .reconcilePromotedObservationForReplay({
-          observationId: entry.observation.observationId,
-          context: input.context,
-          productAssetSource: entry.asset,
-        })
-        .catch(() => {
-          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid");
-        });
-      if (entry.history?.status !== "promoted") {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-status");
-      }
-      if (entry.history.promotedCatalogItemId !== reconciled.catalogItemId) {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-target");
-      }
-      if (
-        entry.history.promotionProfileKey !== reconciled.promotionProfileKey ||
-        entry.history.promotionProfileVersion !== reconciled.promotionProfileVersion
-      ) {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-profile");
-      }
-      if (
-        entry.history.promotionPlanFingerprint === null ||
-        !reconciled.promotionPlanFingerprints.includes(entry.history.promotionPlanFingerprint)
-      ) {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-plan");
-      }
-      catalogItemIds.push(reconciled.catalogItemId);
-      continue;
-    }
-    const promoted = await input.services.sourceObservations
-      .promoteObservation({
-        observationId: entry.observation.observationId,
-        context: input.context,
-        productAssetSource: entry.asset,
-      })
+  for (let offset = 0; offset < prepared.length; offset += REPRESENTATIVE_CATALOG_ASSET_CONCURRENCY) {
+    const batch = prepared.slice(offset, offset + REPRESENTATIVE_CATALOG_ASSET_CONCURRENCY);
+    const normalizedSources = await input
+      .prepareAssets(batch.filter((entry) => entry.history?.status !== "promoted").map((entry) => entry.asset))
       .catch(() => {
         throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
       });
-    if (!promoted.catalogItemId) {
-      throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
+    for (const entry of batch) {
+      const productAssetSource = { ...entry.asset, preparedSource: normalizedSources.get(entry.asset.sourceHash) };
+      const detail = await input.services.sourceObservations.getSourceObservationDetail(
+        entry.observation.observationId,
+      );
+      if (!detail) {
+        throw new RepresentativeCatalogReplayError("representative-catalog-import-failed");
+      }
+      if (detail.status === "promoted" && detail.promoted_catalog_item_id) {
+        const reconciled = await input.services.sourceObservations
+          .reconcilePromotedObservationForReplay({
+            observationId: entry.observation.observationId,
+            context: input.context,
+            productAssetSource,
+          })
+          .catch(() => {
+            throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid");
+          });
+        if (entry.history?.status !== "promoted") {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-status");
+        }
+        if (entry.history.promotedCatalogItemId !== reconciled.catalogItemId) {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-target");
+        }
+        if (
+          entry.history.promotionProfileKey !== reconciled.promotionProfileKey ||
+          entry.history.promotionProfileVersion !== reconciled.promotionProfileVersion
+        ) {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-profile");
+        }
+        if (
+          entry.history.promotionPlanFingerprint === null ||
+          !reconciled.promotionPlanFingerprints.includes(entry.history.promotionPlanFingerprint)
+        ) {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-plan");
+        }
+        catalogItemIds.push(reconciled.catalogItemId);
+        continue;
+      }
+      const promoted = await input.services.sourceObservations
+        .promoteObservation({
+          observationId: entry.observation.observationId,
+          context: input.context,
+          productAssetSource,
+        })
+        .catch(() => {
+          throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
+        });
+      if (!promoted.catalogItemId) {
+        throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
+      }
+      catalogItemIds.push(promoted.catalogItemId);
     }
-    catalogItemIds.push(promoted.catalogItemId);
   }
 
   await drainLocalProjectionHandlerSets("catalog", input.services.pool, input.services.projectors);
