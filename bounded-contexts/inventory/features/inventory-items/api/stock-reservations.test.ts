@@ -46,6 +46,12 @@ describe("Inventory physical stock enrollment", () => {
         context,
         events: [{ eventType: "inventory.recovered-item.transferred", payload: {} }],
       },
+      {
+        streamId: "inventory.hold-collision-receipt",
+        expectedVersion: "no_stream",
+        context,
+        events: [{ eventType: "inventory.hold-collision.recorded", payload: {} }],
+      },
     ]);
     expect(db.query).not.toHaveBeenCalled();
   });

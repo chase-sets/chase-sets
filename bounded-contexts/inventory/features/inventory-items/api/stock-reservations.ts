@@ -86,7 +86,10 @@ export function createInventoryStockReservations(
       if (input.streamId.startsWith("inventory.item-")) itemId = input.streamId.slice("inventory.item-".length);
       else if (input.streamId.startsWith("inventory.channel-stock-allocation-"))
         itemId = input.streamId.slice("inventory.channel-stock-allocation-".length);
-      else if (input.streamId.startsWith("inventory.hold-")) {
+      else if (
+        input.streamId.startsWith("inventory.hold-") &&
+        !input.streamId.startsWith("inventory.hold-collision-")
+      ) {
         const placed = input.events.find((event) => event.eventType === "inventory.hold.placed")?.payload;
         const first =
           placed ?? (await store.readStreamInTransaction(db, { streamId: input.streamId, limit: 1 }))[0]?.payload;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext, EventRecordToStore } from "@chase-sets/event-core/storage";
 import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
@@ -115,10 +115,40 @@ async function fixture(holdEvents = 0) {
     appendToStreamsInTransaction: (_db, inputs) => eventStore.appendToStreams!(inputs),
   };
   const reservations = createInventoryStockReservations(pool, store);
-  return { authority: createInventoryStockAuthority(pool, store, reservations), eventStore, queries };
+  return { authority: createInventoryStockAuthority(pool, store, reservations), reservations, eventStore, queries };
 }
 
 describe("Inventory canonical stock capture", () => {
+  it("prepares immutable terminal bindings without reservation state", async () => {
+    const { authority, reservations } = await fixture();
+    vi.spyOn(reservations, "reserveInTransaction").mockImplementation(async (_db, input) => ({
+      ...input,
+      status: "OPEN",
+    }));
+    const capture = await authority.capture(target, context);
+    const prepared = await authority.prepare(
+      capture,
+      {
+        reservationId: "reservation",
+        operationId: "operation",
+        purpose: "listing-activation",
+        consumer: { storeId: "marketplace", incarnation: "consumer-incarnation", requestId: "request" },
+        target,
+        commandFingerprint: "command",
+      },
+      context,
+    );
+    expect(prepared).toHaveLength(2);
+    for (const binding of prepared) {
+      expect(binding).not.toHaveProperty("status");
+      expect(binding).not.toHaveProperty("releaseStatus");
+    }
+    expect(prepared.map((binding) => binding.ownerStreamId)).toEqual([
+      "inventory.channel-stock-allocation-item",
+      "inventory.item-item",
+    ]);
+  });
+
   it.each([0, 1, 500, 501])("poisons projections and reads complete %i-event Hold history", async (count) => {
     const { authority, queries, eventStore } = await fixture(count);
     const captured = await authority.capture(target, context);

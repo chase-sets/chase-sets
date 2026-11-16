@@ -460,6 +460,7 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
       });
       const gatedPool: PgTransactionalPool = {
         ...pool,
+        query: pool.query.bind(pool),
         connect: async () => {
           const client = await pool.connect();
           return {
@@ -488,14 +489,25 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
           withInventoryMutationAttempt(context, randomUUID()),
         ),
       ]);
-      await reached;
-      if (order === "release-last")
-        expect((await competitors).every((result) => result.status === "rejected")).toBe(true);
-      await normal.holds.releaseHold(
-        { accountId: context.audit.forAccountId, holdId: initial.holdId, releaseReason: "manual" },
-        withInventoryMutationAttempt(context, randomUUID()),
-      );
-      releaseReads();
+      try {
+        await Promise.race([
+          reached,
+          competitors.then((results) => {
+            throw new AggregateError(
+              results.flatMap((result) => (result.status === "rejected" ? [result.reason] : [])),
+              "Competitors settled before reaching the stock discovery barrier.",
+            );
+          }),
+        ]);
+        if (order === "release-last")
+          expect((await competitors).every((result) => result.status === "rejected")).toBe(true);
+        await normal.holds.releaseHold(
+          { accountId: context.audit.forAccountId, holdId: initial.holdId, releaseReason: "manual" },
+          withInventoryMutationAttempt(context, randomUUID()),
+        );
+      } finally {
+        releaseReads();
+      }
       const results = await competitors;
       expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(order === "release-first" ? 1 : 0);
       const releases = await pool.query<{ total: string }>(

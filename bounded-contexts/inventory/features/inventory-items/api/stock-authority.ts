@@ -1,6 +1,6 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { reservationIdentity } from "@chase-sets/event-core/owner-stream-reservation";
+import { reservationIdentity, reservationInput } from "@chase-sets/event-core/owner-stream-reservation";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
@@ -114,16 +114,18 @@ export function createInventoryStockAuthority(
         const prepared = [];
         for (let index = 0; index < streams.length; index++) {
           prepared.push(
-            await reservations.reserveInTransaction(db, {
-              ...input,
-              reservationId: `${input.reservationId}:${index === 0 ? "allocation" : "item"}`,
-              ownerStreamId: streams[index],
-              resourceKey: `stock/${capture.target.accountId}/${capture.target.inventoryItemId}`,
-              seal: {
-                version: index === 0 ? capture.allocation.revision : capture.itemVersion,
-                storeIncarnation: capture.incarnation,
-              },
-            }),
+            reservationInput(
+              await reservations.reserveInTransaction(db, {
+                ...input,
+                reservationId: `${input.reservationId}:${index === 0 ? "allocation" : "item"}`,
+                ownerStreamId: streams[index],
+                resourceKey: `stock/${capture.target.accountId}/${capture.target.inventoryItemId}`,
+                seal: {
+                  version: index === 0 ? capture.allocation.revision : capture.itemVersion,
+                  storeIncarnation: capture.incarnation,
+                },
+              }),
+            ),
           );
         }
         return prepared;
