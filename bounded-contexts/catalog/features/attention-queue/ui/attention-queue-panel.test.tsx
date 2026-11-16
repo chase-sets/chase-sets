@@ -436,9 +436,8 @@ describe("CatalogAttentionQueuePanel", () => {
   });
 
   it.each(["catalog-item", "reference-record"] as const)(
-    "disables resolution for an alias with an absent %s target identity",
-    async (targetKind) => {
-      const user = userEvent.setup();
+    "omits commands for an alias with an absent %s target identity",
+    (targetKind) => {
       const sources = oneOfEachKindSources();
       const readModel = assemble({
         ...sources,
@@ -453,12 +452,8 @@ describe("CatalogAttentionQueuePanel", () => {
       });
       render(<CatalogAttentionQueuePanel readModel={readModel} actionHref="/catalog/scopes" />);
       const forms = document.querySelectorAll<HTMLFormElement>("[data-attention-resolution]");
-      expect(forms.length).toBeGreaterThan(0);
-      for (const form of forms) expect(form.querySelector("button")?.disabled).toBe(true);
-      await user.click(
-        screen.getAllByRole("button", { name: "Accept" }).find((button) => !button.hasAttribute("disabled"))!,
-      );
-      expect(screen.getByText(/Resolution unavailable/i)).toBeTruthy();
+      expect(readModel.items.some((item) => item.kind === "alias-candidate")).toBe(false);
+      expect(forms).toHaveLength(0);
       expect(document.querySelector('[data-attention-destination="true"]')).toBeNull();
     },
   );

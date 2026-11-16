@@ -3,6 +3,7 @@ import type { StoredEvent } from "@chase-sets/event-core/storage";
 import {
   managedOfferEvaluations,
   managedOfferFulfillmentSnapshot,
+  readManagedOfferFulfillmentAuthority,
   readManagedOfferWorkDiagnostics,
 } from "../e2e/support/managed-offer-diagnostics";
 
@@ -41,6 +42,73 @@ const work = {
 };
 
 describe("managed Offer convergence diagnostics", () => {
+  it("retains both held branches and their revisions without unrelated policy or Pricing evidence", async () => {
+    const evidence = {
+      policyRevision: 2,
+      evaluatedAt: occurredAt,
+      marketPrice: {
+        ...product,
+        estimateVersion: "8347002",
+        amount: "135.00",
+        currencyCode: "USD",
+        estimatedAt: occurredAt,
+        freshUntil: occurredAt,
+      },
+    };
+    const row = {
+      policy_status: "active",
+      policy_revision: 2,
+      policy_projection_version: 6,
+      policy_stream_version: 6,
+      audit_status: "applied",
+      audit_reason: "market-price-target",
+      audit_stream_version: 4,
+      audit_evidence: { ...evidence, policyRevision: 1, privateTerms: "not exported" },
+      consent_result: { status: "held", reason: "market-price-stale", evidence },
+    };
+    const db = { query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [row] })) };
+    expect(await readManagedOfferFulfillmentAuthority(db, "off_fixture", "bop_fixture")).toEqual({
+      policy: { status: "active", revision: 2, projectionVersion: 6, streamVersion: 6 },
+      audit: { ...evidence, policyRevision: 1, status: "applied", reason: "market-price-target", streamVersion: 4 },
+      consent: { ...evidence, status: "held", reason: "market-price-stale", amount: null },
+    });
+    expect(db.query.mock.calls[0]![1]).toEqual(["off_fixture", "bop_fixture"]);
+    const sql = db.query.mock.calls[0]![0];
+    expect(sql).toContain("authorized.payload->>'revision' = policy.state->>'revision'");
+    expect(sql).toContain("selected.value->>'offerId' = target.offer_id");
+    expect(sql).toContain("ORDER BY authorized.stream_version DESC LIMIT 1");
+    row.audit_evidence.marketPrice = {
+      ...evidence.marketPrice,
+      privateTerms: "not exported",
+    } as typeof evidence.marketPrice;
+    expect(JSON.stringify(await readManagedOfferFulfillmentAuthority(db, "off_fixture", "bop_fixture"))).not.toContain(
+      "privateTerms",
+    );
+  });
+
+  it("keeps absent authority operands explicit and propagates a failed diagnostic read", async () => {
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            policy_status: null,
+            policy_revision: null,
+            policy_projection_version: null,
+            policy_stream_version: null,
+            audit_status: null,
+            audit_reason: null,
+            audit_stream_version: null,
+            audit_evidence: null,
+            consent_result: null,
+          },
+        ],
+      })),
+    };
+    const result = await readManagedOfferFulfillmentAuthority(db, "off_fixture", "bop_fixture");
+    for (const part of Object.values(result)) expect(Object.values(part).every((value) => value === null)).toBe(true);
+    db.query.mockRejectedValueOnce(new Error("read failed"));
+    await expect(readManagedOfferFulfillmentAuthority(db, "off_fixture", "bop_fixture")).rejects.toThrow("read failed");
+  });
   it.each([
     { managed_status: "held" },
     { managed_status: "refresh_required" },

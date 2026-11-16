@@ -30,6 +30,7 @@ import { signInWithPassword } from "./support/auth";
 import {
   managedOfferEvaluations,
   managedOfferFulfillmentSnapshot,
+  readManagedOfferFulfillmentAuthority,
   readManagedOfferWorkDiagnostics,
 } from "./support/managed-offer-diagnostics";
 import {
@@ -76,6 +77,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
   const pool = createPgPool(databaseUrl.toString(), { max: 1 });
   const removeEstimates: (() => Promise<void>)[] = [];
   const companionPools: PgTransactionalPool[] = [];
+  let marketplacePool: PgTransactionalPool | undefined;
   const timeline: unknown[] = [];
   let listingId: string | undefined;
   let policyId: string | undefined;
@@ -326,7 +328,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         marketplaceUrl.pathname !== catalogUrl.pathname.replace(/_catalog$/, "_marketplace")
       )
         throw new Error("Offer observation requires the same owned local E2E database.");
-      const marketplacePool = createPgPool(marketplaceUrl.toString(), { max: 1 });
+      marketplacePool = createPgPool(marketplaceUrl.toString(), { max: 1 });
       companionPools.push(marketplacePool);
       const marketplace = createPostgresEventStore({ pool: marketplacePool });
       const convergence = {
@@ -829,21 +831,37 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           pollCount: 0,
           observedAt: null as string | null,
           lastObserved: null as ReturnType<typeof managedOfferFulfillmentSnapshot> | null,
+          authorityObservedAt: null as string | null,
+          authority: null as Awaited<ReturnType<typeof readManagedOfferFulfillmentAuthority>> | null,
+          authorityReadError: null as string | null,
         };
         timeline.push(fulfillment);
-        await expect
-          .poll(async () => {
-            fulfillment.pollCount += 1;
-            const response = await seller.request.get(`/api/marketplace/account/offers/matches/${controlOfferId}`, {
-              headers: freshReadHeaders("marketplace"),
-            });
-            expect(response.ok()).toBe(true);
-            const match = await response.json();
-            fulfillment.observedAt = new Date().toISOString();
-            fulfillment.lastObserved = managedOfferFulfillmentSnapshot(match);
-            return { can_fulfill: match.can_fulfill, amount: match.price_amount, listingId: match.listing_id };
-          })
-          .toEqual({ can_fulfill: true, amount: "135.00", listingId });
+        try {
+          await expect
+            .poll(async () => {
+              fulfillment.pollCount += 1;
+              const response = await seller.request.get(`/api/marketplace/account/offers/matches/${controlOfferId}`, {
+                headers: freshReadHeaders("marketplace"),
+              });
+              expect(response.ok()).toBe(true);
+              const match = await response.json();
+              fulfillment.observedAt = new Date().toISOString();
+              fulfillment.lastObserved = managedOfferFulfillmentSnapshot(match);
+              return { can_fulfill: match.can_fulfill, amount: match.price_amount, listingId: match.listing_id };
+            })
+            .toEqual({ can_fulfill: true, amount: "135.00", listingId });
+        } finally {
+          try {
+            fulfillment.authority = await readManagedOfferFulfillmentAuthority(
+              marketplacePool!,
+              controlOfferId,
+              policyId!,
+            );
+            fulfillment.authorityObservedAt = new Date().toISOString();
+          } catch {
+            fulfillment.authorityReadError = "Managed Offer authority diagnostics read failed.";
+          }
+        }
         // Accept and the Sell List read Checkout's own Offer and seller-option projections, which neither
         // fence above covers. Fence Checkout on the same receipts through the route Accept itself reads.
         const checkoutMatch = await seller.request.get(

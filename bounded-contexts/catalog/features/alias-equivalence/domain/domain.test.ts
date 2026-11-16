@@ -67,6 +67,31 @@ describe("Catalog Alias stream id", () => {
 });
 
 describe("Catalog Alias proposal", () => {
+  it.each(["accepted", "rejected", "revoked"] as const)(
+    "preserves %s on unchanged intake and reopens changed evidence",
+    (status) => {
+      const candidate = pendingCandidate();
+      let { state } = apply(initialCatalogAliasState, { type: "ProposeCatalogAlias", candidate, actor: "system" });
+      if (status !== "rejected") {
+        state = apply(state, { type: "AcceptCatalogAlias", actor: "reviewer" }).state;
+      }
+      if (status === "rejected") {
+        state = apply(state, { type: "RejectCatalogAlias", actor: "reviewer", reason: "Not equivalent" }).state;
+      } else if (status === "revoked") {
+        state = apply(state, { type: "RevokeCatalogAlias", actor: "reviewer", reason: "Withdrawn" }).state;
+      }
+      expect(apply(state, { type: "ProposeCatalogAlias", candidate, actor: "system" })).toEqual({ state, events: [] });
+      const changed = apply(state, {
+        type: "ProposeCatalogAlias",
+        candidate: { ...candidate, reviewStatus: "auto-accepted", evidence: { sharedId: "base1-4", revised: true } },
+        actor: "system",
+      });
+      expect(changed.events).toHaveLength(1);
+      expect(changed.state.reviewStatus).toBe("pending");
+      expect(changed.state.aliasHash).toBe(candidate.aliasHash);
+    },
+  );
+
   it("proposes a pending alias", () => {
     const { state, events } = apply(initialCatalogAliasState, {
       type: "ProposeCatalogAlias",

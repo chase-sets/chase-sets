@@ -121,6 +121,27 @@ function fulfillmentTimeline() {
     expected: { can_fulfill: true, amount: "135.00", listingId: "lst_01JC0000000000000000000004" },
     pollCount: 2,
     observedAt: at,
+    authorityObservedAt: at,
+    authorityReadError: null,
+    authority: {
+      policy: { status: "active", revision: 2, projectionVersion: 6, streamVersion: 6 },
+      audit: {
+        status: "applied",
+        reason: "market-price-target",
+        streamVersion: 4,
+        policyRevision: 1,
+        evaluatedAt: at,
+        marketPrice: diagnosticTimeline().entries[5].evaluations[0].evidence.marketPrice,
+      },
+      consent: {
+        status: "held",
+        reason: "market-price-unavailable",
+        amount: null,
+        policyRevision: 2,
+        evaluatedAt: at,
+        marketPrice: null,
+      },
+    },
     lastObserved: {
       can_fulfill: false,
       managed_status: "held",
@@ -451,6 +472,71 @@ describe("journey package projection", () => {
     expect(validateTimeline(timeline)).toEqual(timeline);
     Object.assign(entry, { pollCount: 0, observedAt: null, lastObserved: null });
     expect(validateTimeline(timeline)).toEqual(timeline);
+    for (const part of Object.values(entry.authority)) {
+      for (const key of Object.keys(part)) part[key] = null;
+    }
+    expect(validateTimeline(timeline)).toEqual(timeline);
+    Object.assign(entry, {
+      authority: null,
+      authorityObservedAt: null,
+      authorityReadError: "Managed Offer authority diagnostics read failed.",
+    });
+    expect(validateTimeline(timeline)).toEqual(timeline);
+  });
+
+  it("refuses unknown or malformed fulfillment authority and Pricing operands", () => {
+    const mutations = [
+      (entry) => {
+        entry.authority.password = witnesses.password;
+      },
+      (entry) => {
+        entry.authority.policy.password = witnesses.password;
+      },
+      (entry) => {
+        entry.authority.audit.marketPrice.password = witnesses.password;
+      },
+      (entry) => {
+        entry.authority.consent.reason = witnesses.password;
+      },
+      (entry) => {
+        entry.authority.audit.policyRevision = "1";
+      },
+      (entry) => {
+        entry.authority.policy.streamVersion = -1;
+      },
+      (entry) => {
+        entry.authority.audit.status = "target";
+      },
+      (entry) => {
+        entry.authority.consent.status = "applied";
+      },
+      (entry) => {
+        entry.authority.consent.amount = "135";
+      },
+      (entry) => {
+        entry.authority.audit.marketPrice.freshUntil = "2026-11-01";
+      },
+      (entry) => {
+        delete entry.authority.consent.evaluatedAt;
+      },
+      (entry) => {
+        delete entry.authorityReadError;
+      },
+      (entry) => {
+        entry.authorityReadError = witnesses.password;
+      },
+      (entry) => {
+        entry.authorityObservedAt = "2026-11-01";
+      },
+    ];
+    for (const mutate of mutations) {
+      const timeline = fulfillmentTimeline();
+      mutate(timeline.entries[9]);
+      expect(() => validateTimeline(timeline)).toThrow("timeline-invalid");
+    }
+    const legacy = fulfillmentTimeline();
+    for (const key of ["authority", "authorityObservedAt", "authorityReadError"]) delete legacy.entries[9][key];
+    expect(validateTimeline(legacy)).toEqual(legacy);
   });
 
   it("refuses malformed seller Match fulfillment operands and unknown or missing keys", () => {

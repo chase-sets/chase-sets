@@ -13,6 +13,21 @@ import type {
   CatalogReferenceRecordAliasRow,
 } from "../read-model/queries";
 
+describe("unresolved alias review identity", () => {
+  it.each(["catalog-item", "reference-record"] as const)(
+    "offers no actions for unresolved %s rows in every state",
+    (kind) => {
+      for (const status of ["pending", "accepted", "auto-accepted", "rejected", "revoked"] as const) {
+        const row = mapCatalogAliasReviewCandidate(
+          candidateRow({ target_kind: kind, target_id: null, review_status: status }),
+        );
+        expect(row.availableActions).toEqual([]);
+        expect(row.reviewable).toBe(false);
+      }
+    },
+  );
+});
+
 function candidateRow(overrides: Partial<CatalogAliasCandidateRow> = {}): CatalogAliasCandidateRow {
   return {
     alias_hash: "hash_official",
