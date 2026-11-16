@@ -786,18 +786,24 @@ pub trait SellList {
     async fn guest_offer_reviews(&self, guest: &str) -> Result<Vec<OfferReview>, ApiError>;
     /// Whether the account's payouts are set up (`getSellListPayoutReadiness`).
     async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError>;
-    /// The sell list's readiness with the seller's `decisions`, as a snapshot seller checkout starts
-    /// from, and the write's receipt. Seller checkout names its `confirmation`, which Checkout
-    /// checks the snapshot against (chase-sets/chase-sets#9995).
-    async fn sell_list_readiness(
+    /// The account's Sell List reviewed with what the seller chose on the page (Continue's
+    /// `selections`): Checkout builds the review plan and its readiness decisions from the lines as
+    /// they are now and keeps them with the snapshot. The review, and the write's receipt.
+    async fn review_sell_list(&self, selections: &ReviewSelections) -> Result<(SellListReview, Option<Receipt>), ApiError>;
+    /// The review Continue kept for the snapshot `snapshot` at `revision`, for seller checkout's
+    /// `confirmation` (chase-sets/chase-sets#9995). Refused (`checkout_readiness_stale`) when the
+    /// Sell List changed since.
+    async fn stored_sell_list_review(
         &self,
-        decisions: &ReadinessDecisions,
-        guest: Option<&str>,
-        confirmation: Option<&str>,
-    ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
-    /// The account's readiness with the seller's `decisions`, the ship-from and label `choices`
-    /// Checkout works seller readiness out from, and the seller confirmation evidence seller
-    /// checkout sends before its handoff, for the confirmation and the snapshot and plan it
+        snapshot: &str,
+        revision: &str,
+        confirmation: &str,
+    ) -> Result<SellListReview, ApiError>;
+    /// The guest sell list `guest`'s readiness, and the write's receipt.
+    async fn guest_sell_list_readiness(&self, guest: &str) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
+    /// The account's readiness with the seller's `decisions` (the kept review's), the ship-from and
+    /// label `choices` Checkout works seller readiness out from, and the seller confirmation
+    /// evidence seller checkout sends before its handoff, for the confirmation and the snapshot it
     /// started from (`entry`).
     async fn seller_readiness(
         &self,
@@ -815,8 +821,9 @@ pub trait SellList {
 }
 
 /// What seller checkout's readiness names (`confirmationId`, `entryReadinessSnapshotId`,
-/// `reviewPlan`): the confirmation it is for, and the snapshot and review plan the page started
-/// from. Checkout refuses one that no longer matches (409, `checkout_confirmation_changed`).
+/// `entryReadinessSourceRevision`): the confirmation it is for, and the snapshot the page started
+/// from, whose kept review Checkout reads the plan from. Checkout refuses one that no longer
+/// matches (409, `checkout_confirmation_changed` or `checkout_readiness_stale`).
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadinessEntry<'a> {
@@ -824,7 +831,7 @@ pub struct ReadinessEntry<'a> {
     #[serde(skip_serializing_if = "str::is_empty")]
     pub entry_readiness_snapshot_id: &'a str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    pub review_plan: &'a str,
+    pub entry_readiness_source_revision: &'a str,
 }
 
 fn sell_list_path(guest: Option<&str>, rest: &str) -> String {
@@ -867,26 +874,30 @@ impl SellList for Caller<'_> {
         self.read(&sell_list_path(None, "/payout-readiness"), CHECKOUT).await
     }
 
-    async fn sell_list_readiness(
+    async fn review_sell_list(&self, selections: &ReviewSelections) -> Result<(SellListReview, Option<Receipt>), ApiError> {
+        let req =
+            sell_list_request(self, Method::POST, None, "/readiness").json(&serde_json::json!({ "selections": selections }));
+        self.write(req).await
+    }
+
+    async fn stored_sell_list_review(
         &self,
-        decisions: &ReadinessDecisions,
-        guest: Option<&str>,
-        confirmation: Option<&str>,
-    ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError> {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Sent<'a> {
-            #[serde(flatten)]
-            decisions: &'a ReadinessDecisions,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            confirmation_id: Option<&'a str>,
-        }
+        snapshot: &str,
+        revision: &str,
+        confirmation: &str,
+    ) -> Result<SellListReview, ApiError> {
+        let sent = serde_json::json!({
+            "readinessSnapshotId": snapshot, "readinessSourceRevision": revision, "confirmationId": confirmation,
+        });
+        Ok(self.write(sell_list_request(self, Method::POST, None, "/readiness").json(&sent)).await?.0)
+    }
+
+    async fn guest_sell_list_readiness(&self, guest: &str) -> Result<(SellListSnapshot, Option<Receipt>), ApiError> {
         #[derive(Deserialize)]
         struct Body {
             readiness: SellListSnapshot,
         }
-        let sent = Sent { decisions, confirmation_id: confirmation };
-        let req = sell_list_request(self, Method::POST, guest, "/readiness").json(&sent);
+        let req = sell_list_request(self, Method::POST, Some(guest), "/readiness").json(&serde_json::json!({}));
         let (body, receipt): (Body, _) = self.write(req).await?;
         Ok((body.readiness, receipt))
     }
@@ -1173,28 +1184,125 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Resul
     Option::<T>::deserialize(d).map(Some)
 }
 
-/// What the seller decided for each line before seller checkout (`SellListReadinessDecisionInput`).
+/// What the seller chose on the Sell List, as Continue sends it (`SellListReviewSelections`):
+/// the offers checked, and for each line its selected offer's fee quote, its Smart Match offers
+/// with theirs, and the listing for the rest when the seller chose one. Checkout plans from these.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReviewSelections {
+    pub bulk_offer_ids: Vec<String>,
+    pub lines: Vec<LineSelection>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineSelection {
+    pub line_id: String,
+    pub selected_offer_fee_quote_fingerprint: String,
+    pub product_offers: Vec<OfferSelection>,
+    pub fallback_listing: Option<ListingSelection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfferSelection {
+    pub offer_id: String,
+    pub fee_quote_fingerprint: String,
+}
+
+/// A fallback listing as the form has it; the quantity cap is the form's text, empty for "the rest".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingSelection {
+    pub inventory_item_id: String,
+    pub price_amount: String,
+    pub price_currency_code: String,
+    pub quantity_cap: String,
+}
+
+/// A Sell List review as Checkout keeps it (`SellListReviewReadiness`): the snapshot, the review
+/// plan and the readiness decisions it made. A plan or decisions missing is a review seller
+/// checkout cannot go on from.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListReview {
+    pub readiness: SellListSnapshot,
+    pub review_plan: Option<ReviewPlan>,
+    pub decisions: Option<ReadinessDecisions>,
+}
+
+/// What Checkout planned for each line (`SellListReviewPlan`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct ReviewPlan {
+    pub version: u8,
+    pub lines: Vec<PlanLine>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlanLine {
+    pub line_id: String,
+    /// `selected-offer` or `product`.
+    pub line_type: String,
+    pub item_title: String,
+    pub product_id: Option<String>,
+    pub quantity: u64,
+    pub selected_offer: Option<PlanOffer>,
+    pub product_offer_targets: Vec<PlanTarget>,
+    pub fallback_listing: Option<PlanListing>,
+    pub skipped_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanOffer {
+    pub offer_id: String,
+    pub listing_id: String,
+    pub fee_quote_fingerprint: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanTarget {
+    pub offer_id: String,
+    pub listing_id: String,
+    pub fee_quote_fingerprint: String,
+    pub quantity: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanListing {
+    pub inventory_item_id: String,
+    pub price_amount: String,
+    pub price_currency_code: String,
+    pub quantity_cap: u64,
+}
+
+/// What readiness decided for each line before seller checkout (`SellListReadinessDecisionInput`),
+/// as Checkout keeps it with a review and seller checkout sends it back.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct ReadinessDecisions {
     pub line_actions: Vec<LineAction>,
     pub line_outcomes: Vec<LineKept>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineAction {
     pub line_id: String,
     /// `selected-offer`, `smart-match` or `fallback-listing`.
-    pub action: &'static str,
+    pub action: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineKept {
     pub line_id: String,
     /// `keep-in-list`.
-    pub outcome: &'static str,
+    pub outcome: String,
 }
 
 /// The readiness snapshot seller checkout starts from (`SellListReadinessSnapshot`), the fields
