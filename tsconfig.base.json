@@ -795,6 +795,9 @@
       "@chase-sets/platform-runtime/http": [
         "./infrastructure/platform-runtime/http.ts"
       ],
+      "@chase-sets/platform-runtime/inline-seed-db-test-support": [
+        "./infrastructure/platform-runtime/inline-seed-db-test-support.ts"
+      ],
       "@chase-sets/platform-runtime/internal-auth": [
         "./infrastructure/platform-runtime/internal-auth.ts"
       ],
