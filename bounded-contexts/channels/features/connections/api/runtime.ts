@@ -184,6 +184,7 @@ export function createChannelConnectionRuntime(
       assertOpaqueId(input.connectionId, "connectionId");
       assertOpaqueId(input.accountId, "accountId");
       assertProviderKey(input.providerKey);
+      if (input.providerKey === "ebay") throw new ChannelConnectionError("invalid-input");
       assertDeploymentEnvironment(options.deploymentEnvironment);
       const loaded = await repository.load(streamId(input.connectionId));
       if (loaded.state.status === "disconnected") throw new ChannelConnectionError("connection-disconnected");

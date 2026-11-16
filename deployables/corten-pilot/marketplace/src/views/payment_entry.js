@@ -4,9 +4,12 @@
 // on once they are ready. A Checkout Session's secret (cs_...) uses Stripe's Checkout Elements, any other the
 // Payment Element. Loading has one deadline over the whole chain, since Stripe sets none. Confirm
 // is Stripe's own; once it succeeds the payment's status changes when the provider tells
-// Payments, so the step says the payment is being updated and reads the status part until it
-// changes (the page's watch, a ReadAgain in its markup).
-import { keep, patch } from "corten";
+// Payments, so the step says the payment is being updated and sends its status form, which has
+// the runtime read the status part until it changes (a ReadAgain in the part's answer). The
+// runtime reads it, not this script: pages require Trusted Types, so a script's string of markup
+// is refused, and `patch` draws none. The form goes once the runtime can read a part for a script
+// (the README's open workarounds name the Corten issue).
+import { keep } from "corten";
 import { loadStripe } from "./stripe.js";
 
 /** Half the account-payment UAT's 60 s readiness ceiling, as marketplace's. */
@@ -28,6 +31,8 @@ const SESSION_OWNED_EMAIL_REFUSAL =
  * @property {HTMLDivElement} error
  * @property {HTMLParagraphElement} error_text
  * @property {HTMLDivElement} processing
+ * @property {HTMLFormElement} status the status part's `GET`, `data-patch`, sent once Stripe confirms
+ * @property {HTMLInputElement} until when the watch it starts ends (Unix seconds)
  */
 
 /**
@@ -182,13 +187,12 @@ export async function mount(target, parts, key, secret, defaults, couldNotLoad, 
  *
  * @param {HTMLElement} scope
  * @param {Parts} parts
- * @param {string} watch the status part's address
  * @param {string} couldNotComplete
  * @param {string} stillLoading
  * @param {string} confirming
  * @param {string} processing
  */
-export async function confirm(scope, parts, watch, couldNotComplete, stillLoading, confirming, processing) {
+export async function confirm(scope, parts, couldNotComplete, stillLoading, confirming, processing) {
   const state = kept();
   if (state.phase !== "idle") return;
   if (!state.ready) {
@@ -222,20 +226,6 @@ export async function confirm(scope, parts, watch, couldNotComplete, stillLoadin
   state.phase = "processing";
   buttons(scope, processing, true);
   parts.processing.hidden = false;
-  if (watch) {
-    const again = new URL(watch, location.href);
-    again.searchParams.set("until", String(Math.floor(Date.now() / 1000) + WATCH_SECONDS));
-    void read(again.pathname + again.search);
-  }
-}
-
-/**
- * Read the status part at `href` and apply it; it asks to be read again while the status is
- * unchanged.
- * @param {string} href
- */
-async function read(href) {
-  const res = await fetch(href, { headers: { corten: "action" } }).catch(() => null);
-  if (!res?.headers.has("corten-patch")) return;
-  await patch(await res.text());
+  parts.until.value = String(Math.floor(Date.now() / 1000) + WATCH_SECONDS);
+  parts.status.requestSubmit();
 }
