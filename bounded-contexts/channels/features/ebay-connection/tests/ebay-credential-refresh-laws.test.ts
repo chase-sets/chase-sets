@@ -137,6 +137,9 @@ describe("ebay-credential-refresh laws and mutation oracles", () => {
     await maintenance.process({ ...claim, schedule_generation: "2" });
     expect(submit).toHaveBeenCalledTimes(2);
     const observations = submit.mock.calls.map(([observation]) => observation);
+    expect(observations.map((o) => o.fingerprint)).toEqual(
+      [1, 2].map(() => healthDigest(["ebay-credential", envelope.connectionId])),
+    );
     expect(observations.map((o) => o.sourceWorkId)).toEqual(
       [1, 2].map((cycle) =>
         healthDigest(["ebay-credential-refresh", envelope.connectionId, 1, ebayMaintenanceRevision, cycle]),

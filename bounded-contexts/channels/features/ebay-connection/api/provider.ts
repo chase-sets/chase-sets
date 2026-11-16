@@ -21,10 +21,7 @@ export function createEbayOAuthProvider(
     }
   }
   async function json(response: Response) {
-    if (!response.ok || !response.body) {
-      await response.body?.cancel();
-      throw new EbayConnectionError("provider-unavailable");
-    }
+    if (!response.ok || !response.body) throw new EbayConnectionError("provider-unavailable");
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;

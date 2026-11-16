@@ -58,7 +58,7 @@ export function createEbayCredentialRefresh(deps: {
       policyRevision: snapshot.health.policyRevision,
       evaluationGeneration: snapshot.health.evaluationGeneration,
       connectionId: claim.connection_id,
-      fingerprint: healthDigest(["ebay-credential", claim.connection_id, Number(claim.token_generation)]),
+      fingerprint: healthDigest(["ebay-credential", claim.connection_id]),
       outcome: success ? "success" : "failure",
       occurredAt: deps.now().toISOString(),
     };

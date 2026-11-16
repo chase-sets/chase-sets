@@ -1232,7 +1232,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Own the context-level Channels runtime service composition contract.",
-      "expectedConsumers": ["manual-sync"]
+      "expectedConsumers": ["ebay-connection", "manual-sync"]
     },
     "seed-support": {
       "classification": "support",
