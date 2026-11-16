@@ -1,4 +1,4 @@
-import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { EvidenceCoverageCode } from "../../../support/request-support/marketplace-listing-evidence";
 import type {
   CheckoutSellListCompositeReview,
@@ -49,8 +49,20 @@ export type SellListScreenReview = Readonly<{
   expectedSellerPayout: string | null;
 }>;
 
+function storedPriceCents(value: string): bigint | null {
+  const decimal = /^(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!decimal) return null;
+  const fraction = decimal[2] ?? "";
+  if (/[1-9]/.test(fraction.slice(2))) return null;
+  return tryMoneyToCents(`${decimal[1]}.${fraction.slice(0, 2).padEnd(2, "0")}`);
+}
+
+function aggregateAmount(cents: bigint): string {
+  return `${cents / 100n}.${(cents % 100n).toString().padStart(2, "0")}`;
+}
+
 function positivePrice(value: string | null | undefined) {
-  return value ? (tryMoneyToCents(value) ?? 0n) > 0n : false;
+  return value ? (storedPriceCents(value) ?? 0n) > 0n : false;
 }
 
 function setupTargets(line: CheckoutSellListLineRow, inventoryItemId?: string) {
@@ -62,7 +74,8 @@ function setupTargets(line: CheckoutSellListLineRow, inventoryItemId?: string) {
     ? new URLSearchParams({ inventoryItemId })
     : new URLSearchParams({ catalogItemId: line.catalog_catalog_item_id });
   const price = line.line_type === "selected-offer" ? line.offer_price_amount : line.minimum_listing_price_amount;
-  if (price && positivePrice(price)) listingParams.set("recommendedPrice", price);
+  const priceCents = price ? storedPriceCents(price) : null;
+  if (priceCents !== null && priceCents > 0n) listingParams.set("recommendedPrice", aggregateAmount(priceCents));
   if (line.selected_options.length > 0) {
     inventoryParams.set("selectedOptions", JSON.stringify(line.selected_options));
     if (!inventoryItemId) listingParams.set("selectedOptions", JSON.stringify(line.selected_options));
@@ -107,6 +120,12 @@ export function deriveSellListCompositeReview(
     const inventoryItemId = inventory.get(line.product_id);
     const targets = setupTargets(line, line.line_type === "product" ? inventoryItemId : undefined);
     const base = { ...targets, parameters: {}, unmetEvidenceCodes: [], message: null };
+    let invalidPrice = false;
+    const contributingPrice = (value: string) => {
+      const cents = storedPriceCents(value);
+      if (cents === null) invalidPrice = true;
+      return cents ?? 0n;
+    };
     let answer: SellListLineScreenReview;
     if (line.line_type === "selected-offer") {
       const termsReady = selectedReview?.status === "ready" && Boolean(selectedReview.terms);
@@ -141,11 +160,11 @@ export function deriveSellListCompositeReview(
                   ? "public-standard-preview-ready"
                   : "selected-offer-ready",
             };
-      gross += moneyToCents(line.offer_price_amount ?? "0") * BigInt(line.quantity);
+      gross += contributingPrice(line.offer_price_amount ?? "0") * BigInt(line.quantity);
       if (!selectedReview?.terms) unquoted = true;
       else {
-        fees += moneyToCents(selectedReview.terms.marketplace_sales_fee_unit_amount) * BigInt(line.quantity);
-        payout += moneyToCents(selectedReview.terms.seller_net_unit_amount) * BigInt(line.quantity);
+        fees += contributingPrice(selectedReview.terms.marketplace_sales_fee_unit_amount) * BigInt(line.quantity);
+        payout += contributingPrice(selectedReview.terms.seller_net_unit_amount) * BigInt(line.quantity);
       }
     } else {
       const blockedOffer = offers.find(
@@ -192,12 +211,24 @@ export function deriveSellListCompositeReview(
       let matchedQuantity = 0;
       for (const { offer, terms } of offers) {
         matchedQuantity += offer.quantity_requested;
-        fees += moneyToCents(terms.marketplace_sales_fee_unit_amount) * BigInt(offer.quantity_requested);
-        payout += moneyToCents(terms.seller_net_unit_amount) * BigInt(offer.quantity_requested);
+        fees += contributingPrice(terms.marketplace_sales_fee_unit_amount) * BigInt(offer.quantity_requested);
+        payout += contributingPrice(terms.seller_net_unit_amount) * BigInt(offer.quantity_requested);
       }
       const fallbackQuantity =
         line.fallback_mode === "create-listing" ? Math.max(0, line.quantity - matchedQuantity) : 0;
-      futureGross += moneyToCents(line.minimum_listing_price_amount ?? "0") * BigInt(fallbackQuantity);
+      if (fallbackQuantity > 0) {
+        futureGross += contributingPrice(line.minimum_listing_price_amount ?? "0") * BigInt(fallbackQuantity);
+      }
+    }
+    if (invalidPrice) {
+      unquoted = true;
+      answer = {
+        ...base,
+        ready: false,
+        canSubmit: false,
+        labelCode: line.line_type === "selected-offer" ? "needs-refresh" : "needs-action",
+        detailCode: line.line_type === "selected-offer" ? "offer-terms-need-refresh" : "choose-sale-action",
+      };
     }
     lineAnswers[line.line_id] = answer;
   }
@@ -230,10 +261,10 @@ export function deriveSellListCompositeReview(
           : "/search",
       recoveryCode: !payoutIsReady ? "set-up-payouts" : blockedLineCount > 0 ? "resolve-items" : "keep-selling",
       hasMultipleOffers,
-      selectedOfferGross: centsToMoneyAmount(gross),
-      futureListingGross: centsToMoneyAmount(futureGross),
-      estimatedSalesFees: unquoted ? null : centsToMoneyAmount(fees),
-      expectedSellerPayout: unquoted ? null : centsToMoneyAmount(payout),
+      selectedOfferGross: aggregateAmount(gross),
+      futureListingGross: aggregateAmount(futureGross),
+      estimatedSalesFees: unquoted ? null : aggregateAmount(fees),
+      expectedSellerPayout: unquoted ? null : aggregateAmount(payout),
     },
   };
 }
