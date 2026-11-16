@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   PART_TEXT_MAX_BYTES,
   maxPartCount,
@@ -21,6 +22,18 @@ import {
   maximalLaunchBatch,
 } from "./market-observation-fixture";
 import { mutant } from "./market-observation-mutants";
+
+it("keeps the two real-store files in the DB profile without shell-expanded exclusion globs", () => {
+  const pkg = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
+  for (const file of [
+    "operator-session-observation-parts.db.test.ts",
+    "operator-session-observation-admission.db.test.ts",
+  ]) {
+    const path = `features/operator-session/tests/${file}`;
+    for (const script of ["test:unit", "test:fast"]) expect(pkg.scripts[script]).toContain(`--exclude ${path}`);
+    expect(pkg.scripts["test:db:market-observations"]).toContain(path);
+  }
+});
 
 it("validates the maximal five-product launch fixture through C0 before using it as DB evidence", () => {
   const request = secondaryRequest(),

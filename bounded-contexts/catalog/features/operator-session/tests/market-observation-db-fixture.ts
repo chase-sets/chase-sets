@@ -90,7 +90,7 @@ export async function composeMarketObservations(pool: PgTransactionalPool, initi
     complete: (body: unknown, id?: string, bearer?: string) => send(completePath(id), body, "POST", bearer),
     events: async () => {
       const rows = await pool.query<{ event_type: string; payload: Record<string, unknown>; stream_version: number }>(
-        "SELECT event_type, payload, stream_version FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+        "SELECT event_type, payload, stream_version::integer AS stream_version FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
         [streamId],
       );
       return rows.rows;
