@@ -1,6 +1,7 @@
 import {
   CONFIGURATION_EPOCH_LOCK_SQL,
   withConfigurationEpochTransaction,
+  type PgQueryable,
   type PgTransactionalPool,
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
@@ -29,7 +30,7 @@ export function createVersionedConnectionAuthority(
         assertOpaqueId(input.accountId, "accountId");
         assertOpaqueId(input.connectionId, "connectionId");
         const source = await epochs.source();
-        return await withConfigurationEpochTransaction<ConnectionAuthorityResult>(pool, async (db) => {
+        return await withConfigurationEpochTransaction<ConnectionAuthorityResult>(pool, async (db: PgQueryable) => {
           const key = `connection/${input.connectionId}`;
           await db.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
           const loaded = await loadOwned(
