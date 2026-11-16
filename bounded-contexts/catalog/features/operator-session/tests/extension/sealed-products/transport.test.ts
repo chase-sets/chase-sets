@@ -5,10 +5,30 @@ import { isSealedPostMessage, isSealedPostResult } from "../../../domain/extensi
 import { isSealedRequestMessage } from "../../../domain/extension/sealed-products/bridge";
 import { createSealedPopupClient } from "../../../domain/extension/sealed-products/bridge";
 import { installOperatorBridge } from "../../../domain/extension/bridge";
-import { sealedPost } from "../../sealed-product-observation-fixture";
+import { sealedPost, salvage } from "../../sealed-product-observation-fixture";
+import { parseTcgplayerSealedProductObservationPost } from "../../../domain/extension/sealed-products/contract";
 import { counts } from "./fixture";
 const grant = "A".repeat(43);
 describe("sealed products grant transport", () => {
+  it.each(salvage.cases)("enforces the dynamic bound-line fence at the post boundary: $unitKey", async ({ detail }) => {
+    const parsed = parseTcgplayerSealedProductObservationPost({ ...sealedPost(), products: [detail] });
+    if (!parsed.ok) throw new Error("invalid-salvage-fixture");
+    const post = parsed.post;
+    const bound = detail.productLineId === 1 || detail.productLineId === 3;
+    expect(isSealedPostMessage({ action: "post-sealed-products", environment: "staging", post })).toBe(bound);
+    if (!bound) {
+      const fetcher = vi.fn();
+      expect(await createOperatorTransport(fetcher).postSealedProducts("staging", grant, post)).toEqual({
+        outcome: "refused",
+      });
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  });
+  it("rejects a mismatched bound id/name pair before posting", () => {
+    const post = sealedPost();
+    post.products[0]!.productLineId = 3;
+    expect(isSealedPostMessage({ action: "post-sealed-products", environment: "staging", post })).toBe(false);
+  });
   it("uses only the existing public Catalog route with the grant bearer and reduced post", async () => {
     const fetcher = vi.fn(async () => Response.json(counts));
     expect(await createOperatorTransport(fetcher).postSealedProducts("staging", grant, sealedPost())).toEqual({

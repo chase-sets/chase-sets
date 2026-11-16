@@ -4,6 +4,7 @@ import {
   tcgplayerSealedProductObservationLimits,
   type TcgplayerSealedProductObservationPost,
 } from "./contract";
+import { sealedProductLines } from "./collector";
 export type SealedPostResult =
   | {
       outcome: "recorded";
@@ -24,11 +25,18 @@ export type SealedPostMessage = {
   post: TcgplayerSealedProductObservationPost;
 };
 export function isSealedPostMessage(value: unknown): value is SealedPostMessage {
+  if (
+    !closed(value, ["action", "environment", "post"]) ||
+    value.action !== "post-sealed-products" ||
+    !isEnvironment(value.environment)
+  )
+    return false;
+  const parsed = parseTcgplayerSealedProductObservationPost(value.post);
   return (
-    closed(value, ["action", "environment", "post"]) &&
-    value.action === "post-sealed-products" &&
-    isEnvironment(value.environment) &&
-    parseTcgplayerSealedProductObservationPost(value.post).ok &&
+    parsed.ok &&
+    parsed.post.products.every((product) =>
+      sealedProductLines().some((line) => line.id === product.productLineId && line.name === product.productLineName),
+    ) &&
     new TextEncoder().encode(JSON.stringify(value.post)).byteLength <=
       tcgplayerSealedProductObservationLimits.maxPostBytes
   );
