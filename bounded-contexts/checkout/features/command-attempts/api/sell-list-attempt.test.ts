@@ -8,17 +8,23 @@ describe.each([false, true])("Sell List attempt stream invariants (persisted key
     memory = createInMemoryEventStore();
     if (persisted) {
       const read = memory.eventStore.readStream;
-      memory.eventStore.readStream = async (query) =>
-        (await read(query)).map((event) => ({
-          ...event,
-          payload: JSON.parse(
-            JSON.stringify(event.payload, (_key, value: unknown) =>
-              value && typeof value === "object" && !Array.isArray(value)
-                ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => right.localeCompare(left)))
-                : value,
-            ),
-          ),
-        }));
+      memory = {
+        ...memory,
+        eventStore: {
+          ...memory.eventStore,
+          readStream: async (query) =>
+            (await read(query)).map((event) => ({
+              ...event,
+              payload: JSON.parse(
+                JSON.stringify(event.payload, (_key, value: unknown) =>
+                  value && typeof value === "object" && !Array.isArray(value)
+                    ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => right.localeCompare(left)))
+                    : value,
+                ),
+              ),
+            })),
+        },
+      };
     }
   });
   sellListAttemptCases(() => memory.eventStore);
