@@ -86,6 +86,7 @@ describe("Listing request replay", () => {
   });
   it.each([
     "duplicate",
+    "second-event",
     "wrong-type",
     "wrong-version",
     "wrong-tenant",
@@ -103,6 +104,7 @@ describe("Listing request replay", () => {
         if (!input.streamId.startsWith("marketplace.listing-request-") || !events.length) return events;
         const event = events[0];
         if (mutation === "duplicate") return [event, event];
+        if (mutation === "second-event") return [event, { ...event, eventId: createId("evt"), streamVersion: 2 }];
         if (mutation === "wrong-type") return [{ ...event, eventType: "other" }];
         if (mutation === "wrong-version") return [{ ...event, streamVersion: 2 }];
         if (mutation === "wrong-tenant") return [{ ...event, tenantId: createId("tnt") }];

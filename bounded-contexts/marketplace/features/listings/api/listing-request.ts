@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { reservationIdentity } from "@chase-sets/event-core/owner-stream-reservation";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
@@ -65,11 +66,10 @@ export function createListingRequestExecutor(eventStore: EventStore) {
       audit: input.context.audit,
     });
     const replay = async () => {
-      // @stream-read-contract bounded-contexts/marketplace/features/listings/api/listing-request.test.ts
-      const events = await eventStore.readStream({ streamId, limit: 2 });
-      if (!events.length) return null;
-      const event = events[0];
       try {
+        const events = await readCompleteStream(eventStore, { streamId, maxEvents: 1 });
+        if (!events.length) return null;
+        const event = events[0];
         if (
           events.length !== 1 ||
           event.streamVersion !== 1 ||
