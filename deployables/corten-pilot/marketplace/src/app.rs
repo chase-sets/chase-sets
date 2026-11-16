@@ -2043,12 +2043,13 @@ pub fn app(config: Config) -> App {
         .area(|area| url::recommendations::area(area, shared.clone()).components(views::RECOMMENDATIONS))
         .area(|area| url::pricing_health::area(area, shared.clone()).components(views::PRICING_HEALTH))
         .area(|area| url::channels::area(area, shared.clone()).components(views::CHANNELS))
-        // Authorize redirects to eBay Sandbox's consent, which browsers check against `form-action`;
-        // no address here, which may carry eBay's one-time code, goes to another site as a referrer.
+        // Authorize redirects to eBay Sandbox's consent, which redirects on through eBay Sandbox's
+        // hosts, and browsers check each hop against `form-action`; no address here, which may carry
+        // eBay's one-time code, goes to another site as a referrer.
         .area(|area| {
             url::ebay::area(area, shared.clone())
                 .components(views::CHANNELS)
-                .policy(|p| p.form_action(crate::ebay::EBAY_ORIGIN).referrer(corten::security::Referrer::NoReferrer))
+                .policy(|p| p.form_action(crate::ebay::EBAY_SANDBOX_HOSTS).referrer(corten::security::Referrer::NoReferrer))
         })
         .area(|area| {
             url::ebay_callback::area(area, shared.clone()).policy(|p| p.referrer(corten::security::Referrer::NoReferrer))

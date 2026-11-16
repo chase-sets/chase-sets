@@ -19950,7 +19950,9 @@ async fn ebay_consent_lists_its_scopes_and_a_connection_its_state_for_who_may_ma
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
     assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
-    assert!(form_action(&headers).contains("https://auth.sandbox.ebay.com"), "{headers:?}");
+    // Consent's own redirects (to auth2.sandbox.ebay.com, its sign-in) are checked against it too.
+    let allowed = form_action(&headers);
+    assert!(allowed.contains("https://*.sandbox.ebay.com"), "{allowed}");
     let words = text(&html);
     for expected in [
         "Connect eBay Sandbox",

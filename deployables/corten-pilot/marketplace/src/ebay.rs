@@ -42,6 +42,11 @@ pub const PAGE: &str = "/account/channels/ebay";
 
 /// The only address Authorize sends the seller to: eBay Sandbox's consent.
 pub const EBAY_ORIGIN: &str = "https://auth.sandbox.ebay.com";
+/// Where eBay Sandbox's consent may send the seller on its way (`auth2.sandbox.ebay.com`, its
+/// sign-in): Chromium and WebKit check every redirect a form's submission follows against
+/// `form-action`, so the journey's page allows eBay Sandbox's hosts (Authorize's among them), not
+/// only the one Authorize names.
+pub const EBAY_SANDBOX_HOSTS: &str = "https://*.sandbox.ebay.com";
 const EBAY_AUTHORIZE: &str = "/oauth2/authorize";
 
 /// The journey's address: the connection it is about, whether consent asks for publication, and
