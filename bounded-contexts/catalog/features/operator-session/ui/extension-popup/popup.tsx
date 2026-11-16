@@ -26,11 +26,19 @@ import {
   type OperatorStatus,
 } from "../../domain/extension/protocol";
 
+import { SealedProductsAction } from "./sealed-products";
+import { createSealedPopupClient } from "../../domain/extension/sealed-products/bridge";
+import type { SealedFetch } from "../../domain/extension/sealed-products/collector";
+import type { SealedPost } from "../../domain/extension/sealed-products/transport";
+import type { TcgplayerSetNameEntry } from "../../domain/extension/set-names/contract";
+
 const t = (key: keyof typeof copy) => copy[key];
 export function OperatorExtensionPopup({
   request,
   setNameRequest,
   postSetNames,
+  sealedRequest,
+  postSealedProducts,
   copyProbeReport,
   extensionVersion = "0.1.0",
   buildCommit = "unknown",
@@ -39,6 +47,8 @@ export function OperatorExtensionPopup({
   request: (command: OperatorCommand) => Promise<OperatorStatus>;
   setNameRequest?: SetNamesRequest;
   postSetNames?: SetNamesPost;
+  sealedRequest?: SealedFetch;
+  postSealedProducts?: SealedPost;
   copyProbeReport?: (text: string) => Promise<void>;
   extensionVersion?: string;
   buildCommit?: string;
@@ -48,6 +58,8 @@ export function OperatorExtensionPopup({
   const [status, setStatus] = useState<OperatorStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [setNamesBusy, setSetNamesBusy] = useState(false);
+  const [sealedBusy, setSealedBusy] = useState(false);
+  const [setsByLine, setSetsByLine] = useState<Record<number, readonly TcgplayerSetNameEntry[]>>({});
   const [failed, setFailed] = useState(false);
   const [grant, setGrant] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -79,6 +91,7 @@ export function OperatorExtensionPopup({
   useEffect(() => {
     clear();
     setStatus(null);
+    setSetsByLine({});
     void run({ action: "status", environment });
     return () => {
       generation.current++;
@@ -89,7 +102,7 @@ export function OperatorExtensionPopup({
     window.addEventListener("pagehide", dismiss);
     return () => window.removeEventListener("pagehide", dismiss);
   }, []);
-  const locked = busy || setNamesBusy || status?.state === "upgrade-required";
+  const locked = busy || setNamesBusy || sealedBusy || status?.state === "upgrade-required";
   async function runProbe() {
     if (!setNameRequest) return;
     setProbeBusy(true);
@@ -124,7 +137,7 @@ export function OperatorExtensionPopup({
         <NativeSelect
           label={t("catalog.operatorExtension.environment")}
           value={environment}
-          disabled={busy || setNamesBusy || probeBusy}
+          disabled={busy || setNamesBusy || sealedBusy || probeBusy}
           items={[
             { value: "staging", label: t("catalog.operatorExtension.staging") },
             { value: "production", label: t("catalog.operatorExtension.production") },
@@ -187,7 +200,7 @@ export function OperatorExtensionPopup({
         </Button>
         <Button
           tone="secondary"
-          disabled={busy || setNamesBusy}
+          disabled={busy || setNamesBusy || sealedBusy}
           onClick={() => void run({ action: "status", environment })}
         >
           {t("catalog.operatorExtension.refresh")}
@@ -208,6 +221,18 @@ export function OperatorExtensionPopup({
           post={postSetNames}
           copyReceipt={copyProbeReport}
           onBusyChange={setSetNamesBusy}
+          onSets={(line, sets) => setSetsByLine((prior) => ({ ...prior, [line]: sets }))}
+          onGrantInvalid={() => void run({ action: "status", environment })}
+        />
+        <SealedProductsAction
+          environment={environment}
+          paired={status?.paired ?? false}
+          disabled={locked || probeBusy}
+          setsByLine={setsByLine}
+          request={sealedRequest}
+          post={postSealedProducts}
+          copyReceipt={copyProbeReport}
+          onBusyChange={setSealedBusy}
           onGrantInvalid={() => void run({ action: "status", environment })}
         />
         <Heading level={2}>{t("catalog.operatorExtension.probe.title")}</Heading>
@@ -227,7 +252,11 @@ export function OperatorExtensionPopup({
         </Stack>
         <Button
           disabled={
-            probeBusy || setNamesBusy || !Object.values(productLineIds).some((value) => /^\d+$/.test(value.trim()))
+            busy ||
+            sealedBusy ||
+            probeBusy ||
+            setNamesBusy ||
+            !Object.values(productLineIds).some((value) => /^\d+$/.test(value.trim()))
           }
           onClick={() => void runProbe()}
         >
@@ -280,6 +309,8 @@ export function renderOperatorExtensionPopup(
   options: Readonly<{
     setNameRequest?: SetNamesRequest;
     postSetNames?: SetNamesPost;
+    sealedRequest?: SealedFetch;
+    postSealedProducts?: SealedPost;
     copyProbeReport?: (text: string) => Promise<void>;
     extensionVersion?: string;
     buildCommit?: string;
@@ -287,6 +318,7 @@ export function renderOperatorExtensionPopup(
   }> = {},
 ) {
   const client = createOperatorPopupClient(window, bridgeOrigin);
+  const sealedClient = createSealedPopupClient(window, bridgeOrigin);
   const root = createRoot(element);
   root.render(
     <ChaseRoot>
@@ -295,12 +327,15 @@ export function renderOperatorExtensionPopup(
         request={client.request}
         setNameRequest={options.setNameRequest ?? client.requestSetNames}
         postSetNames={options.postSetNames ?? client.postSetNames}
+        sealedRequest={options.sealedRequest ?? sealedClient.request}
+        postSealedProducts={options.postSealedProducts ?? sealedClient.post}
         copyProbeReport={options.copyProbeReport ?? client.copyProbeReport}
       />
     </ChaseRoot>,
   );
   return () => {
     client.dispose();
+    sealedClient.dispose();
     root.unmount();
   };
 }

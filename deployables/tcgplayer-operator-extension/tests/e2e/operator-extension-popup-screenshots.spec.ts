@@ -68,7 +68,7 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
       if (state === "empty") {
         await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled();
       } else {
-        await page.getByLabel("Product line").selectOption("3");
+        await page.getByLabel("Product line", { exact: true }).selectOption("3");
         await page.getByRole("button", { name: "Run", exact: true }).click();
         if (state === "loading") await expect(page.getByRole("button", { name: "Fetching set names" })).toBeDisabled();
         if (state === "error") await expect(page.getByRole("alert")).toContainText("unqualified");

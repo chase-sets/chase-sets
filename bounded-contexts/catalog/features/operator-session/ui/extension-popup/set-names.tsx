@@ -10,6 +10,7 @@ import { tcgplayerSetNameUnits } from "../../domain/extension/set-names/contract
 import type { SetNamesRequest, SetNamesReceipt } from "../../domain/extension/set-names/probe";
 import { runTcgplayerSetNames, type SetNamesRunResult } from "../../domain/extension/set-names/run";
 import type { SetNamesPost } from "../../domain/extension/set-names/transport";
+import type { TcgplayerSetNameEntry } from "../../domain/extension/set-names/contract";
 
 const t = (key: keyof typeof copy) => copy[key];
 
@@ -22,6 +23,7 @@ export function SetNamesAction({
   copyReceipt,
   onBusyChange,
   onGrantInvalid,
+  onSets,
 }: {
   environment: OperatorEnvironment;
   paired: boolean;
@@ -31,6 +33,7 @@ export function SetNamesAction({
   copyReceipt?: (text: string) => Promise<void>;
   onBusyChange: (busy: boolean) => void;
   onGrantInvalid: () => void;
+  onSets?: (productLineId: number, sets: readonly TcgplayerSetNameEntry[]) => void;
 }) {
   const [productLineId, setProductLineId] = useState("");
   const [phase, setPhase] = useState<"fetching" | "posting" | null>(null);
@@ -61,6 +64,7 @@ export function SetNamesAction({
           return post(...args);
         },
         onReceipt: setReceipt,
+        onSets,
       });
       setResult(outcome);
       if (outcome.outcome === "grant-invalid") onGrantInvalid();

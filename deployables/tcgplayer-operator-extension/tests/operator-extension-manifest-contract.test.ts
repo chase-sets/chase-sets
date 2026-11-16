@@ -18,6 +18,7 @@ describe("operator-extension-manifest-contract", () => {
         "https://admin.staging.chasesets.com/*",
         "https://admin.chasesets.com/*",
         "https://mpapi.tcgplayer.com/*",
+        "https://mp-search-api.tcgplayer.com/*",
       ],
       background: { service_worker: "background.js", type: "module" },
       action: { default_popup: "popup.html" },
@@ -39,6 +40,7 @@ describe("operator-extension-manifest-contract", () => {
       "https://admin.staging.chasesets.com/*",
       "https://admin.chasesets.com/*",
       "https://mpapi.tcgplayer.com/*",
+      "https://mp-search-api.tcgplayer.com/*",
     ]);
     expect(operatorManifest).toHaveProperty("externally_connectable", {
       matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
