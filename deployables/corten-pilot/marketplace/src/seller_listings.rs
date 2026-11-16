@@ -10,8 +10,9 @@
 //! the setting the address says was written (marketplace's `availabilityAction` and
 //! `settingsAction` recovery).
 //!
-//! Writes, each its own form posting an `intent` to the page: turn listings off or on, schedule or
-//! cancel an away window, set or remove the order capacity (each redirects to the page with its
+//! Writes, each its own form posting an `intent` to the page with its `SubmitKey` (the Listing
+//! attempt, so a form sent again applies once): turn listings off or on, schedule or cancel an
+//! away window, set or remove the order capacity (each redirects to the page with its
 //! receipt), and Pause or Withdraw the checked listings as one batch (the page again, each listing's
 //! outcome shown, read after the batch). A date a seller picks means the start of that day where
 //! they are (marketplace's `localDateInputToInstant`): the browser's time zone (`ClientZone`), or
@@ -141,7 +142,8 @@ pub struct ListingsForm {
     pub max_open_orders: String,
     /// The checked listings, for Pause selected and Withdraw selected.
     pub listing_ids: Vec<String>,
-    /// The bulk form's batch id, drawn with the form: the same form sent again is the same batch.
+    /// The form's attempt, drawn with it: the same form sent again is the same batch (the bulk
+    /// form's batch id) or the same Listing attempt (a setting's, marketplace's `ListingCommandForm`).
     pub attempt: Option<SubmitKey>,
 }
 
@@ -438,6 +440,11 @@ fn setting(form: &ListingsForm, zone: &jiff::tz::TimeZone, t: SellerListingsMsg,
             return Err(errors);
         }
     };
+    // Each setting is a Listing attempt, and a form drawn by the page has one.
+    if form.attempt.is_none() {
+        errors.add_form(p.check_attempt());
+        return Err(errors);
+    }
     errors.into_result(setting)
 }
 
@@ -529,7 +536,7 @@ pub(crate) async fn write(
         Ok(setting) => setting,
         Err(errors) => return refused_page(errors, form, StatusCode::UNPROCESSABLE_ENTITY).await,
     };
-    let error = match caller.seller_setting(&setting).await {
+    let error = match caller.seller_setting(&setting, form.attempt.as_ref().map(SubmitKey::as_str)).await {
         Ok(receipt) => return req.redirect(&applied(&place, receipt.as_ref(), &setting)),
         Err(CommandError::Api(error)) => error,
         Err(other) => {

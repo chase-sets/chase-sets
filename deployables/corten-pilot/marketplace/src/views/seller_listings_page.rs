@@ -271,6 +271,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                     </div>
                 } else {
                     <form method="post" action={screen.filters.here()}>
+                        {SubmitKey::field(f.attempt)}
                         <button class={Button} type="submit" name={f.intent} value="enable-listing-availability">
                             {t.list_turn_on_listings()}
                         </button>
@@ -282,6 +283,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                     method="post"
                     action={screen.filters.here()}
                 >
+                    {SubmitKey::field(f.attempt)}
                     <div class={Grid}>
                         <label class={Field}>
                             <span class={Label}>{t.list_reason()}</span>
@@ -356,6 +358,7 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                     </p>
                 </div>
                 <form method="post" action={screen.filters.here()}>
+                    {SubmitKey::field(f.attempt)}
                     <button class={(Button, Secondary)} type="submit" name={f.intent} value="cancel-away-window">
                         {t.list_cancel_away_window()}
                     </button>
@@ -367,6 +370,7 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                     method="post"
                     action={screen.filters.here()}
                 >
+                    {SubmitKey::field(f.attempt)}
                     <p class={Muted}>{t.list_away_window_description()}</p>
                     <div class={Grid3}>
                         <div class={Field}>
@@ -452,6 +456,7 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
                 <p class={Hint}>{t.list_order_capacity_sourced_from_ordering()}</p>
             </div>
             <form id={CapacityFormId} class={Form} method="post" action={screen.filters.here()}>
+                {SubmitKey::field(f.attempt)}
                 <div class={Grid}>
                     <div class={Field}>
                         <label class={Label} for="max-open-orders">{t.list_order_capacity_max_open_orders()}</label>

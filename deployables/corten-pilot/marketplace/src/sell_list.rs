@@ -1012,7 +1012,7 @@ async fn act(
                         view_kind: Some(view.to_owned()),
                         alt_text: None,
                     };
-                    listing_written(caller.listing_command(&listing, &command).await, surface, &failed)
+                    listing_written(caller.listing_command(&listing, &command, None).await, surface, &failed)
                 }
             }
         }

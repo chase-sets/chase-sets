@@ -5644,6 +5644,19 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
         .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
         .collect();
     assert_eq!(creates, [format!("{LISTED}_create"), format!("{LISTED}_create")], "a resent form is the same create attempt");
+    let publish = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|c| c.path.ends_with("/publish"))
+        .map(|c| c.headers["idempotency-key"].clone());
+    assert_eq!(
+        publish.as_ref().map(|k| k.to_str().unwrap()),
+        Some(format!("{LISTED}_publish").as_str()),
+        "the listing's publish attempt"
+    );
     assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
     assert_eq!(pilot.stand.ensured.lock().unwrap().len(), 1);
 }
@@ -10716,6 +10729,8 @@ async fn a_sellers_listing_shows_its_overview_fees_readiness_and_forms_and_only_
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/listings/lst_active", Some("lister"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    // Price, quantity cap, purchase limits, publish, pause and withdraw each carry an attempt.
+    assert_eq!(html.matches(r#"name="attempt" data-submit value=""#).count(), 6, "{html}");
     let page = text(&html);
     for words in [
         "Charizard",
@@ -10829,8 +10844,9 @@ async fn a_listing_write_goes_back_to_the_page_after_its_receipt_and_sends_what_
     ];
     for (intent, fields, path, body, event) in cases {
         let id = "lst_draft";
-        let (status, headers, html) =
-            pilot.send(post(&format!("/account/listings/{id}"), "lister", &format!("intent={intent}&{fields}"), false)).await;
+        let attempt = new_attempt();
+        let form = format!("intent={intent}&{fields}&attempt={attempt}");
+        let (status, headers, html) = pilot.send(post(&format!("/account/listings/{id}"), "lister", &form, false)).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{intent}: {html}");
         let to = at(&headers);
         assert!(to.starts_with(&format!("/account/listings/{id}?")), "{to}");
@@ -10841,6 +10857,10 @@ async fn a_listing_write_goes_back_to_the_page_after_its_receipt_and_sends_what_
         assert_eq!(call.path, format!("{SELLER_LISTINGS}{id}/{path}"), "{intent}");
         let sent: Value = serde_json::from_str(&call.body).unwrap_or_default();
         assert_eq!(sent, body, "{intent}");
+        // The form's attempt and the command's name is the Listing attempt; a photo command has none.
+        let key = call.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned());
+        let photo = event == Some("remediation_completed");
+        assert_eq!(key, (!photo).then(|| format!("{attempt}_{path}")), "{intent}");
         if intent == "remove-photo" {
             assert_eq!(call.method, Method::DELETE);
         }
@@ -10878,7 +10898,10 @@ async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
         .send(post(
             "/account/listings/lst_active",
             "lister",
-            "intent=update-price&priceAmount=1.00&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing",
+            &format!(
+                "intent=update-price&priceAmount=1.00&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing&attempt={}",
+                new_attempt()
+            ),
             false,
         ))
         .await;
@@ -10890,9 +10913,8 @@ async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
     assert!(html.contains(r#"name="priceAmount" value="1.00""#), "{html}");
 
     // Refused by the API: its words, and the price typed.
-    let (status, _, html) = pilot
-        .send(post("/account/listings/lst_active", "lister", "intent=update-price&priceAmount=0.50&priceCurrencyCode=USD", false))
-        .await;
+    let body = format!("intent=update-price&priceAmount=0.50&priceCurrencyCode=USD&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Update Listing Listing price is below the marketplace minimum."), "{html}");
     assert!(html.contains(r#"name="priceAmount" value="0.50""#), "{html}");
@@ -10914,14 +10936,20 @@ async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
     assert!(html.contains(r#"aria-invalid="true" aria-describedby="alt-text-error-ph_2""#), "{html}");
 
     // Publishing without the evidence: the API's words, and its readiness now.
-    let (status, _, html) =
-        pilot.send(post("/account/listings/lst_draft", "lister", "intent=publish&feeQuoteFingerprint=fq_listing", false)).await;
+    let body = format!("intent=publish&feeQuoteFingerprint=fq_listing&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_draft", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("Listing evidence is incomplete for the active policy."), "{html}");
 
     // An intent the page does not send.
     let (status, _, _) = pilot.send(post("/account/listings/lst_draft", "lister", "intent=delete-everything", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // A write with no attempt (a form the page did not draw) is not sent.
+    let writes = listing_writes(&pilot, "lst_active").len();
+    let (status, _, _) = pilot.send(post("/account/listings/lst_active", "lister", "intent=pause", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(listing_writes(&pilot, "lst_active").len(), writes);
 }
 
 #[tokio::test]
@@ -11104,7 +11132,10 @@ async fn the_filters_and_pages_are_links_that_keep_each_other() {
 async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     let pilot = Pilot::new().await;
     // Turn off listings: the day's start where the browser is (Chicago, after daylight saving time).
-    let body = "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02";
+    let body = &format!(
+        "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02&attempt={}",
+        new_attempt()
+    );
     let (status, headers, html) = pilot.send(post_in("/account/listings?status=active", "lister", body, "America/Chicago")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -11119,7 +11150,8 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     );
     assert!(list_calls(&pilot, "/api/identity/preferences").is_empty(), "the browser's zone needs no read");
     // A browser that has not told its zone (no script): the zone the account chose, New York's.
-    let body = "intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02";
+    let body =
+        &format!("intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02&attempt={}", new_attempt());
     let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -11134,7 +11166,10 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 2);
     // The away window and the capacity, each saying what it set for the read that catches up.
-    let body = "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=";
+    let body = &format!(
+        "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=&attempt={}",
+        new_attempt()
+    );
     let (status, headers, _) = pilot.send(post_in(LISTINGS, "lister", body, "America/Chicago")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -11151,7 +11186,8 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         ("intent=clear-order-capacity", "settingsAction=clear-order-capacity"),
         ("intent=enable-listing-availability", "availabilityAction=enabled"),
     ] {
-        let (status, headers, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+        let (status, headers, _) =
+            pilot.send(post(LISTINGS, "lister", &format!("{body}&attempt={}", new_attempt()), false)).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
         assert!(headers[header::LOCATION].to_str().unwrap().contains(action), "{body}: {:?}", headers[header::LOCATION]);
     }
@@ -11161,13 +11197,48 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     assert!(writes.iter().any(|w| w == r#"POST /api/marketplace/account/order-capacity {"maxOpenOrders":12}"#), "{writes:?}");
     assert!(writes.iter().any(|w| w == "DELETE /api/marketplace/account/order-capacity "), "{writes:?}");
     assert!(writes.iter().any(|w| w == "POST /api/marketplace/account/listing-availability/enable {}"), "{writes:?}");
+    // Each is the Listing attempt made from its form's attempt and the setting's name.
+    let keys: Vec<String> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.method != Method::GET && c.path.starts_with("/api/marketplace/account/"))
+        .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
+        .collect();
+    let names = [
+        "disable",
+        "disable",
+        "disable",
+        "schedule-away-window",
+        "cancel-away-window",
+        "set-capacity",
+        "clear-capacity",
+        "enable",
+    ];
+    assert_eq!(keys.len(), names.len(), "{keys:?}");
+    for (key, name) in keys.iter().zip(names) {
+        let made_from = key.strip_suffix(&format!("_{name}")).unwrap_or_else(|| panic!("{key} is not {name}'s"));
+        assert!(crate::recovery::valid_attempt(made_from), "{key}");
+    }
+    // The zone that is not one resent the second form, so it is that form's attempt again.
+    assert_eq!(keys[1], keys[2], "{keys:?}");
+    assert_eq!(keys.iter().collect::<std::collections::HashSet<_>>().len(), keys.len() - 1, "each other form its own: {keys:?}");
+    // A setting with no attempt (a form the page did not draw) is not sent.
+    let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=enable-listing-availability", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(list_calls(&pilot, "/api/marketplace/account/").iter().filter(|c| !c.starts_with("GET")).count(), names.len());
 }
 
 #[tokio::test]
 async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     let pilot = Pilot::new().await;
     // An away window with no reason, or a start that is not a day, is not sent.
-    let body = "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40";
+    let body = &format!(
+        "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40&attempt={}",
+        new_attempt()
+    );
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     let page = text(&html);
@@ -11176,18 +11247,20 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     assert!(html.contains(r#"name="awayWindowStartsOn" value="2026-12-01""#), "the form as sent: {html}");
     assert!(html.contains("awayWindowEndsOn-error") && !html.contains("awayWindowStartsOn-error"), "{html}");
     // An order capacity that is not a whole number of at least 1.
-    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=set-order-capacity&maxOpenOrders=0", false)).await;
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=0&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Enter a whole-number order capacity of at least 1."), "{html}");
     assert!(html.contains(r#"name="maxOpenOrders" value="0""#), "{html}");
     assert!(list_calls(&pilot, "/api/marketplace/account/").iter().all(|c| c.starts_with("GET")), "nothing was written");
     // The API's refusals, in marketplace's words, by the field when they name one.
-    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=set-order-capacity&maxOpenOrders=1000", false)).await;
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=1000&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Enter a whole-number order capacity of at least 1."), "{html}");
     assert!(html.contains("maxOpenOrders-error"), "{html}");
-    let (status, _, html) =
-        pilot.send(post(LISTINGS, "lister", "intent=disable-listing-availability&reasonCategory=bogus", false)).await;
+    let body = &format!("intent=disable-listing-availability&reasonCategory=bogus&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Choose a valid availability reason."), "{html}");
     // Someone who may only read is refused, signed out signs in, and an account without listings
