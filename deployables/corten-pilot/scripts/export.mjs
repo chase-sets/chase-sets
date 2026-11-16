@@ -1331,7 +1331,9 @@ const outputs = [
         ["collections.features.savedLists.api.route.", "saved_api"],
       ])),
       // A sell form's Sell List add that did not fully apply (`SellListAttemptBoundary`).
-      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [["checkout.sellList.attempt.", "sell_attempt"]])),
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.sellList.attempt.", "sell_attempt"],
+      ])),
     }),
   ],
   [
