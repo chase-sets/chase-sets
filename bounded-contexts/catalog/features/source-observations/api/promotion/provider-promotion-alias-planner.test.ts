@@ -65,6 +65,22 @@ function retractActions(plan: ReturnType<typeof planPromotionAliases>): Promotio
 }
 
 describe("planPromotionAliases", () => {
+  it("keeps a deterministic pending resolved review hash on replay and changes it with the target", () => {
+    const candidates = [itemCandidate({ reviewStatus: "pending" })];
+    const first = proposeActions(planPromotionAliases({ candidates, resolution }));
+    expect(first).toHaveLength(1);
+    expect(first[0]?.candidate.target).toEqual({
+      kind: "catalog-item",
+      targetId: "cat_charizard",
+      targetKey: "card-name",
+    });
+    expect(proposeActions(planPromotionAliases({ candidates, resolution }))).toEqual(first);
+    const changed = proposeActions(
+      planPromotionAliases({ candidates, resolution: { ...resolution, catalogItemId: "cat_other" } }),
+    );
+    expect(changed[0]?.candidate.aliasHash).not.toBe(first[0]?.candidate.aliasHash);
+  });
+
   it("resolves the Catalog Item id before building an accepted item alias", () => {
     const plan = planPromotionAliases({ candidates: [itemCandidate()], resolution });
 
