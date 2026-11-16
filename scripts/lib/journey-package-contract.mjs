@@ -119,6 +119,7 @@ export const producerOutcomes = Object.freeze(["success", "failure"]);
 
 const ulid = "[0-9A-HJKMNP-TV-Z]{26}";
 const offerIdPattern = new RegExp(`^off_${ulid}$`);
+const listingIdPattern = new RegExp(`^lst_${ulid}$`);
 const orderIdPattern = new RegExp(`^ord_${ulid}$`);
 const eventIdPattern = new RegExp(`^evt_${ulid}$`);
 const amountPattern = /^(?:0|[1-9][0-9]{0,8})\.[0-9]{2}$/;
@@ -279,11 +280,29 @@ const entryKeys = Object.freeze({
     "outcome",
   ],
   observation: ["kind", "at", "observation", "offerId", "orderId", "eventId", "amount", "quantity", "estimateVersion"],
+  "seller-match-fulfillment": ["kind", "at", "offerId", "expected", "pollCount", "observedAt", "lastObserved"],
   capture: ["kind", "at", "checkpoint", "route", "actor", "viewport", "selectionCount"],
   failure: ["kind", "at", "classification", "knownLocator", "location"],
 });
 
 const convergenceDiagnosticKeys = ["evaluations", "productWork", "diagnosticsReadError", "projectionStreamVersion"];
+const fulfillmentIntegerKeys = [
+  "seller_available_quantity",
+  "quantity_requested",
+  "last_stream_version",
+  "listing_stream_version",
+  "listing_quantity_cap",
+  "listing_visible_quantity",
+];
+const fulfillmentKeys = [
+  "can_fulfill",
+  "managed_status",
+  "seller_listing_availability_status",
+  "status",
+  "price_amount",
+  "listing_id",
+  ...fulfillmentIntegerKeys,
+];
 const catalogItemPattern = /^cat_[A-Za-z0-9_]{1,160}$/;
 const productPattern = /^cat_[A-Za-z0-9_:|=.-]{1,240}$/;
 const workIdPattern = /^[a-f0-9]{64}$/;
@@ -470,6 +489,45 @@ function validateEntry(entry, path) {
       refuse(code, { path: `${path}.outcome` });
     }
     return { ...entry, eventTypes: [...entry.eventTypes] };
+  }
+  if (kind === "seller-match-fulfillment") {
+    const boolean = (value, key) => {
+      if (typeof value !== "boolean") refuse(code, { path: `${path}.${key}` });
+    };
+    requireInstant(entry.at, `${path}.at`);
+    requirePattern(entry.offerId, offerIdPattern, code, `${path}.offerId`);
+    requireInteger(entry.pollCount, 0, 10_000, code, `${path}.pollCount`);
+    nullable(entry.observedAt, (value) => requireInstant(value, `${path}.observedAt`));
+    requireClosed(entry.expected, ["can_fulfill", "amount", "listingId"], code, `${path}.expected`);
+    boolean(entry.expected.can_fulfill, "expected.can_fulfill");
+    requirePattern(entry.expected.amount, amountPattern, code, `${path}.expected.amount`);
+    requirePattern(entry.expected.listingId, listingIdPattern, code, `${path}.expected.listingId`);
+    nullable(entry.lastObserved, (snapshot) => {
+      const snapshotPath = `${path}.lastObserved`;
+      requireClosed(snapshot, fulfillmentKeys, code, snapshotPath);
+      nullable(snapshot.can_fulfill, (value) => boolean(value, "lastObserved.can_fulfill"));
+      nullable(snapshot.managed_status, (value) =>
+        requireEnum(value, ["unavailable", "held", "refresh_required"], code, `${snapshotPath}.managed_status`),
+      );
+      nullable(snapshot.seller_listing_availability_status, (value) =>
+        requireEnum(value, ["available", "unavailable"], code, `${snapshotPath}.seller_listing_availability_status`),
+      );
+      nullable(snapshot.status, (value) => requireEnum(value, offerStatuses, code, `${snapshotPath}.status`));
+      nullable(snapshot.price_amount, (value) =>
+        requirePattern(value, amountPattern, code, `${snapshotPath}.price_amount`),
+      );
+      nullable(snapshot.listing_id, (value) =>
+        requirePattern(value, listingIdPattern, code, `${snapshotPath}.listing_id`),
+      );
+      for (const key of fulfillmentIntegerKeys) {
+        nullable(snapshot[key], (value) => requireInteger(value, 0, 1_000_000, code, `${snapshotPath}.${key}`));
+      }
+    });
+    return {
+      ...entry,
+      expected: { ...entry.expected },
+      lastObserved: entry.lastObserved === null ? null : { ...entry.lastObserved },
+    };
   }
   if (kind === "observation") {
     requireInstant(entry.at, `${path}.at`);
