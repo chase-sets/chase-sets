@@ -7,7 +7,7 @@ import type {
   CatalogAliasState,
 } from "../../../alias-equivalence/domain/domain";
 import type { CatalogAliasCandidate } from "../../../alias-equivalence/domain/alias";
-import type { CatalogAliasServices } from "../../../alias-equivalence/api/runtime";
+import type { SourceObservationAliasCandidateSink } from "../../../alias-equivalence/read-model/projection";
 import {
   planPromotionAliases,
   type PromotionAliasCandidate,
@@ -53,7 +53,7 @@ export type PromotionAliasReader = Readonly<{
 export type PromotionAliasServices = PromotionAliasReader &
   Readonly<{
     catalogAliasCommandHandler: CommandHandler<CatalogAliasCommand, CatalogAliasState, CatalogAliasEvent>;
-    upsertSourceObservationAliasCandidates: CatalogAliasServices["upsertSourceObservationAliasCandidates"];
+    upsertSourceObservationAliasCandidates: SourceObservationAliasCandidateSink;
   }>;
 
 export type WritePromotionAliasesInput = Readonly<{

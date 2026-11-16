@@ -63,6 +63,11 @@ type CatalogAliasReviewData = {
   policyVersion: string;
 };
 
+export type SourceObservationAliasCandidateSink = (
+  candidates: readonly CatalogAliasCandidate[],
+  observedAt: string,
+) => Promise<void>;
+
 /**
  * Idempotently upsert Source Observation alias candidates by hash. Safe to call
  * on every observation record/replay: identical evidence overwrites itself,

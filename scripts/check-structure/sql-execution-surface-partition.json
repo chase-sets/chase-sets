@@ -77,6 +77,7 @@
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-reference-locator.ts",
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-target-exclusion.ts",
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-target-indexes.ts",
+    "bounded-contexts/catalog/features/source-observations/api/promotion/provider-promotion-alias-reader.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-integration-profile-store.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-ledger.ts",
