@@ -959,6 +959,14 @@ pub struct ContentLine {
     pub resolution_status: String,
 }
 
+/// `ProductContentsAuthoringSnapshot`: a product's content lines and the version of their stream
+/// they were read at, which a write of them sends back (`expectedVersion`).
+#[derive(Clone, Debug, Deserialize)]
+pub struct ContentsSnapshot {
+    pub lines: Vec<ContentLine>,
+    pub version: u64,
+}
+
 /// `ProductContentTypeRef` and `ProductContentInclusionPolicyRef`: a choice for a content line.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ContentChoice {

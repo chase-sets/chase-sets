@@ -27,6 +27,7 @@ use crate::{
         api::{ContentChoice, ContentLine, Field, ItemDetail, ItemRow, Readiness, Reference, ReferenceRow, SelectedOption},
         form::{
             ContentLineInput, FallbackInput, FieldValueInput, IdInput, ListInput, MetadataInput, PublishInput, ReferenceInput,
+            VersionInput,
         },
         url::{self, item as at},
     },
@@ -36,12 +37,14 @@ use crate::{
 
 const DASH: &str = "\u{2014}";
 
-/// The item page's view model: the item, what it contains and what contains it (none when the
-/// API could not say), and the names the content lines are shown with.
+/// The item page's view model: the item, what it contains and the version of its contents' stream
+/// they were read at, what contains it (none when the API could not say), and the names the content
+/// lines are shown with.
 #[derive(serde::Serialize, ToJson)]
 pub struct ItemScreen {
     pub item: ItemDetail,
     pub contents: Option<Vec<ContentLine>>,
+    pub contents_version: Option<u64>,
     pub containers: Option<Vec<ContentLine>>,
     pub labels: Labels,
 }
@@ -112,6 +115,9 @@ pub enum ItemBack {
     CatalogRef(Draft<ReferenceInput>),
     ProductRef(Draft<ReferenceInput>),
     Content(Draft<ContentLineInput>, ContentChoices),
+    /// Contents that changed since the page read them: drawn open with the message, and Add
+    /// content line's form that came back, when that was the write.
+    ContentsChanged(Option<(Draft<ContentLineInput>, ContentChoices)>),
     /// A row's form, by its id, and its refusal.
     Row(String, Errors),
 }
@@ -303,6 +309,7 @@ pub fn item_page<'a>(
         ItemBack::Row(form, errors) => Some((form.clone(), errors.clone())),
         _ => None,
     };
+    let changed = matches!(back, ItemBack::ContentsChanged(_));
     let lifecycle = at::Lifecycle { id }.href();
     let steps = item_transitions(t, &item.status);
     let items = [
@@ -346,12 +353,12 @@ pub fn item_page<'a>(
                 }
                 <FieldValues t={t} id={id} rows={&rows} editable={editable} refused={row_errors.as_ref()} />
                 <Categories t={t} id={id} item={item} editable={editable} refused={row_errors.as_ref()} />
-                <Contents
+                <ContentsPart
                     t={t}
                     p={p}
                     screen={screen}
-                    editable={editable}
-                    open={open == Some(Fold::Contents)}
+                    open={changed || open == Some(Fold::Contents)}
+                    changed={changed}
                     refused={row_errors.as_ref()}
                 />
                 <Tags t={t} item={item} editable={editable} open={open == Some(Fold::Tags)} />
@@ -383,14 +390,15 @@ pub fn item_page<'a>(
         </DetailPage>
         <ReferenceDialogs t={t} p={p} rows={&rows} />
         if editable {
-            {dialogs(t, p, item, back)}
+            {dialogs(t, p, item, screen.contents_version, back)}
         }
         <Toasts p={p} notice={notice.as_ref()} />
     }
 }
 
-/// The page's dialogs, each with its default form or the one that came back.
-fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl Render + 'a {
+/// The page's dialogs, each with its default form or the one that came back (Add content line's at
+/// the contents version the page shows).
+fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, version: Option<u64>, back: ItemBack) -> impl Render + 'a {
     let id = item.catalog_item_id.as_str();
     let close = p.catalog_close();
     let mut publish = (Draft::new(PublishInput::default()), false);
@@ -416,7 +424,11 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
         ItemBack::ProductRef(d) => product_ref = (d, true),
         ItemBack::Field(d, choices) => field = Some((d, choices)),
         ItemBack::Content(d, choices) => content = Some((d, choices)),
-        ItemBack::Nothing | ItemBack::Lifecycle(_) | ItemBack::Row(..) => {}
+        ItemBack::ContentsChanged(Some((mut d, choices))) => {
+            d.input.expected_version = version.map(|v| v.to_string()).unwrap_or_default();
+            content = Some((d, choices));
+        }
+        ItemBack::Nothing | ItemBack::Lifecycle(_) | ItemBack::Row(..) | ItemBack::ContentsChanged(None) => {}
     }
     let readiness = item.display_identity_publication.clone().unwrap_or_else(Readiness::unavailable);
     html! {
@@ -778,17 +790,21 @@ fn Categories<'a>(
     }
 }
 
-/// What the item contains, its unresolved provider evidence, and what contains it.
+/// What the item contains, its unresolved provider evidence, and what contains it: a part a write's
+/// refusal redraws (\`changed\`: the contents changed since the page read them, so here they are now).
+/// Add and Remove send the contents version the part shows.
 #[component(css = ItemPage)]
-fn Contents<'a>(
+pub fn ContentsPart<'a>(
     t: Cat,
     p: Pilot,
     screen: &'a ItemScreen,
-    editable: bool,
     open: bool,
+    changed: bool,
     refused: Option<&'a (String, Errors)>,
-) -> impl Render {
+) -> impl Patch {
     let id = screen.item.catalog_item_id.as_str();
+    let editable = screen.item.status != "archived";
+    let version = screen.contents_version.map(|v| v.to_string()).unwrap_or_default();
     let lines = screen.contents.as_deref().unwrap_or_default();
     let containers = screen.containers.as_deref().unwrap_or_default();
     let resolved: Vec<&ContentLine> = lines.iter().filter(|l| l.resolution_status == "resolved").collect();
@@ -811,63 +827,69 @@ fn Contents<'a>(
     let add = at::Contents::of(id).href();
     let tone = |any: bool, on: &'static str| if any { on } else { "neutral" };
     html! {
-        <ItemPage title={t.item_product_contents()}>
-            if screen.contents.is_none() || screen.containers.is_none() {
-                <p class={Alert} role="alert">{p.item_contents_unavailable()}</p>
-            }
-            <Disclosure title={t.item_contents()} summary={&summary} tone={tone(!lines.is_empty(), "info")} open={open}>
-                if editable && screen.contents.is_some() {
-                    <form class={Opener} method="get" action={&add} data-patch>
-                        <button type="submit" class={Small}>{t.item_add_content_line()}</button>
-                    </form>
+        <div id={ids::CONTENTS}>
+            <ItemPage title={t.item_product_contents()}>
+                if screen.contents.is_none() || screen.containers.is_none() {
+                    <p class={Alert} role="alert">{p.item_contents_unavailable()}</p>
                 }
-                <LineTable
-                    t={t}
-                    screen={screen}
-                    lines={&resolved}
-                    empty={t.item_no_resolved_contents()}
-                    editable={editable}
-                    refused={refused}
-                />
-            </Disclosure>
-            <Disclosure
-                title={t.item_unresolved_provider_evidence()}
-                summary={&evidence}
-                tone={tone(!unresolved.is_empty(), "warning")}
-                open={open && !unresolved.is_empty()}
-            >
-                <LineTable
-                    t={t}
-                    screen={screen}
-                    lines={&unresolved}
-                    empty={t.item_no_unresolved_provider_evidence()}
-                    editable={editable}
-                    refused={refused}
-                />
-            </Disclosure>
-            <Disclosure
-                title={t.item_included_in()}
-                summary={&contained_in}
-                tone={tone(!containers.is_empty(), "info")}
-                open={false}
-            >
-                if containers.is_empty() {
-                    <p class={Muted}>{t.item_no_product_containers()}</p>
-                } else {
-                    let head = [t.item_container_catalog_item(), t.item_content_type(), t.item_quantity(), t.item_selected_options()];
-                    <Table label={t.item_included_in()} head={&head} all={None} layout={TableLayout::Scroll}>
-                        for line in containers {
-                            <tr>
-                                <td>{screen.labels.item(&line.container_catalog_item_id)}</td>
-                                <td>{screen.labels.content_type(&line.content_type_id)}</td>
-                                <td>{quantity(t, line.quantity)}</td>
-                                <td>{options_label(t, line.container_selected_options.as_ref())}</td>
-                            </tr>
-                        }
-                    </Table>
+                if changed {
+                    <p class={Alert} role="alert">{p.item_contents_changed()}</p>
                 }
-            </Disclosure>
-        </ItemPage>
+                <Disclosure title={t.item_contents()} summary={&summary} tone={tone(!lines.is_empty(), "info")} open={open}>
+                    if editable && screen.contents.is_some() {
+                        <form class={Opener} method="get" action={&add} data-patch>
+                            <input type="hidden" name={VersionInput::FIELDS.expected_version} value={&version}>
+                            <button type="submit" class={Small}>{t.item_add_content_line()}</button>
+                        </form>
+                    }
+                    <LineTable
+                        t={t}
+                        screen={screen}
+                        lines={&resolved}
+                        empty={t.item_no_resolved_contents()}
+                        editable={editable}
+                        refused={refused}
+                    />
+                </Disclosure>
+                <Disclosure
+                    title={t.item_unresolved_provider_evidence()}
+                    summary={&evidence}
+                    tone={tone(!unresolved.is_empty(), "warning")}
+                    open={open && !unresolved.is_empty()}
+                >
+                    <LineTable
+                        t={t}
+                        screen={screen}
+                        lines={&unresolved}
+                        empty={t.item_no_unresolved_provider_evidence()}
+                        editable={editable}
+                        refused={refused}
+                    />
+                </Disclosure>
+                <Disclosure
+                    title={t.item_included_in()}
+                    summary={&contained_in}
+                    tone={tone(!containers.is_empty(), "info")}
+                    open={false}
+                >
+                    if containers.is_empty() {
+                        <p class={Muted}>{t.item_no_product_containers()}</p>
+                    } else {
+                        let head = [t.item_container_catalog_item(), t.item_content_type(), t.item_quantity(), t.item_selected_options()];
+                        <Table label={t.item_included_in()} head={&head} all={None} layout={TableLayout::Scroll}>
+                            for line in containers {
+                                <tr>
+                                    <td>{screen.labels.item(&line.container_catalog_item_id)}</td>
+                                    <td>{screen.labels.content_type(&line.content_type_id)}</td>
+                                    <td>{quantity(t, line.quantity)}</td>
+                                    <td>{options_label(t, line.container_selected_options.as_ref())}</td>
+                                </tr>
+                            }
+                        </Table>
+                    }
+                </Disclosure>
+            </ItemPage>
+        </div>
     }
 }
 
@@ -882,6 +904,7 @@ fn LineTable<'a>(
     refused: Option<&'a (String, Errors)>,
 ) -> impl Render {
     let id = screen.item.catalog_item_id.as_str();
+    let version = screen.contents_version.map(|v| v.to_string()).unwrap_or_default();
     let head = [
         t.item_contained_catalog_item(),
         t.item_content_type(),
@@ -913,7 +936,8 @@ fn LineTable<'a>(
                             if editable && screen.contents.is_some() {
                                 let form = ids::row("line", &line.line_id);
                                 let action = at::ContentRemove { id, line_id: &line.line_id }.href();
-                                <RowForm id={&form} action={&action} label={t.item_remove()} hidden={&[]} refused={refused} />
+                                let hidden = [(VersionInput::FIELDS.expected_version.untyped(), version.as_str())];
+                                <RowForm id={&form} action={&action} label={t.item_remove()} hidden={&hidden} refused={refused} />
                             }
                         </td>
                     </tr>
@@ -1458,6 +1482,7 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
                 >
             </label>
             <Input label={t.item_quantity()} name={f.quantity} value={&i.quantity} errors={&e} />
+            <input type="hidden" name={f.expected_version} value={&i.expected_version}>
             <div class={Footer}><button type="submit">{t.item_add_content_line()}</button></div>
         </form>
     }
