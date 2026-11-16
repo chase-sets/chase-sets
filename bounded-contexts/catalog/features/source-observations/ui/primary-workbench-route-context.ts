@@ -18,6 +18,10 @@ const canonicalKeys = new Set([
   "importScope",
   ...catalogPrimaryWorkbenchScopeQueryKeys,
   "profileVersion",
+  "aliasType",
+  "reviewStatuses",
+  "targetKind",
+  "targetId",
   "selectedObservationIds",
   "selectedObservationCount",
   "reviewOffset",
@@ -227,6 +231,10 @@ function routeContextFromLocation(
       ? importScopeFromScopeContext(scope)
       : (importScope ?? importScopeFromScopeContext(scope)),
     profileVersion: nullableParam(searchParams, "profileVersion"),
+    aliasType: nullableParam(searchParams, "aliasType"),
+    reviewStatuses: parseCsvParam(searchParams, "reviewStatuses"),
+    targetKind: nullableParam(searchParams, "targetKind"),
+    targetId: nullableParam(searchParams, "targetId"),
     sourceObservationFilters,
     selectedObservationIds: parseCsvParam(searchParams, "selectedObservationIds"),
     reviewOffset: nonNegativeIntParam(searchParams, "reviewOffset"),
@@ -265,6 +273,12 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   setNullable(searchParams, "expansionId", context.scope?.expansionId ?? null);
   setNullable(searchParams, "expansionName", context.scope?.expansionName ?? null);
   setNullable(searchParams, "profileVersion", context.profileVersion);
+  setNullable(searchParams, "aliasType", context.aliasType ?? null);
+  if (context.reviewStatuses?.length) {
+    searchParams.set("reviewStatuses", context.reviewStatuses.join(","));
+  }
+  setNullable(searchParams, "targetKind", context.targetKind ?? null);
+  setNullable(searchParams, "targetId", context.targetId ?? null);
   if (
     context.selectedObservationIds.length > 0 &&
     context.selectedObservationIds.length <= MAX_URL_SELECTED_OBSERVATION_IDS

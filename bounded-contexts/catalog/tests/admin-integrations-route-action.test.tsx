@@ -3158,7 +3158,25 @@ describe("Catalog integrations route", () => {
     expect(JSON.stringify(failureResult)).not.toContain("provider secret leaked");
   });
 
-  it("loads the alias-review read model into the daily surface route data (#1908)", async () => {
+  it.each([
+    ["", {}],
+    ["&aliasType=language-edition", { aliasType: "language-edition" }],
+    ["&reviewStatuses=pending", { reviewStatuses: "pending" }],
+    ["&reviewStatuses=rejected,pending", { reviewStatuses: "rejected,pending" }],
+    ["&aliasType=&reviewStatuses=&targetKind=&targetId=", {}],
+    ["&targetKind=reference-record", {}],
+    ["&targetId=synthetic-reference-record", {}],
+    ["&targetKind=catalog-item&targetId=synthetic-item", { targetKind: "catalog-item", targetId: "synthetic-item" }],
+    [
+      "&aliasType=language-edition&reviewStatuses=rejected,pending&targetKind=reference-record&targetId=synthetic-reference-record",
+      {
+        aliasType: "language-edition",
+        reviewStatuses: "rejected,pending",
+        targetKind: "reference-record",
+        targetId: "synthetic-reference-record",
+      },
+    ],
+  ])("loads the alias-review read model with exact route narrowing %s", async (filters, expectedFilters) => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue(aliasReviewReadModel());
@@ -3173,20 +3191,25 @@ describe("Catalog integrations route", () => {
 
     const routeData = await loader({
       request: new Request(
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+        `https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04${filters}`,
       ),
       params: {},
       context: {},
     } as Parameters<typeof loader>[0]);
 
+    expect(getCatalogAliasReviewReadModel).toHaveBeenCalledTimes(1);
     const aliasReviewQuery = new URLSearchParams(getCatalogAliasReviewReadModel.mock.calls[0]?.[0] ?? "");
-    expect(aliasReviewQuery.get("providerKey")).toBe("tcgdex");
-    expect(aliasReviewQuery.get("sourceProfileVersion")).toBe("2026.06.04");
+    expect(Object.fromEntries(aliasReviewQuery)).toEqual({
+      providerKey: "tcgdex",
+      sourceProfileVersion: "2026.06.04",
+      ...expectedFilters,
+    });
+    expect(aliasReviewQuery.has("limit")).toBe(false);
     // Alias review is deferred (#1970): it streams in behind the deferred slice.
     expect((await routeData.deferredAliasReview)?.counts.needsReview).toBe(1);
   });
 
-  it("keeps the daily surface rendering when the alias-review read model is unavailable", async () => {
+  it.each(["missing", "transient-error"])("keeps the daily surface rendering on alias-review %s", async (failure) => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     mockCreateCatalogRequestApiClient.mockReturnValue({
@@ -3194,7 +3217,13 @@ describe("Catalog integrations route", () => {
       listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
       getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
       listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
-      getCatalogAliasReviewReadModel: vi.fn().mockRejectedValue(new CatalogApiError(503, { error: { code: "boom" } })),
+      ...(failure === "transient-error"
+        ? {
+            getCatalogAliasReviewReadModel: vi
+              .fn()
+              .mockRejectedValue(new CatalogApiError(503, { error: { code: "boom" } })),
+          }
+        : {}),
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
 

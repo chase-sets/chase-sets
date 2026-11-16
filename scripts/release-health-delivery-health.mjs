@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { basename, dirname } from "node:path";
 import process from "node:process";
 import { inflateRawSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { classifyPrScope } from "./lib/pr-scope-policy-v1.mjs";
+import { classifyDeploymentRootCause } from "./platform-deploy-incident.mjs";
 import {
   collectStagingLineageMapping,
   isStagingLineageInstant,
@@ -297,6 +299,8 @@ async function collectSourceData({ options, policy, client, queryStart }) {
       releaseRecordsByRun,
       jobsByRun,
     });
+    qualification.schemaVersion = "delivery-health-qualification/v3";
+    qualification.metrics = summarizeQualificationMetrics(qualification);
   }
 
   return {
@@ -1062,11 +1066,17 @@ function normalizeQualificationEvidence(value, repository) {
     !value ||
     typeof value !== "object" ||
     Array.isArray(value) ||
-    !["delivery-health-qualification/v1", "delivery-health-qualification/v2"].includes(value.schemaVersion) ||
+    ![
+      "delivery-health-qualification/v1",
+      "delivery-health-qualification/v2",
+      "delivery-health-qualification/v3",
+    ].includes(value.schemaVersion) ||
     Object.keys(value).sort().join(",") !==
-      (value.schemaVersion === "delivery-health-qualification/v2"
-        ? "attempts,candidates,enabledAt,events,producerEvents,reasons,schemaVersion,stagingEvidence,stagingJoins,status"
-        : "attempts,events,producerEvents,reasons,schemaVersion,status") ||
+      (value.schemaVersion === "delivery-health-qualification/v3"
+        ? "attempts,candidates,enabledAt,events,metrics,producerEvents,reasons,schemaVersion,stagingEvidence,stagingJoins,status"
+        : value.schemaVersion === "delivery-health-qualification/v2"
+          ? "attempts,candidates,enabledAt,events,producerEvents,reasons,schemaVersion,stagingEvidence,stagingJoins,status"
+          : "attempts,events,producerEvents,reasons,schemaVersion,status") ||
     !["disabled", "complete", "partial"].includes(value.status) ||
     ["attempts", "events", "producerEvents", "reasons"].some(
       (key) => !Array.isArray(value[key]) || value[key].length > 1024,
@@ -1074,7 +1084,7 @@ function normalizeQualificationEvidence(value, repository) {
     value.reasons.some((reason) => typeof reason !== "string" || !/^qualification:[a-z0-9_:/-]{1,160}$/.test(reason))
   )
     return invalid();
-  if (value.schemaVersion === "delivery-health-qualification/v2") {
+  if (["delivery-health-qualification/v2", "delivery-health-qualification/v3"].includes(value.schemaVersion)) {
     if (
       value.status === "disabled" ||
       !isStagingLineageInstant(value.enabledAt) ||
@@ -1185,7 +1195,185 @@ function normalizeQualificationEvidence(value, repository) {
     (value.status === "partial" && value.reasons.length === 0)
   )
     return invalid();
+  if (value.schemaVersion === "delivery-health-qualification/v3") {
+    const latest = new Set(value.attempts.map((attempt) => `${attempt.kind ?? "advisory"}:${attempt.runId}`));
+    if (
+      latest.size !== value.attempts.length ||
+      !isDeepStrictEqual(value.metrics, summarizeQualificationMetrics(value))
+    )
+      return { ...emptyQualificationEvidence(), status: "partial", reasons: ["qualification:metrics-invalid"] };
+  }
   return value;
+}
+
+function summarizeQualificationMetrics(evidence) {
+  const events = new Map(evidence.events.map((event) => [`advisory:${event.runId}/${event.runAttempt}`, event]));
+  for (const event of evidence.producerEvents)
+    events.set(`producer:${event.producerRunId}/${event.producerRunAttempt}`, event);
+  const joins = new Map(evidence.stagingJoins.map((join) => [`${join.runId}/${join.runAttempt}`, join]));
+  const counts = {
+    success: 0,
+    cancellation: 0,
+    infrastructure: 0,
+    application: 0,
+    notApplicable: 0,
+    persistentRequired: 0,
+    unknown: 0,
+  };
+  const stateOutcomes = {
+    passed: "success",
+    cancelled_evicted: "cancellation",
+    infrastructure_error: "infrastructure",
+    failed: "application",
+    not_applicable: "notApplicable",
+    persistent_required: "persistentRequired",
+  };
+  const usedEvidence = new Set();
+  const latestOutcomes = evidence.attempts
+    .map((attempt) => {
+      const kind = attempt.kind ?? "advisory";
+      const event = events.get(`${kind}:${attempt.runId}/${attempt.runAttempt}`);
+      const outcome =
+        attempt.status === "terminal"
+          ? (stateOutcomes[event?.terminalState] ?? "unknown")
+          : attempt.status === "not-required"
+            ? attempt.classifierClass === "not_applicable"
+              ? "notApplicable"
+              : "persistentRequired"
+            : "unknown";
+      counts[outcome] += 1;
+      const join = joins.get(`${attempt.runId}/${attempt.runAttempt}`);
+      const stagingEntry =
+        kind === "advisory" && join?.status === "joined"
+          ? evidence.stagingEvidence.find(
+              (entry) =>
+                entry.runId === join.evidenceRunId &&
+                entry.runAttempt === join.evidenceRunAttempt &&
+                entry.deployment?.runId === join.stagingRunId &&
+                entry.deployment?.runAttempt === join.stagingRunAttempt,
+            )
+          : null;
+      const classification = stagingEntry
+        ? classifyQualificationStaging(stagingEntry.summary)
+        : { classification: "unknown", rootCauseCode: null };
+      if (stagingEntry) usedEvidence.add(stagingEntry);
+      const stagingEligible =
+        kind === "advisory" && event?.terminalState === "passed" && event.classifierClass === "isolated";
+      const stagingExcluded = kind === "producer" || attempt.status === "not-required" || (event && !stagingEligible);
+      return {
+        kind,
+        runId: attempt.runId,
+        runAttempt: attempt.runAttempt,
+        candidateSha: event?.candidateSha ?? null,
+        status: attempt.status,
+        terminalState: attempt.terminalState,
+        eligible: attempt.eligible,
+        classifierClass: attempt.classifierClass,
+        identityAvailable: attempt.identityAvailable,
+        outcome,
+        elapsedSeconds:
+          kind === "advisory" && event ? (Date.parse(event.completedAt) - Date.parse(event.startedAt)) / 1000 : null,
+        provisioned: event
+          ? kind === "advisory"
+            ? event.provisioned
+            : false
+          : attempt.status === "not-required"
+            ? false
+            : null,
+        headroomRuns: kind === "advisory" && event ? (event.providerHeadroom?.headroomRuns ?? null) : null,
+        staging: {
+          status: stagingExcluded
+            ? "not-eligible"
+            : stagingEntry && classification.classification !== "unknown"
+              ? "known"
+              : "unknown",
+          ...classification,
+          catch: Boolean(stagingEligible && stagingEntry && classification.classification === "application"),
+        },
+      };
+    })
+    .sort((a, b) => `${a.kind}:${a.runId}`.localeCompare(`${b.kind}:${b.runId}`));
+  const durations = latestOutcomes
+    .map((entry) => entry.elapsedSeconds)
+    .filter((value) => value !== null)
+    .sort((a, b) => a - b);
+  const headroom = latestOutcomes.map((entry) => entry.headroomRuns).filter((value) => value !== null);
+  const denominator = counts.success + counts.infrastructure + counts.application;
+  const stagingOutcomes = evidence.stagingEvidence.map((entry) => ({
+    runId: entry.runId,
+    runAttempt: entry.runAttempt,
+    ...classifyQualificationStaging(entry.summary),
+    joined: usedEvidence.has(entry),
+  }));
+  return {
+    schemaVersion: "advisory-qualification-metrics/v1",
+    candidateCount: latestOutcomes.length,
+    counts,
+    success: {
+      numerator: counts.success,
+      denominator,
+      rate: counts.unknown === 0 && denominator ? counts.success / denominator : null,
+    },
+    namespaceCount: latestOutcomes.filter((entry) => entry.provisioned).length,
+    namespaceUnknownCount: latestOutcomes.filter((entry) => entry.provisioned === null).length,
+    elapsedSeconds: {
+      sampleCount: durations.length,
+      p50: nearestRank(durations, 0.5),
+      p90: nearestRank(durations, 0.9),
+      p95: nearestRank(durations, 0.95),
+    },
+    staging: {
+      denominator: latestOutcomes.filter((entry) => entry.staging.status === "known").length,
+      catches: latestOutcomes.filter((entry) => entry.staging.catch).length,
+      unknown: latestOutcomes.filter((entry) => entry.staging.status === "unknown").length,
+      orphans: evidence.stagingEvidence.filter((entry) => !usedEvidence.has(entry)).length,
+      application: stagingOutcomes.filter((entry) => entry.classification === "application").length,
+      infrastructure: stagingOutcomes.filter((entry) => entry.classification === "infrastructure").length,
+    },
+    headroom: {
+      sampleCount: headroom.length,
+      unknownCount: latestOutcomes.length - headroom.length,
+      min: headroom.length ? Math.min(...headroom) : null,
+      max: headroom.length ? Math.max(...headroom) : null,
+    },
+    completeness: {
+      status: evidence.status,
+      terminalCount: latestOutcomes.filter((entry) => entry.status === "terminal").length,
+      unknownCount: counts.unknown,
+    },
+    latestOutcomes,
+    stagingOutcomes,
+  };
+}
+
+function classifyQualificationStaging(summary) {
+  if (
+    summary.marketplaceE2e.outcome === "success" &&
+    summary.scenarioSeed.outcome === "success" &&
+    summary.postWindow.outcome === "success"
+  )
+    return { classification: "success", rootCauseCode: null };
+  const rootCause = classifyDeploymentRootCause({
+    phase: summary.failedPhases.some((phase) => ["scenario-seed", "marketplace-e2e"].includes(phase))
+      ? "staging-advisory"
+      : "",
+    diagnostics: [{ message: summary.postWindow.error }, { message: summary.admission.error }],
+  });
+  const application =
+    rootCause.rootCauseCode === "staging-advisory-seed-or-e2e" &&
+    [summary.marketplaceE2e.outcome, summary.scenarioSeed.outcome].includes("failure");
+  const infrastructure = [
+    "terraform-provider-or-state",
+    "staging-dns",
+    "doks-bootstrap-or-migration",
+    "staging-browser-install",
+    "doks-admission-webhook-unreachable",
+    "registry-gc-read-only",
+  ].includes(rootCause.rootCauseCode);
+  return {
+    classification: application ? "application" : infrastructure ? "infrastructure" : "unknown",
+    rootCauseCode: rootCause.rootCauseCode,
+  };
 }
 
 function validStagingEvidence(entry) {
@@ -1776,7 +1964,11 @@ export function renderDeliveryHealthMarkdown(record) {
       `| ${attempt.runId} / ${attempt.runAttempt} | ${attempt.conclusion ?? "pending"} | ${attempt.status} | ${attempt.terminalState ?? "unknown"} | ${attempt.eligible ?? "unknown"} | ${attempt.classifierClass ?? "unknown"} | ${attempt.identityAvailable ?? "unknown"} |`,
     );
   }
-  if (record.qualification.schemaVersion === "delivery-health-qualification/v2") {
+  if (
+    ["delivery-health-qualification/v2", "delivery-health-qualification/v3"].includes(
+      record.qualification.schemaVersion,
+    )
+  ) {
     lines.push(
       "",
       "### Qualification staging lineage",
@@ -1789,6 +1981,36 @@ export function renderDeliveryHealthMarkdown(record) {
         `| ${join.runId} / ${join.runAttempt} | ${join.status} | ${join.reason} | ${join.candidateSha ?? "unknown"} | ${join.mergeSha ?? "unknown"} | ${join.stagingRunId ?? "unknown"} / ${join.stagingRunAttempt ?? "unknown"} | ${join.evidenceRunId ?? "unknown"} / ${join.evidenceRunAttempt ?? "unknown"} | ${join.imageDigest ?? "unknown"} |`,
       );
     }
+  }
+  if (record.qualification.schemaVersion === "delivery-health-qualification/v3") {
+    const metrics = record.qualification.metrics;
+    lines.push(
+      "",
+      "### Advisory qualification metrics",
+      "",
+      "Read-only advisory projection; persistent staging remains required for every merged deployable. These are not canonical SLIs or staging-removal authority.",
+      `Candidates (latest outcomes): ${metrics.candidateCount}; success: ${metrics.counts.success}; cancellation: ${metrics.counts.cancellation}; infrastructure: ${metrics.counts.infrastructure}; application: ${metrics.counts.application}; unknown: ${metrics.counts.unknown}.`,
+      `Qualification success: ${metrics.success.numerator} / ${metrics.success.denominator}; evictions excluded.`,
+      `Elapsed p50 / p90 / p95: ${formatSeconds(metrics.elapsedSeconds.p50)} / ${formatSeconds(metrics.elapsedSeconds.p90)} / ${formatSeconds(metrics.elapsedSeconds.p95)} (${metrics.elapsedSeconds.sampleCount} samples).`,
+      `Qualification staging catches: ${metrics.staging.catches} / ${metrics.staging.denominator}; orphans: ${metrics.staging.orphans}; unknown disposition: ${metrics.staging.unknown}.`,
+      `Namespace observations: ${metrics.namespaceCount}; unknown provisioning: ${metrics.namespaceUnknownCount}; headroom min / max: ${metrics.headroom.min ?? "unknown"} / ${metrics.headroom.max ?? "unknown"}; unknown: ${metrics.headroom.unknownCount}.`,
+      "",
+      "| Latest attempt | Outcome | Elapsed | Provisioned | Headroom | Staging disposition | Catch class | Catch |",
+      "| --- | --- | ---: | --- | ---: | --- | --- | --- |",
+    );
+    for (const outcome of metrics.latestOutcomes)
+      lines.push(
+        `| ${outcome.runId} / ${outcome.runAttempt} | ${outcome.outcome} | ${formatSeconds(outcome.elapsedSeconds)} | ${outcome.provisioned ?? "unknown"} | ${outcome.headroomRuns ?? "unknown"} | ${outcome.staging.status} | ${outcome.staging.rootCauseCode ?? outcome.staging.classification} | ${outcome.staging.catch} |`,
+      );
+    lines.push(
+      "",
+      "| Staging evidence attempt | Classification | Root cause | Causally joined |",
+      "| --- | --- | --- | --- |",
+    );
+    for (const outcome of metrics.stagingOutcomes)
+      lines.push(
+        `| ${outcome.runId} / ${outcome.runAttempt} | ${outcome.classification} | ${outcome.rootCauseCode ?? "none"} | ${outcome.joined} |`,
+      );
   }
   lines.push(
     "",
