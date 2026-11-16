@@ -22,6 +22,8 @@ export type CurrentEbayEnvelope = <T>(
   transaction?: PgQueryable,
 ) => Promise<T>;
 
+class RefreshHealthRefused extends Error {}
+
 // No executable eBay response has terminal authority. The injected classifier permits labeled synthetic controls.
 export function createEbayCredentialRefresh(deps: {
   db: PgTransactionalPool;
@@ -80,7 +82,9 @@ export function createEbayCredentialRefresh(deps: {
         JSON.stringify(observation),
       ],
     );
-    await deps.health.submitObservation(observation, claim.context, db);
+    const submission = await deps.health.submitObservation(observation, claim.context, db);
+    if (submission.outcome !== "accepted" && submission.outcome !== "replayed")
+      throw new RefreshHealthRefused(submission.outcome);
   }
   async function initialize(
     db: PgQueryable,
@@ -114,7 +118,14 @@ export function createEbayCredentialRefresh(deps: {
         const retained = await deps.current(
           { accountId: claim.account_id, connectionId: claim.connection_id },
           Number(claim.token_generation),
-          async (db, _envelope, tokens) => ((await schedule.lock(db, claim)) ? tokens : null),
+          async (db, _envelope, tokens) => {
+            if (!(await schedule.lock(db, claim))) return null;
+            const snapshot = await deps.health.readConnectionHealth(
+              { accountId: claim.account_id, connectionId: claim.connection_id },
+              db,
+            );
+            return snapshot.connection.status === "paused" ? null : tokens;
+          },
         );
         if (!retained) return false;
         const tokens = await deps.provider.refresh(retained, AbortSignal.timeout(20000));
@@ -144,6 +155,9 @@ export function createEbayCredentialRefresh(deps: {
           ),
         );
       } catch (error) {
+        // A refused observation rolls back custody, journal and schedule together. Keep the
+        // leased attempt/cycle for recovery, including when pause races the provider response.
+        if (error instanceof RefreshHealthRefused) return false;
         if (error instanceof EbayConnectionError && error.code === "stale-authorization") return false;
         throw error;
       }
