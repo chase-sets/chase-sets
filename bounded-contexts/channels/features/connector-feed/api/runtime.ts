@@ -58,6 +58,8 @@ export function createConnectorFeedRuntime(
     eventStore: PostgresEventStore;
     oauth?: ConnectorOAuthService;
     now?: () => Date;
+    beforeConnectionLock?: (db: PgQueryable, input: ConnectionQuery) => Promise<void>;
+    disconnectEffect?: (db: PgQueryable, state: ChannelConnectionState) => Promise<void>;
   }>,
 ) {
   const now = deps.now ?? (() => new Date());
@@ -75,6 +77,7 @@ export function createConnectorFeedRuntime(
   ): Promise<T> {
     const checked = query(input);
     return withPgTransaction(deps.db, async (db) => {
+      await deps.beforeConnectionLock?.(db, checked);
       const streamId = `channels.connection-${checked.connectionId}`;
       await db.query("SELECT stream_id FROM event_store_streams WHERE stream_id = $1 FOR UPDATE", [streamId]);
       const reader = createPostgresEventStore({
@@ -361,6 +364,7 @@ export function createConnectorFeedRuntime(
       return await transact(input, async (db, state, version) => {
         const pairing = await latest(db, input.connectionId);
         if (pairing) await close(db, pairing);
+        if (state.status !== "disconnected") await deps.disconnectEffect?.(db, state);
         const newEvents = decideChannelConnection(state, { type: "DisconnectChannelConnection" });
         const storedEvents = newEvents.length
           ? await deps.eventStore.appendToStreamInTransaction(db, {

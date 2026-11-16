@@ -7551,6 +7551,27 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
       "stepAnchor": "name:Apply staging Kubernetes runtime secrets#35",
+      "secretName": "EBAY_SANDBOX_APP_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#35",
+      "secretName": "EBAY_SANDBOX_CERT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#35",
+      "secretName": "EBAY_SANDBOX_RUNAME",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#35",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },

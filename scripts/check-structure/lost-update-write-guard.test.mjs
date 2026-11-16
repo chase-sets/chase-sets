@@ -106,13 +106,21 @@ describe("owner-local lost-update exceptions", () => {
     const result = await candidateGuard({ repoRoot: root });
     expect(result.violations).toEqual([]);
     expect(result.rows).toEqual([
-      expect.objectContaining({ table: "channels_connection_credentials", classification: "guarded" }),
+      expect.objectContaining({ table: "channels_connection_credentials", kind: "UPDATE", classification: "guarded" }),
+      expect.objectContaining({ table: "channels_connection_credentials", kind: "DELETE", classification: "guarded" }),
     ]);
-    for (const column of credentialColumns.filter((name) => name !== "row_id")) {
-      const unguarded = source.replace(new RegExp(`AND ${column} = \\$\\d+`), "");
-      expect(unguarded).not.toBe(source);
-      await put(root, credentialsPath, unguarded);
-      expect((await candidateGuard({ repoRoot: root })).violations).toHaveLength(1);
+    for (const kind of ["UPDATE", "DELETE FROM"]) {
+      const start = source.indexOf(`${kind} channels_connection_credentials`);
+      const end = source.indexOf("`", start);
+      for (const column of credentialColumns.filter((name) => name !== "row_id")) {
+        const unguarded =
+          source.slice(0, start) +
+          source.slice(start, end).replace(new RegExp(`AND ${column} = \\$\\d+`), "") +
+          source.slice(end);
+        expect(unguarded, `${kind} ${column}`).not.toBe(source);
+        await put(root, credentialsPath, unguarded);
+        expect((await candidateGuard({ repoRoot: root })).violations, `${kind} ${column}`).toHaveLength(1);
+      }
     }
   });
 

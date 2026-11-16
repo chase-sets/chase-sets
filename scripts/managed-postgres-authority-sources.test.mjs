@@ -331,6 +331,15 @@ const previewPoolCensusDelta = [
   purpose,
 }));
 // #9293 adds only the two deployment values at the five existing Secret-apply sinks.
+const ebaySandboxOAuthDelta = ["EBAY_SANDBOX_APP_ID", "EBAY_SANDBOX_CERT_ID", "EBAY_SANDBOX_RUNAME"].map(
+  (secretName) => ({
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#35",
+    secretName,
+    purpose: "application-runtime",
+  }),
+);
 const ebayAccountDeletionDelta = [
   {
     file: ".github/workflows/platform-ephemeral-verification.yml",
@@ -1076,7 +1085,8 @@ describe("managed Postgres authority source generator", () => {
         .map(applyProductionMarkerMintInsertions)
         .concat(productionMarkerAppKeyDelta)
         .concat(cortenAdminImageDelta)
-        .map(applyTerraformProviderCacheStepInsertions),
+        .map(applyTerraformProviderCacheStepInsertions)
+        .concat(ebaySandboxOAuthDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

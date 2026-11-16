@@ -377,6 +377,12 @@
     },
     {
       "deployable": "marketplace-web",
+      "family": "channels",
+      "owningContext": "channels",
+      "purpose": "Provider OAuth callback and declined resources; account connection management stays under account."
+    },
+    {
+      "deployable": "marketplace-web",
       "family": "guest-checkout",
       "owningContext": "auth",
       "purpose": "Guest checkout exit/claim family (auth): lets a guest-checkout buyer leave guest mode without a full account family detour."

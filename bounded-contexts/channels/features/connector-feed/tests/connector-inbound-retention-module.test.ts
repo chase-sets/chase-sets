@@ -6,12 +6,14 @@ import { collectRetentionSweepTargets, executeRetentionSweepBatch } from "@chase
 import { module as channelsModule } from "../../../index";
 import { connectorInboundRetentionExemptions, connectorInboundRetentionSweeps } from "../read-model/retention-policy";
 import { fulfillmentObservationRetentionSweeps } from "../../order-fulfillment-observations/read-model/schema";
+import { ebayConnectionRetentionSweeps } from "../../ebay-connection/read-model/retention-policy";
 
 describe("connector-inbound-retention-module", () => {
   it("mounts every registered kind sweep on the Channels module and nothing that exempts the payload", () => {
     expect(channelsModule.retentionSweeps).toEqual([
       ...connectorInboundRetentionSweeps,
       ...fulfillmentObservationRetentionSweeps,
+      ...ebayConnectionRetentionSweeps,
     ]);
     expect(channelsModule.retentionExemptions).toEqual(
       expect.arrayContaining([...connectorInboundRetentionExemptions]),
