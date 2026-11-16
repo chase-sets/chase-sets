@@ -18,6 +18,10 @@ import {
   type ListingRecoveryOutcome,
 } from "../features/listings/ui/listing-batch";
 import { t } from "@chase-sets/localization";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { createMarketplaceListingRuntime } from "../features/listings/api/runtime";
+import { createListingMutationLookup } from "../features/listings/api/listing-attempt";
 
 const actor = {
   sessionId: "ses_test",
@@ -64,10 +68,11 @@ function identity(ids = ["lst_one"]): ListingRecoveryIdentity {
 }
 
 function routerReady(router: ReturnType<typeof createMemoryRouter>) {
-  if (router.state.initialized && router.state.navigation.state === "idle") return Promise.resolve();
+  if (router.state.initialized && router.state.navigation.state === "idle" && router.state.revalidation === "idle")
+    return Promise.resolve();
   return new Promise<void>((resolve) => {
     const unsubscribe = router.subscribe((state) => {
-      if (state.initialized && state.navigation.state === "idle") {
+      if (state.initialized && state.navigation.state === "idle" && state.revalidation === "idle") {
         unsubscribe();
         resolve();
       }
@@ -93,6 +98,8 @@ describe("Listing recovery through a real data router", () => {
       loseRouteResponse?: boolean;
       failReadsAfterRouteLoss?: boolean;
       failPageReads?: boolean;
+      failPreparation?: boolean;
+      realNoOp?: boolean;
     } = {},
   ) {
     const ids = outcomes.map((_, index) => (index === 0 ? "lst_one" : `lst_${index + 1}`));
@@ -100,11 +107,68 @@ describe("Listing recovery through a real data router", () => {
     const state = new Map(ids.map((id, index) => [id, outcomes[index]!]));
     const lookups: string[] = [];
     const sends: string[][] = [];
+    let prepared = reference;
+    let established = options.retained !== false;
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const context = {
+      tenantId: actor.tenantId as never,
+      audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+    };
+    const runtime = createMarketplaceListingRuntime({
+      eventStore,
+      db: { query: async () => ({ rows: [] }) } as never,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+      commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+    });
+    if (options.realNoOp) {
+      await eventStore.appendToStream({
+        streamId: "marketplace.listing-lst_one",
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "marketplace.listing.created",
+            payload: {
+              listingId: "lst_one",
+              accountId: actor.accountId,
+              inventoryItemId: "inv_one",
+              catalogItemId: "cat_one",
+              productId: "cat_one::",
+              itemTitle: "Synthetic Listing",
+              itemSubtitle: null,
+              selectedOptions: [],
+              productSummary: null,
+              storageLocationName: null,
+              shipFromCode: null,
+              shipFromAddress: null,
+              priceAmount: "10.00",
+              priceCurrencyCode: "USD",
+              marketplaceSalesFeeUnitAmount: null,
+              sellerNetUnitAmount: null,
+              termsScheduleId: null,
+              termsAgreementId: null,
+              termsResolvedAt: null,
+              feeLocks: [],
+              quantityCap: 1,
+              evidence: [],
+            },
+          },
+          { eventType: "marketplace.listing.paused", payload: { reason: "seller" } },
+        ],
+      });
+    }
     let routeResponseLost = false;
     let router: ReturnType<typeof createMemoryRouter>;
     const transport = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
+      if (url.pathname.endsWith("/listings/batch/prepare")) {
+        if (options.failPreparation) throw new TypeError("preparation unavailable");
+        prepared = JSON.parse(String(init?.body));
+        if (options.realNoOp) await runtime.prepareListingBatch(actor.accountId, prepared, context);
+        established = true;
+        return json({ prepared: true });
+      }
       if (routeResponseLost && options.failReadsAfterRouteLoss) {
         if (url.pathname.includes("mutation-attempts")) lookups.push(url.searchParams.get("target")!);
         throw new TypeError("read connection unavailable");
@@ -113,6 +177,16 @@ describe("Listing recovery through a real data router", () => {
         const id = url.searchParams.get("target")!;
         lookups.push(id);
         await options.holdLookup;
+        if (options.realNoOp)
+          return json(
+            await createListingMutationLookup(eventStore)({
+              attemptId: decodeURIComponent(url.pathname.split("/").at(-1)!),
+              accountId: actor.accountId,
+              mutationKind: "listing.pause",
+              target: { kind: "listing", id },
+              requestHash: url.searchParams.get("requestHash")!,
+            }),
+          );
         const binding = marketplaceAttemptBinding({
           attemptId: decodeURIComponent(url.pathname.split("/").at(-1)!),
           accountId: actor.accountId,
@@ -129,6 +203,14 @@ describe("Listing recovery through a real data router", () => {
         });
       }
       if (url.pathname.includes("/listings/batch/")) {
+        if (options.realNoOp)
+          return json(
+            await runtime.lookupListingBatch({
+              accountId: actor.accountId,
+              batchId: decodeURIComponent(url.pathname.split("/").at(-1)!),
+              family: "listing.pause",
+            }),
+          );
         return json({
           batchId: decodeURIComponent(url.pathname.split("/").at(-1)!),
           family: url.searchParams.get("family"),
@@ -136,13 +218,22 @@ describe("Listing recovery through a real data router", () => {
             targetId,
             outcome: outcome === "ambiguous" ? "unknown" : outcome,
             version: outcome === "succeeded" ? 2 : 0,
+            requestHash: prepared.targets.find((target) => target.id === targetId)?.requestHash,
           })),
         });
       }
       if (url.pathname.endsWith("/listings/batch") && init?.method === "POST") {
         const body = JSON.parse(String(init.body)) as { batchId: string; family: string; listingIds: string[] };
         expect(router.state.location.search).toContain("listingRecovery=");
+        expect(established).toBe(true);
         sends.push(body.listingIds);
+        if (options.realNoOp) {
+          await runtime.applyListingBatch(
+            { accountId: actor.accountId, batchId: body.batchId, family: "listing.pause", listingIds: body.listingIds },
+            context,
+          );
+          throw new TypeError("synthetic no-op response lost");
+        }
         for (const id of body.listingIds) state.set(id, "succeeded");
         if (options.loseSend) throw new TypeError("response lost after commit");
         return json({
@@ -202,8 +293,52 @@ describe("Listing recovery through a real data router", () => {
       mount();
       await routerReady(router);
     });
-    return { router, reference, lookups, sends, state, transport, mount };
+    return { router, reference, lookups, sends, state, transport, mount, allEvents };
   }
+
+  it("reopens a real C2 zero-event pause after response loss as succeeded, without another owner event or terminal send", async () => {
+    const fixture = await setup(["unknown"], { retained: false, realNoOp: true });
+    fireEvent.click(screen.getAllByLabelText("Select row lst_one")[0]!);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Pause selected" }));
+    });
+    await act(async () => {
+      await routerReady(fixture.router);
+    });
+    await screen.findAllByText(t("marketplace.listingRecovery.succeeded"));
+    const ownerEvents = () => fixture.allEvents.filter((event) => event.streamId === "marketplace.listing-lst_one");
+    expect(ownerEvents()).toHaveLength(2);
+    expect(fixture.lookups).toEqual(["lst_one", "lst_one", "lst_one"]);
+    const before = fixture.allEvents.length;
+    await act(async () => {
+      await fixture.router.revalidate();
+    });
+    expect(fixture.lookups).toHaveLength(4);
+    expect(fixture.allEvents).toHaveLength(before);
+    await screen.findAllByText(t("marketplace.listingRecovery.succeeded"));
+    expect(screen.getByRole("link", { name: t("marketplace.listingRecovery.continue") })).toBeTruthy();
+    const form = new FormData();
+    form.set("intent", "retry-listing-batch");
+    await act(async () => {
+      await fixture.router.navigate(`${path}${fixture.router.state.location.search}`, {
+        formMethod: "post",
+        formData: form,
+      });
+    });
+    expect(fixture.sends).toEqual([["lst_one"]]);
+    expect(ownerEvents()).toHaveLength(2);
+  });
+
+  it("never sends a command when server preparation fails", async () => {
+    const fixture = await setup(["unknown"], { retained: false, failPreparation: true });
+    fireEvent.click(screen.getAllByLabelText("Select row lst_one")[0]!);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Pause selected" }));
+    });
+    await screen.findAllByText(t("marketplace.listingRecovery.failedSafe"));
+    expect(fixture.sends).toEqual([]);
+    expect(fixture.router.state.location.search).toBe("");
+  });
 
   it.each([
     [["unknown"], "confirming"],
@@ -355,7 +490,8 @@ describe("Listing recovery through a real data router", () => {
     const alert = await screen.findByRole("alert");
     await waitFor(() => expect(document.activeElement).toBe(alert));
     expect(alert.textContent).toBe(t("marketplace.listingRecovery.ambiguous"));
-    expect(fixture.lookups).toEqual(["lst_one", "lst_one", "lst_one"]);
+    // The unavailable vector cannot reconstruct targets, so recovery refuses before any owner lookup.
+    expect(fixture.lookups).toEqual(["lst_one", "lst_one"]);
     expect(fixture.sends).toEqual([["lst_one"]]);
     expect(screen.queryByRole("button")).toBeNull();
   });
@@ -438,6 +574,7 @@ describe("Listing recovery through a real data router", () => {
       let committed = false;
       let failPageReads = false;
       let sends = 0;
+      let prepared: ListingRecoveryIdentity | null = null;
       const lookups: string[] = [];
       let router: ReturnType<typeof createMemoryRouter>;
       vi.stubGlobal(
@@ -445,6 +582,21 @@ describe("Listing recovery through a real data router", () => {
         vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
           const url = new URL(String(input), "http://localhost");
           if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
+          if (url.pathname.endsWith("/listings/batch/prepare")) {
+            prepared = JSON.parse(String(init?.body));
+            return json({ prepared: true });
+          }
+          if (url.pathname.includes("/listings/batch/"))
+            return json({
+              batchId: prepared!.batchId,
+              family: prepared!.mutationKind,
+              items: prepared!.targets.map((target) => ({
+                targetId: target.id,
+                requestHash: target.requestHash,
+                outcome: "unknown",
+                version: 0,
+              })),
+            });
           if (url.pathname.includes("mutation-attempts")) {
             const id = url.searchParams.get("target")!;
             lookups.push(id);

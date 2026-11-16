@@ -157,8 +157,8 @@ describe("marketplace listings workbench route", () => {
       batchId: "test_form_attempt_10923_disableSellerListingAvailability",
       mutationKind: "seller.availability",
       bulk: false,
-      targets: [{ id: "acc_1", requestHash: expect.stringMatching(/^[a-f0-9]{64}$/) }],
     });
+    expect(location).not.toMatch(/targets|requestHash/);
     expect(location).not.toMatch(/reasonCategory|operations|availabilityAction/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listings/);
     expect(location).not.toContain("afterWrite=");

@@ -353,8 +353,8 @@ describe("marketplace listing detail route", () => {
       batchId: "test_form_attempt_10923_publishListing",
       mutationKind: "listing.publish",
       bulk: false,
-      targets: [{ id: "lst_1", requestHash: expect.stringMatching(/^[a-f0-9]{64}$/) }],
     });
+    expect(location).not.toMatch(/targets|requestHash/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listing/);
     expect(location).not.toContain("afterWrite=");
     expect(location).not.toContain("postWriteHandoff=");
@@ -542,8 +542,9 @@ describe("marketplace listing detail route", () => {
     expect(destination.pathname).toBe("/account/listings/lst_1");
     expect(JSON.parse(destination.searchParams.get("listingRecovery")!)).toMatchObject({
       mutationKind: "listing.update-price",
-      targets: [{ id: "lst_1", requestHash: expect.stringMatching(/^[a-f0-9]{64}$/) }],
+      bulk: false,
     });
+    expect(location).not.toMatch(/targets|requestHash/);
     expect(location).not.toContain("priceAmount");
     expect(location).not.toContain("20.00");
     expect(location).not.toContain("postWriteToken=");

@@ -10,6 +10,7 @@ import {
   VisuallyHidden,
 } from "@chase-sets/design-system";
 import { RouterForm as Form } from "@chase-sets/design-system/react-router";
+import { createMarketplaceApiClient } from "../../../client";
 import { t } from "@chase-sets/localization";
 import {
   LISTING_RECOVERY_PARAM,
@@ -67,7 +68,8 @@ export function ListingRecoveryScope({
     if (
       `${location.pathname}${location.search}` !== prepared.destination ||
       !prepared.unchanged() ||
-      recovery?.phase === "ambiguous"
+      !recovery?.identity ||
+      recovery.phase !== "confirming"
     ) {
       pending.current = false;
       setPreparing(false);
@@ -117,6 +119,8 @@ export function ListingRecoveryScope({
             }
             if (current?.identity && !sameListingRecovery(current.identity, identity))
               throw new Error("Changed request");
+            if (!mounted.current || !unchanged() || revision !== generation.current) return;
+            await createMarketplaceApiClient().prepareListingBatch(identity);
             if (!mounted.current || !unchanged() || revision !== generation.current) return;
             const destination = listingRecoveryUrl(`${location.pathname}${location.search}`, identity);
             // Commit the reference before the command can leave the browser. No request bytes enter history state.

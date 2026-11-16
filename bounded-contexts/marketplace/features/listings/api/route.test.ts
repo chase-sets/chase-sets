@@ -308,6 +308,56 @@ const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
 
 describe("read-only Listing batch recovery API", () => {
   const batchId = "listing_batch_lookup_0000001";
+  const preparation = {
+    batchId,
+    mutationKind: "listing.pause",
+    bulk: true,
+    targets: [{ id: "lst_one", requestHash: "1".repeat(64) }],
+  };
+  it("establishes an owner-bound hash-only vector without executing a Listing command", async () => {
+    const services = { ...createServices(), prepareListingBatch: vi.fn(async () => {}), applyListingBatch: vi.fn() };
+    const response = await buildApp({ actor: sellerActor, services }).request("/account/listings/batch/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preparation),
+    });
+    expect(response.status).toBe(200);
+    expect(services.prepareListingBatch).toHaveBeenCalledWith(
+      "acc_seller",
+      preparation,
+      expect.objectContaining({ audit: expect.objectContaining({ forAccountId: "acc_seller" }) }),
+    );
+    expect(services.applyListingBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { ...sellerActor!, permissions: ["listings.view"] }])(
+    "requires management authority for preparation",
+    async (actor) => {
+      const services = { ...createServices(), prepareListingBatch: vi.fn() };
+      const response = await buildApp({ actor, services }).request("/account/listings/batch/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preparation),
+      });
+      expect(response.status).toBe(actor ? 403 : 401);
+      expect(services.prepareListingBatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { ...preparation, accountId: "acc_other" },
+    { ...preparation, request: { reason: "seller" } },
+    { ...preparation, targets: [{ ...preparation.targets[0], csv: "private bytes" }] },
+  ])("refuses request-byte or actor additions before persistence", async (body) => {
+    const services = { ...createServices(), prepareListingBatch: vi.fn() };
+    const response = await buildApp({ actor: sellerActor, services }).request("/account/listings/batch/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(400);
+    expect(services.prepareListingBatch).not.toHaveBeenCalled();
+  });
   it("binds vector lookup to the authenticated owner, not supplied account data, without executing a command", async () => {
     const services = {
       ...createServices(),
@@ -332,7 +382,7 @@ describe("read-only Listing batch recovery API", () => {
 
   it.each([
     ["bad", "listing.pause"],
-    [batchId, "listing.publish"],
+    [batchId, "listing.invalid"],
   ])("rejects invalid lookup identity %s / %s", async (id, family) => {
     const services = { ...createServices(), lookupListingBatch: vi.fn() };
     const response = await buildApp({ actor: sellerActor, services }).request(

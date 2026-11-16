@@ -5,6 +5,7 @@ import type { buildMarketplaceApi } from "./api";
 import type { BuyerOfferPolicyRequest } from "./features/offer-policy/domain/contracts";
 import type { serializeBuyerOfferPolicy } from "./features/offer-policy/api/runtime";
 export type { MarketplaceMutationRecoveryResult } from "./features/mutation-recovery/domain/contracts";
+import type { ListingRecoveryIdentity, MarketplaceListingBatchFamily } from "./features/listings/ui/contracts";
 import {
   recoverMarketplaceCommand,
   MarketplaceCommandRecoveryError,
@@ -251,9 +252,20 @@ export function createMarketplaceApiClient({
 
   return {
     lookupListingAttempt: lookupAttempt,
+    async prepareListingBatch(identity: ListingRecoveryIdentity): Promise<void> {
+      const preparationHeaders = new Headers(headers);
+      preparationHeaders.set("Content-Type", "application/json");
+      await parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings/batch/prepare"), {
+          method: "POST",
+          headers: preparationHeaders,
+          body: JSON.stringify(identity),
+        }),
+      );
+    },
     async lookupListingBatch(
       batchId: string,
-      family: "listing.pause" | "listing.withdraw",
+      family: MarketplaceListingBatchFamily,
     ): Promise<MarketplaceListingBatchResult | null> {
       return parseJsonResponse(
         await configuredFetch(

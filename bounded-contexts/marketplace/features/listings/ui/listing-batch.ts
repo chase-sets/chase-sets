@@ -1,45 +1,19 @@
-import { z } from "zod";
 import { marketplaceRequestHash } from "../../mutation-recovery/api/client";
 import {
   marketplaceAttemptIdSchema,
   marketplaceListingCanonicalRequest,
   marketplaceMutationRecoveryResultSchema,
   marketplaceRecoveryTargetKind,
-  recoveryHashSchema,
 } from "../../mutation-recovery/domain/contracts";
 import type { createMarketplaceApiClient } from "../../../client";
+import {
+  listingRecoveryIdentitySchema,
+  listingRecoveryReferenceSchema,
+  type ListingRecoveryIdentity,
+} from "./contracts";
+export { listingRecoveryIdentitySchema, type ListingRecoveryIdentity } from "./contracts";
 
 export const LISTING_RECOVERY_PARAM = "listingRecovery";
-const targetSchema = z.strictObject({
-  id: z.string().regex(/^[A-Za-z0-9_-]{1,512}$/),
-  requestHash: recoveryHashSchema,
-});
-export const listingRecoveryIdentitySchema = z
-  .strictObject({
-    batchId: marketplaceAttemptIdSchema,
-    mutationKind: z.enum([
-      "listing.publish",
-      "listing.update-price",
-      "listing.update-quantity",
-      "listing.update-purchase-limits",
-      "listing.pause",
-      "listing.withdraw",
-      "seller.availability",
-      "seller.away",
-      "seller.order-capacity",
-    ]),
-    bulk: z.boolean(),
-    targets: z.array(targetSchema).min(1).max(500),
-  })
-  .refine(
-    (value) =>
-      new Set(value.targets.map((target) => target.id)).size === value.targets.length &&
-      (value.bulk
-        ? value.mutationKind === "listing.pause" || value.mutationKind === "listing.withdraw"
-        : value.targets.length === 1),
-  );
-
-export type ListingRecoveryIdentity = z.infer<typeof listingRecoveryIdentitySchema>;
 export type ListingRecoveryOutcome = "succeeded" | "conflict" | "error" | "unknown" | "ambiguous";
 export type ListingRecovery = {
   identity: ListingRecoveryIdentity | null;
@@ -52,13 +26,14 @@ export function listingRecoveryUrl(path: string, identity: ListingRecoveryIdenti
   const publicationEvent = url.searchParams.get("evidenceEvent") === "publication_succeeded";
   url.search = "";
   if (publicationEvent) url.searchParams.set("evidenceEvent", "publication_succeeded");
-  url.searchParams.set(LISTING_RECOVERY_PARAM, JSON.stringify(listingRecoveryIdentitySchema.parse(identity)));
+  const { batchId, mutationKind, bulk } = listingRecoveryIdentitySchema.parse(identity);
+  url.searchParams.set(LISTING_RECOVERY_PARAM, JSON.stringify({ batchId, mutationKind, bulk }));
   return `${url.pathname}${url.search}`;
 }
 
-export function readListingRecoveryIdentity(request: Request): ListingRecoveryIdentity | null {
+export function readListingRecoveryIdentity(request: Request) {
   const value = new URL(request.url).searchParams.get(LISTING_RECOVERY_PARAM);
-  return value === null ? null : listingRecoveryIdentitySchema.parse(JSON.parse(value));
+  return value === null ? null : listingRecoveryReferenceSchema.parse(JSON.parse(value));
 }
 
 export function listingRecoveryResult(
@@ -89,19 +64,17 @@ export async function recoverListingBatch(
 ): Promise<ListingRecovery> {
   let batch: Awaited<ReturnType<typeof api.lookupListingBatch>> = null;
   let batchUnavailable = false;
-  if (identity.bulk && (identity.mutationKind === "listing.pause" || identity.mutationKind === "listing.withdraw")) {
-    try {
-      batch = await api.lookupListingBatch(identity.batchId, identity.mutationKind);
-      if (
-        batch &&
-        (batch.batchId !== identity.batchId ||
-          batch.family !== identity.mutationKind ||
-          new Set(batch.items.map((item) => item.targetId)).size !== batch.items.length)
-      )
-        batchUnavailable = true;
-    } catch {
+  try {
+    batch = await api.lookupListingBatch(identity.batchId, identity.mutationKind);
+    if (
+      batch &&
+      (batch.batchId !== identity.batchId ||
+        batch.family !== identity.mutationKind ||
+        new Set(batch.items.map((item) => item.targetId)).size !== batch.items.length)
+    )
       batchUnavailable = true;
-    }
+  } catch {
+    batchUnavailable = true;
   }
   const items = await Promise.all(
     identity.targets.map(async (target): Promise<ListingRecovery["items"][number]> => {
@@ -131,12 +104,20 @@ export async function recoverListingBatch(
           throw new Error("Invalid owner receipt");
         const recorded = batch?.items.find((item) => item.targetId === target.id);
         if (recorded && recorded.outcome !== "unknown") {
+          const boundNoOp =
+            recorded.noOp === true &&
+            recorded.requestHash === target.requestHash &&
+            recorded.attemptKeyFingerprint === fingerprint &&
+            result.ownerStatus === "not-observed" &&
+            !result.ownerReceipt;
           if (
+            (recorded.noOp === true && (!boundNoOp || recorded.outcome !== "succeeded")) ||
             !["succeeded", "conflict", "error"].includes(recorded.outcome) ||
             (recorded.outcome === "succeeded"
-              ? result.ownerStatus !== "committed" ||
-                !result.ownerReceipt ||
-                recorded.version !== result.ownerReceipt.version
+              ? !boundNoOp &&
+                (result.ownerStatus !== "committed" ||
+                  !result.ownerReceipt ||
+                  recorded.version !== result.ownerReceipt.version)
               : result.ownerStatus === "committed")
           )
             throw new Error("Invalid terminal vector");
@@ -163,8 +144,16 @@ export async function loadListingRecovery(
   accountId: string,
 ): Promise<ListingRecovery | null> {
   try {
-    const identity = readListingRecoveryIdentity(request);
-    return identity ? recoverListingBatch(api, identity, accountId) : null;
+    const reference = readListingRecoveryIdentity(request);
+    if (!reference) return null;
+    const vector = await api.lookupListingBatch(reference.batchId, reference.mutationKind);
+    if (!vector || vector.batchId !== reference.batchId || vector.family !== reference.mutationKind)
+      return listingRecoveryResult(null, []);
+    const identity = listingRecoveryIdentitySchema.parse({
+      ...reference,
+      targets: vector.items.map((item) => ({ id: item.targetId, requestHash: item.requestHash })),
+    });
+    return recoverListingBatch({ ...api, lookupListingBatch: async () => vector }, identity, accountId);
   } catch {
     return listingRecoveryResult(null, []);
   }
