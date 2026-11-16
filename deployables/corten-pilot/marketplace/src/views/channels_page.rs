@@ -346,7 +346,7 @@ pub fn EbayPage<'a>(t: ChannelsMsg, screen: &'a EbayScreen, place: &'a EbayPlace
                 if screen.authorization_available {
                     <div class={Card}>
                         <p>{t.ebay_consent()}</p>
-                        <ul>
+                        <ul class={Scopes}>
                             for scope in &screen.scopes {
                                 <li>{scope}</li>
                             }
