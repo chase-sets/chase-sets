@@ -6542,7 +6542,8 @@ async fn the_sync_batch_page_offers_its_forms_to_who_may_write_and_follows_a_run
     );
     assert!(html.contains("/sections/catalog.css"), "the catalog area's stylesheet: {html}");
     assert!(
-        html.contains(r#"action="/catalog/scopes/sync-batches/held-sets""#) && html.contains(r#"enctype="multipart/form-data""#),
+        html.contains(r#"action="/catalog/scopes/sync-batches?do=held_sets""#)
+            && html.contains(r#"enctype="multipart/form-data""#),
         "{html}"
     );
     assert!(html.contains(r#"name="selection_mode""#) && html.contains(r#"<option value="matching-scope" selected>"#), "{html}");
@@ -6570,7 +6571,13 @@ async fn the_sync_batch_page_offers_its_forms_to_who_may_write_and_follows_a_run
     // A viewer sees the batch without the forms or its commands.
     let (status, _, html) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=ssb_1", Some("catalog-viewer"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!html.contains("held-sets") && !html.contains("Cancel batch") && !html.contains("Retry unit"), "{html}");
+    assert!(
+        !html.contains("held-sets")
+            && !html.contains("do=held_sets")
+            && !html.contains("Cancel batch")
+            && !html.contains("Retry unit"),
+        "{html}"
+    );
     let (status, _, _) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=gone", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = pilot.send(get("/catalog/scopes/sync-batches", Some("reader"))).await;
@@ -6694,7 +6701,7 @@ async fn a_held_set_export_is_sent_on_and_its_scopes_can_be_previewed() {
 Pokemon,Paldean Fates
 ";
     let req =
-        post_multipart("/catalog/scopes/sync-batches/held-sets", "staff", None, &[], &[("file", "live.csv", "text/csv", csv)]);
+        post_multipart("/catalog/scopes/sync-batches?do=held_sets", "staff", None, &[], &[("file", "live.csv", "text/csv", csv)]);
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let sent = pilot.sync_calls().pop().unwrap();
@@ -6710,7 +6717,7 @@ Pokemon,Paldean Fates
     assert!(html.contains(r#"href="/catalog/scope-coverage?product_domain=pokemon""#), "the inbox for its domain: {html}");
     assert!(html.contains(r#"name="scope_record_ids" value="scp_paf""#) && html.contains("Preview resolved sets"), "{html}");
     // No file: the page says to choose one.
-    let req = post_multipart("/catalog/scopes/sync-batches/held-sets", "staff", None, &[], &[]);
+    let req = post_multipart("/catalog/scopes/sync-batches?do=held_sets", "staff", None, &[], &[]);
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a held-set export CSV."), "{html}");

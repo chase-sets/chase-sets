@@ -54,19 +54,20 @@ pub mod url {
         pub quote_id: Option<String>,
     }
 
+    /// The page; the batch form's commands are its plain `POST`, urlencoded, and Resolve held sets
+    /// (`multipart/form-data`) is its `held_sets` post, whose answer is the page with what the export
+    /// resolved to.
     #[derive(Default)]
-    #[route("/catalog/scopes/sync-batches", get = crate::catalog::sync_batches::page, post = crate::catalog::sync_batches::act)]
+    #[route(
+        "/catalog/scopes/sync-batches",
+        get = crate::catalog::sync_batches::page,
+        post = crate::catalog::sync_batches::act,
+        post(held_sets) = crate::catalog::sync_batches::held_sets
+    )]
     pub struct SyncBatches {
         #[route(query)]
         pub query: BatchQuery,
     }
-
-    /// Resolve held sets (`multipart/form-data`): the page with what the export resolved to, drawn
-    /// here. Its `GET` is the page, so the address works when opened again. A workaround: the
-    /// page's route takes the batch form's commands as its one `POST`, urlencoded
-    /// (corten-run/corten#1403).
-    #[route("/catalog/scopes/sync-batches/held-sets", get = crate::catalog::sync_batches::to_page, post = crate::catalog::sync_batches::held_sets)]
-    pub struct HeldSets;
 }
 
 impl url::SyncBatches {
@@ -696,11 +697,6 @@ pub(crate) async fn act(
             }
         }
     }
-}
-
-/// The held-set address opened again (a reload from history, a bookmark): the page.
-pub(crate) async fn to_page(req: Req, _: corten::Caller<Staff<CatalogAccess>>) -> HtmlResult {
-    req.redirect(&url::SyncBatches::default())
 }
 
 /// Resolve held sets: the export's file, sent on to the API as its one part (admin-web's
