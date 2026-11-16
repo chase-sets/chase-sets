@@ -121,6 +121,15 @@ describe("owner writer enrollment census", () => {
     expect(callbackSource.indexOf(enrollment)).toBeLessThan(
       callbackSource.indexOf("await deps.eventStore.appendToStreamInTransaction(db"),
     );
+    const setupFile = "bounded-contexts/channels/features/ebay-connection/api/setup-runtime.ts";
+    const setupWriters = manifest.writers.filter((row) => row.file === setupFile);
+    expect(setupWriters).toHaveLength(3);
+    expect(setupWriters.every((row) => row.disposition === "enrolled")).toBe(true);
+    const setupSource = readFileSync(path.join(repoRoot, setupFile), "utf8");
+    const setupEnrollment = "return epochs.transaction([`connection/${target.connectionId}`]";
+    expect(setupSource).toContain(setupEnrollment);
+    for (const sink of ["deps.eventStore.appendToStreamInTransaction(db", "connections.activateChannelConnection("])
+      expect(setupSource.indexOf(setupEnrollment)).toBeLessThan(setupSource.indexOf(sink));
     const seed = manifest.writers.find(
       (row) =>
         row.file === "bounded-contexts/channels/features/manual-sync/api/seed.ts" && row.keys.includes("connection"),

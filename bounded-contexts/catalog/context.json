@@ -126,6 +126,11 @@
   "seedRequirements": [],
   "hostPorts": [
     {
+      "portName": "catalogMarketObservationRequests",
+      "providedBy": "platform-api",
+      "purpose": "Relays Pricing's current TCGplayer market observation request without reading Pricing policy; absent sources fail closed."
+    },
+    {
       "portName": "catalogOperatorAuthority",
       "providedBy": "platform-api",
       "purpose": "Checks the live Identity authority of the actor and each operator-session grant creator before Catalog observation access."
@@ -1199,18 +1204,22 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /scope-observations/tcgplayer-set-names",
-        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /catalog-observations/tcgplayer-sealed-products"
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /catalog-observations/tcgplayer-sealed-products",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:PUT /observation-batches/:batchId/parts/:partIndex",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /observation-batches/:batchId/complete"
       ],
       "visibleDestination": {
-        "description": "The extension receives committed counts for its set-name or sealed-product post; grant provenance ids, never the bearer or any provider credential, accompany admission."
+        "description": "The extension receives committed counts for its set-name or sealed-product post; grant provenance ids, never the bearer or any provider credential, accompany admission. Market uploads return committed part/admission status codes."
       },
       "proof": {
-        "authoritativeResponse": "Set-name success follows observation upserts, per-unit mapping proposals and the refresh-run record. Sealed-product success follows the atomic observation, candidate and admission-event commit, using canonical member streams rather than projection catch-up. Validation refusals carry fixed codes and write no observations; a lost commit acknowledgement remains an unknown backend outcome.",
+        "authoritativeResponse": "Set-name success follows observation upserts, per-unit mapping proposals and the refresh-run record. Sealed-product success follows the atomic observation, candidate and admission-event commit, using canonical member streams rather than projection catch-up. Validation refusals carry fixed codes and write no observations; a lost commit acknowledgement remains an unknown backend outcome. Market part and completion success follows expected-version event-store COMMIT acknowledgement; completion first validates full C0 assembly, digest, byte count, endpoint clocks and grant provenance.",
         "tests": [
           "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.db.test.ts",
           "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.test.ts",
           "bounded-contexts/catalog/features/operator-session/tests/sealed-product-observation-post.test.ts",
-          "bounded-contexts/catalog/features/operator-session/tests/sealed-product-observation-post.db.test.ts"
+          "bounded-contexts/catalog/features/operator-session/tests/sealed-product-observation-post.db.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/operator-session-observation-parts.db.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/operator-session-observation-admission.db.test.ts"
         ]
       }
     },

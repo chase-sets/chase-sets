@@ -229,6 +229,9 @@ importers:
       '@chase-sets/provider-credentials':
         specifier: workspace:*
         version: link:../../contracts/provider-credentials
+      '@chase-sets/tcgplayer-market-observations':
+        specifier: workspace:*
+        version: link:../../contracts/tcgplayer-market-observations
       hono:
         specifier: ^4.13.13
         version: 4.13.13
@@ -2081,6 +2084,9 @@ importers:
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
+      '@chase-sets/tcgplayer-market-observations':
+        specifier: workspace:*
+        version: link:../../contracts/tcgplayer-market-observations
       '@chase-sets/typescript-compiler-api':
         specifier: workspace:*
         version: link:../../packages/typescript-compiler-api

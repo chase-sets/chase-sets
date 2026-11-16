@@ -44,11 +44,13 @@ import type { CatalogAssetStorage } from "../../features/source-observations/api
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
 import { createOperatorSessionGrants, type CatalogOperatorAuthority } from "../../features/operator-session/api/grants";
+import type { TcgplayerMarketObservationRequestSource } from "@chase-sets/tcgplayer-market-observations";
 
 export type CatalogHostPorts = Readonly<{
   catalogAssetStorage?: CatalogAssetStorage;
   sourceObservationTelemetry?: SourceObservationTelemetry;
   catalogOperatorAuthority?: CatalogOperatorAuthority;
+  catalogMarketObservationRequests?: TcgplayerMarketObservationRequestSource;
 }>;
 
 export type CatalogServices = Readonly<{
@@ -183,14 +185,26 @@ export function createCatalogServices(
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority, {
-      tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
-      tcgplayerSealedProducts: createExtensionTcgplayerSealedProductRecorder({
-        deps,
-        pool,
-        profileVersions: providerIntegrationProfiles,
-      }),
-    }),
+    operatorSession: createOperatorSessionGrants(
+      pool,
+      ports.catalogOperatorAuthority,
+      {
+        tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
+        tcgplayerSealedProducts: createExtensionTcgplayerSealedProductRecorder({
+          deps,
+          pool,
+          profileVersions: providerIntegrationProfiles,
+        }),
+      },
+      {
+        requestSource: ports.catalogMarketObservationRequests,
+        store: eventStore,
+        databaseNow: async () => {
+          const result = await pool.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+          return result.rows[0]!.now.toISOString();
+        },
+      },
+    ),
     dimensions,
     displayTemplates,
     fields,

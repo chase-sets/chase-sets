@@ -85,6 +85,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     );
     expect(production.candidates.map(({ file, outcome }) => [file, outcome])).toEqual([
       ["bounded-contexts/auth/features/sessions/api/owner-epochs.ts", "CANONICAL"],
+      ["bounded-contexts/catalog/features/operator-session/api/market-observations.ts", "CANONICAL"],
       ["bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts", "CANONICAL"],
       [
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",

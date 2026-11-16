@@ -10,6 +10,33 @@ records. Any queued TCGplayer integration job is terminally failed without a
 request; new server enqueue and preview commands return an explicit retired-
 provider refusal.
 
+## Market Observation Uploads
+
+The grant-authorized routes under `/api/public/catalog/operator-session` are
+`GET /observation-requests/current`,
+`PUT /observation-batches/:batchId/parts/:partIndex`, and
+`POST /observation-batches/:batchId/complete`. Every route checks the paired
+grant creator's live staff authority before reading a body or requesting work.
+Malformed upload paths are rejected before a grant lookup. Responses are JSON
+with `Cache-Control: no-store`.
+
+`catalogMarketObservationRequests` is the C0 request-source port supplied by
+platform-api. The Pricing pass supplies its implementation; without it these
+routes return `503 request-source-unavailable`. Catalog never reads Pricing
+capture policy and never makes a provider request. Closed bodies, C0 part caps,
+the bounded body-reader deadline, and credential/seller-identity rejection
+apply before any part is persisted.
+
+Parts and admission share `catalog.operator-observation-batch-<batchId>`.
+Expected-version appends enforce order and a single admission. Identical part
+retries return `part-already-recorded`; identical completion retries return
+`already-admitted`. Foreign or malformed history fails closed rather than
+being accepted because an event type exists. Completion reassembles via C0,
+checks the full digest and byte count, validates endpoint instants between
+request issuance minus 120 seconds and database now plus 120 seconds, and
+records grant provenance and database admission time. Refusals expose fixed
+codes only, never request headers, raw errors or provider credentials.
+
 ## Secret Provisioning (Prohibited)
 
 The extension never accepts, reads, stores, or forwards a TCGplayer cookie or
