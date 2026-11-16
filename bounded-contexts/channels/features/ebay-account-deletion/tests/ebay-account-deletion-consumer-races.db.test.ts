@@ -89,39 +89,43 @@ describe("ebay-account-deletion-consumer-races", () => {
       ).toEqual([]);
     },
   );
-  it("admits genuinely fresh consent after expiry cleanup without restoring the terminal connection or affecting an unrelated seller", async () => {
-    const r = f.runtime();
-    const old = await f.connect(r);
-    vi.mocked(r.provider.identity).mockResolvedValue("synthetic-unrelated-subject");
-    const unrelated = await f.connect(r, "acc_unrelated");
-    const unrelatedEnvelope = (await f.envelopes()).filter((row) => row.connection_id === unrelated.connectionId);
-    const unrelatedEvents = await r.eventStore.readStream({
-      streamId: `channels.connection-${unrelated.connectionId}`,
-    });
-    const oldState = await f.authorize(r, "acc_second");
-    await f.record();
-    expect(await f.consumer(r).consume("synthetic-notice")).toBe(1);
-    await expireReceipt(true);
-    await expect(r.service.callback("acc_second", oldState, "code", context("acc_second"))).rejects.toMatchObject({
-      code: "invalid-state",
-    });
-    vi.mocked(r.provider.identity).mockResolvedValue("synthetic-subject");
-    const fresh = await f.connect(r, "acc_second");
-    expect(fresh.connectionId).not.toBe(old.connectionId);
-    expect((await f.envelopes()).filter((row) => row.connection_id === old.connectionId)).toEqual([]);
-    expect((await f.envelopes()).filter((row) => row.connection_id === unrelated.connectionId)).toEqual(
-      unrelatedEnvelope,
-    );
-    expect(await r.eventStore.readStream({ streamId: `channels.connection-${unrelated.connectionId}` })).toEqual(
-      unrelatedEvents,
-    );
-    expect(await r.eventStore.readStream({ streamId: `channels.connection-${fresh.connectionId}` })).toMatchObject([
-      { eventType: "channels.connection.connected" },
-    ]);
-    expect(
-      (await r.eventStore.readStream({ streamId: `channels.connection-${old.connectionId}` })).at(-1)?.eventType,
-    ).toBe("channels.connection.disconnected");
-  });
+  it.each([false, true])(
+    "admits genuinely fresh consent after completion without restoring the terminal connection or affecting an unrelated seller (expiry cleanup=%s)",
+    async (expired) => {
+      const r = f.runtime();
+      const old = await f.connect(r);
+      vi.mocked(r.provider.identity).mockResolvedValue("synthetic-unrelated-subject");
+      const unrelated = await f.connect(r, "acc_unrelated");
+      const unrelatedEnvelope = (await f.envelopes()).filter((row) => row.connection_id === unrelated.connectionId);
+      const unrelatedEvents = await r.eventStore.readStream({
+        streamId: `channels.connection-${unrelated.connectionId}`,
+      });
+      const oldState = await f.authorize(r, "acc_second");
+      await f.record();
+      expect(await f.consumer(r).consume("synthetic-notice")).toBe(1);
+      if (expired) await expireReceipt(true);
+      await expect(r.service.callback("acc_second", oldState, "code", context("acc_second"))).rejects.toMatchObject({
+        code: "invalid-state",
+      });
+      vi.mocked(r.provider.identity).mockResolvedValue("synthetic-subject");
+      const fresh = await f.connect(r, "acc_second");
+      expect(await f.consumer(r).consume("synthetic-notice")).toBe(0);
+      expect(fresh.connectionId).not.toBe(old.connectionId);
+      expect((await f.envelopes()).filter((row) => row.connection_id === old.connectionId)).toEqual([]);
+      expect((await f.envelopes()).filter((row) => row.connection_id === unrelated.connectionId)).toEqual(
+        unrelatedEnvelope,
+      );
+      expect(await r.eventStore.readStream({ streamId: `channels.connection-${unrelated.connectionId}` })).toEqual(
+        unrelatedEvents,
+      );
+      expect(await r.eventStore.readStream({ streamId: `channels.connection-${fresh.connectionId}` })).toMatchObject([
+        { eventType: "channels.connection.connected" },
+      ]);
+      expect(
+        (await r.eventStore.readStream({ streamId: `channels.connection-${old.connectionId}` })).at(-1)?.eventType,
+      ).toBe("channels.connection.disconnected");
+    },
+  );
   it.each([false, true])(
     "epoch closure refuses stale terminals; REMOVE_DELETION_ENROLLMENT mutant=%s",
     async (omitClosure) => {

@@ -223,23 +223,9 @@ export function createEbayConnectionRuntime(deps: {
       const fingerprint = cipher.fingerprint(subject);
       const creationKey = `connection/${attempt.candidate_connection_id}`;
       return connectionEpochs.transaction([creationKey], async (db: PgQueryable) => {
-        // Local admission order: attempts table, receipts, exact attempt, seller binding.
+        // Local admission order: attempts table, exact attempt, seller binding.
         // Completion takes the exclusive table lock and removes even consumed attempts.
         await db.query("LOCK TABLE channels_ebay_oauth_attempts IN ROW EXCLUSIVE MODE");
-        const receipts = await db.query<{ notification_id: string }>(
-          `SELECT notification_id FROM channels_ebay_account_deletion_receipts
-          WHERE subject_fingerprint=$1 AND expires_at>statement_timestamp()
-          ORDER BY notification_id FOR SHARE`,
-          [fingerprint],
-        );
-        if (receipts.rows.length) {
-          const completed = await db.query(
-            `SELECT 1 FROM channels_ebay_account_deletion_completions
-            WHERE notification_id=ANY($1::text[]) LIMIT 1`,
-            [receipts.rows.map((receipt) => receipt.notification_id)],
-          );
-          if (completed.rows.length) throw new EbayConnectionError("stale-authorization");
-        }
         const valid = await db.query(
           `SELECT 1 FROM channels_ebay_oauth_attempts
           WHERE state_hash=$1 AND account_id=$2 AND candidate_connection_id=$3

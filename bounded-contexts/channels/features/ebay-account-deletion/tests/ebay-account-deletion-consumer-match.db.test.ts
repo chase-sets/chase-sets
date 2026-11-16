@@ -38,9 +38,10 @@ describe("ebay-account-deletion-consumer-match", () => {
     await createEbayAccountDeletionRuntime(f.db(), keys()).assertKeyringContinuity(keys("new"));
     expect(r.provider.revoke).toHaveBeenCalledTimes(1);
     vi.mocked(r.provider.identity).mockResolvedValue("synthetic-subject");
-    await expect(r.service.callback(owner, await f.authorize(r), "code", context())).rejects.toMatchObject({
-      code: "stale-authorization",
-    });
+    const fresh = await r.service.callback(owner, await f.authorize(r), "code", context());
+    expect(fresh.connectionId).not.toBe(target.connectionId);
+    expect((await loadOwned(r.eventStore, owner, target.connectionId)).state.status).toBe("disconnected");
+    expect(await f.consumer(r).consume("synthetic-notice")).toBe(0);
   });
   it("removes identity on an already-disconnected binding without another event or revoke", async () => {
     const r = f.runtime(),
