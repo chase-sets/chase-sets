@@ -125,11 +125,11 @@ describe("sealed products popup", () => {
     },
   );
   it("shows an unqualified receipt without echoing provider errors or posting", async () => {
-    const { catalog } = mount(async () => response({ errors: ["Cookie TCGAuthTicket=private"], results: [] }));
+    const { catalog } = mount(async () => response({ errors: ["Cookie: private Bearer private"], results: [] }));
     await select();
     fireEvent.click(screen.getByRole("button", { name: "Run sealed products" }));
     await screen.findByText("Sealed products stopped: unqualified");
     expect(catalog).not.toHaveBeenCalled();
-    expect(document.body.textContent).not.toMatch(/TCGAuthTicket|private/);
+    expect(document.body.textContent).not.toMatch(/Cookie:|Bearer|private/);
   });
 });
