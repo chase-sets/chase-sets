@@ -778,12 +778,15 @@ const ANONYMOUS_SELL_LIST_HEADER: &str = "x-checkout-anonymous-sell-list-id";
 pub trait SellList {
     /// The sell list's lines, their quantity and (the account's) latest seller confirmation.
     async fn sell_list(&self, guest: Option<&str>) -> Result<SellListRead, ApiError>;
-    /// The account's offer and Smart Match reviews and the inventory a fallback listing ships
-    /// from (`getSellListCompositeReview`), with the standard terms beside the final ones when
-    /// `standard` (back from registration).
-    async fn sell_list_review(&self, standard: bool) -> Result<CompositeReview, ApiError>;
-    /// A guest sell list's offer reviews (the public standard terms).
-    async fn guest_offer_reviews(&self, guest: &str) -> Result<Vec<OfferReview>, ApiError>;
+    /// The account's offer and Smart Match reviews, the inventory a fallback listing ships from,
+    /// and the screen Checkout works out from them: each line's readiness, the totals and the way
+    /// forward (`getSellListCompositeReview`), with the standard terms beside the final ones when
+    /// `standard` (back from registration). `path` is the page the payout setup link comes back
+    /// to (the Sell List's or the Desk's).
+    async fn sell_list_review(&self, standard: bool, path: &str) -> Result<CompositeReview, ApiError>;
+    /// A guest sell list's review (`getGuestSellListCompositeReview`): the public standard
+    /// terms and the screen Checkout works out from them.
+    async fn guest_sell_list_review(&self, guest: &str) -> Result<CompositeReview, ApiError>;
     /// Whether the account's payouts are set up (`getSellListPayoutReadiness`).
     async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError>;
     /// The account's Sell List reviewed with what the seller chose on the page (Continue's
@@ -854,20 +857,17 @@ impl SellList for Caller<'_> {
         Ok(self.write(sell_list_request(self, Method::GET, guest, "")).await?.0)
     }
 
-    async fn sell_list_review(&self, standard: bool) -> Result<CompositeReview, ApiError> {
-        let rest = if standard { "/composite-review?includeStandardComparison=true" } else { "/composite-review" };
-        self.read(&sell_list_path(None, rest), CHECKOUT).await
+    async fn sell_list_review(&self, standard: bool, path: &str) -> Result<CompositeReview, ApiError> {
+        let mut rest = format!("/composite-review?sellListPath={}", segment(path));
+        if standard {
+            rest.push_str("&includeStandardComparison=true");
+        }
+        self.read(&sell_list_path(None, &rest), CHECKOUT).await
     }
 
-    async fn guest_offer_reviews(&self, guest: &str) -> Result<Vec<OfferReview>, ApiError> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Body {
-            #[serde(default)]
-            offer_reviews: Vec<OfferReview>,
-        }
-        let (body, _): (Body, _) = self.write(sell_list_request(self, Method::GET, Some(guest), "/offer-reviews")).await?;
-        Ok(body.offer_reviews)
+    async fn guest_sell_list_review(&self, guest: &str) -> Result<CompositeReview, ApiError> {
+        // A read, sent as `write` sends a request, to name the guest's list in its header.
+        Ok(self.write(sell_list_request(self, Method::GET, Some(guest), "/composite-review")).await?.0)
     }
 
     async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError> {
@@ -1119,6 +1119,58 @@ pub struct CompositeReview {
     pub offer_reviews: Vec<OfferReview>,
     pub product_offer_reviews: Vec<ProductOfferReview>,
     pub inventory_items: Vec<InventoryOption>,
+    /// What Checkout works out for the page from the lines and their reviews (`screen`).
+    pub screen: Option<SellListScreenReview>,
+}
+
+/// The Sell List as Checkout reviews it for the page (`SellListScreenReview`): each line's
+/// readiness by its id, the list's counts and totals (money as the API's amounts), and the way
+/// forward. A hint for the page; Continue's review is what decides.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListScreenReview {
+    pub lines: std::collections::HashMap<String, SellListLineReview>,
+    pub total_quantity: u64,
+    pub ready_line_count: u64,
+    pub blocked_line_count: u64,
+    pub can_continue: bool,
+    pub payout_is_ready: bool,
+    pub payout_readiness: Option<SellPayoutReadiness>,
+    pub payout_setup_href: String,
+    pub recovery_href: String,
+    /// `set-up-payouts`, `resolve-items` or `keep-selling`.
+    pub recovery_code: String,
+    pub has_multiple_offers: bool,
+    pub selected_offer_gross: String,
+    pub future_listing_gross: String,
+    /// None while a line is not quoted.
+    pub estimated_sales_fees: Option<String>,
+    pub expected_seller_payout: Option<String>,
+}
+
+/// A line's readiness as Checkout reviews it (`SellListLineScreenReview`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListLineReview {
+    pub ready: bool,
+    pub can_submit: bool,
+    /// `ready`, `needs-refresh`, `needs-action` or `evidence-needs-action`.
+    pub label_code: String,
+    /// What the line needs or why it is ready, which the page puts in words.
+    pub detail_code: String,
+    pub parameters: LineReviewParameters,
+    pub unmet_evidence_codes: Vec<String>,
+    /// The API's own words for a line that needs a refresh or an action.
+    pub message: Option<String>,
+    pub setup_href: String,
+    pub inventory_href: String,
+    pub recovery_href: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct LineReviewParameters {
+    pub count: Option<u64>,
 }
 
 /// `CheckoutSellPayoutReadinessRow`.

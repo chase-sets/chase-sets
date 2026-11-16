@@ -1500,6 +1500,80 @@ fn sell_evidence(listing: &str, complete: bool) -> Value {
     })
 }
 
+/// An account's payout readiness: `trader`'s and `lister`'s are ready, `lookout_pending`'s
+/// pending, `lookout_restricted`'s restricted, and any other's not started (a bank account twice,
+/// onboarding and a code the page does not know).
+fn sell_payout(session: &str) -> Value {
+    let (status, missing) = match session {
+        "trader" | "lister" => ("ready", json!([])),
+        "lookout_pending" => ("pending", json!([])),
+        "lookout_restricted" => ("restricted", json!(["individual.verification.document"])),
+        _ => ("not-started", json!(["external_account", "provider-onboarding", "bank account", "tax.id"])),
+    };
+    json!({ "status": status, "missing_requirements": missing })
+}
+
+/// What Checkout works out for the Sell List page (`screen`), as it would for the stand-in's lists:
+/// the account `session`'s (the offer line and the product line when `lines`), or a guest's (the
+/// offer line on the standard terms when `lines`). The offer line nets 16.86 a unit and pays 0.89;
+/// `lister`'s misses its back photo. The product line's Smart Match offer takes 2 of 3 and a listing
+/// the third at 20.00. The payout setup link comes back to `back`.
+fn sell_screen(session: Option<&str>, lines: bool, back: &str) -> Value {
+    let options = "%5B%7B%22dimensionId%22%3A%22dim_form%22%2C%22optionId%22%3A%22raw%22%7D%5D";
+    let inventory =
+        format!("/account/inventory?catalogItemId=cat_pika&returnTo=%2Faccount%2Fsell-list&selectedOptions={options}");
+    let offer_setup = format!("/account/listings/new?catalogItemId=cat_pika&recommendedPrice=17.75&selectedOptions={options}");
+    let missing_back = session == Some("lister");
+    let offer = if missing_back {
+        json!({ "ready": false, "canSubmit": false, "labelCode": "evidence-needs-action", "detailCode": "evidence-incomplete",
+            "unmetEvidenceCodes": ["slot-missing"] })
+    } else {
+        let detail = if session.is_some() { "selected-offer-ready" } else { "public-standard-preview-ready" };
+        json!({ "ready": true, "canSubmit": true, "labelCode": "ready", "detailCode": detail, "unmetEvidenceCodes": [] })
+    };
+    let mut offer = offer;
+    offer["parameters"] = json!({});
+    offer["message"] = Value::Null;
+    offer["setupHref"] = json!(offer_setup);
+    offer["inventoryHref"] = json!(inventory);
+    offer["recoveryHref"] = json!(offer_setup);
+    let product_setup = "/account/listings/new?inventoryItemId=inv_pika&recommendedPrice=20.00";
+    let product = json!({
+        "ready": true, "canSubmit": true, "labelCode": "ready", "detailCode": "smart-match-ready", "parameters": { "count": 1 },
+        "unmetEvidenceCodes": [], "message": null, "setupHref": product_setup, "inventoryHref": inventory, "recoveryHref": product_setup,
+    });
+    let (answers, quantity) = match (lines, session) {
+        (false, _) => (json!({}), 0),
+        (true, Some(_)) => (json!({ "sll_offer": offer, "sll_product": product }), 5),
+        (true, None) => (json!({ "sll_offer": offer }), 2),
+    };
+    let count = answers.as_object().map_or(0, |a| a.len());
+    let blocked = usize::from(lines && missing_back);
+    let payout = session.map(sell_payout);
+    let payout_ready = payout.as_ref().is_none_or(|p| p["status"] == "ready");
+    let setup = format!("/account/payouts/setup?returnTo={}", crate::api::segment(back));
+    let (recovery, code) = if !payout_ready {
+        (setup.clone(), "set-up-payouts")
+    } else if blocked > 0 {
+        (offer_setup.clone(), "resolve-items")
+    } else {
+        ("/search".to_owned(), "keep-selling")
+    };
+    let (gross, future, fees, net) = match (lines, session) {
+        (false, _) => ("0.00", "0.00", "0.00", "0.00"),
+        // 2 at 17.75; 0.89 and 16.86 a unit for the 2 offered and the 2 matched; the third listed at 20.00.
+        (true, Some(_)) => ("35.50", "20.00", "3.56", "67.44"),
+        (true, None) => ("35.50", "0.00", "1.78", "33.72"),
+    };
+    json!({
+        "lines": answers, "lineCount": count, "totalQuantity": quantity, "readyLineCount": count - blocked,
+        "blockedLineCount": blocked, "blockedSubmissionLineCount": blocked,
+        "canContinue": payout_ready && blocked == 0 && count > 0, "payoutIsReady": payout_ready, "payoutReadiness": payout,
+        "payoutSetupHref": setup, "recoveryHref": recovery, "recoveryCode": code, "hasMultipleOffers": false,
+        "selectedOfferGross": gross, "futureListingGross": future, "estimatedSalesFees": fees, "expectedSellerPayout": net,
+    })
+}
+
 /// A sell list's offer line: `off_ready` on `lst_pika`, 2 at 17.75.
 fn sell_offer_line() -> Value {
     json!({
@@ -1589,36 +1663,38 @@ fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
             }));
             Json(json!({ "items": items, "count": items.len(), "latestConfirmation": latest })).into_response()
         }
-        ("GET", "/composite-review") => Json(json!({
-            "offerReviews": [{
-                "lineId": "sll_offer", "status": "ready", "terms": sell_terms("fq_offer"),
-                "evidence": sell_evidence("lst_pika", session != "lister"),
-            }],
-            "productOfferReviews": [{
-                "lineId": "sll_product", "status": "ready",
-                "offers": [{ "offer": offer_match("off_short", "submitted", true), "terms": sell_terms("fq_short") }],
-            }],
-            "inventoryItems": [{
-                "item_id": "inv_pika", "product_id": "cat_pika::form:raw", "storage_location_name": "Main",
-                "ship_from_code": "MAIN", "available_quantity": 5,
-            }],
-        }))
-        .into_response(),
-        ("GET", "/payout-readiness") => {
-            let (status, missing) = match session {
-                "trader" | "lister" => ("ready", json!([])),
-                "lookout_pending" => ("pending", json!([])),
-                "lookout_restricted" => ("restricted", json!(["individual.verification.document"])),
-                _ => ("not-started", json!(["external_account", "provider-onboarding", "bank account", "tax.id"])),
-            };
-            Json(json!({ "status": status, "missing_requirements": missing })).into_response()
-        }
-        ("GET", "/offer-reviews") => {
+        ("GET", "/composite-review") if guest_path => {
             let mut terms = sell_terms("fq_standard");
             terms["source_kind"] = json!("public-standard-seller-terms");
             terms["source_label"] = json!("Standard seller terms");
-            Json(json!({ "offerReviews": [{ "lineId": "sll_offer", "status": "ready", "terms": terms }] })).into_response()
+            let offer = (guest == "anon_one").then(|| json!({ "lineId": "sll_offer", "status": "ready", "terms": terms }));
+            Json(json!({
+                "offerReviews": offer.into_iter().collect::<Vec<_>>(), "productOfferReviews": [], "inventoryItems": [],
+                "screen": sell_screen(None, guest == "anon_one", "/account/sell-list"),
+            }))
+            .into_response()
         }
+        ("GET", "/composite-review") => {
+            let back = uri.query().and_then(|q| q.split('&').find_map(|p| p.strip_prefix("sellListPath=")));
+            let back = if back == Some("%2Faccount%2Fdesk%2Foffers") { "/account/desk/offers" } else { "/account/sell-list" };
+            Json(json!({
+                "offerReviews": [{
+                    "lineId": "sll_offer", "status": "ready", "terms": sell_terms("fq_offer"),
+                    "evidence": sell_evidence("lst_pika", session != "lister"),
+                }],
+                "productOfferReviews": [{
+                    "lineId": "sll_product", "status": "ready",
+                    "offers": [{ "offer": offer_match("off_short", "submitted", true), "terms": sell_terms("fq_short") }],
+                }],
+                "inventoryItems": [{
+                    "item_id": "inv_pika", "product_id": "cat_pika::form:raw", "storage_location_name": "Main",
+                    "ship_from_code": "MAIN", "available_quantity": 5,
+                }],
+                "screen": sell_screen(Some(session), has_lines, back),
+            }))
+            .into_response()
+        }
+        ("GET", "/payout-readiness") => Json(sell_payout(session)).into_response(),
         ("POST", "/readiness") if !guest_path && sent["selections"].is_object() => {
             let lines = sent["selections"]["lines"].as_array().cloned().unwrap_or_default();
             let filled = |l: &Value, key: &str| l[key].as_str().is_some_and(|s| !s.is_empty());
@@ -17963,14 +18039,12 @@ async fn an_accounts_sell_list_shows_each_lines_readiness_the_payout_in_cents_an
     assert!(!html.contains(r#"name="listingPhoto""#), "{html}");
     // The latest seller confirmation, with its support reference.
     assert!(page.contains("Latest seller confirmation") && page.contains("CS-SL-01J"), "{page}");
+    // The readiness, the totals and the payout readiness are Checkout's review's, for this page.
     let calls = sell_list_calls(&pilot);
-    for call in [
-        "GET /api/marketplace/account/sell-list",
-        "GET /api/marketplace/account/sell-list/composite-review",
-        "GET /api/marketplace/account/sell-list/payout-readiness",
-    ] {
-        assert!(calls.iter().any(|c| c == call), "{call}: {calls:?}");
-    }
+    assert!(calls.iter().any(|c| c == "GET /api/marketplace/account/sell-list"), "{calls:?}");
+    let review = "GET /api/marketplace/account/sell-list/composite-review?sellListPath=%2Faccount%2Fsell-list";
+    assert!(calls.iter().any(|c| c == review), "{calls:?}");
+    assert!(!calls.iter().any(|c| c.ends_with("/payout-readiness")), "the review brings it: {calls:?}");
 }
 
 #[tokio::test]
@@ -18029,7 +18103,7 @@ async fn a_guest_sees_their_sell_list_with_the_standard_terms_and_continues_to_r
     assert!(page.contains("Create an account to continue seller checkout") && page.contains("Pikachu"), "{page}");
     assert!(!html.contains(r#"name="bulkOfferId""#), "a guest picks no offers: {html}");
     let calls = sell_list_calls(&pilot);
-    assert!(calls.contains(&"GET /api/marketplace/guest/sell-list/offer-reviews".to_owned()), "{calls:?}");
+    assert!(calls.contains(&"GET /api/marketplace/guest/sell-list/composite-review".to_owned()), "{calls:?}");
     assert!(!calls.iter().any(|c| c.contains("/account/")), "a guest reads only its own: {calls:?}");
 
     let continue_ = post_signed_out(SELL_LIST_PAGE, "intent=review-sell-list-checkout");
@@ -18295,6 +18369,8 @@ async fn the_seller_desks_offers_are_the_sell_list_on_the_desk_and_need_an_accou
     let (status, _, html) = pilot.send(get("/account/desk/offers", Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("$67.44"), "{html}");
+    let review = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.contains("/composite-review")).map(|c| c.path.clone());
+    assert!(review.is_some_and(|p| p.ends_with("?sellListPath=%2Faccount%2Fdesk%2Foffers")), "the Desk's own payout link");
     // Its forms post back to the Desk.
     assert!(html.contains(r#"action="/account/desk/offers""#), "{html}");
     let (status, headers, _) =
