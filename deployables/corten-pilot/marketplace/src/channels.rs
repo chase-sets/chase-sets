@@ -260,7 +260,7 @@ pub(crate) async fn list(
 }
 
 /// Connect a channel: the new connection's page with the write's receipt, or the list with what
-/// was refused.
+/// was refused; eBay, its consent journey.
 pub(crate) async fn connect(
     req: Req,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
@@ -281,6 +281,10 @@ pub(crate) async fn connect(
             status,
         )
     };
+    // eBay connects through its own consent journey, as marketplace's action sends it there.
+    if provider == "ebay" {
+        return req.redirect(&url::EbayConnect::default());
+    }
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.connect_channel(provider).await {
         Ok((connection, receipt)) => req.redirect(&connection_url(&connection.connection_id, receipt.as_ref())),

@@ -19452,6 +19452,9 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     if let Some(answer) = channel_publication_api(method, uri, body) {
         return Some(answer);
     }
+    if let Some(answer) = ebay_api(method, uri, body) {
+        return Some(answer);
+    }
     let query = uri.query().unwrap_or_default();
     let allowed = |status: &str| match status {
         "pending-setup" => json!(["disconnect"]),
@@ -19482,7 +19485,9 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
             } else if query.contains("status=paused") {
                 Json(json!({ "items": [] })).into_response()
             } else if query.contains("cursor=c2") {
-                Json(json!({ "items": [connection("conn_paused", "paused")] })).into_response()
+                let mut ebay = connection("ebay_paused", "paused");
+                ebay["providerKey"] = json!("ebay");
+                Json(json!({ "items": [connection("conn_paused", "paused"), ebay] })).into_response()
             } else {
                 Json(json!({ "items": [connection("conn_pending", "pending-setup"), connection("conn_active", "active")], "nextCursor": "c2" }))
                     .into_response()
@@ -19520,6 +19525,54 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
                 _ => return None,
             }
         }
+    })
+}
+
+/// Channels' eBay Sandbox calls, as it answers them: consent lists two scopes, three with
+/// publication. `conn_active` is an active eBay connection (Disconnect goes through
+/// `channels_api`), `ebay_paused` paused, `ebay_pending` pending setup, `ebay_off` disconnected,
+/// `ebay_bare` active where eBay is not configured, `ebay_odd` in a status the journey does not
+/// know, and `ebay_other` someone else's (`null`). Start answers eBay Sandbox's consent, but
+/// another site's for `ebay_paused` and a 409 for `ebay_pending`; the callback commits
+/// `ebay_new` for the code `good`; declined refuses the state `used`.
+fn ebay_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    let rest = uri.path().strip_prefix("/api/channels/ebay/")?;
+    let refused = || (StatusCode::CONFLICT, Json(json!({ "error": { "code": "stale-authorization" } }))).into_response();
+    Some(match (method.as_str(), rest) {
+        ("GET", "consent") => {
+            let mut scopes = vec!["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.account"];
+            if uri.query() == Some("publication=true") {
+                scopes.push("https://api.ebay.com/oauth/api_scope/sell.inventory");
+            }
+            Json(json!({ "scopes": scopes, "capabilities": [] })).into_response()
+        }
+        ("GET", connection) => {
+            let id = connection.strip_prefix("connections/")?;
+            let (status, available) = match id {
+                "conn_active" => ("active", true),
+                "ebay_paused" => ("paused", true),
+                "ebay_pending" => ("pending-setup", true),
+                "ebay_off" => ("disconnected", true),
+                "ebay_bare" => ("active", false),
+                "ebay_odd" => ("revoked", true),
+                _ => return Some(Json(Value::Null).into_response()),
+            };
+            Json(json!({ "capabilities": [], "remoteRevocation": null, "status": status, "authorizationAvailable": available }))
+                .into_response()
+        }
+        ("POST", "start") if body.contains(r#""connectionId":"ebay_pending""#) => refused(),
+        ("POST", "start") if body.contains(r#""connectionId":"ebay_paused""#) => {
+            Json(json!({ "authorizationUrl": "https://auth.example.com/oauth2/authorize?state=s1" })).into_response()
+        }
+        ("POST", "start") => Json(json!({
+            "authorizationUrl": "https://auth.sandbox.ebay.com/oauth2/authorize?client_id=app&response_type=code&state=s1"
+        }))
+        .into_response(),
+        ("POST", "callback") if body.contains(r#""code":"good""#) => Json(json!({ "connectionId": "ebay_new" })).into_response(),
+        ("POST", "callback") => refused(),
+        ("POST", "declined") if body.contains(r#""state":"used""#) => refused(),
+        ("POST", "declined") => Json(json!({})).into_response(),
+        _ => return None,
     })
 }
 
@@ -19832,6 +19885,10 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     // The next page, an empty filter and a failed read.
     let (_, _, html) = pilot.send(get("/account/channels?cursor=c2", Some("channeler"))).await;
     assert!(html.contains(r#"href="/account/channels/conn_paused""#) && !html.contains("Load more connections"), "{html}");
+    assert!(
+        html.contains(r#"href="/account/channels/ebay?connectionId=ebay_paused""#),
+        "an eBay connection opens its journey: {html}"
+    );
     let (_, _, html) = pilot.send(get("/account/channels?status=paused", Some("channeler"))).await;
     assert!(
         text(&html).contains("No channel connections")
@@ -19872,6 +19929,152 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     assert!(words.contains("Publication") && words.contains("missing") && words.contains("2 mappings to review"), "{words}");
 }
 
+const EBAY_SCREEN: &str = "/account/channels/ebay";
+
+/// The answer's `form-action` directive.
+fn form_action(headers: &HeaderMap) -> String {
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    csp.split(';').map(str::trim).find(|d| d.starts_with("form-action")).unwrap_or_default().to_owned()
+}
+
+#[tokio::test]
+async fn ebay_consent_lists_its_scopes_and_a_connection_its_state_for_who_may_manage_channels() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(EBAY_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fchannels%2Febay"));
+    let (status, _, _) = pilot.send(get(EBAY_SCREEN, Some("channel_reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "reading needs channels.manage, as marketplace's loader does");
+
+    let (status, headers, html) = pilot.send(get(EBAY_SCREEN, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
+    assert!(form_action(&headers).contains("https://auth.sandbox.ebay.com"), "{headers:?}");
+    let words = text(&html);
+    for expected in [
+        "Connect eBay Sandbox",
+        "Review access before continuing",
+        "sell.account",
+        "Continue to eBay Sandbox",
+        "Back to channels",
+    ] {
+        assert!(words.contains(expected), "{expected}: {words}");
+    }
+    assert!(!words.contains("sell.inventory") && !html.contains(r#"value="disconnect""#), "{html}");
+    assert!(html.contains(r#"name="publication" value="false""#) && html.contains(r#"name="connectionId" value="""#), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{EBAY_SCREEN}?publication=true"), Some("channeler"))).await;
+    assert!(text(&html).contains("sell.inventory") && html.contains(r#"name="publication" value="true""#), "{html}");
+    // What consent came back with.
+    let (_, _, html) = pilot.send(get(&format!("{EBAY_SCREEN}?outcome=declined"), Some("channeler"))).await;
+    assert!(text(&html).contains("Access was declined We could not confirm authorization."), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{EBAY_SCREEN}?outcome=failed"), Some("channeler"))).await;
+    assert!(text(&html).contains("Connection could not be completed"), "{html}");
+
+    // A connection: its state, Reauthorize and Disconnect while it is live.
+    let at = |id: &str| format!("{EBAY_SCREEN}?connectionId={id}");
+    let (status, _, html) = pilot.send(get(&at("conn_active"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Connected") && words.contains("Reauthorize with eBay Sandbox"), "{words}");
+    assert!(html.contains(r#"value="disconnect""#) && html.contains(r#"name="connectionId" value="conn_active""#), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_paused"), Some("channeler"))).await;
+    assert!(text(&html).contains("Review access to your eBay account"), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_pending"), Some("channeler"))).await;
+    assert!(text(&html).contains("Connected, but setup is incomplete This connection is not active"), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_off"), Some("channeler"))).await;
+    let words = text(&html);
+    assert!(words.contains("Disconnected from Chase Sets") && words.contains("eBay revocation is unconfirmed"), "{words}");
+    assert!(words.contains("Continue to eBay Sandbox") && !html.contains(r#"value="disconnect""#), "a new connection: {html}");
+    // Where eBay is not configured, no consent is offered or read.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (_, _, html) = pilot.send(get(&at("ebay_bare"), Some("channeler"))).await;
+    assert!(!html.contains(r#"value="authorize""#) && html.contains(r#"value="disconnect""#), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.ends_with("/consent")));
+    let (status, _, _) = pilot.send(get(&at("ebay_odd"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "a status the journey does not know");
+    let (status, _, _) = pilot.send(get(&at("ebay_other"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn ebay_authorize_goes_only_to_ebay_sandboxs_consent_and_disconnect_draws_the_connection() {
+    let pilot = Pilot::new().await;
+    let last_body = |end: &str| {
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with(end)).map(|c| c.body.clone()).unwrap_or_default()
+    };
+    let (status, headers, _) =
+        pilot.send(post(EBAY_SCREEN, "channeler", "intent=authorize&connectionId=&publication=false", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("https://auth.sandbox.ebay.com/oauth2/authorize?client_id=app"), "{to}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    assert_eq!(last_body("/ebay/start"), r#"{"connectionId":null,"publication":false}"#);
+    let at = |id: &str| format!("{EBAY_SCREEN}?connectionId={id}");
+    let form = |id: &str| format!("intent=authorize&connectionId={id}&publication=true");
+    let (status, _, _) = pilot.send(post(&at("conn_active"), "channeler", &form("conn_active"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(last_body("/ebay/start"), r#"{"connectionId":"conn_active","publication":true}"#);
+    // Another site's address is never followed, and Channels' refusal is the journey saying so.
+    let (status, headers, html) = pilot.send(post(&at("ebay_paused"), "channeler", &form("ebay_paused"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(headers.get(header::LOCATION).is_none() && text(&html).contains("Connection could not be completed"), "{html}");
+    let (status, _, html) = pilot.send(post(&at("ebay_pending"), "channeler", &form("ebay_pending"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Connection could not be completed We could not confirm authorization."), "{html}");
+    for refused in ["intent=authorize&publication=maybe", "intent=delete", "intent=disconnect&connectionId="] {
+        let (status, _, _) = pilot.send(post(EBAY_SCREEN, "channeler", refused, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    }
+    // Disconnect: the connection as it is now.
+    let (status, headers, _) =
+        pilot.send(post(&at("conn_active"), "channeler", "intent=disconnect&connectionId=conn_active", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?connectionId=conn_active");
+    assert!(pilot.stand.calls.lock().unwrap().iter().any(|c| c.path == "/api/channels/connections/conn_active/disconnect"));
+    let (status, _, _) = pilot.send(post(EBAY_SCREEN, "channel_reader", "intent=authorize&publication=false", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn ebays_return_commits_consent_or_says_it_was_declined_or_failed() {
+    let pilot = Pilot::new().await;
+    let callback = "/channels/ebay/callback?state=s1&code=good";
+    // Signed out, the sign-in comes back to the journey, never to the address with eBay's code.
+    let (status, headers, _) = pilot.send(get(callback, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.ends_with("/sign-in?returnTo=%2Faccount%2Fchannels%2Febay") && !to.contains("good"), "{to}");
+    let (status, _, _) = pilot.send(get(callback, Some("channel_reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, headers, _) = pilot.send(get(callback, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?connectionId=ebay_new");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/ebay/callback")).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(r#"{"code":"good","state":"s1"}"#));
+    let failed = "/account/channels/ebay?outcome=failed";
+    for refused in ["state=s1&code=bad", "state=s1&state=s2&code=good", "code=good", "state=&code=good", "state=s1"] {
+        let before = pilot.stand.calls.lock().unwrap().len();
+        let (_, headers, _) = pilot.send(get(&format!("/channels/ebay/callback?{refused}"), Some("channeler"))).await;
+        assert_eq!(headers[header::LOCATION], failed, "{refused}");
+        let sent = pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.ends_with("/ebay/callback"));
+        assert_eq!(sent, refused == "state=s1&code=bad", "only a single state and code is sent on: {refused}");
+    }
+    let (_, headers, _) = pilot.send(get("/channels/ebay/declined?state=s1", Some("channeler"))).await;
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?outcome=declined");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/ebay/declined")).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(r#"{"state":"s1"}"#));
+    for refused in ["state=used", "", "state=a&state=b"] {
+        let (_, headers, _) = pilot.send(get(&format!("/channels/ebay/declined?{refused}"), Some("channeler"))).await;
+        assert_eq!(headers[header::LOCATION], failed, "{refused}");
+    }
+}
+
 #[tokio::test]
 async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     let pilot = Pilot::new().await;
@@ -19879,11 +20082,17 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_new?after_write="));
     // A provider the seller may not connect is Channels' to refuse: the list says so.
-    let (status, _, html) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=ebay", false)).await;
+    let (status, _, html) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=shopify", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Connection action failed."), "{html}");
     let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.method == Method::POST).map(|c| c.body.clone());
-    assert_eq!(sent.as_deref(), Some(r#"{"providerKey":"ebay"}"#), "the provider chosen, as sent");
+    assert_eq!(sent.as_deref(), Some(r#"{"providerKey":"shopify"}"#), "the provider chosen, as sent");
+    // eBay connects through its consent journey, without a connection made first.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, headers, _) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=ebay", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay");
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.method == Method::POST), "nothing is written");
     let (status, _, _) = pilot.send(post(CHANNELS_SCREEN, "channel_reader", "providerKey=tcgplayer", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 

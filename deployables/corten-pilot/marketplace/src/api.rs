@@ -9446,6 +9446,83 @@ pub struct ChannelCommandAnswer {
     pub code: Option<String>,
 }
 
+/// Channels' eBay Sandbox connection (`/api/channels/ebay`, marketplace's `createEbayConnectionClient`):
+/// its consent, start, callback and declined calls and a connection's detail. Channels answers
+/// every refusal 409 with only a code, and 404 from consent while eBay is not configured.
+const EBAY: &str = "/api/channels/ebay";
+
+/// What eBay is asked for (`GET /consent`): the OAuth scopes the consent lists.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayConsent {
+    pub scopes: Vec<String>,
+}
+
+/// An eBay connection as the journey reads it (`GET /connections/{id}`): its status, and
+/// whether eBay is configured here so it can be authorized again.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayConnection {
+    /// `pending-setup`, `active`, `paused` or `disconnected`.
+    pub status: String,
+    pub authorization_available: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EbayStarted {
+    authorization_url: String,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct EbayCallbackAnswer {
+    connection_id: Option<String>,
+}
+
+/// The eBay Sandbox connection's calls.
+pub trait EbayCalls {
+    /// The scopes eBay is asked for, with `publication` or without.
+    async fn ebay_consent(&self, publication: bool) -> Result<EbayConsent, ApiError>;
+    /// The account's eBay connection `id`; `None` when it is not one of the account's.
+    async fn ebay_connection(&self, id: &str) -> Result<Option<EbayConnection>, ApiError>;
+    /// Start consent, again for `connection` or for a new one: eBay's authorization address.
+    async fn start_ebay(&self, connection: Option<&str>, publication: bool) -> Result<String, ApiError>;
+    /// eBay's answer to consent: the connection it committed.
+    async fn ebay_callback(&self, state: &str, code: &str) -> Result<Option<String>, ApiError>;
+    /// eBay's answer that consent was declined: the state is used up.
+    async fn ebay_declined(&self, state: &str) -> Result<(), ApiError>;
+}
+
+impl EbayCalls for Caller<'_> {
+    async fn ebay_consent(&self, publication: bool) -> Result<EbayConsent, ApiError> {
+        self.read(&format!("{EBAY}/consent?publication={publication}"), CHANNELS).await
+    }
+
+    async fn ebay_connection(&self, id: &str) -> Result<Option<EbayConnection>, ApiError> {
+        self.read(&format!("{EBAY}/connections/{}", segment(id)), CHANNELS).await
+    }
+
+    async fn start_ebay(&self, connection: Option<&str>, publication: bool) -> Result<String, ApiError> {
+        let body = serde_json::json!({ "connectionId": connection, "publication": publication });
+        let (started, _) =
+            self.write::<EbayStarted>(self.request(Method::POST, &format!("{EBAY}/start"), CHANNELS).json(&body)).await?;
+        Ok(started.authorization_url)
+    }
+
+    async fn ebay_callback(&self, state: &str, code: &str) -> Result<Option<String>, ApiError> {
+        let body = serde_json::json!({ "state": state, "code": code });
+        let req = self.request(Method::POST, &format!("{EBAY}/callback"), CHANNELS).json(&body);
+        Ok(self.write::<EbayCallbackAnswer>(req).await?.0.connection_id)
+    }
+
+    async fn ebay_declined(&self, state: &str) -> Result<(), ApiError> {
+        let body = serde_json::json!({ "state": state });
+        let req = self.request(Method::POST, &format!("{EBAY}/declined"), CHANNELS).json(&body);
+        self.write::<serde::de::IgnoredAny>(req).await.map(|_| ())
+    }
+}
+
 /// The channel screens' calls.
 pub trait ChannelCalls {
     /// A page of connections, of one status (`None`: Channels' default, every one not

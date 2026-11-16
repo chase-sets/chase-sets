@@ -40,6 +40,7 @@
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
 //! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication`, `../publication/{id}?<place>`, `POST ..`, `POST ../{id}/manual-sync`, `../ingest`, `../download` | the channel connections, Connect, a connection's writes and manual sync, the publication list and a connection's publication with its writes (see `channels`) |
+//! | `GET /account/channels/ebay?<place>`, `POST ..`, `/channels/ebay/callback`, `/channels/ebay/declined` | Connect eBay Sandbox: consent, Authorize and Disconnect, and eBay's return (see `ebay`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
@@ -210,6 +211,8 @@ pub mod url {
     pub use consents::Consents;
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
+    pub use ebay::EbayConnect;
+    pub use ebay_return::{EbayCallback, EbayDeclined};
     pub use guest_claims::GuestClaim;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
     pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
@@ -1369,6 +1372,34 @@ pub mod url {
         }
     }
 
+    /// Connect eBay Sandbox (Channels' `channels-ebay-connection`): the journey, Authorize and
+    /// Disconnect (see `ebay`). Every handler takes a `ChannelsManager`; nothing keeps an answer.
+    #[corten::routes(state = crate::app::Shared, area = EbayConnect, caller = crate::auth::ChannelsManager)]
+    pub mod ebay {
+        /// The journey at a connection, consent's scopes and its outcome; Authorize and Disconnect
+        /// post to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/channels/ebay", get = crate::ebay::page, post = crate::ebay::write, no_store)]
+        pub struct EbayConnect {
+            #[route(query)]
+            pub place: crate::ebay::EbayPlace,
+        }
+    }
+
+    /// eBay's return from consent (Channels' `channels-ebay-callback` and `channels-ebay-declined`):
+    /// each redirects to the journey (see `ebay`). Every handler takes an `EbayReturn`; nothing
+    /// keeps an answer.
+    #[corten::routes(state = crate::app::Shared, area = EbayReturn, caller = crate::auth::EbayReturn)]
+    pub mod ebay_return {
+        /// Consent given: eBay's state and one-time code.
+        #[route("/channels/ebay/callback", get = crate::ebay::callback, no_store)]
+        pub struct EbayCallback;
+
+        /// Consent declined: eBay's state.
+        #[route("/channels/ebay/declined", get = crate::ebay::declined, no_store)]
+        pub struct EbayDeclined;
+    }
+
     /// Pricing health (marketplace's `account-desk-pricing-health`): the verdict for a policy,
     /// Compute verdict, Compare goals and Apply goal (see `pricing_health`). Every handler takes a
     /// `PricingManager`.
@@ -2008,6 +2039,14 @@ pub fn app(config: Config) -> App {
         .area(|area| url::recommendations::area(area, shared.clone()).components(views::RECOMMENDATIONS))
         .area(|area| url::pricing_health::area(area, shared.clone()).components(views::PRICING_HEALTH))
         .area(|area| url::channels::area(area, shared.clone()).components(views::CHANNELS))
+        // Authorize redirects to eBay Sandbox's consent, which browsers check against `form-action`;
+        // no address here, which may carry eBay's one-time code, goes to another site as a referrer.
+        .area(|area| {
+            url::ebay::area(area, shared.clone())
+                .components(views::CHANNELS)
+                .policy(|p| p.form_action(crate::ebay::EBAY_ORIGIN).referrer(corten::security::Referrer::NoReferrer))
+        })
+        .area(|area| url::ebay_return::area(area, shared.clone()).policy(|p| p.referrer(corten::security::Referrer::NoReferrer)))
         // A CSV is up to 16 MB, so a slow connection has a listing's photos' time.
         .area(|area| {
             url::bulk_reprice::area(area, shared.clone()).components(views::BULK_REPRICE).deadline(crate::bulk_reprice::DEADLINE)

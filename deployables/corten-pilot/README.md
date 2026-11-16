@@ -73,7 +73,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Bulk reprice, `/account/bulk-reprice` (`?jobId=`) |
 | `marketplace/` | Pricing > Recommendations, `/account/repricing` (`?jobId=`) |
 | `marketplace/` | Seller Desk > Pricing Health, `/account/desk/pricing-health` (`?policyId=`) |
-| `marketplace/` | Channels > Connections, `/account/channels` (`?status=`, `?cursor=`), a connection, `/account/channels/{id}`, with its manual TCGplayer sync (`POST ../{id}/manual-sync`, `../ingest`, `../download`), Publication, `/account/channels/publication`, and a connection's publication, `/account/channels/publication/{id}` |
+| `marketplace/` | Channels > Connections, `/account/channels` (`?status=`, `?cursor=`), a connection, `/account/channels/{id}`, with its manual TCGplayer sync (`POST ../{id}/manual-sync`, `../ingest`, `../download`), Publication, `/account/channels/publication`, and a connection's publication, `/account/channels/publication/{id}`; Connect eBay Sandbox, `/account/channels/ebay` (consent, Authorize to eBay Sandbox's consent only, Disconnect), with eBay's return, `/channels/ebay/callback` and `/channels/ebay/declined` |
 | `marketplace/` | Seller Desk > Money and a payout's page, `/account/desk/money`, `/account/desk/payouts/{id}` |
 | `marketplace/` | Seller Desk > payout setup, `/account/desk/settings` (`?mode=manage`) |
 | `marketplace/` | Buy > Cart, `/account/cart`, for an account or the guest cart a visitor or guest checkout carries |
