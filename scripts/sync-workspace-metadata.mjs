@@ -135,7 +135,7 @@ export function listTrackedLocaleModulePaths(rootDir, options = {}) {
 
 export function isLocaleCatalogPath(filePath) {
   return (
-    workspaceRoots.includes(filePath.split("/")[0]) && /\/localization\/locales\/en(?:\.ts|\/[^.]+\.ts)$/.test(filePath)
+    workspaceRoots.includes(filePath.split("/")[0]) && /\/localization\/locales\/en(?:\.ts|\/.+\.ts)$/.test(filePath)
   );
 }
 

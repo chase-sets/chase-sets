@@ -485,7 +485,7 @@ describe("owner-local localization bridge", () => {
       ...fixture.trackedLocaleFiles,
       "bounded-contexts/catalog/features/items/localization/locales/en/cards.ts",
       "infrastructure/platform-runtime/localization/locales/en.ts",
-      "packages/design-system/localization/locales/en/buttons.ts",
+      "packages/design-system/localization/locales/en/controls/buttons.copy.ts",
       "deployables/marketplace/localization/locales/en.ts",
       "contracts/example/localization/locales/en.ts",
     ];
