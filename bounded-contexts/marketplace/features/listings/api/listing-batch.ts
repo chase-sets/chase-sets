@@ -5,8 +5,13 @@ import { t } from "@chase-sets/localization";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
-import { marketplaceAttemptIdSchema, recoveryHashSchema } from "../../mutation-recovery/domain/contracts";
+import { MarketplaceAttemptError, marketplaceAttemptBinding } from "../../mutation-recovery/api/attempt";
+import {
+  marketplaceAttemptIdSchema,
+  recoveryHashSchema,
+  marketplaceRecoveryTargetKind,
+} from "../../mutation-recovery/domain/contracts";
+import { listingRecoveryIdentitySchema, type ListingRecoveryIdentity } from "../ui/contracts";
 import type {
   MarketplaceListingBatchFamily,
   MarketplaceListingBatchItem,
@@ -27,6 +32,9 @@ const MAX_LISTING_BATCH_FACTS = 1_000;
 const MAX_LISTING_BATCH_FACT_ENTRIES = 200;
 
 const listingBatchFamilies = [
+  "listing.publish",
+  "listing.update-quantity",
+  "listing.update-purchase-limits",
   "listing.update-price",
   "listing.pause",
   "listing.withdraw",
@@ -288,6 +296,50 @@ export async function lookupListingBatch(
     targetId: entry.targetId,
     outcome: entry.outcome,
     version: entry.version,
+    requestHash: entry.requestHash,
+    attemptKeyFingerprint: entry.attemptKeyFingerprint,
+    ...(entry.noOp ? { noOp: true as const } : {}),
   }));
   return { batchId: batch.batchId, family: batch.family, items };
+}
+
+/** Establish only opaque identities and hashes before a browser can send a business command. */
+export async function prepareListingBatch(
+  store: EventStore,
+  accountId: string,
+  input: ListingRecoveryIdentity,
+  context: EventStoreContext,
+): Promise<void> {
+  const identity = listingRecoveryIdentitySchema.parse(input);
+  const batch = { accountId, family: identity.mutationKind, batchId: identity.batchId };
+  const entries: ListingBatchEntry[] = identity.targets.map((target) => ({
+    targetId: target.id,
+    requestHash: target.requestHash,
+    attemptKeyFingerprint: marketplaceAttemptBinding({
+      accountId,
+      attemptId: identity.batchId,
+      mutationKind: identity.mutationKind,
+      target: { kind: marketplaceRecoveryTargetKind(identity.mutationKind), id: target.id },
+      request: null,
+    }).attemptKeyFingerprint,
+    outcome: "unknown",
+    version: 0,
+  }));
+  const verify = (vector: ListingBatchVector | null) =>
+    vector &&
+    vector.entries.size === entries.length &&
+    entries.every((entry) => {
+      const prior = vector.entries.get(entry.targetId);
+      return prior?.requestHash === entry.requestHash && prior.attemptKeyFingerprint === entry.attemptKeyFingerprint;
+    });
+  const prior = await readListingBatchVector(store, batch);
+  if (prior) {
+    if (!verify(prior)) poisoned("changed preparation");
+    return;
+  }
+  try {
+    await persistVector(store, batch, context, null, entries);
+  } catch {
+    if (!verify(await readListingBatchVector(store, batch))) poisoned("preparation not established");
+  }
 }

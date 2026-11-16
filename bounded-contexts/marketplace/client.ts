@@ -79,6 +79,8 @@ export type {
 
 import type {
   MarketplaceBulkListingPriceUpdateInput,
+  ListingRecoveryIdentity,
+  MarketplaceListingBatchFamily,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingBatchResult,
@@ -254,6 +256,32 @@ export function createMarketplaceApiClient({
     );
 
   return {
+    lookupListingAttempt: lookupAttempt,
+    async prepareListingBatch(identity: ListingRecoveryIdentity): Promise<void> {
+      const preparationHeaders = new Headers(headers);
+      preparationHeaders.set("Content-Type", "application/json");
+      await parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings/batch/prepare"), {
+          method: "POST",
+          headers: preparationHeaders,
+          body: JSON.stringify(identity),
+        }),
+      );
+    },
+    async lookupListingBatch(
+      batchId: string,
+      family: MarketplaceListingBatchFamily,
+    ): Promise<MarketplaceListingBatchResult | null> {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(
+            baseUrl,
+            `/account/listings/batch/${encodeURIComponent(batchId)}?${new URLSearchParams({ family })}`,
+          ),
+          { headers },
+        ),
+      );
+    },
     async listBuyerOfferPolicies(
       offerIds: readonly string[] = [],
     ): Promise<{ items: BuyerOfferPolicySnapshot[]; nextCursor: string | null }> {
