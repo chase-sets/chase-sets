@@ -18,7 +18,11 @@ export const readEbaySetupJson: SetupRead = async (url, accessToken, signal) => 
     signal,
     redirect: "error",
     cache: "no-store",
-    headers: { authorization: `Bearer ${accessToken}` },
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "Accept-Language": "en-US",
+      "Content-Language": "en-US",
+    },
   });
   return readEbayProviderJson(response, 1048576);
 };
