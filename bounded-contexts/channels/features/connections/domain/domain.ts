@@ -69,7 +69,11 @@ export const decideChannelConnection: AggregateDecider<
       ];
     case "ActivateChannelConnection":
       requirePresent(state);
-      if (state.status !== "pending-setup") throw new ChannelConnectionError("invalid-transition");
+      if (
+        state.status !== "pending-setup" &&
+        !(state.providerKey === "ebay" && state.environment === "sandbox" && state.status === "active")
+      )
+        throw new ChannelConnectionError("invalid-transition");
       return [
         {
           type: "channels.connection.activated",

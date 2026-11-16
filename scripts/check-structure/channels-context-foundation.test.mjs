@@ -358,7 +358,7 @@ describe("channels-context-foundation", () => {
   it("partitions every channels DB file exactly once and excludes the same union from unit runs", () => {
     const scripts = readJson(packagePath).scripts;
     const partitions = workspaceScriptNames({ packageJson: { scripts } }, "test:db*");
-    expect(partitions).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(partitions).toEqual(["test:db:1", "test:db:2", "test:db:3", "test:db:4"]);
     expect(scripts["test:db"]).toBe(partitions.map((name) => `pnpm run ${name}`).join(" && "));
     const dbFiles = databaseTestArguments(scripts).filter((argument) => argument.endsWith(".db.test.ts"));
     expect(dbFiles).toHaveLength(new Set(dbFiles).size);

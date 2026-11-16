@@ -640,6 +640,33 @@
       "enrollment": "bounded-contexts/channels/features/ebay-connection/api/runtime.ts::createEbayConnectionRuntime > callback"
     },
     {
+      "file": "bounded-contexts/channels/features/ebay-connection/api/setup-runtime.ts",
+      "symbol": "createEbaySellerSetupRuntime > appendToStream",
+      "sink": "deps.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/ebay-connection/api/setup-runtime.ts::createEbaySellerSetupRuntime"
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-connection/api/setup-runtime.ts",
+      "symbol": "createEbaySellerSetupRuntime",
+      "sink": "connections.activateChannelConnection",
+      "ordinal": 1,
+      "keys": ["connection"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/ebay-connection/api/setup-runtime.ts::createEbaySellerSetupRuntime"
+    },
+    {
+      "file": "bounded-contexts/channels/features/ebay-connection/api/setup-runtime.ts",
+      "symbol": "createEbaySellerSetupRuntime",
+      "sink": "deps.eventStore.appendToStreamInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/channels/features/ebay-connection/api/setup-runtime.ts::createEbaySellerSetupRuntime"
+    },
+    {
       "file": "bounded-contexts/channels/features/listing-composition/api/listing-publication-application.ts",
       "symbol": "createChannelListingPublicationApplication > recordDesiredState",
       "sink": "deps.linkRepository.append",
