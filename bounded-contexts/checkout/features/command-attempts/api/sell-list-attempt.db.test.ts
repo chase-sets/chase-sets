@@ -12,6 +12,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as checkoutModule } from "../../../index";
 import { sellListAttemptCases } from "./sell-list-attempt.test-support";
+import { listSellListLines } from "../../sell-list/read-model/queries";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Sell List attempt proof.");
@@ -38,6 +39,24 @@ if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is requir
       () => createPostgresEventStore({ pool: pools.checkout }),
       () => pools.checkout,
     );
+    it("maps real PostgreSQL bigint Offer and Listing versions to safe domain numbers", async () => {
+      await pools.checkout.query(
+        "INSERT INTO checkout_sell_list_line_pages (seller_account_id, line_id, line_type, offer_stream_version, listing_stream_version, catalog_catalog_item_id, product_id, item_title, quantity) VALUES ('acc_seller', 'sll_bigint', 'selected-offer', 7, 9, 'cat_attempt', 'cat_attempt::', 'Synthetic Item', 1)",
+      );
+      const raw = await pools.checkout.query<{ offer_stream_version: unknown; listing_stream_version: unknown }>(
+        "SELECT offer_stream_version, listing_stream_version FROM checkout_sell_list_line_pages WHERE line_id = 'sll_bigint'",
+      );
+      expect(raw.rows[0]).toEqual({ offer_stream_version: "7", listing_stream_version: "9" });
+      expect(await listSellListLines(pools.checkout, "acc_seller")).toEqual([
+        expect.objectContaining({ offer_stream_version: 7, listing_stream_version: 9 }),
+      ]);
+      await pools.checkout.query(
+        "UPDATE checkout_sell_list_line_pages SET offer_stream_version = 9007199254740992 WHERE line_id = 'sll_bigint'",
+      );
+      await expect(listSellListLines(pools.checkout, "acc_seller")).rejects.toThrow(
+        "Invalid Sell List stream version.",
+      );
+    });
     it("preserves evidence freshness for acceptance refresh in PostgreSQL, while meaningful policy drift advances it", async () => {
       const before = "2026-11-06T00:00:00.000Z";
       const after = "2026-11-07T00:00:00.000Z";

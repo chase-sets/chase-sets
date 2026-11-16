@@ -54,6 +54,25 @@ async function seedSelectedLine(services: ReturnType<typeof createCheckoutSellLi
 }
 
 export function sellListAttemptCases(store: () => EventStore, db: () => PgQueryable = () => catalogDb) {
+  it("prepares current selected-Offer lines returned with PostgreSQL bigint version strings", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    const services = createCheckoutSellListRuntime({ ...f.deps, eventStore: store() });
+    await seedSelectedLine(services);
+    f.setLines([{ ...fixtureLine, offer_stream_version: "1" as never, listing_stream_version: "1" as never }]);
+    const entry = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
+    await expect(
+      services.createReadinessSnapshot(
+        {
+          sellerAccountId: "acc_seller",
+          confirmationId: "slc_synthetic_bigint",
+          entryReadinessSnapshotId: entry.snapshotId,
+          reviewPlan: "synthetic reviewed targets",
+          ...choices,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ status: "ready" });
+  });
   it("refuses preparation when the owned line projection lags the stream, then accepts the current projection", async () => {
     const real = store();
     const f = checkoutOwnerRuntimeFixture();

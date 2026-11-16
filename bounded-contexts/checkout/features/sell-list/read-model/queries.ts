@@ -5,7 +5,7 @@ import {
   type MarketplaceListingEvidenceCoverage,
   type ResolvedListingEvidenceRequirements,
 } from "../../../support/request-support/marketplace-listing-evidence.server";
-import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
+import { CheckoutDomainError, type VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 import type { SellListLineEvidenceReadiness, SellListReadinessLine } from "../domain/readiness";
 import { realTimestamp } from "./seller-checkout-owner-reads";
 
@@ -127,7 +127,12 @@ export type CheckoutSellPayoutReadinessRow = Readonly<{
   updated_at: string | null;
 }>;
 
-type SellListPageRow = Omit<CheckoutSellListLineRow, "selected_options" | "line_type" | "fallback_mode"> & {
+type SellListPageRow = Omit<
+  CheckoutSellListLineRow,
+  "selected_options" | "line_type" | "fallback_mode" | "offer_stream_version" | "listing_stream_version"
+> & {
+  offer_stream_version?: number | string | null;
+  listing_stream_version?: number | string | null;
   selected_options: unknown;
   line_type: string;
   fallback_mode: string;
@@ -355,9 +360,19 @@ export async function getCheckoutListingEvidenceCoverage(
   };
 }
 
+function nullableStreamVersion(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const version = typeof value === "string" && !/^[1-9]\d*$/.test(value) ? NaN : Number(value);
+  if (!Number.isSafeInteger(version) || version < 1)
+    throw new CheckoutDomainError("Invalid Sell List stream version.", "checkout_confirmation_changed");
+  return version;
+}
+
 function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
   return {
     ...row,
+    offer_stream_version: nullableStreamVersion(row.offer_stream_version),
+    listing_stream_version: nullableStreamVersion(row.listing_stream_version),
     created_at: realTimestamp(row.created_at) ?? "",
     updated_at: realTimestamp(row.updated_at) ?? "",
     line_type: row.line_type === "selected-offer" ? "selected-offer" : "product",
