@@ -111,6 +111,34 @@ function diagnosticTimeline() {
 const MiB = 1024 * 1024;
 const roots = [];
 
+function fulfillmentTimeline() {
+  const timeline = completeTimeline(timelineStart);
+  const at = timeline.entries[8].at;
+  timeline.entries.splice(9, 0, {
+    kind: "seller-match-fulfillment",
+    at,
+    offerId: timeline.entries[5].offerId,
+    expected: { can_fulfill: true, amount: "135.00", listingId: "lst_01JC0000000000000000000004" },
+    pollCount: 2,
+    observedAt: at,
+    lastObserved: {
+      can_fulfill: false,
+      managed_status: "held",
+      seller_listing_availability_status: "available",
+      status: "submitted",
+      seller_available_quantity: 2,
+      quantity_requested: 2,
+      price_amount: "135.00",
+      listing_id: "lst_01JC0000000000000000000004",
+      last_stream_version: 4,
+      listing_stream_version: 2,
+      listing_quantity_cap: 2,
+      listing_visible_quantity: 2,
+    },
+  });
+  return timeline;
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -398,6 +426,97 @@ describe("journey package projection", () => {
       diagnosticsReadError: "Product work diagnostics read failed or exceeded the remaining budget.",
     });
     expect(validateTimeline(empty)).toEqual(empty);
+  });
+
+  it.each(["success", "diagnostics"])("packages the seller Match fulfillment snapshot in a %s package", (kind) => {
+    const timeline = fulfillmentTimeline();
+    const root = makeRoot();
+    writeRecord(root, {
+      items: completeItems(timeline),
+      ...(kind === "diagnostics"
+        ? { attempts: [attempt(0, "failed", { failure: assertionFailure })], target: { outcome: "unexpected" } }
+        : {}),
+    });
+    expect(
+      step(root, { JOURNEY_PACKAGE_PRODUCER_OUTCOME: kind === "success" ? "success" : "failure" }).outcome,
+    ).toMatchObject({ status: "published", package: kind });
+    const packaged = JSON.parse(readFileSync(path.join(root, packageRoot, "timeline.json"), "utf8"));
+    expect(packaged.entries[9]).toEqual(timeline.entries[9]);
+  });
+
+  it("accepts nullable seller Match observations and every nullable fulfillment operand", () => {
+    const timeline = fulfillmentTimeline();
+    const entry = timeline.entries[9];
+    entry.lastObserved = Object.fromEntries(Object.keys(entry.lastObserved).map((key) => [key, null]));
+    expect(validateTimeline(timeline)).toEqual(timeline);
+    Object.assign(entry, { pollCount: 0, observedAt: null, lastObserved: null });
+    expect(validateTimeline(timeline)).toEqual(timeline);
+  });
+
+  it("refuses malformed seller Match fulfillment operands and unknown or missing keys", () => {
+    const invalidOperands = {
+      can_fulfill: "false",
+      managed_status: "unknown",
+      seller_listing_availability_status: "unknown",
+      status: "unknown",
+      seller_available_quantity: -1,
+      quantity_requested: 1.5,
+      price_amount: "135",
+      listing_id: witnesses.session,
+      last_stream_version: 1_000_001,
+      listing_stream_version: "2",
+      listing_quantity_cap: -1,
+      listing_visible_quantity: Number.MAX_SAFE_INTEGER,
+    };
+    const mutations = [
+      ...Object.entries(invalidOperands).map(([key, value]) => (entry) => {
+        entry.lastObserved[key] = value;
+      }),
+      (entry) => {
+        entry.password = witnesses.password;
+      },
+      (entry) => {
+        entry.expected.password = witnesses.password;
+      },
+      (entry) => {
+        entry.lastObserved.password = witnesses.password;
+      },
+      (entry) => {
+        delete entry.lastObserved.status;
+      },
+      (entry) => {
+        entry.expected.can_fulfill = "true";
+      },
+      (entry) => {
+        entry.expected.amount = witnesses.password;
+      },
+      (entry) => {
+        entry.expected.listingId = witnesses.session;
+      },
+      (entry) => {
+        entry.offerId = witnesses.session;
+      },
+      (entry) => {
+        entry.pollCount = 10_001;
+      },
+      (entry) => {
+        entry.at = "2026-11-01";
+      },
+      (entry) => {
+        entry.observedAt = "2026-11-01";
+      },
+      (entry) => {
+        entry.at = "2026-10-01T00:00:00.000Z";
+      },
+    ];
+    for (const mutate of mutations) {
+      const timeline = fulfillmentTimeline();
+      mutate(timeline.entries[9]);
+      const root = makeRoot();
+      writeRecord(root, { items: completeItems(timeline) });
+      expectRefused(step(root), "timeline-invalid");
+      expectNoPackage(root);
+    }
   });
 
   it("refuses unknown, secret-shaped, unbounded or malformed convergence diagnostics", () => {

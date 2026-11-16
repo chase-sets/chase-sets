@@ -823,6 +823,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         });
         const fulfillment = {
           kind: "seller-match-fulfillment",
+          at: new Date().toISOString(),
           offerId: controlOfferId,
           expected: { can_fulfill: true, amount: "135.00", listingId },
           pollCount: 0,
