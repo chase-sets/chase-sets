@@ -15,6 +15,8 @@ import {
   type MarketplaceListingEvent,
 } from "../domain/domain";
 import { createListingTargetRuntime } from "./target-runtime";
+import { createMarketplaceListingRuntime } from "./runtime";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { AcceptListingTargetPriceInput, ListingTargetAuthority } from "./target-contracts";
 
 async function fixture() {
@@ -186,6 +188,40 @@ async function fixture() {
 }
 
 describe("channel-only target runtime", () => {
+  it("does not expose unfenced target commands through the raw Listing command handler", async () => {
+    const f = await fixture();
+    const accepted = await f.runtime.acceptListingTargetPrice(f.input, f.context, f.principal);
+    const core = createMarketplaceListingRuntime({
+      eventStore: f.store,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+      db: { query: async () => ({ rows: [] }) } as never,
+      commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+    });
+    await expect(
+      core.commandHandler({
+        streamId: `marketplace.listing-${f.input.listingId}`,
+        context: f.context,
+        command: {
+          type: "AcceptListingTargetPrice",
+          expectedTargetPriceRevision: 1,
+          acceptedTargetPrice: { ...accepted.acceptedTargetPrice, targetPriceRevision: 2 },
+        },
+      }),
+    ).rejects.toThrow("owner-fenced");
+    await expect(
+      core.commandHandler({
+        streamId: `marketplace.listing-${f.input.listingId}`,
+        context: f.context,
+        command: {
+          type: "ActivateListingForChannel",
+          connectionId: "connection",
+          expectedTargetPriceRevision: 1,
+          allocationRevision: 1,
+        },
+      }),
+    ).rejects.toThrow("owner-fenced");
+    expect(await f.all()).toHaveLength(3);
+  });
   it("accepts then activates from canonical history without native publication or projection reads", async () => {
     const f = await fixture();
     const accepted = await f.runtime.acceptListingTargetPrice(f.input, f.context, f.principal);

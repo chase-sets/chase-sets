@@ -863,7 +863,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     codec: listingCodec,
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
-    decide: decideMarketplaceListing,
+    decide: decideUnfencedMarketplaceListing,
     snapshots: {
       store: createPostgresAggregateSnapshotStore<MarketplaceListingState>({ db: deps.db }),
       schemaVersion: MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION,
@@ -3169,3 +3169,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   };
   return services;
 }
+
+const decideUnfencedMarketplaceListing: typeof decideMarketplaceListing = (state, command) => {
+  assert(
+    command.type !== "AcceptListingTargetPrice" && command.type !== "ActivateListingForChannel",
+    "Target commands require owner-fenced Listing services.",
+  );
+  return decideMarketplaceListing(state, command);
+};
