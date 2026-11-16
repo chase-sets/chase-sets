@@ -32,6 +32,18 @@ describe("listing attempt caller partition", () => {
       unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: "odd/banana.ts", source }])),
     ).toHaveLength(1);
   });
+  it("requires a stable attempt on the real-host channel target fixture", () => {
+    const file = "deployables/platform-api/__tests__/listing-channel-activation-composition.db.test.ts";
+    const source = readFileSync(path.join(root, file), "utf8");
+    const callers = enumerateListingAttemptCallers([{ path: file, source }]);
+    expect(callers).toHaveLength(1);
+    expect(unpartitionedListingAttemptCallers(callers)).toEqual([]);
+    const mutant = source.replace('idempotencyKey: "synthetic-create",', "");
+    expect(mutant).not.toBe(source);
+    expect(
+      unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source: mutant }])),
+    ).toHaveLength(1);
+  });
   it("rejects the historical Checkout keyless caller and a current key-removal mutant", () => {
     const file = "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts";
     const baseline = execFileSync("git", ["show", `a53a07070be4c8d184ceb38af963f426ab174208:${file}`], {
