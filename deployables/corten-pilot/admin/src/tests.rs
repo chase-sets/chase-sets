@@ -10772,7 +10772,12 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let (_, _, html) = pilot.send(get(page, Some(session))).await;
     assert!(html.contains("Scheduled for Dec 1, 2026, 12:00 AM"), "in Chicago: {html}");
     assert!(html.contains("&quot;maximumDays&quot;: 14"), "the value, indented, to edit: {html}");
-    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, page, revise, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -10793,10 +10798,22 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
     assert_eq!(calls, 2, "nothing sent for JSON that does not read");
 
-    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let unzoned = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let (status, _, html) = pilot.send(post_as(session, page, unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
+    let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
+    assert_eq!(calls, 2, "nothing sent without the zone");
+
+    // Read in the zone the form was drawn in, and drawn again in it.
+    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00&zone=Asia%2FTokyo";
     let (status, _, html) = pilot.send(post_as(session, page, negative, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("maximumDays must be at least 0.") && html.contains(r#"value="2026-12-01T00:00""#), "{html}");
+    assert!(html.contains(r#"name="zone" value="Asia/Tokyo""#), "drawn again in the posted zone: {html}");
+    let sent = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions");
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["effectiveFrom"], json!("2026-11-30T15:00:00Z"), "midnight in Tokyo");
 }
 
 /// Marketplace's Listing Evidence Policy: the compiled fallback in effect, an active, a draft and a

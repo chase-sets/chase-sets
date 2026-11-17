@@ -153,7 +153,7 @@ fn drawn(at: Option<&str>, zone: &DrawZone) -> Entry<LocalDateTime> {
 /// A posted time as the API takes it: null for a blank field, the instant it is in the form's
 /// zone, or the text as typed when it does not read (the API refuses it in its own words). None
 /// for a time sent without the form's zone.
-fn sent(entry: &Entry<LocalDateTime>, zone: Option<&FormZone>) -> Option<Value> {
+pub fn sent(entry: &Entry<LocalDateTime>, zone: Option<&FormZone>) -> Option<Value> {
     if entry.is_blank() {
         return Some(Value::Null);
     }
