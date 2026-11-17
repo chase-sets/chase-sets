@@ -505,13 +505,13 @@ fn refusal(t: SellerListingsMsg, code: &str) -> Option<&str> {
 }
 
 /// The field a refusal is about, on the form `intent` sent.
-fn refused_field(intent: &str, code: &str) -> Option<FieldName<String>> {
+fn refused_field(intent: &str, code: &str) -> Option<FieldName> {
     let f = ListingsForm::FIELDS;
     match code {
-        "listing_availability_reason_invalid" if intent == "disable-listing-availability" => Some(f.reason_category),
-        "listing_availability_reason_invalid" | "away_window_reason_required" => Some(f.away_window_reason_category),
-        "away_window_instant_required" => Some(f.away_window_starts_on),
-        "order_capacity_invalid" => Some(f.max_open_orders),
+        "listing_availability_reason_invalid" if intent == "disable-listing-availability" => Some(f.reason_category.untyped()),
+        "listing_availability_reason_invalid" | "away_window_reason_required" => Some(f.away_window_reason_category.untyped()),
+        "away_window_instant_required" => Some(f.away_window_starts_on.untyped()),
+        "order_capacity_invalid" => Some(f.max_open_orders.untyped()),
         _ => None,
     }
 }
