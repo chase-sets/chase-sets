@@ -12,11 +12,13 @@ use platform::{
     },
 };
 
-use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger};
+use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger, integrations_page::AuditDrawer};
 use crate::{
     catalog::{
         api::{AliasCandidate, AliasReview, Coverage, CoverageRow, ReviewJob},
         attention::ACCEPT_ELIGIBLE,
+        daily::{Daily, HOME, at, with_query},
+        integrations::evidence_ref,
         scope::{
             CONFIDENCES, Condition, Edition, Jobs, Journey, Link, ScopeBack, ScopeScreen, Stage, StageKey, StageStatus,
             url::{self, AliasCommand, MappingInput, ProposeInput, ScopeAt, Via},
@@ -150,6 +152,13 @@ fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, hr
                     <div id={super::DailyRefusalId}></div>
                     <super::Signals t={t} req={req} model={&workspace.read.read_model} context={&screen.context} />
                     <super::Stages t={t} p={p} req={req} screen={workspace} context={&screen.context} />
+                    <ScopeEvidence
+                        t={t}
+                        req={req}
+                        id={&screen.scope.scope_record_id}
+                        model={&workspace.read.read_model}
+                        context={&screen.context}
+                    />
                 }
                 None => {
                     <div class={(Banner, Warning)} role="status">
@@ -159,6 +168,40 @@ fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, hr
                 }
             }
         </section>
+    }
+}
+
+/// The scope's evidence (admin-web's CatalogEntityEvidenceLinks on Scope Detail): a link for the
+/// scope, then each merge candidate, the Catalog Items they map to, each reviewed observation and
+/// each job, every one this page with its videnceRef. When the address names one, the audit
+/// timeline the API resolved for it follows, open when the API found evidence for it.
+#[component(css = ScopePage)]
+fn ScopeEvidence<'a>(t: Cat, req: &'a Req, id: &'a str, model: &'a Daily, context: &'a str) -> impl Render {
+    let page = url::ScopePage::of(id).href().to_string();
+    let base = with_query(context, &[(HOME, None), ("evidenceRef", None)]);
+    let link = |kind: &str, of: &str| {
+        let href = at(&page, &with_query(&base, &[("evidenceRef", Some(evidence_ref(kind, of, None).as_str()))]));
+        (href, format!("{}: {of}", t.wb_audit_title()))
+    };
+    let mut links = vec![link("scope", id)];
+    let candidates = &model.merge_candidate_review.rows;
+    links.extend(candidates.iter().map(|c| link("candidate", &c.candidate_id)));
+    let mut items: Vec<&str> = candidates.iter().filter_map(|c| c.proposed_mapping.catalog_item_id.as_deref()).collect();
+    items.sort_unstable();
+    items.dedup();
+    links.extend(items.into_iter().map(|item| link("catalog-item", item)));
+    links.extend(model.source_observation_review.rows.iter().map(|r| link("source-observation", &r.observation_id)));
+    links.extend(model.import_jobs.jobs.iter().map(|j| link("import-job", &j.job_id)));
+    let audit = model.audit_evidence.as_ref().filter(|a| a.selection.reference.is_some());
+    html! {
+        <ul class={EvidenceLinks} data-scope-evidence-links>
+            for (href, label) in &links {
+                <li><a class={Muted} href={href}>{label}</a></li>
+            }
+        </ul>
+        if let Some(audit) = audit {
+            <AuditDrawer t={t} req={req} audit={audit} id="scope-evidence" />
+        }
     }
 }
 
