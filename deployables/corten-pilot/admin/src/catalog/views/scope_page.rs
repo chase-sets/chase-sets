@@ -173,7 +173,7 @@ fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, hr
 
 /// The scope's evidence (admin-web's CatalogEntityEvidenceLinks on Scope Detail): a link for the
 /// scope, then each merge candidate, the Catalog Items they map to, each reviewed observation and
-/// each job, every one this page with its videnceRef. When the address names one, the audit
+/// each job, every one this page with its `evidenceRef`. When the address names one, the audit
 /// timeline the API resolved for it follows, open when the API found evidence for it.
 #[component(css = ScopePage)]
 fn ScopeEvidence<'a>(t: Cat, req: &'a Req, id: &'a str, model: &'a Daily, context: &'a str) -> impl Render {
