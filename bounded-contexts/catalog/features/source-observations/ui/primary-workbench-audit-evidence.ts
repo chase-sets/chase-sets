@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { catalogScopeRecordIdFromPath } from "../api/admin/scope-detail-workbench-location";
+import { isSafePrimaryWorkbenchReturnPath } from "../api/admin/primary-workbench-shared-contracts";
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
 import type {
   CatalogPrimaryWorkbenchHealthTriageReadModel,
@@ -56,6 +57,11 @@ export function auditEvidenceFor(input: {
   );
   if (input.routeContext.scopeRecordId)
     owner.pathname = `/catalog/scopes/${encodeURIComponent(input.routeContext.scopeRecordId)}`;
+  if (!isSafePrimaryWorkbenchReturnPath(owner.pathname)) {
+    owner.pathname = input.routeContext.providerKey
+      ? `/catalog/providers/${encodeURIComponent(input.routeContext.providerKey)}`
+      : "/catalog/integrations";
+  }
   const auditTimelineHref = `${owner.pathname}${owner.search}`;
   const { selection, matches } = resolveCatalogAuditSelection({
     routeContext: input.routeContext,

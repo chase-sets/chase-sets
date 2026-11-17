@@ -40,6 +40,20 @@ function entityInput(
 }
 
 describe("Catalog primary workbench read model - audit evidence", () => {
+  it("normalizes unsupported loader locations to their live owner without admitting a retired path", () => {
+    const audit = buildCatalogPrimaryWorkbenchReadModel(
+      entityInput("provider/tcgdex", {
+        requestUrl:
+          "https://admin.example/catalog/integrations/providers?providerKey=tcgdex&evidenceRef=provider/tcgdex",
+      }),
+    ).auditEvidence;
+    expect(audit.returnToPrimaryHref).toBe("/catalog/providers/tcgdex?providerKey=tcgdex");
+    expect(
+      audit.evidenceLinks.every(
+        (link) => new URL(link.href, "https://admin.example").pathname === "/catalog/providers/tcgdex",
+      ),
+    ).toBe(true);
+  });
   it("selects a provider across loaded units rather than inheriting the workbench's default unit", () => {
     const overview = controlPlaneOverview();
     const unit = "tcgdex:pokemon:sealed-product:source-observation-import";
