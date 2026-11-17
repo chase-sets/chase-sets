@@ -1289,6 +1289,40 @@ const censusPassSignature = (pass) =>
   );
 const isStableCensusDrift = (passes) => new Set(passes.map(censusPassSignature)).size === 1;
 
+const isProvenNonWriter = (run) =>
+  typeof run.path === "string" && run.path.length > 0 && !isProductionWriterCandidate(run);
+
+// Removing identified non-writers must leave the same writer identities and
+// unexplained count in every status. Identity changes are not run movement.
+function hasOnlyNonWriterCensusMovement(passes) {
+  const identities = new Map();
+  for (const pass of passes) {
+    for (const [id, run] of pass.runs) {
+      const identity = partitionRunIdentity({ ...run, status: null });
+      if (identities.has(id) && identities.get(id) !== identity) return false;
+      identities.set(id, identity);
+    }
+  }
+  const signatures = passes.map((pass) =>
+    JSON.stringify(
+      activeActionsRunStatuses.map((status) => {
+        const read = pass.statuses[status];
+        if (!read) return null;
+        const runs = read.runIds.map((id) => pass.runs.get(String(id)));
+        const nonWriters = runs.filter(isProvenNonWriter);
+        return [
+          read.totalCounts.map((count) => count - nonWriters.length),
+          runs
+            .filter((run) => !isProvenNonWriter(run))
+            .map(partitionRunIdentity)
+            .sort(),
+        ];
+      }),
+    ),
+  );
+  return new Set(signatures).size === 1;
+}
+
 // Classified reasons are this module's own text. Any other error (transport, YAML)
 // may quote a response or file, so only its name and system code are kept.
 function censusErrorReason(error) {
@@ -1478,7 +1512,8 @@ async function readActiveRunCensusPass(readApi, pass) {
 }
 
 // Re-reads every status from scratch; only a whole pass with stable pagination is
-// trusted, unless five passes repeat one shortfall that a partition reconciles.
+// trusted, unless a partition reconciles five shortfalls whose differences are
+// fully identified non-writers. A counted but unlisted run is still unknown.
 async function readStableActiveRunCensus(readApi, sleep, passes, partitions) {
   for (let pass = 1; ; pass += 1) {
     const evidence = { pass, reason: null, statuses: {}, runs: new Map() };
@@ -1489,7 +1524,7 @@ async function readStableActiveRunCensus(readApi, sleep, passes, partitions) {
       evidence.reason = censusErrorReason(error);
       if (!(error instanceof MovingRunCensusError)) throw error;
       if (pass >= productionWriterCensusPassLimit) {
-        if (error.shortfallStatus && isStableCensusDrift(passes)) {
+        if (error.shortfallStatus && (isStableCensusDrift(passes) || hasOnlyNonWriterCensusMovement(passes))) {
           return await readReconciledStatusPartition(readApi, passes, error.shortfallStatus, partitions);
         }
         throw error;
@@ -1515,14 +1550,15 @@ function censusPartitionSplit(listed, readAt) {
 const partitionRunIdentity = (run) =>
   JSON.stringify({ ...censusRunIdentity(run), updatedAt: null, workflowId: run.workflowId ?? null });
 
-// Stable drift repeats one counted-but-unlisted gap in every pass. The drifted status
-// is admitted only when complementary created windows, each completely paginated, list
+// Repeated shortfalls keep one counted-but-unlisted gap after known non-writer
+// movement. The status is admitted only when complementary, completely paginated windows list
 // exactly its global total: every listed run unchanged, and every unlisted counted run
 // identified so the writer projection judges it. A final global re-read must repeat
 // the drift, so movement during the fallback refuses. Later statuses are then read
 // once. At most 20 reads are added; 5xx and transport re-reads share readApi's budget.
 async function readReconciledStatusPartition(readApi, passes, status, partitions) {
   const finalPass = passes.at(-1);
+  const movingNonWriters = !isStableCensusDrift(passes);
   const global = finalPass.statuses[status];
   const totalCount = global.totalCounts[0];
   const listedIds = new Set(global.runIds.map(String));
@@ -1563,6 +1599,9 @@ async function readReconciledStatusPartition(readApi, passes, status, partitions
       await readRunStatus(boundedReadApi, status, read, windowRuns);
       for (const id of read.runIds) {
         const run = windowRuns.get(String(id));
+        if (movingNonWriters && !isProductionWriterCandidate(run) && !isProvenNonWriter(run)) {
+          throw unreconciled(`window run ${id} has an unknown writer identity`);
+        }
         if (run.status !== status) {
           throw unreconciled(`window created${created} listed run ${id} with status ${JSON.stringify(run.status)}`);
         }
