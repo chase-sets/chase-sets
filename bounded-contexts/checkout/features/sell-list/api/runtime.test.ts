@@ -1664,8 +1664,8 @@ describe("API-owned Marketplace handoff", () => {
       reason: { recovery: { kind: "readiness-stale" } },
       lines: [
         { lineId: "sll_fixture", status: "ambiguous" },
-        { lineId: "sll_match", status: "not-attempted" },
-        { lineId: "sll_zfallback", status: "not-attempted" },
+        { lineId: "sll_match", status: "not-attempted", detail: "Not attempted." },
+        { lineId: "sll_zfallback", status: "not-attempted", detail: "Not attempted." },
       ],
     });
     expect(marketplace.acceptOfferMatch).toHaveBeenCalledTimes(1);

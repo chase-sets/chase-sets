@@ -267,7 +267,7 @@ export async function performMarketplaceHandoff(
         ...reviewedLines.slice(lineOutcomes.length + 1).map(({ line: pending }) => ({
           lineId: pending.line_id,
           status: "not-attempted" as const,
-          detail: "Not attempted.",
+          detail: t("checkout.routes.sellCheckoutSession.handoff.not.attempted"),
         })),
       ]);
     }
