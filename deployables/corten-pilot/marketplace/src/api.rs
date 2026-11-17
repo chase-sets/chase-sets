@@ -817,8 +817,10 @@ pub trait SellList {
     ) -> Result<SellListSnapshot, ApiError>;
     /// A seller confirmation (`GET /sell-list/confirmations/{id}`); 404 while it is not saved.
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError>;
-    /// Confirms seller checkout (`POST /sell-list/confirm`): the write's receipt.
-    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
+    /// Confirms seller checkout (`POST /sell-list/confirm`), which runs the Marketplace handoff in
+    /// Checkout: the receipt the next read waits for, the later of the confirm's and the
+    /// handoff's writes' (`sourceReceipts`).
+    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ConfirmError>;
     /// Moves the guest sell list's lines into the account's: how many moved, and the receipt.
     async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError>;
 }
@@ -835,6 +837,49 @@ pub struct ReadinessEntry<'a> {
     pub entry_readiness_snapshot_id: &'a str,
     #[serde(skip_serializing_if = "str::is_empty")]
     pub entry_readiness_source_revision: &'a str,
+}
+
+/// Why seller checkout's confirm saved no confirmation.
+#[derive(Debug)]
+pub enum ConfirmError {
+    /// Checkout's Marketplace handoff stopped part way (409 `checkout_handoff_interrupted`): its
+    /// message, each line's result, and why when what the seller reviewed changed (its
+    /// `readiness-stale` recovery's detail).
+    Interrupted {
+        message: String,
+        lines: Vec<HandoffLine>,
+        stale: Option<String>,
+    },
+    Api(ApiError),
+}
+
+impl From<ApiError> for ConfirmError {
+    fn from(error: ApiError) -> Self {
+        ConfirmError::Api(error)
+    }
+}
+
+/// A line's result when the handoff stopped (`SellListHandoffLineResult`): `completed`,
+/// `partial`, `conflict` (its offer accepted, but not as this sale), `ambiguous` or
+/// `not-attempted`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HandoffLine {
+    pub line_id: String,
+    pub status: String,
+}
+
+/// A confirm's answer: the receipts of the handoff's Marketplace writes.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct Confirmed {
+    source_receipts: Vec<SourceReceipt>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceReceipt {
+    command_receipt: CommandReceipt,
 }
 
 fn sell_list_path(guest: Option<&str>, rest: &str) -> String {
@@ -937,9 +982,32 @@ impl SellList for Caller<'_> {
         self.read(&sell_list_path(None, &format!("/confirmations/{}", segment(id))), CHECKOUT).await
     }
 
-    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
-        let req = sell_list_request(self, Method::POST, None, "/confirm").json(body);
-        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ConfirmError> {
+        let res = sell_list_request(self, Method::POST, None, "/confirm").json(body).send().await.map_err(ApiError::from)?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        if status.is_success() {
+            let receipt = Receipt::from_response(res.headers());
+            // The confirmation is saved: an answer without its source receipts still is.
+            let confirmed: Confirmed = res.json().await.unwrap_or_default();
+            let sources = confirmed.source_receipts.into_iter().filter_map(|source| {
+                let receipt = source.command_receipt;
+                Receipt::of_metadata(receipt.commit_position.as_deref(), &receipt.commit_positions)
+            });
+            return Ok(receipt.into_iter().chain(sources).reduce(Receipt::later));
+        }
+        let body: serde_json::Value = res.json().await.unwrap_or_default();
+        let error = &body["error"];
+        let message = error["message"].as_str().unwrap_or_default().to_owned();
+        let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
+        if status == StatusCode::CONFLICT && code.as_deref() == Some("checkout_handoff_interrupted") {
+            let lines = serde_json::from_value(error["lines"].clone()).unwrap_or_default();
+            let recovery = &error["recovery"];
+            let stale = (recovery["kind"] == "readiness-stale")
+                .then(|| recovery["detail"].as_str().unwrap_or_default().to_owned())
+                .filter(|detail| !detail.is_empty());
+            return Err(ConfirmError::Interrupted { message, lines, stale });
+        }
+        Err(ConfirmError::Api(ApiError::Status { status, code, message }))
     }
 
     async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError> {
@@ -1267,62 +1335,14 @@ pub struct ListingSelection {
 
 /// A Sell List review as Checkout keeps it (`SellListReviewReadiness`): the snapshot, the review
 /// plan and the readiness decisions it made. A plan or decisions missing is a review seller
-/// checkout cannot go on from.
+/// checkout cannot go on from. The plan itself is Checkout's: its confirm checks it against the
+/// snapshot and runs it.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SellListReview {
     pub readiness: SellListSnapshot,
-    pub review_plan: Option<ReviewPlan>,
+    pub review_plan: Option<serde::de::IgnoredAny>,
     pub decisions: Option<ReadinessDecisions>,
-}
-
-/// What Checkout planned for each line (`SellListReviewPlan`).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(default)]
-pub struct ReviewPlan {
-    pub version: u8,
-    pub lines: Vec<PlanLine>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct PlanLine {
-    pub line_id: String,
-    /// `selected-offer` or `product`.
-    pub line_type: String,
-    pub item_title: String,
-    pub product_id: Option<String>,
-    pub quantity: u64,
-    pub selected_offer: Option<PlanOffer>,
-    pub product_offer_targets: Vec<PlanTarget>,
-    pub fallback_listing: Option<PlanListing>,
-    pub skipped_reasons: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanOffer {
-    pub offer_id: String,
-    pub listing_id: String,
-    pub fee_quote_fingerprint: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanTarget {
-    pub offer_id: String,
-    pub listing_id: String,
-    pub fee_quote_fingerprint: String,
-    pub quantity: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanListing {
-    pub inventory_item_id: String,
-    pub price_amount: String,
-    pub price_currency_code: String,
-    pub quantity_cap: u64,
 }
 
 /// What readiness decided for each line before seller checkout (`SellListReadinessDecisionInput`),

@@ -372,7 +372,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10793 [identity] Account-management writes answer a request they refuse during validation as 503 INDETERMINATE instead of a 4xx refusal](https://github.com/chase-sets/chase-sets/issues/10793) | [marketplace/src/team.rs](marketplace/src/team.rs) |
 | [chase-sets/chase-sets#10795 [auth] A team invitation is saved but not emailed: the acceptance-link request answers 404 before Auth's invitation projection catches up](https://github.com/chase-sets/chase-sets/issues/10795) | [marketplace/src/team.rs](marketplace/src/team.rs) |
 | [chase-sets/chase-sets#10753 [checkout] Work out seller checkout's seller readiness in the Checkout API instead of trusting the evidence the page posts](https://github.com/chase-sets/chase-sets/issues/10753) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/sell_checkout.rs](marketplace/src/sell_checkout.rs) |
-| [chase-sets/chase-sets#10754 [checkout] Run seller checkout's Marketplace handoff in the Checkout API and record the summary it observed](https://github.com/chase-sets/chase-sets/issues/10754) | [marketplace/src/sell_checkout.rs](marketplace/src/sell_checkout.rs) |
 | [chase-sets/chase-sets#10772 [pricing] Bulk reprice is offered and its page drawn while Pricing has it switched off](https://github.com/chase-sets/chase-sets/issues/10772) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/bulk_reprice.rs](marketplace/src/bulk_reprice.rs) |
 | [chase-sets/chase-sets#10779 [channels] Disconnect answers no commit receipt, so the read after it still shows the connection before the disconnect](https://github.com/chase-sets/chase-sets/issues/10779) | [marketplace/src/channels.rs](marketplace/src/channels.rs) |
 | [chase-sets/chase-sets#10809 [channels] A stale publication write shows 'Channels API error 409' instead of 'Settings changed'](https://github.com/chase-sets/chase-sets/issues/10809) | none: the pilot answers the 409 with the conflict notice ([marketplace/src/channels.rs](marketplace/src/channels.rs)) |
@@ -409,3 +408,4 @@ None of them leaves a workaround behind:
 
 | Issue | Cited in |
 |---|---|
+| [chase-sets/chase-sets#10754 [checkout] Run seller checkout's Marketplace handoff in the Checkout API and record the summary it observed](https://github.com/chase-sets/chase-sets/issues/10754) (Checkout's confirm checks the kept plan and runs the handoff; the pilot sends only the confirm) | [marketplace/src/tests.rs](marketplace/src/tests.rs) |
