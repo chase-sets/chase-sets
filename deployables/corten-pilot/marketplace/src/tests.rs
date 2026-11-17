@@ -11351,7 +11351,7 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     let pilot = Pilot::new().await;
     // Turn off listings: the day's start where the browser is (Chicago, after daylight saving time).
     let body = &format!(
-        "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02&attempt={}",
+        "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02&zone=America%2FChicago&attempt={}",
         new_attempt()
     );
     let (status, headers, html) = pilot.send(post_in("/account/listings?status=active", "lister", body, "America/Chicago")).await;
@@ -11367,9 +11367,18 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         ]
     );
     assert!(list_calls(&pilot, "/api/identity/preferences").is_empty(), "the browser's zone needs no read");
-    // A browser that has not told its zone (no script): the zone the account chose, New York's.
-    let body =
-        &format!("intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02&attempt={}", new_attempt());
+    // A browser that has not told its zone (no script): the form is drawn in the zone the account
+    // chose, New York's, and names it.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/New_York">"#) && html.contains(">America/New_York<"),
+        "{html}"
+    );
+    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 1);
+    let body = &format!(
+        "intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02&zone=America%2FNew_York&attempt={}",
+        new_attempt()
+    );
     let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -11379,13 +11388,22 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         "{:?}",
         list_calls(&pilot, "/api/marketplace/account/listing-availability/disable")
     );
-    // A zone the browser names that is not one is not trusted either.
+    // The day is read in the zone its form sends, whatever zone the browser names on the post.
     let (status, _, _) = pilot.send(post_in(LISTINGS, "lister", body, "Mars/Olympus")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 2);
+    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 1, "a post reads no zone");
+    // A zone the browser names that is not one is not trusted: the account's again.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister; corten-zone=Mars/Olympus"))).await;
+    assert!(html.contains(r#"name="zone" value="America/New_York""#), "{html}");
+    // A day without the form's zone did not come from this page.
+    let unzoned = &format!("intent=disable-listing-availability&availableAgainOn=2026-11-02&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("did not say which time zone"), "{html}");
     // The away window and the capacity, each saying what it set for the read that catches up.
     let body = &format!(
-        "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=&attempt={}",
+        "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=\
+         &zone=America%2FChicago&attempt={}",
         new_attempt()
     );
     let (status, headers, _) = pilot.send(post_in(LISTINGS, "lister", body, "America/Chicago")).await;
@@ -11454,7 +11472,7 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     let pilot = Pilot::new().await;
     // An away window with no reason, or a start that is not a day, is not sent.
     let body = &format!(
-        "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40&attempt={}",
+        "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40&zone=Asia%2FTokyo&attempt={}",
         new_attempt()
     );
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
@@ -11463,6 +11481,7 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     assert!(page.contains("Choose a reason for the away window."), "{page}");
     assert!(page.contains("Enter a date as YYYY-MM-DD."), "the end that is not a day: {page}");
     assert!(html.contains(r#"name="awayWindowStartsOn" value="2026-12-01""#), "the form as sent: {html}");
+    assert!(html.contains(r#"name="zone" value="Asia/Tokyo""#), "drawn again in the zone it was drawn in: {html}");
     assert!(html.contains("awayWindowEndsOn-error") && !html.contains("awayWindowStartsOn-error"), "{html}");
     // An order capacity that is not a whole number of at least 1.
     let body = &format!("intent=set-order-capacity&maxOpenOrders=0&attempt={}", new_attempt());
