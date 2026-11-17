@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { formatDateTime, t } from "@chase-sets/localization";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogIntegrationRecentJobSummary } from "../../contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
@@ -20,6 +21,180 @@ afterEach(() => {
 });
 
 describe("CatalogProviderDetailPage", () => {
+  it("labels absent Provider readiness unavailable without a false blocker", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: "https://admin.example/catalog/providers/tcgdex",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: null,
+      canManageCatalog: false,
+    });
+    render(<CatalogProviderDetailPage readModel={readModel} />);
+    expect(screen.getByText("Provider readiness unavailable")).toBeTruthy();
+    expect(
+      screen.queryByText(t("catalog.features.sourceObservations.ui.providerDetail.header.blocked.title")),
+    ).toBeNull();
+  });
+  it("preserves the health crosswalk without a profile and isolates another provider's facts", () => {
+    const base = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: "https://admin.example/catalog/providers/tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: false,
+    });
+    const unit = {
+      ...base.healthTriage.units[0]!,
+      displayName: "Selected unit evidence",
+      affectedPrimaryAction: "pull-provider-data" as const,
+      ingestionPurpose: "retained-purpose",
+      profileVersion: "health-version",
+      observationFacts: 751,
+      diagnosticCounts: { info: 71, warning: 72, error: 73 },
+      diagnosticCodes: ["unit-retained-code"],
+      latestDiagnosticText: "Selected unit diagnostic",
+      ownerMetricKey: "unit.owner.metric",
+      nextAction: "Selected unit guidance",
+      credentialReadinessState: "retained-credential-state",
+    };
+    const provider = {
+      ...base.healthTriage.providers[0]!,
+      adapterKey: "retained-adapter",
+      countSpend: [
+        {
+          debitId: "synthetic-debit",
+          quoteId: "synthetic-quote",
+          kind: "cards" as const,
+          credits: 1 as const,
+          outcome: "uncertain" as const,
+          debitedAt: "2020-01-02T00:00:00.000Z",
+          observedAt: "2020-01-02T01:00:00.000Z",
+          expiresAt: "2020-01-02T02:00:00.000Z",
+        },
+      ],
+      diagnosticCodes: ["provider-retained-code"],
+      latestDiagnosticText: "Selected provider diagnostic",
+      ownerMetricKey: "provider.owner.metric",
+      nextAction: "Selected provider guidance",
+      usageBudget: {
+        creditBalance: 81,
+        creditAllowance: 900,
+        creditUnit: "credits",
+        readiness: "degraded" as const,
+        freshness: "stale" as const,
+        observedAt: "2020-01-02T03:04:00.000Z",
+        lagCategory: "documented-window" as const,
+        diagnosticCode: "budget-retained-code",
+        diagnostic: "Retained budget reason",
+        estimatedCalls: 43,
+        estimatedScope: "Selected call scope",
+      },
+    };
+    const readModel = {
+      ...base,
+      healthTriage: {
+        ...base.healthTriage,
+        status: "blocked" as const,
+        freshness: "partial" as const,
+        generatedAt: "2020-01-01T00:00:00.000Z",
+        units: [unit, { ...unit, providerKey: "other", displayName: "Foreign unit fact" }],
+        providers: [provider, { ...provider, providerKey: "other", latestDiagnosticText: "Foreign provider fact" }],
+        readModels: base.healthTriage.readModels.map((row) => ({
+          ...row,
+          generatedAt: "2020-01-01T00:00:00.000Z",
+          statusMessage: `Retained ${row.queryKey}`,
+        })),
+      },
+    };
+    render(<CatalogProviderDetailPage readModel={readModel} />);
+    const header = document.querySelector('[data-catalog-provider-health="tcgdex"]')!;
+    for (const value of [
+      "retained-adapter",
+      "provider-retained-code",
+      "Selected provider diagnostic",
+      "provider.owner.metric",
+      "Selected provider guidance",
+      "81 / 900 / credits",
+      "stale",
+      "documented-window",
+      "Retained budget reason",
+      "budget-retained-code",
+      "43",
+      "Selected call scope",
+      formatDateTime(provider.usageBudget.observedAt),
+      "cards: 1 / uncertain / 2020-01-02T01:00:00.000Z / 2020-01-02T02:00:00.000Z",
+      "Retained provider-transport-readiness-summary",
+      "catalog.integration.provider_transport.generated_at",
+    ]) {
+      expect(header.textContent).toContain(value);
+    }
+    const unitView = document.querySelector("[data-catalog-health-unit]")!;
+    for (const value of [
+      unit.unitKey,
+      unit.providerKey,
+      unit.displayName,
+      `${unit.productDomain}/${unit.productForm}`,
+      "retained-purpose",
+      "health-version",
+      "751",
+      "71 / 72 / 73",
+      "unit-retained-code",
+      "Selected unit diagnostic",
+      "unit.owner.metric",
+      "Selected unit guidance",
+      "retained-credential-state",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.pullProviderData"),
+    ]) {
+      expect(unitView.textContent).toContain(value);
+    }
+    expect(screen.getAllByText("Source health provenance (not entity readiness)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatDateTime(readModel.healthTriage.generatedAt)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Foreign provider fact")).toBeNull();
+    expect(screen.queryByText("Foreign unit fact")).toBeNull();
+    expect(header.textContent).toContain(provider.readiness);
+    expect(header.textContent).toContain("Blocked");
+  });
+
+  it.each([false, true])(
+    "renders unreported budget values as unavailable rather than zero, nested budget %s",
+    (nested) => {
+      const base = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+        requestUrl: "https://admin.example/catalog/providers/tcgdex",
+        scopes: { items: [], total: 0, count: 0 },
+        profileReviews: { items: [], total: 0, count: 0 },
+        controlPlaneOverview: controlPlaneOverview(),
+        canManageCatalog: false,
+      });
+      const readModel = nested
+        ? {
+            ...base,
+            healthTriage: {
+              ...base.healthTriage,
+              providers: base.healthTriage.providers.map((row) => ({
+                ...row,
+                usageBudget: {
+                  creditBalance: null,
+                  creditAllowance: null,
+                  creditUnit: null,
+                  readiness: "unknown" as const,
+                  freshness: "never-observed" as const,
+                  observedAt: null,
+                  lagCategory: "unobserved" as const,
+                  diagnosticCode: null,
+                  diagnostic: null,
+                  estimatedCalls: null,
+                  estimatedScope: null,
+                },
+              })),
+            },
+          }
+        : base;
+      render(<CatalogProviderDetailPage readModel={readModel} />);
+      const header = document.querySelector('[data-catalog-provider-health="tcgdex"]')!;
+      expect(header.textContent).not.toContain("0 / 0");
+      expect(header.textContent).toContain(nested ? "never-observed" : "unavailable");
+    },
+  );
   it("launches provider and version evidence in place and opens the resolved drawer", async () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
@@ -437,6 +612,44 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     expect(section.querySelector("[aria-expanded]")).toBeNull();
     expect(section.querySelector("[data-catalog-provider-job-disclosure]")).toBeNull();
     expect(within(section).queryByText("Observed observations")).toBeNull();
+  });
+
+  it("preserves Provider job progress, guidance and source provenance without another provider's jobs", () => {
+    const base = providerJobsReadModel([
+      providerJob("member-health-job", { operatorStatus: "failed", phase: "failed" }),
+      providerJob("foreign-health-job", { providerKey: "scryfall", operatorStatus: "failed", phase: "failed" }),
+    ]);
+    const readModel = {
+      ...base,
+      healthTriage: {
+        ...base.healthTriage,
+        recentJobs: base.healthTriage.recentJobs.map((job) => ({
+          ...job,
+          progressLabel: `Retained progress ${job.jobId}`,
+          nextAction: `Retained guidance ${job.jobId}`,
+        })),
+        readModels: base.healthTriage.readModels.map((row) => ({
+          ...row,
+          statusMessage: `Retained provenance ${row.queryKey}`,
+        })),
+      },
+    };
+    render(<CatalogProviderDetailPage readModel={readModel} />);
+    const section = recentJobs();
+    for (const value of [
+      "member-health-job",
+      tcgplayerUnitKey,
+      "Failed",
+      "failed",
+      "Retained progress member-health-job",
+      "Retained guidance member-health-job",
+      "catalog.integration.job.failed",
+      "Retained provenance import-job-progress-summary",
+      "catalog.integration.job_progress.generated_at",
+    ]) {
+      expect(section.textContent).toContain(value);
+    }
+    expect(section.textContent).not.toContain("foreign-health-job");
   });
 
   it("marks a matching unit selection and opens a retained non-TCGplayer job requested by the route", () => {

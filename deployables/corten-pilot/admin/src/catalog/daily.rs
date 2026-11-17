@@ -248,7 +248,7 @@ pub struct DailyStatus {
 }
 
 /// The route context the API parsed from the location: the section, for the open stage, and the
-/// import context the bar draws.
+/// import context the bar draws, and the alias review's narrowing.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RouteContext {
@@ -258,6 +258,12 @@ pub struct RouteContext {
     pub scope: Option<ScopeContext>,
     pub import_scope: Option<String>,
     pub profile_version: Option<String>,
+    /// The alias review's narrowing the address carries (`aliasType`, `reviewStatuses`, and
+    /// `targetKind` with `targetId`).
+    pub alias_type: Option<String>,
+    pub review_statuses: Vec<String>,
+    pub target_kind: Option<String>,
+    pub target_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
@@ -1552,10 +1558,32 @@ fn alias_query(provider_key: Option<&str>, profile_version: Option<&str>) -> Str
     if pairs.is_empty() { String::new() } else { format!("?{}", pairs.join("&")) }
 }
 
+/// The review stage's alias review query (admin-web's `selectedScopeAliasReview`): the provider and
+/// profile version the surface names, narrowed by the type, statuses and target the address
+/// carries. A target narrows only with both its kind and its id.
+fn review_query(route: &RouteContext) -> String {
+    let given = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
+    let statuses: Vec<&str> = route.review_statuses.iter().map(String::as_str).filter(|s| !s.is_empty()).collect();
+    let mut pairs: Vec<(&str, String)> = Vec::new();
+    pairs.extend(given(&route.alias_type).map(|t| ("aliasType", t)));
+    if !statuses.is_empty() {
+        pairs.push(("reviewStatuses", statuses.join(",")));
+    }
+    if let (Some(kind), Some(id)) = (given(&route.target_kind), given(&route.target_id)) {
+        pairs.extend([("targetKind", kind), ("targetId", id)]);
+    }
+    let mut query = alias_query(route.provider_key.as_deref(), route.profile_version.as_deref());
+    for (key, value) in pairs {
+        query.push(if query.is_empty() { '?' } else { '&' });
+        query.push_str(&format!("{key}={}", segment(&value)));
+    }
+    query
+}
+
 /// The alias review beside the surface: none when it does not read, as admin-web's slot draws
 /// nothing then.
 async fn alias_review(caller: &Caller<'_>, route: &RouteContext) -> Option<super::api::AliasReview> {
-    let query = alias_query(route.provider_key.as_deref(), route.profile_version.as_deref());
+    let query = review_query(route);
     match caller.read_at::<super::api::AliasReview>(Kind::AliasReview, &query).await {
         Ok(review) => Some(review),
         Err(error) => {
@@ -2479,5 +2507,36 @@ mod tests {
         let (path, body) = input("reject", " dupe ").command(t).unwrap();
         assert_eq!((path, body["reason"].as_str()), ("/bulk-reject/jobs", Some("dupe")));
         assert!(input("promote", "").command(t).is_none(), "a promote without the version read");
+    }
+
+    #[test]
+    fn the_alias_review_is_narrowed_as_the_address_narrows_it() {
+        let route = |filters: Value| -> RouteContext {
+            let mut context = json!({ "providerKey": "tcgdex", "profileVersion": "2026.06.04" });
+            context.as_object_mut().unwrap().extend(filters.as_object().unwrap().clone());
+            serde_json::from_value(context).unwrap()
+        };
+        let base = "?providerKey=tcgdex&sourceProfileVersion=2026.06.04";
+        assert_eq!(review_query(&route(json!({}))), base);
+        assert_eq!(
+            review_query(&route(json!({ "aliasType": "language-edition" }))),
+            format!("{base}&aliasType=language-edition")
+        );
+        assert_eq!(
+            review_query(&route(json!({ "reviewStatuses": ["rejected", "pending"] }))),
+            format!("{base}&reviewStatuses=rejected%2Cpending")
+        );
+        let blank = json!({ "aliasType": "", "reviewStatuses": [], "targetKind": "", "targetId": "" });
+        assert_eq!(review_query(&route(blank)), base, "blank filters are left out");
+        assert_eq!(review_query(&route(json!({ "targetKind": "reference-record" }))), base, "a kind without its id");
+        assert_eq!(review_query(&route(json!({ "targetId": "ref_1" }))), base, "an id without its kind");
+        assert_eq!(
+            review_query(&route(json!({ "aliasType": "language-edition", "reviewStatuses": ["rejected", "pending"],
+                "targetKind": "catalog-item", "targetId": "synthetic item" }))),
+            format!(
+                "{base}&aliasType=language-edition&reviewStatuses=rejected%2Cpending&targetKind=catalog-item&targetId=synthetic%20item"
+            )
+        );
+        assert_eq!(review_query(&RouteContext { alias_type: Some("x".into()), ..RouteContext::default() }), "?aliasType=x");
     }
 }

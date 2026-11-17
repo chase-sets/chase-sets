@@ -533,7 +533,7 @@ export type RefreshListingEvidenceRequirementsCommand = Readonly<{
 export type PublishListingCommand = Readonly<{
   type: "PublishListing";
   readiness: ListingEvidenceReadinessResult;
-  csatOutcomeFact?: JsonObject;
+  publishedAt: string;
   allowAlreadyActiveNoOp?: boolean;
 }>;
 export type PauseListingCommand = Readonly<{
@@ -734,7 +734,7 @@ export type ListingEvidenceRequirementsRefreshedEvent = DomainEvent<
 >;
 export type ListingPublishedEvent = DomainEvent<
   "marketplace.listing.published",
-  Readonly<{ csatOutcomeFact?: JsonObject }>
+  Readonly<{ listingId?: string; sellerAccountId?: AccountId; publishedAt?: string; csatOutcomeFact?: JsonObject }>
 >;
 export type ListingPausedEvent = DomainEvent<
   "marketplace.listing.paused",
@@ -1128,7 +1128,7 @@ export const decideMarketplaceListing: AggregateDecider<
       return [
         {
           type: "marketplace.listing.published",
-          data: command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {},
+          data: { listingId: state.listingId!, sellerAccountId: state.accountId!, publishedAt: command.publishedAt },
         },
       ];
     case "PauseListing": {

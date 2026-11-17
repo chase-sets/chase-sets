@@ -8415,10 +8415,18 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
         ])
     };
     // Built apart from the surface below so one `json!` stays inside the macro's recursion limit.
+    // The alias review's narrowing is parsed from the location, as the API's route context is.
+    let param = |key: &str| {
+        let raw = location.split(['?', '&']).find_map(|p| p.strip_prefix(key)?.strip_prefix('='))?;
+        Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
+    };
+    let statuses: Vec<String> =
+        param("reviewStatuses").map(|s| s.split(',').filter(|s| !s.is_empty()).map(str::to_owned).collect()).unwrap_or_default();
     let context = json!({
         "routeContext": { "section": section, "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card",
             "scope": { "languageCode": "en", "expansionId": "sv1", "expansionName": "Scarlet & Violet" },
-            "importScope": "en:sv1", "profileVersion": null },
+            "importScope": "en:sv1", "profileVersion": null, "aliasType": param("aliasType"), "reviewStatuses": statuses,
+            "targetKind": param("targetKind"), "targetId": param("targetId") },
         "providerScope": { "providers": [
             { "providerKey": "lorcast", "displayName": "Lorcast", "units": [
                 { "unitKey": "lorcast:pokemon:card", "productDomain": "pokemon", "productForm": "card", "activeProfile": null }] },
@@ -10120,6 +10128,27 @@ async fn the_workset_draws_each_units_state_and_its_sync_and_reapply_and_opens_i
     // Without units nothing draws.
     let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped", Some("staff"))).await;
     assert!(!html.contains("data-catalog-source-scope-workset"), "{html}");
+}
+
+#[tokio::test]
+async fn the_review_stages_alias_review_is_narrowed_as_the_address_narrows_it() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon&aliasType=language-edition&reviewStatuses=rejected%2Cpending\
+              &targetKind=catalog-item&targetId=cat_1";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let want = "/api/catalog/alias-review?providerKey=tcgplayer&aliasType=language-edition&reviewStatuses=rejected%2Cpending\
+                &targetKind=catalog-item&targetId=cat_1";
+    let reads: Vec<String> = pilot
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/catalog/alias-review"))
+        .map(|c| c.path.clone())
+        .collect();
+    assert_eq!(reads, [want], "read once, with the API's route context's narrowing");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#), "{html}");
 }
 
 #[tokio::test]

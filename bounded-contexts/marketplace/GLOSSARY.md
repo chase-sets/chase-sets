@@ -1,5 +1,11 @@
 # Marketplace Domain Glossary
 
+## Listing Published
+
+**Listing Published** records the listing identity, its seller account and the server's
+publication time (`publishedAt`). Historical empty and nested-only publications remain
+replayable. Repricing an already active listing does not emit another publication.
+
 ## Marketplace Mutation Attempt
 
 A **Marketplace Mutation Attempt** binds one opaque command identity to its actor, target and canonical request. Marketplace records its first result atomically with the business facts. An exact replay returns that result without another command; a changed request conflicts. Owner lookup is read-only and never treats connectivity or projection presence as command success.

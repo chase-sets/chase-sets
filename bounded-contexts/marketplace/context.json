@@ -171,7 +171,6 @@
   ],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",
-    "@chase-sets/customer-feedback",
     "@chase-sets/inventory"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
@@ -2549,7 +2548,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["listings", "reviews"],
+      "expectedConsumers": ["listings"],
       "crossCuttingRuntimeComposition": true
     },
     "realtime-support": {
