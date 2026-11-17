@@ -9,6 +9,7 @@ import {
   catalogScopeHasLanguageEditionsToReview,
 } from "./language-editions/language-edition-review";
 import { CatalogScopeJourneyOverviewPanel } from "./scope-journey-overview-panel";
+import { ScopeHealth } from "./scope-health";
 import { buildCatalogScopeJourneyOverviewReadModel } from "./scope-journey-overview";
 import type { CatalogAliasReviewReadModel } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import type { ScopeCoverageMatrix } from "../../../../provider-scope-mapping/ui/contracts";
@@ -102,6 +103,13 @@ export function CatalogScopeDetailPage({
 
       {journey ? (
         <PageSection>
+          <ScopeHealth
+            readModel={journey.readModel}
+            scopeRecordId={scope.scopeRecordId}
+            requestUrl={journey.requestUrl}
+            actionHref={actionHref}
+            loading={loading}
+          />
           <WorkbenchLinkList>
             <CatalogEntityEvidenceLink
               location={journey.requestUrl}

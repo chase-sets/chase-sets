@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { formatDateTime } from "@chase-sets/localization";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { CatalogControlPlaneEvidenceDrawer } from "./catalog-control-plane-evidence-drawer";
@@ -30,6 +31,76 @@ function evidence() {
 }
 
 describe("Catalog entity evidence drawer", () => {
+  it.each([false, true])(
+    "preserves selected projection provenance and unit attribution when missing is %s",
+    (missing) => {
+      const base = evidence();
+      const auditEvidence = {
+        ...base,
+        projectionState: {
+          ...base.projectionState,
+          freshness: missing ? ("unavailable" as const) : ("partial" as const),
+          generatedAt: missing ? null : "2020-01-02T03:04:00.000Z",
+          statusMessage: "Retained projection reason",
+          missingProjection: missing,
+          partialProjection: !missing,
+        },
+        timeline: base.timeline.map((row) => ({ ...row, unitKey: controlPlaneOverview().readiness.units[0]!.unitKey })),
+      };
+      render(<CatalogControlPlaneEvidenceDrawer auditEvidence={auditEvidence} deepLinkOpen />);
+      const drawer = screen.getByRole("dialog");
+      for (const value of [
+        "audit-evidence-timeline",
+        "Retained projection reason",
+        "catalog.integration.audit.generated_at",
+        "tcgdex:pokemon:card:import",
+        missing ? "unavailable" : formatDateTime("2020-01-02T03:04:00.000Z"),
+      ]) {
+        expect(drawer.textContent).toContain(value);
+      }
+      expect(drawer.textContent).toContain(formatDateTime(base.generatedAt));
+      expect(drawer.textContent).toContain(base.redactionPolicy.sourcePayloadAccess);
+    },
+  );
+
+  it("preserves rollout severity and guidance at Settings beside the existing scoped control facts", () => {
+    const base = buildCatalogPrimaryWorkbenchReadModelForSurface("governance", {
+      requestUrl: "https://admin.example/catalog/integrations/settings",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: false,
+    });
+    const control = {
+      ...base.governanceControls.controls[0]!,
+      controlId: "synthetic-rollout-control",
+      status: "blocked" as const,
+      metricKey: "rollout.owner.metric",
+      providerKeys: ["tcgdex"],
+      unitKeys: [base.healthTriage.units[0]!.unitKey],
+      message: "Retained stop reason",
+    };
+    const readModel = {
+      ...base,
+      governanceControls: { ...base.governanceControls, controls: [control] },
+      healthTriage: {
+        ...base.healthTriage,
+        rolloutControls: [{ ...control, severity: "error" as const, nextAction: "Retained rollout recovery" }],
+      },
+    };
+    render(<CatalogControlPlaneSettingsPage readModel={readModel} />);
+    const settings = document.querySelector("[data-catalog-control-plane-settings-page]")!;
+    for (const value of [
+      control.controlId,
+      control.metricKey,
+      control.message,
+      "tcgdex:pokemon:card:import",
+      "error",
+      "Retained rollout recovery",
+    ]) {
+      expect(settings.textContent).toContain(value);
+    }
+  });
   it.each(["daily", "health"] as const)("mounts the generated %s job href on its drawer owner", (surface) => {
     const input = {
       requestUrl: `https://admin.example/catalog/integrations${surface === "health" ? "/health" : ""}?providerKey=tcgdex&reviewOffset=25${surface === "daily" ? "&evidenceRef=import-job/job_001" : ""}`,
