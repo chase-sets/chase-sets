@@ -12,13 +12,18 @@ use platform::{
     },
 };
 
-use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger, integrations_page::AuditDrawer};
+use super::{
+    CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger,
+    integrations_page::{AuditDrawer, Pairs, Provenance, state_label, unit_health},
+    provider_page::JobActions,
+};
 use crate::{
     catalog::{
         api::{AliasCandidate, AliasReview, Coverage, CoverageRow, ReviewJob},
         attention::ACCEPT_ELIGIBLE,
-        daily::{Daily, HOME, at, with_query},
-        integrations::evidence_ref,
+        daily::{self, Daily, HOME, ImportJob, WorksetUnit, at, with_query},
+        integrations::{HealthJob, HealthUnit, evidence_ref},
+        provider,
         scope::{
             CONFIDENCES, Condition, Edition, Jobs, Journey, Link, ScopeBack, ScopeScreen, Stage, StageKey, StageStatus,
             url::{self, AliasCommand, MappingInput, ProposeInput, ScopeAt, Via},
@@ -70,6 +75,14 @@ pub fn scope_page<'a>(
                     propose={propose.as_ref()}
                     manage={manage}
                     via={Via::Scope}
+                />
+                <HealthPart
+                    t={t}
+                    p={p}
+                    id={id}
+                    model={screen.workspace.as_ref().map(|w| &w.read.read_model)}
+                    context={&screen.context}
+                    manage={manage}
                 />
                 <WorkspacePart t={t} p={p} req={req} screen={screen} href={&workspace} />
                 <JobsPart t={t} p={p} id={id} jobs={screen.jobs.as_ref()} cursor={cursor} />
@@ -212,6 +225,114 @@ fn ScopeEvidence<'a>(t: Cat, req: &'a Req, id: &'a str, model: &'a Daily, contex
 /// so its page could not draw the workspace either.
 fn workspace(id: &str) -> String {
     url::ScopePage::of(id).href().to_string()
+}
+
+/// The scope's member units and jobs (admin-web's `ScopeHealth`), from the scope's own daily
+/// surface (its route context names this scope): each member unit's readiness and recovery with
+/// its provider's page, the provenance of the scope health read, and each member job's progress
+/// with the retry, resume and cancel the API offers it, posted with the working set so they land
+/// back here. A member is a unit of the workset when it names a concrete scope; a job is a member's
+/// when its retained row has that unit's provider and import scope. With no member, or a unit or
+/// job in the address that is not one, the section says the resolution is unavailable.
+#[component(css = ScopePage)]
+fn HealthPart<'a>(t: Cat, p: Pilot, id: &'a str, model: Option<&'a Daily>, context: &'a str, manage: bool) -> impl Render {
+    let model = model.filter(|m| m.route_context.scope_record_id.as_deref() == Some(id));
+    let triage = model.and_then(|m| m.health_triage.as_ref());
+    let members: Vec<&WorksetUnit> = model
+        .filter(|m| m.source_scope_workset.selected_scope.has_concrete_scope)
+        .map(|m| m.source_scope_workset.units.iter().collect())
+        .unwrap_or_default();
+    let keys: Vec<&str> = members.iter().filter_map(|u| u.unit_key.as_deref()).collect();
+    let units: Vec<&HealthUnit> =
+        triage.map(|h| h.units.iter().filter(|u| keys.contains(&u.unit_key.as_str())).collect()).unwrap_or_default();
+    let member_job = |row: &ImportJob| {
+        members.iter().any(|u| {
+            u.unit_key == row.unit_key
+                && u.provider_key == row.provider_key
+                && u.import_scope.is_some()
+                && u.import_scope == row.import_scope
+        })
+    };
+    let jobs: Vec<(&HealthJob, &ImportJob)> = match (model, triage) {
+        (Some(m), Some(h)) => h
+            .recent_jobs
+            .iter()
+            .filter(|job| job.unit_key.as_deref().is_some_and(|k| keys.contains(&k)))
+            .filter_map(|job| {
+                let row = m.import_jobs.jobs.iter().find(|row| row.job_id == job.job_id)?;
+                m.import_jobs.jobs.iter().any(|row| row.job_id == job.job_id && member_job(row)).then_some((job, row))
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let route = model.map(|m| &m.route_context);
+    let missing = route.is_some_and(|r| {
+        r.unit_key.as_deref().is_some_and(|k| !units.iter().any(|u| u.unit_key == k))
+            || r.job_id.as_deref().is_some_and(|j| !jobs.iter().any(|(job, _)| job.job_id == j))
+    });
+    let status = state_label(match triage {
+        Some(h) if !units.is_empty() => h.status.as_str(),
+        _ => "unavailable",
+    });
+    let unit_rows: Vec<_> = units
+        .iter()
+        .map(|u| {
+            let query = with_query("", &[("unitKey", Some(u.unit_key.as_str()))]);
+            let href = at(&provider::url::Provider { key: &u.provider_key }.href().to_string(), &query);
+            let label = t.health_facts_provider_setup(&u.provider_key).to_string();
+            (u.unit_key.as_str(), unit_health(t, Some(u)), href, label)
+        })
+        .collect();
+    let job_rows: Vec<_> = jobs
+        .iter()
+        .map(|(job, row)| {
+            let items = vec![
+                (job.job_id.as_str(), format!("{} / {}", job.provider_key, job.unit_key.as_deref().unwrap_or_default())),
+                (t.wb_health_table_status(), format!("{} / {}", job.operator_status, job.phase)),
+                (t.health_facts_progress(), job.progress_label.clone()),
+                (t.wb_audit_table_summary(), job.summary.clone()),
+                (t.wb_gov_table_metric(), job.owner_metric_key.clone()),
+                (t.wb_health_table_next_action(), job.next_action.clone()),
+            ];
+            let commands = manage && (row.retry_available || row.resume_available || row.cancel_available);
+            (*row, items, commands.then(|| at(&daily::url::Job { id: &row.job_id }.href(), context)))
+        })
+        .collect();
+    html! {
+        <section class={Part} aria-labelledby="scope-health" data-catalog-scope-health="true">
+            <div class={Head}>
+                <h2 class={PartTitle} id="scope-health">{t.health_facts_scope_title()}</h2>
+                <TonePill text={&status} tone={Tone::Neutral} />
+            </div>
+            for (key, facts, href, label) in &unit_rows {
+                <div class={(KitStack { gap: Gap::App }, gap_1(), Stack)} data-catalog-health-unit={*key}>
+                    <Pairs items={facts} />
+                    <a class={Link} href={href}>{label}</a>
+                </div>
+            }
+            if units.is_empty() || missing {
+                <p class={Muted}>{t.attention_resolution_unavailable()}</p>
+            }
+            if let Some(triage) = triage {
+                <Provenance
+                    t={t}
+                    status={&triage.status}
+                    freshness={&triage.freshness}
+                    generated_at={triage.generated_at.as_deref()}
+                    read_models={&triage.read_models}
+                    keys={&["integration-health-summary", "import-job-progress-summary"]}
+                />
+            }
+            for (row, items, action) in &job_rows {
+                <div class={(KitStack { gap: Gap::App }, gap_1(), Stack)} data-catalog-scope-health-job={&row.job_id}>
+                    <Pairs items={items} />
+                    if let Some(action) = action {
+                        <JobActions t={t} p={p} job={*row} action={action} />
+                    }
+                </div>
+            }
+        </section>
+    }
 }
 
 /// The journey (`CatalogScopeJourneyOverviewPanel`): where it is, the counts, and each stage.

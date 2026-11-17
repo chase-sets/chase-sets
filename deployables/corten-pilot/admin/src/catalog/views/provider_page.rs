@@ -898,6 +898,7 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
                                 let created = when(t, &job.created_at);
                                 let chosen = Some(job.job_id.as_str()) == selected;
                                 let health = triage.recent_jobs.iter().find(|h| h.job_id == job.job_id);
+                                let commands = at(&provider::url::Job { key, id: &job.job_id }.href().to_string(), context);
                                 <tr data-provider-job-selected={chosen.then_some("true")}>
                                     <td>
                                         <CellLabel>{t.wb_health_table_job()}</CellLabel>
@@ -917,7 +918,7 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
                                                 <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                                                     <Outcome t={t} job={job} />
                                                     if manage && (job.retry_available || job.resume_available || job.cancel_available) {
-                                                        <JobActions t={t} p={p} job={job} key={key} context={context} />
+                                                        <JobActions t={t} p={p} job={job} action={&commands} />
                                                     }
                                                 </div>
                                             </details>
@@ -1038,16 +1039,16 @@ fn Outcome<'a>(t: Cat, job: &'a ImportJob) -> impl Render {
     }
 }
 
-/// A job's retry, resume and cancel, as the API offers them.
+/// A job's retry, resume and cancel, as the API offers them, posted to `action` (the page's own
+/// job route with its working set, which lands the command back on that page).
 #[component(css = ProviderPage)]
-fn JobActions<'a>(t: Cat, p: Pilot, job: &'a ImportJob, key: &'a str, context: &'a str) -> impl Render {
-    let action = at(&provider::url::Job { key, id: &job.job_id }.href().to_string(), context);
+pub(super) fn JobActions<'a>(t: Cat, p: Pilot, job: &'a ImportJob, action: &'a str) -> impl Render {
     let name = JobInput::FIELDS.command;
     let label = p.provider_job_details(&job.job_id).to_string();
     html! {
         <form
             method="post"
-            action={&action}
+            action={action}
             class={Row}
             data-patch
             data-catalog-primary-workbench-command="job"

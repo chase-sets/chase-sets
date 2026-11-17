@@ -220,6 +220,10 @@ pub struct Daily {
     /// The audit timeline the API composed for the address, which resolves a scope page's evidence
     /// links (`evidenceRef`). None from an API that does not compose it.
     pub audit_evidence: Option<super::integrations::AuditEvidence>,
+    /// The health triage the API composed for the address: on a scope page's own surface, its
+    /// member units' and jobs' health (scope-member health, not a full-source signal). None from
+    /// an API that does not compose it.
+    pub health_triage: Option<super::integrations::HealthTriage>,
 }
 
 /// `CatalogPrimaryWorkbenchFlowReadModel`: the stage the route opens on (its section's, else the
@@ -264,6 +268,10 @@ pub struct RouteContext {
     pub review_statuses: Vec<String>,
     pub target_kind: Option<String>,
     pub target_id: Option<String>,
+    /// The import or sync job the address names (`jobId`).
+    pub job_id: Option<String>,
+    /// The Scope Record the address is the page of (`scopeRecordId`), on a scope's own surface.
+    pub scope_record_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
@@ -357,6 +365,8 @@ pub struct Workset {
 pub struct WorksetScope {
     pub label: String,
     pub import_scope: Option<String>,
+    /// Whether the workset names a concrete scope, so its units are that scope's members.
+    pub has_concrete_scope: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -376,6 +386,7 @@ pub struct WorksetUnit {
     pub display_name: String,
     pub unit_key: Option<String>,
     pub profile_version: Option<String>,
+    pub import_scope: Option<String>,
     pub state: String,
     pub counts: WorksetCounts,
     pub current_workbench_href: String,
