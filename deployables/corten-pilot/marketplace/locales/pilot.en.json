@@ -217,8 +217,7 @@
     "partial": "Partly completed",
     "conflict": "Not applied",
     "unconfirmed": "Not confirmed",
-    "not_sent": "Not sent",
-    "offer_taken": "{title}: this offer was accepted, but not as this sale. Review the Sell List."
+    "not_sent": "Not sent"
   },
   "submitted_offers": {
     "choose": "Check the Offers to change first.",
