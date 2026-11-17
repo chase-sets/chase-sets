@@ -6910,6 +6910,7 @@ fn intake_fields<'a>(version: &'a str, received_at: &'a str, custody: &'a str) -
         ("owner", "Facility operations"),
         ("nextAction", "Complete custody handoff"),
         ("notes", ""),
+        ("zone", "UTC"),
     ]
 }
 
@@ -6981,6 +6982,13 @@ async fn completing_an_intake_sends_each_photo_then_cites_it_at_the_operators_ti
     let photos: [(&str, &str, &str, &[u8]); 2] =
         [("evidence", "front.jpg", "image/jpeg", b"front"), ("evidence", "label.png", "image/png", b"label")];
     let fields = intake_fields("3", "2026-10-30T14:05", "CUST-1");
+    let fields: Vec<_> = fields.into_iter().map(|(k, v)| if k == "zone" { (k, "America/Chicago") } else { (k, v) }).collect();
+    let (_, _, html) = pilot.send(get(at, Some("intake-manager; corten-zone=America/Chicago"))).await;
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the custody form sends its zone back and names it: {html}"
+    );
     let (status, headers, html) =
         pilot.send(post_multipart(at, "intake-manager", Some("America/Chicago"), &fields, &photos)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
@@ -7033,6 +7041,12 @@ async fn a_refused_intake_redraws_the_station_and_sends_nothing_it_should_not() 
     assert!(html.contains("Enter the date and time the package was received."), "{html}");
     let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
     assert_eq!(before, after, "no photo is sent for a time that cannot be read");
+    let unzoned: Vec<_> = intake_fields("3", "2026-10-30T14:05", "CUST-1").into_iter().filter(|(k, _)| *k != "zone").collect();
+    let (status, _, html) = pilot.send(post_multipart(at, "intake-manager", None, &unzoned, &photo)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "a time without the form's zone: {html}");
+    let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
+    assert_eq!(before, after, "no photo is sent without the zone");
 
     let many: Vec<(&str, &str, &str, &[u8])> = (0..11).map(|_| ("evidence", "p.jpg", "image/jpeg", b"p" as &[u8])).collect();
     let (status, _, html) =
@@ -7069,6 +7083,7 @@ async fn the_station_records_unidentified_packages_reconciles_them_and_corrects_
         ("owner", "Facility operations"),
         ("nextAction", "Hold for review"),
         ("notes", "No label"),
+        ("zone", "UTC"),
     ];
     let (status, headers, html) = pilot.send(post_multipart(at, "intake-manager", None, &unidentified, &photo)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
@@ -7939,6 +7954,12 @@ async fn the_promo_bar_previews_live_messages_and_shows_each_messages_status() {
     let (_, _, html) =
         pilot.send(get("/growth/promo-bar?edit=pbm_off", Some("growth-viewer; corten-zone=America/Chicago"))).await;
     assert!(html.contains("<dialog") && html.contains(r#"value="2026-11-10T09:00""#), "the time in the operator's zone: {html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let (_, _, html) = pilot.send(get("/growth/promo-bar", Some("growth-viewer"))).await;
+    assert!(html.contains(r#"name="zone" value="UTC""#) && html.contains(">UTC<"), "UTC until the browser says: {html}");
     let (_, _, html) = pilot.send(get("/growth/promo-bar?delete=pbm_off", Some("growth-viewer"))).await;
     assert!(html.contains(r#"role="alertdialog""#) && html.contains("Old news"), "{html}");
 }
@@ -7948,7 +7969,7 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     let pilot = Pilot::new().await;
     let session = "growth-viewer; corten-zone=America/Chicago";
     let create = "intent=create&title=New&description=&href=%2Fx&linkLabel=Go&tone=warning&isActive=true&displayOrder=5\
-                  &startsAt=2026-11-10T09%3A00&endsAt=";
+                  &startsAt=2026-11-10T09%3A00&endsAt=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, "/growth/promo-bar", create, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -7959,6 +7980,18 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     assert_eq!(body["startsAt"], json!("2026-11-10T15:00:00Z"), "Chicago's 9:00 as its instant");
     assert_eq!((body["endsAt"].clone(), body["description"].clone()), (Value::Null, Value::Null));
     assert_eq!((body["displayOrder"].clone(), body["tone"].clone()), (json!(5.0), json!("warning")));
+
+    // The times are read in the zone the form was drawn in, not the post's.
+    let drawn_in_tokyo = create.replace("America%2FChicago", "Asia%2FTokyo");
+    let (status, _, _) = pilot.send(post_as(session, "/growth/promo-bar", &drawn_in_tokyo, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent: Vec<Call> = pilot.calls_to_path(PROMO_API).into_iter().filter(|c| c.method == Method::POST).collect();
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["startsAt"], json!("2026-11-10T00:00:00Z"), "Tokyo's 9:00");
+    let no_zone = create.replace("&zone=America%2FChicago", "");
+    let (status, _, html) = pilot.send(post_as(session, "/growth/promo-bar", &no_zone, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "times without the form's zone: {html}");
+    assert!(html.contains("No promo bar change was applied."), "{html}");
 
     for (form, method, path) in [
         ("intent=activate&id=pbm_off", Method::POST, format!("{PROMO_API}/pbm_off/activate")),
@@ -10881,7 +10914,12 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let (_, _, html) = pilot.send(get(page, Some(session))).await;
     assert!(html.contains("Scheduled for Dec 1, 2026, 12:00 AM"), "in Chicago: {html}");
     assert!(html.contains("&quot;maximumDays&quot;: 14"), "the value, indented, to edit: {html}");
-    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, page, revise, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -10902,10 +10940,22 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
     assert_eq!(calls, 2, "nothing sent for JSON that does not read");
 
-    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let unzoned = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let (status, _, html) = pilot.send(post_as(session, page, unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
+    let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
+    assert_eq!(calls, 2, "nothing sent without the zone");
+
+    // Read in the zone the form was drawn in, and drawn again in it.
+    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00&zone=Asia%2FTokyo";
     let (status, _, html) = pilot.send(post_as(session, page, negative, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("maximumDays must be at least 0.") && html.contains(r#"value="2026-12-01T00:00""#), "{html}");
+    assert!(html.contains(r#"name="zone" value="Asia/Tokyo""#), "drawn again in the posted zone: {html}");
+    let sent = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions");
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["effectiveFrom"], json!("2026-11-30T15:00:00Z"), "midnight in Tokyo");
 }
 
 /// Marketplace's Listing Evidence Policy: the compiled fallback in effect, an active, a draft and a
@@ -11051,9 +11101,12 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
     assert!(html.contains("4 listings would receive changed requirements."), "{html}");
     assert!(html.contains("Added: rule-2") && html.contains("Removed: a"), "{html}");
     assert!(html.contains(r#"name="policyId" value="lep_3""#) && html.contains(r#"value="impact_1""#), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the Activate form sends its zone back and names it: {html}"
+    );
 
-    let activate =
-        "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    let activate = "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     let (status, _, html) = pilot.send(post_as(session, page, activate, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Review and acknowledge the current Policy Impact Preview."), "{html}");
@@ -11061,6 +11114,10 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
         pilot.send(post_as(session, page, "intent=activate&policyId=lep_3&impactAcknowledged=yes&effectiveFrom=", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Choose a valid effective time before activation."), "{html}");
+    let unzoned = activate.replace("&zone=America%2FChicago", "&impactAcknowledged=yes");
+    let (status, _, html) = pilot.send(post_as(session, page, &unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
     assert!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts/lep_3/activate").is_empty());
 
     let (status, headers, _) = pilot.send(post_as(session, page, &format!("{activate}&impactAcknowledged=yes"), false)).await;
