@@ -227,7 +227,9 @@
     "unknown_action": "That change is not one an Offer takes."
   },
   "imports": {
+    "batches_unavailable": "Recent imports are temporarily unavailable. Reload this page in a moment.",
     "file_or_rows": "A file is read when one is chosen; otherwise the rows pasted above are.",
+    "locations_unavailable": "Storage locations are temporarily unavailable. Reload this page in a moment.",
     "rows": "Rows"
   },
   "inventory": {
