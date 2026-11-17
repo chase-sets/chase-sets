@@ -4604,6 +4604,34 @@ async fn a_scopes_journey_is_read_for_its_own_page_and_the_api_composes_it_from_
 }
 
 #[tokio::test]
+async fn a_scopes_page_links_each_entitys_evidence_and_opens_the_timeline_the_api_resolved() {
+    let pilot = Pilot::new().await;
+    let drawer = |html: &str| {
+        let at = html.find(r#"id="scope-evidence-audit""#)?;
+        let tag = html[..at].rfind("<details")?;
+        Some(html[tag..].split('>').next().unwrap().contains(" open"))
+    };
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-scope-evidence-links"), "{html}");
+    for reference in ["scope%2Fscp_paf", "candidate%2Fcand_1", "source-observation%2Fobs_1", "import-job%2Fjob_1"] {
+        assert!(html.contains(&format!(r#"href="/catalog/scopes/scp_paf?evidenceRef={reference}""#)), "{reference}: {html}");
+    }
+    assert!(!html.contains("evidenceRef=scope%2Fscp_paf&amp;home="), "a link is the page's, not the working set's: {html}");
+    assert_eq!(drawer(&html), None, "no timeline without a reference: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?evidenceRef=candidate%2Fcand_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(drawer(&html), Some(true), "a resolved reference opens it: {html}");
+    assert!(html.contains("Candidate cand_1 reviewed."), "{html}");
+    let read = pilot.calls.lock().unwrap().iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
+    assert!(read.path.contains("evidenceRef%3Dcandidate%252Fcand_1"), "the API resolves it: {}", read.path);
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?evidenceRef=import-job%2Fjob_gone", Some("staff"))).await;
+    assert_eq!(drawer(&html), Some(false), "one the API did not find stays closed: {html}");
+    assert!(html.contains("No associated evidence"), "{html}");
+}
+#[tokio::test]
 async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_address_keeps_its_working_set() {
     let pilot = Pilot::new().await;
     // A provider in the address is the scope's to choose, as admin-web drops it; the review's page stays.
@@ -8524,6 +8552,26 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
     if !stopped {
         review["pagination"]["previousHref"] = Value::Null;
         review["pagination"]["nextHref"] = json!(daily(&["reviewOffset=25", "section=source-observation-review"]));
+    }
+    // An evidence reference the address names: the scope's own and its candidate resolve, as the
+    // API's membership check finds them; any other is not associated.
+    if let Some(reference) = location.split(['?', '&']).find_map(|p| p.strip_prefix("evidenceRef=")) {
+        let reference = percent_encoding::percent_decode_str(reference).decode_utf8_lossy().into_owned();
+        let resolved = scope.is_some_and(|id| reference == format!("scope/{id}")) || reference == "candidate/cand_1";
+        surface["readModel"]["auditEvidence"] = json!({
+            "selection": { "reference": reference,
+                "state": if resolved { "resolved" } else { "no-associated-evidence" }, "deepLinkOpen": resolved },
+            "status": "ready", "freshness": "fresh",
+            "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 0, "partialProjectionCount": 0 },
+            "filters": [], "projectionState": { "queryKey": "audit-evidence-timeline", "generatedAt": null, "statusMessage": "Ready." },
+            "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
+                "forbiddenEvidenceRequests": [], "summary": "Normal review uses redacted summaries." },
+            "timeline": if resolved { json!([{ "eventId": "evt_c", "occurredAt": "2026-11-04T09:00:00.000Z",
+                "eventName": "candidate-reviewed", "category": "promotion", "actorLabel": "operator", "targetType": "source-observation",
+                "targetId": "obs_1", "providerKey": "tcgplayer", "summary": "Candidate cand_1 reviewed.", "diagnosticCodes": [],
+                "redactionState": "redacted", "evidenceLinks": [] }]) } else { json!([]) },
+            "evidenceLinks": []
+        });
     }
     Json(surface).into_response()
 }
