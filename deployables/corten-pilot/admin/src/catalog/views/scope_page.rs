@@ -23,7 +23,10 @@ use crate::{
             CONFIDENCES, Condition, Edition, Jobs, Journey, Link, ScopeBack, ScopeScreen, Stage, StageKey, StageStatus,
             url::{self, AliasCommand, MappingInput, ProposeInput, ScopeAt, Via},
         },
-        scopes::{Promotion, Sync},
+        scopes::{
+            Promotion, Sync,
+            url::{ScopeQuery, Scopes},
+        },
     },
     text::{Cat, Pilot},
 };
@@ -173,7 +176,7 @@ fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, hr
 
 /// The scope's evidence (admin-web's CatalogEntityEvidenceLinks on Scope Detail): a link for the
 /// scope, then each merge candidate, the Catalog Items they map to, each reviewed observation and
-/// each job, every one this page with its videnceRef. When the address names one, the audit
+/// each job, every one this page with its `evidenceRef`. When the address names one, the audit
 /// timeline the API resolved for it follows, open when the API found evidence for it.
 #[component(css = ScopePage)]
 fn ScopeEvidence<'a>(t: Cat, req: &'a Req, id: &'a str, model: &'a Daily, context: &'a str) -> impl Render {
@@ -800,7 +803,7 @@ fn EditionView<'a>(t: Cat, action: &'a str, edition: &'a Edition, manage: bool) 
                 <p class={Muted}>{t.scope_detail_language_editions_empty()}</p>
             } else {
                 for candidate in edition.pending.iter().chain(&edition.accepted) {
-                    <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={false} />
+                    <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={false} evidence={None} />
                 }
             }
         </details>
@@ -809,7 +812,8 @@ fn EditionView<'a>(t: Cat, action: &'a str, edition: &'a Edition, manage: bool) 
 
 /// The all-scopes alias review on the scopes list (admin-web's `CatalogIntegrationAliasReviewWorkspace`
 /// in a `ProgressiveDisclosure`, closed at first): the counts, the coverage, and each candidate
-/// with its commands, posted to `action`; a banner when the review could not be read.
+/// with its commands, posted to `action`; a banner when the review could not be read. With the
+/// scopes list's query (`evidence`), each candidate links to its evidence on the list.
 ///
 /// A reviewable (pending) candidate has a box in the bulk bar's form (`form="alias-bulk"`), so the
 /// bar posts the checked ones without JavaScript, and Clear selection is the form's reset. The
@@ -825,6 +829,7 @@ pub fn AliasReviewPart<'a>(
     review: Option<&'a AliasReview>,
     failed: bool,
     manage: bool,
+    evidence: Option<&'a ScopeQuery>,
 ) -> impl Render {
     let f = AliasCommand::FIELDS;
     html! {
@@ -955,10 +960,24 @@ pub fn AliasReviewPart<'a>(
                                             aria-label={&p.bulk_select_row(&candidate.proposed_alias).to_string()}
                                             disabled={!manage}
                                         >
-                                        <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={true} />
+                                        <CandidateView
+                                            t={t}
+                                            action={action}
+                                            candidate={candidate}
+                                            manage={manage}
+                                            full={true}
+                                            evidence={evidence}
+                                        />
                                     </div>
                                 } else {
-                                    <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={true} />
+                                    <CandidateView
+                                        t={t}
+                                        action={action}
+                                        candidate={candidate}
+                                        manage={manage}
+                                        full={true}
+                                        evidence={evidence}
+                                    />
                                 }
                             }
                         }
@@ -971,9 +990,23 @@ pub fn AliasReviewPart<'a>(
 
 /// A candidate: the alias, its native name, its status and confidence, why a pending one did not
 /// auto-accept, and its commands (off for a viewer who may not write, as admin-web's are). `full`
-/// adds what the all-scopes review's table shows: its type, warnings, source and evidence.
+/// adds what the all-scopes review's table shows: its type, warnings, source and evidence. With the
+/// scopes list's query (`evidence`), its commands follow a link to its audit timeline on the list
+/// (admin-web's `CatalogEntityEvidenceLink`).
 #[component(css = ScopePage)]
-pub fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate, manage: bool, full: bool) -> impl Render {
+pub fn CandidateView<'a>(
+    t: Cat,
+    action: &'a str,
+    candidate: &'a AliasCandidate,
+    manage: bool,
+    full: bool,
+    evidence: Option<&'a ScopeQuery>,
+) -> impl Render {
+    let audit = evidence.map(|query| {
+        let (kind, id) = candidate.evidence_target();
+        let to = Scopes { query: query.with_evidence(evidence_ref(kind, id, None)), notice: Default::default() };
+        (to.href().to_string(), format!("{}: {id}", t.wb_audit_title()))
+    });
     let native = t.scope_detail_language_editions_candidate_native(&candidate.native_printed_name).to_string();
     let source = format!("{} · {}", candidate.provider_key, candidate.source_category);
     let evidence = t.alias_evidence_title(&candidate.proposed_alias).to_string();
@@ -1033,6 +1066,9 @@ pub fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate,
                 </div>
             }
             <div class={Actions}>
+                if let Some((href, label)) = &audit {
+                    <a class={Muted} href={href} data-alias-evidence>{label}</a>
+                }
                 for intent in &candidate.available_actions {
                     match intent.as_str() {
                         "alias.reject" | "alias.revoke" => {

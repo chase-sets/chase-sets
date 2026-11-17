@@ -1957,12 +1957,17 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
 }
 
 /// The all-scopes alias review (`alias-review?limit=200`): a pending, flagged candidate with its
-/// evidence, and an accepted one. It cannot be read for `queue-down`.
+/// evidence, an accepted one, and a pending one from a Source Observation. It cannot be read for
+/// `queue-down`.
 fn all_scopes_alias_review(cookie: &str) -> Response {
     if cookie.contains("queue-down") {
         return refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Alias review is unavailable.");
     }
-    Json(json!({
+    Json(all_scopes_alias_review_json()).into_response()
+}
+
+fn all_scopes_alias_review_json() -> Value {
+    json!({
         "schemaVersion": "catalog-alias-review-v1", "generatedAt": "2026-11-03T00:00:00.000Z",
         "counts": { "total": 2, "pending": 1, "accepted": 1, "autoAccepted": 0, "rejected": 0, "revoked": 0,
                     "needsReview": 1, "autoAcceptEligible": 0, "warned": 1 },
@@ -1985,14 +1990,14 @@ fn all_scopes_alias_review(cookie: &str) -> Response {
               "autoAccept": { "eligible": false, "reasons": [] },
               "reviewable": false, "availableActions": ["alias.revoke"] },
             { "aliasHash": "ah_dracaufeu", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "observationId": "obs_2",
               "nativePrintedName": "Dracaufeu", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
               "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "pending",
               "sourceCategory": "official-provider", "providerKey": "tcgdex", "evidence": [], "warnings": [],
               "autoAccept": { "eligible": true, "reasons": [] },
               "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
         ],
-    }))
-    .into_response()
+    })
 }
 
 const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
@@ -4195,6 +4200,47 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
     assert!(to.ends_with("done=failed"), "a reject needs its reason: {to}");
     let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
     assert!(html.contains("Command needs attention"), "{html}");
+}
+
+#[tokio::test]
+async fn each_alias_candidate_on_the_scopes_list_links_its_evidence_and_the_list_opens_the_timeline_it_resolves() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let link =
+        |reference: &str| format!(r#"href="/catalog/scopes?status=active&amp;evidenceRef={reference}" data-alias-evidence>"#);
+    for (reference, label) in [
+        ("catalog-item%2Fcat_charizard", "Audit timeline: cat_charizard"),
+        ("catalog-item%2Fcat_pikachu", "Audit timeline: cat_pikachu"),
+        ("source-observation%2Fobs_2", "Audit timeline: obs_2"),
+    ] {
+        assert!(html.contains(&format!("{}{label}</a>", link(reference))), "{reference}: {html}");
+    }
+    assert!(integrations_calls(&pilot).is_empty(), "no surface is read without a reference");
+    let reviews =
+        |pilot: &Pilot| pilot.catalog_calls().iter().filter(|c| c.path == "/api/catalog/alias-review?limit=200").count();
+    let before = reviews(&pilot);
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active&evidenceRef=candidate%2Fcand_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let calls = integrations_calls(&pilot);
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.ends_with("/daily?location=%2Fcatalog%2Fscopes%3Fstatus%3Dactive%26evidenceRef%3Dcandidate%252Fcand_1")),
+        "the API resolves it for the list's address: {calls:?}"
+    );
+    assert_eq!(reviews(&pilot), before, "the alias review comes with the surface");
+    let drawer = html.find(r#"id="scopes-evidence-audit""#).expect("the timeline is drawn");
+    assert!(drawer < html.find("data-attention-queue").unwrap(), "above the queue: {html}");
+    assert!(html.contains("Candidate cand_1 reviewed."), "{html}");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#) && html.contains(&link("source-observation%2Fobs_2")), "{html}");
+    assert!(!html.contains("evidenceRef=candidate%2Fcand_1&amp;evidenceRef="), "a link replaces the reference: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes?evidenceRef=scope%2Fscp_down", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "the list still draws: {html}");
+    assert!(html.contains("Audit projection is unavailable") && !html.contains(r#"id="scopes-evidence-audit""#), "{html}");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#) && html.contains("Paldean Fates"), "{html}");
 }
 
 #[tokio::test]
@@ -8345,6 +8391,12 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
 /// the import kill switch, with nothing to review; its location's `section` is the route's. A
 /// `scope` is the Scope Record a scope page's address was composed for.
 fn daily_surface(location: &str, scope: Option<&str>) -> Response {
+    // The scopes list's address: the API reads the all-scopes alias review in with the timeline its
+    // `evidenceRef` resolves. Here the surface for `scope/scp_down` cannot be read.
+    let landing = location.starts_with("/catalog/scopes?");
+    if landing && location.contains("evidenceRef=scope%2Fscp_down") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The workbench surface is unavailable.");
+    }
     let stopped = location.contains("providerKey=stopped");
     let section = location.split(['?', '&']).find_map(|p| p.strip_prefix("section=")).unwrap_or_default();
     let status_filter = location.split(['?', '&']).find_map(|p| p.strip_prefix("filter.status="));
@@ -8572,6 +8624,9 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
                 "redactionState": "redacted", "evidenceLinks": [] }]) } else { json!([]) },
             "evidenceLinks": []
         });
+    }
+    if landing && location.contains("evidenceRef=") {
+        surface["aliasReview"] = all_scopes_alias_review_json();
     }
     Json(surface).into_response()
 }

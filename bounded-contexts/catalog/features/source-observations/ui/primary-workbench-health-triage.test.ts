@@ -20,8 +20,76 @@ import {
   validateCatalogPrimaryWorkbenchReadModelContract,
   type CatalogProviderIntegrationProfile,
 } from "./primary-workbench-read-model-test-support";
+import { healthTriageFor } from "./primary-workbench-health-triage";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
 
 describe("Catalog primary workbench read model - health triage", () => {
+  it("preserves old-present and absent owner freshness independently of entity readiness", () => {
+    const routeContext = parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/providers/tcgdex");
+    for (const blocked of [false, true]) {
+      const overview = controlPlaneOverview({ generatedAt: "2020-01-01T00:00:00.000Z" });
+      const health = healthTriageFor({
+        routeContext,
+        importJobs: [],
+        overview: {
+          ...overview,
+          readiness: {
+            ...overview.readiness,
+            units: overview.readiness.units.map((unit) => ({
+              ...unit,
+              semanticReadiness: blocked ? "blocked" : "ready",
+            })),
+          },
+        },
+      });
+      expect(health.freshness).toBe("fresh");
+      expect(health.generatedAt).toBe("2020-01-01T00:00:00.000Z");
+      expect(health.units[0]?.status).toBe(blocked ? "blocked" : "ready");
+    }
+    const missing = healthTriageFor({ routeContext, overview: null, importJobs: [] });
+    expect(missing).toMatchObject({ status: "unavailable", freshness: "partial", units: [], providers: [] });
+    expect(Number.isFinite(Date.parse(missing.generatedAt))).toBe(true);
+  });
+
+  it("retains the eight recent jobs and six audit preview bounds without replacing entity evidence", () => {
+    const overview = controlPlaneOverview();
+    const model = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/providers/tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+    });
+    const health = healthTriageFor({
+      routeContext: model.routeContext,
+      importJobs: Array.from({ length: 12 }, (_, i) => ({ ...model.importJobs.jobs[0]!, jobId: `synthetic-job-${i}` })),
+      overview: {
+        ...overview,
+        auditLifecycle: {
+          ...overview.auditLifecycle,
+          entries: Array.from({ length: 9 }, (_, i) => ({
+            eventId: `synthetic-event-${i}`,
+            occurredAt: overview.generatedAt,
+            eventName: "import-job-started" as const,
+            category: "import-job" as const,
+            providerKey: "tcgdex",
+            unitKey: overview.readiness.units[0]!.unitKey,
+            profileVersion: null,
+            actorUserId: null,
+            relatedJobId: null,
+            summary: `Retained event ${i}`,
+            diagnosticCodes: [],
+          })),
+        },
+      },
+    });
+    expect(health.recentJobs.map((job) => job.jobId)).toEqual(
+      Array.from({ length: 8 }, (_, i) => `synthetic-job-${i}`),
+    );
+    expect(health.auditPreview.entries.map((entry) => entry.eventId)).toEqual(
+      Array.from({ length: 6 }, (_, i) => `synthetic-event-${i}`),
+    );
+  });
   it("keeps degraded health triage owner metrics for warning diagnostics and unavailable audit projection", () => {
     const baseOverview = controlPlaneOverview();
     const readModel = buildCatalogPrimaryWorkbenchReadModel({

@@ -190,6 +190,10 @@ pub struct DailyRead {
     /// the one whose durable sync state the page reads. Passed back to the API as it is.
     #[serde(default)]
     pub catalog_sync_scope: Option<Value>,
+    /// The all-scopes alias review, which the API reads in for the scopes list's address when it
+    /// names an `evidenceRef` (none for any other location, or when it could not be read).
+    #[serde(default)]
+    pub alias_review: Option<super::api::AliasReview>,
 }
 
 /// `CatalogPrimaryWorkbenchReadModel`, the slices the daily workbench draws.
@@ -1447,7 +1451,8 @@ async fn read(
     read_with(&config.platform.caller(headers, config.proto, receipt), location).await
 }
 
-async fn read_with(caller: &Caller<'_>, location: &str) -> Result<DailyRead, crate::api::ApiError> {
+/// The daily surface the API composes for `location`, an admin-web address.
+pub(crate) async fn read_with(caller: &Caller<'_>, location: &str) -> Result<DailyRead, crate::api::ApiError> {
     let rest = format!("/workbench-surfaces/daily?location={}", segment(location));
     caller.read_at::<DailyRead>(Kind::SourceObservations, &rest).await
 }
