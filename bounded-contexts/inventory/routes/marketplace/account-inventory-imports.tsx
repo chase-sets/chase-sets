@@ -1,12 +1,21 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
-import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
+import {
+  createForwardedAuthFetch,
+  defineFormAction,
+  defineResourceRoute,
+  formActionRedirect,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import contextManifest from "../../context.json";
 import { parseSelectedOptionsInput } from "../../features/inventory-items/integrations/catalog/versioning";
 import {
   createInventoryRequestApiClient,
+  createInventoryApiClient,
+  InventoryApiError,
+  type InventoryApiClientOptions,
   type InventoryImportBatchDetail,
 } from "../../support/request-support/api-client";
 import { InventoryImportBatchPage } from "../../features/import-batches/ui/import-batch-page";
@@ -15,6 +24,7 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
 
 const DEFAULT_IMPORT_QUERY = "limit=25&offset=0";
+const IMPORT_SECONDARY_READ_TIMEOUT_MS = 10_000;
 const IMPORT_BATCH_UPDATING_MESSAGE = t(
   "inventory.routes.marketplace.accountInventoryImports.import.batch.still.updating",
 );
@@ -27,7 +37,33 @@ function requestWithoutFreshWrite(request: Request) {
   return new Request(url.toString(), {
     headers: request.headers,
     method: request.method,
+    signal: request.signal,
   });
+}
+
+function importReadApi(
+  request: Request,
+  options: Pick<InventoryApiClientOptions, "requestTimeoutMs" | "recoverTransportErrorsAsGatewayTimeout"> = {},
+) {
+  const forwardedFetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "inventory" });
+  return createInventoryApiClient({
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/inventory"),
+    fetch: (input, init = {}) =>
+      forwardedFetch(input, {
+        ...init,
+        signal: init.signal ? AbortSignal.any([request.signal, init.signal]) : request.signal,
+      }),
+    ...options,
+  });
+}
+
+function secondaryRead<T>(read: PromiseSettledResult<T>, fallback: T, message: string) {
+  if (read.status === "fulfilled") return { data: read.value, loadMessage: null };
+  const error = read.reason;
+  if (error instanceof InventoryApiError && (error.status === 408 || error.status === 429 || error.status >= 500)) {
+    return { data: fallback, loadMessage: message };
+  }
+  throw error;
 }
 
 const loadImportBatchDetail = defineResourceRoute({
@@ -38,7 +74,7 @@ const loadImportBatchDetail = defineResourceRoute({
   load: ({ request, params }) => {
     const raw = Number(new URL(request.url).searchParams.get("offset") ?? 0);
     const offset = Number.isSafeInteger(raw) && raw >= 0 ? raw : 0;
-    return createInventoryRequestApiClient(request).getImportBatch(params.batchId!, `limit=100&offset=${offset}`);
+    return importReadApi(request).getImportBatch(params.batchId!, `limit=100&offset=${offset}`);
   },
   map: (detail: InventoryImportBatchDetail) => ({ detail, detailLoadMessage: null }),
   onPending: () => ({ detail: null, detailLoadMessage: IMPORT_BATCH_UPDATING_MESSAGE }),
@@ -51,16 +87,38 @@ const loadImportBatchDetail = defineResourceRoute({
 export async function loader(args: LoaderFunctionArgs) {
   const { request, params } = args;
   const actor = await requireActorFromAuthApi({ request, permission: "inventory.view" });
-  const nonFreshApi = createInventoryRequestApiClient(requestWithoutFreshWrite(request));
+  request.signal.throwIfAborted();
+  const nonFreshApi = importReadApi(requestWithoutFreshWrite(request), {
+    requestTimeoutMs: IMPORT_SECONDARY_READ_TIMEOUT_MS,
+    recoverTransportErrorsAsGatewayTimeout: true,
+  });
   const batchId = params.batchId;
-  const detailResult = batchId ? await loadImportBatchDetail(args) : { detail: null, detailLoadMessage: null };
+  const [detailRead, batchesRead, locationsRead] = await Promise.allSettled([
+    batchId ? loadImportBatchDetail(args) : Promise.resolve({ detail: null, detailLoadMessage: null }),
+    nonFreshApi.listImportBatches(DEFAULT_IMPORT_QUERY),
+    nonFreshApi.listStorageLocations("limit=100&offset=0"),
+  ]);
+  request.signal.throwIfAborted();
+  if (detailRead.status === "rejected") throw detailRead.reason;
+  const batches = secondaryRead(
+    batchesRead,
+    { items: [], total: 0, count: 0 },
+    "Recent imports are temporarily unavailable. Reload this page in a moment.",
+  );
+  const storageLocations = secondaryRead(
+    locationsRead,
+    { items: [], total: 0, count: 0 },
+    "Storage locations are temporarily unavailable. Reload this page in a moment.",
+  );
 
   return {
-    batches: await nonFreshApi.listImportBatches(DEFAULT_IMPORT_QUERY),
-    storageLocations: await nonFreshApi.listStorageLocations("limit=100&offset=0"),
+    batches: batches.data,
+    storageLocations: storageLocations.data,
+    batchesLoadMessage: batches.loadMessage,
+    storageLocationsLoadMessage: storageLocations.loadMessage,
     activeJobId: new URL(request.url).searchParams.get("jobId") ?? "",
-    detail: detailResult.detail,
-    detailLoadMessage: detailResult.detailLoadMessage,
+    detail: detailRead.value.detail,
+    detailLoadMessage: detailRead.value.detailLoadMessage,
     recoveryAuthority: { accountId: actor.accountId, actorUserId: actor.userId },
   };
 }
@@ -132,6 +190,8 @@ export default function MarketplaceInventoryImportsRoute() {
         storageLocations={data.storageLocations.items}
         detail={data.detail}
         detailLoadMessage={data.detailLoadMessage}
+        batchesLoadMessage={data.batchesLoadMessage}
+        storageLocationsLoadMessage={data.storageLocationsLoadMessage}
         activeJobId={data.activeJobId}
         currentPath={`${location.pathname}${location.search}`}
         errorMessage={actionData?.error ?? null}

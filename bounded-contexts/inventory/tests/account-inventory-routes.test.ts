@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendFreshWriteToken,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -59,6 +59,172 @@ function commitHeaders(position = "42") {
     ]),
   };
 }
+
+describe("import recovery reads", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const empty = { items: [], total: 0, count: 0 };
+  const recent = { items: [{ batch_id: "imb_recent" }], total: 1, count: 1 };
+  const locations = { items: [{ storage_location_id: "loc_1" }], total: 1, count: 1 };
+  const detail = { batch_id: "imb_1", rows: [], can_commit: false };
+  function stubReads(respond: (path: string, init?: RequestInit) => Promise<Response>) {
+    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/auth/session") {
+        return Promise.resolve(
+          jsonResponse({
+            actor: {
+              sessionId: "ses_1",
+              tenantId: "tnt_identity",
+              userId: "usr_1",
+              accountId: "acc_1",
+              membershipId: "mbr_1",
+              roleKey: "owner",
+              permissions: ["inventory.view"],
+            },
+          }),
+        );
+      }
+      return respond(path, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+  function load(request = new Request("http://localhost/account/inventory/imports/imb_1"), batchId = "imb_1") {
+    return inventoryImportsLoader({ request, params: batchId ? { batchId } : {}, context: undefined } as never);
+  }
+
+  it.each(["recent", "locations", "both"])("retains detail and successful data when %s reads fail", async (failed) => {
+    const fetch = stubReads(async (path) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      if (
+        (path.endsWith("/import-batches") && failed !== "locations") ||
+        (path.endsWith("/storage-locations") && failed !== "recent")
+      )
+        return jsonResponse({}, 503);
+      return jsonResponse(path.endsWith("/import-batches") ? recent : locations);
+    });
+    const result = await load();
+    expect(result.detail).toEqual(detail);
+    expect(result.batches.items).toEqual(failed === "locations" ? recent.items : []);
+    expect(result.storageLocations.items).toEqual(failed === "recent" ? locations.items : []);
+    expect(result.batchesLoadMessage).toEqual(failed === "locations" ? null : expect.stringContaining("unavailable"));
+    expect(result.storageLocationsLoadMessage).toEqual(
+      failed === "recent" ? null : expect.stringContaining("unavailable"),
+    );
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it.each([408, 429, 500, 502, 504, "transport"])("classifies %s as unavailable, not empty", async (status) => {
+    stubReads(async (path) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      if (status === "transport") throw new TypeError("Network unavailable");
+      return jsonResponse({}, status as number);
+    });
+    const result = await load();
+    expect(result.detail).toEqual(detail);
+    expect(result.batchesLoadMessage).toContain("unavailable");
+    expect(result.storageLocationsLoadMessage).toContain("unavailable");
+  });
+
+  it.each([401, 403, 400, 404, 422])("preserves permanent/auth refusal %s", async (status) => {
+    stubReads(async (path) =>
+      jsonResponse(path.endsWith("/imb_1") ? detail : {}, path.endsWith("/imb_1") ? 200 : status),
+    );
+    await expect(load()).rejects.toMatchObject({ status });
+  });
+
+  it("distinguishes successfully empty data", async () => {
+    stubReads(async () => jsonResponse(empty));
+    const result = await load(new Request("http://localhost/account/inventory/imports"), "");
+    expect(result).toMatchObject({
+      batches: empty,
+      storageLocations: empty,
+      batchesLoadMessage: null,
+      storageLocationsLoadMessage: null,
+    });
+  });
+
+  it("retains pending resource recovery even when both secondary reads fail", async () => {
+    stubReads(async (path) =>
+      path.endsWith("/imb_1")
+        ? jsonResponse({ error: { code: "projection_freshness_timeout", message: "Catching up" } }, 503)
+        : jsonResponse({}, 503),
+    );
+    const result = await load(
+      new Request(`http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_1", inventoryCommit())}`),
+    );
+    expect(result.detail).toBeNull();
+    expect(result.detailLoadMessage).toContain("still updating");
+    expect(result.batchesLoadMessage).toContain("unavailable");
+    expect(result.storageLocationsLoadMessage).toContain("unavailable");
+  });
+
+  it.each([403, 404])("preserves detail resource refusal %s despite unavailable secondary reads", async (status) => {
+    stubReads(async (path) => jsonResponse({}, path.endsWith("/imb_1") ? status : 503));
+    await expect(load()).rejects.toMatchObject({ status });
+  });
+
+  it("bounds both never-settling secondary fetches to ten seconds and cancels their signals", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    stubReads(async (path, init) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      signals.push(init!.signal!);
+      return new Promise<Response>(() => undefined);
+    });
+    const pending = load();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await pending;
+    expect(result.detail).toEqual(detail);
+    expect(result.batchesLoadMessage).toContain("unavailable");
+    expect(result.storageLocationsLoadMessage).toContain("unavailable");
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([false, true])(
+    "cancels the actual detail and secondary fetches (detail pending: %s)",
+    async (pendingDetail) => {
+      vi.useFakeTimers();
+      const signals: AbortSignal[] = [];
+      const cleaned = vi.fn();
+      stubReads(async (path, init) => {
+        if (!pendingDetail && path.endsWith("/imb_1")) return jsonResponse(detail);
+        const signal = init?.signal;
+        if (!signal) throw new Error("Fetch lost cancellation");
+        signals.push(signal);
+        return new Promise<Response>((_, reject) => {
+          const abort = () => {
+            signal.removeEventListener("abort", abort);
+            cleaned();
+            reject(signal.reason);
+          };
+          signal.addEventListener("abort", abort, { once: true });
+        });
+      });
+      const controller = new AbortController();
+      const pending = load(
+        new Request(`http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_1", inventoryCommit())}`, {
+          signal: controller.signal,
+        }),
+      );
+      const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(signals).toHaveLength(pendingDetail ? 3 : 2);
+      controller.abort();
+      await rejected;
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      expect(cleaned).toHaveBeenCalledTimes(signals.length);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+});
 
 describe("marketplace inventory routes", () => {
   it.each(["imr_api_next", null])("resolve-row redirects from next_needs_seller_row_id: %s", async (nextRowId) => {
