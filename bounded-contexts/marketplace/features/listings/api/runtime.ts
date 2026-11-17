@@ -1,4 +1,6 @@
 import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { createListingTargetRuntime } from "./target-runtime";
+import type { ListingTargetServices } from "./target-contracts";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -315,7 +317,9 @@ type MarketplaceCreateListing = {
   (params: MarketplaceCreateListingParams, context: EventStoreContext): Promise<MarketplaceCreateListingResult>;
 };
 
-export type MarketplaceListingServices = Readonly<{
+export type MarketplaceListingServices = MarketplaceListingCoreServices & ListingTargetServices;
+
+type MarketplaceListingCoreServices = Readonly<{
   operatorUnlistListing: (
     params: Readonly<{
       listingId: ListingId;
@@ -866,7 +870,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     codec: listingCodec,
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
-    decide: decideMarketplaceListing,
+    decide: decideUnfencedMarketplaceListing,
     snapshots: {
       store: createPostgresAggregateSnapshotStore<MarketplaceListingState>({ db: deps.db }),
       schemaVersion: MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION,
@@ -3176,6 +3180,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryItemSupply: (itemId, accountId) => getInventoryItemSupply(deps.db, itemId, accountId),
+    ...createListingTargetRuntime({ eventStore: deps.eventStore, authority: deps.listingTargetAuthority }),
     loadListingState: async (listingId) => (await repository.load(`marketplace.listing-${listingId}`)).state,
     reconcileInventoryCapacity,
     projectors: [
@@ -3187,3 +3192,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   };
   return services;
 }
+
+const decideUnfencedMarketplaceListing: typeof decideMarketplaceListing = (state, command) => {
+  assert(
+    command.type !== "AcceptListingTargetPrice" && command.type !== "ActivateListingForChannel",
+    "Target commands require owner-fenced Listing services.",
+  );
+  return decideMarketplaceListing(state, command);
+};

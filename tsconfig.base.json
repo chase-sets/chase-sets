@@ -39,6 +39,9 @@
       "@chase-sets/auth/server": [
         "./bounded-contexts/auth/server.ts"
       ],
+      "@chase-sets/auth/test-support": [
+        "./bounded-contexts/auth/features/sessions/tests/listing-activation-test-support.ts"
+      ],
       "@chase-sets/auth/web": [
         "./bounded-contexts/auth/web.ts"
       ],
@@ -534,6 +537,9 @@
       "@chase-sets/identity/server": [
         "./bounded-contexts/identity/server.ts"
       ],
+      "@chase-sets/identity/test-support": [
+        "./bounded-contexts/identity/features/accounts/tests/listing-activation-test-support.ts"
+      ],
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
       ],
@@ -557,6 +563,9 @@
       ],
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
+      ],
+      "@chase-sets/inventory/test-support": [
+        "./bounded-contexts/inventory/features/inventory-items/tests/listing-activation-test-support.ts"
       ],
       "@chase-sets/inventory/web": [
         "./bounded-contexts/inventory/web.ts"

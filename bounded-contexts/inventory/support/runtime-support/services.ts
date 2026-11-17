@@ -97,12 +97,13 @@ export function createInventoryHoldCleanupAuthorityForPool(
 export function createInventoryExternalChannelSaleRecorderForPool(
   pool: PgTransactionalPool,
   context: EventStoreContext,
+  consumerPool?: PgTransactionalPool,
 ): RecordExternalChannelSale {
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
-  const stockReservations = createInventoryStockReservations(pool, eventStore);
+  const stockReservations = createInventoryStockReservations(pool, eventStore, consumerPool);
   const deps = {
     eventStore: stockReservations.persistence,
     stockReservations,

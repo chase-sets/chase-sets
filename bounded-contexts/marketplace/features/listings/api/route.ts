@@ -1,4 +1,15 @@
 import { MarketplaceListingRequestError } from "./listing-request-error";
+import { createHash } from "node:crypto";
+import { getCookie } from "hono/cookie";
+import { AUTH_SESSION_COOKIE_NAME, currentAuthSessionIdOf } from "@chase-sets/auth-context";
+import {
+  acceptListingTargetPriceSchema,
+  activateListingForChannelSchema,
+  readAcceptedListingTargetPricesSchema,
+} from "./target-validation";
+import { ListingRequestConflictError, ListingRequestIndeterminateError } from "./listing-request";
+import { ListingTargetCommandError } from "./target-contracts";
+import { ZodError } from "zod";
 import { listingRecoveryIdentitySchema, listingRecoveryReferenceSchema } from "../ui/contracts";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { authoredTextListingErrors, listingAttemptErrors, listingErrorResponse } from "./listing-errors";
@@ -539,6 +550,86 @@ export function createAccountListingRoutes(
   resolveRateLimitRule?: RateLimitRuleResolver,
 ) {
   const app = new Hono<MarketplaceApiEnv>();
+  app.get("/listings/target-prices", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) return access.response;
+    try {
+      const query = c.req.query("targets") ?? "[]";
+      if (query.length > 512000) return c.json({ error: { code: "invalid_input" } }, 400);
+      const input = readAcceptedListingTargetPricesSchema.parse({
+        accountId: access.actor.accountId,
+        targets: JSON.parse(query),
+      });
+      const items = await services.readAcceptedListingTargetPrices(input);
+      return c.json({ items, count: items.length, complete: true });
+    } catch (error) {
+      if (error instanceof ZodError || error instanceof SyntaxError)
+        return c.json({ error: { code: "invalid_input" } }, 400);
+      return c.json({ error: { code: "target_read_refused" } }, 409);
+    }
+  });
+  app.post("/listings/:id/target-price", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    const sessionId = currentAuthSessionIdOf(access.actor);
+    const token = getCookie(c, AUTH_SESSION_COOKIE_NAME);
+    if (!context || !sessionId || !token) return c.json({ error: { code: "authentication_required" } }, 401);
+    try {
+      const body = await c.req.json<Record<string, unknown>>();
+      const input = acceptListingTargetPriceSchema.parse({
+        ...body,
+        accountId: access.actor.accountId,
+        listingId: c.req.param("id"),
+      });
+      const result = await services.acceptListingTargetPrice(input, context, {
+        userId: access.actor.userId,
+        membershipId: access.actor.membershipId,
+        sessionId,
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ZodError || error instanceof SyntaxError)
+        return c.json({ error: { code: "invalid_input" } }, 400);
+      if (error instanceof ListingRequestConflictError) return c.json({ error: { code: "request_conflict" } }, 409);
+      if (error instanceof ListingRequestIndeterminateError)
+        return c.json({ error: { code: "request_indeterminate" } }, 503);
+      if (error instanceof ListingTargetCommandError) return c.json({ error: { code: error.code } }, 404);
+      return c.json({ error: { code: "target_acceptance_refused" } }, 409);
+    }
+  });
+  app.post("/listings/:id/activate-channel", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    const sessionId = currentAuthSessionIdOf(access.actor);
+    const token = getCookie(c, AUTH_SESSION_COOKIE_NAME);
+    if (!context || !sessionId || !token) return c.json({ error: { code: "authentication_required" } }, 401);
+    try {
+      const body = await c.req.json<Record<string, unknown>>();
+      const input = activateListingForChannelSchema.parse({
+        ...body,
+        accountId: access.actor.accountId,
+        listingId: c.req.param("id"),
+      });
+      const result = await services.activateListingForChannel(input, context, {
+        userId: access.actor.userId,
+        membershipId: access.actor.membershipId,
+        sessionId,
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ZodError || error instanceof SyntaxError)
+        return c.json({ error: { code: "invalid_input" } }, 400);
+      if (error instanceof ListingRequestConflictError) return c.json({ error: { code: "request_conflict" } }, 409);
+      if (error instanceof ListingRequestIndeterminateError)
+        return c.json({ error: { code: "request_indeterminate" } }, 503);
+      if (error instanceof ListingTargetCommandError) return c.json({ error: { code: error.code } }, 404);
+      return c.json({ error: { code: "channel_activation_refused" } }, 409);
+    }
+  });
   const jpegRateLimiter = createPolicyBackedRateLimiter(
     LISTING_PHOTO_JPEG_RATE_LIMIT_SURFACE,
     { max: 30, windowMs: 600_000 },

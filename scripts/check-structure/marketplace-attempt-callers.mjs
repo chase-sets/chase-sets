@@ -312,6 +312,7 @@ export const marketplaceListingCallerPartition = new Map([
   ["bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/features/listings/api/listing-caller-client.test.ts", "typed-owner-fixture"],
+  ["deployables/platform-api/__tests__/listing-channel-activation-composition.db.test.ts", "typed-owner-fixture"],
   [
     "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
     "Channels publication port, not Marketplace Listing commands",
