@@ -630,7 +630,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = repricing(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = bulk_reprice(&stand, &method, uri.path(), &body) {
+    if let Some(answer) = bulk_reprice(&stand, &method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = recommendations(&stand, &method, uri.path(), &body) {
@@ -13358,12 +13358,16 @@ fn drawn_body(html: &str) -> Value {
 
 const BULK_API: &str = "/api/marketplace/account/bulk-reprice";
 const BULK_SCREEN: &str = "/account/bulk-reprice";
+/// A second upload attempt, for uploads that are not `ATTEMPT` sent again.
+const OTHER_ATTEMPT: &str = "1c7a4e2f-5b3d-4c9e-8a11-2345678901bc";
 
 /// Pricing's bulk reprice routes, as the stand-in answers them: the template; a new job
 /// (`job_1`), refused when its rows are bad and a 404 (switched off) when they say `OFF`;
+/// an upload's attempt (`Idempotency-Key`) sent again with the same rows answers its first job,
+/// and with other rows is refused (409 `attempt_conflict`), as Pricing's `createJob` does;
 /// `job_1` running (its stream says it finished, and it reads as finished once cancelled or once
 /// the stream was opened), `job_done` finished with its results, and any other job not found.
-fn bulk_reprice(stand: &Stand, method: &Method, path: &str, body: &str) -> Option<Response> {
+fn bulk_reprice(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(BULK_API)?;
     let job = |id: &str, status: &str| {
         let done = status == "completed";
@@ -13389,7 +13393,21 @@ fn bulk_reprice(stand: &Stand, method: &Method, path: &str, body: &str) -> Optio
         ("POST", "") if body.contains("bad") => {
             refusal(StatusCode::BAD_REQUEST, "validation_failed", "Row 2: newPrice must be a price.")
         }
-        ("POST", "") => (StatusCode::ACCEPTED, Json(job("job_1", "queued"))).into_response(),
+        ("POST", "") => {
+            let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+            let mut runs = stand.runs.lock().unwrap();
+            match runs.get(&format!("bulk-attempt-{attempt}")) {
+                Some(rows) if rows != &json!(body) => refusal(
+                    StatusCode::CONFLICT,
+                    "attempt_conflict",
+                    "This upload attempt was already used for different rows. Start a new upload attempt.",
+                ),
+                _ => {
+                    runs.insert(format!("bulk-attempt-{attempt}"), json!(body));
+                    (StatusCode::ACCEPTED, Json(job("job_1", "queued"))).into_response()
+                }
+            }
+        }
         ("GET", "/jobs/job_1") if finished() => Json(job("job_1", "completed")).into_response(),
         ("GET", "/jobs/job_1") => Json(job("job_1", "running")).into_response(),
         ("GET", "/jobs/job_done") => Json(job("job_done", "completed")).into_response(),
@@ -13630,13 +13648,40 @@ async fn bulk_reprice_is_for_a_seller_who_may_change_listings() {
 async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why() {
     let pilot = Pilot::new().await;
     let file: &[u8] = b"sellerSku,newPrice\nSKU-1,4.50\n";
+    let (status, _, html) = pilot.send(get(BULK_SCREEN, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(ATTEMPT_INPUT), "the upload form is drawn with its attempt: {html}");
+    let attempt = [("attempt", ATTEMPT)];
     let (status, headers, _) =
-        pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "prices.csv", "text/csv", file)])).await;
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
-    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API).map(|c| c.body.clone()).unwrap();
-    let sent: Value = serde_json::from_str(&sent).unwrap();
+    let call = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API).cloned().unwrap();
+    assert_eq!(call.headers["idempotency-key"].to_str().unwrap(), ATTEMPT, "the form's attempt is Pricing's Idempotency-Key");
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent, json!({ "csvText": "sellerSku,newPrice\nSKU-1,4.50\n", "sourceFilename": "prices.csv" }));
+
+    // The same form sent again is the same attempt: Pricing answers the job it started. Another file
+    // under it is refused with Pricing's words.
+    let (status, headers, _) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", file)])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
+    let other: &[u8] = b"sellerSku,newPrice\nSKU-1,5.00\n";
+    let (status, _, html) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", other)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This upload attempt was already used for different rows."), "{html}");
+    let keys: Vec<String> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path == BULK_API)
+        .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(keys, [ATTEMPT; 3], "each send carries the form's one attempt");
 
     // While it runs: the form is off, the job's part is live, and without a script the page reads again.
     let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
@@ -13667,20 +13712,26 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     assert!(!html.contains("Job status"));
 
     // Pricing's refusal is drawn; Pricing switched off says bulk reprice is not available.
+    let fresh = [("attempt", OTHER_ATTEMPT)];
     let bad: &[u8] = b"sellerSku,newPrice\nbad,x\n";
-    let (status, _, html) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", bad)])).await;
+    let (status, _, html) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", bad)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Row 2: newPrice must be a price."), "{html}");
     let off: &[u8] = b"sellerSku,newPrice\nOFF,1\n";
-    let (status, _, html) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", off)])).await;
+    let (status, _, html) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", off)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.replace("&#39;", "'").contains("Bulk reprice isn't available yet."), "{html}");
-    // A file that is not text is refused here, not sent; a seller who may not change listings is refused.
+    // A file that is not text, or a form without its attempt, is refused here, not sent; a seller
+    // who may not change listings is refused.
     let calls = pilot.stand.calls.lock().unwrap().len();
     let (status, _, _) =
-        pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", &[0xff, 0xfe, 0x00])])).await;
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", &[0xff, 0xfe, 0x00])])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &[], &[("file", "p.csv", "text/csv", file)])).await;
+    let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", file)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &fresh, &[("file", "p.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let sent = pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API).count();
     assert_eq!(sent, 0);
