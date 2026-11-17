@@ -491,7 +491,14 @@ describe("policy editor prerequisites and gates", () => {
       expect((screen.getByRole("button", { name: "Activate policy" }) as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(screen.getByRole("button", { name: "Activate policy" }));
-    expect(onSave).toHaveBeenCalledWith({ body, dryRunId: "synthetic-run" });
+    expect(onSave).toHaveBeenCalledWith({
+      body,
+      dryRunId: "synthetic-run",
+      requestKey: expect.stringMatching(/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i),
+    });
+    const firstSubmission = onSave.mock.calls[0]![0];
+    fireEvent.click(screen.getByRole("button", { name: "Activate policy" }));
+    expect(onSave).toHaveBeenNthCalledWith(2, firstSubmission);
     fill("Policy name", "Changed");
     expect((screen.getByRole("button", { name: "Activate policy" }) as HTMLButtonElement).disabled).toBe(true);
     let resolve!: (run: RepricingDryRun) => void;
