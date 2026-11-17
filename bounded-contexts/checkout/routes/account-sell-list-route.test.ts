@@ -24,7 +24,7 @@ import {
   mockCreatePaymentsRequestApiClient,
   mockCreateSellListReadiness,
   mockGetGuestSellList,
-  mockGetGuestSellListOfferReviews,
+  mockGetGuestSellListCompositeReview,
   mockGetSellListCompositeReview,
   mockGetOfferMatch,
   mockGetPublicOffer,
@@ -120,10 +120,11 @@ describe("checkout web routes: account sell list", () => {
     const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
     if (pending) mockGetGuestSellList.mockRejectedValue(lag);
     else mockGetGuestSellList.mockResolvedValue(sellList);
-    mockGetGuestSellListOfferReviews.mockRejectedValue(lag);
+    mockGetGuestSellListCompositeReview.mockRejectedValue(lag);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
     });
     const destination = await navigateAfterWriteWithPlatformPostWriteToken(
@@ -148,9 +149,9 @@ describe("checkout web routes: account sell list", () => {
       freshnessError: expect.any(String),
       sellListRecovery: { kind: "pending-fresh-write", actorMode: "guest" },
       pendingFreshWriteTiming: { observedAtMs: expect.any(Number), expiresAtMs: expect.any(Number) },
-      offerReviews: [],
+      compositeReview: null,
     });
-    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockGetGuestSellListCompositeReview).toHaveBeenCalledWith("anon_sell_1");
     expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
     expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -165,11 +166,12 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
     mockGetGuestSellList.mockRejectedValue(lag);
-    mockGetGuestSellListOfferReviews.mockRejectedValue(lag);
+    mockGetGuestSellListCompositeReview.mockRejectedValue(lag);
     const getSellList = vi.fn().mockResolvedValue({ items: [], count: 0 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
@@ -191,9 +193,7 @@ describe("checkout web routes: account sell list", () => {
       mergedLineCount: 0,
       sellListRecovery: { kind: "pending-fresh-write", actorMode: "account", correctionSource: "fresh-read" },
       pendingFreshWriteTiming: { observedAtMs: expect.any(Number), expiresAtMs: expect.any(Number) },
-      offerReviews: [],
-      productOfferReviews: [],
-      inventoryItems: [],
+      compositeReview: null,
     });
     expect(getSellList).not.toHaveBeenCalled();
     expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
@@ -212,12 +212,12 @@ describe("checkout web routes: account sell list", () => {
     mockGetGuestSellList.mockRejectedValue(
       new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } }),
     );
-    mockGetGuestSellListOfferReviews.mockRejectedValue(unrelated);
+    mockGetGuestSellListCompositeReview.mockRejectedValue(unrelated);
     const accountList = { items: [{ line_id: "sll_account", quantity: 1 }], count: 1 };
     const getSellList = vi.fn().mockResolvedValue(accountList);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
       getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
@@ -252,10 +252,11 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
     const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
-    mockGetGuestSellListOfferReviews.mockRejectedValue(lag);
+    mockGetGuestSellListCompositeReview.mockRejectedValue(lag);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
     });
     const path =
       receipt === "missing"
@@ -274,6 +275,7 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const sellList = { items: [{ line_id: "sll_receipt", quantity: 1 }], count: 1 };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn().mockResolvedValue(sellList),
       getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
@@ -304,9 +306,7 @@ describe("checkout web routes: account sell list", () => {
         actorMode: "account",
         correctionSource: "sell-list-composite-review",
       },
-      offerReviews: [],
-      productOfferReviews: [],
-      inventoryItems: [],
+      compositeReview: null,
     });
     expect(mockGetSellListCompositeReview).toHaveBeenCalledOnce();
     expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
@@ -319,6 +319,7 @@ describe("checkout web routes: account sell list", () => {
     async (receipt) => {
       mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
       mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
         getSellList: vi.fn().mockResolvedValue({ items: [], count: 0 }),
         getSellListCompositeReview: mockGetSellListCompositeReview,
       });
@@ -351,6 +352,7 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const error = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn().mockRejectedValue(error),
       getSellListCompositeReview: mockGetSellListCompositeReview.mockRejectedValue(error),
     });
@@ -365,9 +367,7 @@ describe("checkout web routes: account sell list", () => {
     expect(result).toMatchObject({
       sellList: { items: [], count: 0, latestConfirmation: null },
       sellListRecovery: { kind: "pending-fresh-write", correctionSource: "fresh-read" },
-      offerReviews: [],
-      productOfferReviews: [],
-      inventoryItems: [],
+      compositeReview: null,
     });
   });
 
@@ -380,6 +380,7 @@ describe("checkout web routes: account sell list", () => {
   ])("does not hide composite review %i/%s failures behind a fresh receipt", async (status, code) => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn().mockResolvedValue({ items: [], count: 0 }),
       getSellListCompositeReview: mockGetSellListCompositeReview,
     });
@@ -406,6 +407,8 @@ describe("checkout web routes: account sell list", () => {
       });
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -431,9 +434,7 @@ describe("checkout web routes: account sell list", () => {
           actorMode: "account",
           correctionSource: "fresh-read",
         }),
-        offerReviews: [],
-        productOfferReviews: [],
-        inventoryItems: [],
+        compositeReview: null,
       }),
     );
     expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
@@ -456,6 +457,8 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -531,6 +534,7 @@ describe("checkout web routes: account sell list", () => {
     const listOfferMatches = vi.fn(async (_query: string) => ({ items: [] }));
     const listSellerListingInventory = vi.fn(async () => ({ items: [] }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
       getSellListCompositeReview: vi.fn(async () => ({
         offerReviews: [],
@@ -565,15 +569,17 @@ describe("checkout web routes: account sell list", () => {
         sellList: { items: [sellListLine], count: 1, latestConfirmation: null },
         freshnessError: null,
         sellListRecovery: null,
-        productOfferReviews: [
-          {
-            lineId: "sll_air_balloon",
-            status: "unavailable",
-            offers: [],
-            message: "No matching offers are currently ready for this product.",
-          },
-        ],
-        inventoryItems: [],
+        compositeReview: expect.objectContaining({
+          productOfferReviews: [
+            {
+              lineId: "sll_air_balloon",
+              status: "unavailable",
+              offers: [],
+              message: "No matching offers are currently ready for this product.",
+            },
+          ],
+          inventoryItems: [],
+        }),
       }),
     );
     expect(listOfferMatches).not.toHaveBeenCalled();
@@ -599,6 +605,8 @@ describe("checkout web routes: account sell list", () => {
     };
     const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: staleConfirmation }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -651,6 +659,8 @@ describe("checkout web routes: account sell list", () => {
       updated_at: "2026-05-30T00:00:00.000Z",
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
       getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
@@ -672,7 +682,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
-    expect(result.payoutReadiness).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(result.compositeReview!.screen.payoutReadiness).toEqual(expect.objectContaining({ status: "ready" }));
     expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
       expect.objectContaining({
         boundedContextName: "settlement",
@@ -711,6 +721,8 @@ describe("checkout web routes: account sell list", () => {
     };
     const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: currentConfirmation }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -734,8 +746,9 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: vi.fn(async () => ({
+      getGuestSellListCompositeReview: vi.fn(async () => ({
         offerReviews: [
           {
             lineId: "sll_1",
@@ -795,6 +808,8 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -829,6 +844,8 @@ describe("checkout web routes: account sell list", () => {
     mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 0 });
     const getGuestSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList,
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
     });
@@ -890,6 +907,7 @@ describe("checkout web routes: account sell list", () => {
       }),
     };
     const freshApi = {
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
     };
     mockCreateCheckoutRequestApiClient.mockImplementation((request: Request) => {
@@ -936,6 +954,7 @@ describe("checkout web routes: account sell list", () => {
       }),
     };
     const freshApi = {
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
     };
     mockCreateCheckoutRequestApiClient.mockImplementation((request: Request) => {
@@ -972,6 +991,8 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -1016,6 +1037,8 @@ describe("checkout web routes: account sell list", () => {
       });
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
 
@@ -1039,6 +1062,8 @@ describe("checkout web routes: account sell list", () => {
       });
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
     const request = new Request(
@@ -1069,6 +1094,8 @@ describe("checkout web routes: account sell list", () => {
       });
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -1099,9 +1126,7 @@ describe("checkout web routes: account sell list", () => {
           freshnessOutcome: "expired-after-write",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
         }),
-        offerReviews: [],
-        productOfferReviews: [],
-        inventoryItems: [],
+        compositeReview: expect.objectContaining({ offerReviews: [], productOfferReviews: [], inventoryItems: [] }),
       }),
     );
   });
@@ -1130,6 +1155,8 @@ describe("checkout web routes: account sell list", () => {
       commandReceipt: checkoutCommit("42", "evt_sell_list_line"),
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       addSellListLine: mockAddSellListLine,
       getSellListOfferMatch: mockGetOfferMatch,
     });
@@ -1178,6 +1205,8 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const removeSellListLines = vi.fn(async () => ({ attempt: sellListAttemptResult("committed", "sell-list-batch") }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({
         items: [
           {
@@ -1225,14 +1254,15 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
     mockGetGuestSellList.mockRejectedValue(lag);
-    mockGetGuestSellListOfferReviews.mockRejectedValueOnce(lag).mockResolvedValue({ offerReviews: [] });
+    mockGetGuestSellListCompositeReview.mockRejectedValueOnce(lag).mockResolvedValue({ offerReviews: [] });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellList: vi.fn(async () => ({
         items: [{ line_id: "sll_1", line_type: "selected-offer", offer_id: "off_1" }],
       })),
       removeSellListLines: vi.fn(async () => ({ attempt: sellListAttemptResult("committed", "sell-list-batch") })),
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
@@ -1261,10 +1291,10 @@ describe("checkout web routes: account sell list", () => {
 
     expect(await revalidate()).toMatchObject({
       sellListRecovery: { kind: "pending-fresh-write", actorMode: "account" },
-      offerReviews: [],
+      compositeReview: null,
     });
-    expect(await revalidate()).toMatchObject({ offerReviews: [] });
-    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(2);
+    expect(await revalidate()).toMatchObject({ compositeReview: expect.objectContaining({ offerReviews: [] }) });
+    expect(mockGetGuestSellListCompositeReview).toHaveBeenCalledTimes(2);
     expect(mockDeclineOfferMatch).toHaveBeenCalledExactlyOnceWith("off_1", {
       attemptId: expect.any(String),
     });
@@ -1279,6 +1309,8 @@ describe("checkout web routes: account sell list", () => {
       getSellListOfferMatch: mockGetOfferMatch,
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       addGuestSellListLine: mockAddGuestSellListLine,
     });
 
@@ -1365,6 +1397,8 @@ describe("checkout web routes: account sell list", () => {
       quantity: 1,
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
     });
@@ -1421,6 +1455,8 @@ describe("checkout web routes: account sell list", () => {
       },
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({
         items: [
           {
@@ -1493,6 +1529,8 @@ describe("checkout web routes: account sell list", () => {
       quantity: 2,
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListOfferMatch: mockGetOfferMatch,
@@ -1547,6 +1585,8 @@ describe("checkout web routes: account sell list", () => {
       quantity: 1,
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
     });
@@ -1622,6 +1662,8 @@ describe("checkout web routes: account sell list", () => {
       quantity: 3,
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 3 })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListOfferMatch: mockGetOfferMatch,
@@ -1682,6 +1724,8 @@ describe("checkout web routes: account sell list", () => {
       quantity: 1,
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
     });
@@ -1724,6 +1768,8 @@ describe("checkout web routes: account sell list", () => {
       quantity: 4,
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 4 })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListOfferMatch: mockGetOfferMatch,
@@ -1797,6 +1843,8 @@ describe("checkout web routes: account sell list", () => {
       quantity: 1,
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
     });
@@ -1828,6 +1876,8 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [{ line_id: "sll_1", quantity: 1 }], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -1848,7 +1898,7 @@ describe("checkout web routes: account sell list", () => {
         mergedLineCount: 0,
         mergeError: null,
         sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
-        offerReviews: [],
+        compositeReview: expect.objectContaining({ offerReviews: [] }),
       }),
     );
     expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
@@ -1880,8 +1930,9 @@ describe("checkout web routes: account sell list", () => {
       count: 1,
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: vi.fn(async () => ({
+      getGuestSellListCompositeReview: vi.fn(async () => ({
         offerReviews: [
           {
             lineId: "sll_1",
@@ -1935,22 +1986,24 @@ describe("checkout web routes: account sell list", () => {
           ],
           count: 1,
         },
-        offerReviews: [
-          {
-            lineId: "sll_1",
-            status: "ready",
-            comparison: null,
-            message: null,
-            terms: expect.not.objectContaining({
-              fee_quote_fingerprint: expect.anything(),
-              schedule_id: expect.anything(),
-              agreement_id: expect.anything(),
-            }),
-          },
-        ],
+        compositeReview: expect.objectContaining({
+          offerReviews: [
+            {
+              lineId: "sll_1",
+              status: "ready",
+              comparison: null,
+              message: null,
+              terms: expect.not.objectContaining({
+                fee_quote_fingerprint: expect.anything(),
+                schedule_id: expect.anything(),
+                agreement_id: expect.anything(),
+              }),
+            },
+          ],
+        }),
       }),
     );
-    expect(result.offerReviews[0]?.terms).toEqual(
+    expect(result.compositeReview!.offerReviews[0]?.terms).toEqual(
       expect.objectContaining({
         seller_net_unit_amount: "345.65",
         source_kind: "public-standard-seller-terms",
@@ -1986,6 +2039,7 @@ describe("checkout web routes: account sell list", () => {
       resolved_at: "2026-04-28T00:00:00.000Z",
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: vi.fn(async () => ({
         items: [
           {
@@ -2065,7 +2119,7 @@ describe("checkout web routes: account sell list", () => {
     expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockPreviewPublicStandardListingTerms).not.toHaveBeenCalled();
-    expect(result.offerReviews[0]).toEqual(
+    expect(result.compositeReview!.offerReviews[0]).toEqual(
       expect.objectContaining({
         lineId: "sll_1",
         status: "ready",
@@ -2098,6 +2152,7 @@ describe("checkout web routes: account sell list", () => {
     });
     mockPreviewPublicStandardListingTerms.mockRejectedValue(new Error("standard terms unavailable"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: vi.fn(async () => ({
         items: [
           {
@@ -2167,7 +2222,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
-    expect(result.offerReviews[0]).toEqual(
+    expect(result.compositeReview!.offerReviews[0]).toEqual(
       expect.objectContaining({
         status: "ready",
         terms: expect.objectContaining({ fee_quote_fingerprint: "registered_quote" }),
@@ -2197,6 +2252,7 @@ describe("checkout web routes: account sell list", () => {
       resolved_at: "2026-04-28T00:00:00.000Z",
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: vi.fn(async () => ({
         items: [
           {
@@ -2258,7 +2314,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
-    expect(result.offerReviews[0]).toEqual({
+    expect(result.compositeReview!.offerReviews[0]).toEqual({
       lineId: "sll_1",
       status: "unavailable",
       terms: null,
@@ -2295,6 +2351,7 @@ describe("checkout web routes: account sell list", () => {
       updated_at: "2026-06-23T06:08:00.000Z",
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn(async () => ({
         items: [
           {
@@ -2345,7 +2402,7 @@ describe("checkout web routes: account sell list", () => {
 
     expect(mockGetPublicOffer).not.toHaveBeenCalled();
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
-    expect(result.offerReviews[0]).toEqual({
+    expect(result.compositeReview!.offerReviews[0]).toEqual({
       lineId: "sll_air_balloon",
       status: "unavailable",
       terms: null,
@@ -2358,6 +2415,8 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockRemoveGuestSellListLine.mockResolvedValue({ status: "removed", attempt: sellListAttemptResult() });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       removeGuestSellListLine: mockRemoveGuestSellListLine,
     });
 
@@ -2386,6 +2445,8 @@ describe("checkout web routes: account sell list", () => {
   it("routes guest seller checkout through registration after Sell List readiness passes", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 }),
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
     });
@@ -2419,6 +2480,8 @@ describe("checkout web routes: account sell list", () => {
   it("routes guest seller checkout to sign in when no anonymous Sell List exists", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
     });
 
@@ -2456,6 +2519,8 @@ describe("checkout web routes: account sell list", () => {
       },
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 }),
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
     });
@@ -2495,6 +2560,8 @@ describe("checkout web routes: account sell list", () => {
       },
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 }),
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
     });

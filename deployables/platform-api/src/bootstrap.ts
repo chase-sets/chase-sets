@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { syncContextProjectionGroups, withSchemaBootstrapLock } from "@chase-sets/bounded-context-runtime";
@@ -6,7 +7,12 @@ import {
   createPostgresPlatformControlPlane,
   recordWorkerQuiesce,
 } from "@chase-sets/platform-runtime/control-plane";
-import { createProjectionGroupLeasePort, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  createProjectionGroupLeasePort,
+  seedApiHostIfEmpty,
+  SeedApiHostSubstepTimeoutError,
+  type ProjectionGroupLeasePort,
+} from "@chase-sets/platform-runtime/api";
 import {
   PLATFORM_WORKER_KIND,
   quiescedDeploymentsIncludePlatformWorker,
@@ -28,7 +34,7 @@ import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } fro
 const DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 300_000;
 const DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS = 600_000;
 
-async function bootstrap() {
+export async function bootstrap() {
   const config = await runBootstrapPhase("load-config", () => loadBootstrapConfig());
   if (config.previewPostgresAdminUrl) {
     await runBootstrapPhase("preview-postgres-databases", () => ensurePreviewPostgresDatabases(config));
@@ -38,6 +44,7 @@ async function bootstrap() {
   try {
     await runBootstrapPhase("platform-control-plane", () => bootstrapPlatformControlPlane(pools.control));
     const controlPlane = createPostgresPlatformControlPlane(pools.control);
+    const projectionGroupLeasePort = createProjectionGroupLeasePort(controlPlane, "platform-api");
     // The deployment quiesce sets this only after it confirmed that no platform worker pod remains, which
     // retires every earlier worker for producers gated on worker event capability.
     if (quiescedDeploymentsIncludePlatformWorker(process.env.CHASE_SETS_QUIESCED_DEPLOYMENTS)) {
@@ -76,7 +83,7 @@ async function bootstrap() {
           seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
             schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
             schemaBootstrapLockAcquisition,
-            projectionGroupLeasePort: createProjectionGroupLeasePort(controlPlane, "platform-api"),
+            projectionGroupLeasePort,
             enabledDataProfiles: config.dataProfiles ?? [],
             environmentName: config.deploymentEnvironment ?? null,
             runtimeProfile: config.runtimeProfile,
@@ -94,7 +101,7 @@ async function bootstrap() {
           const authServices = runtime.services.auth as Parameters<typeof bootstrapPlatformAdminPassword>[0];
           const admin = await runBootstrapPhase("platform-admin-identity", async () => {
             // A prior worker-less bootstrap may have committed Identity events without projecting them.
-            await syncContextProjectionGroups(runtime, "identity");
+            await syncBootstrapProjectionGroups(runtime, "identity", projectionGroupLeasePort);
             return bootstrapPlatformAdminIdentity(identityServices, {
               email: platformAdmin.email,
               displayName: platformAdmin.displayName,
@@ -102,7 +109,9 @@ async function bootstrap() {
             });
           });
 
-          await runBootstrapPhase("auth-projection-sync", () => syncContextProjectionGroups(runtime, "auth"));
+          await runBootstrapPhase("auth-projection-sync", () =>
+            syncBootstrapProjectionGroups(runtime, "auth", projectionGroupLeasePort),
+          );
           await runBootstrapPhase("platform-admin-password", () =>
             bootstrapPlatformAdminPassword(authServices, {
               userId: admin.userId,
@@ -134,7 +143,43 @@ async function runBootstrapPhase<T>(phase: string, action: () => T | Promise<T>)
   }
 }
 
-void bootstrap().catch((error) => {
-  console.error("Platform API bootstrap failed.", error);
-  process.exit(1);
-});
+export async function syncBootstrapProjectionGroups(
+  runtime: Parameters<typeof syncContextProjectionGroups>[0],
+  contextName: string,
+  leasePort: ProjectionGroupLeasePort,
+  timeoutMs = DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS,
+): Promise<void> {
+  const abort = new AbortController();
+  const work = syncContextProjectionGroups(runtime, contextName, {
+    context: { signal: abort.signal },
+    runWithLease: leasePort.runWithLease,
+  });
+  const timeoutError = new SeedApiHostSubstepTimeoutError(`projection-sync:${contextName}`, timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          abort.abort();
+          reject(timeoutError);
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    if (abort.signal.aborted) {
+      await Promise.allSettled([work]);
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void bootstrap().catch((error) => {
+    console.error("Platform API bootstrap failed.", error);
+    process.exit(1);
+  });
+}

@@ -13,12 +13,13 @@ import {
   MockCheckoutApiError,
   mockCreateCheckoutRequestApiClient,
   mockGetGuestSellList,
-  mockGetGuestSellListOfferReviews,
+  mockGetGuestSellListCompositeReview,
   mockGetSellListCompositeReview,
   mockCreateMarketplaceRequestApiClient,
   mockResolveActorFromAuthApi,
 } from "../tests/support/checkout-route-test-harness";
 import { sellListAttemptResult } from "../features/command-attempts/api/sell-list-route.test-support";
+import type { CheckoutSellListCompositeReview } from "../support/request-support/api-client";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({ resolveActorFromAuthApi: mockResolveActorFromAuthApi }));
 vi.mock("../support/request-support/api-client", () => ({
@@ -55,7 +56,43 @@ const line = {
   created_at: "2026-10-07T00:00:00.000Z",
   updated_at: "2026-10-07T00:00:00.000Z",
 };
-const review = { offerReviews: [], productOfferReviews: [], inventoryItems: [] };
+const review: CheckoutSellListCompositeReview = {
+  offerReviews: [],
+  productOfferReviews: [],
+  inventoryItems: [],
+  screen: {
+    lines: {
+      [line.line_id]: {
+        ready: false,
+        canSubmit: false,
+        labelCode: "needs-action",
+        detailCode: "choose-sale-action",
+        parameters: {},
+        unmetEvidenceCodes: [],
+        message: null,
+        setupHref: "/account/listings/new?catalogItemId=cat_charizard&recommendedPrice=399.00",
+        inventoryHref: "/account/inventory?catalogItemId=cat_charizard&returnTo=%2Faccount%2Fsell-list",
+        recoveryHref: "/account/inventory?catalogItemId=cat_charizard&returnTo=%2Faccount%2Fsell-list",
+      },
+    },
+    lineCount: 1,
+    totalQuantity: 1,
+    readyLineCount: 0,
+    blockedLineCount: 1,
+    blockedSubmissionLineCount: 1,
+    canContinue: false,
+    payoutIsReady: true,
+    payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null },
+    payoutSetupHref: "/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+    recoveryHref: "/account/inventory?catalogItemId=cat_charizard&returnTo=%2Faccount%2Fsell-list",
+    recoveryCode: "resolve-items",
+    hasMultipleOffers: false,
+    selectedOfferGross: "0.00",
+    futureListingGross: "399.00",
+    estimatedSalesFees: null,
+    expectedSellerPayout: null,
+  },
+};
 const lag = () => new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
 let router: ReturnType<typeof createMemoryRouter>;
 
@@ -106,6 +143,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     applyCheckoutRouteMockDefaults();
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList: vi.fn().mockResolvedValue({ items: [line], count: 1 }),
       getSellListCompositeReview: mockGetSellListCompositeReview,
       getSellListPayoutReadiness: vi.fn().mockResolvedValue({ status: "ready", missing_requirements: [] }),
@@ -133,6 +171,8 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     const removeSellListLine = vi.fn();
     const getSellListCommandAttempt = vi.fn();
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       ...mockCreateCheckoutRequestApiClient(),
       removeSellListLine,
       getSellListCommandAttempt,
@@ -163,6 +203,8 @@ describe("Sell List bounded receipt recovery through the data router", () => {
         }),
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       ...mockCreateCheckoutRequestApiClient(),
       removeSellListLine,
       getSellListCommandAttempt,
@@ -235,6 +277,8 @@ describe("Sell List bounded receipt recovery through the data router", () => {
         .fn()
         .mockResolvedValue({ attempt: sellListAttemptResult("committed", "sell-list-batch") });
       mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getSellListCompositeReview: mockGetSellListCompositeReview,
+        getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
         ...mockCreateCheckoutRequestApiClient(),
         getSellList: vi.fn().mockResolvedValue({
           items: (hasOriginalLines ? ["one", "two"] : []).map((id) => ({
@@ -352,10 +396,11 @@ describe("Sell List bounded receipt recovery through the data router", () => {
   it("secondary review recovers on revalidation", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [line], count: 1 });
-    mockGetGuestSellListOfferReviews.mockRejectedValueOnce(lag()).mockResolvedValue({ offerReviews: [] });
+    mockGetGuestSellListCompositeReview.mockRejectedValueOnce(lag()).mockResolvedValue(review);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
       getGuestSellList: mockGetGuestSellList,
-      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
     });
     const path = await navigateAfterWriteWithPlatformPostWriteToken(
       checkoutCommit("13", "evt_sell_list_line"),
@@ -363,7 +408,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     );
 
     await mount(path);
-    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(1);
+    expect(mockGetGuestSellListCompositeReview).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Unavailable")).toBeTruthy();
     expect(screen.getByText("Charizard")).toBeTruthy();
     expect(
@@ -372,7 +417,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
         .hasAttribute("disabled"),
     ).toBe(true);
     await tick();
-    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(2);
+    expect(mockGetGuestSellListCompositeReview).toHaveBeenCalledTimes(2);
     expect(screen.queryByText("Unavailable")).toBeNull();
     expect(screen.getByRole("heading", { name: "Review items" })).toBeTruthy();
   });
@@ -472,6 +517,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     );
     const getSellList = vi.fn().mockResolvedValue({ items: [], count: 0 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
       getSellList,
       getSellListCompositeReview: mockGetSellListCompositeReview,
     });
@@ -508,6 +554,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
   it.each(["ready", "empty"])("keeps %s routes inert on later loader calls", async (state) => {
     if (state === "empty")
       mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
         getSellList: vi.fn().mockResolvedValue({ items: [], count: 0 }),
         getSellListCompositeReview: mockGetSellListCompositeReview,
       });
@@ -541,7 +588,11 @@ describe("Sell List bounded receipt recovery through the data router", () => {
 
   it.each(["legacy", "compact"])("preserves the unchanged Cart caller's %s behavior", async (receipt) => {
     const getCart = vi.fn().mockRejectedValueOnce(lag()).mockResolvedValue({ items: [], count: 0 });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getGuestSellListCompositeReview: mockGetGuestSellListCompositeReview,
+      getCart,
+    });
     const path =
       receipt === "legacy"
         ? appendFreshWriteToken("/account/cart", checkoutCommit("13", "evt_cart_line"))

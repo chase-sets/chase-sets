@@ -6,6 +6,7 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
+import type { SellListLineScreenReview } from "../read-model/screen-review";
 import type { SellListOfferReview, SellListProductOfferReview } from "./sell-list-page-types";
 import { SellListReviewGrid } from "./sell-list-review-grid";
 
@@ -82,6 +83,19 @@ const productReview: SellListProductOfferReview = {
   ],
 };
 
+const readyAnswer: SellListLineScreenReview = {
+  ready: true,
+  canSubmit: true,
+  labelCode: "ready",
+  detailCode: "selected-offer-ready",
+  parameters: {},
+  unmetEvidenceCodes: [],
+  message: null,
+  setupHref: "/account/listings/new",
+  inventoryHref: "/account/inventory",
+  recoveryHref: "/account/listings/new",
+};
+
 function Review({ canAccept = true }: { canAccept?: boolean }) {
   return (
     <>
@@ -91,6 +105,10 @@ function Review({ canAccept = true }: { canAccept?: boolean }) {
         offerReviewsByLineId={new Map([[selected.line_id, selectedReview]])}
         productOfferReviewsByLineId={new Map([[product.line_id, productReview]])}
         inventoryByProductId={new Map()}
+        lineAnswers={{
+          [selected.line_id]: readyAnswer,
+          [product.line_id]: { ...readyAnswer, detailCode: "smart-match-ready", parameters: { count: 1 } },
+        }}
         canAccept={canAccept}
       />
     </>
