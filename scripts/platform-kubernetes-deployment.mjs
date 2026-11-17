@@ -1639,6 +1639,12 @@ async function readReconciledStatusPartition(readApi, passes, status, partitions
       partition.statuses[next] = censusRead();
       await readRunStatus(boundedReadApi, next, partition.statuses[next], runsById);
     }
+    if (movingNonWriters) {
+      const unknown = [...runsById.values()].find(
+        (run) => !isProductionWriterCandidate(run) && !isProvenNonWriter(run),
+      );
+      if (unknown) throw unreconciled(`run ${unknown.id} has an unknown writer identity`);
+    }
     return sortedCensusRuns(runsById);
   } catch (error) {
     // A partial, moving or capped window is never complete; its reason is kept.

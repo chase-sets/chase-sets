@@ -3554,6 +3554,18 @@ describe("platform Kubernetes deployment", () => {
         expect(error.message).toContain("window run 20 has an unknown writer identity");
       });
 
+      it.each(["requested", "waiting"])(
+        "refuses an ambiguous run outside the partitioned status in %s after non-writer movement",
+        async (status) => {
+          const passes = nonWriterMovement(growingLists);
+          for (const pass of passes) pass[status] = [page(1, [dated(30, { status, path: undefined })])];
+          const { census, error } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:/);
+          expect(error.message).toContain("run 30 has an unknown writer identity");
+        },
+      );
+
       it("refuses a changing unexplained count even when all listed movement is non-writers", async () => {
         const passes = nonWriterMovement(growingLists);
         passes[0].in_progress = [page(4, growingLists[0]), page(4, [])];
