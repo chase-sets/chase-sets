@@ -164,13 +164,8 @@ fn sent(entry: &Entry<LocalDateTime>, zone: Option<&FormZone>) -> Option<Value> 
     })
 }
 
-/// A wall-clock time as it reads in zone (datetime-local's value), or empty: the listing
-/// evidence and policy console forms, which do not yet send their zone back.
-pub fn local(at: Option<&str>, zone: &TimeZone) -> String {
-    instant(at).map_or_else(String::new, |at| at.to_zoned(zone.clone()).strftime("%Y-%m-%dT%H:%M").to_string())
-}
-
 /// A `datetime-local` value as the instant it is in `zone`, or the text as typed when it cannot be read.
+/// For the listing evidence and policy console forms, which do not yet send their zone back.
 pub fn sent_time(text: &str, zone: &TimeZone) -> Value {
     let text = text.trim();
     if text.is_empty() {
@@ -421,7 +416,6 @@ mod tests {
     #[test]
     fn times_are_the_operators_and_the_body_is_admin_webs() {
         let chicago = TimeZone::get("America/Chicago").unwrap();
-        assert_eq!(local(Some("2026-11-10 15:00:00+00"), &chicago), "2026-11-10T09:00");
         assert_eq!(sent_time("2026-11-10T09:00", &chicago), json!("2026-11-10T15:00:00Z"));
         assert_eq!(sent_time("2026-10-20T09:00", &chicago), json!("2026-10-20T14:00:00Z"), "daylight time");
         assert_eq!(sent_time("soon", &chicago), json!("soon"), "the API refuses it in its words");
