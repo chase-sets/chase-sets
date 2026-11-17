@@ -183,11 +183,6 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
       payoutMethod: "saved-payout",
       labelPreference: "prepaid-label",
       termsAccepted: "accepted",
-      payoutState: "ready",
-      payoutEstimateState: "current",
-      riskState: "clear",
-      labelState: "ready",
-      sellerReadinessState: "ready",
     });
   }
   const sessionPath = "/checkout/sell/session/chk_sell_1";
