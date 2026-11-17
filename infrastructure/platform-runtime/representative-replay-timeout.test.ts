@@ -69,9 +69,10 @@ describe("disposable representative Catalog replay timer", () => {
       if (match) label = match[1]!;
     });
     const setTimer = globalThis.setTimeout;
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback, delay, ...args) => {
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+      const [callback, delay, ...rest] = args;
       timers.push([label, delay]);
-      return setTimer(callback, delay, ...args);
+      return setTimer(callback, delay, ...rest);
     }) as typeof setTimeout);
     await seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, {
       ...state.options,
@@ -131,8 +132,10 @@ describe("disposable representative Catalog replay timer", () => {
     });
     // Collapse only the replay timer, not the surrounding schema/projection controls.
     const setTimer = globalThis.setTimeout;
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback, delay, ...args) =>
-      setTimer(callback, delay === 14_400_000 ? 10 : delay, ...args)) as typeof setTimeout);
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+      const [callback, delay, ...rest] = args;
+      return setTimer(callback, delay === 14_400_000 ? 10 : delay, ...rest);
+    }) as typeof setTimeout);
     let settled = false;
     const run = seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, {
       ...state.options,
