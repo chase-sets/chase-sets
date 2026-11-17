@@ -10755,9 +10755,11 @@ fn attention_queue() -> Value {
 /// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
 /// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
-/// the reason `bogus` is refused, as is an order capacity of 1000. In a batch, `lst_locked` is an
-/// error and `lst_unsure` unknown; a batch naming `lst_foreign` is refused, one naming
-/// `lst_broken` fails, and `lister_ended`'s ended. A batch applies at 50; every other write at 51.
+/// the reason `bogus` is refused, as is an order capacity of 1000; one of 999 is another
+/// attempt's (409 `attempt_conflict`), and one of 998 has no confirmed result (409
+/// `history_incomplete`). In a batch, `lst_locked` is an error and `lst_unsure` unknown; a batch
+/// naming `lst_foreign` is refused, one naming `lst_broken` fails, and `lister_ended`'s ended. A
+/// batch applies at 50; every other write at 51.
 fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const ACCOUNT: &str = "/api/marketplace/account";
     let path = uri.path().strip_prefix(ACCOUNT)?;
@@ -10833,6 +10835,12 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
         ),
         ("POST", "/order-capacity") if sent["maxOpenOrders"] == 1000 => {
             refusal(StatusCode::BAD_REQUEST, "order_capacity_invalid", "Order capacity must be a whole number of at least 1.")
+        }
+        ("POST", "/order-capacity") if sent["maxOpenOrders"] == 999 => {
+            refusal(StatusCode::CONFLICT, "attempt_conflict", "Idempotency key was already used with a different request.")
+        }
+        ("POST", "/order-capacity") if sent["maxOpenOrders"] == 998 => {
+            refusal(StatusCode::CONFLICT, "history_incomplete", "Mutation attempt history is incomplete.")
         }
         (
             "POST",
@@ -11500,6 +11508,19 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Choose a valid availability reason."), "{html}");
+    // A Listing attempt the API refuses (`listingErrorContract`): sent before with other details,
+    // or with no result it can confirm. Marketplace's words, on the form, kept as a conflict.
+    for (capacity, words) in [
+        (999, "This change was already sent with different details. Reload to see the first result."),
+        (998, "We could not confirm the result. Changes are disabled to avoid duplicating your work."),
+    ] {
+        let body = &format!("intent=set-order-capacity&maxOpenOrders={capacity}&attempt={}", new_attempt());
+        let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{capacity}");
+        let page = text(&html);
+        assert!(page.contains(words) && !page.contains("Idempotency key") && !page.contains("history is incomplete"), "{page}");
+        assert!(!html.contains("maxOpenOrders-error"), "a form error, not the field's: {html}");
+    }
     // Someone who may only read is refused, signed out signs in, and an account without listings
     // is marketplace's "Account access required" page, back to the list.
     let (status, _, html) = pilot.send(post(LISTINGS, "lookout", "intent=clear-order-capacity", false)).await;
