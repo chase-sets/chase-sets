@@ -41,7 +41,7 @@ export async function bootstrap(args: readonly string[] = []) {
   const disposableRepresentativeCatalogReplay = args.length === 1;
   const config = await runBootstrapPhase("load-config", () => loadBootstrapConfig());
   if (disposableRepresentativeCatalogReplay) {
-    assertDisposableRepresentativeCatalogReplay(selectSeedCommandDatabaseConfig(config));
+    assertDisposableRepresentativeCatalogReplay(config);
   }
   if (config.previewPostgresAdminUrl) {
     await runBootstrapPhase("preview-postgres-databases", () => ensurePreviewPostgresDatabases(config));
@@ -160,6 +160,7 @@ function assertDisposableRepresentativeCatalogReplay(config: PlatformApiBootstra
       "Disposable representative Catalog replay requires the canonical local sandbox and replay profiles.",
     );
   }
+  const target = selectSeedCommandDatabaseConfig(config);
   const prefix = `cs_${sandboxId}`.replace(/[^a-z0-9]+/g, "_").replace(/_+$/g, "");
   const matchesSandbox = (value: string | null | undefined, database: string) => {
     if (!value) return false;
@@ -171,13 +172,13 @@ function assertDisposableRepresentativeCatalogReplay(config: PlatformApiBootstra
     }
   };
   if (
-    !matchesSandbox(config.controlDatabaseUrl, `${prefix}_control`) ||
-    !matchesSandbox(config.contextDatabaseUrls.catalog, `${prefix}_catalog`) ||
-    (config.workSignalDatabaseUrl && !matchesSandbox(config.workSignalDatabaseUrl, `${prefix}_control`)) ||
+    !matchesSandbox(target.controlDatabaseUrl, `${prefix}_control`) ||
+    !matchesSandbox(target.contextDatabaseUrls.catalog, `${prefix}_catalog`) ||
+    (target.workSignalDatabaseUrl && !matchesSandbox(target.workSignalDatabaseUrl, `${prefix}_control`)) ||
     !apiContextRegistry.every(({ contextName }) =>
-      matchesSandbox(config.contextDatabaseUrls[contextName], `${prefix}_${contextName.replaceAll("-", "_")}`),
+      matchesSandbox(target.contextDatabaseUrls[contextName], `${prefix}_${contextName.replaceAll("-", "_")}`),
     ) ||
-    Object.entries(config.contextWaiterDatabaseUrls ?? {}).some(
+    Object.entries(target.contextWaiterDatabaseUrls ?? {}).some(
       ([name, value]) => !matchesSandbox(value, `${prefix}_${name.replaceAll("-", "_")}`),
     )
   ) {
