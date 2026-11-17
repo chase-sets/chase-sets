@@ -549,8 +549,9 @@ describe("marketplace listing runtime", () => {
     );
     expect(published).toEqual(expect.arrayContaining([0, 1]));
     for (const listingId of ["lst_concurrent_1", "lst_concurrent_2"]) {
-      for (const event of (await eventStore.readStream({ streamId: `marketplace.listing-${listingId}` }))
-        .filter((event) => event.eventType === "marketplace.listing.published")) {
+      for (const event of (await eventStore.readStream({ streamId: `marketplace.listing-${listingId}` })).filter(
+        (event) => event.eventType === "marketplace.listing.published",
+      )) {
         expect(event.payload).toEqual({ listingId, sellerAccountId: "acc_seller", publishedAt: expect.any(String) });
         expect(Number.isFinite(Date.parse(event.payload.publishedAt as string))).toBe(true);
       }
@@ -2794,9 +2795,14 @@ describe("inventory capacity recovery", () => {
   it("includes every recovery candidate beyond the first seller-listings page", async () => {
     const f = fixture(51);
     for (let i = 0; i < 51; i += 1) await f.create(`lst_page_${String(i).padStart(3, "0")}`);
-    await f.services.publishListing(listingTestCommand("listing.publish", {
-      accountId: "acc_seller", listingId: "lst_page_000", idempotencyKey: "repricing:round:product:lst_page_000:publish",
-    }), context);
+    await f.services.publishListing(
+      listingTestCommand("listing.publish", {
+        accountId: "acc_seller",
+        listingId: "lst_page_000",
+        idempotencyKey: "repricing:round:product:lst_page_000:publish",
+      }),
+      context,
+    );
     expect(f.allEvents.filter((event) => event.eventType === "marketplace.listing.published")).toHaveLength(51);
     f.setAvailable(0);
     await f.reconcile();
@@ -2805,7 +2811,11 @@ describe("inventory capacity recovery", () => {
     expect((await f.services.loadListingState("lst_page_050")).status).toBe("active");
     expect(f.allEvents.filter((event) => event.eventType === "marketplace.listing.published")).toHaveLength(102);
     for (const event of f.allEvents.filter((event) => event.eventType === "marketplace.listing.published")) {
-      expect(event.payload).toEqual({ listingId: expect.any(String), sellerAccountId: "acc_seller", publishedAt: expect.any(String) });
+      expect(event.payload).toEqual({
+        listingId: expect.any(String),
+        sellerAccountId: "acc_seller",
+        publishedAt: expect.any(String),
+      });
       expect(Number.isFinite(Date.parse(event.payload.publishedAt as string))).toBe(true);
     }
   });

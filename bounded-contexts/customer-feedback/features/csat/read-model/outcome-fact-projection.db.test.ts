@@ -211,9 +211,12 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
         "SELECT * FROM customer_feedback_csat_outcome_facts ORDER BY idempotency_key",
       );
       for (const event of history) {
-        await outcomeHandlers[event.eventType]!(toTransportEvent({ ...event, performedByUserId: "usr_redelivery" as never }), {
-          db: pools["customer-feedback"],
-        });
+        await outcomeHandlers[event.eventType]!(
+          toTransportEvent({ ...event, performedByUserId: "usr_redelivery" as never }),
+          {
+            db: pools["customer-feedback"],
+          },
+        );
       }
       expect(
         (

@@ -20,10 +20,16 @@ describe("Customer Feedback dependency inversion", () => {
   it("checks every bounded-context manifest, excluding deployable composition roots", () => {
     const manifests = readdirSync(path.join(root, "bounded-contexts"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
-      .map((entry) => JSON.parse(readFileSync(path.join(root, "bounded-contexts", entry.name, "context.json"), "utf8")));
+      .map((entry) =>
+        JSON.parse(readFileSync(path.join(root, "bounded-contexts", entry.name, "context.json"), "utf8")),
+      );
     expect(check(manifests)).toEqual([]);
-    expect(manifests.filter((entry) => entry.allowedContextDependencies.includes("@chase-sets/customer-feedback"))
-      .map((entry) => entry.contextName).sort()).toEqual(["notifications", "platform-operations"]);
+    expect(
+      manifests
+        .filter((entry) => entry.allowedContextDependencies.includes("@chase-sets/customer-feedback"))
+        .map((entry) => entry.contextName)
+        .sort(),
+    ).toEqual(["notifications", "platform-operations"]);
     for (const source of ["marketplace", "inventory"]) {
       const pkg = JSON.parse(readFileSync(path.join(root, "bounded-contexts", source, "package.json"), "utf8"));
       for (const group of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {

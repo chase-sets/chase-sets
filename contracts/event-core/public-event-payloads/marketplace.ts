@@ -13,7 +13,12 @@ import {
   type ReportedContentActionId,
   type TypedUlid,
 } from "../../primitives/typed-ids";
-import type { MarketplaceReviewScoringDispositionProjectedV1Payload, MarketplaceReviewScoringDisposition, MarketplaceReviewScoringReasonCode, MarketplaceReviewScoringSourceFactVersion } from "../review-scoring-facts";
+import type {
+  MarketplaceReviewScoringDispositionProjectedV1Payload,
+  MarketplaceReviewScoringDisposition,
+  MarketplaceReviewScoringReasonCode,
+  MarketplaceReviewScoringSourceFactVersion,
+} from "../review-scoring-facts";
 import type { ReviewOpportunityChangedV1 } from "../review-opportunity-facts";
 import type { EmptyEventPayload } from "./event-core";
 import type {

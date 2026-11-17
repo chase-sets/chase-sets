@@ -261,6 +261,8 @@ describe("wave three native outcome facts", () => {
     for (const data of [
       {},
       { csatOutcomeFact: {} },
+      { csatOutcomeFact: [] },
+      { csatOutcomeFact: { ...legacyListing, subject: [] } },
       { csatOutcomeFact: { ...legacyListing, outcomeOccurredAt: "invalid" } },
     ]) {
       await handler(buildTransportEvent("marketplace.listing.published", data, { timing, audit }), store);
@@ -385,6 +387,12 @@ describe("wave three native outcome facts", () => {
       const facts = outcomeRows();
       for (const event of history) await outcomeHandlers[event.eventType]?.(toTransportEvent(event), facts);
       expect(facts.rows.size).toBe(entry.empty ? 0 : 1);
+      if (entry.native.type !== "marketplace.listing.published") {
+        const nativeFacts = outcomeRows();
+        const native = plain[0]!;
+        await outcomeHandlers[native.eventType]!(toTransportEvent(native), nativeFacts);
+        expect([...facts.rows.entries()]).toEqual([...nativeFacts.rows.entries()]);
+      }
     }
     expect(outcomeHandlers["marketplace.csat-outcome-fact.v1"]).toBeUndefined();
   });

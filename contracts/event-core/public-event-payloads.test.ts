@@ -95,8 +95,12 @@ import type { SettlementEventPayloads } from "./public-event-payloads/settlement
 
 describe("native CSAT source payloads", () => {
   it("exports compatible publication history, native review fields and an optional adjustment request key", () => {
-    expectTypeOf<ChaseSetsEventPayloads["marketplace.listing.published"]>().toEqualTypeOf<MarketplaceListingPublishedPayload>();
-    expectTypeOf<ChaseSetsEventPayloads["marketplace.review.submitted"]>().toEqualTypeOf<MarketplaceReviewSubmittedPayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.listing.published"]
+    >().toEqualTypeOf<MarketplaceListingPublishedPayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.review.submitted"]
+    >().toEqualTypeOf<MarketplaceReviewSubmittedPayload>();
     expectTypeOf<ChaseSetsEventPayloads["inventory.item.adjusted"]>().toEqualTypeOf<InventoryItemAdjustedPayload>();
     expectTypeOf<MarketplaceListingPublishedPayload["publishedAt"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<InventoryItemAdjustedPayload["requestIdempotencyKey"]>().toEqualTypeOf<string | undefined>();
