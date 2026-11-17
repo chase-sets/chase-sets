@@ -43,9 +43,7 @@ import {
   type CheckoutSellListConfirmationRow,
   type CheckoutSellListCompositeReview,
   type CheckoutSellListLineRow,
-  type CheckoutSellListOfferReview,
   type CheckoutSellOfferMatch,
-  type CheckoutSellPayoutReadinessRow,
 } from "../support/request-support/api-client";
 import {
   appendAnonymousSellListCookie,
@@ -73,32 +71,6 @@ import {
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
 }
-
-type SellListOfferReview = Readonly<{
-  lineId: string;
-  status: "ready" | "unavailable";
-  terms: CheckoutSellListCompositeReview["offerReviews"][number]["terms"];
-  comparison: SellListOfferTermsComparison | null;
-  message: string | null;
-  evidence?: CheckoutSellListCompositeReview["offerReviews"][number]["evidence"];
-}>;
-
-type SellListOfferTermsComparisonField = "seller-net" | "marketplace-fee" | "shipping-allowance" | "terms-source";
-
-type SellListOfferTermsComparison = Readonly<{
-  status: "same" | "changed" | "standard-preview-unavailable" | "final-unavailable";
-  standardPreview: NonNullable<
-    CheckoutSellListCompositeReview["offerReviews"][number]["comparison"]
-  >["standardPreview"];
-  changedFields: readonly SellListOfferTermsComparisonField[];
-}>;
-
-type SellListProductOfferReview = Readonly<{
-  lineId: string;
-  status: "ready" | "unavailable";
-  offers: CheckoutSellListCompositeReview["productOfferReviews"][number]["offers"];
-  message: string | null;
-}>;
 
 type AccountSellList = Readonly<{
   items: readonly CheckoutSellListLineRow[];
@@ -484,68 +456,18 @@ function recoverSellListFreshWriteReadError(
   });
 }
 
-async function loadPayoutReadiness(
-  request: Request,
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-): Promise<CheckoutSellPayoutReadinessRow | null> {
-  const shouldRecordPayoutReadinessHandoff = requestHasFreshWriteSource(request, "settlement");
-  try {
-    const payoutReadiness = await api.getSellListPayoutReadiness();
-    if (shouldRecordPayoutReadinessHandoff) {
-      recordPayoutReadinessPostWriteConsistencyOutcome("projection_hit", freshWriteOutcomeForRequest(request), "none");
-    }
-    return payoutReadiness;
-  } catch {
-    if (shouldRecordPayoutReadinessHandoff) {
-      recordPayoutReadinessPostWriteConsistencyOutcome(
-        "freshness_timeout",
-        freshWriteOutcomeForRequest(request),
-        "reload_prompt",
-      );
-    }
-    return null;
-  }
-}
-
-async function loadSellListCompositeReviewFromCheckout(
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-  options: Readonly<{ includeStandardComparison?: boolean }> = {},
-): Promise<CheckoutSellListCompositeReview> {
-  const client = api as Partial<ReturnType<typeof createCheckoutRequestApiClient>>;
-  if (typeof client.getSellListCompositeReview !== "function") {
-    return { offerReviews: [], productOfferReviews: [], inventoryItems: [] };
-  }
-
-  return client.getSellListCompositeReview(options);
-}
-
-async function loadGuestSellListOfferReviewsFromCheckout(
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-  anonymousSellListId: string | null,
-): Promise<readonly CheckoutSellListOfferReview[]> {
-  const client = api as Partial<ReturnType<typeof createCheckoutRequestApiClient>>;
-  if (typeof client.getGuestSellListOfferReviews !== "function") {
-    return [];
-  }
-
-  return (await client.getGuestSellListOfferReviews(anonymousSellListId)).offerReviews;
-}
-
-async function loadGuestSellListOfferReviewsWithRecovery(
+async function loadGuestSellListCompositeReviewWithRecovery(
   api: ReturnType<typeof createCheckoutRequestApiClient>,
   anonymousSellListId: string | null,
   request: Request,
   actorMode: AccountSellListActorMode,
 ) {
   try {
-    return {
-      offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
-      recovery: null,
-    };
+    return { compositeReview: await api.getGuestSellListCompositeReview(anonymousSellListId), recovery: null };
   } catch (error) {
     const recovery = recoverSellListFreshWriteReadError(request, error, actorMode, "guest-sell-list-offer-reviews");
     if (!recovery) throw error;
-    return { offerReviews: [], recovery };
+    return { compositeReview: null, recovery };
   }
 }
 
@@ -574,7 +496,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "guest",
     );
 
-    const guestOfferReviews = await loadGuestSellListOfferReviewsWithRecovery(
+    const guestCompositeReview = await loadGuestSellListCompositeReviewWithRecovery(
       api,
       anonymousSellListId,
       resolvedRequest,
@@ -587,11 +509,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
       mergeError: null,
       sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
       sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
-      freshnessError: freshnessError ?? guestOfferReviews.recovery?.freshnessError ?? null,
-      sellListRecovery: sellListRecovery ?? guestOfferReviews.recovery?.sellListRecovery ?? null,
+      freshnessError: freshnessError ?? guestCompositeReview.recovery?.freshnessError ?? null,
+      sellListRecovery: sellListRecovery ?? guestCompositeReview.recovery?.sellListRecovery ?? null,
       pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
       sellList,
-      offerReviews: guestOfferReviews.offerReviews,
+      compositeReview: guestCompositeReview.compositeReview,
     };
   }
 
@@ -607,7 +529,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
         "account",
       );
       if (guestSource.sellListRecovery) {
-        const guestOfferReviews = await loadGuestSellListOfferReviewsWithRecovery(
+        const guestCompositeReview = await loadGuestSellListCompositeReviewWithRecovery(
           api,
           anonymousSellListId,
           resolvedRequest,
@@ -620,14 +542,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
           mergeError,
           sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
           sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
-          freshnessError: guestSource.freshnessError ?? guestOfferReviews.recovery?.freshnessError ?? null,
-          sellListRecovery: guestSource.sellListRecovery ?? guestOfferReviews.recovery?.sellListRecovery ?? null,
+          freshnessError: guestSource.freshnessError ?? guestCompositeReview.recovery?.freshnessError ?? null,
+          sellListRecovery: guestSource.sellListRecovery ?? guestCompositeReview.recovery?.sellListRecovery ?? null,
           pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
           sellList: guestSource.sellList,
-          offerReviews: guestOfferReviews.offerReviews,
-          productOfferReviews: [],
-          inventoryItems: [],
-          payoutReadiness: await loadPayoutReadiness(resolvedRequest, api),
+          compositeReview: guestCompositeReview.compositeReview,
         };
       }
 
@@ -665,11 +584,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "sell-checkout-confirmation",
     );
   }
-  let sellListCompositeReview: CheckoutSellListCompositeReview;
+  let sellListCompositeReview: CheckoutSellListCompositeReview | null;
   let compositeReviewRecovery: ReturnType<typeof recoverSellListFreshWriteReadError> = null;
   try {
-    sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
+    sellListCompositeReview = await accountSellListApi.getSellListCompositeReview({
       includeStandardComparison: registrationReturn === "seller-checkout",
+      sellListPath: browserRequestUrl.pathname,
     });
   } catch (error) {
     compositeReviewRecovery = recoverSellListFreshWriteReadError(
@@ -679,7 +599,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "sell-list-composite-review",
     );
     if (!compositeReviewRecovery) throw error;
-    sellListCompositeReview = { offerReviews: [], productOfferReviews: [], inventoryItems: [] };
+    sellListCompositeReview = null;
+  }
+  if (requestHasFreshWriteSource(resolvedRequest, "settlement")) {
+    const available = Boolean(sellListCompositeReview?.screen?.payoutReadiness);
+    recordPayoutReadinessPostWriteConsistencyOutcome(
+      available ? "projection_hit" : "freshness_timeout",
+      freshWriteOutcomeForRequest(resolvedRequest),
+      available ? "none" : "reload_prompt",
+    );
   }
   return {
     isSignedIn: true,
@@ -692,10 +620,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     sellListRecovery: effectiveSellListRecovery ?? compositeReviewRecovery?.sellListRecovery ?? null,
     pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(accountSellListRequest),
     sellList: accountSellList,
-    offerReviews: sellListCompositeReview.offerReviews,
-    productOfferReviews: sellListCompositeReview.productOfferReviews,
-    inventoryItems: sellListCompositeReview.inventoryItems,
-    payoutReadiness: await loadPayoutReadiness(resolvedRequest, accountSellListApi),
+    compositeReview: effectiveSellListRecovery?.kind === "pending-fresh-write" ? null : sellListCompositeReview,
   };
 }
 
@@ -1115,10 +1040,7 @@ export default function CheckoutAccountSellListRoute() {
       <CheckoutSellListPage
         sellListLines={data.sellList.items}
         isSignedIn={data.isSignedIn}
-        offerReviews={"offerReviews" in data ? data.offerReviews : []}
-        productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
-        inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}
-        payoutReadiness={"payoutReadiness" in data ? data.payoutReadiness : null}
+        compositeReview={data.compositeReview}
         latestConfirmation={"latestConfirmation" in data.sellList ? (data.sellList.latestConfirmation ?? null) : null}
         registrationReturn={data.registrationReturn}
         mergedLineCount={data.mergedLineCount}

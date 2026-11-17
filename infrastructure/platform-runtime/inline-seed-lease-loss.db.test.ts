@@ -65,7 +65,7 @@ describeDb("inline seed lease loss (real Postgres)", () => {
     ).rejects.toEqual(substepTimeout(3_000));
     const attemptsAtRejection = plane.seedAttempts();
     expect(attemptsAtRejection).toBeGreaterThanOrEqual(2);
-    expect(plane.trace.filter((entry) => entry.ownerId === SEED_OWNER).map((entry) => entry.operation)).toEqual(
+    expect(plane.trace.filter((entry) => entry.ownerId.startsWith(SEED_OWNER)).map((entry) => entry.operation)).toEqual(
       Array.from({ length: attemptsAtRejection }, () => "missed"),
     );
 
@@ -102,7 +102,9 @@ describeDb("inline seed lease loss (real Postgres)", () => {
     await sleep(RETRY_QUIET_PERIOD_MS);
 
     expect(plane.seedAttempts()).toBe(attemptsAtRejection);
-    expect(plane.trace.filter((entry) => entry.operation === "acquired" && entry.ownerId === SEED_OWNER)).toEqual([]);
+    expect(
+      plane.trace.filter((entry) => entry.operation === "acquired" && entry.ownerId.startsWith(SEED_OWNER)),
+    ).toEqual([]);
     expect(await readTargetLeases(plane.controlPlane)).toEqual([
       { ownerId: HOLDER_OWNER, fencingToken: holder.lease.fencingToken },
     ]);
@@ -128,7 +130,9 @@ describeDb("inline seed lease loss (real Postgres)", () => {
     before: Awaited<ReturnType<typeof readTargetCheckpoint>>,
     thief: Awaited<ReturnType<typeof holdTargetLease>> | undefined,
   ) {
-    expect(plane.trace).toContainEqual(expect.objectContaining({ ownerId: SEED_OWNER, operation: "renewal-refused" }));
+    expect(plane.trace).toContainEqual(
+      expect.objectContaining({ ownerId: expect.stringMatching(/^seed:platform-api:/), operation: "renewal-refused" }),
+    );
     expect(await readProjectedItems(pools())).toEqual(["item-1"]);
     expect(await readTargetCheckpoint(pools())).toEqual(before);
     // The seed released only its own token; the new owner's lease survives.
@@ -136,11 +140,11 @@ describeDb("inline seed lease loss (real Postgres)", () => {
       { ownerId: THIEF_OWNER, fencingToken: thief!.lease.fencingToken },
     ]);
     const seedTokens = plane.trace
-      .filter((entry) => entry.ownerId === SEED_OWNER && entry.operation === "acquired")
+      .filter((entry) => entry.ownerId.startsWith(SEED_OWNER) && entry.operation === "acquired")
       .map((entry) => entry.fencingToken);
     expect(
       plane.trace
-        .filter((entry) => entry.ownerId === SEED_OWNER && entry.operation === "released")
+        .filter((entry) => entry.ownerId.startsWith(SEED_OWNER) && entry.operation === "released")
         .map((entry) => entry.fencingToken),
     ).toEqual(seedTokens);
   }

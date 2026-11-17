@@ -12,11 +12,7 @@ import type { CheckoutShipFromAddressRow } from "../../cart/integrations/identit
 import type { SellListSellerConfirmationEvidence } from "../domain/domain";
 import type { SellerCheckoutChoices, SellerCheckoutOwnerReadCapture } from "../domain/owner-reads";
 import type { SellListReadinessLine, SellListReadinessSnapshot } from "../domain/readiness";
-import type {
-  CheckoutSellListCompositeReview,
-  CheckoutSellListLineRow,
-  CheckoutSellPayoutReadinessRow,
-} from "./queries";
+import type { CheckoutSellListRawReview, CheckoutSellListLineRow, CheckoutSellPayoutReadinessRow } from "./queries";
 
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -269,7 +265,7 @@ function cents(value: string): number | null {
 
 export function sellerCheckoutEstimate(
   lines: readonly CheckoutSellListLineRow[],
-  review: CheckoutSellListCompositeReview | null,
+  review: CheckoutSellListRawReview | null,
   snapshot: SellListReadinessSnapshot,
 ): SellerCheckoutOwnerReadCapture["estimate"] {
   const unavailable = { status: "unavailable", amount: null, currencyCode: null } as const;
@@ -330,7 +326,7 @@ export function sellerCheckoutEvidence(
     payout: CheckoutSellPayoutReadinessRow | null;
     estimate: SellerCheckoutOwnerReadCapture["estimate"];
     lines: readonly SellListReadinessLine[];
-    review: CheckoutSellListCompositeReview | null;
+    review: CheckoutSellListRawReview | null;
     lineSnapshot: SellListReadinessSnapshot;
   }>,
 ): SellListSellerConfirmationEvidence {

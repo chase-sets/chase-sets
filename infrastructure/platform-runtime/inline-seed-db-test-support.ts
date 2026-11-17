@@ -32,7 +32,7 @@ import {
 export const TARGET_GROUP = { targetContextName: "target", projectionName: "items" } as const;
 export const TARGET_LEASE_NAME = "projection-group:target.items";
 export const TARGET_CHECKPOINT_KEY = "items:target:v1";
-export const SEED_OWNER = "seed:platform-api";
+export const SEED_OWNER = "seed:platform-api:";
 
 export type InlineSeedDbPools = Readonly<Record<"platform" | "target", PgTransactionalPool>>;
 
@@ -159,7 +159,8 @@ export function createRecordingControlPlane(pool: PgTransactionalPool) {
   };
   const seedAttempts = () =>
     trace.filter(
-      (entry) => entry.ownerId === SEED_OWNER && (entry.operation === "acquired" || entry.operation === "missed"),
+      (entry) =>
+        entry.ownerId.startsWith(SEED_OWNER) && (entry.operation === "acquired" || entry.operation === "missed"),
     ).length;
   return { controlPlane, recording, trace, renewals, seedAttempts };
 }
