@@ -25,7 +25,8 @@
   },
   "check": {
     "required": "Enter a value.",
-    "attempt": "This form is out of date. Reload the page and try again."
+    "attempt": "This form is out of date. Reload the page and try again.",
+    "zone": "This form did not say which time zone its dates are in. Reload the page and send it again."
   },
   "load": {
     "pending": "Storage locations are still updating. Reload this page in a moment.",

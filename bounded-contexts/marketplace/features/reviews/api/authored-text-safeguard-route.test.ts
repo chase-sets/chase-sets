@@ -123,7 +123,7 @@ describe("issue-5258-marketplace-ac2 Review HTTP route safeguard", () => {
     expect(fixture.allEvents).toHaveLength(0);
   });
 
-  it("accepts ordinary Unicode and https feedback with exactly the submitted and outcome events", async () => {
+  it("accepts ordinary Unicode and https feedback with exactly the submitted event", async () => {
     const fixture = createFixture();
 
     const response = await fixture.post("", {
@@ -134,10 +134,7 @@ describe("issue-5258-marketplace-ac2 Review HTTP route safeguard", () => {
     });
 
     expect(response.status).toBe(201);
-    expect(fixture.allEvents.map((event) => event.eventType)).toEqual([
-      "marketplace.review.submitted",
-      "marketplace.csat-outcome-fact.v1",
-    ]);
+    expect(fixture.allEvents.map((event) => event.eventType)).toEqual(["marketplace.review.submitted"]);
   });
 
   it("rejects an unsafe update and an unsafe Review Response without appending", async () => {
@@ -150,7 +147,7 @@ describe("issue-5258-marketplace-ac2 Review HTTP route safeguard", () => {
     const update = await fixture.post(`/${submitted.id}/update`, { rating: 3, feedback: "See http://x.example" });
     expect(update.status).toBe(400);
     expect((await errorBody(update)).error.code).toBe("text_unsafe_link");
-    expect(fixture.allEvents).toHaveLength(2);
+    expect(fixture.allEvents).toHaveLength(1);
 
     await fixture.runtime.commandHandler({
       streamId: `marketplace.review-${submitted.id}`,
@@ -167,7 +164,7 @@ describe("issue-5258-marketplace-ac2 Review HTTP route safeguard", () => {
       code: "text_direction_override",
       message: authoredTextRecoveryMessage("text_direction_override"),
     });
-    expect(fixture.allEvents).toHaveLength(3);
+    expect(fixture.allEvents).toHaveLength(2);
 
     const accepted = await fixture.post(`/${submitted.id}/reply`, { feedback: "Thanks for the order!" });
     expect(accepted.status).toBe(201);

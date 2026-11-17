@@ -10,6 +10,8 @@ import { buildFulfillmentOutcomeFactProjectionHandlers } from "../features/csat/
 import { buildPaymentsOutcomeFactProjectionHandlers } from "../features/csat/integrations/payments/outcome-fact-projection";
 import { buildSettlementOutcomeFactProjectionHandlers } from "../features/csat/integrations/settlement/outcome-fact-projection";
 import { buildSupportOutcomeFactProjectionHandlers } from "../features/csat/integrations/platform-operations/outcome-fact-projection";
+import { buildMarketplaceOutcomeFactProjectionHandlers } from "../features/csat/integrations/marketplace/outcome-fact-projection";
+import { buildInventoryOutcomeFactProjectionHandlers } from "../features/csat/integrations/inventory/outcome-fact-projection";
 
 export const outcomeHandlers = {
   ...buildAuthOutcomeFactProjectionHandlers(),
@@ -19,6 +21,8 @@ export const outcomeHandlers = {
   ...buildPaymentsOutcomeFactProjectionHandlers(),
   ...buildSettlementOutcomeFactProjectionHandlers(),
   ...buildSupportOutcomeFactProjectionHandlers(),
+  ...buildMarketplaceOutcomeFactProjectionHandlers(),
+  ...buildInventoryOutcomeFactProjectionHandlers(),
 };
 
 export function outcomeRows() {

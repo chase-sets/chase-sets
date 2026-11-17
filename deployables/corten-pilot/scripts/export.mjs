@@ -1639,6 +1639,10 @@ const outputs = [
         ["marketplace.features.listings.ui.listingListPage.", "list"],
         ["marketplace.routes.accountListings.", "route"],
         ["marketplace.features.listings.api.route.error.", "error"],
+        // The Listing attempt refusals' words (listingErrorContract's attempt entries).
+        ["marketplace.listingRecovery.ambiguous", "error.history_incomplete"],
+        ["marketplace.listingRecovery.attemptInvalid", "error.attempt_invalid"],
+        ["marketplace.listingRecovery.attemptConflict", "error.attempt_conflict"],
         ["marketplace.features.sellerDesk.degraded.title", "degraded"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [
