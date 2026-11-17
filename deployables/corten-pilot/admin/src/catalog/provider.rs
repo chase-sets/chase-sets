@@ -47,7 +47,7 @@ use super::{
     api::{Catalog as _, Kind, Written, under},
     command,
     daily::{self, ImportJobs, Readiness, at, with_query},
-    integrations::{HealthProvider, HealthUnit},
+    integrations::{HealthJob, HealthProvider, HealthUnit, ReadModelState},
     manages, receipt,
 };
 use crate::{
@@ -194,14 +194,18 @@ pub struct RouteContext {
     pub profile_version: Option<String>,
 }
 
-/// The health triage's providers and units, for the header and the units.
+/// The health triage's providers, units and jobs, for the header, the units and the jobs, with the
+/// read models' states each section names as its source.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Triage {
+    pub status: String,
     pub freshness: String,
     pub generated_at: Option<String>,
+    pub read_models: Vec<ReadModelState>,
     pub providers: Vec<HealthProvider>,
     pub units: Vec<HealthUnit>,
+    pub recent_jobs: Vec<HealthJob>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
