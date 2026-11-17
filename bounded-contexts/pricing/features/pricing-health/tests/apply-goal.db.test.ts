@@ -116,6 +116,19 @@ describeDb("Pricing Health apply compared goal", () => {
       dryRunContext,
     );
     expect(result).toMatchObject({ policyId: comparisonPolicyId, previousRevision: 1, revision: 2, dryRunId });
+    const replay = await comparisonTestServices(pools.pricing).health.applyGoal(
+      comparisonAccountId,
+      comparisonPolicyId,
+      {
+        dryRunId,
+        targetRevision: before!.version,
+        targetBodyHash: hashRepricingDryRunBody(dryRunBody),
+        candidateBodyHash: hashRepricingDryRunBody(body),
+        ...choice,
+      },
+      dryRunContext,
+    );
+    expect(replay).toEqual(result);
     const after = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
     expect(after!.state.rules[0]!.directive).toEqual(body.rules[0]!.directive);
     expect(after!.state.scope).toEqual(before!.state.scope);

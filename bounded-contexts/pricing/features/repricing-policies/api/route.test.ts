@@ -9,11 +9,17 @@ import { createRepricingPolicyRoutes } from "./route";
 import { createRepricingPolicyRuntime, type RepricingPolicyServices } from "./runtime";
 import { DryRunRequiredError } from "./activation";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
+import { createMemoryRepricingConfigurationWriter } from "../tests/configuration-fixture";
 
 async function fixture() {
   const { eventStore } = createInMemoryEventStore();
   const db: PgQueryable = { query: async () => ({ rows: [] }) };
-  const runtime = createRepricingPolicyRuntime({ eventStore, db, goalAdoptions: async () => [] });
+  const runtime = createRepricingPolicyRuntime({
+    eventStore,
+    db,
+    configuration: createMemoryRepricingConfigurationWriter(eventStore),
+    goalAdoptions: async () => [],
+  });
   const created = await runtime.commandHandler({
     streamId: runtime.streamIdForPolicy("rpp_synthetic_7911"),
     context: dryRunContext,
@@ -75,11 +81,19 @@ async function fixture() {
       shadowedBy: [],
       takenFrom: [],
     })),
-    activateRepricingPolicy: vi.fn(async ({ accountId, dryRunId }) => {
-      if (accountId !== "acc_7910" || dryRunId === "missing") return null;
-      if (dryRunId !== "completed") throw new DryRunRequiredError();
-      return created.state;
-    }),
+    activateRepricingPolicy: vi.fn<Parameters<typeof createRepricingPolicyRoutes>[0]["activateRepricingPolicy"]>(
+      async ({ accountId, dryRunId }) => {
+        if (accountId !== "acc_7910" || dryRunId === "missing") return null;
+        if (dryRunId !== "completed") throw new DryRunRequiredError();
+        return {
+          status: "applied",
+          requestKey: "synthetic_create",
+          requestedRevision: 1,
+          installedRevision: 1,
+          state: created.state,
+        };
+      },
+    ),
   };
   function app(
     accountId = "acc_7910",
@@ -121,6 +135,55 @@ const post = (body: unknown = {}) => ({
 });
 
 describe("account policy controls", () => {
+  it("binds installed reads to the revision snapshot even when an earlier aggregate read is stale", async () => {
+    const { app, services } = await fixture();
+    const loaded = await services.loadOwnedRepricingPolicy("rpp_synthetic_7911", "acc_7910");
+    const installedState = { ...loaded!.state, name: "Installed revision two" };
+    const request = { status: "accepted-pending" as const, requestKey: "synthetic-newer-request", requestedRevision: 3 };
+    vi.spyOn(services, "getPolicyConfigurationStatus").mockResolvedValue({ installedRevision: 2, installedState, requestedRevision: 3, request });
+    vi.spyOn(services, "getHaltConfigurationStatus").mockResolvedValue({ installedRevision: 2,
+      installedState: { engaged: true, engagedAt: "2026-11-17T00:00:00Z", releasedAt: null }, requestedRevision: 3, request });
+    expect(await (await app().request("/policies/rpp_synthetic_7911")).json()).toMatchObject({ name: installedState.name, configuration: { installedRevision: 2, request } });
+    expect(await (await app().request("/policies")).json()).toMatchObject([{ name: installedState.name }]);
+    expect(await (await app().request("/policies/halt")).json()).toMatchObject({ engaged: true, configuration: { installedRevision: 2, request } });
+  });
+  it.each(["accepted-pending", "superseded-by-revision"] as const)(
+    "returns typed %s from every write without changing installed reads",
+    async (status) => {
+      const { app, services } = await fixture();
+      const receipt = {
+        requestKey: "synthetic-http-key",
+        requestedRevision: 2,
+        ...(status === "superseded-by-revision" ? { status, replacingRevision: 3 } : { status }),
+      };
+      vi.spyOn(services, "setHalt").mockResolvedValue(receipt);
+      vi.spyOn(services, "executeOwnedRepricingPolicy").mockResolvedValue(receipt);
+      vi.mocked(services.activateRepricingPolicy).mockResolvedValue(receipt);
+      for (const [path, body] of [
+        ["", { dryRunId: "completed", name: "Requested" }],
+        ["/halt", { engaged: true }],
+        ["/rpp_synthetic_7911/revise", { ...dryRunBody, name: "Requested" }],
+        ["/rpp_synthetic_7911/pause", {}],
+        ["/rpp_synthetic_7911/resume", {}],
+        ["/rpp_synthetic_7911/delete", {}],
+      ] as const) {
+        const response = await app().request(`/policies${path}`, {
+          ...post(body),
+          headers: { "Content-Type": "application/json", "Idempotency-Key": receipt.requestKey },
+        });
+        expect(response.status).toBe(status === "accepted-pending" ? 202 : 409);
+        expect(await response.json()).toEqual(receipt);
+      }
+      const read = await app().request("/policies/rpp_synthetic_7911");
+      expect(await read.json()).toMatchObject({
+        name: "Synthetic",
+        status: "active",
+        configuration: { installedRevision: 1 },
+      });
+      expect(await (await app().request("/policies/halt")).json()).toMatchObject({ engaged: false });
+      expect(services.setHalt).toHaveBeenCalledWith("acc_7910", true, expect.anything(), receipt.requestKey);
+    },
+  );
   it("authoring prerequisites resolve before policy IDs, are actor-only and reject selectors before reading", async () => {
     const { app, services } = await fixture();
     expect(await (await app().request("/policies/authoring-prerequisites")).json()).toEqual({
@@ -247,7 +310,10 @@ describe("account policy controls", () => {
     ] as const) {
       const response = await app().request(`/policies/rpp_synthetic_7911/${action}`, post(body));
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ policyId: "rpp_synthetic_7911", accountId: "acc_7910" });
+      expect(await response.json()).toMatchObject({
+        status: "applied",
+        state: { policyId: "rpp_synthetic_7911", accountId: "acc_7910" },
+      });
     }
     expect(services.getAccountRepricingPolicy).not.toHaveBeenCalled();
     expect(services.activateRepricingPolicy).not.toHaveBeenCalled();
@@ -302,7 +368,10 @@ describe("account policy controls", () => {
     );
     const created = await app().request("/policies", post({ name: "Synthetic", dryRunId: "completed" }));
     expect(created.status).toBe(201);
-    expect(await created.json()).toMatchObject({ status: "active", accountId: "acc_7910" });
+    expect(await created.json()).toMatchObject({
+      status: "applied",
+      state: { status: "active", accountId: "acc_7910" },
+    });
   });
   it("enforces pricing.view for reads and pricing.manage for writes", async () => {
     const { app } = await fixture();

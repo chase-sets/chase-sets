@@ -3,6 +3,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
+import { createMemoryRepricingConfigurationWriter } from "../../repricing-policies/tests/configuration-fixture";
 import { fixedPercentileGoal } from "../../repricing-policies/domain/goals/fixed-percentile";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import { targetHorizonGoal } from "../../repricing-policies/domain/goals/target-horizon";
@@ -150,6 +151,7 @@ describe("Adoption Gate", () => {
       goalDefinitions: () => [fixedPercentileGoal, version(fixedPercentileGoal, 2, "selectable")],
     });
     const repricingPolicies = createRepricingPolicyRuntime({
+      configuration: createMemoryRepricingConfigurationWriter(eventStore),
       eventStore,
       db,
       goalAdoptions: () => forecastLedger.listGoalAdoptions(),

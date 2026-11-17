@@ -1,12 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import {
-  withPgTransaction,
-  type PgPoolClient,
-  type PgTransactionalPool,
-  type PostgresEventStore,
-} from "@chase-sets/event-core-postgres";
+import { type PgPoolClient, type PgTransactionalPool, type PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import {
   hashRepricingDryRunBody,
@@ -20,6 +14,8 @@ import {
   type RepricingPolicyEvent,
 } from "../domain/domain";
 import { repricingPolicyStreamId } from "../read-model/projection";
+import type { RepricingConfigurationWriter } from "./configuration";
+import { parseRepricingPolicyState } from "../domain/configuration-state";
 
 export class DryRunRequiredError extends Error {
   constructor() {
@@ -31,81 +27,86 @@ export function createRepricingPolicyActivationServices(
   deps: Readonly<{
     pool: PgTransactionalPool;
     eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction">;
+    configuration: RepricingConfigurationWriter;
   }>,
 ) {
   const codec = createPassthroughDomainEventCodec<RepricingPolicyEvent>();
   return {
     activateRepricingPolicy: async (
-      input: Readonly<{ accountId: string; dryRunId: string; name: string }>,
+      input: Readonly<{ accountId: string; dryRunId: string; name: string; requestKey?: string }>,
       context: EventStoreContext,
     ) => {
-      const result = await withPgTransaction(deps.pool, async (client: PgPoolClient) => {
-        const run = (
-          await client.query<{
-            body: RepricingDryRunBody;
-            body_hash: string;
-            status: string;
-            consumed_at: string | null;
-            job_status: string;
-          }>(
-            `SELECT run.body, run.body_hash, run.status, run.consumed_at, job.status AS job_status
+      return deps.configuration.request({
+        key: `pricing.repricing-activation:${input.accountId}:${input.dryRunId}`,
+        accountId: input.accountId,
+        requestKey: input.requestKey,
+        fingerprint: JSON.stringify({ dryRunId: input.dryRunId, name: input.name }),
+        parseState: parseRepricingPolicyState,
+        prepare: async (client: PgPoolClient) => {
+          const run = (
+            await client.query<{
+              body: RepricingDryRunBody;
+              body_hash: string;
+              status: string;
+              consumed_at: string | null;
+              job_status: string;
+            }>(
+              `SELECT run.body, run.body_hash, run.status, run.consumed_at, job.status AS job_status
            FROM pricing_repricing_dry_runs AS run
            JOIN pricing_repricing_dry_run_jobs AS job ON job.job_id = run.dry_run_id
              AND job.payload->>'sellerAccountId' = run.seller_account_id
            WHERE run.seller_account_id = $1 AND run.dry_run_id = $2`,
-            [input.accountId, input.dryRunId],
-          )
-        ).rows[0];
-        if (!run) return null;
-        if (
-          run.status !== "completed" ||
-          run.job_status === "failed" ||
-          run.job_status === "cancelled" ||
-          run.consumed_at !== null
-        )
-          throw new DryRunRequiredError();
-        try {
+              [input.accountId, input.dryRunId],
+            )
+          ).rows[0];
+          if (!run) return null;
           if (
-            hashRepricingDryRunBody(run.body) !== run.body_hash ||
-            hashRepricingDryRunBody(validateRepricingDryRunBody(run.body, input.accountId)) !== run.body_hash
+            run.status !== "completed" ||
+            run.job_status === "failed" ||
+            run.job_status === "cancelled" ||
+            run.consumed_at !== null
           )
             throw new DryRunRequiredError();
-        } catch {
-          throw new DryRunRequiredError();
-        }
-        const policyId = createId("rpp");
-        const createdAt = new Date().toISOString();
-        const events = decideRepricingPolicy(initialRepricingPolicyState, {
-          ...run.body,
-          type: "CreateRepricingPolicy",
-          policyId,
-          accountId: parseTypedId(input.accountId, "acc"),
-          name: input.name,
-          createdAt,
-        });
-        const consumed = await client.query(
-          `UPDATE pricing_repricing_dry_runs AS run SET consumed_at = $3, updated_at = $3
+          try {
+            if (
+              hashRepricingDryRunBody(run.body) !== run.body_hash ||
+              hashRepricingDryRunBody(validateRepricingDryRunBody(run.body, input.accountId)) !== run.body_hash
+            )
+              throw new DryRunRequiredError();
+          } catch {
+            throw new DryRunRequiredError();
+          }
+          const policyId = createId("rpp");
+          const createdAt = new Date().toISOString();
+          const events = decideRepricingPolicy(initialRepricingPolicyState, {
+            ...run.body,
+            type: "CreateRepricingPolicy",
+            policyId,
+            accountId: parseTypedId(input.accountId, "acc"),
+            name: input.name,
+            createdAt,
+          });
+          const consumed = await client.query(
+            `UPDATE pricing_repricing_dry_runs AS run SET consumed_at = $3, updated_at = $3
            WHERE seller_account_id = $1 AND dry_run_id = $2 AND consumed_at IS NULL
              AND status = 'completed' AND body_hash = $4 AND body = $5::jsonb
              AND EXISTS (SELECT 1 FROM pricing_repricing_dry_run_jobs AS job
                WHERE job.job_id = run.dry_run_id AND job.status NOT IN ('failed', 'cancelled')
                  AND job.payload->>'sellerAccountId' = run.seller_account_id)
            RETURNING dry_run_id`,
-          [input.accountId, input.dryRunId, createdAt, run.body_hash, JSON.stringify(run.body)],
-        );
-        if (!consumed.rows.length) throw new DryRunRequiredError();
-        const storedEvents = await deps.eventStore.appendToStreamInTransaction(client, {
-          streamId: repricingPolicyStreamId(policyId),
-          expectedVersion: "no_stream",
-          context,
-          wakeSourceContextName: "pricing",
-          events: events.map(codec.encode),
-        });
-        return { state: events.reduce(evolveRepricingPolicy, initialRepricingPolicyState), storedEvents };
+            [input.accountId, input.dryRunId, createdAt, run.body_hash, JSON.stringify(run.body)],
+          );
+          if (!consumed.rows.length) throw new DryRunRequiredError();
+          const append = {
+            streamId: repricingPolicyStreamId(policyId),
+            expectedVersion: "no_stream" as const,
+            context,
+            wakeSourceContextName: "pricing",
+            events: events.map(codec.encode),
+          };
+          return { state: events.reduce(evolveRepricingPolicy, initialRepricingPolicyState), append };
+        },
       });
-      if (!result) return null;
-      recordCommittedEvents(result.storedEvents, "pricing");
-      return result.state;
     },
   };
 }

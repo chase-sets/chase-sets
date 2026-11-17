@@ -17,6 +17,18 @@ import type {
 import type { ProductMarketStatsSnapshotResponse } from "../../features/market-rollups/api/runtime";
 import type { RepricingPolicyState } from "../../features/repricing-policies/domain/domain";
 import type { RepricingHaltState } from "../../features/repricing-policies/domain/halt";
+import {
+  parseRepricingConfigurationReceipt,
+  parseRepricingConfigurationStatus,
+  type RepricingConfigurationStatus,
+  type RepricingConfigurationReceipt,
+  type RepricingPolicyReceipt,
+  type RepricingHaltReceipt,
+} from "../../features/repricing-policies/domain/configuration-receipt";
+import {
+  parseRepricingPolicyState,
+  parseRepricingHaltState,
+} from "../../features/repricing-policies/domain/configuration-state";
 import type { RepricingDryRun, RepricingDryRunBody } from "../../features/repricing-engine/api/dry-run";
 import type { RepricingPolicyListingTrace } from "../../features/repricing-engine/domain/fact";
 import type {
@@ -29,11 +41,13 @@ import type { RepricingActivityFilter, listRepricingActivity } from "../../featu
 import type { ApplyGoalRequest, ApplyGoalResult, PricingHealthData } from "../../features/pricing-health/api/services";
 import type { GoalParameterRequest } from "../../features/pricing-health/api/goal-comparison";
 
-export type RepricingPolicyListItem = RepricingPolicyState & Readonly<{ changesUsedToday: number }>;
+export type RepricingPolicyListItem = RepricingPolicyState &
+  Readonly<{ changesUsedToday: number; configuration?: RepricingConfigurationStatus<RepricingPolicyState> }>;
 export type RepricingBudget = Readonly<{ day: string; changesUsed: number }>;
 export type RepricingActivityPage = Awaited<ReturnType<typeof listRepricingActivity>>;
 export type RepricingActivityQuery = Readonly<{ filter?: RepricingActivityFilter; after?: string; limit?: number }>;
 export type { RepricingPolicyState, RepricingHaltState, RepricingDryRun, RepricingActivityFilter };
+export type { RepricingPolicyReceipt, RepricingHaltReceipt };
 
 export type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 export type {
@@ -101,6 +115,25 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return attachResponseMetadata(await response.json(), response) as T;
 }
 
+async function parseConfigurationResponse<State>(
+  response: Response,
+  parseState: (value: unknown) => State,
+): Promise<RepricingConfigurationReceipt<State>> {
+  const body: unknown = await response.json();
+  if (![200, 201, 202, 409].includes(response.status)) throw new PricingApiError(response.status, body);
+  let receipt: RepricingConfigurationReceipt<State>;
+  try {
+    receipt = parseRepricingConfigurationReceipt(body, parseState);
+  } catch {
+    throw new PricingApiError(response.ok ? 502 : response.status, body);
+  }
+  const expected =
+    receipt.status === "accepted-pending" ? 202 : receipt.status === "superseded-by-revision" ? 409 : null;
+  if (expected === null ? ![200, 201].includes(response.status) : response.status !== expected)
+    throw new PricingApiError(502, { error: { code: "invalid_configuration_receipt" } });
+  return attachResponseMetadata(receipt, response);
+}
+
 export function createPricingApiClient({
   baseUrl = "/api/marketplace",
   fetch = globalThis.fetch,
@@ -118,6 +151,10 @@ export function createPricingApiClient({
     }),
   );
   const headers = resolveHeaders(initialHeaders);
+  const writeHeaders = (requestKey: string) => ({
+    ...Object.fromEntries(new Headers(headers)),
+    "Idempotency-Key": requestKey,
+  });
 
   return {
     async getPricingHealth(
@@ -160,13 +197,42 @@ export function createPricingApiClient({
       return parseJsonResponse(response);
     },
     async applyPricingHealthGoal(policyId: string, body: ApplyGoalRequest): Promise<ApplyGoalResult> {
-      return parseJsonResponse(
-        await client.account["pricing-health"][":policyId"]["apply-goal"].$post({
-          param: { policyId },
-          json: body,
-          header: headers,
-        }),
-      );
+      const response = await client.account["pricing-health"][":policyId"]["apply-goal"].$post({
+        param: { policyId },
+        json: body,
+        header: headers,
+      });
+      const original = response.clone();
+      const receipt = await parseConfigurationResponse(response, parseRepricingPolicyState);
+      if (receipt.status !== "applied") return receipt;
+      const result: Extract<ApplyGoalResult, { status: "applied" }> = await original.json();
+      if (
+        !Number.isSafeInteger(result.previousRevision) ||
+        result.previousRevision < 0 ||
+        !Number.isSafeInteger(result.revision) ||
+        result.revision !== result.previousRevision + 1 ||
+        result.policyId !== receipt.state.policyId ||
+        typeof result.bodyHash !== "string" ||
+        typeof result.dryRunId !== "string" ||
+        typeof result.goalId !== "string" ||
+        !Number.isSafeInteger(result.goalVersion) ||
+        result.goalVersion < 1 ||
+        !result.parameters ||
+        typeof result.parameters !== "object" ||
+        Array.isArray(result.parameters) ||
+        !Object.values(result.parameters).every(Number.isFinite) ||
+        !result.movement ||
+        !result.alerts ||
+        ![
+          result.movement.raised,
+          result.movement.lowered,
+          result.movement.held,
+          result.alerts.floorBinding,
+          result.alerts.evidenceFloorBinding,
+        ].every((value) => Number.isSafeInteger(value) && value >= 0)
+      )
+        throw new PricingApiError(502, { error: { code: "invalid_configuration_receipt" } });
+      return attachResponseMetadata({ ...result, ...receipt }, original);
     },
     async listAccountRecommendations(query = ""): Promise<ListResponse<AccountRecommendationListItem>> {
       return parseJsonResponse(
@@ -280,7 +346,45 @@ export function createPricingApiClient({
       );
     },
     async listRepricingPolicies(): Promise<readonly RepricingPolicyListItem[]> {
-      return parseJsonResponse(await client.account["repricing-policies"].$get({ header: headers }));
+      const response = await client.account["repricing-policies"].$get({ header: headers });
+      const body: unknown = await parseJsonResponse(response);
+      if (!Array.isArray(body)) throw new PricingApiError(502, { error: { code: "invalid_configuration_status" } });
+      return attachResponseMetadata(
+        body.map((value) => {
+          const state = parseRepricingPolicyState(value);
+          if (
+            !value ||
+            typeof value !== "object" ||
+            !("configuration" in value) ||
+            !("changesUsedToday" in value) ||
+            !Number.isSafeInteger(value.changesUsedToday) ||
+            value.changesUsedToday < 0
+          )
+            throw new PricingApiError(502, { error: { code: "invalid_configuration_status" } });
+          return {
+            ...state,
+            changesUsedToday: value.changesUsedToday,
+            configuration: parseRepricingConfigurationStatus(value.configuration, parseRepricingPolicyState),
+          };
+        }),
+        response,
+      );
+    },
+    async listRepricingConfigurationRequests(): Promise<
+      readonly RepricingConfigurationReceipt<RepricingPolicyState | RepricingHaltState>[]
+    > {
+      const body: unknown = await parseJsonResponse(
+        await client.account["repricing-policies"]["configuration-requests"].$get({ header: headers }),
+      );
+      if (!Array.isArray(body) || body.length > 100)
+        throw new PricingApiError(502, { error: { code: "invalid_configuration_status" } });
+      return body.map((value) =>
+        parseRepricingConfigurationReceipt<RepricingPolicyState | RepricingHaltState>(value, (state) =>
+          state && typeof state === "object" && "engaged" in state
+            ? parseRepricingHaltState(state)
+            : parseRepricingPolicyState(state),
+        ),
+      );
     },
     async getRepricingAuthoringPrerequisites(): Promise<RepricingAuthoringPrerequisites> {
       return parseJsonResponse(
@@ -295,19 +399,27 @@ export function createPricingApiClient({
         await client.account["repricing-policies"]["scope-preview"].$post({ json: body, header: headers }),
       );
     },
-    async createRepricingPolicy(body: { dryRunId: string; name: string }): Promise<RepricingPolicyState> {
-      return parseJsonResponse(await client.account["repricing-policies"].$post({ json: body, header: headers }));
+    async createRepricingPolicy(
+      body: { dryRunId: string; name: string },
+      requestKey: string = crypto.randomUUID(),
+    ): Promise<RepricingPolicyReceipt> {
+      return parseConfigurationResponse(
+        await client.account["repricing-policies"].$post({ json: body, header: writeHeaders(requestKey) }),
+        parseRepricingPolicyState,
+      );
     },
     async reviseRepricingPolicy(
       policyId: string,
       body: RepricingDryRunBody & { name: string },
-    ): Promise<RepricingPolicyState> {
-      return parseJsonResponse(
+      requestKey: string = crypto.randomUUID(),
+    ): Promise<RepricingPolicyReceipt> {
+      return parseConfigurationResponse(
         await client.account["repricing-policies"][":policyId"].revise.$post({
           param: { policyId },
           json: body,
-          header: headers,
+          header: writeHeaders(requestKey),
         }),
+        parseRepricingPolicyState,
       );
     },
     async startRepricingDryRun(body: RepricingDryRunBody & { replacingPolicyId?: string }): Promise<RepricingDryRun> {
@@ -332,32 +444,75 @@ export function createPricingApiClient({
         }),
       );
     },
-    async getRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
-      return parseJsonResponse(
-        await client.account["repricing-policies"][":policyId"].$get({ param: { policyId }, header: headers }),
+    async getRepricingPolicy(
+      policyId: string,
+    ): Promise<RepricingPolicyState & { configuration?: RepricingConfigurationStatus<RepricingPolicyState> }> {
+      const response = await client.account["repricing-policies"][":policyId"].$get({
+        param: { policyId },
+        header: headers,
+      });
+      const value: unknown = await parseJsonResponse(response);
+      const state = parseRepricingPolicyState(value);
+      if (!value || typeof value !== "object" || !("configuration" in value))
+        throw new PricingApiError(502, { error: { code: "invalid_configuration_status" } });
+      return attachResponseMetadata(
+        { ...state, configuration: parseRepricingConfigurationStatus(value.configuration, parseRepricingPolicyState) },
+        response,
       );
     },
-    async pauseRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
-      return parseJsonResponse(
-        await client.account["repricing-policies"][":policyId"].pause.$post({ param: { policyId }, header: headers }),
+    async pauseRepricingPolicy(
+      policyId: string,
+      requestKey: string = crypto.randomUUID(),
+    ): Promise<RepricingPolicyReceipt> {
+      return parseConfigurationResponse(
+        await client.account["repricing-policies"][":policyId"].pause.$post({
+          param: { policyId },
+          header: writeHeaders(requestKey),
+        }),
+        parseRepricingPolicyState,
       );
     },
-    async resumeRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
-      return parseJsonResponse(
-        await client.account["repricing-policies"][":policyId"].resume.$post({ param: { policyId }, header: headers }),
+    async resumeRepricingPolicy(
+      policyId: string,
+      requestKey: string = crypto.randomUUID(),
+    ): Promise<RepricingPolicyReceipt> {
+      return parseConfigurationResponse(
+        await client.account["repricing-policies"][":policyId"].resume.$post({
+          param: { policyId },
+          header: writeHeaders(requestKey),
+        }),
+        parseRepricingPolicyState,
       );
     },
-    async deleteRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
-      return parseJsonResponse(
-        await client.account["repricing-policies"][":policyId"].delete.$post({ param: { policyId }, header: headers }),
+    async deleteRepricingPolicy(
+      policyId: string,
+      requestKey: string = crypto.randomUUID(),
+    ): Promise<RepricingPolicyReceipt> {
+      return parseConfigurationResponse(
+        await client.account["repricing-policies"][":policyId"].delete.$post({
+          param: { policyId },
+          header: writeHeaders(requestKey),
+        }),
+        parseRepricingPolicyState,
       );
     },
-    async getRepricingHalt(): Promise<RepricingHaltState> {
-      return parseJsonResponse(await client.account["repricing-policies"].halt.$get({ header: headers }));
+    async getRepricingHalt(): Promise<
+      RepricingHaltState & { configuration?: RepricingConfigurationStatus<RepricingHaltState> }
+    > {
+      const response = await client.account["repricing-policies"].halt.$get({ header: headers });
+      const value: unknown = await parseJsonResponse(response);
+      const state = parseRepricingHaltState(value);
+      if (!value || typeof value !== "object" || !("configuration" in value))
+        throw new PricingApiError(502, { error: { code: "invalid_configuration_status" } });
+      return attachResponseMetadata(
+        { ...state, configuration: parseRepricingConfigurationStatus(value.configuration, parseRepricingHaltState) },
+        response,
+      );
     },
-    async setRepricingHalt(engaged: boolean): Promise<RepricingHaltState> {
-      return parseJsonResponse(
-        await client.account["repricing-policies"].halt.$post({ json: { engaged }, header: headers }),
+    async setRepricingHalt(engaged: boolean, requestKey: string = crypto.randomUUID()): Promise<RepricingHaltReceipt> {
+      return parseConfigurationResponse(
+        await client.account["repricing-policies"].halt.$post({ json: { engaged }, header: writeHeaders(requestKey) }),
+        parseRepricingHaltState,
       );
     },
     async getRepricingBudget(): Promise<RepricingBudget> {

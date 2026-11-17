@@ -56,6 +56,24 @@ const data: PricingHealthData = {
 };
 
 describe("Pricing Health page states", () => {
+  it.each(["accepted-pending", "superseded-by-revision"] as const)(
+    "does not render applied success for %s",
+    (status) => {
+      const html = renderToStaticMarkup(
+        <PricingHealthPage
+          data={data}
+          applyResult={{
+            requestKey: "synthetic-goal",
+            requestedRevision: 2,
+            ...(status === "superseded-by-revision" ? { status, replacingRevision: 3 } : { status }),
+          }}
+        />,
+      );
+      expect(html).toContain(status === "accepted-pending" ? "installed policy is unchanged" : "replaced by request 3");
+      expect(html).not.toContain("Pricing goal applied");
+      expect(html).not.toContain("[missing:");
+    },
+  );
   it("renders an unavailable what-if chart while retaining verdict, comparison and grades (F2)", () => {
     const html = renderToStaticMarkup(<PricingHealthPage data={{ ...data, whatIf: { status: "unavailable" } }} />);
     expect(html).toContain("Chart unavailable");

@@ -7,6 +7,7 @@ import type { EconomicsFact, EconomicsFacts, ResolveEconomicsRequest } from "../
 import type { EconomicsResolution } from "../../economics/domain/resolution";
 import { createForecastLedgerRuntime } from "../../forecast-ledger/api/runtime";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
+import { createRepricingConfigurationWriter } from "../../repricing-policies/api/configuration";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
 import { createRepricingDryRunServices, type RepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import {
@@ -109,6 +110,7 @@ export function comparisonTestServices(
     goalDefinitions: pricingGoalDefinitions,
   });
   const repricingPolicies = createRepricingPolicyRuntime({
+    configuration: createRepricingConfigurationWriter({ pool: db, eventStore }),
     eventStore,
     db,
     goalAdoptions: forecastLedger.listGoalAdoptions,

@@ -14,6 +14,7 @@ import { createMarketEstimatesRuntime } from "../../features/market-estimates/ap
 import { createDemandCurveCloser } from "../../features/market-estimates/api/demand-curve-closer";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
 import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
+import { createRepricingConfigurationWriter } from "../../features/repricing-policies/api/configuration";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
@@ -117,9 +118,15 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
       return result;
     },
   };
+  const configuration = createRepricingConfigurationWriter({ pool, eventStore });
   const repricingPolicies = {
-    ...createRepricingPolicyRuntime({ eventStore, db, goalAdoptions: () => forecastLedger.listGoalAdoptions() }),
-    ...createRepricingPolicyActivationServices({ eventStore, pool }),
+    ...createRepricingPolicyRuntime({
+      eventStore,
+      db,
+      configuration,
+      goalAdoptions: () => forecastLedger.listGoalAdoptions(),
+    }),
+    ...createRepricingPolicyActivationServices({ eventStore, pool, configuration }),
   };
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
   const bulkRepriceIngestion = createBulkRepriceIngestionRuntime({ db });

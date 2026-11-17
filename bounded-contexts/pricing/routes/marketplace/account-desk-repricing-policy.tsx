@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
-import { Button } from "@chase-sets/design-system";
+import { Banner, Button } from "@chase-sets/design-system";
 import { PolicyEditorDrawer } from "../../features/repricing-policies/ui/policy-editor-drawer";
 import type { PolicyEditorBody } from "../../features/repricing-policies/ui/presets";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -42,7 +42,15 @@ import {
   repricingDeskRequestWithoutFreshWrite,
   resolveRepricingDeskPostWriteRequest,
 } from "../../support/route-support/repricing-desk-post-write";
-import { loadOrUnavailable, REPRICING_DESK_HREF, repricingPolicyIdFrom } from "./account-desk-repricing";
+import {
+  loadOrUnavailable,
+  REPRICING_DESK_HREF,
+  repricingPolicyIdFrom,
+  repricingRequestKeyFrom,
+  repricingConfigurationMessage,
+  type RepricingActionData,
+} from "./account-desk-repricing";
+import type { RepricingPolicyReceipt } from "../../features/repricing-policies/domain/configuration-receipt";
 
 const releasedHalt: RepricingHaltState = { engaged: false, engagedAt: null, releasedAt: null };
 
@@ -57,7 +65,8 @@ const REPRICING_POLICY_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/desk/repricing/:policyId",
 } as const satisfies PlatformPostWriteTelemetry;
 
-async function navigateAfterPolicyWrite(commandResult: unknown, destination: string) {
+async function navigateAfterPolicyWrite(commandResult: RepricingPolicyReceipt, destination: string) {
+  if (commandResult.status !== "applied") return { configuration: commandResult };
   return redirect(
     await navigateAfterWriteWithPlatformPostWriteToken(commandResult, destination, {
       telemetry: REPRICING_POLICY_POST_WRITE_TELEMETRY,
@@ -69,8 +78,8 @@ type RepricingPolicyLoaderData =
   | Readonly<{ recovery: "catching-up" }>
   | Readonly<{
       recovery: null;
-      policy: RepricingPolicyState;
-      halt: RepricingHaltState;
+      policy: Awaited<ReturnType<ReturnType<typeof createPricingRequestApiClient>["getRepricingPolicy"]>>;
+      halt: Awaited<ReturnType<ReturnType<typeof createPricingRequestApiClient>["getRepricingHalt"]>>;
       changesUsedToday: number;
       activity: RepricingActivityPage | null;
       activityFilter: RepricingActivityFilter | null;
@@ -128,32 +137,53 @@ export const action = defineFormAction({
     "revise-policy": async ({ request, formData }) => {
       const policyId = repricingPolicyIdFrom(formData);
       const body: PolicyEditorBody = JSON.parse(String(formData.get("body") ?? "null"));
-      const result = await createPricingRequestApiClient(request).reviseRepricingPolicy(policyId, body);
+      const result = await createPricingRequestApiClient(request).reviseRepricingPolicy(
+        policyId,
+        body,
+        repricingRequestKeyFrom(formData),
+      );
       return navigateAfterPolicyWrite(result, repricingPolicyHref(policyId));
     },
     "pause-policy": async ({ request, formData }) => {
       const policyId = repricingPolicyIdFrom(formData);
-      const result = await createPricingRequestApiClient(request).pauseRepricingPolicy(policyId);
+      const result = await createPricingRequestApiClient(request).pauseRepricingPolicy(
+        policyId,
+        repricingRequestKeyFrom(formData),
+      );
       return navigateAfterPolicyWrite(result, repricingPolicyHref(policyId));
     },
     "resume-policy": async ({ request, formData }) => {
       const policyId = repricingPolicyIdFrom(formData);
-      const result = await createPricingRequestApiClient(request).resumeRepricingPolicy(policyId);
+      const result = await createPricingRequestApiClient(request).resumeRepricingPolicy(
+        policyId,
+        repricingRequestKeyFrom(formData),
+      );
       return navigateAfterPolicyWrite(result, repricingPolicyHref(policyId));
     },
     "delete-policy": async ({ request, formData }) => {
       const result = await createPricingRequestApiClient(request).deleteRepricingPolicy(
         repricingPolicyIdFrom(formData),
+        repricingRequestKeyFrom(formData),
       );
       return navigateAfterPolicyWrite(result, REPRICING_DESK_HREF);
     },
     "engage-halt": async ({ request, formData }) => {
-      await createPricingRequestApiClient(request).setRepricingHalt(true);
-      return formActionRedirect(null, repricingPolicyHref(repricingPolicyIdFrom(formData)));
+      const result = await createPricingRequestApiClient(request).setRepricingHalt(
+        true,
+        repricingRequestKeyFrom(formData),
+      );
+      return result.status === "applied"
+        ? formActionRedirect(null, repricingPolicyHref(repricingPolicyIdFrom(formData)))
+        : { configuration: result };
     },
     "release-halt": async ({ request, formData }) => {
-      await createPricingRequestApiClient(request).setRepricingHalt(false);
-      return formActionRedirect(null, repricingPolicyHref(repricingPolicyIdFrom(formData)));
+      const result = await createPricingRequestApiClient(request).setRepricingHalt(
+        false,
+        repricingRequestKeyFrom(formData),
+      );
+      return result.status === "applied"
+        ? formActionRedirect(null, repricingPolicyHref(repricingPolicyIdFrom(formData)))
+        : { configuration: result };
     },
   },
   onUnknownIntent: () => ({ error: t("pricing.routes.marketplace.accountDeskRepricing.unknownAction") }),
@@ -171,14 +201,15 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceSellerDeskRepricingPolicyRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { error?: string; details?: readonly string[] } | undefined;
+  const actionData = useActionData<typeof action>() as RepricingActionData | undefined;
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
   const [editorOpen, setEditorOpen] = useState(() => new URLSearchParams(location.search).get("edit") === "1");
   const [openedAtKey, setOpenedAtKey] = useState(location.key);
   useEffect(() => {
-    if (!actionData?.error) setEditorOpen(new URLSearchParams(location.search).get("edit") === "1");
+    if (!actionData?.error && !actionData?.configuration)
+      setEditorOpen(new URLSearchParams(location.search).get("edit") === "1");
   }, [location.key]);
   const [, setSearchParams] = useSearchParams();
   useRepricingDeskCatchUp(data.recovery === "catching-up");
@@ -186,11 +217,25 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
     return <PricingRepricingPolicyCatchingUpPage refreshHref={`${location.pathname}${location.search}`} />;
   }
   const policyId = data.policy.policyId ?? "";
-  const submitIntent = (intent: string) => submit({ intent, policyId }, { method: "post" });
+  const submitIntent = (intent: string) =>
+    submit({ intent, policyId, requestKey: crypto.randomUUID() }, { method: "post" });
   const navigating = navigation.state === "loading" && !navigation.formData;
 
   return (
     <>
+      {actionData?.configuration ? (
+        <Banner tone="info" title={repricingConfigurationMessage(actionData.configuration)} />
+      ) : null}
+      {[data.policy.configuration?.request, data.halt.configuration?.request]
+        .filter(
+          (receipt) =>
+            receipt && receipt.status !== "applied" && receipt.requestKey !== actionData?.configuration?.requestKey,
+        )
+        .map((receipt) =>
+          receipt ? (
+            <Banner key={receipt.requestKey} tone="info" title={repricingConfigurationMessage(receipt)} />
+          ) : null,
+        )}
       <PricingRepricingPolicyDetailPage
         editAction={
           data.policy.status !== "deleted" ? (
@@ -236,6 +281,7 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
           }}
           onClose={() => setEditorOpen(false)}
           saving={navigation.state === "submitting"}
+          saveStatus={actionData?.configuration ? repricingConfigurationMessage(actionData.configuration) : undefined}
           saveErrors={
             location.key === openedAtKey
               ? []
@@ -245,8 +291,8 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
                   ? [actionData.error]
                   : []
           }
-          onSave={({ body }) =>
-            submit({ intent: "revise-policy", policyId, body: JSON.stringify(body) }, { method: "post" })
+          onSave={({ body, requestKey }) =>
+            submit({ intent: "revise-policy", policyId, body: JSON.stringify(body), requestKey }, { method: "post" })
           }
         />
       ) : null}

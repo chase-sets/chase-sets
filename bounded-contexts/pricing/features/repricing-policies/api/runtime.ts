@@ -6,6 +6,19 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { LoadedAggregate } from "@chase-sets/event-core/aggregate-repository";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { RepricingConfigurationWriter } from "./configuration";
+import {
+  RepricingConfigurationConflict,
+  repricingPolicyConfigurationKey,
+  repricingHaltConfigurationKey,
+} from "./configuration";
+import type {
+  RepricingPolicyReceipt,
+  RepricingHaltReceipt,
+  RepricingConfigurationStatus,
+} from "../domain/configuration-receipt";
+import { parseRepricingPolicyState, parseRepricingHaltState } from "../domain/configuration-state";
+import { canonicalJson } from "../../repricing-engine/api/dry-run";
 import {
   decideRepricingPolicy,
   evolveRepricingPolicy,
@@ -47,6 +60,7 @@ type RepricingPolicyRuntimeDeps = Readonly<{
   db: PgQueryable;
   /** The Adoption Gate over the registered goal versions, owned by the Forecast Ledger. */
   goalAdoptions: () => Promise<readonly GoalAdoption[]>;
+  configuration: RepricingConfigurationWriter;
 }>;
 
 export class PolicyControlValidationError extends Error {}
@@ -66,10 +80,30 @@ export type RepricingPolicyServices = Readonly<{
       accountId: string;
       command: Exclude<RepricingPolicyCommand, { type: "CreateRepricingPolicy" }>;
       context: EventStoreContext;
+      requestKey?: string;
+      requestFingerprint?: string;
+      expectedPolicyVersion?: number;
     }>,
-  ) => Promise<RepricingPolicyState | null>;
+  ) => Promise<RepricingPolicyReceipt | null>;
   getHalt: (accountId: string) => Promise<RepricingHaltState>;
-  setHalt: (accountId: string, engaged: boolean, context: EventStoreContext) => Promise<RepricingHaltState>;
+  setHalt: (
+    accountId: string,
+    engaged: boolean,
+    context: EventStoreContext,
+    requestKey?: string,
+  ) => Promise<RepricingHaltReceipt>;
+  getPolicyConfigurationStatus: (
+    accountId: string,
+    policyId: string,
+  ) => Promise<RepricingConfigurationStatus<RepricingPolicyState>>;
+  getHaltConfigurationStatus: (accountId: string) => Promise<RepricingConfigurationStatus<RepricingHaltState>>;
+  retryPolicyConfiguration: (
+    accountId: string,
+    policyId: string,
+    requestKey: string,
+    fingerprint: string,
+  ) => Promise<RepricingPolicyReceipt | null>;
+  listConfigurationRequests: RepricingConfigurationWriter["list"];
   getBudget: (accountId: string, day: string) => ReturnType<typeof getRepricingBudget>;
   listCategories: (accountId: string) => ReturnType<typeof listRepricingCategories>;
   getAuthoringPrerequisites: (accountId: string) => Promise<RepricingAuthoringPrerequisites>;
@@ -110,34 +144,110 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
 
   return {
     commandHandler,
+    listConfigurationRequests: deps.configuration.list.bind(deps.configuration),
     getAccountRepricingPolicy: (params) => getAccountRepricingPolicy(deps.db, params),
     loadOwnedRepricingPolicy,
-    executeOwnedRepricingPolicy: async ({ policyId, accountId, command, context }) => {
-      const loaded = await loadOwnedRepricingPolicy(policyId, accountId);
-      if (!loaded) return null;
-      try {
-        decideRepricingPolicy(loaded.state, command);
-      } catch (error) {
-        throw new PolicyControlValidationError("Invalid policy command.", { cause: error });
-      }
-      return (
-        await commandHandler({
-          streamId: repricingPolicyStreamId(policyId),
-          command,
-          context,
-          expectedVersion: loaded.version,
-        })
-      ).state;
+    executeOwnedRepricingPolicy: async ({
+      policyId,
+      accountId,
+      command,
+      context,
+      requestKey,
+      requestFingerprint,
+      expectedPolicyVersion,
+    }) => {
+      const {
+        pausedAt: _paused,
+        resumedAt: _resumed,
+        deletedAt: _deleted,
+        revisedAt: _revised,
+        ...semantic
+      } = {
+        pausedAt: undefined,
+        resumedAt: undefined,
+        deletedAt: undefined,
+        revisedAt: undefined,
+        ...command,
+      };
+      return deps.configuration.request({
+        key: repricingPolicyConfigurationKey(accountId, policyId),
+        accountId,
+        requestKey,
+        fingerprint: requestFingerprint ?? canonicalJson(semantic),
+        parseState: parseRepricingPolicyState,
+        prepare: async () => {
+          const loaded = await loadOwnedRepricingPolicy(policyId, accountId);
+          if (!loaded) return null;
+          if (expectedPolicyVersion !== undefined && loaded.version !== expectedPolicyVersion)
+            throw new RepricingConfigurationConflict("Installed policy changed before request acceptance.");
+          let events: readonly RepricingPolicyEvent[];
+          try {
+            events = decideRepricingPolicy(loaded.state, command);
+          } catch (error) {
+            throw new PolicyControlValidationError("Invalid policy command.", { cause: error });
+          }
+          return {
+            append: {
+              streamId: repricingPolicyStreamId(policyId),
+              context,
+              expectedVersion: loaded.version,
+              wakeSourceContextName: "pricing",
+              events: events.map(createPassthroughDomainEventCodec<RepricingPolicyEvent>().encode),
+            },
+            state: events.reduce(evolveRepricingPolicy, loaded.state),
+          };
+        },
+      });
     },
     getHalt: async (accountId) => (await halt.repository.load(repricingHaltStreamId(accountId))).state,
-    setHalt: async (accountId, engaged, context) =>
-      (
-        await halt.commandHandler({
-          streamId: repricingHaltStreamId(accountId),
-          command: { engaged, changedAt: new Date().toISOString() },
-          context,
-        })
-      ).state,
+    setHalt: async (accountId, engaged, context, requestKey) => {
+      const result = await deps.configuration.request({
+        key: repricingHaltConfigurationKey(accountId),
+        accountId,
+        requestKey,
+        fingerprint: JSON.stringify({ engaged }),
+        parseState: parseRepricingHaltState,
+        prepare: async () => {
+          const loaded = await halt.repository.load(repricingHaltStreamId(accountId));
+          const events = decideRepricingHalt(loaded.state, { engaged, changedAt: new Date().toISOString() });
+          return {
+            append: {
+              streamId: repricingHaltStreamId(accountId),
+              context,
+              expectedVersion: loaded.version,
+              wakeSourceContextName: "pricing",
+              events: events.map(createPassthroughDomainEventCodec<RepricingHaltEvent>().encode),
+            },
+            state: events.reduce(evolveRepricingHalt, loaded.state),
+          };
+        },
+      });
+      if (!result) throw new Error("Repricing Halt request was not recorded.");
+      return result;
+    },
+    getPolicyConfigurationStatus: async (accountId, policyId) => {
+      const installed = await loadOwnedRepricingPolicy(policyId, accountId);
+      const status = await deps.configuration.status(
+        repricingPolicyConfigurationKey(accountId, policyId),
+        parseRepricingPolicyState,
+      );
+      if (status.request) return { ...status, installedState: status.installedState ?? installed?.state ?? null };
+      return { ...status, installedState: installed?.state ?? null, installedRevision: installed?.version ?? 0, requestedRevision: installed?.version ?? 0 };
+    },
+    getHaltConfigurationStatus: async (accountId) => {
+      const installed = await halt.repository.load(repricingHaltStreamId(accountId));
+      const status = await deps.configuration.status(repricingHaltConfigurationKey(accountId), parseRepricingHaltState);
+      if (status.request) return { ...status, installedState: status.installedState ?? installed.state };
+      return { ...status, installedState: installed.state, installedRevision: installed.version, requestedRevision: installed.version };
+    },
+    retryPolicyConfiguration: (accountId, policyId, requestKey, fingerprint) =>
+      deps.configuration.retry(
+        repricingPolicyConfigurationKey(accountId, policyId),
+        accountId,
+        requestKey,
+        fingerprint,
+        parseRepricingPolicyState,
+      ),
     getBudget: (accountId, day) => getRepricingBudget(deps.db, accountId, day),
     listCategories: (accountId) => listRepricingCategories(deps.db, accountId),
     getAuthoringPrerequisites: async (accountId) => {
