@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
@@ -34,10 +36,26 @@ function endpointUrl(baseUrl) {
   return `${baseUrl}${PAYMENTS_PROVIDER_WEBHOOK_PATH}`;
 }
 
-function assertEnvironment(environment) {
+function assertEnvironment(environment, input = {}) {
+  if (environment === "sandbox") {
+    const url = new URL(input.baseUrl);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      url.hostname === "chasesets.com" ||
+      url.hostname.endsWith(".chasesets.com")
+    ) {
+      throw new Error("Sandbox replacement requires an isolated HTTPS origin, never a shared Chase Sets environment.");
+    }
+    return { keyMode: "test", canonicalBaseUrl: url.origin, legacyBaseUrls: [] };
+  }
   const config = STRIPE_PAYMENTS_WEBHOOK_ENVIRONMENTS[environment];
   if (!config) {
-    throw new Error("--environment must be staging or production.");
+    throw new Error("--environment must be sandbox, staging or production.");
   }
   return config;
 }
@@ -55,6 +73,7 @@ function stripeHeaders(apiKey) {
   return {
     Authorization: `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}`,
     "Content-Type": "application/x-www-form-urlencoded",
+    "Stripe-Version": webhookEventRegistry.apiVersion,
   };
 }
 
@@ -92,6 +111,7 @@ function summarizeEndpoint(endpoint) {
     url: endpoint.url,
     status: endpoint.status,
     livemode: endpoint.livemode,
+    apiVersion: endpoint.api_version ?? null,
     enabledEventCount: enabledEvents.length,
     missingRequiredEvents: STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS.filter((event) => !enabledEvents.includes(event)),
   };
@@ -115,6 +135,9 @@ function evaluateEndpoints(environment, config, endpoints) {
   if (canonical.some((endpoint) => endpoint.status !== "enabled")) {
     errors.push("The canonical Payments endpoint is not enabled.");
   }
+  if (canonical.some((endpoint) => endpoint.api_version !== webhookEventRegistry.apiVersion)) {
+    errors.push(`The canonical Payments endpoint must pin API version ${webhookEventRegistry.apiVersion}.`);
+  }
   const expectedLivemode = config.keyMode === "live";
   if (canonical.some((endpoint) => endpoint.livemode !== expectedLivemode)) {
     errors.push(`The canonical Payments endpoint does not match ${config.keyMode} mode.`);
@@ -136,7 +159,7 @@ function evaluateEndpoints(environment, config, endpoints) {
 }
 
 export async function verifyStripePaymentsWebhookEndpoint(input, dependencies = {}) {
-  const config = assertEnvironment(input.environment);
+  const config = assertEnvironment(input.environment, input);
   assertKeyMode(input.stripeApiKey, config.keyMode);
   const fetchImpl = dependencies.fetch ?? fetch;
   const endpoints = await listWebhookEndpoints(input, fetchImpl);
@@ -223,7 +246,7 @@ async function deleteWebhookEndpoint(input, endpointId, fetchImpl) {
 }
 
 export async function createCanonicalStripePaymentsWebhookEndpoint(input, dependencies = {}) {
-  const config = assertEnvironment(input.environment);
+  const config = assertEnvironment(input.environment, input);
   assertCreateConfirmation(input);
   assertKeyMode(input.stripeApiKey, config.keyMode);
   const fetchImpl = dependencies.fetch ?? fetch;
@@ -232,9 +255,13 @@ export async function createCanonicalStripePaymentsWebhookEndpoint(input, depend
   const canonical = endpoints.filter((endpoint) => endpoint.url === canonicalUrl);
 
   if (canonical.length > 0) {
+    const verification = evaluateEndpoints(input.environment, config, endpoints);
+    if (!verification.ok) {
+      throw new Error(`The canonical endpoint failed verification: ${verification.errors.join(" ")}`);
+    }
     return {
       changed: false,
-      verification: evaluateEndpoints(input.environment, config, endpoints),
+      verification,
     };
   }
   if (dependencies.signingSecretDestinationReady === false) {
@@ -290,6 +317,182 @@ export async function createCanonicalStripePaymentsWebhookEndpoint(input, depend
   };
 }
 
+// API versions are immutable on Stripe endpoints. Keep both endpoints usable
+// until the new signing key has passed the deployed verifier.
+export async function replaceStripePaymentsWebhookEndpointVersion(input, dependencies = {}) {
+  const config = assertEnvironment(input.environment, input);
+  assertCreateConfirmation(input);
+  assertKeyMode(input.stripeApiKey, config.keyMode);
+  const fetchImpl = dependencies.fetch ?? fetch;
+  const canonicalUrl = endpointUrl(config.canonicalBaseUrl);
+  const endpoints = await listWebhookEndpoints(input, fetchImpl);
+  const canonical = endpoints.filter((endpoint) => endpoint.url === canonicalUrl);
+  const targets = canonical.filter((endpoint) => endpoint.api_version === webhookEventRegistry.apiVersion);
+  const old = canonical.filter((endpoint) => endpoint.api_version !== webhookEventRegistry.apiVersion);
+  if (
+    targets.length > 1 ||
+    old.length > 1 ||
+    canonical.length === 0 ||
+    endpoints.some((endpoint) => config.legacyBaseUrls.map(endpointUrl).includes(endpoint.url))
+  ) {
+    throw new Error("Refusing ambiguous endpoint version replacement.");
+  }
+  let target = targets[0];
+  const previous = old[0];
+  if (target && !previous) {
+    const verification = evaluateEndpoints(input.environment, config, endpoints);
+    if (!verification.ok) throw new Error(verification.errors.join(" "));
+    return { changed: false, verification };
+  }
+  if (
+    previous.status !== "enabled" ||
+    previous.livemode !== (config.keyMode === "live") ||
+    summarizeEndpoint(previous).missingRequiredEvents.length > 0
+  ) {
+    throw new Error("The previous endpoint must remain enabled with the required event set and mode.");
+  }
+  if (target && target.metadata?.replacement_for !== previous.id) {
+    throw new Error("The target endpoint is not owned by this replacement; refusing mutation.");
+  }
+  const endpointPath = (id) =>
+    `${input.stripeApiBase ?? "https://api.stripe.com"}/v1/webhook_endpoints/${encodeURIComponent(id)}`;
+  if (input.phase === "prepare") {
+    if (target?.metadata?.signing_handoff === "ready") {
+      return { changed: false, pendingDelivery: true, endpointId: target.id, previousEndpointId: previous.id };
+    }
+    if (
+      !dependencies.writeSigningSecret ||
+      !dependencies.signingSecretDestinationReady ||
+      !input.currentSigningSecret?.startsWith("whsec_")
+    ) {
+      throw new Error("Version replacement requires the current signing secret and a write-only secret destination.");
+    }
+    // A process may have stopped after create but before saving the write-only
+    // key. Such an unprepared endpoint cannot be resumed without a fresh key.
+    if (target) await deleteWebhookEndpoint(input, target.id, fetchImpl);
+    const body = createWebhookEndpointBody(input.environment, canonicalUrl);
+    body.set("metadata[replacement_for]", previous.id);
+    target = await requestJson(
+      `${input.stripeApiBase ?? "https://api.stripe.com"}/v1/webhook_endpoints`,
+      {
+        method: "POST",
+        headers: stripeHeaders(input.stripeApiKey),
+        body,
+      },
+      fetchImpl,
+    );
+    if (!target.id) throw new Error("Replacement create did not return an endpoint id.");
+    try {
+      if (!target.secret?.startsWith("whsec_") || target.secret === input.currentSigningSecret) {
+        throw new Error("Replacement create did not return a distinct signing key.");
+      }
+      const overlap = [
+        ...new Set(
+          [input.currentSigningSecret, ...(input.previousSigningSecrets ?? "").split(",")]
+            .map((secret) => secret.trim())
+            .filter(Boolean),
+        ),
+      ].join(",");
+      await dependencies.writeSigningSecret(overlap, input.environment, "STRIPE_WEBHOOK_SECRET_PREVIOUS");
+      await dependencies.writeSigningSecret(target.secret, input.environment, "STRIPE_WEBHOOK_SECRET");
+      await requestJson(
+        endpointPath(target.id),
+        {
+          method: "POST",
+          headers: stripeHeaders(input.stripeApiKey),
+          body: new URLSearchParams({
+            "metadata[signing_handoff]": "ready",
+            "metadata[signing_key_digest]": createHash("sha256").update(target.secret).digest("hex"),
+          }),
+        },
+        fetchImpl,
+      );
+    } catch {
+      await deleteWebhookEndpoint(input, target.id, fetchImpl);
+      throw new Error("Replacement handoff failed; the old endpoint is retained and the new endpoint was rolled back.");
+    }
+    return { changed: true, pendingDelivery: true, endpointId: target.id, previousEndpointId: previous.id };
+  }
+  if (input.phase !== "complete" || !target || target.metadata?.signing_handoff !== "ready") {
+    throw new Error("Prepare the endpoint signing handoff before completing replacement.");
+  }
+  const targetVerification = evaluateEndpoints(input.environment, config, [target]);
+  if (!targetVerification.ok) throw new Error(targetVerification.errors.join(" "));
+  if (
+    !/^evt_[A-Za-z0-9_]+$/.test(input.deliveryEventId ?? "") ||
+    !input.currentSigningSecret?.startsWith("whsec_") ||
+    createHash("sha256").update(input.currentSigningSecret).digest("hex") !== target.metadata.signing_key_digest ||
+    (input.previousSigningSecrets ?? "")
+      .split(",")
+      .map((secret) => secret.trim())
+      .includes(input.currentSigningSecret)
+  ) {
+    throw new Error(
+      "Completion requires an Endive delivery event and the deployed new key, distinct from previous keys.",
+    );
+  }
+  let event;
+  if (input.deliveryFile) {
+    // A delivered endpoint payload can be Endive even when the account's stored
+    // Event uses an older version. Authenticate captured bytes before reading
+    // their facts; never relabel an older stored Event as Endive.
+    const capture = JSON.parse(await readFile(input.deliveryFile, "utf8"));
+    if (typeof capture.rawBody !== "string" || typeof capture.signatureHeader !== "string") {
+      throw new Error("Delivery capture requires rawBody and signatureHeader.");
+    }
+    const parts = capture.signatureHeader.split(",").map((part) => part.trim());
+    const timestamp = parts.find((part) => part.startsWith("t="))?.slice(2);
+    const expected = createHmac("sha256", input.currentSigningSecret)
+      .update(`${timestamp}.${capture.rawBody}`)
+      .digest();
+    const valid = parts
+      .filter((part) => /^v1=[a-f0-9]{64}$/i.test(part))
+      .some((part) => timingSafeEqual(Buffer.from(part.slice(3), "hex"), expected));
+    if (!/^\d+$/.test(timestamp ?? "") || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300 || !valid) {
+      throw new Error(
+        "Delivery capture must have a recent signature from the target endpoint key; old endpoint retained.",
+      );
+    }
+    event = JSON.parse(capture.rawBody);
+  } else {
+    event = await requestJson(
+      `${input.stripeApiBase ?? "https://api.stripe.com"}/v1/events/${input.deliveryEventId}`,
+      { headers: stripeHeaders(input.stripeApiKey) },
+      fetchImpl,
+    );
+  }
+  if (
+    event.id !== input.deliveryEventId ||
+    event.api_version !== webhookEventRegistry.apiVersion ||
+    event.livemode !== (config.keyMode === "live") ||
+    !STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS.includes(event.type)
+  ) {
+    throw new Error("The delivery event must have the target API version, mode, identity and supported type.");
+  }
+  const rawBody = JSON.stringify(event);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const digest = createHmac("sha256", input.currentSigningSecret).update(`${timestamp}.${rawBody}`).digest("hex");
+  const delivery = await fetchImpl(canonicalUrl, {
+    method: "POST",
+    redirect: "error",
+    headers: { "Content-Type": "application/json", "Stripe-Signature": `t=${timestamp},v1=${digest}` },
+    body: rawBody,
+  });
+  const receipt = await delivery.json().catch(() => null);
+  if (!delivery.ok || receipt?.received !== true || receipt?.failure_class)
+    throw new Error(`Target-version signed replay failed (${delivery.status}); old endpoint retained.`);
+  await deleteWebhookEndpoint(input, previous.id, fetchImpl);
+  const verification = evaluateEndpoints(input.environment, config, await listWebhookEndpoints(input, fetchImpl));
+  if (!verification.ok) throw new Error(verification.errors.join(" "));
+  return {
+    changed: true,
+    endpointId: target.id,
+    retiredEndpointId: previous.id,
+    deliveryEventId: event.id,
+    verification,
+  };
+}
+
 function option(argv, name, fallback) {
   const inline = argv.find((value) => value.startsWith(`${name}=`));
   if (inline) return inline.slice(name.length + 1);
@@ -307,20 +510,22 @@ export function parseStripePaymentsWebhookEndpointArgs(argv, env = process.env) 
       confirmation: option(argv, "--confirm"),
       stripeApiKey: env.STRIPE_SECRET_KEY,
       stripeApiBase: env.STRIPE_API_BASE_URL || undefined,
+      phase: option(argv, "--phase"),
+      baseUrl: option(argv, "--base-url"),
+      deliveryEventId: option(argv, "--delivery-event"),
+      deliveryFile: option(argv, "--delivery-file"),
+      currentSigningSecret: env.STRIPE_WEBHOOK_SECRET,
+      previousSigningSecrets: env.STRIPE_WEBHOOK_SECRET_PREVIOUS,
     },
   };
 }
 
-function writeGithubEnvironmentSecret(signingSecret, environment, dependencies = {}) {
+function writeGithubEnvironmentSecret(signingSecret, environment, dependencies = {}, name = "STRIPE_WEBHOOK_SECRET") {
   const spawnImpl = dependencies.spawn ?? spawn;
   return new Promise((resolve, reject) => {
-    const child = spawnImpl(
-      "gh",
-      withGithubRepository(["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", environment]),
-      {
-        stdio: ["pipe", "inherit", "inherit"],
-      },
-    );
+    const child = spawnImpl("gh", withGithubRepository(["secret", "set", name, "--env", environment]), {
+      stdio: ["pipe", "inherit", "inherit"],
+    });
     child.on("error", reject);
     child.on("close", (code, signal) => {
       if (signal || code !== 0) {
@@ -342,18 +547,23 @@ export async function runStripePaymentsWebhookEndpointCommand(argv, env = proces
   if (command === "repoint-staging") {
     return repointStagingStripePaymentsWebhookEndpoint(input, dependencies);
   }
-  if (command === "create-canonical") {
-    return createCanonicalStripePaymentsWebhookEndpoint(input, {
+  if (command === "create-canonical" || command === "replace-version") {
+    const operation =
+      command === "create-canonical"
+        ? createCanonicalStripePaymentsWebhookEndpoint
+        : replaceStripePaymentsWebhookEndpointVersion;
+    return operation(input, {
       ...dependencies,
       signingSecretDestinationReady:
         dependencies.signingSecretDestinationReady ?? Boolean(dependencies.writeSigningSecret || env.GH_TOKEN),
       writeSigningSecret:
         dependencies.writeSigningSecret ??
-        ((signingSecret, environment) => writeGithubEnvironmentSecret(signingSecret, environment, dependencies)),
+        ((signingSecret, environment, name) =>
+          writeGithubEnvironmentSecret(signingSecret, environment, dependencies, name)),
     });
   }
   throw new Error(
-    "Usage: stripe-webhook-endpoint.mjs <verify|repoint-staging|create-canonical> --environment <staging|production> [--confirm <text>]",
+    "Usage: stripe-webhook-endpoint.mjs <verify|repoint-staging|create-canonical|replace-version> --environment <sandbox|staging|production> [--base-url <isolated-https-origin>] [--phase <prepare|complete>] [--delivery-event <id>] [--delivery-file <signed-capture-json>] [--confirm <text>]",
   );
 }
 
@@ -361,7 +571,7 @@ async function main(argv) {
   const result = await runStripePaymentsWebhookEndpointCommand(argv);
   console.log(JSON.stringify(result, null, 2));
   const verification = "verification" in result ? result.verification : result;
-  if (!verification.ok) process.exitCode = 1;
+  if (!result.pendingDelivery && !verification.ok) process.exitCode = 1;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

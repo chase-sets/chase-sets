@@ -55,6 +55,10 @@ describe("production Stripe webhook endpoint creation workflow", () => {
     expect(createWorkflow).toContain("STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}");
     expect(createWorkflow).toContain("GH_TOKEN: ${{ secrets.ENVIRONMENT_SECRETS_TOKEN }}");
     expect(createWorkflow).not.toContain("GH_TOKEN: ${{ github.token }}");
-    expect(createWorkflow).toContain("pnpm run ops stripe:webhook-endpoint -- create-canonical");
+    expect(createWorkflow).toContain('pnpm run ops stripe:webhook-endpoint -- "$OPERATION"');
+    expect(createWorkflow).toContain("- create-canonical");
+    expect(createWorkflow).toContain("- replace-version");
+    expect(createWorkflow).toContain(' --phase "$PHASE"');
+    expect(createWorkflow).toContain("STRIPE_WEBHOOK_SECRET_PREVIOUS: ${{ secrets.STRIPE_WEBHOOK_SECRET_PREVIOUS }}");
   });
 });

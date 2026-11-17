@@ -32,7 +32,7 @@
     "@chase-sets/settlement": "workspace:*",
     "@react-router/express": "7.18.4",
     "@react-router/node": "7.18.4",
-    "@stripe/stripe-js": "9.9.0",
+    "@stripe/stripe-js": "10.3.0",
     "express": "^4.22.3",
     "isbot": "^5",
     "react": "^19.2.5",
