@@ -11,10 +11,10 @@ import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readine
 import {
   acquireDevSystemHeavySlot,
   assertSandboxPostgresSettings,
-  applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
   browserE2eProductionTarget,
+  buildPlatformBootstrapEnvironment,
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
@@ -512,11 +512,10 @@ async function runBootstrap(
     const invocation = buildPackageManagerInvocation(
       buildPlatformBootstrapArguments(workspace, { disposableRepresentativeCatalogReplay }),
     );
-    const environment = buildPlatformChildEnvironment(
-      process.env,
-      applyCurrentPlatformBootstrapSelectors(processDefinition?.env ?? {}, process.env),
-      { minimalBase: true },
-    );
+    const environment = buildPlatformBootstrapEnvironment(workspace, process.env, processDefinition?.env ?? {}, {
+      sandbox,
+      disposableRepresentativeCatalogReplay,
+    });
     if (lifecycleRecorder) {
       await runObservedBrowserE2eBootstrap(invocation.command, invocation.args, {
         name: `bootstrap-${workspace.replace("@chase-sets/", "")}`,

@@ -150,6 +150,58 @@ describe("inline seed caller inventory (deployable callers)", () => {
     );
   });
 
+  it("composes the canonical replay child environment and arguments through bootstrap validation", async () => {
+    const { buildSandboxEnv, resolveWorktreeSandbox } = await import(
+      new URL("../../../scripts/lib/sandbox.mjs", import.meta.url).href
+    );
+    const { buildPlatformBootstrapEnvironment } = await import(
+      new URL("../../../scripts/dev-system-config.mjs", import.meta.url).href
+    );
+    const { buildPlatformBootstrapArguments } = await import(
+      new URL("../../../scripts/dev-system-launch.mjs", import.meta.url).href
+    );
+    const sandbox = resolveWorktreeSandbox({
+      env: { CHASE_SETS_SANDBOX_ID: "synthetic-replay", CHASE_SETS_SANDBOX_BASE_PORT: "6500" },
+      contextNames: apiContextRegistry.map(({ contextName }) => contextName),
+    });
+    const sandboxEnvironment = buildSandboxEnv(sandbox);
+    const workspace = "@chase-sets/app-platform-api";
+    const selectors = {
+      PLATFORM_DATA_PROFILES: "critical-bootstrap,catalog-integration-bootstrap,representative-catalog",
+    };
+    const environment = buildPlatformBootstrapEnvironment(
+      workspace,
+      { ...selectors, POSTGRES_DEV_HOST_PORT: "9999", PGHOSTADDR: "203.0.113.42" },
+      { ...sandboxEnvironment, DATABASE_URL: "", POSTGRES_DEV_HOST_PORT: "8888" },
+      { sandbox, disposableRepresentativeCatalogReplay: true },
+    );
+    expect(environment.POSTGRES_DEV_HOST_PORT).toBe(String(sandbox.ports.postgres));
+    expect(environment).not.toHaveProperty("PGHOSTADDR");
+    for (const name of Object.keys(process.env)) {
+      if (!(name in environment)) vi.stubEnv(name, undefined);
+    }
+    for (const [name, value] of Object.entries(environment)) vi.stubEnv(name, String(value));
+    vi.mocked(loadBootstrapConfig).mockReturnValueOnce({
+      ...loadBootstrapConfig(),
+      deploymentEnvironment: "dev",
+      sharedDatabaseUrl: null,
+      controlDatabaseUrl: environment.PLATFORM_CONTROL_DATABASE_URL,
+      workSignalDatabaseUrl: environment.PLATFORM_WORK_SIGNAL_DATABASE_URL,
+      contextDatabaseUrls: Object.fromEntries(
+        apiContextRegistry.map(({ contextName }) => [
+          contextName,
+          environment[`DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`],
+        ]),
+      ),
+      dataProfiles: environment.PLATFORM_DATA_PROFILES.split(","),
+    });
+    const pools = seedCommandPools();
+    await bootstrap(
+      buildPlatformBootstrapArguments(workspace, { disposableRepresentativeCatalogReplay: true }).slice(4),
+    );
+    expectSeedWithRealControlPlanePort(pools.control, { disposableRepresentativeCatalogReplay: true });
+  });
+
   it("ignores ambient replay variables and representative profiles on ordinary retained-state boot", async () => {
     const config = replayConfig();
     vi.stubEnv("DISPOSABLE_REPRESENTATIVE_CATALOG_REPLAY", "true");
