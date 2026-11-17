@@ -15,7 +15,6 @@ import {
   createInventoryRequestApiClient,
   createInventoryApiClient,
   InventoryApiError,
-  type InventoryApiClientOptions,
   type InventoryImportBatchDetail,
 } from "../../support/request-support/api-client";
 import { InventoryImportBatchPage } from "../../features/import-batches/ui/import-batch-page";
@@ -41,19 +40,55 @@ function requestWithoutFreshWrite(request: Request) {
   });
 }
 
-function importReadApi(
-  request: Request,
-  options: Pick<InventoryApiClientOptions, "requestTimeoutMs" | "recoverTransportErrorsAsGatewayTimeout"> = {},
+async function fetchImportSecondary(
+  fetch: typeof globalThis.fetch,
+  input: Parameters<typeof globalThis.fetch>[0],
+  init: RequestInit & { signal: AbortSignal },
 ) {
+  const callerSignal = init.signal;
+  callerSignal.throwIfAborted();
+  const deadline = new AbortController();
+  const signal = AbortSignal.any([callerSignal, deadline.signal]);
+  let onAbort!: () => void;
+  const stopped = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+  });
+  signal.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(() => deadline.abort(), IMPORT_SECONDARY_READ_TIMEOUT_MS);
+
+  let response: Response | undefined;
+  const read = async () => {
+    const received = await fetch(input, { ...init, signal });
+    signal.throwIfAborted();
+    response = received;
+    // Finish the network read inside this deadline; the shared client still parses the JSON.
+    return received.body ? new Response(await received.arrayBuffer(), received) : received;
+  };
+
+  try {
+    return await Promise.race([read(), stopped]);
+  } catch {
+    callerSignal.throwIfAborted();
+    // An interrupted error body cannot turn an established refusal into a transient failure.
+    if (response && !response.ok) return new Response(null, response);
+    return new Response(null, { status: 504, statusText: "Gateway Timeout" });
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function importReadApi(request: Request, { secondary = false } = {}) {
   const forwardedFetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "inventory" });
   return createInventoryApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/inventory"),
-    fetch: (input, init = {}) =>
-      forwardedFetch(input, {
+    fetch: (input, init = {}) => {
+      const readInit = {
         ...init,
         signal: init.signal ? AbortSignal.any([request.signal, init.signal]) : request.signal,
-      }),
-    ...options,
+      };
+      return secondary ? fetchImportSecondary(forwardedFetch, input, readInit) : forwardedFetch(input, readInit);
+    },
   });
 }
 
@@ -88,10 +123,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const { request, params } = args;
   const actor = await requireActorFromAuthApi({ request, permission: "inventory.view" });
   request.signal.throwIfAborted();
-  const nonFreshApi = importReadApi(requestWithoutFreshWrite(request), {
-    requestTimeoutMs: IMPORT_SECONDARY_READ_TIMEOUT_MS,
-    recoverTransportErrorsAsGatewayTimeout: true,
-  });
+  const nonFreshApi = importReadApi(requestWithoutFreshWrite(request), { secondary: true });
   const batchId = params.batchId;
   const [detailRead, batchesRead, locationsRead] = await Promise.allSettled([
     batchId ? loadImportBatchDetail(args) : Promise.resolve({ detail: null, detailLoadMessage: null }),

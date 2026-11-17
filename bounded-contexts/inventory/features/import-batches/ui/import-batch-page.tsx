@@ -1,5 +1,5 @@
 import { formatDateTime, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
-import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { navigateAfterWrite } from "@chase-sets/http/responses";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
@@ -1137,7 +1137,8 @@ function useInventoryImportBatchJob(jobId?: string | null) {
   const empty: Observation = { jobId: jobId ?? null, job: null, connection: "loading" };
   const [observation, setObservation] = useState<Observation>(empty);
 
-  useEffect(() => {
+  // Retire the old observer at commit so it cannot navigate before passive cleanup.
+  useLayoutEffect(() => {
     setObservation({ jobId: jobId ?? null, job: null, connection: "loading" });
     if (!jobId) {
       return undefined;

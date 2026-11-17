@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLayoutEffect } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
@@ -102,7 +103,12 @@ describe("Import job recovery", () => {
     });
     expect(screen.getByText("Progress job_a")).toBeTruthy();
     expect(screen.queryByText(/The Inventory result is uncertain/)).toBeNull();
-    act(() => observer.onStatus(snapshot("job_a", { status: "failed", errorMessage: "Import safely refused" })));
+    act(() => {
+      const failed = snapshot("job_a", { status: "failed", errorMessage: "Import safely refused" });
+      observer.onStatus(failed);
+      observer.onTerminal?.(failed);
+    });
+    expect(replace).not.toHaveBeenCalled();
     expect(screen.getByText("Import safely refused")).toBeTruthy();
     expect(document.activeElement?.getAttribute("role")).toBe("status");
     expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(true);
@@ -141,12 +147,36 @@ describe("Import job recovery", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("only navigates by read on the current completion, preserving receipt metadata", () => {
-    const rendered = render(view("job_failed"));
-    act(() => observations[0]!.observer.onTerminal?.(snapshot("job_failed", { status: "failed" })));
+  it.each(["replaced", "unmounted"] as const)("ignores a %s job's callbacks during commit", (disposition) => {
+    function CommitWitness({ jobId, onCommit }: { jobId: string | null; onCommit?: () => void }) {
+      useLayoutEffect(() => {
+        onCommit?.();
+      }, [onCommit]);
+      return jobId ? view(jobId) : null;
+    }
+
+    const rendered = render(<CommitWitness jobId="job_old" />);
+    const old = observations[0]!;
+    act(() => old.observer.onStatus(snapshot("job_old")));
+    const duringCommit = vi.fn(() => {
+      old.observer.onStatus(snapshot("job_old"));
+      old.observer.onConnectionStateChange?.(false);
+      old.observer.onError?.(new Event("error"));
+      old.observer.onTerminal?.(snapshot("job_old", { status: "completed" }));
+    });
+    rendered.rerender(
+      <CommitWitness jobId={disposition === "replaced" ? "job_current" : null} onCommit={duringCommit} />,
+    );
+    expect(duringCommit).toHaveBeenCalledOnce();
+    expect(old.close).toHaveBeenCalledOnce();
     expect(replace).not.toHaveBeenCalled();
-    rendered.rerender(view("job_current"));
+    expect(screen.queryByText("Progress job_old")).toBeNull();
+    expect(screen.queryByText(/The Inventory result is uncertain/)).toBeNull();
+
+    if (disposition === "unmounted") rendered.rerender(<CommitWitness jobId="job_current" />);
     const { observer } = observations[1]!;
+    act(() => observer.onStatus(snapshot("job_current")));
+    expect(screen.getByText("Progress job_current")).toBeTruthy();
     act(() =>
       observer.onTerminal?.(
         snapshot("job_current", {

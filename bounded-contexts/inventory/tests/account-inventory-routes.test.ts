@@ -188,6 +188,94 @@ describe("import recovery reads", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it.each([200, 401, 403, 422])("bounds a stalled %s secondary body by the original read deadline", async (status) => {
+    vi.useFakeTimers();
+    const bodyPulled = vi.fn();
+    const bodyAborted = vi.fn();
+    stubReads(async (path, init) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      if (path.endsWith("/storage-locations")) return jsonResponse(locations);
+      const signal = init!.signal!;
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("{"));
+            signal.addEventListener(
+              "abort",
+              () => {
+                bodyAborted();
+                controller.error(signal.reason);
+              },
+              { once: true },
+            );
+          },
+          pull: bodyPulled,
+        }),
+        { status },
+      );
+    });
+    const pending = load().then(
+      (data) => ({ data }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(bodyPulled).toHaveBeenCalled();
+    expect(bodyAborted).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(bodyAborted).toHaveBeenCalledOnce();
+    if (status === 200) {
+      expect(await pending).toMatchObject({
+        data: {
+          detail,
+          batches: empty,
+          storageLocations: locations,
+          batchesLoadMessage: expect.stringContaining("unavailable"),
+          storageLocationsLoadMessage: null,
+        },
+      });
+    } else {
+      expect(await pending).toMatchObject({ error: { status } });
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains pending detail and recent imports when a secondary body fails after headers", async () => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const bodyPulled = vi.fn();
+    stubReads(async (path) => {
+      if (path.endsWith("/imb_1")) {
+        return jsonResponse({ error: { code: "projection_freshness_timeout", message: "Catching up" } }, 503);
+      }
+      if (path.endsWith("/import-batches")) return jsonResponse(recent);
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            body = controller;
+            controller.enqueue(new TextEncoder().encode("{"));
+          },
+          pull: bodyPulled,
+        }),
+      );
+    });
+    const pending = load(
+      new Request(`http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_1", inventoryCommit())}`),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bodyPulled).toHaveBeenCalled();
+    body.error(new TypeError("Body transport interrupted"));
+    await expect(pending).resolves.toMatchObject({
+      detail: null,
+      detailLoadMessage: expect.stringContaining("still updating"),
+      batches: recent,
+      batchesLoadMessage: null,
+      storageLocations: empty,
+      storageLocationsLoadMessage: expect.stringContaining("unavailable"),
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each([false, true])(
     "cancels the actual detail and secondary fetches (detail pending: %s)",
     async (pendingDetail) => {
