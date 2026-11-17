@@ -24,7 +24,11 @@ import {
   readSandboxPostgresSettings,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
-import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
+import {
+  buildPlatformBootstrapArguments,
+  completeDevSystemStartupFailure,
+  createDevSystemLauncher,
+} from "./dev-system-launch.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
 import { buildPackageManagerInvocation, runCommand, terminateProcessTree } from "./lib/process.mjs";
@@ -41,6 +45,9 @@ const mode = process.argv[2] ?? "dev";
 const modeArguments = process.argv.slice(3);
 const representativeRefresh = modeArguments.includes("--representative");
 const replayRepresentativeRefresh = modeArguments.includes("--replay");
+if (replayRepresentativeRefresh && (mode !== "refresh" || !representativeRefresh)) {
+  throw new Error("--replay requires --representative and refresh mode.");
+}
 const target = modeArguments.find((argument) => !argument.startsWith("--")) ?? "all";
 acquireDevSystemHeavySlot(mode, target, acquireHeavySlot);
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
@@ -483,7 +490,11 @@ async function ensureDevDatabase() {
   await preparePlatformDatabase();
 }
 
-async function runBootstrap(targetName = "all", lifecycleRecorder = null) {
+async function runBootstrap(
+  targetName = "all",
+  lifecycleRecorder = null,
+  disposableRepresentativeCatalogReplay = false,
+) {
   if (isolatedBrowserE2eProbe) {
     prefixedConsole("env", "Skipping local secret-file sync for the isolated browser-e2e probe.");
   } else {
@@ -498,7 +509,9 @@ async function runBootstrap(targetName = "all", lifecycleRecorder = null) {
   for (const workspace of bootstrapWorkspaces) {
     prefixedConsole("bootstrap", `Running ${workspace} bootstrap...`);
     const processDefinition = bootstrapProcesses.find((definition) => definition.workspace === workspace);
-    const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);
+    const invocation = buildPackageManagerInvocation(
+      buildPlatformBootstrapArguments(workspace, { disposableRepresentativeCatalogReplay }),
+    );
     const environment = buildPlatformChildEnvironment(
       process.env,
       applyCurrentPlatformBootstrapSelectors(processDefinition?.env ?? {}, process.env),
@@ -736,9 +749,6 @@ async function runDown() {
 }
 
 async function runRefresh(targetName = "all") {
-  if (replayRepresentativeRefresh && !representativeRefresh) {
-    throw new Error("--replay requires --representative.");
-  }
   prefixedConsole("dev", `Destroying sandbox ${sandbox.id} Postgres data...`);
   await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "down", "-v"], {
     env: sandboxEnv,
@@ -748,7 +758,7 @@ async function runRefresh(targetName = "all") {
   if (representativeRefresh) {
     if (replayRepresentativeRefresh) {
       process.env.PLATFORM_DATA_PROFILES = "critical-bootstrap,catalog-integration-bootstrap,representative-catalog";
-      await runBootstrap(targetName);
+      await runBootstrap(targetName, null, true);
       return;
     }
 

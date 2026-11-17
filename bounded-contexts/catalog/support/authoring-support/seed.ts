@@ -46,7 +46,9 @@ export async function seedCatalogDatabase(
   providedServices?: CatalogServices,
   options?: BcSeedOptions,
 ) {
+  options?.signal?.throwIfAborted();
   const services = providedServices ?? createCatalogServices(createProjectionAwarePool(pool));
+  let replaySummaries: Awaited<ReturnType<typeof replayRepresentativeCatalogPacks>> | undefined;
   const shouldSeedIntegrationProfile = profileEnabled(options, "catalog-integration-bootstrap");
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
   const shouldSeedRepresentativeProductContents = profileEnabled(options, "representative-commerce-state");
@@ -79,7 +81,10 @@ export async function seedCatalogDatabase(
       services,
       source: process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE,
       context: seedContext,
+      signal: options?.signal,
     });
+    options?.signal?.throwIfAborted();
+    replaySummaries = summaries;
     for (const summary of summaries) {
       console.log(
         JSON.stringify({
@@ -99,17 +104,6 @@ export async function seedCatalogDatabase(
         }),
       );
     }
-    const replayEvidenceOut = process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT?.trim();
-    if (replayEvidenceOut) {
-      await writeRepresentativeCatalogReplayReceipt(
-        replayEvidenceOut,
-        buildRepresentativeCatalogReplayReceipt(
-          summaries,
-          new Date().toISOString(),
-          representativeCatalogReplaySandboxBinding(process.env),
-        ),
-      );
-    }
   }
 
   if (shouldSeedScenarioData) {
@@ -127,19 +121,33 @@ export async function seedCatalogDatabase(
   }
 
   await assertCatalogIntegrationSeedComplete(services.db);
+  options?.signal?.throwIfAborted();
+  const replayEvidenceOut = process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT?.trim();
+  if (replaySummaries && replayEvidenceOut) {
+    await writeRepresentativeCatalogReplayReceipt(
+      replayEvidenceOut,
+      buildRepresentativeCatalogReplayReceipt(
+        replaySummaries,
+        new Date().toISOString(),
+        representativeCatalogReplaySandboxBinding(process.env),
+      ),
+      options?.signal,
+    );
+  }
   console.log("\nCatalog seed reconciliation complete!");
 }
 
 async function writeRepresentativeCatalogReplayReceipt(
   outPath: string | null | undefined,
   receipt: ReturnType<typeof buildRepresentativeCatalogReplayReceipt>,
+  signal?: AbortSignal,
 ): Promise<void> {
   const normalizedOutPath = outPath?.trim();
   if (!normalizedOutPath) {
     return;
   }
   await mkdir(dirname(normalizedOutPath), { recursive: true });
-  await writeFile(normalizedOutPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  await writeFile(normalizedOutPath, `${JSON.stringify(receipt, null, 2)}\n`, { encoding: "utf8", signal });
 }
 
 function representativeCatalogReplaySandboxBinding(env: NodeJS.ProcessEnv): Readonly<{

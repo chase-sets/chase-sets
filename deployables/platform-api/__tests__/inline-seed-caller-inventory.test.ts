@@ -8,7 +8,8 @@ import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { closePlatformApiPools, createSeedCommandPools } from "../src/database-pools";
 import { runAdminQaActorFixtures } from "../src/admin-qa-actor-fixtures";
 import { bootstrap, syncBootstrapProjectionGroups } from "../src/bootstrap";
-import type { PlatformApiConfig } from "../src/config";
+import { loadBootstrapConfig, type PlatformApiConfig } from "../src/config";
+import { apiContextRegistry } from "../src/context-registry";
 
 // Executes each deployable seedApiHostIfEmpty caller with the real control-plane and lease-port
 // factories (spied, not replaced), so the port each caller passes is the one built from the real
@@ -53,7 +54,8 @@ vi.mock("@chase-sets/object-storage", () => ({
   createS3ObjectStorage: vi.fn(() => ({})),
 }));
 vi.mock("../src/generated/api-context-registry", () => ({ apiContextRegistry: [] }));
-vi.mock("../src/database-pools", () => ({
+vi.mock("../src/database-pools", async (original) => ({
+  ...(await original<object>()),
   createSeedCommandPools: vi.fn(),
   closePlatformApiPools: vi.fn(async () => undefined),
 }));
@@ -111,6 +113,90 @@ describe("inline seed caller inventory (deployable callers)", () => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  function replayConfig() {
+    vi.stubEnv("CHASE_SETS_SANDBOX_ID", "synthetic-replay");
+    vi.stubEnv("POSTGRES_DEV_HOST_PORT", "6543");
+    const url = (name: string) =>
+      `postgresql://cs_synthetic_replay_${name}:cs_synthetic_replay_${name}@localhost:6543/cs_synthetic_replay_${name}`;
+    return {
+      ...loadBootstrapConfig(),
+      deploymentEnvironment: "dev" as const,
+      sharedDatabaseUrl: null,
+      controlDatabaseUrl: url("control"),
+      workSignalDatabaseUrl: url("control"),
+      contextDatabaseUrls: Object.fromEntries(
+        apiContextRegistry.map(({ contextName }) => [contextName, url(contextName.replaceAll("-", "_"))]),
+      ),
+      dataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap", "representative-catalog"] as const,
+    };
+  }
+
+  it("passes the explicit replay selector only after validating canonical disposable targets", async () => {
+    const config = replayConfig();
+    vi.mocked(loadBootstrapConfig).mockReturnValueOnce(config);
+    const pools = seedCommandPools();
+    await bootstrap(["--disposable-representative-catalog-replay"]);
+    expectSeedWithRealControlPlanePort(pools.control, {
+      disposableRepresentativeCatalogReplay: true,
+      substepTimeoutMs: 600_000,
+      schemaBootstrap: { lockAcquisitionTimeoutMs: 300_000, lockTimeoutRetryBudgetMs: 300_000 },
+    });
+    expect(withSchemaBootstrapLock).toHaveBeenCalledWith(
+      pools.schemaBootstrapLockPool,
+      { lockAcquisitionTimeoutMs: 300_000 },
+      expect.any(Function),
+    );
+  });
+
+  it("ignores ambient replay variables and representative profiles on ordinary retained-state boot", async () => {
+    const config = replayConfig();
+    vi.stubEnv("DISPOSABLE_REPRESENTATIVE_CATALOG_REPLAY", "true");
+    vi.stubEnv("DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS", "14400000");
+    vi.mocked(loadBootstrapConfig).mockReturnValueOnce(config);
+    seedCommandPools();
+    await bootstrap();
+    expect(vi.mocked(seedApiHostIfEmpty).mock.calls[0]![3]).not.toHaveProperty("disposableRepresentativeCatalogReplay");
+    expect(vi.mocked(seedApiHostIfEmpty).mock.calls[0]![3].substepTimeoutMs).toBe(600_000);
+  });
+
+  it.each(["production", "staging", "preview", "remote-dev", "test"] as const)(
+    "refuses the explicit replay selector in %s before opening pools",
+    async (deploymentEnvironment) => {
+      vi.mocked(loadBootstrapConfig).mockReturnValueOnce({ ...replayConfig(), deploymentEnvironment });
+      await expect(bootstrap(["--disposable-representative-catalog-replay"])).rejects.toThrow(
+        "canonical local sandbox",
+      );
+      expect(createSeedCommandPools).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["control", "catalog", "profile", "sandbox", "direct-override"])(
+    "refuses invalid replay %s before opening pools",
+    async (invalid) => {
+      const config = replayConfig();
+      if (invalid === "control") config.controlDatabaseUrl = "postgresql://synthetic:synthetic@remote.test/control";
+      if (invalid === "catalog")
+        config.contextDatabaseUrls.catalog = "postgresql://synthetic:synthetic@localhost:6543/retained_catalog";
+      if (invalid === "profile") Object.assign(config, { dataProfiles: ["critical-bootstrap"] });
+      if (invalid === "sandbox") vi.stubEnv("CHASE_SETS_SANDBOX_ID", "");
+      if (invalid === "direct-override")
+        vi.stubEnv("BOOTSTRAP_DATABASE_URL_CATALOG", "postgresql://synthetic:synthetic@remote.test/catalog");
+      vi.mocked(loadBootstrapConfig).mockReturnValueOnce(config);
+      await expect(bootstrap(["--disposable-representative-catalog-replay"])).rejects.toThrow(/canonical/);
+      expect(createSeedCommandPools).not.toHaveBeenCalled();
+      expect(seedApiHostIfEmpty).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["--disposable-representative-catalog-replay=true"],
+    ["--unknown"],
+    ["--disposable-representative-catalog-replay", "extra"],
+  ])("refuses unsupported bootstrap arguments %j", async (...args) => {
+    await expect(bootstrap(args)).rejects.toThrow("Unsupported platform bootstrap selector");
+    expect(createSeedCommandPools).not.toHaveBeenCalled();
   });
 
   it.each([

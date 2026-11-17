@@ -67,6 +67,42 @@ describe("representative Catalog asset preparation", () => {
     await expect(prepare([oversized])).rejects.toThrow("exceeds its bound");
     expect(normalize).not.toHaveBeenCalled();
   });
+
+  it("settles all started preparations after abort and never promotes or publishes their result", async () => {
+    const abort = new AbortController();
+    const release: (() => void)[] = [];
+    let settled = 0;
+    const normalize = vi.fn(async () => {
+      await new Promise<void>((resolve) => release.push(resolve));
+      settled += 1;
+      return normalized;
+    });
+    const prepare = createRepresentativeCatalogAssetPreparation(normalize);
+    const promote = vi.fn();
+    const publish = vi.fn();
+    const receipt = vi.fn();
+    let returned = false;
+    const run = prepare([source(1), source(2), source(3), source(4)], abort.signal)
+      .then(promote)
+      .then(publish)
+      .then(receipt)
+      .finally(() => {
+        returned = true;
+      });
+    const rejected = expect(run).rejects.toThrow("cancelled replay");
+    abort.abort(new Error("cancelled replay"));
+    release[0]!();
+    await Promise.resolve();
+    expect(returned).toBe(false);
+    for (const resolve of release.slice(1)) resolve();
+    await rejected;
+    expect(settled).toBe(4);
+    expect(promote).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(receipt).not.toHaveBeenCalled();
+    await expect(prepare([source(5)], abort.signal)).rejects.toThrow("cancelled replay");
+    expect(normalize).toHaveBeenCalledTimes(4);
+  });
   it("normalizes a source only once across item batches, with a fresh cache for each run", async () => {
     const normalize = vi.fn(async () => normalized);
     const prepare = createRepresentativeCatalogAssetPreparation(normalize);
