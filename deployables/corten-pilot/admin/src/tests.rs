@@ -8168,6 +8168,8 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
         return provider_surface(&location, cookie);
     }
     let down = location.contains("providerKey=down");
+    // The API resolves an `evidenceRef` against the records it loaded; here none resolves.
+    let reference = location.split(['?', '&']).find_map(|p| p.strip_prefix("evidenceRef="));
     let link = |key: &str, label: &str, href: &str, kind: &str| {
         json!({ "key": key, "label": label, "href": href, "kind": kind, "summary": format!("{label} summary"),
             "redactionState": "redacted", "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required" })
@@ -8249,6 +8251,10 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
                         "evidenceUrl": "/catalog/integrations/health", "detail": "Deleted." }] }
             },
             "auditEvidence": {
+                "selection": match reference {
+                    Some(r) => json!({ "reference": r, "state": "no-associated-evidence", "deepLinkOpen": false }),
+                    None => json!({ "reference": null, "state": "not-requested", "deepLinkOpen": false }),
+                },
                 "status": if down { "unavailable" } else { "partial" }, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
                 "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer",
                 "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 2, "partialProjectionCount": 1 },
@@ -8259,12 +8265,12 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
                 "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
                     "unsafeEvidenceBlocked": true, "governedDataClasses": [], "forbiddenEvidenceRequests": ["raw-payload"],
                     "summary": "Normal review uses redacted summaries." },
-                "timeline": [{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "promotion-applied",
+                "timeline": if reference.is_some() { json!([]) } else { json!([{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "promotion-applied",
                     "category": "promotion", "actorLabel": "operator scope", "targetType": "source-observation", "targetId": "obs_1",
                     "providerKey": "tcgplayer", "unitKey": null, "profileVersion": null, "jobId": null, "observationId": "obs_1",
                     "catalogItemId": null, "summary": "Promoted to the Catalog.", "diagnosticCodes": [], "redactionState": "redacted",
-                    "evidenceLinks": [observation.clone()] }],
-                "evidenceLinks": [observation, provider]
+                    "evidenceLinks": [observation.clone()] }]) },
+                "evidenceLinks": if reference.is_some() { json!([]) } else { json!([observation, provider]) }
             }
         }
     }))
@@ -8769,7 +8775,29 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
             "lifecycle": "active", "active": true, "referenceCount": 4,
             "href": format!("/catalog/providers/tcgplayer?profileVersion={version}") })
     };
-    Json(json!({
+    // The page's own evidence links name the provider or a profile version of it; the API resolves
+    // either, and nothing else, against this provider's records. Built apart from the surface
+    // below so one json! stays inside the macro's recursion limit.
+    let reference = location
+        .split(['?', '&'])
+        .find_map(|p| p.strip_prefix("evidenceRef="))
+        .map(|r| percent_encoding::percent_decode_str(r).decode_utf8_lossy().into_owned());
+    let resolved = reference.as_deref().map(|r| r == format!("provider/{key}") || r.ends_with(&format!("/{key}")));
+    let audit = json!({
+        "selection": { "reference": reference,
+            "state": match resolved { Some(true) => "resolved", Some(false) => "no-associated-evidence", None => "not-requested" },
+            "deepLinkOpen": resolved == Some(true) },
+        "status": "ready", "freshness": "fresh", "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 0, "partialProjectionCount": 0 },
+        "filters": [], "projectionState": { "queryKey": "audit-evidence-timeline", "generatedAt": null, "statusMessage": "Ready." },
+        "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
+            "forbiddenEvidenceRequests": [], "summary": "Normal review uses redacted summaries." },
+        "timeline": if resolved == Some(false) { json!([]) } else { json!([{ "eventId": "evt_p", "occurredAt": "2026-11-04T09:00:00.000Z",
+            "eventName": "profile-activated", "category": "activation", "actorLabel": "operator", "targetType": "provider-profile",
+            "targetId": "2026.07.13", "providerKey": key, "summary": "Profile 2026.07.13 activated.", "diagnosticCodes": [],
+            "redactionState": "redacted", "evidenceLinks": [] }]) },
+        "evidenceLinks": []
+    });
+    let mut surface = json!({
         "readModelFailures": [],
         "providerRefreshSchedules": schedules,
         "operatorSession": operator_session,
@@ -8820,8 +8848,9 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
                 "sourceObservationReviewHref": "/catalog/integrations?jobId=job_9", "auditEvidenceUrl": "/catalog/integrations/health",
                 "result": { "observedCount": 12, "skippedCount": 1, "failedCount": 2 }, "blockers": [] }] }
         }
-    }))
-    .into_response()
+    });
+    surface["readModel"]["auditEvidence"] = audit;
+    Json(surface).into_response()
 }
 
 /// The validation readiness of the selected version: a fixture flow with a diagnostic, a dry run's
@@ -9059,6 +9088,40 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
     assert!(section.contains(".provider-page__schedule-row") && section.contains(".provider-page__job-pair"), "{section}");
 }
 
+#[tokio::test]
+async fn provider_detail_links_its_own_evidence_and_opens_the_timeline_the_api_resolved() {
+    let pilot = Pilot::new().await;
+    let drawer = |html: &str| {
+        let at = html.find(r#"id="pd-evidence-audit""#).expect("the audit timeline");
+        let tag = html[..at].rfind("<details").expect("in a disclosure");
+        html[tag..].split('>').next().unwrap().contains(" open")
+    };
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(r#"href="/catalog/providers/tcgplayer?profileVersion=2026.07.13&"#)
+            && html.contains(r#"evidenceRef=provider%2Ftcgplayer""#)
+            && html.contains("Audit timeline: tcgplayer"),
+        "the provider's link: {html}"
+    );
+    assert!(
+        html.contains("evidenceRef=provider-profile%2F2026.07.13%2Ftcgplayer") && html.contains("Audit timeline: 2026.07.13"),
+        "the selected version's link: {html}"
+    );
+    assert!(!drawer(&html), "closed without a reference: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?evidenceRef=provider%2Ftcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(drawer(&html) && html.contains("Profile 2026.07.13 activated."), "a resolved reference opens it: {html}");
+    assert!(
+        integrations_calls(&pilot).iter().any(|c| c.contains("evidenceRef%3Dprovider%252Ftcgplayer")),
+        "the API resolves it: {:?}",
+        integrations_calls(&pilot)
+    );
+
+    let (_, _, html) = pilot.send(get("/catalog/providers/tcgplayer?evidenceRef=scope%2Fsr_other", Some("staff"))).await;
+    assert!(!drawer(&html) && html.contains("No associated evidence"), "one the API did not find stays closed: {html}");
+}
 #[tokio::test]
 async fn a_reader_sees_provider_detail_without_its_commands_and_a_platform_admin_is_offered_the_session() {
     let pilot = Pilot::new().await;
@@ -9360,6 +9423,22 @@ async fn integration_health_draws_the_apis_composed_surface_for_its_address() {
     assert!(html.contains(r#"aria-hidden="true">Ingestion unit</span>"#), "a stacked row names its cells: {html}");
 }
 
+#[tokio::test]
+async fn an_evidence_reference_with_no_association_says_so_instead_of_the_filters_empty_state() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/integrations/health?evidenceRef=candidate%2Fcand_gone", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("No associated evidence") && html.contains("has no supported association in the loaded records"),
+        "the reference's own empty state: {html}"
+    );
+    assert!(!html.contains("No timeline events"), "not the filters' empty state: {html}");
+    let calls = integrations_calls(&pilot);
+    assert!(calls.iter().any(|c| c.contains("evidenceRef%3Dcandidate%252Fcand_gone")), "the API resolves it: {calls:?}");
+    let (_, _, html) = pilot.send(get("/catalog/integrations/health", Some("catalog-reader"))).await;
+    assert!(!html.contains("No associated evidence"), "without a reference, the timeline as before: {html}");
+}
 #[tokio::test]
 async fn settings_and_governance_draw_the_governance_controls_with_their_evidence() {
     let pilot = Pilot::new().await;
