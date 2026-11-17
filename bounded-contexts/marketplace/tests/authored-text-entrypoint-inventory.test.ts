@@ -118,6 +118,21 @@ const inventory: Readonly<Record<string, InventoryEntry>> = {
     classification: "Review Response action through Review HTTP; closed recovery keeps the draft",
     evidence: ["authoredTextRecoveryFromApiError(error.body)"],
   },
+  "bounded-contexts/marketplace/routes/marketplace/account-received-reviews.tsx": {
+    surface: "browser",
+    classification: "Received Review report delegates to the shared Report HTTP action; report details unchanged",
+    evidence: ["submitReviewReport("],
+  },
+  "bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx": {
+    surface: "browser",
+    classification: "Review summary report delegates to the shared Report HTTP action; report details unchanged",
+    evidence: ["submitReviewReport("],
+  },
+  "bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx": {
+    surface: "browser",
+    classification: "Written Review report delegates to the shared Report HTTP action; report details unchanged",
+    evidence: ["submitReviewReport("],
+  },
   "bounded-contexts/marketplace/routes/account-listing.tsx": {
     surface: "browser",
     classification: "Listing detail classify action through Listing HTTP; closed recovery keeps the description",

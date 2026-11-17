@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ComponentProps } from "react";
 import { UNSAFE_DataRouterContext, useActionData, useNavigation, useSubmit } from "react-router";
-import { Form, HiddenInput, MarketplaceNotice, Stack } from "@chase-sets/design-system";
+import { Box, Form, HiddenInput, MarketplaceNotice, Stack } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { marketplaceAttemptIdSchema } from "../../mutation-recovery/domain/contracts";
 
@@ -18,7 +18,9 @@ export type ReviewMutationActionState = Readonly<{
   error?: string;
 }>;
 
-export function ReviewMutationForm(props: ComponentProps<typeof Form>) {
+type ReviewMutationFormProps = Omit<ComponentProps<typeof Form>, "action"> & { action?: string };
+
+export function ReviewMutationForm(props: ReviewMutationFormProps) {
   const router = useContext(UNSAFE_DataRouterContext);
   const [attemptId] = useState(() => crypto.randomUUID());
   if (router) return <RoutedReviewMutationForm {...props} />;
@@ -30,7 +32,7 @@ export function ReviewMutationForm(props: ComponentProps<typeof Form>) {
   );
 }
 
-function RoutedReviewMutationForm({ children, onSubmit, onChange, ...props }: ComponentProps<typeof Form>) {
+function RoutedReviewMutationForm({ children, onSubmit, onChange, ...props }: ReviewMutationFormProps) {
   const submit = useSubmit();
   const navigation = useNavigation();
   const actionData = useActionData() as ReviewMutationActionState | undefined;
@@ -68,7 +70,7 @@ function RoutedReviewMutationForm({ children, onSubmit, onChange, ...props }: Co
   return (
     <Stack gap={3}>
       {phase !== "editing" ? (
-        <div ref={notice} tabIndex={-1} role="status" aria-live="polite" aria-atomic="true">
+        <Box ref={notice} tabIndex={-1} role="status" aria-live="polite" aria-atomic="true">
           <MarketplaceNotice
             tone={phase === "succeeded" ? "success" : phase === "ambiguous" || phase === "conflict" ? "danger" : "info"}
             title={
@@ -86,7 +88,7 @@ function RoutedReviewMutationForm({ children, onSubmit, onChange, ...props }: Co
             }
             description={state?.error}
           />
-        </div>
+        </Box>
       ) : null}
       <Form
         {...props}
