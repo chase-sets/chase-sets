@@ -20,7 +20,8 @@
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
     "./server": "./server.ts",
-    "./integration/link-intents": "./support/runtime-support/link-intents.ts"
+    "./integration/link-intents": "./support/runtime-support/link-intents.ts",
+    "./test-support": "./features/inventory-items/tests/listing-activation-test-support.ts"
   },
   "types": "./index.ts",
   "dependencies": {

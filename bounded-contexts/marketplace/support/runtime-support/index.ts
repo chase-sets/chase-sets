@@ -7,6 +7,7 @@ import type { CommercialTermsResolver } from "../../api";
 import type { ListingEvidencePolicyEvaluator } from "../../features/listings/api/evidence-requirement-resolver";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
 import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
+import type { ListingTargetAuthority } from "../../features/listings/api/target-contracts";
 
 export type ListingPhotoStorage = Readonly<{
   getObject: ObjectStorage["getObject"];
@@ -23,6 +24,7 @@ export type ListingPhotoStorage = Readonly<{
 }>;
 
 export type MarketplaceRuntimeDeps = Readonly<{
+  listingTargetAuthority?: ListingTargetAuthority;
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;

@@ -48,6 +48,18 @@ Notes:
 
 A **Channel-Only Listing** is created as a draft with native visibility disabled and native fee state not enrolled. Its complete normalized amount and ISO-4217 currency pair is a hidden reference price, not native publication or channel activation authority. Creation resolves no native Terms or fee quote and enrolls no fee lock. Native publication, Resume, price, purchase-limit and capacity commands refuse it; withdrawal remains available and terminal. Channel target acceptance and activation are separate capabilities.
 
+## Accepted Target Price
+
+An **Accepted Target Price** is Marketplace's immutable complete amount/currency pair for one Listing and channel connection. It retains the accepting User, time, source event, Listing and target revisions, seller-reference decision and captured connection identity. Equal amounts with different authority remain different acceptances. Pricing evaluation is not enrolled in channel-only acceptance.
+
+## Channel Activation
+
+**Channel Activation** makes a channel-only draft active for an exact accepted connection target and Inventory allocation revision. It does not publish natively, enroll a native fee lock or clear a pause. Other connection targets remain independent.
+
+## Listing Request Result
+
+A **Listing Request Result** binds a complete command fingerprint and real principal to immutable authorization evidence and the committed aggregate snapshot. The result and Listing events commit atomically. Inventory authority also requires the original consumer-local Request Terminal, opened with its complete durable reservation manifest and committed only by the shared fenced append. A failed or interrupted preparation is aborted through that same terminal on recovery, never released by elapsed time. An exact retry returns the original committed result before recapturing authority; changed input conflicts.
+
 ## Listing Price
 
 A **Listing Price** is the seller-authored pair of a normalized decimal amount and an uppercase three-letter ISO-4217 currency code. Marketplace records both members together at one Listing stream version. A historical amount without currency is an incomplete Listing Price and is never assigned a default or inferred denomination.

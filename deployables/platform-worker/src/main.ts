@@ -3,6 +3,7 @@ import type { InventoryServices } from "@chase-sets/inventory/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 
 import "./observability-prelude";
+import { createMarketplaceListingConsumer } from "@chase-sets/marketplace/server";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/outbound-messaging";
@@ -269,6 +270,11 @@ const inventoryDraftListingConsumer = createPlatformWorkerInventoryDraftListingC
   () => runtime?.services.marketplace as MarketplaceServices | undefined,
 );
 
+const listingConsumer =
+  config.runtimeProfile !== "landing" && pools.marketplace
+    ? createMarketplaceListingConsumer(pools.marketplace)
+    : undefined;
+await listingConsumer?.initialize();
 const identityHostPorts = {
   capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
 } satisfies Pick<import("@chase-sets/identity/server").IdentityHostPorts, "capabilityAdministrationAuthority">;
@@ -282,6 +288,14 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       inventoryDraftListingConsumer,
       draftListingDelivery: inventoryDraftListingConsumer,
       ...identityHostPorts,
+      ...(listingConsumer
+        ? {
+            identitySourceTopology: listingConsumer.topology,
+            sessionConsumers: listingConsumer.topology,
+            connectionConsumers: listingConsumer.topology,
+            stockReservationConsumerPool: pools.marketplace,
+          }
+        : {}),
       ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
@@ -310,7 +324,9 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
       ebayOAuthConfiguration: config.ebayOAuthConfiguration,
-      ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      ...(pools.inventory
+        ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory, pools.marketplace) }
+        : {}),
       storageLocationAuthority: {
         resolve: pools.inventory
           ? createStorageLocationAuthority(pools.inventory).resolveStorageLocationAuthority

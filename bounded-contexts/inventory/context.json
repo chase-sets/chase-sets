@@ -95,7 +95,8 @@
     "./seed-support/*",
     "./server",
     "./web",
-    "./integration/link-intents"
+    "./integration/link-intents",
+    "./test-support"
   ],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["catalog", "identity"],

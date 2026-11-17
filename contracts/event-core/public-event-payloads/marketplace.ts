@@ -768,7 +768,51 @@ export function parseMarketplaceReportSubmittedPayload(value: unknown): Marketpl
   };
 }
 
+export type MarketplaceListingPriceTarget =
+  | Readonly<{ kind: "native-marketplace" }>
+  | Readonly<{ kind: "channel-connection"; connectionId: string }>;
+export type MarketplaceListingPriceDecision =
+  | Readonly<{ kind: "seller-reference" }>
+  | Readonly<{
+      kind: "pricing-evaluation";
+      evaluationId: string;
+      evaluationRevision: string;
+      basePriceRevision: number;
+      standingAuthorizationId: string;
+      standingAuthorizationRevision: string;
+    }>;
+export type AcceptedListingTargetPriceV1 = Readonly<{
+  schemaVersion: 1;
+  accountId: string;
+  listingId: string;
+  target: MarketplaceListingPriceTarget;
+  priceAmount: string;
+  priceCurrencyCode: string;
+  targetPriceRevision: number;
+  listingRevision: number;
+  acceptedByUserId: string;
+  acceptedAt: string;
+  sourceEventId: string;
+  decision: MarketplaceListingPriceDecision;
+  connectionAuthority: Readonly<{
+    connectionId: string;
+    providerKey: string;
+    environment: "sandbox" | "production";
+    identityRevision: number;
+  }> | null;
+}>;
+
 export type MarketplaceEventPayloads = Readonly<{
+  "marketplace.listing.target-price-accepted": Readonly<{
+    schemaVersion: 1;
+    acceptedTargetPrice: AcceptedListingTargetPriceV1;
+  }>;
+  "marketplace.listing.channel-activated": Readonly<{
+    schemaVersion: 1;
+    connectionId: string;
+    targetPriceRevision: number;
+    allocationRevision: number;
+  }>;
   "marketplace.review-opportunity.changed.v1": ReviewOpportunityChangedV1;
   "marketplace.listing.created": MarketplaceListingCreatedPayload;
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
