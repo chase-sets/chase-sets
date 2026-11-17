@@ -68,6 +68,8 @@ is documented in the [Customer Feedback Privacy runbook](../../docs/runbooks/cus
 
 - `fulfillment.shipment.delivered`, `payments.payment-captured`, `settlement.payout.completed`,
   and `support.support-request.resolved`, consumed by the same outcome-fact projection.
+- Marketplace listing publication, offer acceptance and review submission, plus Inventory
+  item creation and adjustment, consumed by the same optional outcome-fact projection.
 
 ## Outgoing Integration Events
 

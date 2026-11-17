@@ -657,6 +657,7 @@ async function ownedRecoveryListing(
     expectedVersion: created.version,
     command: {
       type: "PublishListing",
+      publishedAt: "2026-05-09T14:00:00.000Z",
       readiness: {
         ready: true,
         requirementHash: evidenceRequirements.requirementHash,

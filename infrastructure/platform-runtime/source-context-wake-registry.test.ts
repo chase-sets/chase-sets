@@ -22,8 +22,8 @@ import {
 describe("source-context wake registry", () => {
   const inventory = loadBoundedContextInventory();
 
-  it("wakes Customer Feedback for each wave-two native source", () => {
-    for (const source of ["fulfillment", "payments", "settlement", "platform-operations"]) {
+  it("wakes Customer Feedback for each commerce native source", () => {
+    for (const source of ["fulfillment", "payments", "settlement", "platform-operations", "marketplace", "inventory"]) {
       expect(requireSourceContextWakeRegistryEntry(source).affectedProjectionNames).toContain(
         "customer-feedback:customer-feedback-csat-outcome-fact-projection",
       );

@@ -18,6 +18,8 @@ import { module as fulfillmentModule } from "../../../../fulfillment/index";
 import { module as paymentsModule } from "../../../../payments/index";
 import { module as settlementModule } from "../../../../settlement/index";
 import { module as platformOperationsModule } from "../../../../platform-operations/index";
+import { module as marketplaceModule } from "../../../../marketplace/index";
+import { module as inventoryModule } from "../../../../inventory/index";
 import { module as customerFeedbackModule } from "../../../index";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
@@ -25,12 +27,15 @@ import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { buildAuthOutcomeFactProjectionHandlers } from "../integrations/auth/outcome-fact-projection";
 import { deliveryFact, captureFact, payoutFact, supportFact } from "../../../tests/wave-two-outcome-fact-test-support";
 import { outcomeHandlers } from "../../../tests/outcome-fact-test-support";
+import { listingFact, inventoryAdjustedFact } from "../../../tests/wave-three-outcome-fact-test-support";
 
 const sourceModules = {
   fulfillment: fulfillmentModule,
   payments: paymentsModule,
   settlement: settlementModule,
   "platform-operations": platformOperationsModule,
+  marketplace: marketplaceModule,
+  inventory: inventoryModule,
 } as const;
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -132,12 +137,14 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     }
   }
 
-  it("recovers all four native sources from zero, fences checkpoints and resumes immutable rows", async () => {
+  it("recovers all six native sources from zero, fences checkpoints and resumes immutable rows", async () => {
     const nativeFacts = {
       fulfillment: deliveryFact(),
       payments: captureFact(null),
       settlement: payoutFact(),
       "platform-operations": supportFact("return-request"),
+      marketplace: listingFact(),
+      inventory: inventoryAdjustedFact(),
     };
     for (const [source, fact] of Object.entries(nativeFacts)) {
       const entity = {
@@ -145,6 +152,8 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
         payments: "paymentId",
         settlement: "payoutId",
         "platform-operations": "supportRequestId",
+        marketplace: "listingId",
+        inventory: "itemId",
       }[source as keyof typeof sourceModules];
       await createPostgresEventStore({ pool: pools[source as keyof typeof sourceModules] }).appendToStream({
         streamId: `${source}.synthetic-outcomes`,
@@ -168,7 +177,7 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     const runners = first.subscriptionRunners.filter(
       (candidate) => candidate.projectionName === group.projectionName && candidate.sourceContextName in nativeFacts,
     );
-    expect(runners).toHaveLength(4);
+    expect(runners).toHaveLength(6);
     for (const runner of runners) {
       expect(runner.checkpointKey).toBe(`${group.projectionName}:${runner.sourceContextName}:v1`);
       expect(runner.checkpointBatchSize).toBe(100);
@@ -202,7 +211,7 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
         "SELECT * FROM customer_feedback_csat_outcome_facts ORDER BY idempotency_key",
       );
       for (const event of history) {
-        await outcomeHandlers[event.eventType]!(toTransportEvent({ ...event, eventId: "evt_redelivery" as never }), {
+        await outcomeHandlers[event.eventType]!(toTransportEvent({ ...event, performedByUserId: "usr_redelivery" as never }), {
           db: pools["customer-feedback"],
         });
       }
@@ -217,7 +226,7 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     }
     expect(
       (await pools["customer-feedback"].query("SELECT idempotency_key FROM customer_feedback_csat_outcome_facts")).rows,
-    ).toHaveLength(404);
+    ).toHaveLength(606);
   });
 
   it("catches up Auth history in 100-event checkpointed batches and resumes exactly once", async () => {

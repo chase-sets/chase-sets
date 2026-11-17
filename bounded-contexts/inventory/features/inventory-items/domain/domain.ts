@@ -65,7 +65,6 @@ export const initialInventoryItemState: InventoryItemState = {
 
 export type CreateInventoryItemCommand = Readonly<{
   type: "CreateInventoryItem";
-  csatOutcomeFact?: JsonObject;
   itemId: InventoryItemId;
   accountId: AccountId;
   catalogItemId: CatalogItemId;
@@ -82,7 +81,7 @@ export type CreateInventoryItemCommand = Readonly<{
 
 export type AdjustInventoryItemQuantityCommand = Readonly<{
   type: "AdjustInventoryItemQuantity";
-  csatOutcomeFact?: JsonObject;
+  requestIdempotencyKey?: string;
   quantityDelta: number;
   heldQuantity: number;
   reason: string;
@@ -95,7 +94,7 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
 
 export type RecordOfflineSaleCommand = Readonly<{
   type: "RecordOfflineSale";
-  csatOutcomeFact?: JsonObject;
+  requestIdempotencyKey?: string;
   quantity: number;
   heldQuantity: number;
   salePriceAmount?: string | null;
@@ -150,6 +149,7 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     sourceRef?: InventoryAdjustmentSourceRef;
     acquisitionOccurrence?: AcquisitionOccurrence;
     csatOutcomeFact?: JsonObject;
+    requestIdempotencyKey?: string;
   }>
 >;
 
@@ -208,7 +208,6 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             acquisitionCostAmount: acquisitionCost.amount,
             acquisitionCostCurrencyCode: acquisitionCost.currencyCode,
             acquisitionOccurrence: createAcquisitionOccurrence,
-            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];
@@ -246,7 +245,9 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
             sourceRef: command.sourceRef ?? null,
             ...(adjustmentAcquisitionOccurrence ? { acquisitionOccurrence: adjustmentAcquisitionOccurrence } : {}),
-            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
+            ...(command.requestIdempotencyKey !== undefined
+              ? { requestIdempotencyKey: command.requestIdempotencyKey }
+              : {}),
           },
         },
       ];
@@ -300,7 +301,9 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             reasonCode: "sold-offline",
             ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
             sourceRef: null,
-            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
+            ...(command.requestIdempotencyKey !== undefined
+              ? { requestIdempotencyKey: command.requestIdempotencyKey }
+              : {}),
           },
         },
         {

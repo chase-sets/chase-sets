@@ -13,7 +13,7 @@ import {
   type ReportedContentActionId,
   type TypedUlid,
 } from "../../primitives/typed-ids";
-import type { MarketplaceReviewScoringDispositionProjectedV1Payload } from "../review-scoring-facts";
+import type { MarketplaceReviewScoringDispositionProjectedV1Payload, MarketplaceReviewScoringDisposition, MarketplaceReviewScoringReasonCode, MarketplaceReviewScoringSourceFactVersion } from "../review-scoring-facts";
 import type { ReviewOpportunityChangedV1 } from "../review-opportunity-facts";
 import type { EmptyEventPayload } from "./event-core";
 import type {
@@ -211,6 +211,31 @@ export type MarketplaceListingPriceUpdatedPayload = Readonly<{
   termsAgreementId: string | null;
   termsResolvedAt: string;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
+}>;
+
+export type MarketplaceListingPublishedPayload = Readonly<{
+  /** Absent on historical empty or nested-only publication events. */
+  listingId?: string;
+  sellerAccountId?: AccountId;
+  publishedAt?: string;
+  csatOutcomeFact?: JsonValue;
+}>;
+
+export type MarketplaceReviewSubmittedPayload = Readonly<{
+  reviewId: string;
+  orderId: string;
+  authorAccountId: AccountId;
+  subjectAccountId: AccountId;
+  authorRole: "buyer" | "seller";
+  rating: number;
+  feedback: string | null;
+  submittedAt: string;
+  reviewWindowExpiresAt: string;
+  scoringDisposition?: MarketplaceReviewScoringDisposition;
+  scoringReasonCode?: MarketplaceReviewScoringReasonCode;
+  scoringPolicyVersion?: string;
+  scoringSourceFactVersions?: readonly MarketplaceReviewScoringSourceFactVersion[];
+  scoringOperationalSignal?: "responsibility-missing" | "responsibility-unrecognized" | null;
 }>;
 
 /** Historical creation facts are unchanged; channel-only facts use a closed, versioned record. */
@@ -818,7 +843,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
-  "marketplace.listing.published": EmptyEventPayload;
+  "marketplace.listing.published": MarketplaceListingPublishedPayload;
   "marketplace.listing.paused": Readonly<{
     reason?: "seller" | "policy-input-missing" | "channel-inbound-dark" | "inventory-capacity";
     inventoryCapacityRecoveryBlock?:
@@ -840,6 +865,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "platform-operations.reported-content.listing-removal-directed": PlatformOperationsListingRemovalDirectedPayload;
   "platform-operations.risk-alert.action-recorded": PlatformOperationsRiskAlertActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
+  "marketplace.review.submitted": MarketplaceReviewSubmittedPayload;
   "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;
   "marketplace.offer.price-updated": MarketplaceOfferPriceUpdatedPayload;
   "marketplace.offer.paused": MarketplaceOfferLifecyclePayload;

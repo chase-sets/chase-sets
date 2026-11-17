@@ -7,6 +7,45 @@ const unknownAcquisition = {
 };
 
 describe("inventory item domain", () => {
+  it("retains only supplied native adjustment keys and emits no nested CSAT facts", () => {
+    const created = decideInventoryItem(initialInventoryItemState, {
+      type: "CreateInventoryItem",
+      ...unknownAcquisition,
+      itemId: "inv_native" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1" as never,
+      productId: "cat_1::" as never,
+      storageLocationId: "loc_1",
+      totalQuantity: 10,
+    });
+    expect(created[0]?.data).not.toHaveProperty("csatOutcomeFact");
+    const state = created.reduce(evolveInventoryItem, initialInventoryItemState);
+    for (const quantityDelta of [-1, 1]) {
+      for (const requestIdempotencyKey of [undefined, "supplied-key"]) {
+        const [adjusted] = decideInventoryItem(state, {
+          type: "AdjustInventoryItemQuantity",
+          quantityDelta,
+          heldQuantity: 0,
+          reason: "Correction",
+          ...(quantityDelta > 0 ? unknownAcquisition : {}),
+          ...(requestIdempotencyKey !== undefined ? { requestIdempotencyKey } : {}),
+        });
+        expect(adjusted?.data).not.toHaveProperty("csatOutcomeFact");
+        if (requestIdempotencyKey === undefined) expect(adjusted?.data).not.toHaveProperty("requestIdempotencyKey");
+        else expect(adjusted?.data).toHaveProperty("requestIdempotencyKey", requestIdempotencyKey);
+      }
+    }
+    const offline = decideInventoryItem(state, {
+      type: "RecordOfflineSale",
+      quantity: 1,
+      heldQuantity: 0,
+      channel: "in-store",
+      recordedAt: unknownAcquisition.commandOccurredAt,
+      requestIdempotencyKey: "offline-key",
+    });
+    expect(offline[0]?.data).toHaveProperty("requestIdempotencyKey", "offline-key");
+    expect(offline.every((event) => !("csatOutcomeFact" in event.data))).toBe(true);
+  });
   it("requires a source-authored uppercase currency alongside every acquisition amount", () => {
     const create = {
       type: "CreateInventoryItem" as const,
