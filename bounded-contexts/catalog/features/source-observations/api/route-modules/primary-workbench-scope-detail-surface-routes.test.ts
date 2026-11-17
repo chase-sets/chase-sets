@@ -71,7 +71,12 @@ afterEach(() => {
 describe("Catalog daily surface for a Scope Detail location", () => {
   it("reads one daily overview per verified Scope and isolates two same-provider journeys", async () => {
     const source = services();
-    const readiness = { ...controlPlaneOverview().readiness, providerUsage: [] };
+    const readiness: Awaited<ReturnType<SourceObservationRouteServices["getCatalogIntegrationControlPlaneReadiness"]>> =
+      {
+        ...controlPlaneOverview().readiness,
+        rolloutControls: { generatedAt: NOW, controls: [] },
+        providerUsage: [],
+      };
     vi.mocked(source.getCatalogIntegrationControlPlaneReadiness).mockResolvedValue({
       ...readiness,
       units: [
