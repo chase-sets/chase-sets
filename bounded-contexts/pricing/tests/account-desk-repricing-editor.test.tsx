@@ -119,7 +119,9 @@ async function fixture(detail: boolean) {
           if (!write) throw new Error("Save response must be held before submitting");
           write.started.resolve(undefined);
           const response = await write.response.promise;
-          if (response.ok) saved = true;
+          const receipt: unknown = await response.clone().json();
+          if (receipt && typeof receipt === "object" && "status" in receipt && receipt.status === "applied")
+            saved = true;
           return response;
         }
       }
@@ -261,6 +263,44 @@ async function fixture(detail: boolean) {
 
 describe("rendered repricing editor write lifecycle", () => {
   it.each([false, true])(
+    "pending and superseded cannot complete the editor or install edits (detail=%s)",
+    async (detail) => {
+      const test = await fixture(detail);
+      try {
+        await test.openAndPrepare();
+        for (const status of ["accepted-pending", "superseded-by-revision"] as const) {
+          const held = await test.submit();
+          await test.settle(
+            held,
+            json(
+              {
+                status,
+                requestKey: "synthetic-pending",
+                requestedRevision: 2,
+                ...(status === "superseded-by-revision" ? { replacingRevision: 3 } : {}),
+              },
+              status === "accepted-pending" ? 202 : 409,
+            ),
+          );
+          expect(editor()).toBeTruthy();
+          expect((screen.getByLabelText("Policy name", { exact: true }) as HTMLInputElement).value).toBe(
+            "Unsaved seller edit",
+          );
+          expect(test.router.state.location.search).not.toContain("postWriteToken=");
+          expect(
+            within(editor()).getByText(
+              status === "accepted-pending" ? /pending.*unchanged/i : /replaced by request 3/i,
+            ),
+          ).toBeTruthy();
+          if (detail) expect(screen.getAllByText("Stored policy").length).toBeGreaterThan(0);
+          else expect(screen.queryByText("Stored policy")).toBeNull();
+        }
+      } finally {
+        await test.dispose();
+      }
+    },
+  );
+  it.each([false, true])(
     "preserves edits/details on rejected save, clears reopened errors and closes only on receipt redirect (detail=%s)",
     async (detail) => {
       const test = await fixture(detail);
@@ -287,14 +327,24 @@ describe("rendered repricing editor write lifecycle", () => {
         expect(router.state.location.search).not.toContain("postWriteToken=");
         await settle(
           success,
-          json(policy, detail ? 200 : 201, {
-            "Chase-Sets-Consistency": "eventual",
-            "Chase-Sets-Commit-Position": "51",
-            "Chase-Sets-Commit-Event-Ids": "evt_synthetic",
-            [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
-              { sourceContextName: "pricing", maxGlobalPosition: "51", eventIds: ["evt_synthetic"] },
-            ]),
-          }),
+          json(
+            {
+              status: "applied",
+              requestKey: "synthetic-applied",
+              requestedRevision: 1,
+              installedRevision: 1,
+              state: { ...policy, excludedListingIds: [] },
+            },
+            detail ? 200 : 201,
+            {
+              "Chase-Sets-Consistency": "eventual",
+              "Chase-Sets-Commit-Position": "51",
+              "Chase-Sets-Commit-Event-Ids": "evt_synthetic",
+              [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
+                { sourceContextName: "pricing", maxGlobalPosition: "51", eventIds: ["evt_synthetic"] },
+              ]),
+            },
+          ),
         );
         expect(screen.queryByTestId("repricing-policy-editor")).toBeNull();
         expect(router.state.location.search).toContain("postWriteToken=");

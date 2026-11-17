@@ -599,3 +599,22 @@ A **Pricing Alert** is the planned notification-worthy pricing condition produce
 ### Market Movement
 
 **Market Movement** is the planned material change in pricing inputs over a defined window.
+
+## Configuration Request Receipt
+
+A **Configuration Request Receipt** identifies one immutable `requestedRevision` and
+idempotency key for a policy or halt command. `accepted-pending` means the request
+is durable but not installed. `applied` means the configuration epoch and its
+policy or halt events were installed atomically; it carries the installed state
+and `installedRevision`. `superseded-by-revision` is terminal and names the
+`replacingRevision`. Retrying an idempotency key returns that request's durable
+outcome, never the latest request's outcome. Reusing it for a different command
+conflicts.
+
+**Installed Revision and Value** are the last applied policy or halt, separate
+from the latest requested revision and receipt. Reads bind `installedState` to
+`installedRevision` from the retained applied receipt. Pending release never disengages
+an installed halt. Pending creation never creates an active policy. Closure
+receipts, not time or projection catch-up, permit installation. HTTP 200/201
+requires `applied`; pending is HTTP 202 and supersession is a typed HTTP 409.
+The contract is `features/repricing-policies/domain/configuration-receipt.ts`.
