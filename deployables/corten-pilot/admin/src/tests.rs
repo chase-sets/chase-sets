@@ -4654,6 +4654,23 @@ async fn a_scopes_page_keeps_its_members_health_and_their_jobs_recovery() {
     // A job in the address that is not a member's: the resolution is unavailable.
     let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobId=job_other", Some("staff"))).await;
     assert!(health(&html).contains("Resolution unavailable: the target is missing or deleted."), "{html}");
+
+    // The member job's retry, posted as drawn, lands back on the scope with the job queued.
+    let (status, headers, _) = pilot.send(post("/catalog/integrations/jobs/job_1?home=scp_paf", "command=retry", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?") && to.contains("done=queued"), "{to}");
+    assert!(pilot.catalog_writes().iter().any(|c| c.path.contains("job_1")), "the retry reached the Catalog API");
+
+    // A Catalog viewer sees the member's health without its commands, and cannot send one.
+    let before = pilot.catalog_writes().len();
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("catalog-viewer"))).await;
+    let part = health(&html);
+    assert!(part.contains(r#"data-catalog-scope-health-job="job_1""#) && !part.contains(r#"value="retry""#), "{part}");
+    let (status, _, _) =
+        pilot.send(post_as("catalog-viewer", "/catalog/integrations/jobs/job_1?home=scp_paf", "command=retry", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+    assert_eq!(pilot.catalog_writes().len(), before, "nothing was sent");
 }
 
 #[tokio::test]
@@ -9102,6 +9119,12 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
     });
     surface["readModel"]["auditEvidence"] = audit;
     surface["readModel"]["healthTriage"] = triage;
+    // `nobudget` is a provider the triage has a row for, with no usage budget at all.
+    if key == "nobudget" {
+        let row = &mut surface["readModel"]["healthTriage"]["providers"][0];
+        row["providerKey"] = json!(key);
+        row["usageBudget"] = Value::Null;
+    }
     Json(surface).into_response()
 }
 
@@ -9387,6 +9410,17 @@ async fn provider_detail_keeps_the_health_facts_at_their_homes() {
     assert!(html.contains("Provider readiness unavailable"), "{html}");
     assert!(html.contains("no healthy state or empty unit count is implied"), "{html}");
     assert!(!html.contains("Refresh provider option queries."), "another provider's facts: {html}");
+
+    // A provider whose row has no usage budget reads each budget fact as not reported, never zero.
+    let (status, _, html) = pilot.send(get("/catalog/providers/nobudget", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-provider-health="nobudget""#).expect("the provider's header");
+    let head = &html[start..start + html[start..].find("</section>").expect("its end")];
+    for label in ["Credit balance / allowance / unit", "Usage observed at", "Estimated calls", "Estimated call scope"] {
+        assert!(head.contains(&format!("<dt>{label}</dt><dd>Not reported</dd>")), "{label}: {head}");
+    }
+    assert!(head.contains("<dt>Budget readiness</dt><dd>unavailable</dd>"), "{head}");
+    assert!(!head.contains("<dd>0</dd>") && !head.contains("<dd>0 /"), "no zero is made up: {head}");
 }
 
 #[tokio::test]
