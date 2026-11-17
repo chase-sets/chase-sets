@@ -569,19 +569,20 @@ describe("fulfillment shipment domain", () => {
     expect(deliveredState.deliveredAt).toBe("2026-04-03T12:00:00.000Z");
   });
 
-  it("emits delivery proof fields used for payment dispute evidence", () => {
+  it("emits only native facts with delivery proof fields used for payment dispute evidence", () => {
     const labeledState = attachPurchasedLabel(createPackedShipmentState());
     const dispatchedState = decideFulfillmentShipment(labeledState, {
       type: "DispatchShipment",
       dispatchedAt: "2026-04-02T00:20:00.000Z",
     }).reduce(evolveFulfillmentShipment, labeledState);
 
-    const [event] = decideFulfillmentShipment(dispatchedState, {
+    const events = decideFulfillmentShipment(dispatchedState, {
       type: "RecordShipmentDelivery",
       deliveredAt: "2026-04-03T12:00:00.000Z",
     });
 
-    expect(event).toMatchObject({
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
       type: "fulfillment.shipment.delivered",
       data: {
         shipmentId: "shp_1",

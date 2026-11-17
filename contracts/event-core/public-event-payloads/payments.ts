@@ -19,6 +19,7 @@ export type PaymentSellerPayoutPayload = Readonly<{
 }>;
 
 export type PaymentCapturedPayload = Readonly<{
+  sourceContext?: string | null;
   paymentId: PaymentId;
   orderIds: readonly string[];
   buyerAccountId: AccountId;

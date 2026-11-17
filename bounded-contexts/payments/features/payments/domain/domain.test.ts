@@ -200,6 +200,38 @@ function disputePayment(state: PaymentState) {
 }
 
 describe("payments payment domain", () => {
+  it("emits explicit null classification when capturing an older aggregate without sourceContext", () => {
+    const state = { ...createdPaymentState(), sourceContext: undefined as never };
+    const events = decidePayment(state, {
+      type: "RecordPaymentCapture",
+      processorStatus: "succeeded",
+      capturedAt: "2026-04-01T00:01:00.000Z",
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "payments.payment-captured", data: { sourceContext: null } });
+    expect(JSON.parse(JSON.stringify(events[0]!.data))).toHaveProperty("sourceContext", null);
+  });
+  it.each(["checkout-recovery", "other", null])(
+    "emits only native facts with aggregate sourceContext %s",
+    (sourceContext) => {
+      const state = { ...createdPaymentState(), sourceContext };
+      const events = decidePayment(state, {
+        type: "RecordPaymentCapture",
+        processorStatus: "succeeded",
+        capturedAt: "2026-04-01T00:01:00.000Z",
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: "payments.payment-captured",
+        data: { sourceContext, amount: state.amount, sellerPayoutAmount: state.sellerPayoutAmount },
+      });
+      expect(events.reduce(evolvePayment, state)).toMatchObject({
+        status: "captured",
+        amount: state.amount,
+        sellerPayoutAmount: state.sellerPayoutAmount,
+      });
+    },
+  );
   it("records payment authorization with the normalized provider payload", () => {
     expect(
       decidePayment(createdPaymentState(), {
@@ -348,10 +380,10 @@ describe("payments payment domain", () => {
       processorStatus: "succeeded",
       capturedAt: "2026-04-01T00:01:00.000Z",
     });
-    expect(captureEvents).toHaveLength(2);
-    expect(captureEvents[1]).toMatchObject({
-      type: "payments.csat-outcome-fact.v1",
-      data: { outcomeCode: "checkout.completed", sourceContext: "checkout" },
+    expect(captureEvents).toHaveLength(1);
+    expect(captureEvents[0]).toMatchObject({
+      type: "payments.payment-captured",
+      data: { sourceContext: null },
     });
     const captured = captureEvents.reduce(evolvePayment, createdState);
 
@@ -360,7 +392,7 @@ describe("payments payment domain", () => {
     expect(captured.orderIds).toEqual(["ord_1", "ord_2"]);
   });
 
-  it("publishes recovery rather than completion after a server-owned checkout recovery", () => {
+  it("emits only native facts after a server-owned checkout recovery", () => {
     const createdState = decidePayment(initialPaymentState, {
       type: "CreatePayment",
       paymentId: "pay_recovery" as never,
@@ -387,13 +419,10 @@ describe("payments payment domain", () => {
       capturedAt: "2026-04-01T00:04:00.000Z",
     });
 
-    expect(captureEvents[1]).toMatchObject({
-      type: "payments.csat-outcome-fact.v1",
-      data: {
-        outcomeCode: "checkout.recovered",
-        sourceContext: "checkout",
-        idempotencyKey: "payment:pay_recovery:checkout.recovered",
-      },
+    expect(captureEvents).toHaveLength(1);
+    expect(captureEvents[0]).toMatchObject({
+      type: "payments.payment-captured",
+      data: { sourceContext: "checkout-recovery" },
     });
   });
 

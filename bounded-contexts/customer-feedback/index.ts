@@ -26,6 +26,10 @@ import { buildCustomerFeedbackApi } from "./api";
 import { buildAuthOutcomeFactProjectionHandlers } from "./features/csat/integrations/auth/outcome-fact-projection";
 import { buildDiscoveryOutcomeFactProjectionHandlers } from "./features/csat/integrations/discovery/outcome-fact-projection";
 import { buildIdentityOutcomeFactProjectionHandlers } from "./features/csat/integrations/identity/outcome-fact-projection";
+import { buildFulfillmentOutcomeFactProjectionHandlers } from "./features/csat/integrations/fulfillment/outcome-fact-projection";
+import { buildPaymentsOutcomeFactProjectionHandlers } from "./features/csat/integrations/payments/outcome-fact-projection";
+import { buildSettlementOutcomeFactProjectionHandlers } from "./features/csat/integrations/settlement/outcome-fact-projection";
+import { buildSupportOutcomeFactProjectionHandlers } from "./features/csat/integrations/platform-operations/outcome-fact-projection";
 
 const customerFeedbackContextManifest = contextManifest as BcContextManifest;
 
@@ -64,6 +68,13 @@ const contextModule = defineBoundedContextModule<
         "auth.customer-feedback-csat-outcome-fact-projection": () => buildAuthOutcomeFactProjectionHandlers(),
         "identity.customer-feedback-csat-outcome-fact-projection": () => buildIdentityOutcomeFactProjectionHandlers(),
         "discovery.customer-feedback-csat-outcome-fact-projection": () => buildDiscoveryOutcomeFactProjectionHandlers(),
+        "fulfillment.customer-feedback-csat-outcome-fact-projection": () =>
+          buildFulfillmentOutcomeFactProjectionHandlers(),
+        "payments.customer-feedback-csat-outcome-fact-projection": () => buildPaymentsOutcomeFactProjectionHandlers(),
+        "settlement.customer-feedback-csat-outcome-fact-projection": () =>
+          buildSettlementOutcomeFactProjectionHandlers(),
+        "platform-operations.customer-feedback-csat-outcome-fact-projection": () =>
+          buildSupportOutcomeFactProjectionHandlers(),
       },
     }),
     ...buildEventReactionsFromManifest({

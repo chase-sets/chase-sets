@@ -14,11 +14,24 @@ import { module as identityModule } from "../../../../identity/index";
 import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../../../identity/features/account-capabilities/api/authority";
 import { module as discoveryModule } from "../../../../discovery/index";
 import { module as notificationsModule } from "../../../../notifications/index";
+import { module as fulfillmentModule } from "../../../../fulfillment/index";
+import { module as paymentsModule } from "../../../../payments/index";
+import { module as settlementModule } from "../../../../settlement/index";
+import { module as platformOperationsModule } from "../../../../platform-operations/index";
 import { module as customerFeedbackModule } from "../../../index";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { buildAuthOutcomeFactProjectionHandlers } from "../integrations/auth/outcome-fact-projection";
+import { deliveryFact, captureFact, payoutFact, supportFact } from "../../../tests/wave-two-outcome-fact-test-support";
+import { outcomeHandlers } from "../../../tests/outcome-fact-test-support";
+
+const sourceModules = {
+  fulfillment: fulfillmentModule,
+  payments: paymentsModule,
+  settlement: settlementModule,
+  "platform-operations": platformOperationsModule,
+} as const;
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -32,13 +45,16 @@ const context: EventStoreContext = {
 
 describeDb("CSAT outcome projection against real rows and checkpoints", () => {
   let pools: Readonly<
-    Record<"auth" | "identity" | "discovery" | "notifications" | "customer-feedback", PgTransactionalPool>
+    Record<
+      "auth" | "identity" | "discovery" | "notifications" | "customer-feedback" | keyof typeof sourceModules,
+      PgTransactionalPool
+    >
   >;
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(
       databaseBaseUrl!,
-      ["auth", "identity", "discovery", "notifications", "customer-feedback"],
+      ["auth", "identity", "discovery", "notifications", "customer-feedback", ...Object.keys(sourceModules)],
       "csat_outcome_projection",
     );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
@@ -52,6 +68,9 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
     await bootstrapContextDatabase(notificationsModule, pools.notifications);
     await bootstrapContextDatabase(customerFeedbackModule, pools["customer-feedback"]);
+    for (const [name, module] of Object.entries(sourceModules)) {
+      await bootstrapContextDatabase(module, pools[name as keyof typeof sourceModules]);
+    }
   });
 
   afterAll(async () => {
@@ -77,6 +96,13 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
         ports: {},
       },
       { contextName: "customer-feedback", module: customerFeedbackModule, pool: pools["customer-feedback"], ports: {} },
+      ...Object.entries(sourceModules).map(([contextName, module]) => ({
+        contextName,
+        module,
+        mountRole: "source-only" as const,
+        pool: pools[contextName as keyof typeof sourceModules],
+        ports: {},
+      })),
     ]);
   }
 
@@ -105,6 +131,94 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
       });
     }
   }
+
+  it("recovers all four native sources from zero, fences checkpoints and resumes immutable rows", async () => {
+    const nativeFacts = {
+      fulfillment: deliveryFact(),
+      payments: captureFact(null),
+      settlement: payoutFact(),
+      "platform-operations": supportFact("return-request"),
+    };
+    for (const [source, fact] of Object.entries(nativeFacts)) {
+      const entity = {
+        fulfillment: "orderId",
+        payments: "paymentId",
+        settlement: "payoutId",
+        "platform-operations": "supportRequestId",
+      }[source as keyof typeof sourceModules];
+      await createPostgresEventStore({ pool: pools[source as keyof typeof sourceModules] }).appendToStream({
+        streamId: `${source}.synthetic-outcomes`,
+        expectedVersion: "no_stream",
+        context,
+        events: Array.from({ length: 101 }, (_, index) => ({
+          eventId: `evt_${source}_${index}`,
+          eventType: fact.type,
+          payload: {
+            ...fact.data,
+            [entity]: `${fact.data[entity as keyof typeof fact.data]}_${index}`,
+          },
+        })),
+      });
+    }
+    const first = runtime();
+    const group = first.projectionGroups.find(
+      (candidate) => candidate.projectionName === "customer-feedback-csat-outcome-fact-projection",
+    )!;
+    expect(group.requiredDuringBootstrap).toBe(false);
+    const runners = first.subscriptionRunners.filter(
+      (candidate) => candidate.projectionName === group.projectionName && candidate.sourceContextName in nativeFacts,
+    );
+    expect(runners).toHaveLength(4);
+    for (const runner of runners) {
+      expect(runner.checkpointKey).toBe(`${group.projectionName}:${runner.sourceContextName}:v1`);
+      expect(runner.checkpointBatchSize).toBe(100);
+      expect((await runner.runOnce({ ownerId: "wave-two-first", fencingToken: "1" })).processed).toBe(100);
+      const lost = new Error("synthetic lost lease");
+      await expect(
+        runner.runOnce({
+          ownerId: "wave-two-first",
+          fencingToken: "1",
+          throwIfLeaseLost: () => {
+            throw lost;
+          },
+        }),
+      ).rejects.toBe(lost);
+    }
+    const restarted = runtime();
+    for (const runner of runners) {
+      const resumed = restarted.subscriptionRunners.find(
+        (candidate) => candidate.checkpointKey === runner.checkpointKey,
+      )!;
+      expect((await resumed.runOnce({ ownerId: "wave-two-restarted", fencingToken: "2" })).processed).toBe(1);
+      const checkpoint = await pools["customer-feedback"].query(
+        "SELECT last_global_position::text AS position, lease_owner_id AS owner, lease_fencing_token::text AS fence FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+        [runner.checkpointKey],
+      );
+      expect(checkpoint.rows).toEqual([{ position: "101", owner: "wave-two-restarted", fence: "2" }]);
+      const history = await createPostgresEventStore({
+        pool: pools[runner.sourceContextName as keyof typeof sourceModules],
+      }).readAll({ limit: 100 });
+      const before = await pools["customer-feedback"].query(
+        "SELECT * FROM customer_feedback_csat_outcome_facts ORDER BY idempotency_key",
+      );
+      for (const event of history) {
+        await outcomeHandlers[event.eventType]!(toTransportEvent({ ...event, eventId: "evt_redelivery" as never }), {
+          db: pools["customer-feedback"],
+        });
+      }
+      expect(
+        (
+          await pools["customer-feedback"].query(
+            "SELECT * FROM customer_feedback_csat_outcome_facts ORDER BY idempotency_key",
+          )
+        ).rows,
+      ).toEqual(before.rows);
+      expect((await resumed.runOnce({ ownerId: "wave-two-restarted", fencingToken: "2" })).processed).toBe(0);
+    }
+    expect(
+      (await pools["customer-feedback"].query("SELECT idempotency_key FROM customer_feedback_csat_outcome_facts")).rows,
+    ).toHaveLength(404);
+  });
 
   it("catches up Auth history in 100-event checkpointed batches and resumes exactly once", async () => {
     await appendAuthEvents(101);
