@@ -10755,9 +10755,11 @@ fn attention_queue() -> Value {
 /// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
 /// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
-/// the reason `bogus` is refused, as is an order capacity of 1000. In a batch, `lst_locked` is an
-/// error and `lst_unsure` unknown; a batch naming `lst_foreign` is refused, one naming
-/// `lst_broken` fails, and `lister_ended`'s ended. A batch applies at 50; every other write at 51.
+/// the reason `bogus` is refused, as is an order capacity of 1000; one of 999 is another
+/// attempt's (409 `attempt_conflict`), and one of 998 has no confirmed result (409
+/// `history_incomplete`). In a batch, `lst_locked` is an error and `lst_unsure` unknown; a batch
+/// naming `lst_foreign` is refused, one naming `lst_broken` fails, and `lister_ended`'s ended. A
+/// batch applies at 50; every other write at 51.
 fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const ACCOUNT: &str = "/api/marketplace/account";
     let path = uri.path().strip_prefix(ACCOUNT)?;
@@ -10833,6 +10835,12 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
         ),
         ("POST", "/order-capacity") if sent["maxOpenOrders"] == 1000 => {
             refusal(StatusCode::BAD_REQUEST, "order_capacity_invalid", "Order capacity must be a whole number of at least 1.")
+        }
+        ("POST", "/order-capacity") if sent["maxOpenOrders"] == 999 => {
+            refusal(StatusCode::CONFLICT, "attempt_conflict", "Idempotency key was already used with a different request.")
+        }
+        ("POST", "/order-capacity") if sent["maxOpenOrders"] == 998 => {
+            refusal(StatusCode::CONFLICT, "history_incomplete", "Mutation attempt history is incomplete.")
         }
         (
             "POST",
@@ -11351,7 +11359,7 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     let pilot = Pilot::new().await;
     // Turn off listings: the day's start where the browser is (Chicago, after daylight saving time).
     let body = &format!(
-        "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02&attempt={}",
+        "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02&zone=America%2FChicago&attempt={}",
         new_attempt()
     );
     let (status, headers, html) = pilot.send(post_in("/account/listings?status=active", "lister", body, "America/Chicago")).await;
@@ -11367,9 +11375,18 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         ]
     );
     assert!(list_calls(&pilot, "/api/identity/preferences").is_empty(), "the browser's zone needs no read");
-    // A browser that has not told its zone (no script): the zone the account chose, New York's.
-    let body =
-        &format!("intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02&attempt={}", new_attempt());
+    // A browser that has not told its zone (no script): the form is drawn in the zone the account
+    // chose, New York's, and names it.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/New_York">"#) && html.contains(">America/New_York<"),
+        "{html}"
+    );
+    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 1);
+    let body = &format!(
+        "intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02&zone=America%2FNew_York&attempt={}",
+        new_attempt()
+    );
     let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -11379,13 +11396,22 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         "{:?}",
         list_calls(&pilot, "/api/marketplace/account/listing-availability/disable")
     );
-    // A zone the browser names that is not one is not trusted either.
+    // The day is read in the zone its form sends, whatever zone the browser names on the post.
     let (status, _, _) = pilot.send(post_in(LISTINGS, "lister", body, "Mars/Olympus")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 2);
+    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 1, "a post reads no zone");
+    // A zone the browser names that is not one is not trusted: the account's again.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister; corten-zone=Mars/Olympus"))).await;
+    assert!(html.contains(r#"name="zone" value="America/New_York""#), "{html}");
+    // A day without the form's zone did not come from this page.
+    let unzoned = &format!("intent=disable-listing-availability&availableAgainOn=2026-11-02&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("did not say which time zone"), "{html}");
     // The away window and the capacity, each saying what it set for the read that catches up.
     let body = &format!(
-        "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=&attempt={}",
+        "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=\
+         &zone=America%2FChicago&attempt={}",
         new_attempt()
     );
     let (status, headers, _) = pilot.send(post_in(LISTINGS, "lister", body, "America/Chicago")).await;
@@ -11454,7 +11480,7 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     let pilot = Pilot::new().await;
     // An away window with no reason, or a start that is not a day, is not sent.
     let body = &format!(
-        "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40&attempt={}",
+        "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40&zone=Asia%2FTokyo&attempt={}",
         new_attempt()
     );
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
@@ -11463,6 +11489,7 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     assert!(page.contains("Choose a reason for the away window."), "{page}");
     assert!(page.contains("Enter a date as YYYY-MM-DD."), "the end that is not a day: {page}");
     assert!(html.contains(r#"name="awayWindowStartsOn" value="2026-12-01""#), "the form as sent: {html}");
+    assert!(html.contains(r#"name="zone" value="Asia/Tokyo""#), "drawn again in the zone it was drawn in: {html}");
     assert!(html.contains("awayWindowEndsOn-error") && !html.contains("awayWindowStartsOn-error"), "{html}");
     // An order capacity that is not a whole number of at least 1.
     let body = &format!("intent=set-order-capacity&maxOpenOrders=0&attempt={}", new_attempt());
@@ -11481,6 +11508,19 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Choose a valid availability reason."), "{html}");
+    // A Listing attempt the API refuses (`listingErrorContract`): sent before with other details,
+    // or with no result it can confirm. Marketplace's words, on the form, kept as a conflict.
+    for (capacity, words) in [
+        (999, "This change was already sent with different details. Reload to see the first result."),
+        (998, "We could not confirm the result. Changes are disabled to avoid duplicating your work."),
+    ] {
+        let body = &format!("intent=set-order-capacity&maxOpenOrders={capacity}&attempt={}", new_attempt());
+        let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{capacity}");
+        let page = text(&html);
+        assert!(page.contains(words) && !page.contains("Idempotency key") && !page.contains("history is incomplete"), "{page}");
+        assert!(!html.contains("maxOpenOrders-error"), "a form error, not the field's: {html}");
+    }
     // Someone who may only read is refused, signed out signs in, and an account without listings
     // is marketplace's "Account access required" page, back to the list.
     let (status, _, html) = pilot.send(post(LISTINGS, "lookout", "intent=clear-order-capacity", false)).await;
