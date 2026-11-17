@@ -7,7 +7,7 @@ export type {
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
-import type { MutationResult } from "@chase-sets/http/responses";
+import type { CommandReceiptMetadata, MutationResult } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine, CheckoutCartRead } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
@@ -22,7 +22,6 @@ import type {
 import type { CheckoutShipFromAddressRow } from "./features/cart/integrations/identity/identity-queries";
 import type { SellerCheckoutChoices } from "./features/sell-list/domain/owner-reads";
 import type {
-  SellListConfirmationSummary,
   SellListReadinessDecisionInput,
   SellListReadinessSnapshot,
   SellListSellerConfirmationEvidence,
@@ -707,12 +706,13 @@ export function createCheckoutApiClient({
           readinessSnapshotId: string;
           readinessSourceRevision: string;
           readinessDecisions?: SellListReadinessDecisionInput | null;
-          completedLineIds?: readonly string[];
-          remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
-          sellerEvidence: SellListSellerConfirmationEvidence;
-          handoffSummary: SellListConfirmationSummary;
         }>,
-    ): Promise<CheckoutMutationResult<{ confirmation: CheckoutSellListConfirmationRow }>> {
+    ): Promise<
+      CheckoutMutationResult<{
+        confirmation: CheckoutSellListConfirmationRow;
+        sourceReceipts: readonly { commandReceipt: CommandReceiptMetadata }[];
+      }>
+    > {
       return parseJsonResponse(await client.account["sell-list"].confirm.$post({ json: body, header: headers }));
     },
     async removeGuestSellListLine(

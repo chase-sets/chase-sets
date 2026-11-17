@@ -964,6 +964,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.sellCheckoutSession.confirmation.line.completed": "{itemTitle}: sale review recorded.",
   "checkout.routes.sellCheckoutSession.confirmation.line.partial":
     "{itemTitle}: sale review recorded for part of the line; remaining quantity stays in the Sell List.",
+  "checkout.routes.sellCheckoutSession.handoff.not.attempted": "Not attempted.",
   "checkout.routes.checkoutSession.checkout.marketplace": "Checkout | Marketplace",
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",

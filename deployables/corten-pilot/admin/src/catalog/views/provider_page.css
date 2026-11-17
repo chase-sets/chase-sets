@@ -149,3 +149,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* A job's progress and recovery, one fact per line. */
+.lines {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 0;
+}

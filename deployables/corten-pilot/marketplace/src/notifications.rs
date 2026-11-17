@@ -201,21 +201,22 @@ pub(crate) async fn page(
     Params(route): Params<crate::app::url::notifications::Notifications>,
 ) -> HtmlResult<Patches> {
     let place = route.place;
-    let receipt = Receipt::from_param(place.after_write.as_deref());
-    if req.mode == corten::Mode::Action {
-        let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
-        return match alerts(&waiting, receipt.is_some()).await {
-            Ok(alerts) => alerts_patch(&req, &alerts, &url::Notifications { place }),
-            Err(error) => unconfirmed(&req, error),
-        };
-    }
-    // Only `patch_or` answers a page as this route's answer, and it takes its patch already
-    // built: this one is never drawn, since the runtime's read is answered above
-    // (corten-run/corten#1462).
-    let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
-    let unsent = Alerts::CatchingUp;
-    let unsent = html! { <views::AlertsSection t={t} p={p} alerts={&unsent} notice={None} focus={false} /> };
-    req.patch_or(unsent, || whole(&req, &viewer, &config, &headers, place, receipt)).await
+    let from = url::Notifications { place: place.clone() };
+    req.patch_or_with(
+        || async {
+            let receipt = Receipt::from_param(from.place.after_write.as_deref());
+            let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
+            match alerts(&waiting, receipt.is_some()).await {
+                Ok(alerts) => alerts_patch(&req, &alerts, &from),
+                Err(error) => unconfirmed(&req, error),
+            }
+        },
+        || async {
+            let receipt = Receipt::from_param(place.after_write.as_deref());
+            whole(&req, &viewer, &config, &headers, place, receipt).await
+        },
+    )
+    .await
 }
 
 /// The page: the feed, or the settings read after the write whose receipt the address carries.
