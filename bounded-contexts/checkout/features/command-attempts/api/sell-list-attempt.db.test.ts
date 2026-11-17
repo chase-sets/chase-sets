@@ -12,7 +12,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as checkoutModule } from "../../../index";
 import { sellListAttemptCases } from "./sell-list-attempt.test-support";
-import { listSellListLines, loadCheckoutSellListCompositeReview } from "../../sell-list/read-model/queries";
+import { listSellListLines, loadCheckoutSellListRawReview } from "../../sell-list/read-model/queries";
 import { checkoutOwnerRuntimeFixture } from "../../sell-list/api/owner-read.fixture";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -56,7 +56,7 @@ if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is requir
       );
       const { deps } = checkoutOwnerRuntimeFixture();
       const review = async () =>
-        loadCheckoutSellListCompositeReview(pools.checkout, deps.commercialTermsResolver, {
+        loadCheckoutSellListRawReview(pools.checkout, deps.commercialTermsResolver, {
           sellerAccountId: "acc_seller",
           lines: await listSellListLines(pools.checkout, "acc_seller"),
         });

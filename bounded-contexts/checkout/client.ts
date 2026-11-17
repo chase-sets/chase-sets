@@ -578,11 +578,14 @@ export function createCheckoutApiClient({
       return parseJsonResponse(await client.account["sell-list"]["ship-from-addresses"].$get({ header: headers }));
     },
     async getSellListCompositeReview(
-      options: Readonly<{ includeStandardComparison?: boolean }> = {},
+      options: Readonly<{ includeStandardComparison?: boolean; sellListPath?: string }> = {},
     ): Promise<CheckoutSellListCompositeReview> {
       return parseJsonResponse(
         await client.account["sell-list"]["composite-review"].$get({
-          query: options.includeStandardComparison ? { includeStandardComparison: "true" } : {},
+          query: {
+            ...(options.includeStandardComparison ? { includeStandardComparison: "true" } : {}),
+            ...(options.sellListPath ? { sellListPath: options.sellListPath } : {}),
+          },
           header: headers,
         }),
       );
@@ -600,6 +603,18 @@ export function createCheckoutApiClient({
     ): Promise<{ items: readonly CheckoutSellListLineRow[]; count: number }> {
       return parseJsonResponse(
         await client.guest["sell-list"].$get({
+          header: mergeHeaders(
+            headers,
+            anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {},
+          ),
+        }),
+      );
+    },
+    async getGuestSellListCompositeReview(
+      anonymousSellListId: string | null,
+    ): Promise<CheckoutSellListCompositeReview> {
+      return parseJsonResponse(
+        await client.guest["sell-list"]["composite-review"].$get({
           header: mergeHeaders(
             headers,
             anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {},
