@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  createPostgresConfigurationEpochStore,
   createPostgresEventStore,
   initializeConfigurationConsumer,
   type PgTransactionalPool,
@@ -13,7 +12,11 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
-import { createRepricingConfigurationWriter, repricingHaltConfigurationKey } from "../api/configuration";
+import {
+  createRepricingConfigurationEpochStore,
+  createRepricingConfigurationWriter,
+  repricingHaltConfigurationKey,
+} from "../api/configuration";
 import { createRepricingPolicyRuntime } from "../api/runtime";
 import { pricingRepricingPolicySchemaMigrations } from "../read-model/migrations";
 import { dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
@@ -42,9 +45,8 @@ describeDb("durable Pricing configuration requests", () => {
   });
   afterAll(async () => closeMultiContextTestPools(pools));
   function epochs(available: boolean) {
-    return createPostgresConfigurationEpochStore({
+    return createRepricingConfigurationEpochStore({
       pool: pools.pricing,
-      sourceIncarnation: "pricing-repricing-configuration-v1",
       consumers: available ? [{ identity, pool: pools.consumer }] : [],
     });
   }
@@ -73,6 +75,7 @@ describeDb("durable Pricing configuration requests", () => {
       goalAdoptions: async () => [],
     });
     const installed = await service.setHalt(accountId, true, dryRunContext, "synthetic-engage");
+    expect(installed.status).toBe("applied");
     await initializeConfigurationConsumer(pools.consumer, identity);
     await epochs(true).registerConsumer(key, identity);
     return installed;

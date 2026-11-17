@@ -55,7 +55,10 @@ async function listPolicies(request: APIRequestContext): Promise<PolicySummary[]
 async function setHalt(request: APIRequestContext, engaged: boolean) {
   const response = await request.post(`${repricingApi}/halt`, { data: { engaged } });
   expect(response.status(), `set repricing halt engaged=${engaged}`).toBe(200);
-  expect(((await response.json()) as { engaged: boolean }).engaged, `repricing halt engaged=${engaged}`).toBe(engaged);
+  expect(await response.json(), `repricing halt engaged=${engaged}`).toMatchObject({
+    status: "applied",
+    state: { engaged },
+  });
 }
 
 // Deleting an already-deleted policy is a no-op, so cleanup by known ID is safe
@@ -63,6 +66,7 @@ async function setHalt(request: APIRequestContext, engaged: boolean) {
 async function deletePolicy(request: APIRequestContext, policyId: string) {
   const response = await request.post(`${repricingApi}/${policyId}/delete`);
   expect(response.status(), `delete spec policy ${policyId}`).toBe(200);
+  expect(await response.json()).toMatchObject({ status: "applied", state: { status: "deleted" } });
 }
 
 // Waits until the projected default list agrees about these policy IDs. A
@@ -112,7 +116,9 @@ async function createHoldOnlyPolicy(request: APIRequestContext, name: string): P
 
   const createResponse = await request.post(repricingApi, { data: { dryRunId, name } });
   expect(createResponse.status(), "create policy from completed dry run").toBe(201);
-  return ((await createResponse.json()) as { policyId: string }).policyId;
+  const receipt = await createResponse.json();
+  expect(receipt).toMatchObject({ status: "applied", state: { policyId: expect.any(String) } });
+  return receipt.state.policyId;
 }
 
 function visibleText(page: Page, text: string) {

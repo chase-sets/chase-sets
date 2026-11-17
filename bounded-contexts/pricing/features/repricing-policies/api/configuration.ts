@@ -69,6 +69,32 @@ export const repricingPolicyConfigurationKey = (accountId: string, policyId: str
   `pricing.repricing-policy:${accountId}:${policyId}`;
 export const repricingHaltConfigurationKey = (accountId: string) => `pricing.repricing-halt:${accountId}`;
 
+export function createRepricingConfigurationEpochStore(
+  deps: Pick<Parameters<typeof createPostgresConfigurationEpochStore>[0], "pool" | "consumers">,
+) {
+  return createPostgresConfigurationEpochStore({
+    ...deps,
+    sourceIncarnation,
+    readCanonicalCreation: async (client, key) => {
+      const result = await client.query<{
+        requested_revision: number;
+        creation_revision: number;
+        has_history: boolean;
+      }>(
+        `SELECT requested_revision, creation_revision,
+          EXISTS (SELECT 1 FROM event_configuration_journal_heads WHERE role = 'source' AND key = $1) AS has_history
+         FROM pricing_repricing_configuration_heads WHERE key = $1`,
+        [key],
+      );
+      const owner = result.rows[0];
+      if (!owner) return undefined;
+      if (owner.requested_revision !== owner.creation_revision && !owner.has_history)
+        throw new ConfigurationEpochError("partial Pricing configuration source history");
+      return { kind: "CREATED", sourceIncarnation, keyCreationEpoch: 0 };
+    },
+  });
+}
+
 export function createRepricingConfigurationWriter(
   deps: Readonly<{
     pool: PgTransactionalPool;
@@ -81,27 +107,9 @@ export function createRepricingConfigurationWriter(
 ): RepricingConfigurationWriter {
   const epochs =
     deps.epochs ??
-    createPostgresConfigurationEpochStore({
+    createRepricingConfigurationEpochStore({
       pool: deps.pool,
-      sourceIncarnation,
       consumers: [],
-      readCanonicalCreation: async (client, key) => {
-        const result = await client.query<{
-          requested_revision: number;
-          creation_revision: number;
-          has_history: boolean;
-        }>(
-          `SELECT requested_revision, creation_revision,
-          EXISTS (SELECT 1 FROM event_configuration_journal_heads WHERE role = 'source' AND key = $1) AS has_history
-         FROM pricing_repricing_configuration_heads WHERE key = $1`,
-          [key],
-        );
-        const owner = result.rows[0];
-        if (!owner) return undefined;
-        if (owner.requested_revision !== owner.creation_revision && !owner.has_history)
-          throw new ConfigurationEpochError("partial Pricing configuration source history");
-        return { kind: "CREATED", sourceIncarnation, keyCreationEpoch: 0 };
-      },
     });
   const transaction = <T>(work: (client: PgPoolClient) => Promise<T>) =>
     withConfigurationEpochTransaction(deps.pool, work);

@@ -28,6 +28,7 @@ import {
   pricingValidationMessages,
   type RepricingActivityPage,
   type RepricingPolicyState,
+  type RepricingPolicyReceipt,
 } from "../../support/request-support/api-client";
 import { pricingApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { useRepricingDeskCatchUp } from "../../support/route-support/repricing-desk-catch-up";
@@ -50,7 +51,6 @@ import {
   repricingConfigurationMessage,
   type RepricingActionData,
 } from "./account-desk-repricing";
-import type { RepricingPolicyReceipt } from "../../features/repricing-policies/domain/configuration-receipt";
 
 const releasedHalt: RepricingHaltState = { engaged: false, engagedAt: null, releasedAt: null };
 

@@ -47,7 +47,7 @@ export type RepricingBudget = Readonly<{ day: string; changesUsed: number }>;
 export type RepricingActivityPage = Awaited<ReturnType<typeof listRepricingActivity>>;
 export type RepricingActivityQuery = Readonly<{ filter?: RepricingActivityFilter; after?: string; limit?: number }>;
 export type { RepricingPolicyState, RepricingHaltState, RepricingDryRun, RepricingActivityFilter };
-export type { RepricingPolicyReceipt, RepricingHaltReceipt };
+export type { RepricingConfigurationReceipt, RepricingPolicyReceipt, RepricingHaltReceipt };
 
 export type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 export type {

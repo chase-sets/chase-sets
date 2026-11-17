@@ -2,25 +2,6 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
-## Configuration Request Receipt
-
-A **Configuration Request Receipt** identifies one immutable `requestedRevision` and
-idempotency key for a policy or halt command. `accepted-pending` means the request
-is durable but not installed. `applied` means the configuration epoch and its
-policy or halt events were installed atomically; it carries the installed state
-and `installedRevision`. `superseded-by-revision` is terminal and names the
-`replacingRevision`. Retrying an idempotency key returns that request's durable
-outcome, never the latest request's outcome. Reusing it for a different command
-conflicts.
-
-**Installed Revision and Value** are the last applied policy or halt, separate
-from the latest requested revision and receipt. Reads bind `installedState` to
-`installedRevision` from the retained applied receipt. Pending release never disengages
-an installed halt. Pending creation never creates an active policy. Closure
-receipts, not time or projection catch-up, permit installation. HTTP 200/201
-requires `applied`; pending is HTTP 202 and supersession is a typed HTTP 409.
-The contract is `features/repricing-policies/domain/configuration-receipt.ts`.
-
 ## Demand Curve
 
 A **Demand Curve** is a Product-Key-scoped version of ordered price percentiles, buyer arrival, supply, and sell-time evidence for one currency, variant, language, and condition. Its points, version, fingerprint, and build instant are immutable. Its freshness horizon advances only when the closer verifies the same inputs for that served version. The same card-wide Condition Ladder rescales all conditions; a missing, superseded, stale, or undenominated curve is not a positive estimate. Historical versions retain null currency and freshness until replaced, never backfilled.
@@ -618,3 +599,22 @@ A **Pricing Alert** is the planned notification-worthy pricing condition produce
 ### Market Movement
 
 **Market Movement** is the planned material change in pricing inputs over a defined window.
+
+## Configuration Request Receipt
+
+A **Configuration Request Receipt** identifies one immutable `requestedRevision` and
+idempotency key for a policy or halt command. `accepted-pending` means the request
+is durable but not installed. `applied` means the configuration epoch and its
+policy or halt events were installed atomically; it carries the installed state
+and `installedRevision`. `superseded-by-revision` is terminal and names the
+`replacingRevision`. Retrying an idempotency key returns that request's durable
+outcome, never the latest request's outcome. Reusing it for a different command
+conflicts.
+
+**Installed Revision and Value** are the last applied policy or halt, separate
+from the latest requested revision and receipt. Reads bind `installedState` to
+`installedRevision` from the retained applied receipt. Pending release never disengages
+an installed halt. Pending creation never creates an active policy. Closure
+receipts, not time or projection catch-up, permit installation. HTTP 200/201
+requires `applied`; pending is HTTP 202 and supersession is a typed HTTP 409.
+The contract is `features/repricing-policies/domain/configuration-receipt.ts`.

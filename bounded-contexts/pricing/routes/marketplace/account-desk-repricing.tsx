@@ -21,6 +21,8 @@ import {
   type RepricingPolicyListItem,
   type RepricingPolicyReceipt,
   type RepricingHaltReceipt,
+  type RepricingConfigurationReceipt,
+  type RepricingPolicyState,
 } from "../../support/request-support/api-client";
 import { pricingApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { useRepricingDeskCatchUp } from "../../support/route-support/repricing-desk-catch-up";
@@ -32,8 +34,6 @@ import {
   PricingRepricingPolicyListPage,
   type RepricingHaltState,
 } from "../../features/repricing-policies/ui/policy-list-page";
-import type { RepricingConfigurationReceipt } from "../../features/repricing-policies/domain/configuration-receipt";
-import type { RepricingPolicyState } from "../../features/repricing-policies/domain/domain";
 
 export const REPRICING_DESK_HREF = "/account/desk/repricing";
 
