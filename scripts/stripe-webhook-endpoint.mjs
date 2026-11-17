@@ -318,6 +318,14 @@ export async function createCanonicalStripePaymentsWebhookEndpoint(input, depend
   };
 }
 
+function parseDeliveryJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Malformed delivery capture; old endpoint retained.");
+  }
+}
+
 // API versions are immutable on Stripe endpoints. Keep both endpoints usable
 // until the new signing key has passed the deployed verifier.
 export async function replaceStripePaymentsWebhookEndpointVersion(input, dependencies = {}) {
@@ -437,8 +445,8 @@ export async function replaceStripePaymentsWebhookEndpointVersion(input, depende
     // A delivered endpoint payload can be Endive even when the account's stored
     // Event uses an older version. Authenticate captured bytes before reading
     // their facts; never relabel an older stored Event as Endive.
-    const capture = JSON.parse(await readFile(input.deliveryFile, "utf8"));
-    if (typeof capture.rawBody !== "string" || typeof capture.signatureHeader !== "string") {
+    const capture = parseDeliveryJson(await readFile(input.deliveryFile, "utf8"));
+    if (typeof capture?.rawBody !== "string" || typeof capture?.signatureHeader !== "string") {
       throw new Error("Delivery capture requires rawBody and signatureHeader.");
     }
     const parts = capture.signatureHeader.split(",").map((part) => part.trim());
@@ -454,7 +462,7 @@ export async function replaceStripePaymentsWebhookEndpointVersion(input, depende
         "Delivery capture must have a recent signature from the target endpoint key; old endpoint retained.",
       );
     }
-    event = JSON.parse(capture.rawBody);
+    event = parseDeliveryJson(capture.rawBody);
   } else {
     event = await requestJson(
       `${input.stripeApiBase ?? "https://api.stripe.com"}/v1/events/${input.deliveryEventId}`,
@@ -463,7 +471,7 @@ export async function replaceStripePaymentsWebhookEndpointVersion(input, depende
     );
   }
   if (
-    event.id !== input.deliveryEventId ||
+    event?.id !== input.deliveryEventId ||
     event.api_version !== webhookEventRegistry.apiVersion ||
     event.livemode !== (config.keyMode === "live") ||
     !STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS.includes(event.type)

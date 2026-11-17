@@ -249,7 +249,7 @@ describe("Stripe shared Payments webhook endpoint", () => {
 });
 
 describe("Stripe endpoint version replacement", () => {
-  it.each(["valid", "wrong key", "expired", "old version", "tampered"])(
+  it.each(["valid", "wrong key", "expired", "old version", "tampered", "malformed", "malformed signed body"])(
     "authenticates a %s captured endpoint delivery without depending on account defaults",
     async (control) => {
       const h = harness();
@@ -266,18 +266,26 @@ describe("Stripe endpoint version replacement", () => {
           livemode: false,
           data: { object: { id: "pm_synthetic" } },
         });
+        if (control === "malformed signed body") rawBody = "SYNTHETIC_PRIVATE_PAYLOAD";
         const digest = createHmac("sha256", control === "wrong key" ? "whsec_old" : "whsec_new")
           .update(`${timestamp}.${rawBody}`)
           .digest("hex");
         if (control === "tampered") rawBody += " ";
-        await writeFile(file, JSON.stringify({ rawBody, signatureHeader: `t=${timestamp},v1=${digest}` }));
+        await writeFile(
+          file,
+          control === "malformed"
+            ? '{"signatureHeader":"SYNTHETIC_PRIVATE_SIGNATURE",broken'
+            : JSON.stringify({ rawBody, signatureHeader: `t=${timestamp},v1=${digest}` }),
+        );
         const operation = replaceStripePaymentsWebhookEndpointVersion(
           { ...h.complete(), deliveryFile: file },
           h.dependencies,
         );
         if (control === "valid") await expect(operation).resolves.toMatchObject({ verification: { ok: true } });
         else {
-          await expect(operation).rejects.toThrow();
+          if (control.startsWith("malformed"))
+            await expect(operation).rejects.toThrow("Malformed delivery capture; old endpoint retained.");
+          else await expect(operation).rejects.toThrow();
           expect(h.endpoints()).toHaveLength(2);
         }
         expect(h.calls.some((call) => call.url.includes("/v1/events/"))).toBe(false);

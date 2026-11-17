@@ -34,6 +34,27 @@ describe("production Stripe webhook endpoint verification workflow", () => {
 });
 
 describe("production Stripe webhook endpoint creation workflow", () => {
+  it("registers only the current and prior signing keys at the protected creation step", () => {
+    const authority = JSON.parse(
+      readFileSync(resolve(".github/authority/platform-production-stripe-webhook-endpoint-create/create.json"), "utf8"),
+    );
+    expect(authority.grants.filter(({ purpose }) => purpose === "credential-rotation")).toEqual([
+      {
+        file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+        jobId: "create",
+        stepAnchor: "name:Create and verify production Stripe webhook endpoint#3",
+        secretName: "STRIPE_WEBHOOK_SECRET",
+        purpose: "credential-rotation",
+      },
+      {
+        file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+        jobId: "create",
+        stepAnchor: "name:Create and verify production Stripe webhook endpoint#3",
+        secretName: "STRIPE_WEBHOOK_SECRET_PREVIOUS",
+        purpose: "credential-rotation",
+      },
+    ]);
+  });
   it("requires the exact production confirmation and remains main-only", () => {
     expect(createWorkflow).toContain("workflow_dispatch:");
     expect(createWorkflow).toContain("confirmation:");
