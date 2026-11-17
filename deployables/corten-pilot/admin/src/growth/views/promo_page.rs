@@ -2,8 +2,9 @@
 //! preview of the messages live now, Create message, and the messages with their status and
 //! actions, which stack on a phone, a row a block of labelled lines. Edit opens a sheet and Delete
 //! a confirmation, each an open `<dialog>` closed by a link back to the page; corten-ui's dialog
-//! makes it modal with JavaScript. Every write is a plain post.
-use corten::prelude::*;
+//! makes it modal with JavaScript. Every write is a plain post. The start and end times are drawn
+//! in the operator's zone, named under each, and the form sends that zone back.
+use corten::{form::DrawZone, prelude::*};
 use jiff::Timestamp;
 use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
@@ -55,10 +56,11 @@ fn done_words(t: Gro, done: &str) -> &'static str {
 
 /// A message's fields (`PromoBarMessageFields`): one column on a phone, two from 40rem, four from 80rem.
 #[component(css = PromoPage)]
-fn PromoFields<'a>(t: Gro, form: &'a MessageForm) -> impl Render {
+fn PromoFields<'a>(t: Gro, form: &'a MessageForm, zone: &'a DrawZone) -> impl Render {
     let f = MessageForm::FIELDS;
     html! {
         <div class={Fields}>
+            {zone.field(f.zone)}
             <label class={Field}>
                 <span>{t.promo_field_title()}</span>
                 <input type="text" name={f.title} value={&form.title} required>
@@ -90,10 +92,12 @@ fn PromoFields<'a>(t: Gro, form: &'a MessageForm) -> impl Render {
             <label class={Field}>
                 <span>{t.promo_field_starts_at()}</span>
                 <input type="datetime-local" name={f.starts_at} value={&form.starts_at}>
+                <small class={Muted}>{zone.name()}</small>
             </label>
             <label class={Field}>
                 <span>{t.promo_field_ends_at()}</span>
                 <input type="datetime-local" name={f.ends_at} value={&form.ends_at}>
+                <small class={Muted}>{zone.name()}</small>
             </label>
             <label class={Check}>
                 <input type="checkbox" name={f.is_active} value="true" checked={form.is_active == "true"}>
@@ -221,7 +225,7 @@ pub fn PromoPage<'a>(t: Gro, screen: &'a PromoScreen, marketplace: Option<&'a st
                 <h2 class={Heading} id="pb-create">{t.promo_create_title()}</h2>
                 <form class={Form} method="post">
                     <input type="hidden" name={f.intent} value="create">
-                    <PromoFields t={t} form={&screen.create} />
+                    <PromoFields t={t} form={&screen.create} zone={&screen.zone} />
                     <button type="submit" class={Button}>{t.promo_create_action()}</button>
                 </form>
             </section>
@@ -289,7 +293,7 @@ pub fn PromoPage<'a>(t: Gro, screen: &'a PromoScreen, marketplace: Option<&'a st
                     <form class={Form} method="post">
                         <input type="hidden" name={f.intent} value="update">
                         <input type="hidden" name={f.id} value={&form.id}>
-                        <PromoFields t={t} form={form} />
+                        <PromoFields t={t} form={form} zone={&screen.zone} />
                         <button type="submit" class={Button}>{t.promo_update_action()}</button>
                     </form>
                 </PromoSheet>
