@@ -87,6 +87,14 @@ jobs:
           # are cached with it).
           cargo install --locked --git "$git" --rev "$rev" corten-cli
 
+      # The release image builds with `cargo build --locked`, and corten check's cargo steps do not
+      # pass --locked: they rewrite a stale Cargo.lock in the runner and pass, and the image build
+      # then fails. This reads only the manifests and the lock, so it fails in seconds when a
+      # dependency or feature change was committed without its lock lines.
+      # Remove when corten check holds its steps to the lock (corten-run/corten#1579).
+      - name: Cargo.lock records everything the manifests ask for
+        run: cargo metadata --format-version 1 --locked > /dev/null
+
       - name: corten check (cargo fmt, corten fmt, clippy -D warnings, the scripts' types, tests)
         run: |
           set -euo pipefail
