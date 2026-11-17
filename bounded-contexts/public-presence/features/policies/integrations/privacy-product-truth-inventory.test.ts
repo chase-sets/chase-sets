@@ -281,8 +281,8 @@ describe("privacy product-truth derivation over the real repository", () => {
       "/checkout/payments/:paymentId",
     ]);
     expect(confirmation.detail.dependencyOwners).toEqual([
-      "@chase-sets/app-marketplace-web@9.9.0",
-      "@chase-sets/payments@9.9.0",
+      "@chase-sets/app-marketplace-web@10.3.0",
+      "@chase-sets/payments@10.3.0",
     ]);
     expect(confirmation.detail.cspScriptOrigins).toEqual(["https://js.stripe.com"]);
 

@@ -105,7 +105,7 @@ const chargeSourceRoles = [
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1669-1723",
+    ref: "infrastructure/stripe-payments/index.ts:1677-1731",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -115,7 +115,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1725-1814",
+    ref: "infrastructure/stripe-payments/index.ts:1733-1822",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -130,7 +130,7 @@ const chargeSourceRoles = [
   },
   {
     role: "session outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:930-1012",
+    ref: "infrastructure/stripe-payments/index.ts:938-1020",
     markers: [
       'case "checkout.session.completed"',
       'paymentObject.mode === "setup"',
@@ -142,7 +142,7 @@ const chargeSourceRoles = [
   },
   {
     role: "intent outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:1057-1083",
+    ref: "infrastructure/stripe-payments/index.ts:1065-1091",
     markers: [
       'case "payment_intent.processing"',
       'case "payment_intent.amount_capturable_updated"',
@@ -1218,7 +1218,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1602-1659";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1610-1667";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"
