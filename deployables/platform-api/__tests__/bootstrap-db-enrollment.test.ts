@@ -621,8 +621,8 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 
 // The current schedule model's own minimum unit count for the current manifest.
 // Enrollment-derived projections; new reference estimates are not measured costs.
-const currentMinimumUnitCount = 3;
-const currentProjectedMakespans = [387750, 251960, 194055];
+const currentMinimumUnitCount = 2;
+const currentProjectedMakespans = [275267, 251960, 194055];
 const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2" | "test:db:3">> = Object.freeze({
   "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
   "authoritative-seed-resume-core.db.test.ts": "test:db:1",
@@ -636,9 +636,265 @@ const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2
   "inventory-seed-resume.db.test.ts": "test:db:3",
   "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
   "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
-  "listing-channel-activation-composition.db.test.ts": "test:db:1",
 });
 const derivedBootBearingCaseCeilings = Object.freeze({ "test:db:1": 18, "test:db:2": 32, "test:db:3": 19 });
+
+// Non-bootstrap composition proof keeps its frozen identities independently of
+// the seed-bootstrap scheduling corpus.
+const listingCompositionCases = [
+  {
+    name: "composes the real owner ports and committed target routes",
+    identity: "077c865065782d56",
+  },
+  {
+    name: "fails closed before a missing listing can produce a business event",
+    identity: "6eac2895190ee3bd",
+  },
+  {
+    name: "case 1: class C grants and class M original-terminal CAS commit acceptance then activation",
+    identity: "7882b1c7af0471b2",
+  },
+  {
+    name: "case 2: class C committed request replay survives lost reply and authority loss; changed command conflicts",
+    identity: "5f7c1a6ced480561",
+  },
+  {
+    name: "case 3a: class C account CLOSED-THROUGH refuses zero events",
+    identity: "97cfba4e29b36750",
+  },
+  {
+    name: "case 3a: class C user CLOSED-THROUGH refuses zero events",
+    identity: "687aa35b35021b4e",
+  },
+  {
+    name: "case 3a: class C membership CLOSED-THROUGH refuses zero events",
+    identity: "d9f60b54951b86bf",
+  },
+  {
+    name: "case 3a: class C session CLOSED-THROUGH refuses zero events",
+    identity: "a0fc4c07de699ed2",
+  },
+  {
+    name: "case 3a: class C token CLOSED-THROUGH refuses zero events",
+    identity: "4c1759ef2e922fbe",
+  },
+  {
+    name: "case 3a: class C connection CLOSED-THROUGH refuses zero events",
+    identity: "479e36e909871708",
+  },
+  {
+    name: "case 4a: class M item abort-first CAS refuses zero events",
+    identity: "4bb995f769f7ab63",
+  },
+  {
+    name: "case 4a: class M allocation abort-first CAS refuses zero events",
+    identity: "2870b059f044d068",
+  },
+  {
+    name: "case 3b: class C account terminal-first SHARED lock holds through COMMIT",
+    identity: "34ce5a935ef1baa5",
+  },
+  {
+    name: "case 3b: class C user terminal-first SHARED lock holds through COMMIT",
+    identity: "d506703783dd54dd",
+  },
+  {
+    name: "case 3b: class C membership terminal-first SHARED lock holds through COMMIT",
+    identity: "02bd3a15ce9c78ec",
+  },
+  {
+    name: "case 3b: class C session terminal-first SHARED lock holds through COMMIT",
+    identity: "d627a1a0e3af28a0",
+  },
+  {
+    name: "case 3b: class C token terminal-first SHARED lock holds through COMMIT",
+    identity: "bc3e28ea30ea0f06",
+  },
+  {
+    name: "case 3b: class C connection terminal-first SHARED lock holds through COMMIT",
+    identity: "3e51e626d83d8748",
+  },
+  {
+    name: "case 3c: class C every predicate refuses durable CLOSING before recapture",
+    identity: "964600a771a024f3",
+  },
+  {
+    name: "case 3d: class C every unavailable consumer remains BLOCKED with zero owner effects",
+    identity: "9eb620ff0b0df60f",
+  },
+  {
+    name: "case 3e: class C old consumer incarnation after capture refuses zero events",
+    identity: "dc5733f35227598b",
+  },
+  {
+    name: "case 3e: class C expired Session token grant after capture refuses zero events",
+    identity: "b251d00e26f2bb7a",
+  },
+  {
+    name: "case 3f: class C every partial consumer journal refuses zero events",
+    identity: "50ed6c08658acde4",
+  },
+  {
+    name: "case 3g: class C failed COMMIT rolls back Listing and request together without owner rereads",
+    identity: "cf876a0929f4c3e9",
+  },
+  {
+    name: "case 4b: class M terminal-first COMMIT precedes stock mutation without owner rereads",
+    identity: "349d325c96273591",
+  },
+  {
+    name: "case 4c: class M unknown original terminal blocks owner effects and resumes through durable abort",
+    identity: "bd4f4ba1fc7209ef",
+  },
+  {
+    name: "case 4d: class M pre-COMMIT failure rolls back terminal CAS and both event streams",
+    identity: "20012497ec0bfa1a",
+  },
+  {
+    name: "case 4e: class M replaced consumer incarnation cannot commit captured stock authority",
+    identity: "82606cdd7f35c86c",
+  },
+  {
+    name: "case 6: class C account command physical-writer omission",
+    identity: "6cc4cce0ace3a8b7",
+  },
+  {
+    name: "case 6: class C user command physical-writer omission",
+    identity: "82fa92dfabaa2495",
+  },
+  {
+    name: "case 6: class C membership command physical-writer omission",
+    identity: "00bb4786decd50f9",
+  },
+  {
+    name: "case 6: class C atomic identity batch physical-writer omission",
+    identity: "22d46fc54c2ef34e",
+  },
+  {
+    name: "case 6: class C identity transaction append physical-writer omission",
+    identity: "8ace004d6af78d79",
+  },
+  {
+    name: "case 6: class C session revoke physical-writer omission",
+    identity: "2642fe03d7f30790",
+  },
+  {
+    name: "case 6: class C session logout physical-writer omission",
+    identity: "5ed7c2a181e9c840",
+  },
+  {
+    name: "case 6: class C session switch physical-writer omission",
+    identity: "dc64361210430d9e",
+  },
+  {
+    name: "case 6: class C session expiry physical-writer omission",
+    identity: "08de497723b45c73",
+  },
+  {
+    name: "case 6: class C session recovery append physical-writer omission",
+    identity: "a6f258f300869bf5",
+  },
+  {
+    name: "case 6: class C token rotation physical-writer omission",
+    identity: "5624e138106b6482",
+  },
+  {
+    name: "case 6: class C seed token physical-writer omission",
+    identity: "f426bd550e9a7dec",
+  },
+  {
+    name: "case 6: class C connection disconnect physical-writer omission",
+    identity: "c64c73aec6843ce3",
+  },
+  {
+    name: "case 6: class C installed disconnect physical-writer omission",
+    identity: "d9e2ab16b6ab0229",
+  },
+  {
+    name: "case 6: class C connection pause physical-writer omission",
+    identity: "e1329bc600b32b0e",
+  },
+  {
+    name: "case 6: class C connection resume physical-writer omission",
+    identity: "5276403d1e7007c0",
+  },
+  {
+    name: "case 6: class C connection activation physical-writer omission",
+    identity: "767c4cf4b22ce811",
+  },
+  {
+    name: "case 6: class C connection replay physical-writer omission",
+    identity: "4db6d89250e27ba0",
+  },
+  {
+    name: "case 6: class M item command physical-writer omission",
+    identity: "f2247a0d02610a7f",
+  },
+  {
+    name: "case 6: class M positive adjustment physical-writer omission",
+    identity: "957370a67bffb319",
+  },
+  {
+    name: "case 6: class M negative adjustment physical-writer omission",
+    identity: "21547503367ea73b",
+  },
+  {
+    name: "case 6: class M atomic hold physical-writer omission",
+    identity: "c3f4fb9a1c398023",
+  },
+  {
+    name: "case 6: class M hold plan append physical-writer omission",
+    identity: "4f7ece0acc48d515",
+  },
+  {
+    name: "case 6: class M hold release physical-writer omission",
+    identity: "d52100db40c2937b",
+  },
+  {
+    name: "case 6: class M ordering reservation physical-writer omission",
+    identity: "f507f7e7fe261998",
+  },
+  {
+    name: "case 6: class M collision batch physical-writer omission",
+    identity: "2bf8ab02ae55ccae",
+  },
+  {
+    name: "case 6: class M offline sale physical-writer omission",
+    identity: "0349d8d9df703a01",
+  },
+  {
+    name: "case 6: class M allocation set physical-writer omission",
+    identity: "a363862e9c003e44",
+  },
+  {
+    name: "case 6: class M aliased replay physical-writer omission",
+    identity: "b35000ef41afefd6",
+  },
+  {
+    name: "case 6: class M inbound sale physical-writer omission",
+    identity: "68b8815a599dd997",
+  },
+  {
+    name: "case 6: class M retained migration physical-writer omission",
+    identity: "d1287623d9cbb931",
+  },
+  {
+    name: "case 6: REMOVE_SHARED_LOCK makes the real-host closure-wait oracle red",
+    identity: "9354242b914e2872",
+  },
+  {
+    name: "case 6: REMOVE_CLOSED_THROUGH_WAIT makes the real-host closure-wait oracle red",
+    identity: "49a26a304dd0cbad",
+  },
+  {
+    name: "case 6: REMOVE_ABORT_CAS makes the real-host durable-abort oracle red",
+    identity: "d8c80babdf4ab7c4",
+  },
+  {
+    name: "case 5: uncomposed Pricing class C/M participants refuse with zero events",
+    identity: "b0ec4e7e6fda9c01",
+  },
+];
 
 function minimalityViolationFor(observedUnitCount: number, minimumUnitCount: number) {
   return (
@@ -1059,12 +1315,13 @@ describe("Platform API bootstrap DB enrollment", () => {
     const uncachedKeys = [...old.requestedKeys].filter((key) => !Object.hasOwn(memo.entries, key));
     expect(old.schedulerCalls.misses).toBe(uncachedKeys.length);
     // The historical oracle's top-level path classifier rejects the real Catalog
-    // entry, and it predates the measured floor, so it keeps any minimality
+    // and composition entries, and it predates the measured floor, so it keeps any minimality
     // verdict a bound declared floor lifts. Preserve its complete output
     // comparison with exactly the default-path floor-role corrections; every
     // schedule/case field still agrees.
     const { observedUnitCount } = candidateRepository.schedule;
     expect(oldRepository.violations).toEqual([
+      "test:db:1 references unmanifested bootstrap DB file 'listing-channel-activation-composition.db.test.ts'",
       "test:db:2 references unmanifested bootstrap DB file 'seed-command-catalog.db.test.ts'",
       ...(currentMinimumUnitCount < observedUnitCount
         ? [minimalityViolationFor(observedUnitCount, currentMinimumUnitCount)]
@@ -1110,10 +1367,23 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(134);
+    expect(result.expectedCaseCount).toBe(71);
     expect(result.caseCount).toBe(result.expectedCaseCount);
-    expect(result.fileCount).toBe(13);
+    expect(result.fileCount).toBe(12);
     expect(result.partitionUnitCount).toBe(3);
+  });
+
+  it("preserves all 63 non-bootstrap composition case identities and their DB enrollment", () => {
+    const fileName = "listing-channel-activation-composition.db.test.ts";
+    const entry = `__tests__/${fileName}`;
+    const census = derivePlatformApiDbTestCensus();
+    expect(census.dbEntries).toContain(entry);
+    expect(census.bootstrapEntries).not.toContain(entry);
+    expect(platformApiNonBootstrapDbCensus.entries[entry]).toBe("test:db:1");
+    expect(listingCompositionCases).toHaveLength(63);
+    expect(deriveBootstrapDbCaseIdentities(fileName, readFileSync(join(testDirectory, fileName), "utf8"))).toEqual(
+      listingCompositionCases,
+    );
   });
 
   it("preserves the complete frozen seed-command file and both separate case identities", () => {
@@ -1341,7 +1611,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const fixture = await createDbCensusFixture();
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
     expect(census.dbEntries).toHaveLength(17);
-    expect(census.bootstrapEntries).toHaveLength(13);
+    expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
     expect(census.dbEntries.filter((entry) => !census.bootstrapEntries.includes(entry)).sort()).toEqual(
       Object.keys(fixture.nonBootstrapCensus.entries).sort(),
@@ -2609,7 +2879,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     };
     expect(capture.provenance).toMatchObject(provenance);
     if (current) {
-      expect(bootstrapDbScheduleModel).toEqual({ ...capture.model, maximumScheduledFileCount: 13 });
+      expect(bootstrapDbScheduleModel).toEqual(capture.model);
       expect(capture.acceptedBootBearingCaseCeilings).toEqual({
         "test:db:1": 18,
         "test:db:2": 32,
@@ -2766,11 +3036,11 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
     expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(55667);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
-    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(13);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1801003,
+      1692003,
     );
   });
 
@@ -2786,8 +3056,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [32, 32],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(833765);
-    expect(schedule.aggregateWithOverheadMs).toBe(889432);
+    expect(schedule.aggregateMs).toBe(721282);
+    expect(schedule.aggregateWithOverheadMs).toBe(776949);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
     expect(schedule.effectiveMinimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
@@ -3308,7 +3578,6 @@ describe("Platform API bootstrap DB enrollment", () => {
       "bootstrap-scenario.db.test.ts": "test:db:2",
       "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
       "bootstrap-shared-seed-command.db.test.ts": "test:db:4",
-      "listing-channel-activation-composition.db.test.ts": "test:db:4",
       "inventory-seed-resume.db.test.ts": "test:db:3",
       "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
       "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
@@ -3335,7 +3604,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(refusal).toBeNull();
     expect(result.schedule.measuredOneFewerUnitFloor).toEqual({
       applied: false,
-      reason: "the measured one-fewer-unit floor assignment does not cover exactly the manifested files",
+      reason: "the measured one-fewer-unit floor measures 2 unit(s), not one fewer than the 4 observed",
     });
     const extraUnitFixture = await shippedCaptureFixture(extraUnitAssignment);
     expect(
@@ -4021,7 +4290,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.fileCount).toBe(12);
     expect(result.caseCount).toBe(66);
     expect(result.schedule.minimumUnitCount).toBe(2);
-    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(13);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(runFixture({ ...fixture, model: { ...fixture.model, maximumScheduledFileCount: 11 } }).violations).toContain(
       "the schedule model refuses to enumerate 12 files, above its declared bound of 11; " +
         "re-derive the bound deliberately rather than sampling assignments",

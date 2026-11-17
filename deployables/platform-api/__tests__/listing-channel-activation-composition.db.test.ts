@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 // Register owner-local omission mocks before loading host/context modules.
 import {
   authWriterProbe,
@@ -22,6 +22,12 @@ import {
   drainContextRuntime,
   resolveModuleSubscriptions,
 } from "@chase-sets/bounded-context-runtime";
+import {
+  createMultiContextTestDatabaseUrls,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { module as authModule } from "@chase-sets/auth";
 import { module as channelsModule } from "@chase-sets/channels";
 import type { ChannelsServices } from "@chase-sets/channels/server";
@@ -35,16 +41,27 @@ import {
   type InventoryServices,
 } from "@chase-sets/inventory/server";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
-import type { MarketplaceServices, AcceptListingTargetPriceInput } from "@chase-sets/marketplace/server";
+import type {
+  MarketplaceServices,
+  AcceptListingTargetPriceInput,
+  ListingPhotoStorage,
+} from "@chase-sets/marketplace/server";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
-import {
-  createPlatformApiBootstrapTestHarness,
-  listingPhotoStorage,
-  type PlatformApiTestPools,
-} from "./bootstrap-db-test-support";
+import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
+import { apiContextRegistry } from "../src/context-registry";
+
+type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
+const listingPhotoStorage: ListingPhotoStorage = {
+  async getObject() {
+    return null;
+  },
+  async putObject(input) {
+    return { key: input.key, publicUrl: `https://assets.test/${input.key}` };
+  },
+};
 
 const appendProbe = vi.hoisted(() => ({
   before: undefined as ((inputs: readonly AppendToStreamInput[]) => Promise<void>) | undefined,
@@ -161,13 +178,33 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
 
 describe("listing channel activation real composition", () => {
   let pools: PlatformApiTestPools;
-  createPlatformApiBootstrapTestHarness(
-    "listing_channel_activation_10410",
-    (state) => {
-      pools = state.pools;
-    },
-    { activeContextNames: ["auth", "identity", "channels", "inventory", "marketplace"] },
-  );
+  const activeContextNames = ["auth", "identity", "channels", "inventory", "marketplace"] as const;
+  beforeAll(async () => {
+    const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+    if (!databaseBaseUrl) throw new Error("TEST_DATABASE_URL is required for listing composition DB proofs.");
+    const databaseUrls = createMultiContextTestDatabaseUrls(
+      databaseBaseUrl,
+      getApiHostContextNames(apiContextRegistry, "platform-api"),
+      "listing_channel_activation_10410",
+    );
+    await ensureMultiContextTestDatabases(
+      databaseBaseUrl,
+      Object.fromEntries(activeContextNames.map((name) => [name, databaseUrls[name]])),
+    );
+    pools = createPlatformApiPools({
+      runtimeProfile: "public",
+      sharedDatabaseUrl: null,
+      contextDatabaseUrls: databaseUrls,
+      port: 6182,
+    });
+  });
+  // This fixture initializes owner schemas, not the host's seed bootstrap.
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(Object.fromEntries(activeContextNames.map((name) => [name, pools[name]])));
+  }, 30_000);
+  afterAll(async () => {
+    if (pools) await closePlatformApiPools(pools);
+  });
   beforeEach(async () => {
     appendProbe.before = undefined;
     appendProbe.beforeCommit = undefined;
