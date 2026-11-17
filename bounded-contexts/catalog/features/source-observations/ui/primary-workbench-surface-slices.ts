@@ -125,11 +125,23 @@ export function healthTriageSlice(
   input: CatalogPrimaryWorkbenchInput,
   core: CatalogPrimaryWorkbenchCore,
   derived: CatalogPrimaryWorkbenchDerived,
+  scopeUnits?: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["units"],
 ): CatalogPrimaryWorkbenchReadModel["healthTriage"] {
   return healthTriageFor({
     overview: input.controlPlaneOverview,
     routeContext: core.routeContext,
-    importJobs: derived.importJobRows,
+    importJobs: scopeUnits
+      ? derived.importJobRows.filter((job) =>
+          scopeUnits.some(
+            (unit) =>
+              unit.unitKey === job.unitKey &&
+              unit.providerKey === job.providerKey &&
+              unit.importScope !== null &&
+              unit.importScope === job.importScope,
+          ),
+        )
+      : derived.importJobRows,
+    scopeUnitKeys: scopeUnits?.flatMap((unit) => (unit.unitKey ? [unit.unitKey] : [])),
   });
 }
 
