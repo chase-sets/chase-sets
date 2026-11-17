@@ -10,8 +10,8 @@ publish = false
 [workspace.dependencies]
 # Pinned to a Corten revision on purpose: it follows Corten's main, past the 0.2.0 release. Move it
 # forward as main moves; see README.md, "Corten pin".
-corten = { git = "https://github.com/corten-run/corten", rev = "6a6bf4903171bbadab6b9810de60ea94de845836", package = "corten-run", features = ["compress", "json"] }
-corten-ui = { git = "https://github.com/corten-run/corten", rev = "6a6bf4903171bbadab6b9810de60ea94de845836" }
+corten = { git = "https://github.com/corten-run/corten", rev = "a8e188e74099a75cbb53dbe000d9f4effb09733b", package = "corten-run", features = ["compress", "json"] }
+corten-ui = { git = "https://github.com/corten-run/corten", rev = "a8e188e74099a75cbb53dbe000d9f4effb09733b" }
 platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 futures-util = { version = "0.3", default-features = false }
