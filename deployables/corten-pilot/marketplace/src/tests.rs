@@ -493,6 +493,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         };
         return match session {
             "seller" => actor(&["inventory.view", "inventory.manage"]),
+            // Sellers whose storage locations (`stock_dark`) or recent imports (`batches_dark`)
+            // cannot be read for now.
+            "stock_dark" | "batches_dark" => actor(&["inventory.view", "inventory.manage"]),
             "reader" => actor(&["inventory.view"]),
             // A buyer: any account has a cart, and none of these may see inventory.
             // `stale`'s session ends before its cart write is sent.
@@ -761,6 +764,12 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     }
     if let Some(answer) = checkout(&stand, session, &method, uri.path(), &body) {
         return answer;
+    }
+    if method == Method::GET && session == "stock_dark" && uri.path() == LOCATIONS {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if method == Method::GET && session == "batches_dark" && uri.path() == IMPORT_BATCHES {
+        return refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests.");
     }
     if let Some(answer) = imports_api(&method, &uri, &headers, &body) {
         return answer;
@@ -19343,6 +19352,47 @@ async fn a_batch_shows_its_rows_the_rows_that_need_the_seller_and_commit() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Import still updating"), "{}", text(&html));
     assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    assert!(html.contains(" disabled>Validate import</button>"), "no write while the batch catches up: {html}");
+    assert!(!html.contains(r#"aria-labelledby="import-recent-title""#), "nor the recent imports: {html}");
+}
+
+#[tokio::test]
+async fn an_import_page_goes_without_a_read_that_fails_for_now_and_holds_its_writes() {
+    let pilot = Pilot::new().await;
+    // No storage locations: said, with Check again, and the writes that name one held.
+    let here = format!("{IMPORTS_SCREEN}/imb_1?resolveRowId=row_2");
+    let (status, _, html) = pilot.send(get(&here, Some("stock_dark"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Storage locations are temporarily unavailable. Reload this page in a moment."), "{shown}");
+    assert!(html.contains(&format!(r#"href="{here}">Check original result</a>"#)), "{html}");
+    assert!(shown.contains("1 rows need you"), "the batch is still shown: {shown}");
+    assert!(html.contains(" disabled>Validate import</button>"), "{html}");
+    assert!(html.contains(" disabled>Apply row fix</button>"), "{html}");
+    assert!(
+        html.contains(">Commit accepted rows</button>") && !html.contains(" disabled>Commit accepted rows</button>"),
+        "{html}"
+    );
+
+    // No recent imports: said in place of the list; the upload form is as it was.
+    let (status, _, html) = pilot.send(get(IMPORTS_SCREEN, Some("batches_dark"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Recent imports are temporarily unavailable. Reload this page in a moment."), "{html}");
+    assert!(!html.contains(r#"aria-labelledby="import-recent-title""#), "not an empty list: {html}");
+    assert!(html.contains(r#"<option value="loc_main">Main shelf</option>"#), "{html}");
+    assert!(html.contains(">Validate import</button>") && !html.contains(" disabled>Validate import</button>"), "{html}");
+
+    // A job the page follows holds every write until it is done.
+    let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_1?jobId=job_run"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(" disabled>Commit accepted rows</button>"), "{html}");
+    assert!(html.contains(" disabled>Validate import</button>"), "{html}");
+    assert!(html.contains(r#"href="/account/inventory/imports/imb_1?jobId=job_run">Check original result</a>"#), "{html}");
+
+    // The drawer offers only the locations still in use.
+    let (_, _, html) = pilot.send(get(&here, Some("seller"))).await;
+    let drawer = &html[html.find("fix-dialog").unwrap()..];
+    assert!(drawer.contains(r#"value="loc_main""#) && !drawer.contains(r#"value="loc_old""#), "{drawer}");
 }
 
 #[tokio::test]

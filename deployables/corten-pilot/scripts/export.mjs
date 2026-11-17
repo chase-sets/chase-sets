@@ -102,7 +102,8 @@
 //   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
 // - marketplace/locales/imports.en.json: the inventory import page's English catalog
 //   (inventory.features.importBatches.ui.importBatchPage.* as page.*, .api.route.* as api.*,
-//   inventory.routes.marketplace.accountInventoryImports.* as route.*, and inventory.import.* as import.*).
+//   inventory.routes.marketplace.accountInventoryImports.* as route.*, inventory.import.* as import.*,
+//   and Check original result, inventory.recovery.check, as recovery.check).
 // - marketplace/locales/shipments.en.json: the shipment pages' English catalog
 //   (fulfillment.features.shipments.ui.shipmentListPage.* and .shipmentDetailPage.*, and
 //   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*;
@@ -1221,6 +1222,7 @@ const outputs = [
         ["inventory.import.", "import"],
         ["inventory.features.importBatches.api.route.", "api"],
         ["inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing", "list.create.listing"],
+        ["inventory.recovery.check", "recovery.check"],
       ]),
     ),
   ],

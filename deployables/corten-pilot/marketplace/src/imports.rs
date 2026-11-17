@@ -12,6 +12,12 @@
 //! changed since. Which rows need the seller, whether a batch can commit and the next row to
 //! resolve are Inventory's answers, read from the batch and from a resolve.
 //!
+//! The recent batches and the storage locations are reads the page can go without: one that
+//! fails for now (no answer, a 408, 429 or 5xx) leaves its part empty with a notice and Check
+//! again, as marketplace's `secondaryRead` does. The writes wait (their buttons are disabled)
+//! while a job is followed or the batch's read is catching up, and the two that name a location
+//! (Validate import and Apply row fix) while the locations cannot be read.
+//!
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /account/inventory/imports?jobId=..` | the upload form and the recent batches; a job's progress, or its batch once done |
@@ -228,6 +234,10 @@ pub struct JobNotice {
 pub struct ImportsScreen {
     pub batches: Vec<ImportBatch>,
     pub locations: Vec<Location>,
+    /// The recent batches could not be read for now (`batchesLoadMessage`).
+    pub batches_unavailable: bool,
+    /// The storage locations could not be read for now (`storageLocationsLoadMessage`).
+    pub locations_unavailable: bool,
     pub detail: Option<ImportBatchDetail>,
     /// The batch was asked for after a write its read has not caught up with.
     pub pending: bool,
@@ -236,12 +246,44 @@ pub struct ImportsScreen {
     pub offset: u64,
     /// The resolution drawer, when the address opens it on a row that needs the seller.
     pub fixing: Option<Fixing>,
+    /// The page's own address, which Check again reads again.
+    #[serde(skip)]
+    pub here: String,
 }
 
 impl ImportsScreen {
+    /// The page at `here` with its two shared reads and nothing else.
+    fn at(lists: Lists, here: String) -> Self {
+        ImportsScreen {
+            batches: lists.batches,
+            locations: lists.locations,
+            batches_unavailable: lists.batches_unavailable,
+            locations_unavailable: lists.locations_unavailable,
+            detail: None,
+            pending: false,
+            job: None,
+            upload: Upload::default(),
+            offset: 0,
+            fixing: None,
+            here,
+        }
+    }
+
     /// The batch Latest batch opens: the one shown, else the newest.
     pub fn latest(&self) -> Option<&str> {
         self.detail.as_ref().map(|d| d.batch.batch_id.as_str()).or_else(|| self.batches.first().map(|b| b.batch_id.as_str()))
+    }
+
+    /// Whether the page's writes wait (`writesDisabled`): a job the address follows, or a batch
+    /// whose read has not caught up with the write the page follows.
+    pub fn writes_wait(&self) -> bool {
+        self.job.is_some() || self.pending
+    }
+
+    /// Whether a write that names a storage location waits: as every write, and while the
+    /// locations cannot be read.
+    pub fn location_writes_wait(&self) -> bool {
+        self.writes_wait() || self.locations_unavailable
     }
 }
 
@@ -284,10 +326,36 @@ async fn follow(caller: &crate::api::Caller<'_>, place: &Place) -> Result<Follow
     Ok(Followed::Running(JobNotice { failed: job.status == "failed", message }))
 }
 
-/// The page's two shared reads: the recent batches and the storage locations.
-async fn lists(caller: &crate::api::Caller<'_>) -> Result<(Vec<ImportBatch>, Vec<Location>), ApiError> {
+/// The page's two shared reads: the recent batches and the storage locations, each empty and
+/// marked unavailable when it failed for now.
+struct Lists {
+    batches: Vec<ImportBatch>,
+    locations: Vec<Location>,
+    batches_unavailable: bool,
+    locations_unavailable: bool,
+}
+
+async fn lists(caller: &crate::api::Caller<'_>) -> Result<Lists, ApiError> {
     let (batches, locations) = tokio::join!(caller.import_batches(), caller.import_locations());
-    Ok((batches?.items, locations?.items))
+    let (batches, batches_unavailable) = for_now(batches.map(|list| list.items))?;
+    let (locations, locations_unavailable) = for_now(locations.map(|list| list.items))?;
+    Ok(Lists { batches, locations, batches_unavailable, locations_unavailable })
+}
+
+/// A read the page can go without (`secondaryRead`): its items, or none and `true` when it failed
+/// for now: no answer (marketplace's 504 after its 10-second deadline; the API client's timeout
+/// is the same), a 408, a 429 or a 5xx. Any other failure, a refusal or an answer that is not the
+/// expected JSON, is the page's.
+fn for_now<T: Default>(read: Result<T, ApiError>) -> Result<(T, bool), ApiError> {
+    let briefly = |error: &ApiError| match error {
+        ApiError::Status { status, .. } => matches!(status.as_u16(), 408 | 429) || status.is_server_error(),
+        ApiError::Transport(error) => !error.is_decode(),
+    };
+    match read {
+        Ok(items) => Ok((items, false)),
+        Err(error) if briefly(&error) => Ok((T::default(), true)),
+        Err(error) => Err(error),
+    }
 }
 
 fn draw(req: &Req, viewer: &Viewer, screen: &ImportsScreen, reads_again: bool, status: StatusCode) -> HtmlResult {
@@ -322,21 +390,13 @@ pub(crate) async fn list(
         Ok(Followed::Nothing) => None,
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
-    let (batches, locations) = match lists(&caller).await {
+    let lists = match lists(&caller).await {
         Ok(lists) => lists,
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let running = job.as_ref().is_some_and(|j| !j.failed);
-    let screen = ImportsScreen {
-        batches,
-        locations,
-        detail: None,
-        pending: false,
-        job,
-        upload: Upload::default(),
-        offset: 0,
-        fixing: None,
-    };
+    let here = url::Imports { place }.href();
+    let screen = ImportsScreen { job, ..ImportsScreen::at(lists, here) };
     draw(&req, &viewer, &screen, running, StatusCode::OK)
 }
 
@@ -360,7 +420,7 @@ pub(crate) async fn batch(
     };
     let offset = place.offset();
     let (detail, lists) = tokio::join!(caller.import_batch(&id, offset), lists(&plain));
-    let (batches, locations) = match lists {
+    let lists = match lists {
         Ok(lists) => lists,
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
@@ -378,7 +438,8 @@ pub(crate) async fn batch(
         Some(detail) => fixing(&plain, detail, place.resolving(), &raw, None).await,
         None => None,
     };
-    let screen = ImportsScreen { batches, locations, detail, pending, job, upload: Upload::default(), offset, fixing };
+    let here = url::ImportBatch { batch: &id, place }.href();
+    let screen = ImportsScreen { detail, pending, job, offset, fixing, ..ImportsScreen::at(lists, here) };
     draw(&req, &viewer, &screen, running || pending, StatusCode::OK)
 }
 
@@ -445,11 +506,11 @@ pub(crate) async fn create(
 
 /// The page again with the upload form as it was sent and why it was refused.
 async fn refuse(req: &Req, viewer: &Viewer, caller: &crate::api::Caller<'_>, upload: Upload, status: StatusCode) -> HtmlResult {
-    let (batches, locations) = match lists(caller).await {
+    let lists = match lists(caller).await {
         Ok(lists) => lists,
         Err(error) => return read_failed(req, Some(viewer), error, None),
     };
-    let screen = ImportsScreen { batches, locations, detail: None, pending: false, job: None, upload, offset: 0, fixing: None };
+    let screen = ImportsScreen { upload, ..ImportsScreen::at(lists, url::Imports::default().href()) };
     draw(req, viewer, &screen, false, status)
 }
 
@@ -479,23 +540,14 @@ pub(crate) async fn commit(
             Some(message) if error.status() != Some(StatusCode::FORBIDDEN) => {
                 let message = message.to_owned();
                 let (detail, lists) = tokio::join!(caller.import_batch(&id, 0), lists(&caller));
-                let ((batches, locations), detail) = match (lists, detail) {
+                let (lists, detail) = match (lists, detail) {
                     (Ok(lists), Ok(detail)) => (lists, detail),
                     (Err(error), _) | (_, Err(error)) => {
                         return read_failed(&req, Some(&viewer), error, None);
                     }
                 };
                 let upload = Upload { error: Some(message), ..Upload::default() };
-                let screen = ImportsScreen {
-                    batches,
-                    locations,
-                    detail: Some(detail),
-                    pending: false,
-                    job: None,
-                    upload,
-                    offset: 0,
-                    fixing: None,
-                };
+                let screen = ImportsScreen { detail: Some(detail), upload, ..ImportsScreen::at(lists, batch_href(&id, 0)) };
                 draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY)
             }
             _ => read_failed(&req, Some(&viewer), error, None),
@@ -548,13 +600,13 @@ pub(crate) async fn resolve(
         None => p.listing_new_choose_options().to_owned(),
     };
     let (detail, lists) = tokio::join!(caller.import_batch(&id, offset), lists(&caller));
-    let ((batches, locations), detail) = match (lists, detail) {
+    let (lists, detail) = match (lists, detail) {
         (Ok(lists), Ok(detail)) => (lists, detail),
         (Err(error), _) | (_, Err(error)) => return read_failed(&req, Some(&viewer), error, None),
     };
     let fixing = fixing(&caller, &detail, Some(&row_id), &raw, Some(refused)).await;
-    let upload = Upload::default();
-    let screen = ImportsScreen { batches, locations, detail: Some(detail), pending: false, job: None, upload, offset, fixing };
+    let here = resolve_href(&id, offset, Some(&row_id));
+    let screen = ImportsScreen { detail: Some(detail), offset, fixing, ..ImportsScreen::at(lists, here) };
     draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY)
 }
 
