@@ -7911,6 +7911,12 @@ async fn the_promo_bar_previews_live_messages_and_shows_each_messages_status() {
     let (_, _, html) =
         pilot.send(get("/growth/promo-bar?edit=pbm_off", Some("growth-viewer; corten-zone=America/Chicago"))).await;
     assert!(html.contains("<dialog") && html.contains(r#"value="2026-11-10T09:00""#), "the time in the operator's zone: {html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let (_, _, html) = pilot.send(get("/growth/promo-bar", Some("growth-viewer"))).await;
+    assert!(html.contains(r#"name="zone" value="UTC""#) && html.contains(">UTC<"), "UTC until the browser says: {html}");
     let (_, _, html) = pilot.send(get("/growth/promo-bar?delete=pbm_off", Some("growth-viewer"))).await;
     assert!(html.contains(r#"role="alertdialog""#) && html.contains("Old news"), "{html}");
 }
@@ -7920,7 +7926,7 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     let pilot = Pilot::new().await;
     let session = "growth-viewer; corten-zone=America/Chicago";
     let create = "intent=create&title=New&description=&href=%2Fx&linkLabel=Go&tone=warning&isActive=true&displayOrder=5\
-                  &startsAt=2026-11-10T09%3A00&endsAt=";
+                  &startsAt=2026-11-10T09%3A00&endsAt=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, "/growth/promo-bar", create, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -7931,6 +7937,18 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     assert_eq!(body["startsAt"], json!("2026-11-10T15:00:00Z"), "Chicago's 9:00 as its instant");
     assert_eq!((body["endsAt"].clone(), body["description"].clone()), (Value::Null, Value::Null));
     assert_eq!((body["displayOrder"].clone(), body["tone"].clone()), (json!(5.0), json!("warning")));
+
+    // The times are read in the zone the form was drawn in, not the post's.
+    let drawn_in_tokyo = create.replace("America%2FChicago", "Asia%2FTokyo");
+    let (status, _, _) = pilot.send(post_as(session, "/growth/promo-bar", &drawn_in_tokyo, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent: Vec<Call> = pilot.calls_to_path(PROMO_API).into_iter().filter(|c| c.method == Method::POST).collect();
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["startsAt"], json!("2026-11-10T00:00:00Z"), "Tokyo's 9:00");
+    let no_zone = create.replace("&zone=America%2FChicago", "");
+    let (status, _, html) = pilot.send(post_as(session, "/growth/promo-bar", &no_zone, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "times without the form's zone: {html}");
+    assert!(html.contains("No promo bar change was applied."), "{html}");
 
     for (form, method, path) in [
         ("intent=activate&id=pbm_off", Method::POST, format!("{PROMO_API}/pbm_off/activate")),
