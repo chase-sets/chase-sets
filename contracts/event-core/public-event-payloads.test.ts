@@ -65,6 +65,8 @@ import type {
   PlatformOperationsReportedContentActionRecordedPayload,
   PlatformOperationsRiskAlertActionRecordedPayload,
   SettlementSupportHoldReleasedPayload,
+  PayoutCompletedPayload,
+  SupportRequestResolvedPayload,
   WaitlistSignupRecordedPayload,
   WaitlistReferralCodeIssuedPayload,
   WaitlistReferralCodeReservedPayload,
@@ -87,6 +89,17 @@ import type {
 } from "./public-event-payloads/platform-operations";
 import type { PublicPresenceEventPayloads } from "./public-event-payloads/public-presence";
 import type { SettlementEventPayloads } from "./public-event-payloads/settlement";
+
+describe("native CSAT source payloads", () => {
+  it("keeps historical capture classification optional and exports native payout and Support fields", () => {
+    expectTypeOf<PaymentCapturedPayload["sourceContext"]>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<ChaseSetsEventPayloads["settlement.payout.completed"]>().toEqualTypeOf<PayoutCompletedPayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["support.support-request.resolved"]
+    >().toEqualTypeOf<SupportRequestResolvedPayload>();
+    expectTypeOf<SupportRequestResolvedPayload["resolution"]["resolvedAt"]>().toEqualTypeOf<string>();
+  });
+});
 
 describe("versioned channel-only Listing creation payload", () => {
   const payload = {

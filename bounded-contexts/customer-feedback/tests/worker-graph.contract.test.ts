@@ -4,6 +4,27 @@ import { module } from "../index";
 import contract from "./worker-graph.contract.json";
 
 describe("customer-feedback worker graph contract", () => {
+  it("owns four optional native outcome runners with filtered version-one subscriptions", () => {
+    for (const source of ["fulfillment", "payments", "settlement", "platform-operations"]) {
+      const subscription = module
+        .buildSubscriptions?.({ cases: {}, eventStore: {} } as never)
+        .find((candidate) => candidate.sourceContextName === source);
+      expect(subscription).toMatchObject({
+        projectionName: "customer-feedback-csat-outcome-fact-projection",
+        subscriptionVersion: 1,
+      });
+      expect(Object.keys(subscription!.handlers)).toEqual(subscription!.eventTypes);
+      const runner = contract.runners.find(
+        (candidate) =>
+          candidate.sourceContextName === source && candidate.projectionName === subscription!.projectionName,
+      );
+      expect(runner).toMatchObject({
+        inlineApply: false,
+        checkpointBatchSize: 100,
+        checkpointKey: `customer-feedback-csat-outcome-fact-projection:${source}:v1`,
+      });
+    }
+  });
   it("owns the complete declared subscription and reaction expectations", () => {
     const declarations: Pick<BcApiModule, "eventSubscriptions" | "eventReactions"> = module;
     const subscriptions: readonly (Pick<

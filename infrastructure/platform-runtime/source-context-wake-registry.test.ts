@@ -22,6 +22,14 @@ import {
 describe("source-context wake registry", () => {
   const inventory = loadBoundedContextInventory();
 
+  it("wakes Customer Feedback for each wave-two native source", () => {
+    for (const source of ["fulfillment", "payments", "settlement", "platform-operations"]) {
+      expect(requireSourceContextWakeRegistryEntry(source).affectedProjectionNames).toContain(
+        "customer-feedback:customer-feedback-csat-outcome-fact-projection",
+      );
+    }
+  });
+
   it("includes listing directive delivery without replacing review moderation wake interest", () => {
     const entry = requireSourceContextWakeRegistryEntry("platform-operations");
     expect(entry.affectedProjectionNames).toContain("marketplace:marketplace-listing-moderation-reaction");

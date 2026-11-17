@@ -1974,7 +1974,7 @@ describe("payment runtime", () => {
     expect(status.unavailable_reasons).toEqual([]);
   });
 
-  it("captures a payment immediately when balance credit covers the full amount", async () => {
+  it("emits only native facts when balance credit covers the full amount", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
     const services = createPaymentRuntime({
@@ -2030,19 +2030,10 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
-      "payments.csat-outcome-fact.v1",
     ]);
-    expect(readAllEvents()[2]).toMatchObject({
-      eventType: "payments.csat-outcome-fact.v1",
-      payload: {
-        factSchemaVersion: 1,
-        outcomeCode: "checkout.completed",
-        sourceContext: "checkout",
-        subjectAccountId: "acc_buyer",
-        subjectKind: "buyer",
-        subject: { entityType: "payment", entityId: result.payment_id },
-        idempotencyKey: `payment:${result.payment_id}:checkout.completed`,
-      },
+    expect(readAllEvents()[1]).toMatchObject({
+      eventType: "payments.payment-captured",
+      payload: { paymentId: result.payment_id, buyerAccountId: "acc_buyer", sourceContext: null },
     });
   });
 
@@ -3047,10 +3038,9 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
-      "payments.csat-outcome-fact.v1",
       "payments.payment-liability-shift-recorded",
     ]);
-    expect(readAllEvents()[3]?.payload).toMatchObject({
+    expect(readAllEvents()[2]?.payload).toMatchObject({
       providerEventId: "evt_3ds_shifted",
       threeDSecureRequested: "any",
       status: "shifted",
@@ -3058,12 +3048,8 @@ describe("payment runtime", () => {
       radarRiskLevel: "normal",
     });
     const outcomeFacts = readAllEvents().filter((event) => event.eventType === "payments.csat-outcome-fact.v1");
-    expect(outcomeFacts).toHaveLength(1);
-    expect(outcomeFacts[0]?.payload).toMatchObject({
-      outcomeCode: "checkout.completed",
-      subject: { entityType: "payment", entityId: payment.payment_id },
-      idempotencyKey: `payment:${payment.payment_id}:checkout.completed`,
-    });
+    expect(outcomeFacts).toHaveLength(0);
+    expect(readAllEvents()[1]?.payload).toMatchObject({ paymentId: payment.payment_id, sourceContext: null });
     expect(webhookEvents).toHaveLength(1);
   });
 
@@ -3123,13 +3109,8 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
-      "payments.csat-outcome-fact.v1",
     ]);
-    expect(readAllEvents()[2]?.payload).toMatchObject({
-      outcomeCode: "checkout.completed",
-      subject: { entityType: "payment", entityId: payment.payment_id },
-      idempotencyKey: `payment:${payment.payment_id}:checkout.completed`,
-    });
+    expect(readAllEvents()[1]?.payload).toMatchObject({ paymentId: payment.payment_id, sourceContext: null });
 
     processorGateway.parseWebhook.mockResolvedValue({
       eventId: "evt_late_capture",
@@ -3151,9 +3132,8 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
-      "payments.csat-outcome-fact.v1",
     ]);
-    expect(readAllEvents().filter((event) => event.eventType === "payments.csat-outcome-fact.v1")).toHaveLength(1);
+    expect(readAllEvents().filter((event) => event.eventType === "payments.csat-outcome-fact.v1")).toHaveLength(0);
     expect(webhookEvents).toHaveLength(1);
   });
 

@@ -165,6 +165,14 @@ stored as null. Recording a fact does not issue an invitation or apply sampling.
 The optional version-1 subscriptions recover from position zero through the
 standard bounded, checkpointed runner, not a separate backfill process.
 
+Fulfillment delivery, Payments capture, Settlement payout completion, and Support
+resolution retain their native payload occurrence timestamps and source envelope
+event identifier and performing User. Capture facts use source `checkout`:
+`checkout-recovery` yields recovery; any other present source, including null,
+yields completion. Historical captures without a source field are not classified.
+Support remains sourced from Platform Operations; return requests yield return
+resolution. Legacy CSAT sibling events and nested payout facts are not projected.
+
 ## Sampling Policy
 
 A **Sampling Policy** decides which eligible outcomes receive a survey and records

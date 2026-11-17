@@ -7,7 +7,6 @@ import type { PayoutId } from "@chase-sets/primitives/typed-ids";
 import { SettlementDomainError } from "../../../support/runtime-support/common";
 import type { MoneyMovementWebhookEvent } from "@chase-sets/money-movement";
 import { providerWebhookErrorFromUnknown, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
-import { createPayoutCompletedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { getPayoutByProviderOperationReference, getPayoutByProviderPayoutReference } from "../read-model/queries";
 import { payoutAmounts, requirePayoutSnapshot, type PayoutPrimitives } from "./payout-primitives";
 import type { PayoutRuntimeDeps, PayoutServices } from "./runtime";
@@ -116,11 +115,6 @@ export function createPayoutProviderEvents(
             type: "CompletePayout",
             providerStatus: event.providerStatus,
             completedAt: event.occurredAt,
-            csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
-              accountId: payout.account_id,
-              payoutId: payout.payout_id,
-              completedAt: event.occurredAt,
-            }),
           },
           context,
         });

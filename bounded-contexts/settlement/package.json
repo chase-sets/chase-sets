@@ -25,7 +25,6 @@
   "dependencies": {
     "@chase-sets/evidence-window-provider-write": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
-    "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",

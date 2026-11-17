@@ -14,6 +14,7 @@ export const platformOperationsWakeRegistryEntry = registryEntry({
   expectedEventVolume: "medium",
   wakeStoreLoadEstimate: "low",
   affectedProjectionNames: [
+    "customer-feedback:customer-feedback-csat-outcome-fact-projection",
     "platform-operations:experience-platform-feedback-projection",
     "platform-operations:account-appeal-projection",
     "platform-operations:platform-policy-document-projection",
