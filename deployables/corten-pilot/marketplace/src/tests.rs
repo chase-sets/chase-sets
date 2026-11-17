@@ -493,6 +493,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         };
         return match session {
             "seller" => actor(&["inventory.view", "inventory.manage"]),
+            // Sellers whose storage locations (`stock_dark`) or recent imports (`batches_dark`)
+            // cannot be read for now.
+            "stock_dark" | "batches_dark" => actor(&["inventory.view", "inventory.manage"]),
             "reader" => actor(&["inventory.view"]),
             // A buyer: any account has a cart, and none of these may see inventory.
             // `stale`'s session ends before its cart write is sent.
@@ -761,6 +764,12 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     }
     if let Some(answer) = checkout(&stand, session, &method, uri.path(), &body) {
         return answer;
+    }
+    if method == Method::GET && session == "stock_dark" && uri.path() == LOCATIONS {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if method == Method::GET && session == "batches_dark" && uri.path() == IMPORT_BATCHES {
+        return refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests.");
     }
     if let Some(answer) = imports_api(&method, &uri, &headers, &body) {
         return answer;
@@ -1797,10 +1806,14 @@ fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
     })
 }
 
-/// Seller checkout's confirmation, as the stand-in answers it: a confirm applies at 75 and is kept
-/// by its id, but `slc_chk_lost`'s answer is lost after it is kept and `slc_chk_gone`'s is lost with
-/// nothing kept; `slc_chk_done` was confirmed already; `slc_chk_dark` cannot be read (503); one
-/// read that waits for 75 before it is kept is still catching up, and any other is not saved (404).
+/// Seller checkout's confirmation, as the stand-in answers it. Checkout's confirm checks the kept
+/// plan and runs the Marketplace handoff itself: `slc_chk_other`'s and `slc_chk_over`'s plans do
+/// not fit their snapshots (400); `slc_chk_off_stale`'s handoff stops on an offer whose terms
+/// changed and `slc_chk_off_accepted`'s on one accepted already (409, after the offer line). Any
+/// other confirm applies at 75, its handoff's Marketplace writes at 76, and is kept by its id, but
+/// `slc_chk_lost`'s answer is lost after it is kept and `slc_chk_gone`'s is lost with nothing kept;
+/// `slc_chk_done` was confirmed already; `slc_chk_dark` cannot be read (503); one read that waits
+/// for 75 before it is kept is still catching up, and any other is not saved (404).
 fn sell_confirmations(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(ACCOUNT_SELL_LIST)?;
     if *method == Method::POST && rest == "/confirm" {
@@ -1809,11 +1822,35 @@ fn sell_confirmations(stand: &Stand, method: &Method, path: &str, headers: &Head
         if id == "slc_chk_gone" {
             return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
         }
+        let interrupted = |message: &str, second: &str, recovery: Value| {
+            let lines = json!([
+                { "lineId": "sll_offer", "status": "completed", "detail": "Pikachu: sale review recorded." },
+                { "lineId": "sll_product", "status": second, "detail": message },
+            ]);
+            let error =
+                json!({ "code": "checkout_handoff_interrupted", "message": message, "lines": lines, "recovery": recovery });
+            Some((StatusCode::CONFLICT, Json(json!({ "error": error }))).into_response())
+        };
+        match id.as_str() {
+            "slc_chk_other" | "slc_chk_over" => {
+                let message = "Return to the Sell List and refresh the reviewed sale plan before confirming.";
+                return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", message));
+            }
+            "slc_chk_off_stale" => {
+                let detail = "Pikachu: offer terms need refresh.";
+                return interrupted(detail, "ambiguous", json!({ "kind": "readiness-stale", "detail": detail }));
+            }
+            "slc_chk_off_accepted" => return interrupted("Offer match has already been accepted.", "conflict", Value::Null),
+            _ => {}
+        }
         stand.kept.lock().unwrap().insert(format!("sell_confirmation:{id}"), sent);
         if id == "slc_chk_lost" {
             return Some(StatusCode::BAD_GATEWAY.into_response());
         }
-        return Some(committed(StatusCode::CREATED, "checkout", "75", json!({ "confirmationId": id, "status": "confirmed" })));
+        let handoff = json!({ "mode": "eventual", "commitPosition": "76", "commitEventIds": ["evt_76"],
+            "commitPositions": [{ "sourceContextName": "marketplace", "maxGlobalPosition": "76", "eventIds": ["evt_76"] }] });
+        let answer = json!({ "confirmationId": id, "status": "confirmed", "sourceReceipts": [{ "commandReceipt": handoff }] });
+        return Some(committed(StatusCode::CREATED, "checkout", "75", answer));
     }
     let id = rest.strip_prefix("/confirmations/").filter(|_| *method == Method::GET)?;
     if id == "slc_chk_dark" {
@@ -1821,7 +1858,18 @@ fn sell_confirmations(stand: &Stand, method: &Method, path: &str, headers: &Head
     }
     let kept = stand.kept.lock().unwrap().get(&format!("sell_confirmation:{id}")).cloned();
     let summary = match (kept, id) {
-        (Some(sent), _) => sent["handoffSummary"].clone(),
+        // What Checkout's handoff recorded for `trader`'s two lines.
+        (Some(_), _) => json!({
+            "acceptedOfferCount": 2, "publishedListingCount": 1, "skippedLineCount": 0,
+            "lineOutcomes": [
+                { "lineId": "sll_offer", "itemTitle": "Pikachu", "status": "completed", "action": "accepted-offer",
+                  "quantity": 2, "remainingQuantity": 0, "detail": "Pikachu: sale review recorded.", "references": { "offerIds": ["off_ready"] } },
+                { "lineId": "sll_product", "itemTitle": "Pikachu", "status": "completed", "action": "mixed",
+                  "quantity": 3, "remainingQuantity": 0, "detail": "Pikachu: sale review recorded.",
+                  "references": { "offerIds": ["off_short"], "listingId": "lst_slc_chk_one_sll_product" } },
+            ],
+            "sideEffects": { "sale": "handoff-recorded" },
+        }),
         (None, "slc_chk_done") => json!({
             "acceptedOfferCount": 1, "publishedListingCount": 0, "skippedLineCount": 0,
             "lineOutcomes": [{ "lineId": "sll_offer", "itemTitle": "Pikachu", "status": "completed", "action": "accepted-offer",
@@ -12011,21 +12059,6 @@ fn offer_policies(session: &str, method: &Method, uri: &Uri, body: &str) -> Opti
         let (Some(target), Some(hash)) = (query("target"), query("requestHash")) else {
             return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "Invalid attempt."));
         };
-        // An offer's acceptance is kept as the seller's (`trader` is `acc_seller`); `off_borrowed`'s
-        // was another seller's.
-        if query("kind").as_deref() == Some("offer.accept") {
-            let key = percent_encoding::percent_decode_str(attempt).decode_utf8_lossy().into_owned();
-            let account = if target == "off_borrowed" { "acc_other" } else { "acc_seller" };
-            return Some(
-                Json(json!({
-                    "schemaVersion": 1, "mutationKind": "offer.accept",
-                    "attemptKeyFingerprint": crate::sell_checkout::key_fingerprint(&key),
-                    "actorBinding": { "accountId": account }, "target": { "kind": "offer", "id": target },
-                    "canonicalRequestHash": hash, "ownerStatus": "committed", "ownerReceipt": { "id": target, "version": 4 },
-                }))
-                .into_response(),
-            );
-        }
         if target != "bop_lost" || query("kind").as_deref() != Some("offer-policy.command") {
             return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Attempt not found."));
         }
@@ -18493,7 +18526,8 @@ fn sell_form(changes: &[(&str, &str)]) -> String {
     fields.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect::<Vec<_>>().join("&")
 }
 
-/// The handoff's and the confirm's calls, as `METHOD path`.
+/// The Marketplace handoff's writes and the confirm, as `METHOD path`: the pilot sends only the
+/// confirm, whose handoff Checkout runs (chase-sets/chase-sets#10754).
 fn handoff_calls(pilot: &Pilot) -> Vec<String> {
     let calls = pilot.stand.calls.lock().unwrap();
     calls
@@ -18609,60 +18643,38 @@ async fn seller_checkout_checks_each_field_and_the_payout_before_it_sends_anythi
 }
 
 #[tokio::test]
-async fn seller_checkout_refuses_a_kept_plan_that_is_not_the_one_readiness_decided() {
+async fn checkouts_refusal_of_a_kept_plan_that_does_not_fit_its_snapshot_is_the_page_again() {
     let pilot = Pilot::new().await;
-    let at = "/checkout/sell/session/chk_one";
-    // The handoff still checks the plan against the snapshot until Checkout runs it
+    // Checkout's confirm checks the kept plan against the snapshot before its handoff
     // (chase-sets/chase-sets#10754): another offer for the offer line, or more than the line has.
-    let mut other_offer: Value = serde_json::from_str(&sell_plan("off_short", 1)).unwrap();
-    other_offer["lines"][0]["selectedOffer"]["offerId"] = json!("off_other");
-    keep_review(&pilot, "srs_other", &other_offer.to_string(), SELL_DECISIONS);
-    keep_review(&pilot, "srs_over", &sell_plan("off_short", 4), SELL_DECISIONS);
-    for snapshot in ["srs_other", "srs_over"] {
-        let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&[("readinessSnapshotId", snapshot)]), false)).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{snapshot}: {html}");
+    for session in ["chk_other", "chk_over"] {
+        let at = format!("/checkout/sell/session/{session}");
+        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[]), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{session}: {html}");
         assert!(
             text(&html).contains("Return to the Sell List and refresh the reviewed sale plan before confirming."),
-            "{snapshot}: {html}"
+            "{session}: {html}"
         );
     }
-    assert!(handoff_calls(&pilot).is_empty(), "nothing was accepted or listed");
+    assert_eq!(
+        handoff_calls(&pilot),
+        ["POST /api/marketplace/account/sell-list/confirm", "POST /api/marketplace/account/sell-list/confirm"],
+        "the pilot accepts and lists nothing itself"
+    );
 }
 
 #[tokio::test]
-async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it() {
+async fn confirming_sends_the_kept_review_to_checkout_which_hands_it_off_and_the_page_shows_it() {
     let pilot = Pilot::new().await;
     let at = "/checkout/sell/session/chk_one";
     let (status, headers, html) = pilot.send(post(at, "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/checkout/sell/session/chk_one/confirmation?afterWrite="), "{to}");
-    assert!(query(&to)["afterWrite"].contains(r#""commitPosition":"75""#), "the confirm's receipt: {to}");
+    // The read waits for the later write: the handoff's in Marketplace (76) after the confirm's (75).
+    assert!(query(&to)["afterWrite"].contains(r#""commitPosition":"76""#), "the handoff's receipt: {to}");
 
-    assert_eq!(
-        handoff_calls(&pilot),
-        [
-            "POST /api/marketplace/account/offers/matches/off_ready/accept",
-            "POST /api/marketplace/account/offers/matches/off_short/accept",
-            "POST /api/marketplace/account/listings",
-            "POST /api/marketplace/account/listings/lst_slc_chk_one_sll_product/publish",
-            "POST /api/marketplace/account/sell-list/confirm",
-        ]
-    );
-    let selected = last_body(&pilot, "/api/marketplace/account/offers/matches/off_ready/accept");
-    assert_eq!(
-        selected,
-        json!({ "listingId": "lst_pika", "feeQuoteFingerprint": "fq_offer", "sourceActionKey": "sell-confirm:slc_chk_one:sll_offer:selected:off_ready" })
-    );
-    let matched = last_body(&pilot, "/api/marketplace/account/offers/matches/off_short/accept");
-    assert_eq!(matched["acceptanceBatchId"], "offer-acceptance:slc_chk_one:sll_product");
-    assert_eq!(matched["acceptanceBatchSize"], 1);
-    let listing = last_body(&pilot, "/api/marketplace/account/listings");
-    assert_eq!(
-        listing,
-        json!({ "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD", "quantityCap": 1,
-            "listingIdOverride": "lst_slc_chk_one_sll_product" })
-    );
+    assert_eq!(handoff_calls(&pilot), ["POST /api/marketplace/account/sell-list/confirm"], "Checkout hands off");
     // Readiness with the seller's evidence came first, with the kept review's decisions, for the
     // confirmation and the snapshot the page started from; the plan stays with Checkout.
     let evidence = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
@@ -18674,15 +18686,6 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
     );
     assert_eq!((&evidence["lineActions"], &evidence["lineOutcomes"]), (&decisions["lineActions"], &decisions["lineOutcomes"]));
     assert!(evidence.get("reviewPlan").is_none(), "{evidence}");
-    // Each acceptance was checked against the attempt Marketplace kept for it.
-    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
-    assert_eq!(lookups.len(), 2, "{lookups:?}");
-    assert!(
-        lookups[0].contains(
-            "kind=offer.accept&target=off_ready&requestHash=3323346fdb85b8129cb6b74f552c3074c97b9cb3dc1f37097e61d8b7051f0157"
-        ),
-        "{lookups:?}"
-    );
     assert_eq!(
         evidence["sellerEvidence"]["shipFrom"],
         json!({ "status": "ready", "addressId": null, "country": "US", "region": "IL", "postalCode": "60201" })
@@ -18698,11 +18701,10 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
     assert_eq!(confirm["label"], json!({ "preference": "prepaid-label" }));
     assert_eq!(confirm["confirmationId"], "slc_chk_one");
     assert_eq!(confirm["readinessDecisions"], decisions);
-    assert_eq!(confirm["completedLineIds"], json!(["sll_offer", "sll_product"]));
-    assert_eq!(confirm["remainingLineQuantities"], json!([]));
-    assert_eq!(confirm["handoffSummary"]["acceptedOfferCount"], 2);
-    assert_eq!(confirm["handoffSummary"]["publishedListingCount"], 1);
-    assert_eq!(confirm["handoffSummary"]["lineOutcomes"][1]["action"], "mixed");
+    // What the handoff did is Checkout's to record, not the page's to post.
+    for retired in ["completedLineIds", "remainingLineQuantities", "sellerEvidence", "handoffSummary"] {
+        assert!(confirm.get(retired).is_none(), "{retired}: {confirm}");
+    }
 
     let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -18719,40 +18721,25 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
 }
 
 #[tokio::test]
-async fn an_offer_whose_terms_changed_sends_the_seller_back_to_the_sell_list_without_confirming() {
+async fn a_handoff_checkout_reports_stopped_shows_each_lines_result_and_holds_the_form() {
     let pilot = Pilot::new().await;
-    keep_review(&pilot, "srs_off_stale", &sell_plan("off_stale", 1), SELL_DECISIONS);
-    let body = sell_form(&[("readinessSnapshotId", "srs_off_stale")]);
-    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &body, false)).await;
+    // An offer whose terms changed: the way back to the Sell List, with why.
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_off_stale", "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     let page = text(&html);
-    assert!(page.contains("Sell List changed") && page.contains("Pikachu"), "{page}");
+    assert!(page.contains("Sell List changed") && page.contains("Pikachu: offer terms need refresh."), "{page}");
     // The handoff stopped part way: what each line came to, the form held and offered again.
     assert!(page.contains("This action completed only partly."), "{page}");
     assert!(page.contains("Completed") && page.contains("Not confirmed"), "{page}");
     assert!(html.contains(r#"type="submit" disabled"#) && page.contains("Retry the same action"), "{html}");
-    assert_eq!(
-        handoff_calls(&pilot),
-        [
-            "POST /api/marketplace/account/offers/matches/off_ready/accept",
-            "POST /api/marketplace/account/offers/matches/off_stale/accept",
-        ],
-        "nothing after the stale offer"
-    );
 
-    // An offer accepted already is not counted as this sale's: the handoff stops on it, and
-    // nothing is confirmed (chase-sets/chase-sets#9995). So does one Marketplace kept as another
-    // seller's acceptance.
-    for (offer, words) in [("off_accepted", "Offer match has already been accepted."), ("off_borrowed", "not as this sale")] {
-        let at = format!("/checkout/sell/session/chk_{offer}");
-        let snapshot = format!("srs_{offer}");
-        keep_review(&pilot, &snapshot, &sell_plan(offer, 1), SELL_DECISIONS);
-        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[("readinessSnapshotId", &snapshot)]), false)).await;
-        assert_eq!(status, StatusCode::CONFLICT, "{offer}: {html}");
-        let page = text(&html);
-        assert!(page.contains(words) && page.contains("Not applied"), "{offer}: {page}");
-    }
-    assert!(!handoff_calls(&pilot).iter().any(|c| c.ends_with("/confirm")), "nothing confirmed");
+    // An offer accepted already, not as this sale (chase-sets/chase-sets#9995): Checkout's words,
+    // the line not applied, and no way back to the Sell List it did not ask for.
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_off_accepted", "trader", &sell_form(&[]), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Offer match has already been accepted.") && page.contains("Not applied"), "{page}");
+    assert!(!page.contains("Sell List changed"), "{page}");
 }
 
 #[tokio::test]
@@ -19343,6 +19330,47 @@ async fn a_batch_shows_its_rows_the_rows_that_need_the_seller_and_commit() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Import still updating"), "{}", text(&html));
     assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    assert!(html.contains(" disabled>Validate import</button>"), "no write while the batch catches up: {html}");
+    assert!(!html.contains(r#"aria-labelledby="import-recent-title""#), "nor the recent imports: {html}");
+}
+
+#[tokio::test]
+async fn an_import_page_goes_without_a_read_that_fails_for_now_and_holds_its_writes() {
+    let pilot = Pilot::new().await;
+    // No storage locations: said, with Check again, and the writes that name one held.
+    let here = format!("{IMPORTS_SCREEN}/imb_1?resolveRowId=row_2");
+    let (status, _, html) = pilot.send(get(&here, Some("stock_dark"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Storage locations are temporarily unavailable. Reload this page in a moment."), "{shown}");
+    assert!(html.contains(&format!(r#"href="{here}">Check original result</a>"#)), "{html}");
+    assert!(shown.contains("1 rows need you"), "the batch is still shown: {shown}");
+    assert!(html.contains(" disabled>Validate import</button>"), "{html}");
+    assert!(html.contains(" disabled>Apply row fix</button>"), "{html}");
+    assert!(
+        html.contains(">Commit accepted rows</button>") && !html.contains(" disabled>Commit accepted rows</button>"),
+        "{html}"
+    );
+
+    // No recent imports: said in place of the list; the upload form is as it was.
+    let (status, _, html) = pilot.send(get(IMPORTS_SCREEN, Some("batches_dark"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Recent imports are temporarily unavailable. Reload this page in a moment."), "{html}");
+    assert!(!html.contains(r#"aria-labelledby="import-recent-title""#), "not an empty list: {html}");
+    assert!(html.contains(r#"<option value="loc_main">Main shelf</option>"#), "{html}");
+    assert!(html.contains(">Validate import</button>") && !html.contains(" disabled>Validate import</button>"), "{html}");
+
+    // A job the page follows holds every write until it is done.
+    let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_1?jobId=job_run"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(" disabled>Commit accepted rows</button>"), "{html}");
+    assert!(html.contains(" disabled>Validate import</button>"), "{html}");
+    assert!(html.contains(r#"href="/account/inventory/imports/imb_1?jobId=job_run">Check original result</a>"#), "{html}");
+
+    // The drawer offers only the locations still in use.
+    let (_, _, html) = pilot.send(get(&here, Some("seller"))).await;
+    let drawer = &html[html.find("fix-dialog").unwrap()..];
+    assert!(drawer.contains(r#"value="loc_main""#) && !drawer.contains(r#"value="loc_old""#), "{drawer}");
 }
 
 #[tokio::test]
