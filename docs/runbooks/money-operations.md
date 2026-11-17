@@ -78,6 +78,48 @@ Webhook callbacks are mounted by the platform API at `/api/payments/provider/web
 
 Rotate Payments and Connect endpoint secrets independently. Before changing a current secret, copy it into the matching comma-separated `*_WEBHOOK_SECRET_PREVIOUS` variable and deploy. Roll the endpoint secret in Stripe, promote the new value into the current variable, and deploy again while retaining the prior value. Confirm signed deliveries succeed, then clear the previous-secret variable and deploy once more. Never log or paste webhook secrets or raw `Stripe-Signature` headers into deployment evidence.
 
+### Replace the Payments endpoint API version
+
+Stripe endpoint API versions cannot be updated in place. Verification checks
+the registry's exact API version, including when `create-canonical` reuses an
+existing endpoint. Do not manually edit or replace shared endpoints.
+
+Use `stripe:webhook-endpoint -- replace-version --environment <environment>
+--phase prepare` through the protected deployment entry point. Production
+also requires the existing exact creation confirmation. The production
+creation workflow offers `replace-version` with `prepare` and `complete` phases;
+both remain main-only and environment-approved. Preparation retains the old
+enabled endpoint, writes its current secret plus existing overlap keys to
+`STRIPE_WEBHOOK_SECRET_PREVIOUS`, then writes the new key to
+`STRIPE_WEBHOOK_SECRET` through the write-only destination. It never prints
+either key. A failed handoff removes only the new endpoint. A prepared retry
+reuses the new endpoint; an interrupted unprepared create is replaced rather
+than multiplying endpoints.
+
+Deploy both current and previous keys before running `--phase complete
+--delivery-event <event-id>`. Completion retrieves that supported event from
+Stripe, rejects mismatched identity, mode or API version, and replays it with
+the new key through the canonical deployed verifier. It retires the old
+endpoint only after a successful response. This is a signed replay, not a
+claim of provider-originated delivery. Also confirm Stripe-originated delivery
+to the new endpoint in deployment evidence before clearing previous keys.
+Failed replay retains both endpoints and is safe to retry. Do not clear prior
+keys until old in-flight deliveries have drained. Keep deployment approvals
+and use isolated test mode for implementation evidence, never shared staging
+or production from an implementation seat.
+The same script supports `--environment sandbox --base-url <isolated-https-origin>`
+for that evidence. It refuses live keys and shared Chase Sets origins in sandbox
+mode. Use an isolated write-only secret sink when exercising the exported
+operation from the test-mode verifier.
+If the stored Stripe Event has the account's older API version, pass
+`--delivery-file <signed-capture-json>` as well as its `--delivery-event` id
+through the protected deploy-time script. The capture contains `rawBody` and
+`signatureHeader` from the new endpoint's delivery. The script authenticates
+the exact bytes with the target key and a five-minute timestamp tolerance
+before inspecting the event version. Do not change Workbench defaults or
+rewrite an old event's version. Keep this sensitive, short-lived capture out
+of source control and logs; remove it after the replay.
+
 When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET` into the current worktree's `.env.sandbox.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `pnpm run stripe:listen` manually if you want the listener in a separate terminal; it forwards payment events to `/api/payments/provider/webhooks` and Connect events to `/api/settlement/provider/money-movement/webhooks` by default.
 
 ## Stripe Connect Notes

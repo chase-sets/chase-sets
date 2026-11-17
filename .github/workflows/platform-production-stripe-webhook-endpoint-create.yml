@@ -7,6 +7,26 @@ on:
         description: Type "create production payments webhook endpoint" to create the live endpoint
         required: true
         type: string
+      operation:
+        description: Create an absent endpoint or replace its immutable API version
+        required: true
+        default: create-canonical
+        type: choice
+        options:
+          - create-canonical
+          - replace-version
+      phase:
+        description: Prepare keys first, then deploy before completing the signed replay
+        required: true
+        default: prepare
+        type: choice
+        options:
+          - prepare
+          - complete
+      delivery_event:
+        description: Target-version supported Stripe event id for completion replay
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -36,7 +56,14 @@ jobs:
           CONFIRMATION: ${{ inputs.confirmation }}
           GH_TOKEN: ${{ secrets.ENVIRONMENT_SECRETS_TOKEN }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_WEBHOOK_SECRET_PREVIOUS: ${{ secrets.STRIPE_WEBHOOK_SECRET_PREVIOUS }}
+          OPERATION: ${{ inputs.operation }}
+          PHASE: ${{ inputs.phase }}
+          DELIVERY_EVENT: ${{ inputs.delivery_event }}
         run: >-
-          pnpm run ops stripe:webhook-endpoint -- create-canonical
+          pnpm run ops stripe:webhook-endpoint -- "$OPERATION"
           --environment production
           --confirm "$CONFIRMATION"
+          --phase "$PHASE"
+          --delivery-event "$DELIVERY_EVENT"
