@@ -24,6 +24,7 @@
     "./health": "./health.ts",
     "./http": "./http.ts",
     "./internal-auth": "./internal-auth.ts",
+    "./inline-seed-db-test-support": "./inline-seed-db-test-support.ts",
     "./live-connection-status": "./live-connection-status.ts",
     "./link-intents": "./link-intents.ts",
     "./mcp": "./mcp.ts",
