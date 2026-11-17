@@ -194,8 +194,10 @@ describe("Import job recovery", () => {
       );
       const rendered = render(recoveryView());
       await waitFor(() => expect(screen.getByRole("button", { name: "Check original result" })).toBeTruthy());
-      if (family === "import-resolve-row")
+      if (family === "import-resolve-row") {
         await screen.findByText("This catalog item does not require product options.");
+        expect(screen.getByRole("complementary").contains(applyButton())).toBe(true);
+      }
       expect(document.activeElement?.getAttribute("role")).toBe("status");
       expect(
         (family === "import-create" ? screen.getByRole("button", { name: "Validate import" }) : applyButton()).matches(
@@ -233,10 +235,14 @@ describe("Import job recovery", () => {
     });
     const attempt = new FormData(form).get("inventoryMutationAttemptId");
     expect(attempt).toMatch(/^[a-f0-9-]{36}$/);
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Submitting"));
+    await waitFor(() =>
+      expect(screen.getByText("Submitting Inventory change.", { selector: '[role="status"]' })).toBeTruthy(),
+    );
     expect(fetch).not.toHaveBeenCalled();
     if (completion === "pageshow") {
-      act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+      await act(async () => {
+        window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+      });
     } else {
       rendered.rerender(view(null, true));
       rendered.rerender(view(null, false));

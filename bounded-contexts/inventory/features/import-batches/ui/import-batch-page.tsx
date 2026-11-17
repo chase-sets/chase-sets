@@ -1084,6 +1084,7 @@ export function InventoryImportBatchPage({
       {resolveRow ? (
         <SideSheet
           open
+          modal={false}
           onOpenChange={(next) => {
             if (!next && typeof window !== "undefined") {
               window.location.assign(closeResolveRowHref(currentPath));
