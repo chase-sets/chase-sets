@@ -80,7 +80,6 @@ import {
   selectEvidenceGarbageCollectionTargets,
   type EvidenceGarbageCollectionEntry,
 } from "../domain/evidence-garbage-collection";
-import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
 import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
@@ -1306,6 +1305,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         ...decideMarketplaceListing(applyEvents(listing, evolveMarketplaceListing, refreshed), {
           type: "PublishListing",
           readiness,
+          publishedAt: now,
         }),
       ];
     } catch {
@@ -2774,11 +2774,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             {
               type: "PublishListing",
               readiness,
+              publishedAt: evaluatedAt,
               allowAlreadyActiveNoOp: repricing,
-              csatOutcomeFact: createListingPublishedCsatOutcomeFact({
-                accountId: params.accountId,
-                listingId: params.listingId,
-              }),
             },
             context,
             attempt,

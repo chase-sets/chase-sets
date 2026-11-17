@@ -23,10 +23,9 @@ import {
   type ReviewStatus,
 } from "./common";
 import { assertSafeAuthoredText } from "./authored-text-safeguard";
-import {
-  createReputationCsatOutcomeFact,
-  reputationCsatOutcomeFactEventType,
-} from "../../../support/request-support/csat-outcome-fact";
+import type { JsonObject } from "@chase-sets/primitives/json";
+
+const reputationCsatOutcomeFactEventType = "marketplace.csat-outcome-fact.v1" as const;
 
 export type ReviewState = Readonly<{
   reviewId: ReviewId | null;
@@ -281,7 +280,7 @@ export type ReviewRevealedEvent = DomainEvent<
 
 export type ReputationCsatOutcomeFactPublishedEvent = DomainEvent<
   typeof reputationCsatOutcomeFactEventType,
-  ReturnType<typeof createReputationCsatOutcomeFact>
+  JsonObject
 >;
 
 export type ReviewEvent =
@@ -337,18 +336,6 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
                 ? "responsibility-unrecognized"
                 : scoring.operationalSignal,
           },
-        },
-        {
-          type: reputationCsatOutcomeFactEventType,
-          data: createReputationCsatOutcomeFact({
-            outcomeCode: "reputation.review-received",
-            subjectAccountId: command.authorAccountId,
-            subjectKind: authorRole === "buyer" ? "buyer" : "seller",
-            subjectEntityType: "review",
-            subjectEntityId: command.reviewId,
-            outcomeOccurredAt: submittedAt,
-            idempotencyKey: `review:${command.reviewId}:received`,
-          }),
         },
       ];
     }

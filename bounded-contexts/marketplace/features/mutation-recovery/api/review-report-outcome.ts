@@ -72,8 +72,7 @@ export async function validateReviewReportOutcome(
       origin.authorAccountId !== recovery.actorBinding.accountId ||
       origin.orderId !== recovery.target.id ||
       submitted[0]!.forAccountId !== recovery.actorBinding.accountId ||
-      value.version !== 2 ||
-      events[1]?.eventType !== "marketplace.csat-outcome-fact.v1" ||
+      value.version !== 1 ||
       hash(marketplaceCanonicalRequest(kind, origin)) !== recovery.canonicalRequestHash
     )
       throw new Error("Review outcome binding mismatch.");

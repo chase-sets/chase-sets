@@ -82,7 +82,9 @@
     { "sourceContextName": "fulfillment", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["fulfillment.shipment.delivered"], "order": 4, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
     { "sourceContextName": "payments", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["payments.payment-captured"], "order": 5, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
     { "sourceContextName": "settlement", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["settlement.payout.completed"], "order": 6, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "platform-operations", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["support.support-request.resolved"], "order": 7, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] }
+    { "sourceContextName": "platform-operations", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["support.support-request.resolved"], "order": 7, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
+    { "sourceContextName": "marketplace", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["marketplace.listing.published", "marketplace.offer.accepted", "marketplace.review.submitted"], "order": 8, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
+    { "sourceContextName": "inventory", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["inventory.item.created", "inventory.item.adjusted"], "order": 9, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] }
   ],
   "projectionGroups": [
     {
@@ -94,7 +96,7 @@
     },
     {
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
-      "sourceContextNames": ["auth", "identity", "discovery", "fulfillment", "payments", "settlement", "platform-operations"],
+      "sourceContextNames": ["auth", "identity", "discovery", "fulfillment", "payments", "settlement", "platform-operations", "marketplace", "inventory"],
       "ownedTables": ["customer_feedback_csat_outcome_facts"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"

@@ -191,6 +191,7 @@ export type InventoryItemCreatedPayload = Readonly<{
 }>;
 
 export type InventoryItemAdjustedPayload = Readonly<{
+  requestIdempotencyKey?: string;
   itemId: string;
   quantityDelta: number;
   reason: string;

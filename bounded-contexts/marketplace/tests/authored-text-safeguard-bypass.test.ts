@@ -71,7 +71,6 @@ describe("issue-5258-marketplace-ac2 safeguard bypass control", () => {
     );
     expect(allEvents.map((event) => event.eventType)).toEqual([
       "marketplace.review.submitted",
-      "marketplace.csat-outcome-fact.v1",
       "marketplace.mutation-attempt.completed",
     ]);
 

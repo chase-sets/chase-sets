@@ -156,31 +156,22 @@ describe("marketplace review runtime", () => {
     );
 
     expect(result.reviewId).toMatch(/^rev_/);
-    expect(result.version).toBe(2);
-    expect(getMutationResultCommandReceipt(result)?.commitEventIds).toEqual([allEvents[2]!.eventId]);
+    expect(result.version).toBe(1);
+    expect(getMutationResultCommandReceipt(result)?.commitEventIds).toEqual([allEvents[1]!.eventId]);
     expect(allEvents.map((event) => event.eventType)).toEqual([
       "marketplace.review.submitted",
-      "marketplace.csat-outcome-fact.v1",
       "marketplace.mutation-attempt.completed",
     ]);
     const reviewEvent = allEvents.find((event) => event.eventType === "marketplace.review.submitted");
-    const outcomeFact = allEvents.find((event) => event.eventType === "marketplace.csat-outcome-fact.v1");
     expect(reviewEvent?.payload).toMatchObject({
+      reviewId: result.reviewId,
       orderId: "ord_1",
       authorAccountId: "acc_seller",
       subjectAccountId: "acc_buyer",
       authorRole: "seller",
       rating: 4,
       feedback: "Prompt payment and clear communication.",
-    });
-    expect(outcomeFact?.payload).toMatchObject({
-      factSchemaVersion: 1,
-      outcomeCode: "reputation.review-received",
-      sourceContext: "marketplace",
-      subjectAccountId: "acc_seller",
-      subjectKind: "seller",
-      subject: { entityType: "review", entityId: result.reviewId },
-      idempotencyKey: `review:${result.reviewId}:received`,
+      submittedAt: expect.any(String),
     });
   });
 
@@ -287,22 +278,31 @@ describe("marketplace review runtime", () => {
 
     expect(allEvents.map((event) => event.eventType)).toEqual([
       "marketplace.review.submitted",
-      "marketplace.csat-outcome-fact.v1",
       "marketplace.mutation-attempt.completed",
     ]);
     const reviewEvent = allEvents.find((event) => event.eventType === "marketplace.review.submitted");
-    const outcomeFact = allEvents.find((event) => event.eventType === "marketplace.csat-outcome-fact.v1");
     expect(reviewEvent?.payload).toMatchObject({
+      reviewId: result.reviewId,
+      orderId: "ord_1",
+      authorAccountId: "acc_buyer",
+      subjectAccountId: "acc_seller",
       authorRole: "buyer",
+      submittedAt: expect.any(String),
     });
-    expect(outcomeFact?.payload).toMatchObject({
-      outcomeCode: "reputation.review-received",
-      sourceContext: "marketplace",
-      subjectAccountId: "acc_buyer",
-      subjectKind: "buyer",
-      subject: { entityType: "review", entityId: result.reviewId },
-      idempotencyKey: `review:${result.reviewId}:received`,
-    });
+    const replay = await runtime.submitReview(
+      {
+        attemptId: "review_runtime_attempt_0002",
+        orderId: "ord_1",
+        authorAccountId: "acc_buyer",
+        subjectAccountId: "acc_seller",
+        rating: 1,
+        feedback: "Support resolved the order issue.",
+      },
+      context,
+    );
+    expect(replay).toEqual(result);
+    expect(getMutationResultCommandReceipt(replay)).toEqual(getMutationResultCommandReceipt(result));
+    expect(allEvents).toHaveLength(2);
   });
 
   it("rejects submission once the review window has closed", async () => {
