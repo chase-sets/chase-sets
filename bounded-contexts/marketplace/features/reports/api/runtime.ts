@@ -48,7 +48,6 @@ import { marketplaceReporterFingerprint } from "./reporter";
 
 export const LISTING_REPORT_AUTO_UNLIST_THRESHOLD = 3;
 export const LISTING_REPORT_AUTO_UNLIST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const ALREADY_REPORTED = "This reporter has already reported this content.";
 
 type ListingReportInput = Readonly<{
   attemptId: string;
@@ -135,7 +134,8 @@ export function createMarketplaceReportRuntime(
       throw new MarketplaceAttemptError("history_incomplete", "Report history could not be confirmed.");
     if (history.state) {
       const fact = reportAttemptFactSchema.parse(history.state.payload);
-      assert(fact.recovery.attemptKeyFingerprint === binding.attemptKeyFingerprint, ALREADY_REPORTED);
+      if (fact.recovery.attemptKeyFingerprint !== binding.attemptKeyFingerprint)
+        throw new Error("This reporter has already reported this content.");
       if (canonicalMarketplaceRequest(fact.recovery) !== canonicalMarketplaceRequest(binding))
         throw new MarketplaceAttemptError(
           "attempt_conflict",
@@ -163,7 +163,7 @@ export function createMarketplaceReportRuntime(
       ),
       limit: 1,
     });
-    assert(legacy.length === 0, ALREADY_REPORTED);
+    if (legacy.length > 0) throw new Error("This reporter has already reported this content.");
     try {
       const events = decideMarketplaceReport(initialMarketplaceReportState, { ...command, recovery: binding });
       const result = await deps.eventStore.appendToStream({
