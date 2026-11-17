@@ -164,7 +164,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "corten-macros"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=42991433f5639a3b30ac9709a9044defb691c7ef#42991433f5639a3b30ac9709a9044defb691c7ef"
+source = "git+https://github.com/corten-run/corten?rev=f5f2132aa915dc72bd33013efadf3aa16506377a#f5f2132aa915dc72bd33013efadf3aa16506377a"
 
 [[package]]
 name = "corten-pilot-admin"
@@ -254,7 +254,7 @@ dependencies = [
 [[package]]
 name = "corten-run"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=42991433f5639a3b30ac9709a9044defb691c7ef#42991433f5639a3b30ac9709a9044defb691c7ef"
+source = "git+https://github.com/corten-run/corten?rev=f5f2132aa915dc72bd33013efadf3aa16506377a#f5f2132aa915dc72bd33013efadf3aa16506377a"
 dependencies = [
  "brotli",
  "bytes",
@@ -285,7 +285,7 @@ dependencies = [
 [[package]]
 name = "corten-ui"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=42991433f5639a3b30ac9709a9044defb691c7ef#42991433f5639a3b30ac9709a9044defb691c7ef"
+source = "git+https://github.com/corten-run/corten?rev=f5f2132aa915dc72bd33013efadf3aa16506377a#f5f2132aa915dc72bd33013efadf3aa16506377a"
 dependencies = [
  "corten-run",
 ]

@@ -9,7 +9,7 @@ import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { computeCheckoutCommandAttemptRequestHash } from "../../command-attempts/api/contracts";
 import type { SellerCheckoutOwnerReadCapture } from "../domain/owner-reads";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
-import type { CheckoutSellListCompositeReview } from "../read-model/queries";
+import type { CheckoutSellListRawReview } from "../read-model/queries";
 
 export type SellListHandoffPreparation = Readonly<{
   sellerAccountId: string;
@@ -20,7 +20,7 @@ export type SellListHandoffPreparation = Readonly<{
   entry: SellListReadinessSnapshot;
   reviewPlan: SellListReviewPlan;
   readiness: SellListReadinessSnapshot;
-  review: CheckoutSellListCompositeReview;
+  review: CheckoutSellListRawReview;
   estimate: SellerCheckoutOwnerReadCapture["estimate"];
 }>;
 

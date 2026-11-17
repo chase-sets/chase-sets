@@ -256,7 +256,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `42991433` (Corten `main` on 2026-11-16), whose framework package is
+`Cargo.toml` pins Corten to `f5f2132a` (Corten `main` on 2026-11-16), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -371,7 +371,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10245 [auth] Make registration non-committal: create accounts on a verified email link](https://github.com/chase-sets/chase-sets/issues/10245) | [marketplace/src/register.rs](marketplace/src/register.rs) |
 | [chase-sets/chase-sets#10793 [identity] Account-management writes answer a request they refuse during validation as 503 INDETERMINATE instead of a 4xx refusal](https://github.com/chase-sets/chase-sets/issues/10793) | [marketplace/src/team.rs](marketplace/src/team.rs) |
 | [chase-sets/chase-sets#10795 [auth] A team invitation is saved but not emailed: the acceptance-link request answers 404 before Auth's invitation projection catches up](https://github.com/chase-sets/chase-sets/issues/10795) | [marketplace/src/team.rs](marketplace/src/team.rs) |
-| [chase-sets/chase-sets#10749 [checkout] Return each Sell List line's readiness and the list's payout totals from the Sell List read](https://github.com/chase-sets/chase-sets/issues/10749) | [marketplace/src/sell_list.rs](marketplace/src/sell_list.rs) |
 | [chase-sets/chase-sets#10753 [checkout] Work out seller checkout's seller readiness in the Checkout API instead of trusting the evidence the page posts](https://github.com/chase-sets/chase-sets/issues/10753) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/sell_checkout.rs](marketplace/src/sell_checkout.rs) |
 | [chase-sets/chase-sets#10754 [checkout] Run seller checkout's Marketplace handoff in the Checkout API and record the summary it observed](https://github.com/chase-sets/chase-sets/issues/10754) | [marketplace/src/sell_checkout.rs](marketplace/src/sell_checkout.rs) |
 | [chase-sets/chase-sets#10772 [pricing] Bulk reprice is offered and its page drawn while Pricing has it switched off](https://github.com/chase-sets/chase-sets/issues/10772) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/bulk_reprice.rs](marketplace/src/bulk_reprice.rs) |

@@ -32,6 +32,34 @@ describe("seed projection group lease port", () => {
     vi.restoreAllMocks();
   });
 
+  it("gives each acquisition a distinct owner and retains it for renewal and exact-token release", async () => {
+    let token = 0;
+    const acquireLease = vi.fn(async (input: Parameters<PlatformControlPlane["acquireLease"]>[0]) => ({
+      leaseName: input.leaseName,
+      ownerId: input.ownerId,
+      fencingToken: String(++token),
+      expiresAt: "2026-11-16T00:02:00.000Z",
+    }));
+    const renewLease = vi.fn(async () => true);
+    const releaseLease = vi.fn(async () => undefined);
+    const controlPlane = { acquireLease, renewLease, releaseLease } as unknown as PlatformControlPlane;
+    const port = createProjectionGroupLeasePort(controlPlane, "platform-api");
+    const work = async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    };
+
+    await port.runWithLease(group, undefined, work);
+    await port.runWithLease(group, undefined, work);
+
+    const leases = await Promise.all(acquireLease.mock.results.map((result) => result.value));
+    expect(new Set(leases.map((lease) => lease.ownerId)).size).toBe(2);
+    for (const lease of leases) {
+      expect(lease.ownerId).toMatch(/^seed:platform-api:[0-9a-f-]{36}$/);
+      expect(renewLease).toHaveBeenCalledWith(lease, 120_000);
+      expect(releaseLease).toHaveBeenCalledWith(lease);
+    }
+  });
+
   it("checks abort before retrying so no lease or work starts after timeout", async () => {
     const { controlPlane, acquireLease } = contendedControlPlane(20);
     const port = createProjectionGroupLeasePort(controlPlane, "platform-api");

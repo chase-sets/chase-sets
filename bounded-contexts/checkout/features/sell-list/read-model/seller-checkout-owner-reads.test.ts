@@ -10,7 +10,7 @@ import {
 } from "../api/owner-read.fixture";
 import matrix from "./authority-matrix.fixture.json";
 import { createSellListReadinessSnapshot } from "../domain/readiness";
-import { loadCheckoutSellListCompositeReview } from "./queries";
+import { loadCheckoutSellListRawReview } from "./queries";
 import {
   parseSellerCheckoutChoices,
   readSellerCheckoutOwners,
@@ -57,7 +57,7 @@ describe("Smart Match per-listing evidence authority", () => {
     const lineSnapshot = createSellListReadinessSnapshot(lines, {
       lineActions: [{ lineId: fixtureLine.line_id, action: "smart-match" }],
     });
-    const review = await loadCheckoutSellListCompositeReview(f.deps.db, f.deps.commercialTermsResolver, {
+    const review = await loadCheckoutSellListRawReview(f.deps.db, f.deps.commercialTermsResolver, {
       sellerAccountId: "acc_seller",
       lines,
     });
