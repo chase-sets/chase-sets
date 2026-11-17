@@ -109,6 +109,11 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* A read model's facts in the source provenance, one per line. */
+.lines {
+  display: grid;
+  gap: var(--space-1);
+}
 /* Inside a stacked row's cell the list is one column. */
 td .pairs {
   grid-template-columns: minmax(0, 1fr);

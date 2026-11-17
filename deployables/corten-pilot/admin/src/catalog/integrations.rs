@@ -124,6 +124,11 @@ pub struct PromotionPreview {
 #[serde(rename_all = "camelCase")]
 pub struct HealthTriage {
     pub status: String,
+    /// The triage's own freshness and time, for each home's source provenance.
+    #[serde(default)]
+    pub freshness: String,
+    #[serde(default)]
+    pub generated_at: Option<String>,
     pub return_to_primary_href: String,
     pub summary: HealthSummary,
     #[serde(default)]
@@ -179,6 +184,8 @@ pub struct HealthUnit {
     pub display_name: String,
     pub product_domain: String,
     pub product_form: String,
+    pub ingestion_purpose: Option<String>,
+    pub profile_version: Option<String>,
     pub status: String,
     pub semantic_readiness: String,
     pub credential_readiness: String,
@@ -188,6 +195,7 @@ pub struct HealthUnit {
     pub dry_run_status: String,
     pub observation_facts: u64,
     pub diagnostic_counts: DiagnosticCounts,
+    pub diagnostic_codes: Vec<String>,
     pub latest_diagnostic_text: Option<String>,
     pub affected_primary_action: String,
     pub owner_metric_key: String,
@@ -206,6 +214,7 @@ pub struct UsageBudget {
     pub observed_at: Option<String>,
     pub lag_category: String,
     pub diagnostic: Option<String>,
+    pub diagnostic_code: Option<String>,
     pub estimated_calls: Option<f64>,
     pub estimated_scope: Option<String>,
 }
@@ -228,6 +237,7 @@ pub struct HealthProvider {
     pub provider_key: String,
     pub adapter_key: String,
     pub status: String,
+    pub readiness: String,
     pub credential_readiness: String,
     pub credential_readiness_state: String,
     pub unit_keys: Vec<String>,
@@ -237,6 +247,7 @@ pub struct HealthProvider {
     pub payload_acquisition: String,
     pub usage_budget: Option<UsageBudget>,
     pub count_spend: Option<Vec<CountSpend>>,
+    pub diagnostic_codes: Vec<String>,
     pub latest_diagnostic_text: Option<String>,
     pub owner_metric_key: String,
     pub next_action: String,
@@ -247,6 +258,7 @@ pub struct HealthProvider {
 pub struct RolloutControl {
     pub control_id: String,
     pub status: String,
+    pub severity: String,
     pub metric_key: String,
     pub message: String,
     pub next_action: String,
@@ -256,6 +268,8 @@ pub struct RolloutControl {
 #[serde(default, rename_all = "camelCase")]
 pub struct HealthJob {
     pub job_id: String,
+    pub provider_key: String,
+    pub unit_key: Option<String>,
     pub operator_status: String,
     pub phase: String,
     pub progress_label: String,
@@ -400,6 +414,8 @@ pub struct AuditEvidence {
     pub selection: AuditSelection,
     pub status: String,
     pub freshness: String,
+    #[serde(default)]
+    pub generated_at: Option<String>,
     pub summary: AuditSummary,
     #[serde(default)]
     pub filters: Vec<AuditFilter>,
@@ -466,8 +482,10 @@ pub struct AuditFilter {
 #[serde(default, rename_all = "camelCase")]
 pub struct ProjectionState {
     pub query_key: String,
+    pub freshness: String,
     pub generated_at: Option<String>,
     pub status_message: String,
+    pub missing_projection: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
