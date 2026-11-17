@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createInMemoryEventStore, createInMemoryConfigurationConsumer } from "@chase-sets/event-core/test-support";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
-import { createListingRequestExecutor } from "./listing-request";
+import { createEventStoreError } from "@chase-sets/event-core/event-store";
+import { createListingRequestExecutor, ListingRequestIndeterminateError } from "./listing-request";
 
-async function fixture() {
+async function fixture(commit = true) {
   const consumer = createInMemoryConfigurationConsumer({ storeId: "marketplace", incarnation: "consumer" });
   const memory = createInMemoryEventStore({ configurationEpoch: consumer });
   const context = {
@@ -51,11 +52,97 @@ async function fixture() {
     })),
   };
   const execute = createListingRequestExecutor(memory.eventStore);
-  await execute(input);
+  if (commit) await execute(input);
   return { memory, input, execute };
 }
 
 describe("Listing request replay", () => {
+  it("keeps an initial read outage indeterminate and retries the same command after recovery", async () => {
+    const f = await fixture(false);
+    let unavailable = true;
+    const append = vi.fn(f.memory.eventStore.appendToStreams!);
+    const execute = createListingRequestExecutor({
+      ...f.memory.eventStore,
+      async readStream(input) {
+        if (unavailable) throw new Error("storage unavailable");
+        return f.memory.eventStore.readStream(input);
+      },
+      appendToStreams: append,
+    });
+    await expect(execute(f.input)).rejects.toBeInstanceOf(ListingRequestIndeterminateError);
+    expect(f.input.prepare).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
+    expect(f.memory.allEvents).toHaveLength(0);
+    unavailable = false;
+    expect(await execute(f.input)).toEqual({ version: 2 });
+    expect(await execute(f.input)).toEqual({ version: 2 });
+    expect(f.input.prepare).toHaveBeenCalledTimes(1);
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(f.memory.allEvents).toHaveLength(2);
+  });
+  it.each([false, true])(
+    "recovers a lost COMMIT acknowledgement with result reread unavailable=%s",
+    async (unavailable) => {
+      const f = await fixture(false);
+      let committed = false;
+      const append = vi.fn(async (inputs: Parameters<NonNullable<typeof f.memory.eventStore.appendToStreams>>[0]) => {
+        await f.memory.eventStore.appendToStreams!(inputs);
+        committed = true;
+        throw new Error("lost COMMIT acknowledgement");
+      });
+      const execute = createListingRequestExecutor({
+        ...f.memory.eventStore,
+        async readStream(input) {
+          if (committed && unavailable) throw new Error("result reread unavailable");
+          return f.memory.eventStore.readStream(input);
+        },
+        appendToStreams: append,
+      });
+      if (unavailable) await expect(execute(f.input)).rejects.toBeInstanceOf(ListingRequestIndeterminateError);
+      else expect(await execute(f.input)).toEqual({ version: 2 });
+      expect(f.memory.allEvents).toHaveLength(2);
+      unavailable = false;
+      expect(await execute(f.input)).toEqual({ version: 2 });
+      expect(f.input.prepare).toHaveBeenCalledTimes(1);
+      expect(append).toHaveBeenCalledTimes(1);
+      expect(f.memory.allEvents).toHaveLength(2);
+    },
+  );
+  it("keeps an unknown append failure indeterminate without inventing a result", async () => {
+    const f = await fixture(false);
+    const execute = createListingRequestExecutor({
+      ...f.memory.eventStore,
+      async appendToStreams() {
+        throw new Error("storage connection lost");
+      },
+    });
+    await expect(execute(f.input)).rejects.toBeInstanceOf(ListingRequestIndeterminateError);
+    expect(f.memory.allEvents).toHaveLength(0);
+    expect(await f.execute(f.input)).toEqual({ version: 2 });
+    expect(f.memory.allEvents).toHaveLength(2);
+  });
+  it.each(["concurrency_conflict", "payload_too_large"] as const)(
+    "preserves deterministic append refusal %s",
+    async (code) => {
+      const f = await fixture(false);
+      const refusal = createEventStoreError(code, "deterministic refusal");
+      const execute = createListingRequestExecutor({
+        ...f.memory.eventStore,
+        async appendToStreams() {
+          throw refusal;
+        },
+      });
+      await expect(execute(f.input)).rejects.toBe(refusal);
+      expect(f.memory.allEvents).toHaveLength(0);
+    },
+  );
+  it("preserves a deterministic preparation refusal", async () => {
+    const f = await fixture(false);
+    const refusal = new Error("domain refusal");
+    f.input.prepare.mockRejectedValue(refusal);
+    await expect(f.execute(f.input)).rejects.toBe(refusal);
+    expect(f.memory.allEvents).toHaveLength(0);
+  });
   it("returns the original result without preparing again", async () => {
     const f = await fixture();
     expect(await f.execute(f.input)).toEqual({ version: 2 });

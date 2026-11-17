@@ -13,6 +13,11 @@ export class ListingRequestConflictError extends Error {
     super("Listing request key was already used for a different command or has corrupt history.");
   }
 }
+export class ListingRequestIndeterminateError extends Error {
+  constructor() {
+    super("Listing request result is temporarily unavailable. Retry the same command.");
+  }
+}
 const evidenceSchema = z
   .array(
     z
@@ -67,7 +72,18 @@ export function createListingRequestExecutor(eventStore: EventStore) {
     });
     const replay = async () => {
       try {
-        const events = await readCompleteStream(eventStore, { streamId, maxEvents: 1 });
+        const events = await readCompleteStream(
+          {
+            async readStream(input) {
+              try {
+                return await eventStore.readStream(input);
+              } catch {
+                throw new ListingRequestIndeterminateError();
+              }
+            },
+          },
+          { streamId, maxEvents: 1 },
+        );
         if (!events.length) return null;
         const event = events[0];
         if (
@@ -85,13 +101,15 @@ export function createListingRequestExecutor(eventStore: EventStore) {
         if (event.payload.resultDigest !== hash(event.payload.result)) throw new ListingRequestConflictError();
         parseEvidence(event.payload.authorizationEvidence);
         return input.parseResult(event.payload.result);
-      } catch {
+      } catch (error) {
+        if (error instanceof ListingRequestIndeterminateError) throw error;
         throw new ListingRequestConflictError();
       }
     };
     const prior = await replay();
     if (prior !== null) return prior;
-    if (!eventStore.appendToStreams) throw new Error("Atomic Listing request persistence is unavailable.");
+    if (!eventStore.appendToStreams) throw new ListingRequestIndeterminateError();
+    let appendStarted = false;
     try {
       const prepared = await input.prepare({ requestId, commandFingerprint: fingerprint, target: input.command });
       parseEvidence(prepared.evidence);
@@ -101,6 +119,7 @@ export function createListingRequestExecutor(eventStore: EventStore) {
         prepared.appends.some((a) => !a.configurationGrants?.length)
       )
         throw new Error("Listing authorization evidence is incomplete.");
+      appendStarted = true;
       const results = await eventStore.appendToStreams([
         ...prepared.appends,
         {
@@ -127,6 +146,15 @@ export function createListingRequestExecutor(eventStore: EventStore) {
     } catch (error) {
       const committed = await replay();
       if (committed !== null) return committed;
+      if (
+        appendStarted &&
+        !(
+          error instanceof Error &&
+          "code" in error &&
+          (error.code === "concurrency_conflict" || error.code === "payload_too_large")
+        )
+      )
+        throw new ListingRequestIndeterminateError();
       throw error;
     }
   };

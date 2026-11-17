@@ -7,7 +7,7 @@ import {
   activateListingForChannelSchema,
   readAcceptedListingTargetPricesSchema,
 } from "./target-validation";
-import { ListingRequestConflictError } from "./listing-request";
+import { ListingRequestConflictError, ListingRequestIndeterminateError } from "./listing-request";
 import { ListingTargetCommandError } from "./target-contracts";
 import { ZodError } from "zod";
 import { listingRecoveryIdentitySchema, listingRecoveryReferenceSchema } from "../ui/contracts";
@@ -593,6 +593,8 @@ export function createAccountListingRoutes(
       if (error instanceof ZodError || error instanceof SyntaxError)
         return c.json({ error: { code: "invalid_input" } }, 400);
       if (error instanceof ListingRequestConflictError) return c.json({ error: { code: "request_conflict" } }, 409);
+      if (error instanceof ListingRequestIndeterminateError)
+        return c.json({ error: { code: "request_indeterminate" } }, 503);
       if (error instanceof ListingTargetCommandError) return c.json({ error: { code: error.code } }, 404);
       return c.json({ error: { code: "target_acceptance_refused" } }, 409);
     }
@@ -622,6 +624,8 @@ export function createAccountListingRoutes(
       if (error instanceof ZodError || error instanceof SyntaxError)
         return c.json({ error: { code: "invalid_input" } }, 400);
       if (error instanceof ListingRequestConflictError) return c.json({ error: { code: "request_conflict" } }, 409);
+      if (error instanceof ListingRequestIndeterminateError)
+        return c.json({ error: { code: "request_indeterminate" } }, 503);
       if (error instanceof ListingTargetCommandError) return c.json({ error: { code: error.code } }, 404);
       return c.json({ error: { code: "channel_activation_refused" } }, 409);
     }
