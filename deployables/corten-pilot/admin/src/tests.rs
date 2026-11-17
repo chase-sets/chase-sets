@@ -6882,6 +6882,7 @@ fn intake_fields<'a>(version: &'a str, received_at: &'a str, custody: &'a str) -
         ("owner", "Facility operations"),
         ("nextAction", "Complete custody handoff"),
         ("notes", ""),
+        ("zone", "UTC"),
     ]
 }
 
@@ -6953,6 +6954,13 @@ async fn completing_an_intake_sends_each_photo_then_cites_it_at_the_operators_ti
     let photos: [(&str, &str, &str, &[u8]); 2] =
         [("evidence", "front.jpg", "image/jpeg", b"front"), ("evidence", "label.png", "image/png", b"label")];
     let fields = intake_fields("3", "2026-10-30T14:05", "CUST-1");
+    let fields: Vec<_> = fields.into_iter().map(|(k, v)| if k == "zone" { (k, "America/Chicago") } else { (k, v) }).collect();
+    let (_, _, html) = pilot.send(get(at, Some("intake-manager; corten-zone=America/Chicago"))).await;
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the custody form sends its zone back and names it: {html}"
+    );
     let (status, headers, html) =
         pilot.send(post_multipart(at, "intake-manager", Some("America/Chicago"), &fields, &photos)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
@@ -7005,6 +7013,12 @@ async fn a_refused_intake_redraws_the_station_and_sends_nothing_it_should_not() 
     assert!(html.contains("Enter the date and time the package was received."), "{html}");
     let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
     assert_eq!(before, after, "no photo is sent for a time that cannot be read");
+    let unzoned: Vec<_> = intake_fields("3", "2026-10-30T14:05", "CUST-1").into_iter().filter(|(k, _)| *k != "zone").collect();
+    let (status, _, html) = pilot.send(post_multipart(at, "intake-manager", None, &unzoned, &photo)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "a time without the form's zone: {html}");
+    let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
+    assert_eq!(before, after, "no photo is sent without the zone");
 
     let many: Vec<(&str, &str, &str, &[u8])> = (0..11).map(|_| ("evidence", "p.jpg", "image/jpeg", b"p" as &[u8])).collect();
     let (status, _, html) =
@@ -7041,6 +7055,7 @@ async fn the_station_records_unidentified_packages_reconciles_them_and_corrects_
         ("owner", "Facility operations"),
         ("nextAction", "Hold for review"),
         ("notes", "No label"),
+        ("zone", "UTC"),
     ];
     let (status, headers, html) = pilot.send(post_multipart(at, "intake-manager", None, &unidentified, &photo)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");

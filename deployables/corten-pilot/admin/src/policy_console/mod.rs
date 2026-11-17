@@ -305,9 +305,9 @@ pub struct RevisionForm {
     pub status: String,
     /// Not in the screen's data: the times in effect are the overview's.
     #[serde(skip_serializing)]
-    pub effective_from: Entry<LocalDateTime>,
+    pub effective_from: corten::Entry<LocalDateTime>,
     #[serde(skip_serializing)]
-    pub effective_until: Entry<LocalDateTime>,
+    pub effective_until: corten::Entry<LocalDateTime>,
     /// The zone the form was drawn in, which its times are read in.
     #[serde(skip_serializing)]
     pub zone: Option<FormZone>,
