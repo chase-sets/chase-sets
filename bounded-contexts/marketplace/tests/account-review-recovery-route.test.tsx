@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { webcrypto } from "node:crypto";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { ReviewMutationForm, type ReviewMutationPhase } from "../features/reviews/ui/review-mutation-form";
 import { runReviewMutation } from "../support/route-support/review-mutation-action";
@@ -23,6 +24,9 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+beforeEach(() => {
+  vi.stubGlobal("crypto", webcrypto);
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
