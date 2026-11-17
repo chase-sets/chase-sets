@@ -213,6 +213,9 @@ pub struct Daily {
     pub flow: Flow,
     /// The governance and health banners the daily route shows.
     pub daily_status: DailyStatus,
+    /// The audit timeline the API composed for the address, which resolves a scope page's evidence
+    /// links (`evidenceRef`). None from an API that does not compose it.
+    pub audit_evidence: Option<super::integrations::AuditEvidence>,
 }
 
 /// `CatalogPrimaryWorkbenchFlowReadModel`: the stage the route opens on (its section's, else the
