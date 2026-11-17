@@ -15,7 +15,7 @@ import {
   WorkbenchText,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 
 type AuditEvidence = CatalogPrimaryWorkbenchReadModel["auditEvidence"];
@@ -83,6 +83,44 @@ export function CatalogControlPlaneEvidenceDrawer({
           layout="grid"
           items={[
             {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.status"),
+              value: auditEvidence.status,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
+              value: auditEvidence.freshness,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
+              value: formatDateTime(auditEvidence.generatedAt),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.source"),
+              value: auditEvidence.projectionState.queryKey,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.projectionStatus"),
+              value: auditEvidence.projectionState.missingProjection ? "unavailable" : "partial",
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.projectionFreshness"),
+              value: auditEvidence.projectionState.freshness,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.projectionGeneratedAt"),
+              value: auditEvidence.projectionState.generatedAt
+                ? formatDateTime(auditEvidence.projectionState.generatedAt)
+                : "unavailable",
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.projectionMessage"),
+              value: auditEvidence.projectionState.statusMessage,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.governanceControls.table.metric"),
+              value: "catalog.integration.audit.generated_at",
+            },
+            {
               key: t("catalog.features.sourceObservations.ui.auditEvidence.key.sourcePayload"),
               value: auditEvidence.redactionPolicy.sourcePayloadAccess,
             },
@@ -144,7 +182,10 @@ const timelineColumns: DataColumn<AuditTimelineRow>[] = [
         title={row.targetId}
         titleWeight="regular"
         description={row.targetType.replace(/-/g, " ")}
-        detail={row.providerKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+        detail={
+          [row.providerKey, row.unitKey].filter(Boolean).join(" / ") ||
+          t("catalog.features.sourceObservations.ui.primaryWorkbench.none")
+        }
       />
     ),
   },

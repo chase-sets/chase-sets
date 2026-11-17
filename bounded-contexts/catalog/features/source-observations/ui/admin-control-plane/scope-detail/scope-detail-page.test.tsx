@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "@chase-sets/localization";
 import { CatalogScopeDetailPage } from "./scope-detail-page";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
 import {
   catalogMergeCandidateListItem,
   controlPlaneOverview,
+  integrationJobSummary,
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
@@ -33,7 +35,105 @@ vi.mock("../import-to-promotion/import-to-promotion-workspace", () => ({
 
 afterEach(cleanup);
 
+it.each([true, false])(
+  "preserves Scope-member health and job guidance with manage permission %s",
+  (canManageCatalog) => {
+    const scope = paldeanFatesScope();
+    const requestUrl = `https://admin.example/catalog/scopes/${scope.scopeRecordId}?scopeRecordId=${scope.scopeRecordId}&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1`;
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl,
+      scopes: {
+        items: [sourceObservationScope(), sourceObservationScope({ expansion_id: "base2" })],
+        total: 2,
+        count: 2,
+      },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: {
+        ...overview,
+        unitActivity: {
+          ...overview.unitActivity,
+          units: [
+            {
+              unitKey: overview.readiness.units[0]!.unitKey,
+              recentJobs: [
+                integrationJobSummary({ jobId: "scope-member-job", summary: "Member progress facts" }),
+                integrationJobSummary({
+                  jobId: "same-provider-other-scope",
+                  importScope: "en:3:base:base2",
+                  summary: "Foreign progress facts",
+                }),
+              ],
+            },
+          ],
+        },
+      },
+      canManageCatalog,
+    });
+    render(
+      <CatalogScopeDetailPage
+        scope={scope}
+        actionHref={ACTION_HREF}
+        languageEditionAliasReview={aliasReview([])}
+        journey={{ requestUrl, readModel }}
+      />,
+    );
+    const health = document.querySelector<HTMLElement>("[data-catalog-scope-health]")!;
+    expect(health.textContent).toContain("TCGdex Pokemon cards");
+    expect(health.textContent).toContain(
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.reviewSourceObservations"),
+    );
+    expect(health.textContent).toContain(readModel.healthTriage.units[0]!.nextAction);
+    expect(health.textContent).toContain("Member progress facts");
+    expect(health.textContent).toContain("catalog.integration.job.active");
+    expect(health.textContent).not.toContain("Foreign progress facts");
+    expect(health.textContent).not.toContain("same-provider-other-scope");
+    expect(health.textContent).toContain("import-job-progress-summary");
+    expect(health.textContent).toContain(readModel.healthTriage.recentJobs[0]!.progressLabel);
+    expect(health.textContent).toContain(readModel.healthTriage.recentJobs[0]!.nextAction);
+    expect(within(health).getByRole("link", { name: "Provider setup: tcgdex" }).getAttribute("href")).toContain(
+      "/catalog/providers/tcgdex",
+    );
+    const cancel = within(health).getByRole<HTMLButtonElement>("button", { name: /Cancel/ });
+    expect(cancel.disabled).toBe(!canManageCatalog);
+    const action = new URL(cancel.closest("form")!.getAttribute("action")!, requestUrl);
+    expect(action.pathname).toBe(ACTION_HREF);
+    expect(action.searchParams.get("scopeRecordId")).toBe(scope.scopeRecordId);
+    expect(action.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(action.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+    expect(action.searchParams.get("importScope")).toBe("en:3:base:base1");
+    expect(action.searchParams.get("jobId")).toBe("scope-member-job");
+  },
+);
+
 const ACTION_HREF = "/admin/catalog/scopes/scope_expansion_paldean_fates";
+
+it.each([false, true])("keeps missing Scope unit/job selections unavailable while loading is %s", (loading) => {
+  const journey = journeyFixture();
+  const model = {
+    ...journey.readModel,
+    sourceScopeWorkset: { ...journey.readModel.sourceScopeWorkset, units: [] },
+    healthTriage: { ...journey.readModel.healthTriage, status: "unavailable" as const, units: [], recentJobs: [] },
+    routeContext: {
+      ...journey.readModel.routeContext,
+      jobId: "missing-job",
+      unitKey: controlPlaneOverview().readiness.units[0]!.unitKey,
+    },
+  };
+  render(
+    <CatalogScopeDetailPage
+      scope={paldeanFatesScope()}
+      actionHref={ACTION_HREF}
+      loading={loading}
+      languageEditionAliasReview={aliasReview([])}
+      journey={{ ...journey, readModel: model }}
+    />,
+  );
+  const health = document.querySelector<HTMLElement>("[data-catalog-scope-health]")!;
+  expect(health.textContent?.toLowerCase()).toContain("unavailable");
+  expect(within(health).queryAllByRole("button")).toHaveLength(0);
+  expect(within(health).queryAllByRole("link")).toHaveLength(0);
+});
 
 function journeyFixture(open = false) {
   const requestUrl = `https://admin.example/catalog/scopes/scope_expansion_paldean_fates?scopeRecordId=scope_expansion_paldean_fates${open ? "&evidenceRef=source-observation/obs_001" : ""}`;
