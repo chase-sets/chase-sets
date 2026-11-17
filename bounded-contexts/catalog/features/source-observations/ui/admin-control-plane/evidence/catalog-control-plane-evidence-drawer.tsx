@@ -29,30 +29,17 @@ type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent
 // audit-evidence workspace: this renders the same audit-evidence read model, but
 // as a drawer over the current page instead of a page detour.
 //
-// Deep-linkable: pass `deepLinkOpen` when the launching page's `evidenceRef`
-// context key names this drawer's entity, so evidence links (e.g. from an issue)
-// keep resolving to an open drawer instead of a 404'd standalone page.
+// The read boundary resolves membership before selecting rows or opening a deep link.
 export function CatalogControlPlaneEvidenceDrawer({
   auditEvidence,
-  entityFilter,
   trigger,
-  deepLinkOpen = false,
+  deepLinkOpen = auditEvidence.selection.deepLinkOpen,
 }: Readonly<{
   auditEvidence: AuditEvidence;
-  // Scope the timeline to one entity's rows (e.g. a single merge candidate or
-  // Source Observation) instead of the full control-plane timeline.
-  entityFilter?: Readonly<{ targetType: AuditTimelineRow["targetType"]; targetId: string }>;
   trigger?: ReactNode;
   deepLinkOpen?: boolean;
 }>) {
-  const timeline = entityFilter
-    ? auditEvidence.timeline.filter(
-        (row) => row.targetType === entityFilter.targetType && row.targetId === entityFilter.targetId,
-      )
-    : auditEvidence.timeline;
-  const evidenceLinks = entityFilter
-    ? dedupeLinks(timeline.flatMap((row) => row.evidenceLinks))
-    : auditEvidence.evidenceLinks;
+  const { timeline, evidenceLinks } = auditEvidence;
 
   return (
     <SideSheet
@@ -60,7 +47,7 @@ export function CatalogControlPlaneEvidenceDrawer({
       description={t("catalog.features.sourceObservations.ui.auditEvidence.description")}
       closeLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.evidence.close")}
       width="lg"
-      defaultOpen={deepLinkOpen}
+      defaultOpen={deepLinkOpen && auditEvidence.selection.state === "resolved"}
       trigger={
         trigger ?? (
           <Button size="sm" tone="secondary" leadingIcon="clock">
@@ -115,8 +102,16 @@ export function CatalogControlPlaneEvidenceDrawer({
           />
         ) : (
           <EmptyState
-            title={t("catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyTitle")}
-            description={t("catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyDescription")}
+            title={
+              auditEvidence.selection.state === "no-associated-evidence"
+                ? t("catalog.features.sourceObservations.ui.auditEvidence.timeline.noAssociationTitle")
+                : t("catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyTitle")
+            }
+            description={
+              auditEvidence.selection.state === "no-associated-evidence"
+                ? t("catalog.features.sourceObservations.ui.auditEvidence.timeline.noAssociationDescription")
+                : t("catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyDescription")
+            }
           />
         )}
         {evidenceLinks.length > 0 ? (
@@ -206,19 +201,6 @@ const linkColumns: DataColumn<AuditEvidenceLink>[] = [
     cell: (link) => <Badge tone={redactionTone(link.redactionState)}>{link.redactionState.replace(/-/g, " ")}</Badge>,
   },
 ];
-
-function dedupeLinks(links: readonly AuditEvidenceLink[]): readonly AuditEvidenceLink[] {
-  const seen = new Set<string>();
-  const deduped: AuditEvidenceLink[] = [];
-  for (const link of links) {
-    if (seen.has(link.key)) {
-      continue;
-    }
-    seen.add(link.key);
-    deduped.push(link);
-  }
-  return deduped;
-}
 
 function evidenceDrawerBannerTitle(audit: AuditEvidence): string {
   if (audit.status === "blocked") {

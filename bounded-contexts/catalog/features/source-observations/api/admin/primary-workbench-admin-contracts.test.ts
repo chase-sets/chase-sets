@@ -1264,6 +1264,7 @@ describe("Catalog primary workbench admin contracts", () => {
         jobs: [
           {
             jobId: "job_001",
+            syncRunId: null,
             action: "scope.import",
             state: "running",
             operatorStatus: "running",
@@ -1911,12 +1912,26 @@ describe("Catalog primary workbench admin contracts", () => {
       }
     }
     expect(thrownMessages).toEqual(baselineThrownMessages);
-    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(180);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(181);
     expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
 
     // The base composite omits only the optional promotion result, which the composer accepts.
     const composite = minimalWorkbenchComposite();
     expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(composite))).toBeNull();
+    const unresolvedEvidence = {
+      ...composite,
+      auditEvidence: {
+        ...composite.auditEvidence!,
+        selection: {
+          reference: "invalid",
+          state: "no-associated-evidence" as const,
+          deepLinkOpen: true,
+        },
+      },
+    };
+    expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(unresolvedEvidence))).toBe(
+      "Primary workbench audit evidence must resolve entity membership before opening or exposing records.",
+    );
     const missingCommitVerdict = structuredClone(composite);
     Reflect.deleteProperty(missingCommitVerdict.promotionPreview!, "previewCommittable");
     expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(missingCommitVerdict))).toBe(
@@ -2166,6 +2181,7 @@ function auditEvidenceFixture(): CatalogPrimaryWorkbenchReadModel["auditEvidence
   });
 
   return {
+    selection: { reference: null, state: "not-requested", deepLinkOpen: false },
     status: "partial",
     freshness: "partial",
     generatedAt: "2026-06-09T00:00:00.000Z",
@@ -2304,6 +2320,8 @@ function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validat
     ],
     dryRunEvidence: [
       {
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
         externalKey: "en:sv01-001",
         sourceUrl: "fixture://tcgdex/normal.json",
         sourceHash: "sha256:source",
@@ -3441,6 +3459,7 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
   ],
   assertPrimaryWorkbenchAuditEvidence: [
     "Primary workbench audit evidence contract is required.",
+    "Primary workbench audit evidence must resolve entity membership before opening or exposing records.",
     "Primary workbench audit evidence status must be explicit.",
     "Primary workbench audit evidence return link must target the rebuilt workbench.",
     "Primary workbench audit evidence projection must use the canonical audit timeline query.",

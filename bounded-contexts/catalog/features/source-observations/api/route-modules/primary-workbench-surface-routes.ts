@@ -41,6 +41,7 @@ const WORKBENCH_LOCATION_ORIGIN = "https://admin.example";
 const WORKBENCH_LOCATION_PATH_PREFIX = "/catalog/";
 
 export type PrimaryWorkbenchSurfaceRouteDeps = Readonly<{
+  getAliasReview?: CatalogPrimaryWorkbenchSurfaceSources["getAliasReview"];
   services: SourceObservationRouteServices;
   profileVersions?: CatalogProviderIntegrationProfileVersionStore;
   readCountSpend?: () => Promise<readonly CountSpend[]>;
@@ -145,7 +146,10 @@ async function dailyLocation(location: URL, deps: PrimaryWorkbenchSurfaceRouteDe
     return location;
   }
   const scope = deps.getScopeRecord ? await deps.getScopeRecord(scopeRecordId) : null;
-  return scope ? catalogScopeDetailDailyLocation(location, scope) : null;
+  if (!scope) return null;
+  const normalized = catalogScopeDetailDailyLocation(location, scope);
+  normalized.pathname = location.pathname;
+  return normalized;
 }
 
 function scopeRecordNotFoundResponse(c: Context<CatalogAuthoringEnv>) {
@@ -182,6 +186,7 @@ function surfaceSources(
   const context = c.get("context");
 
   return {
+    getAliasReview: deps.getAliasReview,
     previewIntegrationImport:
       typeof services.previewIntegrationImport === "function"
         ? async (scope) => wireShape(await services.previewIntegrationImport({ scope, context }))

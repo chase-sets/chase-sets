@@ -25,6 +25,7 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
+import { CatalogEntityEvidenceLink } from "../evidence/catalog-entity-evidence-link";
 import type {
   CatalogAliasReviewActionKey,
   CatalogAliasReviewCandidateSummary,
@@ -44,12 +45,14 @@ export type CatalogAliasReviewWorkspaceProps = Readonly<{
   actionHref: string;
   /** Whether the operator may dispatch alias review writes (catalog.manage). */
   canManageAliases?: boolean;
+  evidenceLocation?: string;
 }>;
 
 export function CatalogIntegrationAliasReviewWorkspace({
   readModel,
   actionHref,
   canManageAliases = true,
+  evidenceLocation,
 }: CatalogAliasReviewWorkspaceProps) {
   const [selectedAliasHashes, setSelectedAliasHashes] = useState<Set<string>>(new Set());
 
@@ -125,6 +128,18 @@ export function CatalogIntegrationAliasReviewWorkspace({
         cell: (row) => (
           <WorkbenchActionRow>
             <AliasEvidenceSheet candidate={row} />
+            {evidenceLocation ? (
+              <CatalogEntityEvidenceLink
+                location={evidenceLocation}
+                reference={
+                  row.observationId
+                    ? { kind: "source-observation", id: row.observationId }
+                    : row.targetKind === "catalog-item" && row.targetId
+                      ? { kind: "catalog-item", id: row.targetId }
+                      : { kind: "alias", id: row.aliasHash }
+                }
+              />
+            ) : null}
             {row.availableActions.map((action) => (
               <AliasReviewActionButton
                 key={action}
@@ -138,7 +153,7 @@ export function CatalogIntegrationAliasReviewWorkspace({
         ),
       },
     ],
-    [actionHref, canManageAliases],
+    [actionHref, canManageAliases, evidenceLocation],
   );
 
   return (

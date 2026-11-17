@@ -50,6 +50,7 @@ export function sourceObservationRoutes(
   readCountSpend?: () => Promise<readonly import("../../scope-sync-batches/domain/count-acquisition").CountSpend[]>,
   listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
   getScopeRecord?: PrimaryWorkbenchSurfaceRouteDeps["getScopeRecord"],
+  getAliasReview?: PrimaryWorkbenchSurfaceRouteDeps["getAliasReview"],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -62,7 +63,14 @@ export function sourceObservationRoutes(
   app.route("/", controlPlaneTelemetryRoutes(services));
   app.route(
     "/",
-    primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend, listRefreshSchedules, getScopeRecord }),
+    primaryWorkbenchSurfaceRoutes({
+      services,
+      profileVersions,
+      readCountSpend,
+      listRefreshSchedules,
+      getScopeRecord,
+      getAliasReview,
+    }),
   );
   app.route("/", sourceObservationReadReviewRoutes(services));
   app.get("/integration-control-plane/overview", async (c) => {
