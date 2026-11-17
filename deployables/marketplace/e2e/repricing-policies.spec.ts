@@ -54,8 +54,9 @@ async function listPolicies(request: APIRequestContext): Promise<PolicySummary[]
 
 async function setHalt(request: APIRequestContext, engaged: boolean) {
   const response = await request.post(`${repricingApi}/halt`, { data: { engaged } });
-  expect(response.status(), `set repricing halt engaged=${engaged}`).toBe(200);
-  expect(await response.json(), `repricing halt engaged=${engaged}`).toMatchObject({
+  const receipt = await response.json();
+  expect(response.status(), `set repricing halt engaged=${engaged}: ${JSON.stringify(receipt)}`).toBe(200);
+  expect(receipt, `repricing halt engaged=${engaged}`).toMatchObject({
     status: "applied",
     state: { engaged },
   });
@@ -65,8 +66,9 @@ async function setHalt(request: APIRequestContext, engaged: boolean) {
 // to repeat.
 async function deletePolicy(request: APIRequestContext, policyId: string) {
   const response = await request.post(`${repricingApi}/${policyId}/delete`);
-  expect(response.status(), `delete spec policy ${policyId}`).toBe(200);
-  expect(await response.json()).toMatchObject({ status: "applied", state: { status: "deleted" } });
+  const receipt = await response.json();
+  expect(response.status(), `delete spec policy ${policyId}: ${JSON.stringify(receipt)}`).toBe(200);
+  expect(receipt).toMatchObject({ status: "applied", state: { status: "deleted" } });
 }
 
 // Waits until the projected default list agrees about these policy IDs. A
