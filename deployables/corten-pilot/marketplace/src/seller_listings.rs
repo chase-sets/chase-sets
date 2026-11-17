@@ -487,6 +487,9 @@ fn refusal(t: SellerListingsMsg, code: &str) -> Option<&str> {
         "listing_command_rejected" => t.error_command_rejected(),
         "listing_evidence_incomplete" => t.error_evidence_incomplete(),
         "fee_quote_stale" => t.error_fee_quote_stale(),
+        "invalid_attempt" => t.error_attempt_invalid(),
+        "attempt_conflict" => t.error_attempt_conflict(),
+        "history_incomplete" => t.error_history_incomplete(),
         _ => return None,
     })
 }
