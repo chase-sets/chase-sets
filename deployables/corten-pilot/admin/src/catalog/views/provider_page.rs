@@ -24,7 +24,8 @@ use platform::{
 
 use super::{
     integrations_page::{
-        AuditDrawer, Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, maybe_when, state_label, transport, when,
+        AuditDrawer, Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, Provenance, state_label, transport, unit_health,
+        usage_budget, when,
     },
     operator_session::OperatorSession,
     profile_sections::ProfileSections,
@@ -261,7 +262,9 @@ fn ProviderEvidence<'a>(
     }
 }
 
-/// Identity and transport readiness (ProviderDetailHeader), from the health triage's rows.
+/// Identity, readiness and transport (ProviderDetailHeader), from the health triage's rows, then
+/// the usage budget and the transport read's provenance. Without a row for the provider its
+/// readiness reads unavailable, never healthy or an empty unit count.
 #[component(css = ProviderPage)]
 fn Head<'a>(t: Cat, p: Pilot, model: &'a Model, key: &'a str) -> impl Render {
     let triage = &model.health_triage;
@@ -272,29 +275,42 @@ fn Head<'a>(t: Cat, p: Pilot, model: &'a Model, key: &'a str) -> impl Render {
     let credential = row.map_or_else(|| t.wb_not_selected().to_owned(), |r| r.credential_readiness_state.clone());
     let credential_tone = credential_tone(row.map_or("unknown", |r| r.credential_readiness.as_str()));
     let title = match status {
+        "unavailable" => t.health_facts_provider_unavailable(),
         "ready" => t.pd_header_ready_title(),
-        "blocked" | "unavailable" => t.pd_header_blocked_title(),
+        "blocked" => t.pd_header_blocked_title(),
         _ => t.pd_header_degraded_title(),
     };
-    let summary = t.pd_header_units(crate::text::cat::PdHeaderUnits { count: units.len(), blocked }).to_string();
+    let summary = match row {
+        Some(_) => t.pd_header_units(crate::text::cat::PdHeaderUnits { count: units.len(), blocked }).to_string(),
+        None => t.health_facts_provider_unavailable_description().to_owned(),
+    };
     let or_none = |v: Option<&String>| v.cloned().unwrap_or_else(|| t.wb_not_selected().to_owned());
+    let unavailable = state_label("unavailable");
+    let or_unavailable = |v: Option<String>| v.filter(|v| !v.is_empty()).unwrap_or_else(|| unavailable.clone());
+    let codes = row.map(|r| r.diagnostic_codes.join(", ")).filter(|c| !c.is_empty()).unwrap_or_else(|| t.wb_none().to_owned());
     let items = [
+        (t.health_facts_adapter(), or_unavailable(row.map(|r| r.adapter_key.clone()))),
+        (t.health_facts_units(), or_unavailable(row.map(|r| r.unit_keys.join(", ")))),
+        (t.health_facts_readiness(), or_unavailable(row.map(|r| r.readiness.clone()))),
+        (t.health_facts_credential(), or_unavailable(row.map(|r| r.credential_readiness.clone()))),
+        (t.health_facts_diagnostic_codes(), codes),
+        (t.wb_gov_table_metric(), or_unavailable(row.map(|r| r.owner_metric_key.clone()))),
+        (t.wb_health_table_next_action(), or_unavailable(row.map(|r| r.next_action.clone()))),
         (t.wb_health_capability_api(), or_none(row.map(|r| &r.api_reachability))),
         (t.wb_health_capability_options(), or_none(row.map(|r| &r.option_query_health))),
         (t.wb_health_capability_rate_limit(), or_none(row.map(|r| &r.rate_limit_status))),
         (t.wb_health_capability_payload(), or_none(row.map(|r| &r.payload_acquisition))),
-        (t.wb_health_table_freshness(), state_label(&triage.freshness)),
-        (t.wb_health_table_generated(), maybe_when(t, triage.generated_at.as_deref())),
         (
             t.wb_health_table_diagnostics(),
             row.and_then(|r| r.latest_diagnostic_text.clone()).unwrap_or_else(|| t.wb_none().to_owned()),
         ),
     ];
+    let budget = row.map(|r| usage_budget(t, r));
     let label = state_label(status);
     let _ = p;
     html! {
         <section class={Card { size: CardSize::Md }} aria-labelledby="pd-head">
-            <div class={(CardContent {}, Stack)}>
+            <div class={(CardContent {}, Stack)} data-catalog-provider-health={key}>
                 <div class={CardHead}>
                     <h2 id="pd-head" class={Words}>{row.map_or(key, |r| r.provider_key.as_str())}</h2>
                     <span class={Badges}>
@@ -305,6 +321,17 @@ fn Head<'a>(t: Cat, p: Pilot, model: &'a Model, key: &'a str) -> impl Render {
                 <p class={Muted}>{t.pd_header_description()}</p>
                 <Banner tone={status_tone(status)} title={title} description={&summary} />
                 <Pairs items={&items} />
+                if let Some(budget) = &budget {
+                    <Pairs items={budget} />
+                }
+                <Provenance
+                    t={t}
+                    status={&triage.status}
+                    freshness={&triage.freshness}
+                    generated_at={triage.generated_at.as_deref()}
+                    read_models={&triage.read_models}
+                    keys={&["provider-transport-readiness-summary"]}
+                />
             </div>
         </section>
     }
@@ -761,7 +788,9 @@ fn OperationPanel<'a>(t: Cat, p: Pilot, op: &'a Operation, key: &'a str, action:
     }
 }
 
-/// The units the provider takes part in (`ProviderParticipatingUnits`), the selected one first.
+/// The units the provider takes part in (`ProviderParticipatingUnits`), the selected one first:
+/// each unit's readiness and recovery, then its scopes and profile, and the health read's
+/// provenance below them.
 #[component(css = ProviderPage)]
 fn Units<'a>(t: Cat, model: &'a Model, key: &'a str) -> impl Render {
     let units =
@@ -772,7 +801,6 @@ fn Units<'a>(t: Cat, model: &'a Model, key: &'a str) -> impl Render {
     let missing = selected.is_some_and(|s| !units.iter().any(|u| u.unit_key == s));
     let none = t.wb_none();
     let triage = &model.health_triage;
-    let freshness = format!("{} \u{b7} {}", state_label(&triage.freshness), maybe_when(t, triage.generated_at.as_deref()));
     html! {
         <Module
             id="pd-units"
@@ -787,6 +815,7 @@ fn Units<'a>(t: Cat, model: &'a Model, key: &'a str) -> impl Render {
                 <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                     for unit in &ordered {
                         let health = triage.units.iter().find(|h| h.unit_key == unit.unit_key);
+                        let facts = unit_health(t, health);
                         let items = [
                             (unit.unit_key.as_str(), format!("{}/{}", unit.product_domain, unit.product_form)),
                             (
@@ -797,24 +826,13 @@ fn Units<'a>(t: Cat, model: &'a Model, key: &'a str) -> impl Render {
                                 t.pd_units_active_profile(),
                                 unit.active_profile.as_ref().map_or_else(|| t.wb_not_selected().to_owned(), |a| a.profile_version.clone()),
                             ),
-                            (
-                                t.wb_health_table_catalog_semantic(),
-                                health.map_or_else(|| none.to_owned(), |h| state_label(&h.semantic_readiness)),
-                            ),
-                            (
-                                t.wb_health_table_provider_transport(),
-                                health.map_or_else(|| none.to_owned(), |h| state_label(&h.transport_readiness)),
-                            ),
-                            (t.wb_health_table_freshness(), freshness.clone()),
-                            (
-                                t.wb_health_table_diagnostics(),
-                                health.and_then(|h| h.latest_diagnostic_text.clone()).unwrap_or_else(|| none.to_owned()),
-                            ),
                         ];
                         <div
                             class={(Panel, if Some(unit.unit_key.as_str()) == selected { Some(Chosen) } else { None })}
+                            data-catalog-health-unit={&unit.unit_key}
                             data-provider-unit-selected={(Some(unit.unit_key.as_str()) == selected).then_some("true")}
                         >
+                            <Pairs items={&facts} />
                             <Pairs items={&items} />
                         </div>
                     }
@@ -823,16 +841,26 @@ fn Units<'a>(t: Cat, model: &'a Model, key: &'a str) -> impl Render {
             if missing {
                 <p class={Muted}>{t.attention_resolution_unavailable()}</p>
             }
+            <Provenance
+                t={t}
+                status={&triage.status}
+                freshness={&triage.freshness}
+                generated_at={triage.generated_at.as_deref()}
+                read_models={&triage.read_models}
+                keys={&["integration-health-summary"]}
+            />
         </Module>
     }
 }
 
-/// The provider's recent jobs (`ProviderRecentJobs`): on TCGplayer, or with a job asked for, each
-/// row opens on its outcome and the retry, resume and cancel the API offers; elsewhere a row is its
-/// summary.
+/// The provider's recent jobs (`ProviderRecentJobs`), below the job read's provenance: on
+/// TCGplayer, or with a job asked for, each row opens on its outcome and the retry, resume and
+/// cancel the API offers; elsewhere a row is its summary. Each row says its progress and recovery
+/// from the health triage's row for the job.
 #[component(css = ProviderPage)]
 fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, context: &'a str, manage: bool) -> impl Render {
     let jobs: Vec<&ImportJob> = model.import_jobs.jobs.iter().filter(|j| j.provider_key == key).collect();
+    let triage = &model.health_triage;
     let selected = model.route_context.job_id.as_deref();
     let inspectable = key == "tcgplayer" || selected.is_some_and(|s| jobs.iter().any(|j| j.job_id == s));
     let last = jobs.first().map_or_else(|| t.wb_not_selected().to_owned(), |j| when(t, &j.created_at));
@@ -840,6 +868,14 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
     let _ = req;
     html! {
         <Module id="pd-jobs" title={t.pd_jobs_title()} description={t.pd_jobs_description()} status={last} tone="neutral">
+            <Provenance
+                t={t}
+                status={&triage.status}
+                freshness={&triage.freshness}
+                generated_at={triage.generated_at.as_deref()}
+                read_models={&triage.read_models}
+                keys={&["import-job-progress-summary"]}
+            />
             if jobs.is_empty() {
                 <Empty title={t.pd_jobs_empty_title()} description={t.pd_jobs_empty_description()} />
             } else {
@@ -850,6 +886,7 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
                             <tr>
                                 <th scope="col">{t.wb_health_table_job()}</th>
                                 <th scope="col">{t.wb_health_table_status()}</th>
+                                <th scope="col">{t.health_facts_progress()}</th>
                                 <th scope="col">{t.pd_jobs_scope()}</th>
                                 <th scope="col">{t.wb_health_table_generated()}</th>
                             </tr>
@@ -860,6 +897,8 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
                                 let scope = job.import_scope.clone().unwrap_or_else(|| t.wb_not_selected().to_owned());
                                 let created = when(t, &job.created_at);
                                 let chosen = Some(job.job_id.as_str()) == selected;
+                                let health = triage.recent_jobs.iter().find(|h| h.job_id == job.job_id);
+                                let commands = at(&provider::url::Job { key, id: &job.job_id }.href().to_string(), context);
                                 <tr data-provider-job-selected={chosen.then_some("true")}>
                                     <td>
                                         <CellLabel>{t.wb_health_table_job()}</CellLabel>
@@ -879,7 +918,7 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
                                                 <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                                                     <Outcome t={t} job={job} />
                                                     if manage && (job.retry_available || job.resume_available || job.cancel_available) {
-                                                        <JobActions t={t} p={p} job={job} key={key} context={context} />
+                                                        <JobActions t={t} p={p} job={job} action={&commands} />
                                                     }
                                                 </div>
                                             </details>
@@ -890,6 +929,18 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
                                     <td>
                                         <CellLabel>{t.wb_health_table_status()}</CellLabel>
                                         <Pill text={&status} tone={job_tone(&job.state)} />
+                                    </td>
+                                    <td>
+                                        <CellLabel>{t.health_facts_progress()}</CellLabel>
+                                        <span class={(Lines, Words)}>
+                                            <span>{job.unit_key.as_deref().unwrap_or_default()}</span>
+                                            <span>{health.map_or(job.state.as_str(), |h| h.phase.as_str())}</span>
+                                            if let Some(health) = health {
+                                                <span>{&health.progress_label}</span>
+                                                <span class={Muted}>{&health.owner_metric_key}</span>
+                                                <span>{&health.next_action}</span>
+                                            }
+                                        </span>
                                     </td>
                                     <td>
                                         <CellLabel>{t.pd_jobs_scope()}</CellLabel>
@@ -988,16 +1039,16 @@ fn Outcome<'a>(t: Cat, job: &'a ImportJob) -> impl Render {
     }
 }
 
-/// A job's retry, resume and cancel, as the API offers them.
+/// A job's retry, resume and cancel, as the API offers them, posted to `action` (the page's own
+/// job route with its working set, which lands the command back on that page).
 #[component(css = ProviderPage)]
-fn JobActions<'a>(t: Cat, p: Pilot, job: &'a ImportJob, key: &'a str, context: &'a str) -> impl Render {
-    let action = at(&provider::url::Job { key, id: &job.job_id }.href().to_string(), context);
+pub(super) fn JobActions<'a>(t: Cat, p: Pilot, job: &'a ImportJob, action: &'a str) -> impl Render {
     let name = JobInput::FIELDS.command;
     let label = p.provider_job_details(&job.job_id).to_string();
     html! {
         <form
             method="post"
-            action={&action}
+            action={action}
             class={Row}
             data-patch
             data-catalog-primary-workbench-command="job"

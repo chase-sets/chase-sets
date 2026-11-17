@@ -22,7 +22,8 @@ use platform::{
 
 use crate::{
     catalog::integrations::{
-        AuditEvidence, EvidenceLink, Governance, HealthProvider, HealthTriage, ReadModel, Surface, UsageBudget,
+        AuditEvidence, EvidenceLink, Governance, HealthProvider, HealthTriage, HealthUnit, ReadModel, ReadModelState, Surface,
+        UsageBudget,
     },
     text::{Cat, Pilot},
     views::link_to,
@@ -121,6 +122,136 @@ pub(super) fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
             <p class={Muted}>{description}</p>
         </div>
     }
+}
+
+/// Where a home's health facts come from (admin-web's `HealthSourceProvenance`): the triage's
+/// status, freshness and time, then the freshness, time, message and metric of each read model the
+/// home names. It is the source's health, not the entity's readiness.
+#[component(css = IntegrationsPage)]
+pub(super) fn Provenance<'a>(
+    t: Cat,
+    status: &'a str,
+    freshness: &'a str,
+    generated_at: Option<&'a str>,
+    read_models: &'a [ReadModelState],
+    keys: &'a [&'a str],
+) -> impl Render {
+    let unavailable = state_label("unavailable");
+    let at = |at: Option<&str>| at.filter(|at| !at.is_empty()).map_or_else(|| unavailable.clone(), |at| when(t, at));
+    let generated = at(generated_at);
+    let rows: Vec<_> =
+        read_models.iter().filter(|r| keys.contains(&r.query_key.as_str())).map(|r| (r, at(r.generated_at.as_deref()))).collect();
+    html! {
+        <div class={(KitStack { gap: Gap::App }, Stack)} data-catalog-health-provenance="true">
+            <p class={Muted}>{t.health_facts_source()}</p>
+            <dl class={Pairs}>
+                <div class={Pair}>
+                    <dt>{t.wb_health_table_status()}</dt>
+                    <dd>{state_label(status)}</dd>
+                </div>
+                <div class={Pair}>
+                    <dt>{t.wb_health_table_freshness()}</dt>
+                    <dd>{state_label(freshness)}</dd>
+                </div>
+                <div class={Pair}>
+                    <dt>{t.wb_health_table_generated()}</dt>
+                    <dd>{generated}</dd>
+                </div>
+                for (row, row_at) in &rows {
+                    <div class={Pair}>
+                        <dt class={Words}>{&row.query_key}</dt>
+                        <dd class={Lines}>
+                            <span>{state_label(&row.freshness)}</span>
+                            <span>{row_at}</span>
+                            <span>{&row.status_message}</span>
+                            <span class={(Muted, Words)}>{&row.owner_metric_key}</span>
+                        </dd>
+                    </div>
+                }
+            </dl>
+        </div>
+    }
+}
+
+/// An ingestion unit's readiness and recovery (admin-web's `IntegrationUnitHealth`), or its status
+/// Unavailable when the triage has no row for it.
+pub(super) fn unit_health(t: Cat, unit: Option<&HealthUnit>) -> Vec<(&'static str, String)> {
+    let unavailable = state_label("unavailable");
+    let Some(unit) = unit else { return vec![(t.wb_health_table_status(), unavailable)] };
+    let or_unavailable = |v: &Option<String>| v.clone().unwrap_or_else(|| unavailable.clone());
+    let d = &unit.diagnostic_counts;
+    vec![
+        (t.wb_health_table_unit(), format!("{} / {}", unit.display_name, unit.unit_key)),
+        (t.wb_health_table_provider(), unit.provider_key.clone()),
+        (t.health_facts_product(), format!("{}/{}", unit.product_domain, unit.product_form)),
+        (t.health_facts_purpose(), or_unavailable(&unit.ingestion_purpose)),
+        (t.health_facts_profile_version(), or_unavailable(&unit.profile_version)),
+        (t.wb_health_table_status(), state_label(&unit.status)),
+        (t.wb_health_table_catalog_semantic(), state_label(&unit.semantic_readiness)),
+        (
+            t.health_facts_credential(),
+            format!("{} / {}", state_label(&unit.credential_readiness), unit.credential_readiness_state),
+        ),
+        (t.wb_health_table_provider_transport(), state_label(&unit.transport_readiness)),
+        (t.health_facts_fixture(), state_label(&unit.fixture_validation_status)),
+        (t.health_facts_dry_run(), state_label(&unit.dry_run_status)),
+        (t.health_facts_observations(), unit.observation_facts.to_string()),
+        (t.health_facts_diagnostic_counts(), format!("{} / {} / {}", d.info, d.warning, d.error)),
+        (
+            t.health_facts_diagnostic_codes(),
+            if unit.diagnostic_codes.is_empty() { t.wb_none().to_owned() } else { unit.diagnostic_codes.join(", ") },
+        ),
+        (t.wb_health_table_diagnostics(), unit.latest_diagnostic_text.clone().unwrap_or_else(|| t.wb_none().to_owned())),
+        (t.health_facts_primary_action(), primary_action(t, &unit.affected_primary_action)),
+        (t.wb_gov_table_metric(), unit.owner_metric_key.clone()),
+        (t.wb_health_table_next_action(), unit.next_action.clone()),
+    ]
+}
+
+/// A provider's usage budget and count spend (admin-web's `ProviderUsageBudget`): what was not
+/// reported says so, and a missing budget is never zero.
+pub(super) fn usage_budget(t: Cat, row: &HealthProvider) -> Vec<(&'static str, String)> {
+    let unreported = t.wb_health_usage_not_reported();
+    let or = |v: Option<String>| v.unwrap_or_else(|| unreported.to_owned());
+    let budget = row.usage_budget.as_ref();
+    let unavailable = || "unavailable".to_owned();
+    let spend = match row.count_spend.as_deref() {
+        Some(spends) if !spends.is_empty() => spends
+            .iter()
+            .map(|s| {
+                let observed = s.observed_at.as_deref().unwrap_or(unreported);
+                let expires = s.expires_at.as_deref().unwrap_or(unreported);
+                format!("{}: {} / {} / {observed} / {expires}", s.kind, s.credits, s.outcome)
+            })
+            .collect::<Vec<_>>()
+            .join("; "),
+        _ => t.ssb_count_unobserved().to_owned(),
+    };
+    vec![
+        (
+            t.health_facts_credit_balance(),
+            budget.map_or_else(
+                || unreported.to_owned(),
+                |b| {
+                    format!(
+                        "{} / {} / {}",
+                        or(b.credit_balance.map(number)),
+                        or(b.credit_allowance.map(number)),
+                        or(b.credit_unit.clone())
+                    )
+                },
+            ),
+        ),
+        (t.wb_health_capability_budget_readiness(), budget.map_or_else(unavailable, |b| b.readiness.clone())),
+        (t.wb_health_capability_usage_freshness(), budget.map_or_else(unavailable, |b| b.freshness.clone())),
+        (t.health_facts_observed_at(), or(budget.and_then(|b| b.observed_at.as_deref()).map(|at| when(t, at)))),
+        (t.wb_health_capability_usage_lag(), or(budget.map(|b| b.lag_category.clone()).filter(|l| !l.is_empty()))),
+        (t.wb_health_capability_usage_diagnostic(), or(budget.and_then(|b| b.diagnostic.clone()))),
+        (t.health_facts_diagnostic_codes(), or(budget.and_then(|b| b.diagnostic_code.clone()))),
+        (t.wb_health_capability_estimated_calls(), or(budget.and_then(|b| b.estimated_calls).map(number))),
+        (t.health_facts_estimated_scope(), or(budget.and_then(|b| b.estimated_scope.clone()))),
+        (t.ssb_count_spend(), spend),
+    ]
 }
 
 /// A part of a workspace (`WorkflowModule`): its heading, description and status, then its content.
@@ -700,11 +831,26 @@ fn redaction_tone(state: &str) -> &'static str {
 /// address named an entity (`evidenceRef`) the API found evidence for, as the drawer's deep link does.
 #[component(css = IntegrationsPage)]
 pub(super) fn AuditDrawer<'a>(t: Cat, req: &'a Req, audit: &'a AuditEvidence, id: &'static str) -> impl Render {
+    // The evidence's own provenance (admin-web's evidence drawer), before its timeline.
+    let projection = &audit.projection_state;
+    let unavailable = || "unavailable".to_owned();
+    let facts = [
+        (t.wb_health_table_status(), audit.status.clone()),
+        (t.wb_health_table_freshness(), audit.freshness.clone()),
+        (t.wb_health_table_generated(), audit.generated_at.as_deref().map_or_else(unavailable, |at| when(t, at))),
+        (t.health_facts_source(), projection.query_key.clone()),
+        (t.health_facts_projection_status(), if projection.missing_projection { "unavailable" } else { "partial" }.to_owned()),
+        (t.health_facts_projection_freshness(), projection.freshness.clone()),
+        (t.health_facts_projection_generated_at(), projection.generated_at.as_deref().map_or_else(unavailable, |at| when(t, at))),
+        (t.health_facts_projection_message(), projection.status_message.clone()),
+        (t.wb_gov_table_metric(), "catalog.integration.audit.generated_at".to_owned()),
+    ];
     html! {
         <details class={(Accordion {}, Drawer)} open={audit.selection.deep_link_open}>
             <summary>{t.wb_audit_title()}</summary>
             <p class={Muted}>{t.wb_audit_description()}</p>
             <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
+                <Pairs items={&facts} />
                 <AuditWorkspace t={t} req={req} audit={audit} id={id} />
             </div>
         </details>
@@ -1108,7 +1254,14 @@ fn action_tone(state: &str) -> &'static str {
 /// Settings (`CatalogControlPlaneSettingsPage`): governance controls, rollout and worker controls,
 /// RBAC, observability and removal evidence, with the audit evidence to open beside them.
 #[component(css = IntegrationsPage)]
-fn GovernanceWorkspace<'a>(t: Cat, p: Pilot, req: &'a Req, governance: &'a Governance, audit: &'a AuditEvidence) -> impl Render {
+fn GovernanceWorkspace<'a>(
+    t: Cat,
+    p: Pilot,
+    req: &'a Req,
+    governance: &'a Governance,
+    audit: &'a AuditEvidence,
+    health: &'a HealthTriage,
+) -> impl Render {
     let g = governance;
     let (banner_tone, title, description) = match g.status.as_str() {
         "blocked" => ("danger", t.wb_gov_banner_blocked_title(), t.wb_gov_banner_blocked_description()),
@@ -1144,6 +1297,14 @@ fn GovernanceWorkspace<'a>(t: Cat, p: Pilot, req: &'a Req, governance: &'a Gover
         >
             <Banner tone={banner_tone} title={title} description={description} />
             <AuditDrawer t={t} req={req} audit={audit} id="wb-drawer" />
+            <Provenance
+                t={t}
+                status={&health.status}
+                freshness={&health.freshness}
+                generated_at={health.generated_at.as_deref()}
+                read_models={&health.read_models}
+                keys={&[]}
+            />
 
             <dl class={Metrics}>
                 <Metric
@@ -1202,19 +1363,29 @@ fn GovernanceWorkspace<'a>(t: Cat, p: Pilot, req: &'a Req, governance: &'a Gover
                                 let commands = if row.command_keys.is_empty() { p.integrations_deletion_evidence().to_owned() } else { row.command_keys.join(", ") };
                                 let providers = if row.provider_keys.is_empty() { p.integrations_all_providers().to_owned() } else { row.provider_keys.join(", ") };
                                 let units = if row.unit_keys.is_empty() { p.integrations_all_units().to_owned() } else { row.unit_keys.join(", ") };
+                                // The control's health row (its severity and next action), when the triage has one.
+                                let control_health = health.rollout_controls.iter().find(|c| c.control_id == row.control_id);
                                 <tr>
                                     <td>
                                         <CellLabel>{t.wb_gov_table_control()}</CellLabel>
-                                        <Cell
-                                            title={&row.label}
-                                            description={Some(row.control_id.as_str())}
-                                            detail={Some(row.message.as_str())}
-                                        />
+                                        <span class={CellText}>
+                                            <Cell
+                                                title={&row.label}
+                                                description={Some(row.control_id.as_str())}
+                                                detail={Some(row.message.as_str())}
+                                            />
+                                            if let Some(control) = control_health {
+                                                <span class={Words}>{&control.next_action}</span>
+                                            }
+                                        </span>
                                     </td>
                                     <td>
                                         <CellLabel>{t.wb_gov_table_status()}</CellLabel>
                                         <span class={CellText}>
                                             <Pill text={&control_status} tone={control_tone(&row.status)} />
+                                            if let Some(control) = control_health {
+                                                <Pill text={&control.severity} tone="neutral" />
+                                            }
                                             <Blockers t={t} blockers={&row.blockers} />
                                         </span>
                                     </td>
@@ -1491,6 +1662,7 @@ pub fn IntegrationsPage<'a>(t: Cat, req: &'a Req, surface: Surface, model: &'a R
                         req={req}
                         governance={&model.governance_controls}
                         audit={&model.audit_evidence}
+                        health={&model.health_triage}
                     />
                 }
             }

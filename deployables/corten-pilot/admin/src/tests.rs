@@ -4619,6 +4619,44 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
 }
 
 #[tokio::test]
+async fn a_scopes_page_keeps_its_members_health_and_their_jobs_recovery() {
+    let pilot = Pilot::new().await;
+    let health = |html: &str| {
+        let start = html.find(r#"data-catalog-scope-health="true""#).expect("the scope's health");
+        let end = start + html[start..].find("</section>").expect("its end");
+        html[start..end].to_owned()
+    };
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let part = health(&html);
+    assert!(part.contains("Scope unit readiness and recovery") && part.contains("Degraded"), "{part}");
+    // The member unit with its readiness and its provider's page; the Lorcast unit is not a member.
+    assert!(part.contains(r#"data-catalog-health-unit="tcgplayer:pokemon:card""#), "{part}");
+    assert!(!part.contains("lorcast:pokemon:card"), "{part}");
+    assert!(part.contains("Add fixture coverage for this ingestion unit.") && part.contains("fixture_missing"), "{part}");
+    assert!(
+        part.contains(r#"href="/catalog/providers/tcgplayer?unitKey=tcgplayer%3Apokemon%3Acard""#)
+            && part.contains("Provider setup: tcgplayer"),
+        "{part}"
+    );
+    // The provenance of the scope's two reads, not the audit's.
+    assert!(part.contains(r#"data-catalog-health-provenance="true""#), "{part}");
+    assert!(part.contains("Unit readiness comes from the overview.") && part.contains("Job progress comes from durable jobs."));
+    assert!(!part.contains("Audit projection is partial."), "{part}");
+    // The member's job with its progress and recovery, posted with the working set; the job of
+    // another scope is not drawn.
+    assert!(part.contains(r#"data-catalog-scope-health-job="job_1""#) && part.contains("3/10 work units"), "{part}");
+    assert!(!part.contains("job_other"), "{part}");
+    assert!(part.contains(r#"action="/catalog/integrations/jobs/job_1?home=scp_paf""#), "{part}");
+    assert!(part.contains(r#"value="retry""#) && part.contains(r#"value="cancel""#), "{part}");
+    assert!(!part.contains("Resolution unavailable"), "{part}");
+
+    // A job in the address that is not a member's: the resolution is unavailable.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobId=job_other", Some("staff"))).await;
+    assert!(health(&html).contains("Resolution unavailable: the target is missing or deleted."), "{html}");
+}
+
+#[tokio::test]
 async fn a_scopes_journey_is_read_for_its_own_page_and_the_api_composes_it_from_the_scope_record() {
     let pilot = Pilot::new().await;
     // A provider or a hierarchy in the address is the scope's to choose; the API decides them. The
@@ -8565,6 +8603,15 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
     }
     let serde_json::Value::Object(context) = context else { unreachable!("the context is an object") };
     surface["readModel"].as_object_mut().expect("the read model is an object").extend(context);
+    // A scope page's own surface names its Scope Record and the job its address does, its job's
+    // import scope is the TCGplayer unit's, and its health triage is the scope's members'.
+    if let Some(id) = scope {
+        let model = &mut surface["readModel"];
+        model["routeContext"]["scopeRecordId"] = json!(id);
+        model["routeContext"]["jobId"] = json!(param("jobId"));
+        model["importJobs"]["jobs"][0]["importScope"] = json!("en:sv1");
+        model["healthTriage"] = scope_health_json();
+    }
     // What the API works out for this read (`flow`, `dailyStatus`, the review's links): it opens
     // on the section's stage, else Review (there are changes); a stop blocks Run sync and is the
     // governance banner; the throttled transport is a degraded health banner.
@@ -8637,6 +8684,39 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
         surface["aliasReview"] = all_scopes_alias_review_json();
     }
     Json(surface).into_response()
+}
+
+/// A scope page's health triage as the API composes it: the workset's TCGplayer unit and its
+/// failed job, then a Lorcast unit and a job of another scope the page is not to draw, and the
+/// read models the scope's provenance names beside one it does not.
+fn scope_health_json() -> Value {
+    let read_model = |key: &str, message: &str| {
+        json!({ "queryKey": key, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z", "statusMessage": message,
+            "ownerMetricKey": format!("metric_{key}") })
+    };
+    let unit = |key: &str, provider: &str| {
+        json!({ "unitKey": key, "providerKey": provider, "displayName": key, "productDomain": "pokemon", "productForm": "card",
+            "ingestionPurpose": "catalog-facts", "profileVersion": "3", "status": "blocked", "semanticReadiness": "blocked",
+            "credentialReadiness": "ready", "credentialReadinessState": "configured", "transportReadiness": "ready",
+            "fixtureValidationStatus": "blocked", "dryRunStatus": "blocked", "observationFacts": 12,
+            "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 }, "diagnosticCodes": ["fixture_missing"],
+            "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+            "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+            "nextAction": "Add fixture coverage for this ingestion unit." })
+    };
+    let job = |id: &str| {
+        json!({ "jobId": id, "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "operatorStatus": "Failed",
+            "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+            "ownerMetricKey": "catalog_import_jobs", "nextAction": "Retry the failed pages." })
+    };
+    json!({ "status": "degraded", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+        "returnToPrimaryHref": "/catalog/integrations", "summary": {},
+        "readModels": [read_model("integration-health-summary", "Unit readiness comes from the overview."),
+            read_model("import-job-progress-summary", "Job progress comes from durable jobs."),
+            read_model("audit-evidence-timeline", "Audit projection is partial.")],
+        "providers": [], "rolloutControls": [], "auditPreview": { "projectionStatus": "ready", "statusMessage": "", "entries": [] },
+        "units": [unit("tcgplayer:pokemon:card", "tcgplayer"), unit("lorcast:pokemon:card", "lorcast")],
+        "recentJobs": [job("job_1"), job("job_other")] })
 }
 
 /// The daily surface's source options for TCGplayer cards: Language, then Expansion under it
@@ -8941,6 +9021,36 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
             "redactionState": "redacted", "evidenceLinks": [] }]) },
         "evidenceLinks": []
     });
+    // The health triage: TCGplayer's row with its usage budget, its one unit's readiness, the failed
+    // job's progress, and the read models each home names as its source.
+    let read_model = |key: &str, message: &str| {
+        json!({ "queryKey": key, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z", "statusMessage": message,
+            "ownerMetricKey": format!("metric_{key}") })
+    };
+    let triage = json!({ "status": "degraded", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+        "readModels": [read_model("integration-health-summary", "Unit readiness comes from the overview."),
+            read_model("provider-transport-readiness-summary", "Transport readiness is derived separately."),
+            read_model("import-job-progress-summary", "Job progress comes from durable jobs."),
+            read_model("audit-evidence-timeline", "Audit projection is partial.")],
+        "providers": [{ "providerKey": "tcgplayer", "adapterKey": "tcgplayer-catalog", "status": "degraded", "readiness": "degraded",
+            "credentialReadiness": "ready", "credentialReadinessState": "configured", "unitKeys": ["tcgplayer:pokemon:card"],
+            "apiReachability": "ready", "optionQueryHealth": "degraded", "rateLimitStatus": "ready", "payloadAcquisition": "ready",
+            "usageBudget": { "creditBalance": 40, "creditAllowance": null, "creditUnit": "credits", "readiness": "degraded",
+                "freshness": "stale", "observedAt": null, "lagCategory": "beyond-provider-window", "diagnosticCode": "usage_stale",
+                "diagnostic": "Usage is older than its window.", "estimatedCalls": null, "estimatedScope": null },
+            "diagnosticCodes": ["option_query_slow"], "latestDiagnosticText": "Option queries are slow.",
+            "ownerMetricKey": "catalog_provider_option_queries", "nextAction": "Refresh provider option queries." }],
+        "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "displayName": "Pokemon singles",
+            "productDomain": "pokemon", "productForm": "card", "ingestionPurpose": "catalog-facts", "profileVersion": null,
+            "status": "blocked", "semanticReadiness": "blocked", "credentialReadiness": "ready",
+            "credentialReadinessState": "configured", "transportReadiness": "ready", "fixtureValidationStatus": "blocked",
+            "dryRunStatus": "blocked", "observationFacts": 12, "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 },
+            "diagnosticCodes": ["fixture_missing"], "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+            "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+            "nextAction": "Add fixture coverage for this ingestion unit." }],
+        "recentJobs": [{ "jobId": "job_9", "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card",
+            "operatorStatus": "Failed", "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+            "ownerMetricKey": "catalog_import_jobs", "nextAction": "Open the durable job evidence." }] });
     let mut surface = json!({
         "readModelFailures": [],
         "providerRefreshSchedules": schedules,
@@ -8951,11 +9061,7 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
             "validationReadiness": validation_readiness(selected),
             "routeContext": { "providerKey": "tcgplayer", "unitKey": null, "jobId": job, "profileVersion": selected },
             "readiness": { "freshness": "fresh", "blockers": [], "providerTransport": [], "rolloutEnabled": true, "rbacAllowed": true },
-            "healthTriage": { "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
-                "providers": [{ "providerKey": "tcgplayer", "status": "degraded", "credentialReadiness": "ready",
-                    "credentialReadinessState": "configured", "apiReachability": "ready", "optionQueryHealth": "degraded",
-                    "rateLimitStatus": "ready", "payloadAcquisition": "ready", "latestDiagnosticText": "Option queries are slow." }],
-                "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "status": "blocked" }] },
+            "healthTriage": null,
             "providerScope": { "providers": [{ "providerKey": "tcgplayer", "units": [{ "unitKey": "tcgplayer:pokemon:card",
                 "productDomain": "pokemon", "productForm": "card", "importScopes": ["set-name"],
                 "activeProfile": { "profileVersion": "2026.07.13" } }] }] },
@@ -8988,12 +9094,14 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
                 "jobs": [{ "jobId": "job_9",
                 "state": "failed", "operatorStatus": "Failed", "summary": "Pull stopped at page 3.", "completed": 3, "total": 10,
                 "progressPercent": 30, "providerKey": "tcgplayer", "createdAt": "2026-11-04T09:00:00.000Z", "failureGroups": [],
+                "unitKey": "tcgplayer:pokemon:card",
                 "retryAvailable": true, "resumeAvailable": false, "cancelAvailable": false,
                 "sourceObservationReviewHref": "/catalog/integrations?jobId=job_9", "auditEvidenceUrl": "/catalog/integrations/health",
                 "result": { "observedCount": 12, "skippedCount": 1, "failedCount": 2 }, "blockers": [] }] }
         }
     });
     surface["readModel"]["auditEvidence"] = audit;
+    surface["readModel"]["healthTriage"] = triage;
     Json(surface).into_response()
 }
 
@@ -9230,6 +9338,55 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
     assert!(section.contains(".provider-page__schedule-row") && section.contains(".provider-page__job-pair"), "{section}");
+}
+
+#[tokio::test]
+async fn provider_detail_keeps_the_health_facts_at_their_homes() {
+    // admin-web keeps each health fact where its entity is (chase-sets/chase-sets#9072): the
+    // provider's in the header, a unit's on the unit, a job's on the job, each home naming the read
+    // model it came from, and none of them the whole source's audit.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-provider-health="tcgplayer""#), "{html}");
+    for fact in ["tcgplayer-catalog", "option_query_slow", "catalog_provider_option_queries", "Refresh provider option queries."]
+    {
+        assert!(html.contains(fact), "the provider's {fact}: {html}");
+    }
+    // The usage budget: what was not reported says so, never zero.
+    assert!(html.contains("40 / Not reported / credits") && html.contains("usage_stale"), "{html}");
+    assert!(html.contains("Usage observed at") && html.contains("Estimated call scope"), "{html}");
+    // A unit's readiness and recovery, on the unit.
+    assert!(html.contains(r#"data-catalog-health-unit="tcgplayer:pokemon:card""#), "{html}");
+    for fact in [
+        "Pokemon singles / tcgplayer:pokemon:card",
+        "catalog-facts",
+        "0 / 1 / 2",
+        "fixture_missing",
+        "Add fixture coverage for this ingestion unit.",
+    ] {
+        assert!(html.contains(fact), "the unit's {fact}: {html}");
+    }
+    // A job's progress and recovery, on the job.
+    assert!(html.contains("Job progress and recovery") && html.contains("3/10 work units"), "{html}");
+    assert!(html.contains("Open the durable job evidence."), "{html}");
+    // Each home's provenance names its own read model and not the audit's.
+    assert_eq!(html.matches(r#"data-catalog-health-provenance="true""#).count(), 3, "{html}");
+    for message in [
+        "Transport readiness is derived separately.",
+        "Unit readiness comes from the overview.",
+        "Job progress comes from durable jobs.",
+    ] {
+        assert!(html.contains(message), "{message}: {html}");
+    }
+    assert!(!html.contains("Audit projection is partial."), "the source's audit is not the provider's: {html}");
+
+    // A provider the triage has no row for reads unavailable, not healthy or an empty count.
+    let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Provider readiness unavailable"), "{html}");
+    assert!(html.contains("no healthy state or empty unit count is implied"), "{html}");
+    assert!(!html.contains("Refresh provider option queries."), "another provider's facts: {html}");
 }
 
 #[tokio::test]
@@ -9604,6 +9761,16 @@ async fn settings_and_governance_draw_the_governance_controls_with_their_evidenc
         );
         assert!(html.contains("<details") && html.contains("Audit events"), "the evidence opens on the page: {html}");
         assert!(!html.contains("Integration health triage"), "{path}: {html}");
+        // The health facts kept at Settings (chase-sets/chase-sets#9072): the triage's provenance
+        // without a read model's row, each control's severity and next action, and the evidence
+        // drawer's own projection facts.
+        assert!(html.contains("Source health provenance (not entity readiness)"), "{path}: {html}");
+        assert!(!html.contains("Provider adapter transport readiness is derived separately."), "no read model row: {html}");
+        assert!(html.contains("Clear the stop.") && html.contains(">error<"), "the control's health: {html}");
+        assert!(
+            html.contains("Projection status message") && html.contains("catalog.integration.audit.generated_at"),
+            "the drawer's provenance: {html}"
+        );
     }
     let calls = integrations_calls(&pilot);
     assert!(

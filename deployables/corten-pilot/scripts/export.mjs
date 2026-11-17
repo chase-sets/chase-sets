@@ -923,6 +923,7 @@ const outputs = [
         ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable", "alias_review.unavailable"],
         ["catalog.features.attentionQueue.", "attention"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.", "feedback"],
+        ["catalog.features.sourceObservations.ui.healthFacts.", "health_facts"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.health.", "wb_health"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.metric.", "wb_metric"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.", "wb_copy"],
