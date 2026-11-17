@@ -28,7 +28,6 @@ import {
   type SettlementPayoutBoundsPolicyValue,
   type SettlementPayoutFeePolicyValue,
 } from "../domain/payout-policy";
-import { createPayoutCompletedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import {
   getPayout,
   findPayoutRequestIdempotency,
@@ -1220,11 +1219,6 @@ export function createPayoutRequestLifecycle(
           type: "CompletePayout",
           providerStatus: null,
           completedAt,
-          csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
-            accountId: params.accountId,
-            payoutId: params.payoutId,
-            completedAt,
-          }),
         },
         context,
       });

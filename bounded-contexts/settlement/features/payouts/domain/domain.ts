@@ -92,7 +92,6 @@ export type RecordPayoutProviderReferencesCommand = Readonly<{
 
 export type CompletePayoutCommand = Readonly<{
   type: "CompletePayout";
-  csatOutcomeFact?: JsonObject;
   providerStatus?: string | null;
   completedAt: string;
 }>;
@@ -314,7 +313,6 @@ export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEv
             netAmount: state.netAmount,
             notificationEmail: state.notificationEmail,
             completedAt: ensureIsoTimestamp(command.completedAt, "Payout completion must record a timestamp."),
-            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];

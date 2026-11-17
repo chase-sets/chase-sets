@@ -41,7 +41,6 @@
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
-    "@chase-sets/customer-feedback",
     "@chase-sets/marketplace",
     "@chase-sets/ordering"
   ],

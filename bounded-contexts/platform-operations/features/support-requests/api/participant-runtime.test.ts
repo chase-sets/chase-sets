@@ -17,6 +17,7 @@ import {
   responseCases,
   responseFixture,
   responseSeller,
+  legacyCsatResolutionFixture,
 } from "./participant-attempt.test-support";
 import { participantOpenSupportRequestId, validateParticipantHistory } from "./participant-runtime";
 import { evolveSupportRequest, initialSupportRequestState, type SupportRequestEvent } from "../domain/domain";
@@ -31,6 +32,17 @@ import {
 } from "../domain/attachment-operation";
 
 describe("atomic participant intake", () => {
+  it("platform-operations replays a stream with legacy CSAT events through the participant history reader", async () => {
+    const f = await legacyCsatResolutionFixture();
+    const history = validateParticipantHistory(f.allEvents, f.id);
+    expect(history.state.status).toBe("resolved");
+    expect(history.receipts.at(-1)?.receipt.result).toEqual(f.result);
+    expect(history.receipts.at(-1)?.facts.map((event) => event.eventType)).toEqual([
+      "support.support-request.response-recorded",
+      "support.support-request.resolved",
+      "platform-operations.csat-outcome-fact.v1",
+    ]);
+  });
   const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
   const body = { ...openBody, flowType: "product-damaged", affectedLineIds: ["line_a"] };
   it("preserves legacy empty intake bytes without discarding reference or operation authority", () => {

@@ -86,7 +86,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `customer-feedback:customer-feedback-case-attention-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-analytics-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-invitation-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
-| `customer-feedback:customer-feedback-csat-outcome-fact-projection` | Customer Feedback | auth, identity, discovery | push-eligible | 0/3 |
+| `customer-feedback:customer-feedback-csat-outcome-fact-projection` | Customer Feedback | auth, identity, discovery, fulfillment, payments, settlement, platform-operations | push-eligible | 0/7 |
 | `customer-feedback:customer-feedback-feedback-case-opening` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-feedback-case-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-notification-delivery-recording` | Customer Feedback | notifications | push-eligible | 0/1 |
