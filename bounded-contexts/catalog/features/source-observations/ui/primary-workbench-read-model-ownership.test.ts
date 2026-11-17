@@ -109,6 +109,7 @@ const derivationLayers: readonly (readonly OwnerFile[])[] = [
 ];
 
 const compositionLocalImports = [
+  "../api/admin/scope-detail-workbench-location",
   "../api/primary-workbench-admin-contracts",
   "./admin-control-plane/information-architecture",
   "./primary-workbench-core-read-model",

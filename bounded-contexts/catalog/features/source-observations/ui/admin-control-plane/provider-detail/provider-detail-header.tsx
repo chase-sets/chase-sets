@@ -6,9 +6,11 @@ import {
   WorkbenchStack,
   WorkflowModule,
 } from "@chase-sets/design-system";
-import { formatDateTime, t } from "@chase-sets/localization";
+import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { stateLabel } from "../import-to-promotion/workbench-formatting";
+import { ProviderUsageBudget } from "./provider-usage-budget";
+import { HealthSourceProvenance } from "../validation/health-source-provenance";
 
 type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent";
 
@@ -64,19 +66,53 @@ export function ProviderDetailHeader({
       }
       headingLevel={2}
     >
-      <WorkbenchStack>
+      <WorkbenchStack data-catalog-provider-health={providerKey}>
         <OperationalStatusBanner
           tone={headerTone(providerRow?.status ?? "unavailable")}
           title={headerTitle(providerRow?.status ?? "unavailable")}
-          description={t("catalog.features.sourceObservations.ui.providerDetail.header.units", {
-            count: String(units.length),
-            blocked: String(blockedUnits),
-          })}
+          description={
+            providerRow
+              ? t("catalog.features.sourceObservations.ui.providerDetail.header.units", {
+                  count: String(units.length),
+                  blocked: String(blockedUnits),
+                })
+              : t("catalog.features.sourceObservations.ui.healthFacts.providerUnavailableDescription")
+          }
         />
         <KeyValueList
           density="compact"
           layout="grid"
           items={[
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.adapter"),
+              value: providerRow?.adapterKey ?? stateLabel("unavailable"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.units"),
+              value: providerRow?.unitKeys.join(", ") || stateLabel("unavailable"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.readiness"),
+              value: providerRow?.readiness ?? stateLabel("unavailable"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.credential"),
+              value: providerRow?.credentialReadiness ?? stateLabel("unavailable"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.healthFacts.diagnosticCodes"),
+              value:
+                providerRow?.diagnosticCodes.join(", ") ||
+                t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.governanceControls.table.metric"),
+              value: providerRow?.ownerMetricKey ?? stateLabel("unavailable"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
+              value: providerRow?.nextAction ?? stateLabel("unavailable"),
+            },
             {
               key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.api"),
               value:
@@ -102,20 +138,14 @@ export function ProviderDetailHeader({
                 t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
             },
             {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
-              value: stateLabel(readModel.healthTriage.freshness),
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
-              value: formatDateTime(readModel.healthTriage.generatedAt),
-            },
-            {
               key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
               value:
                 providerRow?.latestDiagnosticText ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
             },
           ]}
         />
+        {providerRow ? <ProviderUsageBudget provider={providerRow} /> : null}
+        <HealthSourceProvenance health={readModel.healthTriage} queryKeys={["provider-transport-readiness-summary"]} />
       </WorkbenchStack>
     </WorkflowModule>
   );
@@ -141,6 +171,7 @@ function headerTone(status: string): "success" | "danger" | "warning" {
 }
 
 function headerTitle(status: string): string {
+  if (status === "unavailable") return t("catalog.features.sourceObservations.ui.healthFacts.providerUnavailable");
   if (status === "ready") {
     return t("catalog.features.sourceObservations.ui.providerDetail.header.ready.title");
   }

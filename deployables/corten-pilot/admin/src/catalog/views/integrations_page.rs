@@ -697,7 +697,7 @@ fn redaction_tone(state: &str) -> &'static str {
 
 /// The audit timeline in a disclosure beside a page's own work (admin-web's
 /// CatalogControlPlaneEvidenceDrawer): Settings, and provider detail. It opens by itself when the
-/// address named an entity (videnceRef) the API found evidence for, as the drawer's deep link does.
+/// address named an entity (`evidenceRef`) the API found evidence for, as the drawer's deep link does.
 #[component(css = IntegrationsPage)]
 pub(super) fn AuditDrawer<'a>(t: Cat, req: &'a Req, audit: &'a AuditEvidence, id: &'static str) -> impl Render {
     html! {

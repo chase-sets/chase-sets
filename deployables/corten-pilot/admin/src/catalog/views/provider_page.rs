@@ -235,7 +235,7 @@ pub fn ProviderPage<'a>(
 
 /// The provider's evidence (admin-web's CatalogEntityEvidenceLinks and its evidence drawer): a link
 /// naming the provider and one naming the selected profile version, each this page with that
-/// videnceRef, then the audit timeline the API resolved for the address.
+/// `evidenceRef`, then the audit timeline the API resolved for the address.
 #[component(css = ProviderPage)]
 fn ProviderEvidence<'a>(
     t: Cat,
