@@ -174,8 +174,11 @@ export function createRepricingConfigurationWriter(
     const value = parseRepricingConfigurationReceipt(row.receipt, parseState);
     if (value.requestKey !== row.request_key || value.requestedRevision !== row.requested_revision)
       throw new Error("Corrupt Pricing configuration receipt binding.");
-    // The verified contiguous history and the primary key (key, requested_revision) bind the replacement.
-    if (value.status === "superseded-by-revision" && value.replacingRevision > verifiedHead.requested_revision)
+    if (
+      value.status === "superseded-by-revision" &&
+      (value.replacingRevision !== row.requested_revision + 1 ||
+        value.replacingRevision > verifiedHead.requested_revision)
+    )
       throw new Error("Corrupt Pricing configuration supersession.");
     if (value.status === "applied") {
       const prepared: PreparedRepricingConfiguration<unknown> = JSON.parse(row.prepared);

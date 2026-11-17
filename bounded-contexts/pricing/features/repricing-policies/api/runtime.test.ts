@@ -373,6 +373,53 @@ describe("createRepricingPolicyRuntime", () => {
     });
     expect(memory.allEvents.map((event) => event.eventType)).toEqual(["pricing.repricing-halt.engaged"]);
   });
+  it("rejects a supersession receipt pointing anywhere but its direct successor in the verified history", async () => {
+    const memory = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture();
+    const services = createRepricingPolicyRuntime({
+      eventStore: memory.store,
+      db: fixture.pool,
+      goalAdoptions: async () => [],
+      configuration: createRepricingConfigurationWriter({ ...fixture, eventStore: memory.store }),
+    });
+    const first = () => services.setHalt("acc_seller", true, context, "synthetic-first");
+    const second = () => services.setHalt("acc_seller", false, context, "synthetic-second");
+    const third = () => services.setHalt("acc_seller", true, context, "synthetic-third");
+
+    fixture.control.pending = true;
+    expect(await first()).toMatchObject({ status: "accepted-pending", requestedRevision: 1 });
+    expect(await second()).toMatchObject({ status: "accepted-pending", requestedRevision: 2 });
+    fixture.control.pending = false;
+    const installed = await third();
+    expect(installed).toMatchObject({ status: "applied", installedRevision: 3, state: { engaged: true } });
+    expect(await third()).toEqual(installed);
+
+    const firstReceipt = await first();
+    expect(firstReceipt).toEqual({
+      status: "superseded-by-revision",
+      requestKey: "synthetic-first",
+      requestedRevision: 1,
+      replacingRevision: 2,
+    });
+    expect(await second()).toEqual({
+      status: "superseded-by-revision",
+      requestKey: "synthetic-second",
+      requestedRevision: 2,
+      replacingRevision: 3,
+    });
+
+    const status = await services.getHaltConfigurationStatus("acc_seller");
+    expect(status).toMatchObject({ installedRevision: 3, requestedRevision: 3, installedState: { engaged: true } });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual(["pricing.repricing-halt.engaged"]);
+    const events = [...memory.allEvents];
+    const firstRow = [...fixture.rows.values()].find((row) => row.request_key === "synthetic-first")!;
+    for (const replacingRevision of [200, 3]) {
+      firstRow.receipt = { ...firstReceipt, replacingRevision };
+      await expect(first()).rejects.toThrow("Corrupt Pricing configuration supersession");
+      expect(await services.getHaltConfigurationStatus("acc_seller")).toEqual(status);
+      expect(memory.allEvents).toEqual(events);
+    }
+  });
   it("rejects partial or corrupt durable receipts rather than reporting installation", async () => {
     const memory = createMemoryEventStore();
     const fixture = createConfigurationPoolFixture();
