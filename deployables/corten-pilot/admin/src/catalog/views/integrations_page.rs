@@ -695,7 +695,23 @@ fn redaction_tone(state: &str) -> &'static str {
     }
 }
 
-/// The audit timeline (`CatalogIntegrationAuditEvidenceWorkspace`), on Integration health and in
+/// The audit timeline in a disclosure beside a page's own work (admin-web's
+/// CatalogControlPlaneEvidenceDrawer): Settings, and provider detail. It opens by itself when the
+/// address named an entity (videnceRef) the API found evidence for, as the drawer's deep link does.
+#[component(css = IntegrationsPage)]
+pub(super) fn AuditDrawer<'a>(t: Cat, req: &'a Req, audit: &'a AuditEvidence, id: &'static str) -> impl Render {
+    html! {
+        <details class={(Accordion {}, Drawer)} open={audit.selection.deep_link_open}>
+            <summary>{t.wb_audit_title()}</summary>
+            <p class={Muted}>{t.wb_audit_description()}</p>
+            <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
+                <AuditWorkspace t={t} req={req} audit={audit} id={id} />
+            </div>
+        </details>
+    }
+}
+
+/// The audit timeline (CatalogIntegrationAuditEvidenceWorkspace), on Integration health and in
 /// Settings' evidence.
 #[component(css = IntegrationsPage)]
 fn AuditWorkspace<'a>(t: Cat, req: &'a Req, audit: &'a AuditEvidence, id: &'static str) -> impl Render {
@@ -1127,13 +1143,8 @@ fn GovernanceWorkspace<'a>(t: Cat, p: Pilot, req: &'a Req, governance: &'a Gover
             tone={gov_tone(&g.status)}
         >
             <Banner tone={banner_tone} title={title} description={description} />
-            <details class={(Accordion {}, Drawer)}>
-                <summary>{t.wb_audit_title()}</summary>
-                <p class={Muted}>{t.wb_audit_description()}</p>
-                <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
-                    <AuditWorkspace t={t} req={req} audit={audit} id="wb-drawer" />
-                </div>
-            </details>
+            <AuditDrawer t={t} req={req} audit={audit} id="wb-drawer" />
+
             <dl class={Metrics}>
                 <Metric
                     label={t.wb_gov_metric_rollout_stops()}

@@ -411,6 +411,15 @@ pub struct AuditEvidence {
     pub evidence_links: Vec<EvidenceLink>,
 }
 
+/// An entity's evidence reference (admin-web's serializeCatalogEvidenceReference): its kind, its
+/// id and, for a profile version, its provider, each a URI component, joined by /. A page's link
+/// carries it as videnceRef; whether the loaded records have evidence for it is the API's to say.
+pub fn evidence_ref(kind: &str, id: &str, provider_key: Option<&str>) -> String {
+    let mut parts = vec![segment(kind), segment(id)];
+    parts.extend(provider_key.map(segment));
+    parts.join("/")
+}
+
 /// Which entity's evidence the address asked for (`evidenceRef`) and whether the API found it among
 /// the loaded records. `no-associated-evidence` means it did not, and the timeline is empty for that
 /// reason rather than for the filters.
