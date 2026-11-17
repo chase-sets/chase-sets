@@ -78,22 +78,24 @@ async function seedActiveListing(eventStore: EventStore, listingId = "lst_report
           evidence: [],
         },
       },
-      {
-        eventType: "marketplace.listing.published",
-        payload: {
-          marketplaceSalesFeeUnitAmount: "1.20",
-          sellerNetUnitAmount: "10.80",
-          shippingAllowancePercentageBps: 500,
-          termsScheduleId: null,
-          termsAgreementId: null,
-          termsResolvedAt: null,
-          feeQuoteFingerprint: "fee_1",
-        },
-      },
+      listingPublished,
     ],
     context,
   });
 }
+
+const listingPublished = {
+  eventType: "marketplace.listing.published",
+  payload: {
+    marketplaceSalesFeeUnitAmount: "1.20",
+    sellerNetUnitAmount: "10.80",
+    shippingAllowancePercentageBps: 500,
+    termsScheduleId: null,
+    termsAgreementId: null,
+    termsResolvedAt: null,
+    feeQuoteFingerprint: "fee_1",
+  },
+};
 
 async function seedOldListingReport(eventStore: EventStore, listingId = "lst_reported") {
   const submittedAt = new Date(Date.now() - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS - 60_000).toISOString();
@@ -307,6 +309,46 @@ describe("Marketplace report runtime", () => {
     },
   );
 
+  it("auto-unlists a republished listing again using the next distinct report as the enforcement source", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await seedActiveListing(eventStore);
+    const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
+    const report = (index: number) =>
+      reports.reportListing(
+        {
+          attemptId: `republished_listing_report_${index}`,
+          listingId: "lst_reported",
+          reporterKind: "visitor",
+          reporterKey: `anon_reporter_${index}`,
+          reporterAccountId: null,
+          reporterUserId: null,
+          reason: "counterfeit-concern",
+          sourceRoutePath: "/listings/reported-listing",
+        },
+        context,
+      );
+
+    await report(1);
+    await report(2);
+    const firstCrossing = await report(3);
+    expect(firstCrossing.autoUnlisted).toBe(true);
+    const streamId = "marketplace.listing-lst_reported";
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: (await eventStore.readStream({ streamId })).length,
+      events: [listingPublished],
+      context,
+    });
+
+    const fourth = await report(4);
+    expect(fourth).toMatchObject({ reportCount: 4, autoUnlisted: true });
+    expect(await report(4)).toEqual(fourth);
+    expect(allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted")).toMatchObject([
+      { payload: { reportId: firstCrossing.reportId, listingEnforcement: { sourceActionId: firstCrossing.reportId } } },
+      { payload: { reportId: fourth.reportId, listingEnforcement: { sourceActionId: fourth.reportId } } },
+    ]);
+  });
+
   it("replays the first report and rejects duplicate reports using a different attempt", async () => {
     const { eventStore } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
@@ -327,7 +369,10 @@ describe("Marketplace report runtime", () => {
     expect(await reports.reportListing(input, context)).toEqual(first);
     await expect(
       reports.reportListing({ ...input, attemptId: "different_report_attempt_0001" }, context),
-    ).rejects.toMatchObject({ code: "attempt_conflict" });
+    ).rejects.toThrow("This reporter has already reported this content.");
+    await expect(reports.reportListing({ ...input, details: "Changed" }, context)).rejects.toMatchObject({
+      code: "attempt_conflict",
+    });
   });
 });
 

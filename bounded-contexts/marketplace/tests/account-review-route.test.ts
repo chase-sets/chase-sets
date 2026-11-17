@@ -338,12 +338,12 @@ describe("marketplace account review route", () => {
         expect(sent[0]).toEqual(sent[1]);
       },
     );
-    function reportFormRequest() {
+    function reportFormRequest(intent = "report-review") {
       return new Request("http://localhost/account/reviews/rev_1", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          intent: "report-review",
+          intent,
           attemptId: "review_report_attempt_0001",
           reviewId: "rev_1",
           reason: "harassment-or-abuse",
@@ -395,41 +395,44 @@ describe("marketplace account review route", () => {
       ]);
     });
 
-    it("returns an explicit duplicate status for an account that already reported the review", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (input: string | URL | Request) => {
-          const url = requestUrl(input);
-          if (url.includes("/api/auth/session")) {
-            return jsonResponse({ actor });
-          }
-          if (url.includes("/api/marketplace/reviews/rev_1/report")) {
-            return jsonResponse(
-              {
-                error: {
-                  code: "report_already_submitted",
-                  message: "This reporter has already reported this content.",
+    it.each(["report-review", "confirm:report-review"])(
+      "returns an explicit duplicate status for %s",
+      async (intent) => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: string | URL | Request) => {
+            const url = requestUrl(input);
+            if (url.includes("/api/auth/session")) {
+              return jsonResponse({ actor });
+            }
+            if (url.includes("/api/marketplace/reviews/rev_1/report")) {
+              return jsonResponse(
+                {
+                  error: {
+                    code: "report_already_submitted",
+                    message: "This reporter has already reported this content.",
+                  },
                 },
-              },
-              409,
-            );
-          }
-          return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
-        }),
-      );
+                409,
+              );
+            }
+            return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+          }),
+        );
 
-      const result = await reviewAction({
-        request: reportFormRequest(),
-        params: { reviewId: "rev_1" },
-        context: undefined,
-      } as never);
+        const result = await reviewAction({
+          request: reportFormRequest(intent),
+          params: { reviewId: "rev_1" },
+          context: undefined,
+        } as never);
 
-      expect(result).toEqual({
-        reviewId: "rev_1",
-        status: "already-submitted",
-        attemptId: "review_report_attempt_0001",
-        mutationPhase: "succeeded",
-      });
-    });
+        expect(result).toEqual({
+          reviewId: "rev_1",
+          status: "already-submitted",
+          attemptId: "review_report_attempt_0001",
+          mutationPhase: "succeeded",
+        });
+      },
+    );
   });
 });

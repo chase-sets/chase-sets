@@ -100,7 +100,7 @@ describe("issue-5258-marketplace-ac5 report details stay private and unjudged", 
       const bodies = await Promise.all([accepted, duplicate, invalid].map((response) => response.text()));
 
       expect([accepted.status, duplicate.status, invalid.status]).toEqual([201, 409, 400]);
-      expect(JSON.parse(bodies[1]!).error.code).toBe("attempt_conflict");
+      expect(JSON.parse(bodies[1]!).error.code).toBe("report_already_submitted");
       expect(bodies.join("\n")).not.toContain("SECRET-MARKER-7281");
       expect(
         inspect(

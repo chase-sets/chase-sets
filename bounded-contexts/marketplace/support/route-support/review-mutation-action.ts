@@ -58,7 +58,9 @@ export async function runReviewMutation<T>(input: {
       if (observed.ownerStatus === "not-observed")
         return { attemptId, mutationPhase: "failed-safe", error: t("marketplace.reviewRecovery.notObserved") };
     } catch (error) {
-      if (input.code(error) === "attempt_conflict")
+      const code = input.code(error);
+      if (code === "report_already_submitted") throw error;
+      if (code === "attempt_conflict")
         return { attemptId, mutationPhase: "conflict", error: t("marketplace.reviewRecovery.changedRequest") };
     }
     return { attemptId, mutationPhase: "ambiguous", error: t("marketplace.reviewRecovery.unconfirmed") };

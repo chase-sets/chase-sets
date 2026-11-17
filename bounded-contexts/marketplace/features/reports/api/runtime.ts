@@ -48,6 +48,7 @@ import { marketplaceReporterFingerprint } from "./reporter";
 
 export const LISTING_REPORT_AUTO_UNLIST_THRESHOLD = 3;
 export const LISTING_REPORT_AUTO_UNLIST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const ALREADY_REPORTED = "This reporter has already reported this content.";
 
 type ListingReportInput = Readonly<{
   attemptId: string;
@@ -115,10 +116,14 @@ export function createMarketplaceReportRuntime(
         const actor = fact.reporterKind === "account" ? fact.reporterAccountId : fact.reporterKey;
         if (
           actor !== fact.recovery.actorBinding.accountId ||
+          actor !== binding.actorBinding.accountId ||
           event.forAccountId !== actor ||
           fact.reporterKey !== reporterKey ||
           fact.targetId !== fact.recovery.target.id ||
+          fact.targetId !== binding.target.id ||
+          fact.recovery.target.kind !== binding.target.kind ||
           fact.recovery.mutationKind !== `${fact.targetType}.report` ||
+          fact.recovery.mutationKind !== binding.mutationKind ||
           fact.recovery.canonicalRequestHash !==
             hashMarketplaceRequest(marketplaceCanonicalRequest(fact.recovery.mutationKind, fact))
         )
@@ -130,10 +135,11 @@ export function createMarketplaceReportRuntime(
       throw new MarketplaceAttemptError("history_incomplete", "Report history could not be confirmed.");
     if (history.state) {
       const fact = reportAttemptFactSchema.parse(history.state.payload);
+      assert(fact.recovery.attemptKeyFingerprint === binding.attemptKeyFingerprint, ALREADY_REPORTED);
       if (canonicalMarketplaceRequest(fact.recovery) !== canonicalMarketplaceRequest(binding))
         throw new MarketplaceAttemptError(
           "attempt_conflict",
-          "This reporter already used a different report attempt or payload.",
+          "This reporter already used this report attempt with a different payload.",
         );
     }
     return history.state;
@@ -157,7 +163,7 @@ export function createMarketplaceReportRuntime(
       ),
       limit: 1,
     });
-    if (legacy.length > 0) throw new Error("This reporter has already reported this content.");
+    assert(legacy.length === 0, ALREADY_REPORTED);
     try {
       const events = decideMarketplaceReport(initialMarketplaceReportState, { ...command, recovery: binding });
       const result = await deps.eventStore.appendToStream({
@@ -197,7 +203,7 @@ export function createMarketplaceReportRuntime(
     }
     const reporterKeys = new Set<string>();
     const windowStartsAt = Date.parse(countedAt) - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS;
-    let crossing: { reportId: string; submittedAt: string } | null = null;
+    const eligibleReports: { reportId: string; submittedAt: string }[] = [];
     for (const event of events) {
       if (event.eventType !== "marketplace.report.submitted") continue;
       const payload = event.payload as Record<string, unknown>;
@@ -218,27 +224,39 @@ export function createMarketplaceReportRuntime(
             payload.reporterKey.replace(/^(account|visitor):/, ""),
           );
       reporterKeys.add(key);
-      if (!crossing && reporterKeys.size >= LISTING_REPORT_AUTO_UNLIST_THRESHOLD)
-        crossing = { reportId: payload.reportId, submittedAt: payload.submittedAt };
+      if (reporterKeys.size >= LISTING_REPORT_AUTO_UNLIST_THRESHOLD)
+        eligibleReports.push({ reportId: payload.reportId, submittedAt: payload.submittedAt });
     }
-    if (crossing) {
+    let autoUnlisted = false;
+    if (eligibleReports.length > 0) {
+      const streamId = `marketplace.listing-${listingId}`;
       for (let retry = 0; retry < 3; retry++) {
-        const current = await listingRuntime.repository.load(`marketplace.listing-${listingId}`);
+        const current = await listingRuntime.repository.load(streamId);
+        const appliedSources = new Set(
+          current.state.appliedListingEnforcements.map(({ sourceActionId }) => sourceActionId),
+        );
+        autoUnlisted = appliedSources.has(reportId);
         if (current.state.status !== "active") break;
+        const source = eligibleReports.find((candidate) => !appliedSources.has(candidate.reportId));
+        if (!source) break;
         try {
-          await listingRuntime.commandHandler({
-            streamId: `marketplace.listing-${listingId}`,
+          const removal = await listingRuntime.commandHandler({
+            streamId,
+            expectedVersion: current.version,
             command: {
               type: "AutoUnlistListing",
-              reportId: crossing.reportId,
+              reportId: source.reportId,
               reportCount: reporterKeys.size,
               threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-              autoUnlistedAt: crossing.submittedAt,
+              autoUnlistedAt: source.submittedAt,
               listingEnforcementActionId: createId("lea"),
             },
             context,
           });
-          break;
+          autoUnlisted = removal.state.appliedListingEnforcements.some(
+            ({ sourceActionId }) => sourceActionId === reportId,
+          );
+          if (removal.state.status !== "active") break;
         } catch (error) {
           if ((error as { code?: string }).code !== "concurrency_conflict" || retry === 2) throw error;
         }
@@ -247,7 +265,7 @@ export function createMarketplaceReportRuntime(
     return {
       reportCount: reporterKeys.size,
       threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-      autoUnlisted: crossing?.reportId === reportId,
+      autoUnlisted,
     };
   }
 

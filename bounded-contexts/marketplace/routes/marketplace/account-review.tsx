@@ -137,6 +137,7 @@ export default function MarketplaceAccountReviewRoute() {
   const reportResult = actionData && "reviewId" in actionData ? (actionData as ReviewReportResult) : null;
   const replyResult = actionData && !("reviewId" in actionData) ? actionData : null;
   const submittingIntent = navigation.formData?.get("intent");
+  const isReportIntent = submittingIntent === "report-review" || submittingIntent === "confirm:report-review";
 
   if (!data.review) {
     return <ReviewDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
@@ -156,10 +157,10 @@ export default function MarketplaceAccountReviewRoute() {
       viewerAccountId={data.viewerAccountId}
       replyErrorMessage={replyResult?.error ?? null}
       replyRecovery={replyResult?.recovery ?? null}
-      isSubmittingReply={navigation.state === "submitting" && submittingIntent !== "report-review"}
+      isSubmittingReply={navigation.state === "submitting" && !isReportIntent}
       defaultReplyFeedback={replyResult?.values?.feedback ?? ""}
       reportResult={reportResult}
-      isSubmittingReport={navigation.state === "submitting" && submittingIntent === "report-review"}
+      isSubmittingReport={navigation.state === "submitting" && isReportIntent}
     />
   );
 }

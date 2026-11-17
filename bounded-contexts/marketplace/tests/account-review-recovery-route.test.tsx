@@ -4,6 +4,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import { ChaseRoot } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import { ReviewMutationForm, type ReviewMutationPhase } from "../features/reviews/ui/review-mutation-form";
 import { runReviewMutation } from "../support/route-support/review-mutation-action";
 import { marketplaceRequestHash } from "../features/mutation-recovery/api/client";
@@ -12,6 +13,7 @@ import PurchaseReviewRoute, {
   shouldRevalidate,
 } from "../routes/marketplace/account-purchase-review";
 import SaleReviewRoute, { action as saleAction } from "../routes/marketplace/account-sale-review";
+import AccountReviewRoute from "../routes/marketplace/account-review";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 function deferred<T>() {
@@ -156,6 +158,57 @@ describe("review recovery through a real data router", () => {
       }
     },
   );
+
+  it("shows pending report confirmation without showing a pending reply", async () => {
+    const pending = deferred<null>();
+    const path = "/account/reviews/rev_one";
+    const router = createMemoryRouter(
+      [
+        {
+          path,
+          loader: () => ({
+            viewerAccountId: "acc_subject",
+            review: {
+              review_id: "rev_one",
+              order_id: "ord_one",
+              author_account_id: "acc_author",
+              author_role: "buyer",
+              subject_account_id: "acc_subject",
+              status: "active",
+              rating: 5,
+              revealed_at: "2026-11-17T00:00:00.000Z",
+              held: false,
+              feedback_redacted_at: null,
+              reply_id: null,
+            },
+          }),
+          action: () => pending.promise,
+          element: <AccountReviewRoute />,
+        },
+      ],
+      { initialEntries: [path] },
+    );
+    try {
+      render(
+        <ChaseRoot>
+          <RouterProvider router={router} />
+        </ChaseRoot>,
+      );
+      const replyLabel = t("reputation.features.reviews.ui.reviewDetailPage.reply.submit");
+      await screen.findByRole("button", { name: replyLabel });
+      fireEvent.click(
+        screen.getByRole("button", { name: t("reputation.features.reviews.ui.reviewReportAction.title") }),
+      );
+      const formData = new FormData();
+      formData.set("intent", "confirm:report-review");
+      act(() => void router.navigate(path, { formMethod: "POST", formData }));
+      await screen.findByRole("button", { name: t("reputation.features.reviews.ui.reviewReportAction.submitting") });
+      expect(screen.getByText(replyLabel)).toBeTruthy();
+    } finally {
+      await act(async () => pending.resolve(null));
+      router.dispose();
+    }
+  });
 
   it.each(["committed", "not-observed", "ambiguous", "conflict"] as const)(
     "resolves possible-send loss once to %s without a fresh write",
