@@ -16,7 +16,7 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSellListReadinessSnapshot, parseSellListReadinessDecisionInput } from "../domain/readiness";
-import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
+import type { SellListSellerConfirmationEvidence } from "../domain/domain";
 import { listSellListReadinessLines, type CheckoutSellListLineRow } from "../read-model/queries";
 import { createCheckoutSellListRuntime } from "./runtime";
 import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "../../cart/integrations/marketplace/marketplace-projection";
@@ -32,6 +32,8 @@ import {
   fixtureLine,
   ownedAbsentRisk,
   ownerPortsFixture,
+  marketplaceHandoffFixture,
+  prepareSellerConfirmation,
   stamp,
 } from "./owner-read.fixture";
 
@@ -344,21 +346,6 @@ const sellerEvidence: SellListSellerConfirmationEvidence = {
   freshness: { status: "current" },
 };
 
-const handoffSummary: SellListConfirmationSummary = {
-  acceptedOfferCount: 1,
-  publishedListingCount: 0,
-  skippedLineCount: 0,
-  skippedReasons: [],
-  sideEffects: {
-    sale: "handoff-recorded",
-    label: "pending-downstream",
-    payout: "pending-downstream",
-    settlement: "pending-downstream",
-    notification: "pending-downstream",
-    accountHistory: "pending-downstream",
-  },
-};
-
 describe("sell list checkout runtime readiness boundary", () => {
   it("rejects unresolved sale-action readiness before seller checkout can confirm", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
@@ -380,10 +367,9 @@ describe("sell list checkout runtime readiness boundary", () => {
           confirmationId: "slc_unresolved",
           readinessSnapshotId: readiness.snapshotId,
           readinessSourceRevision: readiness.sourceRevision,
-          sellerEvidence,
-          handoffSummary,
         },
         context,
+        marketplaceHandoffFixture(),
       ),
     ).rejects.toThrow("Sell List readiness must be resolved before seller checkout starts.");
 
@@ -420,10 +406,9 @@ describe("sell list checkout runtime readiness boundary", () => {
           readinessDecisions: {
             lineActions: [{ lineId: "sll_product", action: "smart-match" }],
           },
-          sellerEvidence,
-          handoffSummary,
         },
         context,
+        marketplaceHandoffFixture(),
       ),
     ).rejects.toThrow("Sell List readiness snapshot is stale.");
 
@@ -447,10 +432,9 @@ describe("sell list checkout runtime readiness boundary", () => {
           confirmationId: "slc_missing_seller_evidence",
           readinessSnapshotId: readiness.snapshotId,
           readinessSourceRevision: readiness.sourceRevision,
-          sellerEvidence,
-          handoffSummary,
         },
         context,
+        marketplaceHandoffFixture(),
       ),
     ).rejects.toThrow("Sell List readiness snapshot is stale.");
 
@@ -458,13 +442,6 @@ describe("sell list checkout runtime readiness boundary", () => {
   });
 
   it("rejects selected-offer confirmation when payout evidence is not ready", async () => {
-    const restrictedPayoutEvidence: SellListSellerConfirmationEvidence = {
-      ...sellerEvidence,
-      payout: {
-        ...sellerEvidence.payout,
-        readinessStatus: "restricted",
-      },
-    };
     const f = checkoutOwnerRuntimeFixture();
     f.setPayout("restricted");
     const services = f.services;
@@ -486,26 +463,22 @@ describe("sell list checkout runtime readiness boundary", () => {
           confirmationId: "slc_restricted_payout",
           readinessSnapshotId: readiness.snapshotId,
           readinessSourceRevision: readiness.sourceRevision,
-          sellerEvidence: restrictedPayoutEvidence,
+
           ...choices,
-          handoffSummary,
         },
         context,
+        marketplaceHandoffFixture(),
       ),
     ).rejects.toThrow("Seller confirmation evidence must be ready before Sell List checkout can confirm.");
 
     expect(allEvents).toEqual([]);
   });
 
-  it("rejects product-line confirmation when seller evidence changed after readiness", async () => {
+  it("rejects product-line confirmation without stored review preparation", async () => {
     const decisions = {
       lineActions: [{ lineId: "sll_product", action: "smart-match" as const }],
     };
     const readiness = createSellListReadinessSnapshot([productLine], decisions, sellerEvidence);
-    const changedEvidence: SellListSellerConfirmationEvidence = {
-      ...sellerEvidence,
-      label: { status: "ready", preference: "seller-label-later" },
-    };
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSellListRuntime({
       eventStore,
@@ -522,10 +495,9 @@ describe("sell list checkout runtime readiness boundary", () => {
           readinessSnapshotId: readiness.snapshotId,
           readinessSourceRevision: readiness.sourceRevision,
           readinessDecisions: decisions,
-          sellerEvidence: changedEvidence,
-          handoffSummary,
         },
         context,
+        marketplaceHandoffFixture(),
       ),
     ).rejects.toThrow("Sell List readiness snapshot is stale.");
 
@@ -899,15 +871,25 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
               ),
             },
       );
-      const confirm = vi.fn(async (body: Parameters<typeof f.services.confirmSellListCheckout>[0]) => {
-        try {
-          return await f.services.confirmSellListCheckout({ ...body, sellerAccountId: "acc_seller" as never }, context);
-        } catch (error) {
-          throw new checkoutRequest.CheckoutApiError(400, {
-            error: { message: error instanceof Error ? error.message : "Refused" },
-          });
-        }
-      });
+      const confirm = vi.fn(
+        async (
+          body: Parameters<
+            ReturnType<typeof checkoutRequest.createCheckoutRequestApiClient>["confirmSellListCheckout"]
+          >[0],
+        ) => {
+          try {
+            return await f.services.confirmSellListCheckout(
+              { ...body, sellerAccountId: "acc_seller" as never },
+              context,
+              marketplaceRequest.createMarketplaceRequestApiClient(new Request("http://localhost")),
+            );
+          } catch (error) {
+            throw new checkoutRequest.CheckoutApiError(400, {
+              error: { message: error instanceof Error ? error.message : "Refused" },
+            });
+          }
+        },
+      );
       const spies = [
         vi.spyOn(auth, "resolveActorFromAuthApi").mockResolvedValue({
           accountId: "acc_seller",
@@ -1034,7 +1016,7 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
         const expectedChoices =
           scenario === "saved" ? { ...choices, shipFrom: { addressId: f.address.shipping_address_id } } : choices;
         expect(assess).toHaveBeenLastCalledWith(expect.objectContaining(expectedChoices));
-        if (scenario === "missing-fulfillment" || scenario === "evidence-drift") {
+        if (scenario === "missing-fulfillment") {
           expect(result).toMatchObject({
             status: "error",
             fieldErrors: {
@@ -1071,9 +1053,13 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
       await seedSellListAggregate(f.services, [line], f.memory.allEvents);
       const decisions = { lineActions: [{ lineId: line.line_id, action: "smart-match" as const }] };
       const request = { sellerAccountId: "acc_seller", ...choices, decisions };
-      const before = await f.services.createReadinessSnapshot(request);
+      const before = await prepareSellerConfirmation(f.services, "slc_smart_match_evidence", context, {
+        lines: [{ lineId: line.line_id, productOffers: [{ offerId: "off_fixture", feeQuoteFingerprint: "quote" }] }],
+      });
       expect(before.sellerReadiness.status).toBe("ready");
-      const evidence = f.getListingEvidence()!;
+      const eventsBeforeConfirm = f.memory.allEvents.length;
+      const evidence = structuredClone(f.getListingEvidence()!);
+      f.setListingEvidence(evidence);
       if (change === "missing") f.setListingEvidence(null);
       if (change === "incomplete") evidence.evidence_requirements.requirements.minimumPhotoCount = 1;
       if (change === "invalid-timestamp") evidence.updated_at = "not-a-timestamp";
@@ -1092,11 +1078,10 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
           confirmationId: "slc_smart_match_evidence",
           readinessSnapshotId: before.snapshotId,
           readinessSourceRevision: before.sourceRevision,
-          readinessDecisions: decisions,
-          sellerEvidence,
-          handoffSummary,
+          readinessDecisions: before.decisions,
         },
         context,
+        marketplaceHandoffFixture(),
       );
       if (change === "unchanged") {
         expect(after.snapshotId).toBe(before.snapshotId);
@@ -1105,7 +1090,7 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
       } else {
         expect(after.snapshotId).not.toBe(before.snapshotId);
         await expect(confirm).rejects.toThrow("Sell List readiness snapshot is stale.");
-        expect(f.memory.allEvents).toEqual([]);
+        expect(f.memory.allEvents).toHaveLength(eventsBeforeConfirm);
       }
     },
   );
@@ -1113,7 +1098,7 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
   it("reads the same owner/key twice, records risk-only drift and emits an executed timing capture", async () => {
     const f = checkoutOwnerRuntimeFixture();
     await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
-    const readiness = await f.services.createReadinessSnapshot({ sellerAccountId: "acc_seller", ...choices });
+    const readiness = await prepareSellerConfirmation(f.services, "slc_timing", context);
     expect(readiness.sellerReadiness.status).toBe("ready");
     f.ports.readRisk.mockResolvedValue({
       ...ownedAbsentRisk,
@@ -1127,14 +1112,17 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
         confirmationId: "slc_timing",
         readinessSnapshotId: readiness.snapshotId,
         readinessSourceRevision: readiness.sourceRevision,
-        sellerEvidence,
-        handoffSummary,
+        readinessDecisions: readiness.decisions,
+
         ...choices,
       },
       context,
+      marketplaceHandoffFixture(),
     );
     expect(confirmed.status).toBe("confirmed");
     expect(f.ports.readRisk.mock.calls).toEqual([
+      [{ kind: "account", accountId: "acc_seller" }],
+      [{ kind: "account", accountId: "acc_seller" }],
       [{ kind: "account", accountId: "acc_seller" }],
       [{ kind: "account", accountId: "acc_seller" }],
     ]);
@@ -1159,7 +1147,8 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
   it("refuses coherent Fulfillment revision drift before any confirmation event", async () => {
     const f = checkoutOwnerRuntimeFixture();
     await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
-    const readiness = await f.services.createReadinessSnapshot({ sellerAccountId: "acc_seller", ...choices });
+    const readiness = await prepareSellerConfirmation(f.services, "slc_drift", context);
+    const eventsBeforeConfirm = f.memory.allEvents.length;
     const resolved = await f.ports.resolveOrigin(
       { kind: "account", accountId: "acc_seller" as never },
       { origin: choices.shipFrom, labelPreference: choices.label.preference },
@@ -1175,14 +1164,15 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
           confirmationId: "slc_drift",
           readinessSnapshotId: readiness.snapshotId,
           readinessSourceRevision: readiness.sourceRevision,
-          sellerEvidence,
-          handoffSummary,
+          readinessDecisions: readiness.decisions,
+
           ...choices,
         },
         context,
+        marketplaceHandoffFixture(),
       ),
     ).rejects.toThrow("Sell List readiness snapshot is stale.");
-    expect(f.memory.allEvents).toEqual([]);
+    expect(f.memory.allEvents).toHaveLength(eventsBeforeConfirm);
   });
 
   it("fences even an empty merge and every replay before reading aggregates", async () => {
@@ -1374,6 +1364,313 @@ describe("API builds the existing Sell List review allocation", () => {
       lineActions: [{ lineId: "sll_product", action: "smart-match" }],
       lineOutcomes: [{ lineId: "sll_offer", outcome: "keep-in-list" }],
     });
+  });
+});
+
+describe("API-owned Marketplace handoff", () => {
+  async function prepared() {
+    const f = checkoutOwnerRuntimeFixture();
+    const lines: readonly CheckoutSellListLineRow[] = [
+      fixtureLine,
+      { ...fixtureLine, line_id: "sll_match", line_type: "product", offer_id: null, listing_id: null, quantity: 4 },
+      {
+        ...fixtureLine,
+        line_id: "sll_zfallback",
+        line_type: "product",
+        offer_id: null,
+        listing_id: null,
+        minimum_listing_price_amount: "10.00",
+      },
+    ];
+    f.setLines(lines);
+    const query = f.db.query.getMockImplementation()!;
+    f.db.query.mockImplementation(async (sql, args) => {
+      if (String(sql).includes("FROM checkout_supply_items"))
+        return {
+          rows: [
+            {
+              item_id: "inv_fallback",
+              product_id: fixtureLine.product_id,
+              available_quantity: 10,
+              selected_options: [],
+            },
+          ],
+        } as never;
+      const result = await query(sql, args);
+      if (String(sql).includes("WHERE offer.offer_id = $2")) {
+        return {
+          rows: result.rows.map((row) => ({
+            ...row,
+            offer_id: String(args?.[1]),
+            listing_id: args?.[1] === "off_fixture" ? "lst_fixture" : "lst_" + String(args?.[1]),
+          })),
+        } as never;
+      }
+      return result;
+    });
+    const selected = fixtureLine;
+    f.setLines([selected, ...lines.slice(1)]);
+    await seedSellListAggregate(f.services, [selected, ...lines.slice(1)], f.memory.allEvents);
+    const readiness = await prepareSellerConfirmation(f.services, "slc_api", context, {
+      lines: [
+        { lineId: selected.line_id, selectedOfferFeeQuoteFingerprint: "selected_quote" },
+        {
+          lineId: "sll_match",
+          productOffers: [
+            { offerId: "off_one", feeQuoteFingerprint: "one_quote" },
+            { offerId: "off_two", feeQuoteFingerprint: "two_quote" },
+          ],
+          fallbackListing: {
+            inventoryItemId: "inv_match",
+            priceAmount: "10.00",
+            priceCurrencyCode: "USD",
+            quantityCap: "1",
+          },
+        },
+        {
+          lineId: "sll_zfallback",
+          fallbackListing: {
+            inventoryItemId: "inv_fallback",
+            priceAmount: "10.00",
+            priceCurrencyCode: "USD",
+            quantityCap: "1",
+          },
+        },
+      ],
+    });
+    const request = {
+      sellerAccountId: "acc_seller" as never,
+      confirmationId: "slc_api",
+      ...choices,
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+      readinessDecisions: readiness.decisions,
+    };
+    const marketplace = marketplaceHandoffFixture();
+    return { f, request, marketplace };
+  }
+
+  it("confirm runs the stored-plan selected-offer, smart-match and fallback handoff", async () => {
+    const { f, request, marketplace } = await prepared();
+    const result = await f.services.confirmSellListCheckout(request, context, marketplace);
+    expect(marketplace.acceptOfferMatch.mock.calls).toEqual([
+      [
+        "off_fixture",
+        {
+          listingId: "lst_fixture",
+          feeQuoteFingerprint: "selected_quote",
+          sourceActionKey: "sell-confirm:slc_api:sll_fixture:selected:off_fixture",
+        },
+      ],
+      [
+        "off_one",
+        {
+          listingId: "lst_off_one",
+          feeQuoteFingerprint: "one_quote",
+          sourceActionKey: "sell-confirm:slc_api:sll_match:match:off_one",
+          acceptanceBatchId: "offer-acceptance:slc_api:sll_match",
+          acceptanceBatchSize: 2,
+        },
+      ],
+      [
+        "off_two",
+        {
+          listingId: "lst_off_two",
+          feeQuoteFingerprint: "two_quote",
+          sourceActionKey: "sell-confirm:slc_api:sll_match:match:off_two",
+          acceptanceBatchId: "offer-acceptance:slc_api:sll_match",
+          acceptanceBatchSize: 2,
+        },
+      ],
+    ]);
+    expect(marketplace.createListing.mock.calls.map(([body]) => body)).toEqual([
+      expect.objectContaining({
+        inventoryItemId: "inv_match",
+        listingIdOverride: "lst_slc_api_sll_match",
+        quantityCap: 1,
+      }),
+      expect.objectContaining({
+        inventoryItemId: "inv_fallback",
+        listingIdOverride: "lst_slc_api_sll_zfallback",
+        quantityCap: 1,
+      }),
+    ]);
+    expect(marketplace.acceptOfferMatch.mock.invocationCallOrder[2]).toBeLessThan(
+      marketplace.createListing.mock.invocationCallOrder[0]!,
+    );
+    expect(marketplace.publishListing.mock.calls.map(([id]) => id)).toEqual([
+      "lst_slc_api_sll_match",
+      "lst_slc_api_sll_zfallback",
+    ]);
+    const event = f.memory.allEvents.find((event) => event.eventType === "checkout.sell-list.checkout-confirmed")!;
+    expect(event.payload).toMatchObject({
+      completedLineIds: ["sll_fixture", "sll_zfallback"],
+      remainingLineQuantities: [{ lineId: "sll_match", quantity: 1 }],
+      handoffSummary: {
+        acceptedOfferCount: 3,
+        publishedListingCount: 2,
+        skippedLineCount: 0,
+        lineOutcomes: [
+          expect.objectContaining({ status: "completed" }),
+          expect.objectContaining({ status: "partial", action: "mixed", remainingQuantity: 1 }),
+          expect.objectContaining({ status: "completed" }),
+        ],
+        sideEffects: { sale: "handoff-recorded", payout: "pending-downstream" },
+      },
+    });
+    expect(result.confirmation.handoff_summary).toEqual(event.payload.handoffSummary);
+  });
+
+  it("posted handoff results cannot change the API-observed confirmation", async () => {
+    const { f, request, marketplace } = await prepared();
+    const result = await f.services.confirmSellListCheckout(
+      {
+        ...request,
+        handoffSummary: { acceptedOfferCount: 999 },
+        completedLineIds: ["sll_attacker"],
+        remainingLineQuantities: [{ lineId: "sll_fixture", quantity: 999 }],
+      } as typeof request,
+      context,
+      marketplace,
+    );
+    expect(result.completedLineIds).toEqual(["sll_fixture", "sll_zfallback"]);
+    expect(result.confirmation.handoff_summary.acceptedOfferCount).toBe(3);
+    const count = f.memory.allEvents.length;
+    await expect(f.services.confirmSellListCheckout(request, context, marketplace)).resolves.toEqual(result);
+    expect(f.memory.allEvents).toHaveLength(count);
+    expect(marketplace.acceptOfferMatch).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns API-observed Marketplace source receipts with the confirmation", async () => {
+    const { f, request, marketplace } = await prepared();
+    const commandReceipt = {
+      mode: "eventual",
+      commitPosition: "42",
+      commitEventIds: ["evt_marketplace"],
+      commitPositions: [{ sourceContextName: "marketplace", maxGlobalPosition: "42", eventIds: ["evt_marketplace"] }],
+    } as const;
+    marketplace.acceptOfferMatch.mockResolvedValueOnce({ id: "off_fixture", version: 4, commandReceipt } as never);
+    const result = await f.services.confirmSellListCheckout(request, context, marketplace);
+    expect(result.sourceReceipts).toEqual([{ commandReceipt }]);
+  });
+
+  it("confirmation duplicate is write-free", async () => {
+    const { f, request, marketplace } = await prepared();
+    const first = await f.services.confirmSellListCheckout(request, context, marketplace);
+    const events = f.memory.allEvents.length;
+    const writes = [marketplace.acceptOfferMatch, marketplace.createListing, marketplace.publishListing].map(
+      (fn) => fn.mock.calls.length,
+    );
+    f.setLines([]);
+    f.setPayout("restricted");
+    for (const services of [f.services, createCheckoutSellListRuntime(f.deps)]) {
+      await expect(services.confirmSellListCheckout(request, context, marketplace)).resolves.toEqual(first);
+      await expect(services.getConfirmation("acc_seller", request.confirmationId)).resolves.toEqual(first.confirmation);
+    }
+    expect(f.memory.allEvents).toHaveLength(events);
+    expect(
+      [marketplace.acceptOfferMatch, marketplace.createListing, marketplace.publishListing].map(
+        (fn) => fn.mock.calls.length,
+      ),
+    ).toEqual(writes);
+  });
+
+  it("records a partial-only confirmation without completing its remaining Sell List line", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    const line = { ...fixtureLine, line_type: "product" as const, offer_id: null, listing_id: null, quantity: 3 };
+    f.setLines([line]);
+    await seedSellListAggregate(f.services, [line], f.memory.allEvents);
+    const readiness = await prepareSellerConfirmation(f.services, "slc_partial", context, {
+      lines: [
+        {
+          lineId: line.line_id,
+          productOffers: [{ offerId: "off_fixture", feeQuoteFingerprint: "quote" }],
+          fallbackListing: {
+            inventoryItemId: "inv_partial",
+            priceAmount: "10.00",
+            priceCurrencyCode: "USD",
+            quantityCap: "1",
+          },
+        },
+      ],
+    });
+    const request = {
+      sellerAccountId: "acc_seller" as never,
+      confirmationId: "slc_partial",
+      ...choices,
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+      readinessDecisions: readiness.decisions,
+    };
+    const marketplace = marketplaceHandoffFixture();
+    const result = await f.services.confirmSellListCheckout(request, context, marketplace);
+    expect(result.completedLineIds).toEqual([]);
+    const event = f.memory.allEvents.find((event) => event.eventType === "checkout.sell-list.checkout-confirmed")!;
+    expect(event.payload).toMatchObject({
+      completedLineIds: [],
+      remainingLineQuantities: [{ lineId: line.line_id, quantity: 1 }],
+      handoffSummary: { lineOutcomes: [expect.objectContaining({ status: "partial", remainingQuantity: 1 })] },
+    });
+    const count = f.memory.allEvents.length;
+    await expect(f.services.confirmSellListCheckout(request, context, marketplace)).resolves.toEqual(result);
+    expect(f.memory.allEvents).toHaveLength(count);
+    expect(marketplace.acceptOfferMatch).toHaveBeenCalledOnce();
+    expect(marketplace.createListing).toHaveBeenCalledOnce();
+    expect(marketplace.publishListing).toHaveBeenCalledOnce();
+  });
+
+  it("confirmation changed hash conflicts", async () => {
+    const { f, request, marketplace } = await prepared();
+    await f.services.confirmSellListCheckout(request, context, marketplace);
+    const events = f.memory.allEvents.length;
+    await expect(
+      f.services.confirmSellListCheckout(
+        { ...request, label: { preference: "seller-label-later" } },
+        context,
+        marketplace,
+      ),
+    ).rejects.toMatchObject({ code: "checkout_confirmation_changed" });
+    expect(f.memory.allEvents).toHaveLength(events);
+    expect(marketplace.acceptOfferMatch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["missing", "foreign", "stale", "unresolved"])(
+    "invalid stored plan cannot start Marketplace handoff: %s",
+    async (kind) => {
+      const { f, request, marketplace } = await prepared();
+      if (kind === "unresolved") f.setPayout("restricted");
+      const invalid = {
+        ...request,
+        ...(kind === "missing" ? { confirmationId: "slc_missing" } : {}),
+        ...(kind === "foreign" ? { sellerAccountId: "acc_foreign" as never } : {}),
+        ...(kind === "stale" ? { readinessSnapshotId: "stale" } : {}),
+      };
+      const events = f.memory.allEvents.length;
+      await expect(f.services.confirmSellListCheckout(invalid, context, marketplace)).rejects.toThrow();
+      expect(marketplace.acceptOfferMatch).not.toHaveBeenCalled();
+      expect(marketplace.createListing).not.toHaveBeenCalled();
+      expect(marketplace.publishListing).not.toHaveBeenCalled();
+      expect(f.memory.allEvents).toHaveLength(events);
+    },
+  );
+
+  it("handoff refusal stops later lines", async () => {
+    const { f, request, marketplace } = await prepared();
+    marketplace.acceptOfferMatch.mockRejectedValueOnce(
+      new marketplaceRequest.MarketplaceApiError(409, { error: { code: "fee_quote_stale" } }),
+    );
+    const events = f.memory.allEvents.length;
+    await expect(f.services.confirmSellListCheckout(request, context, marketplace)).rejects.toMatchObject({
+      reason: { recovery: { kind: "readiness-stale" } },
+      lines: [
+        { lineId: "sll_fixture", status: "ambiguous" },
+        { lineId: "sll_match", status: "not-attempted" },
+        { lineId: "sll_zfallback", status: "not-attempted" },
+      ],
+    });
+    expect(marketplace.acceptOfferMatch).toHaveBeenCalledTimes(1);
+    expect(marketplace.createListing).not.toHaveBeenCalled();
+    expect(f.memory.allEvents).toHaveLength(events);
   });
 });
 

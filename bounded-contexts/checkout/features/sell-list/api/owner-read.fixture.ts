@@ -1,10 +1,15 @@
+import { createHash } from "node:crypto";
+import { hashMarketplaceRequest, marketplaceOfferCanonicalRequest } from "@chase-sets/marketplace/server";
+import type { MarketplaceRequestApiClient } from "./handoff-contracts";
 import { vi } from "vitest";
 import { isDeepStrictEqual } from "node:util";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { CheckoutSellerCheckoutOwners, SellerCheckoutRiskResult } from "../../../api";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createCheckoutSellListRuntime } from "./runtime";
+import { createCheckoutSellListRuntime, type CheckoutSellListServices } from "./runtime";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { SellListReviewSelections } from "./review-plan-contracts";
 import type { CheckoutCommercialTermsResolver, CheckoutSellListLineRow } from "../read-model/queries";
 
 export const stamp = "2026-11-06T01:02:03.000Z";
@@ -227,4 +232,63 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
       listingEvidence = value;
     },
   };
+}
+
+export function marketplaceHandoffFixture() {
+  const acceptOfferMatch = vi
+    .fn<MarketplaceRequestApiClient["acceptOfferMatch"]>()
+    .mockImplementation(async (offerId) => ({ id: offerId, version: 4 }) as never);
+  const getOfferAcceptanceAttempt = vi
+    .fn<MarketplaceRequestApiClient["getOfferAcceptanceAttempt"]>()
+    .mockImplementation(
+      async (offerId, body) =>
+        ({
+          schemaVersion: 1,
+          mutationKind: "offer.accept",
+          ownerStatus: "committed",
+          actorBinding: { accountId: "acc_seller" },
+          target: { kind: "offer", id: offerId },
+          attemptKeyFingerprint: createHash("sha256").update(body.sourceActionKey).digest("hex"),
+          canonicalRequestHash: hashMarketplaceRequest(
+            marketplaceOfferCanonicalRequest("offer.accept", { ...body, offerId }),
+          ),
+          ownerReceipt: { id: offerId, version: 4 },
+        }) as never,
+    );
+  const createListing = vi
+    .fn<MarketplaceRequestApiClient["createListing"]>()
+    .mockImplementation(
+      async (body) => ({ id: body.listingIdOverride, version: 1, feeQuoteFingerprint: "listing_quote" }) as never,
+    );
+  const publishListing = vi
+    .fn<MarketplaceRequestApiClient["publishListing"]>()
+    .mockImplementation(async (id) => ({ id, version: 2 }) as never);
+  return {
+    acceptOfferMatch,
+    getOfferAcceptanceAttempt,
+    createListing,
+    publishListing,
+  } satisfies MarketplaceRequestApiClient;
+}
+
+export async function prepareSellerConfirmation(
+  services: CheckoutSellListServices,
+  confirmationId: string,
+  context: EventStoreContext,
+  selections: SellListReviewSelections = {
+    lines: [{ lineId: fixtureLine.line_id, selectedOfferFeeQuoteFingerprint: "quote" }],
+  },
+) {
+  const issued = await services.createReviewReadiness({ sellerAccountId: "acc_seller", selections }, context);
+  const readiness = await services.createReadinessSnapshot(
+    {
+      sellerAccountId: "acc_seller",
+      confirmationId,
+      ...choices,
+      entryReadinessSnapshotId: issued.readiness.snapshotId,
+      entryReadinessSourceRevision: issued.readiness.sourceRevision,
+    },
+    context,
+  );
+  return { ...readiness, decisions: issued.decisions };
 }
