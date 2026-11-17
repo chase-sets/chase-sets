@@ -39,6 +39,7 @@ function endpointUrl(baseUrl) {
 function assertEnvironment(environment, input = {}) {
   if (environment === "sandbox") {
     const url = new URL(input.baseUrl);
+    const hostname = url.hostname.replace(/\.+$/, "");
     if (
       url.protocol !== "https:" ||
       url.username ||
@@ -46,8 +47,8 @@ function assertEnvironment(environment, input = {}) {
       url.pathname !== "/" ||
       url.search ||
       url.hash ||
-      url.hostname === "chasesets.com" ||
-      url.hostname.endsWith(".chasesets.com")
+      hostname === "chasesets.com" ||
+      hostname.endsWith(".chasesets.com")
     ) {
       throw new Error("Sandbox replacement requires an isolated HTTPS origin, never a shared Chase Sets environment.");
     }

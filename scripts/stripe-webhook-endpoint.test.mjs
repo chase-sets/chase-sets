@@ -290,6 +290,7 @@ describe("Stripe endpoint version replacement", () => {
   it("isolates sandbox targets and refuses shared origins and live keys before any request", async () => {
     const urls = [
       "https://marketplace.staging.chasesets.com",
+      "https://marketplace.staging.chasesets.com.",
       "https://marketplace.chasesets.com",
       "http://localhost",
       "https://isolated.test/path",
