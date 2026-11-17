@@ -1,4 +1,7 @@
-import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
+import type {
+  CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchReadModel,
+} from "../api/primary-workbench-admin-contracts";
 import type { CatalogMergeCandidateListItem, SourceObservationListItem } from "./contracts";
 import type { CatalogProviderProfileVersionReview } from "./contracts";
 import type { CatalogAliasReviewCandidateSummary } from "../../alias-equivalence/api/alias-review-admin-contracts";
@@ -9,7 +12,10 @@ export function resolveCatalogAuditSelection(
   input: Readonly<{
     routeContext: CatalogPrimaryWorkbenchRouteContext;
     scopePageVerified: boolean;
-    jobs: readonly Readonly<{ jobId: string; scopeMatchesRoute: boolean }>[];
+    jobs: readonly Pick<
+      CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number],
+      "jobId" | "syncRunId" | "providerKey" | "scopeMatchesRoute"
+    >[];
     observations: readonly SourceObservationListItem[];
     candidates: readonly CatalogMergeCandidateListItem[];
     providerKeys: readonly string[];
@@ -61,9 +67,24 @@ export function resolveCatalogAuditSelection(
           ...scopeObservationIds,
         ],
   );
+  const candidateRunIdsByProvider = new Map<string, Set<string>>();
+  for (const candidate of candidates) {
+    for (const member of candidate.membership_json) {
+      if (!member.syncRunId) continue;
+      const runIds = candidateRunIdsByProvider.get(member.providerKey) ?? new Set<string>();
+      runIds.add(member.syncRunId);
+      candidateRunIdsByProvider.set(member.providerKey, runIds);
+    }
+  }
   const jobIds = new Set(
     input.jobs
-      .filter((job) => !context.scopeRecordId || Boolean(context.importScope && job.scopeMatchesRoute))
+      .filter(
+        (job) =>
+          (!context.providerKey || job.providerKey === context.providerKey) &&
+          (reference?.kind === "candidate"
+            ? Boolean(job.syncRunId && candidateRunIdsByProvider.get(job.providerKey)?.has(job.syncRunId))
+            : !context.scopeRecordId || Boolean(context.importScope && job.scopeMatchesRoute)),
+      )
       .map((job) => job.jobId),
   );
   const catalogItemIds = new Set(
@@ -148,12 +169,7 @@ export function resolveCatalogAuditSelection(
         case "scope":
           return associated(row);
         case "candidate":
-          return Boolean(
-            (row.observationId && observationIds.has(row.observationId)) ||
-            (row.catalogItemId && catalogItemIds.has(row.catalogItemId)) ||
-            (row.targetType === "source-observation" && observationIds.has(row.targetId)) ||
-            (row.targetType === "catalog-item" && catalogItemIds.has(row.targetId)),
-          );
+          return associated(row);
         case "control-plane":
           return true;
         case "alias":

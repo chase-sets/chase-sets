@@ -24,6 +24,8 @@ import { catalogMergeCandidateListItem } from "./primary-workbench-test-fixtures
 import { catalogEntityEvidenceHref, parseCatalogEvidenceReference } from "./primary-workbench-evidence-reference";
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
+import { importJobsFor } from "./primary-workbench-import-jobs";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
 
 function entityInput(
   reference: string,
@@ -269,6 +271,105 @@ describe("Catalog primary workbench read model - audit evidence", () => {
     expect(audit.timeline.some((row) => row.targetId.startsWith("sha256:"))).toBe(false);
     const memberOnly = buildCatalogPrimaryWorkbenchReadModel({ ...input, reviewObservations: null }).auditEvidence;
     expect(memberOnly.timeline.some((row) => row.observationId === observation.observation_id)).toBe(true);
+  });
+
+  it("resolves candidate runs to loaded child job ids before source and final caps, never same-Scope jobs or run ids", () => {
+    const seed = catalogMergeCandidateListItem();
+    const candidate = {
+      ...seed,
+      candidate_id: "synthetic-candidate",
+      sync_run_ids_json: ["synthetic-sync-run"],
+      membership_json: seed.membership_json.map((member) => ({ ...member, syncRunId: "synthetic-sync-run" })),
+    };
+    const overview = controlPlaneOverview();
+    const entry = {
+      eventId: "synthetic-child-event",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      eventName: "import-job-started" as const,
+      category: "import-job" as const,
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      profileVersion: null,
+      actorUserId: null,
+      relatedJobId: "synthetic-child-job",
+      summary: "Synthetic child job evidence",
+      diagnosticCodes: [],
+    };
+    const input = entityInput(`candidate/${candidate.candidate_id}`, {
+      requestUrl: `https://admin.example/catalog/scopes/scope_pokemon_base_set?scopeRecordId=scope_pokemon_base_set&providerKey=tcgdex&importScope=en:3:base:base1&evidenceRef=candidate/${candidate.candidate_id}`,
+      mergeCandidates: { items: [candidate], total: 1, count: 1 },
+      controlPlaneOverview: {
+        ...overview,
+        unitActivity: {
+          ...overview.unitActivity,
+          units: [
+            {
+              unitKey: entry.unitKey,
+              recentJobs: [
+                ...Array.from({ length: 55 }, (_, index) =>
+                  integrationJobSummary({
+                    jobId: `unrelated-${index}`,
+                    syncRunId: `other-run-${index}`,
+                    importScope: "en:3:base:base1",
+                  }),
+                ),
+                integrationJobSummary({
+                  jobId: "synthetic-child-job",
+                  syncRunId: "synthetic-sync-run",
+                  createdAt: entry.occurredAt,
+                  startedAt: entry.occurredAt,
+                }),
+                integrationJobSummary({ jobId: "null-run-job", syncRunId: null }),
+                integrationJobSummary({
+                  jobId: "foreign-provider-job",
+                  providerKey: "other",
+                  syncRunId: "synthetic-sync-run",
+                }),
+              ],
+            },
+          ],
+        },
+        auditLifecycle: {
+          ...overview.auditLifecycle,
+          entries: [
+            ...Array.from({ length: 55 }, (_, index) => ({
+              ...entry,
+              eventId: `unrelated-${index}`,
+              relatedJobId: `unrelated-${index}`,
+              occurredAt: "2026-11-01T00:00:00.000Z",
+            })),
+            { ...entry, eventId: "invented-run-target", relatedJobId: "synthetic-sync-run" },
+            { ...entry, eventId: "foreign-provider-event", providerKey: "other", relatedJobId: "foreign-provider-job" },
+            entry,
+          ],
+        },
+      },
+    });
+    const audit = buildCatalogPrimaryWorkbenchReadModel(input).auditEvidence;
+    expect(audit.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+    const jobs = importJobsFor(
+      input.controlPlaneOverview,
+      parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl),
+      [],
+      Infinity,
+    );
+    expect(jobs.find((job) => job.jobId === "synthetic-child-job")).toMatchObject({ syncRunId: "synthetic-sync-run" });
+    expect(jobs.find((job) => job.jobId === "null-run-job")).toMatchObject({ syncRunId: null });
+    expect(audit.timeline.map((row) => row.eventId)).toContain("synthetic-child-event");
+    const jobRows = audit.timeline.filter((row) => row.targetType === "import-job");
+    expect(jobRows.map((row) => row.eventId)).toEqual(["synthetic-child-event", "job:synthetic-child-job:running"]);
+    expect(jobRows.every((row) => row.targetId === "synthetic-child-job")).toBe(true);
+    expect(audit.timeline.some((row) => row.eventId === "invented-run-target")).toBe(false);
+    expect(audit.timeline.every((row) => !row.jobId || row.jobId === "synthetic-child-job")).toBe(true);
+    const candidateOnlyUrl = new URL(input.requestUrl);
+    candidateOnlyUrl.searchParams.delete("providerKey");
+    candidateOnlyUrl.searchParams.delete("importScope");
+    const candidateOnly = buildCatalogPrimaryWorkbenchReadModel({
+      ...input,
+      requestUrl: candidateOnlyUrl,
+    }).auditEvidence;
+    expect(candidateOnly.timeline.map((row) => row.eventId)).toContain("synthetic-child-event");
+    expect(candidateOnly.timeline.every((row) => !row.jobId || row.jobId === "synthetic-child-job")).toBe(true);
   });
 
   it.each([

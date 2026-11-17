@@ -1264,6 +1264,7 @@ describe("Catalog primary workbench admin contracts", () => {
         jobs: [
           {
             jobId: "job_001",
+            syncRunId: null,
             action: "scope.import",
             state: "running",
             operatorStatus: "running",

@@ -129,12 +129,21 @@ export function auditEvidenceFor(input: {
         (row.targetType === "provider-profile" && row.providerKey
           ? { kind: "provider-profile", id: row.profileVersion ?? row.targetId, providerKey: row.providerKey }
           : { kind: row.targetType, id: row.targetType === "control-plane" ? "settings" : row.targetId });
-      const location =
-        row.targetType === "control-plane" && !selection.reference
-          ? "/catalog/integrations/settings"
-          : row.targetType === "provider-profile" && row.providerKey && !selection.reference
-            ? `/catalog/providers/${encodeURIComponent(row.providerKey)}?profileVersion=${encodeURIComponent(row.profileVersion ?? row.targetId)}`
-            : auditTimelineHref;
+      const location = new URL(auditTimelineHref, owner);
+      if (reference.kind === "control-plane") {
+        location.pathname = "/catalog/integrations/settings";
+      } else if (reference.kind === "provider-profile" && reference.providerKey) {
+        location.pathname = `/catalog/providers/${encodeURIComponent(reference.providerKey)}`;
+        location.searchParams.set("profileVersion", reference.id);
+      } else if (
+        location.pathname !== "/catalog/scopes" &&
+        location.pathname !== "/catalog/integrations/settings" &&
+        !/^\/catalog\/scopes\/[^/]+$/.test(location.pathname) &&
+        !/^\/catalog\/providers\/[^/]+$/.test(location.pathname)
+      ) {
+        const providerKey = row.providerKey ?? input.routeContext.providerKey;
+        location.pathname = providerKey ? `/catalog/providers/${encodeURIComponent(providerKey)}` : "/catalog/scopes";
+      }
       return {
         ...row,
         evidenceLinks: row.evidenceLinks.map((link) => ({

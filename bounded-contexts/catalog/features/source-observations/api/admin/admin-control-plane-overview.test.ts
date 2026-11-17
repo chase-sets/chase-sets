@@ -25,6 +25,7 @@ describe("Catalog integration control-plane overview", () => {
       ...Array.from({ length: 55 }, (_, index) => integrationJobFixture({ jobId: `newer-${index}` })),
       integrationJobFixture({
         jobId: "selected-older-job",
+        syncRunId: "synthetic-sync-run",
         createdAt: "2026-01-01T00:00:00.000Z",
         startedAt: "2026-01-01T00:00:00.000Z",
       }),
@@ -36,6 +37,9 @@ describe("Catalog integration control-plane overview", () => {
       "selected-older-job",
     );
     expect(full.auditLifecycle.entries.map((entry) => entry.relatedJobId)).toContain("selected-older-job");
+    const jobs = full.unitActivity.units.flatMap((unit) => unit.recentJobs);
+    expect(jobs.find((job) => job.jobId === "selected-older-job")).toMatchObject({ syncRunId: "synthetic-sync-run" });
+    expect(jobs.find((job) => job.jobId === "newer-0")).toMatchObject({ syncRunId: null });
     expect(daily.unitActivity.units.every((unit) => unit.recentJobs.length <= 10)).toBe(true);
     expect(daily.auditLifecycle.entries).toEqual([]);
   });

@@ -154,6 +154,7 @@ export function importJobsFor(
 
     return {
       jobId: job.jobId,
+      syncRunId: job.syncRunId,
       action: job.action === "reapply" ? "observation.reapply" : "scope.import",
       state,
       operatorStatus: job.operatorStatus,

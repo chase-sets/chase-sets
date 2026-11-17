@@ -41,6 +41,7 @@ export type CatalogIntegrationUnitActivity = Readonly<{
 
 export type CatalogIntegrationRecentJobSummary = Readonly<{
   jobId: string;
+  syncRunId: string | null;
   action: SourceObservationIntegrationJob["action"];
   operatorStatus: SourceObservationIntegrationJob["operatorStatus"];
   phase: SourceObservationIntegrationJob["progress"]["phase"];
@@ -551,6 +552,7 @@ function jobSummary(
 ): CatalogIntegrationRecentJobSummary {
   return {
     jobId: job.jobId,
+    syncRunId: job.syncRunId,
     action: job.action,
     operatorStatus: job.operatorStatus,
     phase: job.progress.phase,
