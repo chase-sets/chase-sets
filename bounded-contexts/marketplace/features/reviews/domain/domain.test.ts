@@ -38,6 +38,8 @@ describe("marketplace review domain", () => {
       subjectAccountId: "acc_buyer",
       authorRole: "seller",
     });
+    expect(buyerToSeller.map((event) => event.type)).toEqual(["marketplace.review.submitted"]);
+    expect(sellerToBuyer.map((event) => event.type)).toEqual(["marketplace.review.submitted"]);
   });
 
   it("submits, updates, and withdraws a review", async () => {

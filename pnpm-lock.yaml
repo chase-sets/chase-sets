@@ -764,9 +764,6 @@ importers:
       '@chase-sets/catalog-seed':
         specifier: workspace:*
         version: link:../../contracts/catalog-seed
-      '@chase-sets/customer-feedback':
-        specifier: workspace:*
-        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -825,9 +822,6 @@ importers:
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../commercial-terms
-      '@chase-sets/customer-feedback':
-        specifier: workspace:*
-        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system

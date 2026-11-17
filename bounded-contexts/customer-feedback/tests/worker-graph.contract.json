@@ -411,6 +411,51 @@
       "eventTypes": ["support.support-request.resolved"],
       "streamPrefixes": "<undefined>",
       "order": 7
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:marketplace:v1",
+      "handlers": {
+        "marketplace.listing.published": "<function>",
+        "marketplace.offer.accepted": "<function>",
+        "marketplace.review.submitted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["marketplace.listing.published", "marketplace.offer.accepted", "marketplace.review.submitted"],
+      "streamPrefixes": "<undefined>",
+      "order": 8
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "inventory",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:inventory:v1",
+      "handlers": {
+        "inventory.item.created": "<function>",
+        "inventory.item.adjusted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["inventory.item.created", "inventory.item.adjusted"],
+      "streamPrefixes": "<undefined>",
+      "order": 9
     }
   ],
   "subscriptions": [
@@ -591,6 +636,49 @@
       "projectionStatementTimeoutMs": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 7
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.listing.published": "<function>",
+        "marketplace.offer.accepted": "<function>",
+        "marketplace.review.submitted": "<function>"
+      },
+      "eventTypes": ["marketplace.listing.published", "marketplace.offer.accepted", "marketplace.review.submitted"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 8
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "inventory",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "inventory.item.created": "<function>",
+        "inventory.item.adjusted": "<function>"
+      },
+      "eventTypes": ["inventory.item.created", "inventory.item.adjusted"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 9
     }
   ]
 }
