@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 
 // Bypass control for the candidate matrix: with only the safeguard stubbed
 // out, every input the candidate rejects is accepted and appended. That
@@ -58,7 +59,14 @@ describe("issue-5258-marketplace-ac2 safeguard bypass control", () => {
     const { allEvents, runtime } = reviewRuntime();
 
     const { reviewId } = await runtime.submitReview(
-      { attemptId: "bypass_review_attempt_0001", orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 4, feedback: text },
+      {
+        attemptId: "bypass_review_attempt_0001",
+        orderId: "ord_1",
+        authorAccountId: "acc_buyer",
+        subjectAccountId: "acc_seller",
+        rating: 4,
+        feedback: text,
+      },
       context,
     );
     expect(allEvents.map((event) => event.eventType)).toEqual([
@@ -72,11 +80,15 @@ describe("issue-5258-marketplace-ac2 safeguard bypass control", () => {
       command: { type: "RevealReview", revealedAt: new Date().toISOString(), reason: "window-expired" },
       context,
     });
-    await runtime.submitReviewReply({ attemptId: "bypass_reply_attempt_0001", reviewId, subjectAccountId: "acc_seller", feedback: text },
-      { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } });
+    const reply = await runtime.submitReviewReply(
+      { attemptId: "bypass_reply_attempt_0001", reviewId, subjectAccountId: "acc_seller", feedback: text },
+      { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
+    );
     expect(allEvents.slice(-2).map((event) => event.eventType)).toEqual([
-      "marketplace.review.reply-submitted", "marketplace.mutation-attempt.completed",
+      "marketplace.review.reply-submitted",
+      "marketplace.mutation-attempt.completed",
     ]);
+    expect(getMutationResultCommandReceipt(reply)?.commitEventIds).toEqual([allEvents.at(-1)!.eventId]);
   });
 
   it.each(candidateRejectedText)("appends Listing Evidence descriptions the candidate rejects: %j", (text) => {

@@ -236,7 +236,10 @@ export function createAccountReviewRoutes(services: ReviewServices) {
         },
         context,
       );
-      return marketplaceReceiptResponse(c.json({ id: result.reviewId, version: result.version, status: "submitted" }, 201), result);
+      return marketplaceReceiptResponse(
+        c.json({ id: result.reviewId, version: result.version, status: "submitted" }, 201),
+        result,
+      );
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
@@ -356,10 +359,10 @@ export function createAccountReviewRoutes(services: ReviewServices) {
         },
         context,
       );
-      return marketplaceReceiptResponse(c.json(
-        { id: result.reviewId, replyId: result.replyId, version: result.version, status: "submitted" },
-        201,
-      ), result);
+      return marketplaceReceiptResponse(
+        c.json({ id: result.reviewId, replyId: result.replyId, version: result.version, status: "submitted" }, 201),
+        result,
+      );
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }

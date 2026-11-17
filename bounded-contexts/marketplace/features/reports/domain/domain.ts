@@ -108,7 +108,6 @@ export const decideMarketplaceReport: AggregateDecider<
             sourceRoutePath: normalizeRequiredText(command.sourceRoutePath, "Source route path is required."),
             submittedAt: normalizeRequiredText(command.submittedAt, "Submission timestamp is required."),
             ...(command.recovery ? { recovery: command.recovery } : {}),
-            ...(command.recovery ? { recovery: command.recovery } : {}),
           },
         },
       ];

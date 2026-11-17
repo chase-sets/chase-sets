@@ -113,22 +113,28 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         context,
       );
 
-      return marketplaceReceiptResponse(c.json(
-        {
-          id: result.reportId,
-          version: result.version,
-          status: "submitted",
-          targetType: "listing",
-          targetId: c.req.param("id"),
-          reportCount: result.reportCount,
-          threshold: result.threshold,
-          autoUnlisted: result.autoUnlisted,
-        },
-        201,
-      ), result);
+      return marketplaceReceiptResponse(
+        c.json(
+          {
+            id: result.reportId,
+            version: result.version,
+            status: "submitted",
+            targetType: "listing",
+            targetId: c.req.param("id"),
+            reportCount: result.reportCount,
+            threshold: result.threshold,
+            autoUnlisted: result.autoUnlisted,
+          },
+          201,
+        ),
+        result,
+      );
     } catch (error) {
       if (error instanceof MarketplaceAttemptError)
-        return c.json({ error: { code: error.code, message: error.message } }, error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400);
+        return c.json(
+          { error: { code: error.code, message: error.message } },
+          error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400,
+        );
       if (isDuplicateReportError(error)) {
         return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
       }
@@ -186,19 +192,25 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         context,
       );
 
-      return marketplaceReceiptResponse(c.json(
-        {
-          id: result.reportId,
-          version: result.version,
-          status: "submitted",
-          targetType: "review",
-          targetId: c.req.param("id"),
-        },
-        201,
-      ), result);
+      return marketplaceReceiptResponse(
+        c.json(
+          {
+            id: result.reportId,
+            version: result.version,
+            status: "submitted",
+            targetType: "review",
+            targetId: c.req.param("id"),
+          },
+          201,
+        ),
+        result,
+      );
     } catch (error) {
       if (error instanceof MarketplaceAttemptError)
-        return c.json({ error: { code: error.code, message: error.message } }, error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400);
+        return c.json(
+          { error: { code: error.code, message: error.message } },
+          error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400,
+        );
       if (isDuplicateReportError(error)) {
         return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
       }

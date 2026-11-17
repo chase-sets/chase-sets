@@ -94,7 +94,12 @@ export function marketplaceCanonicalRequest(kind: MarketplaceMutationKind, input
   if (kind === "offer-policy.command" || input === null) return input;
   const request = input as Record<string, unknown>;
   if (kind === "review.submit")
-    return { orderId: request.orderId, subjectAccountId: request.subjectAccountId, rating: request.rating, feedback: canonicalReviewText(request.feedback) };
+    return {
+      orderId: request.orderId,
+      subjectAccountId: request.subjectAccountId,
+      rating: request.rating,
+      feedback: canonicalReviewText(request.feedback),
+    };
   if (kind === "review.reply") return { reviewId: request.reviewId, feedback: canonicalReviewText(request.feedback) };
   if (kind === "review.report" || kind === "listing.report")
     return { targetId: request.targetId, reason: request.reason, details: canonicalReviewText(request.details) };
@@ -104,7 +109,7 @@ export function marketplaceCanonicalRequest(kind: MarketplaceMutationKind, input
 }
 
 function canonicalReviewText(value: unknown) {
-  return typeof value === "string" ? value.trim() || null : value ?? null;
+  return typeof value === "string" ? value.trim() || null : (value ?? null);
 }
 
 /** Normalizes a decimal money amount so `10`, `10.0` and `010.00` compare equal; anything else stays as sent. */

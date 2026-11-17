@@ -2,14 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  AppendToStreamInput,
-  GlobalPosition,
-  ReadAllInput,
-  ReadStreamInput,
-  StoredEvent,
-} from "@chase-sets/event-core/storage";
-import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import {
   createMarketplaceReportRuntime,
   LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
@@ -178,6 +171,10 @@ describe("Marketplace report runtime", () => {
       autoUnlisted: true,
     });
     expect(allEvents.map((event) => event.eventType)).toContain("marketplace.listing.auto-unlisted");
+    expect(allEvents.filter((event) => event.eventType === "marketplace.mutation-attempt.completed")).toHaveLength(
+      LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+    );
+    expect(getMutationResultCommandReceipt(thresholdResult)?.commitEventIds).toEqual([allEvents.at(-1)!.eventId]);
   });
 
   it("mints one listing enforcement identity per automatic removal and keeps the threshold payload", async () => {
@@ -255,8 +252,9 @@ describe("Marketplace report runtime", () => {
 
     const first = await reports.reportListing(input, context);
     expect(await reports.reportListing(input, context)).toEqual(first);
-    await expect(reports.reportListing({ ...input, attemptId: "different_report_attempt_0001" }, context))
-      .rejects.toMatchObject({ code: "attempt_conflict" });
+    await expect(
+      reports.reportListing({ ...input, attemptId: "different_report_attempt_0001" }, context),
+    ).rejects.toMatchObject({ code: "attempt_conflict" });
   });
 });
 
@@ -293,6 +291,11 @@ describe("Marketplace review report", () => {
     );
 
     expect(result.reportId).toMatch(/^rpt_/);
+    expect(allEvents.map((event) => event.eventType)).toEqual([
+      "marketplace.report.submitted",
+      "marketplace.mutation-attempt.completed",
+    ]);
+    expect(getMutationResultCommandReceipt(result)?.commitEventIds).toEqual([allEvents[1]!.eventId]);
     const submitted = allEvents.find((event) => event.eventType === "marketplace.report.submitted");
     expect(submitted?.payload).toMatchObject({
       targetType: "review",

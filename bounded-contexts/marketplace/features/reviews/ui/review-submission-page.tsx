@@ -386,7 +386,6 @@ export function ReviewSubmissionPage({
               ) : null}
               <ReviewMutationForm spacing="none" method="post" errorAnnouncement="summary" onSubmit={handleSubmit}>
                 <HiddenInput type="hidden" name="subjectAccountId" value={opportunity.subject_account_id} readOnly />
-                <HiddenInput type="hidden" name="subjectAccountId" value={opportunity.subject_account_id} readOnly />
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="rating" value={rating} />
                   {problemCategories.map((category) => (

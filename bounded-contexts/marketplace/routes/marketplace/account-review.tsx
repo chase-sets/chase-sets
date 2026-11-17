@@ -103,14 +103,20 @@ async function submitReply(request: Request, reviewId: string, formData: FormDat
   const api = createReputationRequestApiClient(request);
   const body = { attemptId: String(formData.get("attemptId") ?? ""), feedback };
   const outcome = await runReviewMutation({
-    formData, kind: "review.reply", target: reviewId, request: { reviewId, feedback },
+    formData,
+    kind: "review.reply",
+    target: reviewId,
+    request: { reviewId, feedback },
     send: () => api.submitReviewReply(reviewId, body),
     lookup: api.lookupMutationAttempt,
     isResponse: (error) => error instanceof ReputationApiError,
-    code: (error) => error instanceof ReputationApiError ? (error.body as { error?: { code?: string } })?.error?.code ?? null : null,
+    code: (error) =>
+      error instanceof ReputationApiError ? ((error.body as { error?: { code?: string } })?.error?.code ?? null) : null,
   });
   if (!("result" in outcome)) return { ...outcome, values: { feedback } };
-  return formActionRedirect(outcome.result, `/account/reviews/${reviewId}`, { telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY });
+  return formActionRedirect(outcome.result, `/account/reviews/${reviewId}`, {
+    telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY,
+  });
 }
 
 export const meta: MetaFunction = () =>

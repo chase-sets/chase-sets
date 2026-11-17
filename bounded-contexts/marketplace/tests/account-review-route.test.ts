@@ -216,7 +216,9 @@ describe("marketplace account review route", () => {
         context: undefined,
       } as never);
 
-      expect(replyBodies).toEqual([{ feedback: "Thanks for the feedback -- glad it arrived safely.", attemptId: "review_response_attempt_0001" }]);
+      expect(replyBodies).toEqual([
+        { feedback: "Thanks for the feedback -- glad it arrived safely.", attemptId: "review_response_attempt_0001" },
+      ]);
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
       expect(response.status).toBeGreaterThanOrEqual(300);
@@ -258,7 +260,8 @@ describe("marketplace account review route", () => {
 
       expect(result).toEqual({
         error: "A reply already exists for this review.",
-        attemptId: "review_response_attempt_0001", mutationPhase: "failed-safe",
+        attemptId: "review_response_attempt_0001",
+        mutationPhase: "failed-safe",
         values: { feedback: "Second reply attempt." },
       });
     });
@@ -288,7 +291,8 @@ describe("marketplace account review route", () => {
         const message = authoredTextRecoveryMessage(error.code);
         expect(result).toEqual({
           error: message,
-          attemptId: "review_response_attempt_0001", mutationPhase: "failed-safe",
+          attemptId: "review_response_attempt_0001",
+          mutationPhase: "failed-safe",
           values: { feedback: "Thanks https://a.example https://a.example" },
           recovery: { code: error.code, message, fieldLevel },
         });
@@ -301,23 +305,34 @@ describe("marketplace account review route", () => {
       "recovers each account report entry point by replaying only its retained identity",
       async (action) => {
         const sent: unknown[] = [];
-        vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-          const url = requestUrl(input);
-          if (url.includes("/api/auth/session")) return jsonResponse({ actor });
-          if (url.includes("/api/marketplace/reviews/rev_1/report")) {
-            const request = input instanceof Request ? input : new Request(url, init);
-            sent.push(await request.json());
-            if (sent.length === 1) throw new TypeError("response lost");
-            return jsonResponse({ id: "rpt_first", version: 1, status: "submitted" }, 201);
-          }
-          throw new Error(`Unexpected request: ${url}`);
-        }));
-        const first = await action({ request: reportFormRequest(), params: { reviewId: "rev_1" }, context: undefined } as never);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+            const url = requestUrl(input);
+            if (url.includes("/api/auth/session")) return jsonResponse({ actor });
+            if (url.includes("/api/marketplace/reviews/rev_1/report")) {
+              const request = input instanceof Request ? input : new Request(url, init);
+              sent.push(await request.json());
+              if (sent.length === 1) throw new TypeError("response lost");
+              return jsonResponse({ id: "rpt_first", version: 1, status: "submitted" }, 201);
+            }
+            throw new Error(`Unexpected request: ${url}`);
+          }),
+        );
+        const first = await action({
+          request: reportFormRequest(),
+          params: { reviewId: "rev_1" },
+          context: undefined,
+        } as never);
         expect(first).toMatchObject({ attemptId: "review_report_attempt_0001", mutationPhase: "confirming" });
         expect(sent).toHaveLength(1);
         const form = await reportFormRequest().formData();
         form.set("intent", "confirm:report-review");
-        const result = await action({ request: new Request("http://localhost/account/reviews/rev_1", { method: "POST", body: form }), params: { reviewId: "rev_1" }, context: undefined } as never);
+        const result = await action({
+          request: new Request("http://localhost/account/reviews/rev_1", { method: "POST", body: form }),
+          params: { reviewId: "rev_1" },
+          context: undefined,
+        } as never);
         expect(result).toMatchObject({ mutationPhase: "succeeded" });
         expect(sent).toHaveLength(2);
         expect(sent[0]).toEqual(sent[1]);
@@ -364,7 +379,12 @@ describe("marketplace account review route", () => {
         context: undefined,
       } as never);
 
-      expect(result).toEqual({ reviewId: "rev_1", status: "submitted", attemptId: "review_report_attempt_0001", mutationPhase: "succeeded" });
+      expect(result).toEqual({
+        reviewId: "rev_1",
+        status: "submitted",
+        attemptId: "review_report_attempt_0001",
+        mutationPhase: "succeeded",
+      });
       expect(reportBodies).toEqual([
         {
           reason: "harassment-or-abuse",
@@ -404,7 +424,12 @@ describe("marketplace account review route", () => {
         context: undefined,
       } as never);
 
-      expect(result).toEqual({ reviewId: "rev_1", status: "already-submitted", attemptId: "review_report_attempt_0001", mutationPhase: "succeeded" });
+      expect(result).toEqual({
+        reviewId: "rev_1",
+        status: "already-submitted",
+        attemptId: "review_report_attempt_0001",
+        mutationPhase: "succeeded",
+      });
     });
   });
 });

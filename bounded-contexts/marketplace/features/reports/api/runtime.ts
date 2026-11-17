@@ -6,19 +6,39 @@ import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/stor
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import {
-  decideMarketplaceListing, evolveMarketplaceListing, initialMarketplaceListingState,
+  decideMarketplaceListing,
+  evolveMarketplaceListing,
+  initialMarketplaceListingState,
   type MarketplaceListingEvent,
 } from "../../listings/domain/domain";
 import { getReviewModerationTarget } from "../../reviews/read-model/queries";
-import { createMarketplaceAttempt, MarketplaceAttemptError, hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
-import { readMarketplaceRecoveryHistory } from "../../mutation-recovery/domain/history";
-import { canonicalMarketplaceRequest, marketplaceCanonicalRequest, type MarketplaceMutationRecoveryResult } from "../../mutation-recovery/domain/contracts";
 import {
-  decideMarketplaceReport, evolveMarketplaceReport, initialMarketplaceReportState,
-  type MarketplaceReportCommand, type MarketplaceReportEvent, type MarketplaceReportState,
-  type MarketplaceListingReportReason, type MarketplaceReviewReportReason, type MarketplaceReporterKind,
+  createMarketplaceAttempt,
+  MarketplaceAttemptError,
+  hashMarketplaceRequest,
+} from "../../mutation-recovery/api/attempt";
+import { readMarketplaceRecoveryHistory } from "../../mutation-recovery/domain/history";
+import {
+  canonicalMarketplaceRequest,
+  marketplaceCanonicalRequest,
+  type MarketplaceMutationRecoveryResult,
+} from "../../mutation-recovery/domain/contracts";
+import {
+  decideMarketplaceReport,
+  evolveMarketplaceReport,
+  initialMarketplaceReportState,
+  type MarketplaceReportCommand,
+  type MarketplaceReportEvent,
+  type MarketplaceReportState,
+  type MarketplaceListingReportReason,
+  type MarketplaceReviewReportReason,
+  type MarketplaceReporterKind,
 } from "../domain/domain";
-import { listingReportAttemptResultSchema, reviewReportAttemptResultSchema, reportAttemptFactSchema } from "./attempt-result";
+import {
+  listingReportAttemptResultSchema,
+  reviewReportAttemptResultSchema,
+  reportAttemptFactSchema,
+} from "./attempt-result";
 import { marketplaceReporterFingerprint } from "./reporter";
 
 export const LISTING_REPORT_AUTO_UNLIST_THRESHOLD = 3;
@@ -60,49 +80,86 @@ function stableReportStreamId(targetType: "listing" | "review", targetId: string
   return `marketplace.report-${targetType}-${targetId}-${reporterKey}`.replace(/[^A-Za-z0-9_.:-]/g, "-");
 }
 
-export function createMarketplaceReportRuntime(deps: Readonly<{ eventStore: EventStore; db: PgQueryable }>): MarketplaceReportServices {
+export function createMarketplaceReportRuntime(
+  deps: Readonly<{ eventStore: EventStore; db: PgQueryable }>,
+): MarketplaceReportServices {
   const reportCodec = createPassthroughDomainEventCodec<MarketplaceReportEvent>();
   const { commandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore, codec: reportCodec, initialState: () => initialMarketplaceReportState,
-    evolve: evolveMarketplaceReport, decide: decideMarketplaceReport,
+    eventStore: deps.eventStore,
+    codec: reportCodec,
+    initialState: () => initialMarketplaceReportState,
+    evolve: evolveMarketplaceReport,
+    decide: decideMarketplaceReport,
   });
   const listingRuntime = createAggregateCommandHandler({
-    eventStore: deps.eventStore, codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
-    initialState: () => initialMarketplaceListingState, evolve: evolveMarketplaceListing, decide: decideMarketplaceListing,
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+    initialState: () => initialMarketplaceListingState,
+    evolve: evolveMarketplaceListing,
+    decide: decideMarketplaceListing,
   });
 
   async function readReport(streamId: string, binding: MarketplaceMutationRecoveryResult, reporterKey: string) {
-    const history = await readMarketplaceRecoveryHistory<StoredEvent | null>(deps.eventStore, streamId, null, (state, event) => {
-      if (state || event.eventType !== "marketplace.report.submitted") throw new Error("Invalid report history.");
-      const fact = reportAttemptFactSchema.parse(event.payload);
-      const actor = fact.reporterKind === "account" ? fact.reporterAccountId : fact.reporterKey;
-      if (actor !== fact.recovery.actorBinding.accountId || event.forAccountId !== actor ||
-          fact.reporterKey !== reporterKey || fact.targetId !== fact.recovery.target.id ||
+    const history = await readMarketplaceRecoveryHistory<StoredEvent | null>(
+      deps.eventStore,
+      streamId,
+      null,
+      (state, event) => {
+        if (state || event.eventType !== "marketplace.report.submitted") throw new Error("Invalid report history.");
+        const fact = reportAttemptFactSchema.parse(event.payload);
+        const actor = fact.reporterKind === "account" ? fact.reporterAccountId : fact.reporterKey;
+        if (
+          actor !== fact.recovery.actorBinding.accountId ||
+          event.forAccountId !== actor ||
+          fact.reporterKey !== reporterKey ||
+          fact.targetId !== fact.recovery.target.id ||
           fact.recovery.mutationKind !== `${fact.targetType}.report` ||
-          fact.recovery.canonicalRequestHash !== hashMarketplaceRequest(marketplaceCanonicalRequest(fact.recovery.mutationKind, fact)))
-        throw new Error("Invalid report binding.");
-      return event;
-    });
-    if (!history.complete) throw new MarketplaceAttemptError("history_incomplete", "Report history could not be confirmed.");
+          fact.recovery.canonicalRequestHash !==
+            hashMarketplaceRequest(marketplaceCanonicalRequest(fact.recovery.mutationKind, fact))
+        )
+          throw new Error("Invalid report binding.");
+        return event;
+      },
+    );
+    if (!history.complete)
+      throw new MarketplaceAttemptError("history_incomplete", "Report history could not be confirmed.");
     if (history.state) {
       const fact = reportAttemptFactSchema.parse(history.state.payload);
       if (canonicalMarketplaceRequest(fact.recovery) !== canonicalMarketplaceRequest(binding))
-        throw new MarketplaceAttemptError("attempt_conflict", "This reporter already used a different report attempt or payload.");
+        throw new MarketplaceAttemptError(
+          "attempt_conflict",
+          "This reporter already used a different report attempt or payload.",
+        );
     }
     return history.state;
   }
 
-  async function submitReport(command: MarketplaceReportCommand, binding: MarketplaceMutationRecoveryResult, context: EventStoreContext, legacyReporterKey: string) {
+  async function submitReport(
+    command: MarketplaceReportCommand,
+    binding: MarketplaceMutationRecoveryResult,
+    context: EventStoreContext,
+    legacyReporterKey: string,
+  ) {
     const streamId = stableReportStreamId(command.targetType, command.targetId, command.reporterKey);
     const prior = await readReport(streamId, binding, command.reporterKey);
     if (prior) return prior;
     const legacy = await deps.eventStore.readStream({
-      streamId: stableReportStreamId(command.targetType, command.targetId, `${command.reporterKind}:${legacyReporterKey.trim()}`), limit: 1,
+      streamId: stableReportStreamId(
+        command.targetType,
+        command.targetId,
+        `${command.reporterKind}:${legacyReporterKey.trim()}`,
+      ),
+      limit: 1,
     });
     assert(legacy.length === 0, "This reporter has already reported this content.");
     try {
       const events = decideMarketplaceReport(initialMarketplaceReportState, { ...command, recovery: binding });
-      const result = await deps.eventStore.appendToStream({ streamId, expectedVersion: "no_stream", events: events.map(reportCodec.encode), context });
+      const result = await deps.eventStore.appendToStream({
+        streamId,
+        expectedVersion: "no_stream",
+        events: events.map(reportCodec.encode),
+        context,
+      });
       const stored = result.storedEvents[0];
       assert(stored, "Report append returned no event.");
       return stored;
@@ -114,7 +171,12 @@ export function createMarketplaceReportRuntime(deps: Readonly<{ eventStore: Even
     }
   }
 
-  async function repairListingThreshold(listingId: string, reportId: string, countedAt: string, context: EventStoreContext) {
+  async function repairListingThreshold(
+    listingId: string,
+    reportId: string,
+    countedAt: string,
+    context: EventStoreContext,
+  ) {
     const events = await deps.eventStore.readAll();
     const reporterKeys = new Set<string>();
     const windowStartsAt = Date.parse(countedAt) - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS;
@@ -122,12 +184,22 @@ export function createMarketplaceReportRuntime(deps: Readonly<{ eventStore: Even
     for (const event of events) {
       if (event.eventType !== "marketplace.report.submitted") continue;
       const payload = event.payload as Record<string, unknown>;
-      if (payload.targetType !== "listing" || payload.targetId !== listingId || typeof payload.submittedAt !== "string" ||
-          !Number.isFinite(Date.parse(payload.submittedAt)) || Date.parse(payload.submittedAt) < windowStartsAt) continue;
+      if (
+        payload.targetType !== "listing" ||
+        payload.targetId !== listingId ||
+        typeof payload.submittedAt !== "string" ||
+        !Number.isFinite(Date.parse(payload.submittedAt)) ||
+        Date.parse(payload.submittedAt) < windowStartsAt
+      )
+        continue;
       if (typeof payload.reporterKey !== "string" || typeof payload.reportId !== "string")
         throw new MarketplaceAttemptError("history_incomplete", "Report threshold history is invalid.");
-      const key = payload.recovery ? payload.reporterKey : marketplaceReporterFingerprint(payload.reporterKind as MarketplaceReporterKind,
-        payload.reporterKey.replace(/^(account|visitor):/, ""));
+      const key = payload.recovery
+        ? payload.reporterKey
+        : marketplaceReporterFingerprint(
+            payload.reporterKind as MarketplaceReporterKind,
+            payload.reporterKey.replace(/^(account|visitor):/, ""),
+          );
       reporterKeys.add(key);
       if (!crossing && reporterKeys.size >= LISTING_REPORT_AUTO_UNLIST_THRESHOLD)
         crossing = { reportId: payload.reportId, submittedAt: payload.submittedAt };
@@ -137,18 +209,29 @@ export function createMarketplaceReportRuntime(deps: Readonly<{ eventStore: Even
         const current = await listingRuntime.repository.load(`marketplace.listing-${listingId}`);
         if (current.state.status !== "active") break;
         try {
-          await listingRuntime.commandHandler({ streamId: `marketplace.listing-${listingId}`, command: {
-            type: "AutoUnlistListing", reportId: crossing.reportId, reportCount: reporterKeys.size,
-            threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD, autoUnlistedAt: crossing.submittedAt,
-            listingEnforcementActionId: createId("lea"),
-          }, context });
+          await listingRuntime.commandHandler({
+            streamId: `marketplace.listing-${listingId}`,
+            command: {
+              type: "AutoUnlistListing",
+              reportId: crossing.reportId,
+              reportCount: reporterKeys.size,
+              threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+              autoUnlistedAt: crossing.submittedAt,
+              listingEnforcementActionId: createId("lea"),
+            },
+            context,
+          });
           break;
         } catch (error) {
           if ((error as { code?: string }).code !== "concurrency_conflict" || retry === 2) throw error;
         }
       }
     }
-    return { reportCount: reporterKeys.size, threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD, autoUnlisted: crossing?.reportId === reportId };
+    return {
+      reportCount: reporterKeys.size,
+      threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      autoUnlisted: crossing?.reportId === reportId,
+    };
   }
 
   return {
@@ -158,37 +241,85 @@ export function createMarketplaceReportRuntime(deps: Readonly<{ eventStore: Even
       const accountId = params.reporterKind === "account" ? params.reporterAccountId : reporterKey;
       assert(accountId, "Reporter is required.");
       if (params.reporterKind === "account") {
-        assert(params.reporterKey === accountId && suppliedContext.audit.forAccountId === accountId, "Report actor account mismatch.");
-      } else assert(params.reporterAccountId === null && params.reporterUserId === null, "Visitor reports cannot carry account authority.");
-      const context: EventStoreContext = { ...suppliedContext, audit: { ...suppliedContext.audit, forAccountId: accountId as AccountId } };
-      const attempt = createMarketplaceAttempt(deps.eventStore, {
-        attemptId: params.attemptId, mutationKind: "listing.report", accountId,
-        target: { kind: "listing", id: params.listingId },
-        request: { targetId: params.listingId, reason: params.reason, details: params.details ?? null },
-      }, listingReportAttemptResultSchema);
+        assert(
+          params.reporterKey === accountId && suppliedContext.audit.forAccountId === accountId,
+          "Report actor account mismatch.",
+        );
+      } else
+        assert(
+          params.reporterAccountId === null && params.reporterUserId === null,
+          "Visitor reports cannot carry account authority.",
+        );
+      const context: EventStoreContext = {
+        ...suppliedContext,
+        audit: { ...suppliedContext.audit, forAccountId: accountId as AccountId },
+      };
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId: params.attemptId,
+          mutationKind: "listing.report",
+          accountId,
+          target: { kind: "listing", id: params.listingId },
+          request: { targetId: params.listingId, reason: params.reason, details: params.details ?? null },
+        },
+        listingReportAttemptResultSchema,
+      );
       const first = await attempt.read();
       if (first) return first;
       const listing = (await listingRuntime.repository.load(`marketplace.listing-${params.listingId}`)).state;
       assert(listing.listingId !== null, "Listing not found.");
-      assert(!params.reporterAccountId || listing.accountId !== params.reporterAccountId, "Sellers cannot report their own listing.");
-      const report = await submitReport({
-        type: "SubmitMarketplaceReport", reportId: createId("rpt"), targetType: "listing", targetId: params.listingId,
-        targetOwnerAccountId: listing.accountId, reporterKind: params.reporterKind, reporterKey,
-        reporterAccountId: params.reporterAccountId, reporterUserId: params.reporterUserId, reason: params.reason,
-        details: params.details ?? null, sourceRoutePath: params.sourceRoutePath, submittedAt: new Date().toISOString(),
-      }, attempt.binding, context, params.reporterKey);
-      const threshold = await repairListingThreshold(params.listingId, (report.payload as { reportId: string }).reportId, (report.payload as { submittedAt: string }).submittedAt, context);
-      const result = { reportId: (report.payload as { reportId: string }).reportId, version: report.streamVersion, ...threshold };
+      assert(
+        !params.reporterAccountId || listing.accountId !== params.reporterAccountId,
+        "Sellers cannot report their own listing.",
+      );
+      const report = await submitReport(
+        {
+          type: "SubmitMarketplaceReport",
+          reportId: createId("rpt"),
+          targetType: "listing",
+          targetId: params.listingId,
+          targetOwnerAccountId: listing.accountId,
+          reporterKind: params.reporterKind,
+          reporterKey,
+          reporterAccountId: params.reporterAccountId,
+          reporterUserId: params.reporterUserId,
+          reason: params.reason,
+          details: params.details ?? null,
+          sourceRoutePath: params.sourceRoutePath,
+          submittedAt: new Date().toISOString(),
+        },
+        attempt.binding,
+        context,
+        params.reporterKey,
+      );
+      const threshold = await repairListingThreshold(
+        params.listingId,
+        (report.payload as { reportId: string }).reportId,
+        (report.payload as { submittedAt: string }).submittedAt,
+        context,
+      );
+      const result = {
+        reportId: (report.payload as { reportId: string }).reportId,
+        version: report.streamVersion,
+        ...threshold,
+      };
       return attempt.commit([], result, { id: result.reportId, version: result.version }, context);
     },
     async reportReview(params, context) {
       assert(context.audit.forAccountId === params.reporterAccountId, "Report actor account mismatch.");
       const reporterKey = marketplaceReporterFingerprint("account", params.reporterAccountId);
-      const attempt = createMarketplaceAttempt(deps.eventStore, {
-        attemptId: params.attemptId, mutationKind: "review.report", accountId: params.reporterAccountId,
-        target: { kind: "review", id: params.reviewId },
-        request: { targetId: params.reviewId, reason: params.reason, details: params.details ?? null },
-      }, reviewReportAttemptResultSchema);
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId: params.attemptId,
+          mutationKind: "review.report",
+          accountId: params.reporterAccountId,
+          target: { kind: "review", id: params.reviewId },
+          request: { targetId: params.reviewId, reason: params.reason, details: params.details ?? null },
+        },
+        reviewReportAttemptResultSchema,
+      );
       const first = await attempt.read();
       if (first) return first;
       const streamId = stableReportStreamId("review", params.reviewId, reporterKey);
@@ -199,12 +330,26 @@ export function createMarketplaceReportRuntime(deps: Readonly<{ eventStore: Even
         assert(review.status === "active", "This review is no longer active.");
         assert(review.revealed_at !== null, "This review has not been revealed yet.");
         assert(!review.held, "This review is not publicly available.");
-        report = await submitReport({
-          type: "SubmitMarketplaceReport", reportId: createId("rpt"), targetType: "review", targetId: params.reviewId,
-          targetOwnerAccountId: review.subject_account_id, reporterKind: "account", reporterKey,
-          reporterAccountId: params.reporterAccountId, reporterUserId: params.reporterUserId, reason: params.reason,
-          details: params.details ?? null, sourceRoutePath: params.sourceRoutePath, submittedAt: new Date().toISOString(),
-        }, attempt.binding, context, params.reporterAccountId);
+        report = await submitReport(
+          {
+            type: "SubmitMarketplaceReport",
+            reportId: createId("rpt"),
+            targetType: "review",
+            targetId: params.reviewId,
+            targetOwnerAccountId: review.subject_account_id,
+            reporterKind: "account",
+            reporterKey,
+            reporterAccountId: params.reporterAccountId,
+            reporterUserId: params.reporterUserId,
+            reason: params.reason,
+            details: params.details ?? null,
+            sourceRoutePath: params.sourceRoutePath,
+            submittedAt: new Date().toISOString(),
+          },
+          attempt.binding,
+          context,
+          params.reporterAccountId,
+        );
       }
       const result = { reportId: (report.payload as { reportId: string }).reportId, version: report.streamVersion };
       return attempt.commit([], result, { id: result.reportId, version: result.version }, context);

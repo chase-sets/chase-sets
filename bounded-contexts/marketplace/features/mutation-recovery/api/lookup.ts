@@ -44,19 +44,24 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
       ownerStatus: "not-observed",
     };
     const resultSchema =
-      input.mutationKind === "review.submit" ? reviewAttemptResultSchema
-        : input.mutationKind === "review.reply" ? reviewReplyAttemptResultSchema
-        : input.mutationKind === "review.report" ? reviewReportAttemptResultSchema
-        : input.mutationKind === "listing.report" ? listingReportAttemptResultSchema
-        : input.mutationKind === "offer.accept"
-        ? offerAcceptanceResultSchema
-        : input.mutationKind === "offer-policy.command"
-          ? offerPolicyAttemptResultSchema
-          : input.mutationKind === "offer.update-price"
-            ? offerPriceAttemptResultSchema
-            : offerAttemptResultSchema;
+      input.mutationKind === "review.submit"
+        ? reviewAttemptResultSchema
+        : input.mutationKind === "review.reply"
+          ? reviewReplyAttemptResultSchema
+          : input.mutationKind === "review.report"
+            ? reviewReportAttemptResultSchema
+            : input.mutationKind === "listing.report"
+              ? listingReportAttemptResultSchema
+              : input.mutationKind === "offer.accept"
+                ? offerAcceptanceResultSchema
+                : input.mutationKind === "offer-policy.command"
+                  ? offerPolicyAttemptResultSchema
+                  : input.mutationKind === "offer.update-price"
+                    ? offerPriceAttemptResultSchema
+                    : offerAttemptResultSchema;
     const completedSchema = completedMarketplaceAttemptSchema<unknown>(resultSchema);
     let wrongOwner = false;
+    let completedResult: unknown;
     const reader = {
       readStream: async (request: Parameters<EventStore["readStream"]>[0]) => {
         const events = await eventStore.readStream(request);
@@ -72,6 +77,7 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
         if (state || event.eventType !== "marketplace.mutation-attempt.completed")
           throw new Error("Invalid attempt history.");
         const completed = completedSchema.parse(event.payload);
+        completedResult = completed.result;
         if (completed.recovery.ownerStatus !== "committed" || !completed.recovery.ownerReceipt)
           throw new Error("Invalid receipt.");
         return withMarketplaceAttemptReceipt(completed.recovery, event);
@@ -95,8 +101,7 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
       return notObserved;
     }
     try {
-      const events = await eventStore.readStream({ streamId: marketplaceAttemptStream(binding), limit: 1 });
-      await validateReviewReportOutcome(eventStore, prior, completedSchema.parse(events[0]?.payload).result);
+      await validateReviewReportOutcome(eventStore, prior, completedResult);
     } catch {
       return { ...notObserved, ownerStatus: "ambiguous", reason: "history-incomplete" };
     }

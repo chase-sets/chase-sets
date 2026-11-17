@@ -46,13 +46,15 @@ export async function submitReviewReport(
       sourceRoutePath: new URL(request.url).pathname,
     };
     const outcome = await runReviewMutation({
-      formData, kind: "review.report", target: reviewId,
+      formData,
+      kind: "review.report",
+      target: reviewId,
       request: { targetId: reviewId, ...body },
       send: () => api.reportReview(reviewId, body),
       replay: () => api.reportReview(reviewId, body),
       lookup: api.lookupMutationAttempt,
       isResponse: (error) => error instanceof MarketplaceApiError,
-      code: (error) => error instanceof MarketplaceApiError ? reportErrorCode(error) : null,
+      code: (error) => (error instanceof MarketplaceApiError ? reportErrorCode(error) : null),
     });
     if (!("result" in outcome)) return { ...outcome, reviewId, status: "error", values: { reason, details } };
     return { reviewId, status: "submitted", attemptId, mutationPhase: "succeeded" };
@@ -65,6 +67,14 @@ export async function submitReviewReport(
     ) {
       return { reviewId, status: "already-submitted", attemptId, mutationPhase: "succeeded" };
     }
-    return { reviewId, status: "error", message: reportErrorMessage(error), error: reportErrorMessage(error), values: { reason, details }, attemptId, mutationPhase: "failed-safe" };
+    return {
+      reviewId,
+      status: "error",
+      message: reportErrorMessage(error),
+      error: reportErrorMessage(error),
+      values: { reason, details },
+      attemptId,
+      mutationPhase: "failed-safe",
+    };
   }
 }

@@ -102,7 +102,9 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
     const api = createReputationRequestApiClient(request);
 
     try {
-      const subjectAccountId = String(formData.get("subjectAccountId") ?? (await api.getOrderReviewOpportunity(orderId)).subject_account_id);
+      const subjectAccountId = String(
+        formData.get("subjectAccountId") ?? (await api.getOrderReviewOpportunity(orderId)).subject_account_id,
+      );
       const body = {
         attemptId: String(formData.get("attemptId") ?? ""),
         orderId,
@@ -111,11 +113,17 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
         feedback,
       };
       const outcome = await runReviewMutation({
-        formData, kind: "review.submit", target: orderId, request: body,
+        formData,
+        kind: "review.submit",
+        target: orderId,
+        request: body,
         send: () => api.submitReview(body),
         lookup: api.lookupMutationAttempt,
         isResponse: (error) => error instanceof ReputationApiError,
-        code: (error) => error instanceof ReputationApiError ? (error.body as { error?: { code?: string } })?.error?.code ?? null : null,
+        code: (error) =>
+          error instanceof ReputationApiError
+            ? ((error.body as { error?: { code?: string } })?.error?.code ?? null)
+            : null,
       });
       if (!("result" in outcome)) return { ...outcome, values: { rating, feedback } };
       const review = outcome.result as { id: string };
@@ -165,6 +173,9 @@ export function ReviewSubmissionRoute({ config }: { config: ReviewSubmissionRout
   );
 }
 
-export function shouldRevalidateReviewSubmission({ actionResult, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) {
+export function shouldRevalidateReviewSubmission({
+  actionResult,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
   return actionResult?.mutationPhase ? false : defaultShouldRevalidate;
 }

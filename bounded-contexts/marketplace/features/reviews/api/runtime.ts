@@ -372,13 +372,17 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
 
       assert(authorAccountId !== subjectAccountId, "Accounts cannot review themselves.");
       assert(context.audit.forAccountId === authorAccountId, "Review actor account mismatch.");
-      const attempt = createMarketplaceAttempt(deps.eventStore, {
-        attemptId: params.attemptId,
-        mutationKind: "review.submit",
-        accountId: authorAccountId,
-        target: { kind: "order", id: orderId },
-        request: params,
-      }, reviewAttemptResultSchema);
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId: params.attemptId,
+          mutationKind: "review.submit",
+          accountId: authorAccountId,
+          target: { kind: "order", id: orderId },
+          request: params,
+        },
+        reviewAttemptResultSchema,
+      );
       const first = await attempt.read();
       if (first) return first;
 
@@ -418,6 +422,8 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         subjectAccountId,
       });
       if (existingReview) {
+        const committed = await attempt.read();
+        if (committed) return committed;
         throw new ReputationDomainError("An active review already exists for this order and direction.");
       }
 
@@ -425,32 +431,39 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       const scoringState = await loadReviewScoring(orderId);
       const scoring = reviewScoringForAuthorRole(scoringState, authorRole);
       const events = decideReview(initialReviewState, {
-          type: "SubmitReview",
-          reviewId,
-          orderId,
-          authorAccountId,
-          subjectAccountId,
-          authorRole,
-          rating: normalizeRating(params.rating),
-          feedback: params.feedback ?? null,
-          submittedAt,
-          reviewWindowExpiresAt,
-          scoringDisposition: scoring.scoringDisposition,
-          scoringReasonCode: scoring.reasonCode,
-          scoringPolicyVersion: marketplaceReviewScoringPolicyVersion,
-          scoringSourceFactVersions: Object.values(scoringState.supportFacts).map((fact) => ({
-            supportRequestId: fact.supportRequestId,
-            sourceStreamVersion: fact.sourceStreamVersion,
-            status: fact.status,
-          })),
-          scoringOperationalSignal: scoringState.operationalSignal,
+        type: "SubmitReview",
+        reviewId,
+        orderId,
+        authorAccountId,
+        subjectAccountId,
+        authorRole,
+        rating: normalizeRating(params.rating),
+        feedback: params.feedback ?? null,
+        submittedAt,
+        reviewWindowExpiresAt,
+        scoringDisposition: scoring.scoringDisposition,
+        scoringReasonCode: scoring.reasonCode,
+        scoringPolicyVersion: marketplaceReviewScoringPolicyVersion,
+        scoringSourceFactVersions: Object.values(scoringState.supportFacts).map((fact) => ({
+          supportRequestId: fact.supportRequestId,
+          sourceStreamVersion: fact.sourceStreamVersion,
+          status: fact.status,
+        })),
+        scoringOperationalSignal: scoringState.operationalSignal,
       });
-      const result = await attempt.commit([{
-        streamId: `marketplace.review-${reviewId}`,
-        expectedVersion: "no_stream",
-        events: events.map(createPassthroughDomainEventCodec<ReviewEvent>().encode),
+      const result = await attempt.commit(
+        [
+          {
+            streamId: `marketplace.review-${reviewId}`,
+            expectedVersion: "no_stream",
+            events: events.map(createPassthroughDomainEventCodec<ReviewEvent>().encode),
+            context,
+          },
+        ],
+        { reviewId, version: events.length },
+        { id: reviewId, version: events.length },
         context,
-      }], { reviewId, version: events.length }, { id: reviewId, version: events.length }, context);
+      );
 
       // Double-blind reveal (m108): if the counterpart review for this
       // order already submitted and is still pending, reveal both now rather
@@ -553,13 +566,17 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     },
     async submitReviewReply(params, context) {
       assert(context.audit.forAccountId === params.subjectAccountId, "Review actor account mismatch.");
-      const attempt = createMarketplaceAttempt(deps.eventStore, {
-        attemptId: params.attemptId,
-        mutationKind: "review.reply",
-        accountId: params.subjectAccountId,
-        target: { kind: "review", id: params.reviewId },
-        request: params,
-      }, reviewReplyAttemptResultSchema);
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId: params.attemptId,
+          mutationKind: "review.reply",
+          accountId: params.subjectAccountId,
+          target: { kind: "review", id: params.reviewId },
+          request: params,
+        },
+        reviewReplyAttemptResultSchema,
+      );
       const first = await attempt.read();
       if (first) return first;
       const current = await reviewRuntime.repository.load(`marketplace.review-${params.reviewId}`);
@@ -577,19 +594,26 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       }
       const replyId = createId("rvr");
       const events = decideReview(review, {
-          type: "SubmitReviewReply",
-          replyId,
-          subjectAccountId: params.subjectAccountId,
-          feedback: params.feedback,
-          submittedAt: new Date().toISOString(),
+        type: "SubmitReviewReply",
+        replyId,
+        subjectAccountId: params.subjectAccountId,
+        feedback: params.feedback,
+        submittedAt: new Date().toISOString(),
       });
       const result = { reviewId: params.reviewId, replyId, version: current.version + events.length };
-      return attempt.commit([{
-        streamId: `marketplace.review-${params.reviewId}`,
-        expectedVersion: current.version,
-        events: events.map(createPassthroughDomainEventCodec<ReviewEvent>().encode),
+      return attempt.commit(
+        [
+          {
+            streamId: `marketplace.review-${params.reviewId}`,
+            expectedVersion: current.version,
+            events: events.map(createPassthroughDomainEventCodec<ReviewEvent>().encode),
+            context,
+          },
+        ],
+        result,
+        { id: params.reviewId, version: result.version },
         context,
-      }], result, { id: params.reviewId, version: result.version }, context);
+      );
     },
     async operatorWithdrawReviewReply(params, context) {
       const result = await commandHandler({

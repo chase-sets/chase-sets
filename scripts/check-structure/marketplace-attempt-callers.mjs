@@ -139,7 +139,8 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false, rev
           const tool = property("name")?.initializer;
           const args = property("arguments")?.initializer;
           if (
-            !reviewReport && tool &&
+            !reviewReport &&
+            tool &&
             ts.isStringLiteral(tool) &&
             (listing
               ? /^marketplace\.(create-listing|update-listing-price|publish-listing|unpublish-listing)$/
@@ -164,13 +165,24 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false, rev
           name === "commandHandler" &&
           /type:\s*["'](?:SubmitOffer|AcceptOffer|UpdateOfferPrice|DeclineOfferMatch)["']/.test(node.getText(ast));
         const policyCommand = name === "execute" && policy;
-        const reviewReportCommand = reviewReport && name === "commandHandler" &&
+        const reviewReportCommand =
+          reviewReport &&
+          name === "commandHandler" &&
           /type:\s*["'](?:SubmitReview|SubmitReviewReply|SubmitMarketplaceReport)["']/.test(node.getText(ast));
         // Handler fixtures deliberately exercise invalid commands; transport callers are never exempt.
-        if ((listing || !isTest) && (activeMethods.has(name) || (reviewReport ? reviewReportCommand : !listing && (offerCommand || policyCommand))))
+        if (
+          (listing || !isTest) &&
+          (activeMethods.has(name) ||
+            (reviewReport ? reviewReportCommand : !listing && (offerCommand || policyCommand)))
+        )
           add(node, name);
-        if (reviewReport && name === "$post" && /client\.(?:reviews|listings)/.test(expression.getText(ast)) &&
-            (/\.report\./.test(expression.getText(ast)) || /^client\.reviews(?:\[.*\]\.reply)?\.\$post$/.test(expression.getText(ast))))
+        if (
+          reviewReport &&
+          name === "$post" &&
+          /client\.(?:reviews|listings)/.test(expression.getText(ast)) &&
+          (/\.report\./.test(expression.getText(ast)) ||
+            /^client\.reviews(?:\[.*\]\.reply)?\.\$post$/.test(expression.getText(ast)))
+        )
           add(node, "typed-http-review-report");
         // HTTP transport producers (e.g. Playwright `request.post(url, { data })`). Route registrations
         // pass a handler, not an options object, so they never match.
@@ -183,18 +195,28 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false, rev
           ts.isPropertyAccessExpression(expression) &&
           /^(post|patch|put)$/.test(expression.name.text)
         ) {
-          const command = (reviewReport ? httpReviewReportCommands : listing ? httpListingCommands : httpOfferCommands).find(([pattern]) =>
-            pattern.test(url.split("?")[0]),
-          );
+          const command = (
+            reviewReport ? httpReviewReportCommands : listing ? httpListingCommands : httpOfferCommands
+          ).find(([pattern]) => pattern.test(url.split("?")[0]));
           if (command) add(node, command[1], options.getText(ast));
         }
       }
-      if (ts.isJsxElement(node) && /^(Form|RouterForm|ReviewMutationForm)$/.test(node.openingElement.tagName.getText(ast))) {
+      if (
+        ts.isJsxElement(node) &&
+        /^(Form|RouterForm|ReviewMutationForm)$/.test(node.openingElement.tagName.getText(ast))
+      ) {
         const call = node.getText(ast);
-        if (reviewReport && /name=["'](?:intent|rating)["']/.test(call) &&
-            (/value=["'](?:report-listing|report-review|reply)["']/.test(call) || /name=["']rating["']/.test(call)))
+        if (
+          reviewReport &&
+          /name=["'](?:intent|rating)["']/.test(call) &&
+          (/value=["'](?:report-listing|report-review|reply)["']/.test(call) || /name=["']rating["']/.test(call))
+        )
           add(node, "review-report-form");
-        if (!reviewReport && !listing && /name=["']intent["']\s+value=["'](?:decline-offer|accept-offer)["']/.test(call)) {
+        if (
+          !reviewReport &&
+          !listing &&
+          /name=["']intent["']\s+value=["'](?:decline-offer|accept-offer)["']/.test(call)
+        ) {
           add(node, "offer-command-form");
         }
         if (
@@ -247,8 +269,11 @@ export function unpartitionedReviewReportAttemptCallers(callers) {
     if (proof === "attempt-form") return !/^<ReviewMutationForm\b/.test(caller.call);
     if (proof === "attempt-input") return !/\battemptId\b/.test(evidence);
     if (proof === "typed-forwarding") return !/json:\s*body/.test(caller.call);
-    return proof !== "fixed-review-stream-history" || caller.method !== "commandHandler" ||
-      !/streamId:\s*(buyer|seller)ReviewStreamId/.test(caller.call);
+    return (
+      proof !== "fixed-review-stream-history" ||
+      caller.method !== "commandHandler" ||
+      !/streamId:\s*(buyer|seller)ReviewStreamId/.test(caller.call)
+    );
   });
 }
 

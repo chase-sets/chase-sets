@@ -59,9 +59,7 @@ export async function recoverMarketplaceCommand<T>(input: {
   }
   let requestHash: string;
   try {
-    requestHash = await marketplaceRequestHash(
-      marketplaceCanonicalRequest(input.mutationKind, input.request),
-    );
+    requestHash = await marketplaceRequestHash(marketplaceCanonicalRequest(input.mutationKind, input.request));
   } catch (error) {
     input.onPhase?.("failed-safe");
     throw new MarketplaceCommandRecoveryError("failed-safe", error);
