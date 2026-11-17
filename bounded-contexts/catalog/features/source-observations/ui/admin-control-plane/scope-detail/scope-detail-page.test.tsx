@@ -96,7 +96,13 @@ it.each([true, false])(
     );
     const cancel = within(health).getByRole<HTMLButtonElement>("button", { name: /Cancel/ });
     expect(cancel.disabled).toBe(!canManageCatalog);
-    expect(cancel.closest("form")?.getAttribute("action")).toBe(ACTION_HREF);
+    const action = new URL(cancel.closest("form")!.getAttribute("action")!, requestUrl);
+    expect(action.pathname).toBe(ACTION_HREF);
+    expect(action.searchParams.get("scopeRecordId")).toBe(scope.scopeRecordId);
+    expect(action.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(action.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+    expect(action.searchParams.get("importScope")).toBe("en:3:base:base1");
+    expect(action.searchParams.get("jobId")).toBe("scope-member-job");
   },
 );
 
