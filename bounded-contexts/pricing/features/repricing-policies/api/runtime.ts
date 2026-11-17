@@ -232,13 +232,23 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
         parseRepricingPolicyState,
       );
       if (status.request) return { ...status, installedState: status.installedState ?? installed?.state ?? null };
-      return { ...status, installedState: installed?.state ?? null, installedRevision: installed?.version ?? 0, requestedRevision: installed?.version ?? 0 };
+      return {
+        ...status,
+        installedState: installed?.state ?? null,
+        installedRevision: installed?.version ?? 0,
+        requestedRevision: installed?.version ?? 0,
+      };
     },
     getHaltConfigurationStatus: async (accountId) => {
       const installed = await halt.repository.load(repricingHaltStreamId(accountId));
       const status = await deps.configuration.status(repricingHaltConfigurationKey(accountId), parseRepricingHaltState);
       if (status.request) return { ...status, installedState: status.installedState ?? installed.state };
-      return { ...status, installedState: installed.state, installedRevision: installed.version, requestedRevision: installed.version };
+      return {
+        ...status,
+        installedState: installed.state,
+        installedRevision: installed.version,
+        requestedRevision: installed.version,
+      };
     },
     retryPolicyConfiguration: (accountId, policyId, requestKey, fingerprint) =>
       deps.configuration.retry(

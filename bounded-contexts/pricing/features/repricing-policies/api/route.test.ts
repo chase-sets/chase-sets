@@ -139,13 +139,32 @@ describe("account policy controls", () => {
     const { app, services } = await fixture();
     const loaded = await services.loadOwnedRepricingPolicy("rpp_synthetic_7911", "acc_7910");
     const installedState = { ...loaded!.state, name: "Installed revision two" };
-    const request = { status: "accepted-pending" as const, requestKey: "synthetic-newer-request", requestedRevision: 3 };
-    vi.spyOn(services, "getPolicyConfigurationStatus").mockResolvedValue({ installedRevision: 2, installedState, requestedRevision: 3, request });
-    vi.spyOn(services, "getHaltConfigurationStatus").mockResolvedValue({ installedRevision: 2,
-      installedState: { engaged: true, engagedAt: "2026-11-17T00:00:00Z", releasedAt: null }, requestedRevision: 3, request });
-    expect(await (await app().request("/policies/rpp_synthetic_7911")).json()).toMatchObject({ name: installedState.name, configuration: { installedRevision: 2, request } });
+    const request = {
+      status: "accepted-pending" as const,
+      requestKey: "synthetic-newer-request",
+      requestedRevision: 3,
+    };
+    vi.spyOn(services, "getPolicyConfigurationStatus").mockResolvedValue({
+      installedRevision: 2,
+      installedState,
+      requestedRevision: 3,
+      request,
+    });
+    vi.spyOn(services, "getHaltConfigurationStatus").mockResolvedValue({
+      installedRevision: 2,
+      installedState: { engaged: true, engagedAt: "2026-11-17T00:00:00Z", releasedAt: null },
+      requestedRevision: 3,
+      request,
+    });
+    expect(await (await app().request("/policies/rpp_synthetic_7911")).json()).toMatchObject({
+      name: installedState.name,
+      configuration: { installedRevision: 2, request },
+    });
     expect(await (await app().request("/policies")).json()).toMatchObject([{ name: installedState.name }]);
-    expect(await (await app().request("/policies/halt")).json()).toMatchObject({ engaged: true, configuration: { installedRevision: 2, request } });
+    expect(await (await app().request("/policies/halt")).json()).toMatchObject({
+      engaged: true,
+      configuration: { installedRevision: 2, request },
+    });
   });
   it.each(["accepted-pending", "superseded-by-revision"] as const)(
     "returns typed %s from every write without changing installed reads",

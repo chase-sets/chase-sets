@@ -36,11 +36,15 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
     const loaded = await Promise.all(
       policies.map(({ policyId }) => services.loadOwnedRepricingPolicy(policyId, accountId)),
     );
-    const states = loaded.flatMap(policy => policy ? [policy.state] : []);
-    return c.json(await Promise.all(states.map(async state => {
-      const configuration = await services.getPolicyConfigurationStatus(accountId, state.policyId!);
-      return { ...(configuration.installedState ?? state), changesUsedToday: budget.changesUsed, configuration };
-    })));
+    const states = loaded.flatMap((policy) => (policy ? [policy.state] : []));
+    return c.json(
+      await Promise.all(
+        states.map(async (state) => {
+          const configuration = await services.getPolicyConfigurationStatus(accountId, state.policyId!);
+          return { ...(configuration.installedState ?? state), changesUsedToday: budget.changesUsed, configuration };
+        }),
+      ),
+    );
   });
   app.get("/halt", async (c) => {
     const accountId = c.get("actor")!.accountId;

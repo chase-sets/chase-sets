@@ -52,7 +52,12 @@ export function parseRepricingConfigurationStatus<State>(
         (request.status === "accepted-pending" && request.requestedRevision <= value.installedRevision)))
   )
     throw new Error("Invalid Pricing configuration status binding.");
-  return { installedRevision: value.installedRevision, installedState, requestedRevision: value.requestedRevision, request };
+  return {
+    installedRevision: value.installedRevision,
+    installedState,
+    requestedRevision: value.requestedRevision,
+    request,
+  };
 }
 
 export function parseRepricingConfigurationReceipt<State>(

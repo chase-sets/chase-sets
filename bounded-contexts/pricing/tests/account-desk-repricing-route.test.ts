@@ -187,7 +187,10 @@ describe("Seller Desk repricing routes", () => {
       "GET /dry-runs": () => jsonResponse([]),
       "GET /configuration-requests": () => jsonResponse([pending]),
       "GET /rpp_1": () =>
-        jsonResponse({ ...policy, configuration: { installedRevision: 1, installedState: null, requestedRevision: 2, request: pending } }),
+        jsonResponse({
+          ...policy,
+          configuration: { installedRevision: 1, installedState: null, requestedRevision: 2, request: pending },
+        }),
       "GET /budget": () => jsonResponse({ changesUsed: 0 }),
       "GET /rpp_1/activity": () => jsonResponse({ items: [], nextCursor: null }),
     });
