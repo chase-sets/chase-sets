@@ -93,7 +93,16 @@ describe("readCompleteStream", () => {
   });
   it("preserves a transport failure without classifying it as invalid history", async () => {
     const outage = new Error("storage unavailable");
-    await expect(readCompleteStream({ readStream: async () => { throw outage; } }, { streamId: STREAM_ID })).rejects.toBe(outage);
+    await expect(
+      readCompleteStream(
+        {
+          readStream: async () => {
+            throw outage;
+          },
+        },
+        { streamId: STREAM_ID },
+      ),
+    ).rejects.toBe(outage);
   });
   it("issue-6298-acceptance-control: binds offset continuation to the authoritative last streamVersion", async () => {
     await assertOffsetContiguousContract(readCompleteStream);

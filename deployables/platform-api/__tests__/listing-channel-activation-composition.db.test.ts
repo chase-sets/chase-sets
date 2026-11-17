@@ -852,7 +852,8 @@ describe("listing channel activation real composition", () => {
         status = (await source.driveClosure(configurationKey(f, predicate))).status;
         throw new Error("synthetic blocked consumer");
       };
-      await expectIndeterminate(f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal),
+      await expectIndeterminate(
+        f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal),
         "blocked consumer",
       );
       expect(status).toBe("BLOCKED");
@@ -916,7 +917,8 @@ describe("listing channel activation real composition", () => {
       throw new Error("synthetic commit failure");
     };
     try {
-      await expectIndeterminate(f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal),
+      await expectIndeterminate(
+        f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal),
         "synthetic commit failure",
       );
       expect(appendProbe.beforeCommit).toBeUndefined();
