@@ -812,7 +812,12 @@ fn AuditWorkspace<'a>(t: Cat, req: &'a Req, audit: &'a AuditEvidence, id: &'stat
             status={timeline_count.to_string()}
             tone={audit_tone(&audit.status)}
         >
-            if audit.timeline.is_empty() {
+            if audit.timeline.is_empty() && audit.selection.unassociated() {
+                <Empty
+                    title={t.wb_audit_timeline_no_association_title()}
+                    description={t.wb_audit_timeline_no_association_description()}
+                />
+            } else if audit.timeline.is_empty() {
                 <Empty title={t.wb_audit_timeline_empty_title()} description={t.wb_audit_timeline_empty_description()} />
             } else {
                 <Table layout={TableLayout::Stack}>

@@ -8168,6 +8168,8 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
         return provider_surface(&location, cookie);
     }
     let down = location.contains("providerKey=down");
+    // The API resolves an `evidenceRef` against the records it loaded; here none resolves.
+    let reference = location.split(['?', '&']).find_map(|p| p.strip_prefix("evidenceRef="));
     let link = |key: &str, label: &str, href: &str, kind: &str| {
         json!({ "key": key, "label": label, "href": href, "kind": kind, "summary": format!("{label} summary"),
             "redactionState": "redacted", "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required" })
@@ -8249,6 +8251,10 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
                         "evidenceUrl": "/catalog/integrations/health", "detail": "Deleted." }] }
             },
             "auditEvidence": {
+                "selection": match reference {
+                    Some(r) => json!({ "reference": r, "state": "no-associated-evidence", "deepLinkOpen": false }),
+                    None => json!({ "reference": null, "state": "not-requested", "deepLinkOpen": false }),
+                },
                 "status": if down { "unavailable" } else { "partial" }, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
                 "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer",
                 "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 2, "partialProjectionCount": 1 },
@@ -8259,12 +8265,12 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
                 "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
                     "unsafeEvidenceBlocked": true, "governedDataClasses": [], "forbiddenEvidenceRequests": ["raw-payload"],
                     "summary": "Normal review uses redacted summaries." },
-                "timeline": [{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "promotion-applied",
+                "timeline": if reference.is_some() { json!([]) } else { json!([{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "promotion-applied",
                     "category": "promotion", "actorLabel": "operator scope", "targetType": "source-observation", "targetId": "obs_1",
                     "providerKey": "tcgplayer", "unitKey": null, "profileVersion": null, "jobId": null, "observationId": "obs_1",
                     "catalogItemId": null, "summary": "Promoted to the Catalog.", "diagnosticCodes": [], "redactionState": "redacted",
-                    "evidenceLinks": [observation.clone()] }],
-                "evidenceLinks": [observation, provider]
+                    "evidenceLinks": [observation.clone()] }]) },
+                "evidenceLinks": if reference.is_some() { json!([]) } else { json!([observation, provider]) }
             }
         }
     }))
@@ -9360,6 +9366,22 @@ async fn integration_health_draws_the_apis_composed_surface_for_its_address() {
     assert!(html.contains(r#"aria-hidden="true">Ingestion unit</span>"#), "a stacked row names its cells: {html}");
 }
 
+#[tokio::test]
+async fn an_evidence_reference_with_no_association_says_so_instead_of_the_filters_empty_state() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/integrations/health?evidenceRef=candidate%2Fcand_gone", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("No associated evidence") && html.contains("has no supported association in the loaded records"),
+        "the reference's own empty state: {html}"
+    );
+    assert!(!html.contains("No timeline events"), "not the filters' empty state: {html}");
+    let calls = integrations_calls(&pilot);
+    assert!(calls.iter().any(|c| c.contains("evidenceRef%3Dcandidate%252Fcand_gone")), "the API resolves it: {calls:?}");
+    let (_, _, html) = pilot.send(get("/catalog/integrations/health", Some("catalog-reader"))).await;
+    assert!(!html.contains("No associated evidence"), "without a reference, the timeline as before: {html}");
+}
 #[tokio::test]
 async fn settings_and_governance_draw_the_governance_controls_with_their_evidence() {
     let pilot = Pilot::new().await;

@@ -395,6 +395,9 @@ pub struct RemovedSurface {
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditEvidence {
+    /// The entity the address's `evidenceRef` names, as the API resolved it.
+    #[serde(default)]
+    pub selection: AuditSelection,
     pub status: String,
     pub freshness: String,
     pub summary: AuditSummary,
@@ -406,6 +409,30 @@ pub struct AuditEvidence {
     pub timeline: Vec<TimelineRow>,
     #[serde(default)]
     pub evidence_links: Vec<EvidenceLink>,
+}
+
+/// Which entity's evidence the address asked for (`evidenceRef`) and whether the API found it among
+/// the loaded records. `no-associated-evidence` means it did not, and the timeline is empty for that
+/// reason rather than for the filters.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AuditSelection {
+    pub reference: Option<String>,
+    pub state: String,
+    pub deep_link_open: bool,
+}
+
+impl Default for AuditSelection {
+    fn default() -> Self {
+        Self { reference: None, state: "not-requested".into(), deep_link_open: false }
+    }
+}
+
+impl AuditSelection {
+    /// The address named an entity the loaded records have no supported association with.
+    pub fn unassociated(&self) -> bool {
+        self.state == "no-associated-evidence"
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
