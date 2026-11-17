@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { EventStreamTooLongError, readCompleteStream, type CompleteStreamReader } from "./complete-stream";
+import {
+  EventStreamInvalidHistoryError,
+  EventStreamTooLongError,
+  readCompleteStream,
+  type CompleteStreamReader,
+} from "./complete-stream";
 import { EVENT_STORE_READ_PAGE_SIZE_MAX, type ReadStreamInput, type StoredEvent } from "./storage";
 
 const STREAM_ID = "commerce.order-ord_complete";
@@ -76,6 +81,20 @@ const countContinuationMutant: CompleteRead = async (reader, input) => {
 };
 
 describe("readCompleteStream", () => {
+  it.each([
+    [storedEvent(2)],
+    [storedEvent(1), storedEvent(3)],
+    [storedEvent(1), storedEvent(1)],
+    contiguousEvents(1, EVENT_STORE_READ_PAGE_SIZE_MAX + 1),
+  ])("distinguishes positively invalid history from a transport failure (%#)", async (...page) => {
+    await expect(readCompleteStream({ readStream: async () => page }, { streamId: STREAM_ID })).rejects.toBeInstanceOf(
+      EventStreamInvalidHistoryError,
+    );
+  });
+  it("preserves a transport failure without classifying it as invalid history", async () => {
+    const outage = new Error("storage unavailable");
+    await expect(readCompleteStream({ readStream: async () => { throw outage; } }, { streamId: STREAM_ID })).rejects.toBe(outage);
+  });
   it("issue-6298-acceptance-control: binds offset continuation to the authoritative last streamVersion", async () => {
     await assertOffsetContiguousContract(readCompleteStream);
     await expect(assertOffsetContiguousContract(countContinuationMutant)).rejects.toThrow();

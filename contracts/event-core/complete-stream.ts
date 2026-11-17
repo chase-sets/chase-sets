@@ -29,6 +29,13 @@ export class EventStreamTooLongError extends Error {
   }
 }
 
+export class EventStreamInvalidHistoryError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "EventStreamInvalidHistoryError";
+  }
+}
+
 /**
  * Reads one complete, contiguous event-stream history from an inclusive cursor.
  *
@@ -56,7 +63,7 @@ export async function readCompleteStream(
     });
 
     if (page.length > EVENT_STORE_READ_PAGE_SIZE_MAX) {
-      throw new Error(
+      throw new EventStreamInvalidHistoryError(
         `Event stream '${input.streamId}' returned ${page.length} events for a ${EVENT_STORE_READ_PAGE_SIZE_MAX}-event page.`,
       );
     }
@@ -79,7 +86,7 @@ export async function readCompleteStream(
       !Number.isSafeInteger(lastStreamVersion) ||
       lastStreamVersion === Number.MAX_SAFE_INTEGER
     ) {
-      throw new Error(
+      throw new EventStreamInvalidHistoryError(
         `Event stream '${input.streamId}' returned an invalid continuation stream version ${lastStreamVersion}.`,
       );
     }
@@ -99,7 +106,7 @@ function assertContiguousPage(
 
   const firstVersion = firstEvent.streamVersion;
   if (firstVersion !== expectedFirstVersion) {
-    throw new Error(
+    throw new EventStreamInvalidHistoryError(
       `Event stream '${streamId}' returned stream version ${firstVersion}; inclusive read expected ${expectedFirstVersion}.`,
     );
   }
@@ -108,7 +115,7 @@ function assertContiguousPage(
   for (const { streamVersion: currentVersion } of laterEvents) {
     const expectedVersion = previousVersion + 1;
     if (currentVersion !== expectedVersion) {
-      throw new Error(
+      throw new EventStreamInvalidHistoryError(
         `Event stream '${streamId}' returned non-contiguous stream versions ${previousVersion} then ${currentVersion}; expected ${expectedVersion}.`,
       );
     }

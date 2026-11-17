@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import {
+  EventStreamInvalidHistoryError,
+  EventStreamTooLongError,
+  readCompleteStream,
+} from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { reservationIdentity } from "@chase-sets/event-core/owner-stream-reservation";
-import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import { z } from "zod";
 import type { ListingAuthorizationEvidence, ListingPreparation, ListingTargetPrincipal } from "./target-contracts";
@@ -14,8 +18,9 @@ export class ListingRequestConflictError extends Error {
   }
 }
 export class ListingRequestIndeterminateError extends Error {
-  constructor() {
-    super("Listing request result is temporarily unavailable. Retry the same command.");
+  constructor(cause?: unknown) {
+    super("Listing request result is temporarily unavailable. Retry the same command.", { cause });
+    this.name = "ListingRequestIndeterminateError";
   }
 }
 const evidenceSchema = z
@@ -71,19 +76,15 @@ export function createListingRequestExecutor(eventStore: EventStore) {
       audit: input.context.audit,
     });
     const replay = async () => {
+      let events: readonly StoredEvent[];
       try {
-        const events = await readCompleteStream(
-          {
-            async readStream(input) {
-              try {
-                return await eventStore.readStream(input);
-              } catch {
-                throw new ListingRequestIndeterminateError();
-              }
-            },
-          },
-          { streamId, maxEvents: 1 },
-        );
+        events = await readCompleteStream(eventStore, { streamId, maxEvents: 1 });
+      } catch (error) {
+        if (error instanceof EventStreamInvalidHistoryError || error instanceof EventStreamTooLongError)
+          throw new ListingRequestConflictError();
+        throw new ListingRequestIndeterminateError(error);
+      }
+      try {
         if (!events.length) return null;
         const event = events[0];
         if (
@@ -101,8 +102,7 @@ export function createListingRequestExecutor(eventStore: EventStore) {
         if (event.payload.resultDigest !== hash(event.payload.result)) throw new ListingRequestConflictError();
         parseEvidence(event.payload.authorizationEvidence);
         return input.parseResult(event.payload.result);
-      } catch (error) {
-        if (error instanceof ListingRequestIndeterminateError) throw error;
+      } catch {
         throw new ListingRequestConflictError();
       }
     };
@@ -154,7 +154,7 @@ export function createListingRequestExecutor(eventStore: EventStore) {
           (error.code === "concurrency_conflict" || error.code === "payload_too_large")
         )
       )
-        throw new ListingRequestIndeterminateError();
+        throw new ListingRequestIndeterminateError(error);
       throw error;
     }
   };
