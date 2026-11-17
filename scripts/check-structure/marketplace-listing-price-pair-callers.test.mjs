@@ -8,7 +8,7 @@ import { validateReadAfterWriteRouteInventory } from "./read-after-write-invento
 
 const registeredCallers = new Map([
   [
-    "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts",
+    "bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts",
     ["priceCurrencyCode: review.fallbackListing.priceCurrencyCode"],
   ],
   [
