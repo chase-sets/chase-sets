@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 27,
-      authoritativeSites: 25,
+      discoveredCallCandidates: 28,
+      authoritativeSites: 26,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -109,6 +109,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
       ["bounded-contexts/marketplace/features/listings/api/listing-attempt.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
+      ["bounded-contexts/marketplace/features/reports/api/runtime.ts", "CANONICAL"],
       ["bounded-contexts/platform-operations/features/reported-content/api/runtime.ts", "CANONICAL"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
       [

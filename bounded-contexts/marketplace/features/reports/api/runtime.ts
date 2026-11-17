@@ -148,6 +148,7 @@ export function createMarketplaceReportRuntime(
     const streamId = stableReportStreamId(command.targetType, command.targetId, command.reporterKey);
     const prior = await readReport(streamId, binding, command.reporterKey);
     if (prior) return prior;
+    // @stream-read-contract bounded-contexts/marketplace/features/reports/api/runtime.test.ts
     const legacy = await deps.eventStore.readStream({
       streamId: stableReportStreamId(
         command.targetType,
@@ -156,7 +157,7 @@ export function createMarketplaceReportRuntime(
       ),
       limit: 1,
     });
-    assert(legacy.length === 0, "This reporter has already reported this content.");
+    if (legacy.length > 0) throw new Error("This reporter has already reported this content.");
     try {
       const events = decideMarketplaceReport(initialMarketplaceReportState, { ...command, recovery: binding });
       const result = await deps.eventStore.appendToStream({

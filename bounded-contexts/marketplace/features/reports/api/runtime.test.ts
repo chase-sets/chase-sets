@@ -124,6 +124,58 @@ async function seedOldListingReport(eventStore: EventStore, listingId = "lst_rep
 }
 
 describe("Marketplace report runtime", () => {
+  it("bounded-contexts/marketplace/features/reports/api/runtime.ts#readStream#1", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await seedActiveListing(eventStore);
+    const streamId = "marketplace.report-listing-lst_reported-visitor:anon_legacy";
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "marketplace.report.submitted",
+          payload: {
+            reportId: "rpt_legacy",
+            targetType: "listing",
+            targetId: "lst_reported",
+            targetOwnerAccountId: "acc_seller",
+            reporterKind: "visitor",
+            reporterKey: "visitor:anon_legacy",
+            reporterAccountId: null,
+            reporterUserId: null,
+            reason: "other",
+            details: null,
+            sourceRoutePath: "/listings/reported-listing",
+            submittedAt: new Date().toISOString(),
+          },
+        },
+      ],
+      context,
+    });
+    const read = vi.spyOn(eventStore, "readStream");
+    const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
+    const eventCount = allEvents.length;
+
+    await expect(
+      reports.reportListing(
+        {
+          attemptId: "legacy_report_attempt_0001",
+          listingId: "lst_reported",
+          reporterKind: "visitor",
+          reporterKey: "anon_legacy",
+          reporterAccountId: null,
+          reporterUserId: null,
+          reason: "other",
+          details: null,
+          sourceRoutePath: "/listings/reported-listing",
+        },
+        context,
+      ),
+    ).rejects.toThrow("This reporter has already reported this content.");
+    expect(read.mock.calls.filter(([request]) => request.streamId === streamId)).toEqual([[{ streamId, limit: 1 }]]);
+    expect(allEvents).toHaveLength(eventCount);
+  });
+
   it("auto-unlists an active listing only when the distinct reporter window threshold is reached", async () => {
     const { eventStore, allEvents } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
