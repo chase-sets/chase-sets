@@ -327,7 +327,7 @@ fn HealthPart<'a>(t: Cat, p: Pilot, id: &'a str, model: Option<&'a Daily>, conte
                 <div class={(KitStack { gap: Gap::App }, gap_1(), Stack)} data-catalog-scope-health-job={&row.job_id}>
                     <Pairs items={items} />
                     if let Some(action) = action {
-                        <JobActions t={t} p={p} job={*row} action={action} />
+                        <JobActions t={t} p={p} job={row} action={action} />
                     }
                 </div>
             }
