@@ -1,4 +1,6 @@
 export { listingFormAttempt, listingCommandInput } from "./support/request-support/listing-attempt";
+export { submitReviewReport } from "./support/route-support/review-report-action";
+export { submitListingReport } from "./support/route-support/listing-report-action";
 export type { MarketplaceApiClient, MarketplaceCreateListingInput } from "./client";
 export {
   createMarketplaceApiClient,

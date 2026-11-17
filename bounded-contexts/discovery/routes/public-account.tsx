@@ -41,6 +41,7 @@ import {
   createMarketplaceRequestApiClient,
   createSellerMetricsRequestApiClient,
   MarketplaceApiError,
+  submitReviewReport,
   type ReportReviewRequest,
   type SellerBehavioralMetricsChips,
 } from "@chase-sets/marketplace/server";
@@ -328,7 +329,7 @@ function marketplaceErrorCode(error: MarketplaceApiError) {
 
 export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
-  if (formData.get("intent") !== "report-review") {
+  if (!["report-review", "confirm:report-review"].includes(String(formData.get("intent")))) {
     return null;
   }
 
@@ -336,12 +337,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const reason = String(formData.get("reason") ?? "");
   const details = String(formData.get("details") ?? "");
   try {
-    await createMarketplaceRequestApiClient(request).reportReview(reviewId, {
-      reason: reason as ReportReviewRequest["reason"],
-      details: details || null,
-      sourceRoutePath: new URL(request.url).pathname,
-    });
-    return { reviewId, status: "submitted" } satisfies ReviewReportResult;
+    return await submitReviewReport(request, formData);
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 401) {
       const url = new URL(request.url);

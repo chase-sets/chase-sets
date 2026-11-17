@@ -3,7 +3,8 @@ import {
   marketplaceAcceptanceKeySchema,
   marketplaceAttemptIdSchema,
   marketplaceMutationRecoveryResultSchema,
-  marketplaceOfferCanonicalRequest,
+  marketplaceCanonicalRequest,
+  marketplaceRecoveryTargetKind,
   type MarketplaceMutationKind,
   type MarketplaceMutationRecoveryResult,
 } from "../domain/contracts";
@@ -58,11 +59,7 @@ export async function recoverMarketplaceCommand<T>(input: {
   }
   let requestHash: string;
   try {
-    requestHash = await marketplaceRequestHash(
-      input.mutationKind === "offer-policy.command"
-        ? input.request
-        : marketplaceOfferCanonicalRequest(input.mutationKind, input.request),
-    );
+    requestHash = await marketplaceRequestHash(marketplaceCanonicalRequest(input.mutationKind, input.request));
   } catch (error) {
     input.onPhase?.("failed-safe");
     throw new MarketplaceCommandRecoveryError("failed-safe", error);
@@ -102,12 +99,7 @@ export async function recoverMarketplaceCommand<T>(input: {
       recovery.mutationKind === input.mutationKind &&
       recovery.attemptKeyFingerprint === fingerprint &&
       recovery.target.id === input.target &&
-      recovery.target.kind ===
-        (input.mutationKind === "offer.submit"
-          ? "product"
-          : input.mutationKind === "offer-policy.command"
-            ? "offer-policy"
-            : "offer") &&
+      recovery.target.kind === marketplaceRecoveryTargetKind(input.mutationKind) &&
       recovery.canonicalRequestHash === requestHash
     ) {
       const metadata = getMutationResultCommandReceipt(observed);
