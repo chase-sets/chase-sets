@@ -138,7 +138,9 @@ pub(super) fn Provenance<'a>(
 ) -> impl Render {
     let unavailable = state_label("unavailable");
     let at = |at: Option<&str>| at.filter(|at| !at.is_empty()).map_or_else(|| unavailable.clone(), |at| when(t, at));
-    let rows: Vec<_> = read_models.iter().filter(|r| keys.contains(&r.query_key.as_str())).collect();
+    let generated = at(generated_at);
+    let rows: Vec<_> =
+        read_models.iter().filter(|r| keys.contains(&r.query_key.as_str())).map(|r| (r, at(r.generated_at.as_deref()))).collect();
     html! {
         <div class={(KitStack { gap: Gap::App }, Stack)} data-catalog-health-provenance="true">
             <p class={Muted}>{t.health_facts_source()}</p>
@@ -153,14 +155,14 @@ pub(super) fn Provenance<'a>(
                 </div>
                 <div class={Pair}>
                     <dt>{t.wb_health_table_generated()}</dt>
-                    <dd>{at(generated_at)}</dd>
+                    <dd>{generated}</dd>
                 </div>
-                for row in &rows {
+                for (row, row_at) in &rows {
                     <div class={Pair}>
                         <dt class={Words}>{&row.query_key}</dt>
                         <dd class={Lines}>
                             <span>{state_label(&row.freshness)}</span>
-                            <span>{at(row.generated_at.as_deref())}</span>
+                            <span>{row_at}</span>
                             <span>{&row.status_message}</span>
                             <span class={(Muted, Words)}>{&row.owner_metric_key}</span>
                         </dd>
