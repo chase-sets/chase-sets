@@ -175,6 +175,9 @@ pub struct AliasCandidate {
     pub target_kind: String,
     #[serde(default)]
     pub target_id: Option<String>,
+    /// The Source Observation the candidate came from, when it came from one.
+    #[serde(default)]
+    pub observation_id: Option<String>,
     pub native_printed_name: String,
     pub proposed_alias: String,
     pub alias_language_code: String,
@@ -200,6 +203,21 @@ pub struct AliasCandidate {
     /// Pending, so it may be picked for a bulk command.
     #[serde(default)]
     pub reviewable: bool,
+}
+
+impl AliasCandidate {
+    /// The entity whose audit timeline the candidate's evidence link opens, as a kind and an id
+    /// (admin-web's alias review row): its Source Observation, else the Catalog Item it targets,
+    /// else the alias itself.
+    pub fn evidence_target(&self) -> (&'static str, &str) {
+        let observation = self.observation_id.as_deref().filter(|id| !id.is_empty());
+        let item = self.target_id.as_deref().filter(|id| !id.is_empty() && self.target_kind == "catalog-item");
+        match (observation, item) {
+            (Some(id), _) => ("source-observation", id),
+            (None, Some(id)) => ("catalog-item", id),
+            (None, None) => ("alias", &self.alias_hash),
+        }
+    }
 }
 
 /// `CatalogAliasReviewEvidenceLine`.

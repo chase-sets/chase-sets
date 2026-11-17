@@ -4,7 +4,9 @@ use platform::ui::table::{CellLabel, TableLayout};
 
 use super::{
     AliasReviewPart, AttentionBanner, AttentionPanel, AttentionSheet, Empty, Filters, ListPage, ListScreen, Pager, Pick, Search,
-    Table, Tone, TonePill, pages_around, value,
+    Table, Tone, TonePill,
+    integrations_page::{AuditDrawer, Banner},
+    pages_around, value,
 };
 use crate::{
     catalog::{
@@ -19,8 +21,9 @@ use crate::{
 const STATUSES: [(&str, &str); 4] =
     [("draft", "draft"), ("active", "active"), ("deprecated", "deprecated"), ("archived", "archived")];
 
-/// The list, with the attention queue and the all-scopes alias review above it (after the banner of
-/// the command before, if any) and an item's sheet (`back`), open.
+/// The list, with the attention queue and the all-scopes alias review above it (after the audit
+/// timeline an `evidenceRef` opens and the banner of the command before, if any) and an item's
+/// sheet (`back`), open.
 pub fn scope_list<'a>(
     req: &'a Req,
     query: &'a url::ScopeQuery,
@@ -43,6 +46,12 @@ pub fn scope_list<'a>(
     let aliases = crate::catalog::attention::url::AliasReviewCommand { query: query.clone() }.href();
     html! {
         <ListPage title={title}>{()}</ListPage>
+        if let Some(audit) = &screen.audit {
+            <AuditDrawer t={t} req={req} audit={audit} id="scopes-evidence" />
+        }
+        if screen.evidence_failed {
+            <Banner tone="warning" title={t.wb_audit_banner_unavailable_title()} description="" />
+        }
         if let Some(done) = notice.done {
             <AttentionBanner t={t} query={query} done={done} parked={notice.parked.as_deref()} manage={manage} />
         }
@@ -54,6 +63,7 @@ pub fn scope_list<'a>(
             review={screen.alias_review.as_ref()}
             failed={screen.alias_review_failed}
             manage={manage}
+            evidence={Some(query)}
         />
         <Filters t={t} action={&filters}>
             <Search t={t} name={f.search} title={title} value={value(&query.search)} />

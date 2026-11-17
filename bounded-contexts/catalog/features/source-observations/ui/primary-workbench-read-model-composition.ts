@@ -7,6 +7,7 @@ import {
   type CatalogPrimaryWorkbenchReadModel,
 } from "../api/primary-workbench-admin-contracts";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
+import { catalogScopeRecordIdFromPath } from "../api/admin/scope-detail-workbench-location";
 import {
   buildCatalogPrimaryWorkbenchCore,
   buildCatalogPrimaryWorkbenchCoreSourceOptions,
@@ -44,6 +45,12 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
   // enables only audit, not the other supporting slices.
   const wantsProviderSlices = surface === "governance" || surface === "health";
   const wantsHealthTriage = surface === "governance" || surface === "health";
+  const scopeHealth =
+    surface === "daily" &&
+    Boolean(
+      core.routeContext.scopeRecordId &&
+      catalogScopeRecordIdFromPath(new URL(input.requestUrl).pathname) === core.routeContext.scopeRecordId,
+    );
   const wantsGovernanceSlices = surface === "governance" || surface === "health";
   // The Settings page (the "governance" surface) embeds the Evidence drawer, so it
   // also needs the audit-evidence slice computed — not just cited like the
@@ -60,7 +67,16 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
     core,
     providerSliceDerived,
   );
-  const healthTriage = healthTriageSlice(sliceInput(wantsHealthTriage), core, derived);
+  const supportingHealthTriage = healthTriageSlice(sliceInput(wantsHealthTriage), core, derived);
+  // Scope-member health is not a full-source governance or audit completeness signal.
+  const healthTriage = scopeHealth
+    ? healthTriageSlice(
+        input,
+        core,
+        derived,
+        core.sourceScopeWorkset.selectedScope.hasConcreteScope ? core.sourceScopeWorkset.units : [],
+      )
+    : supportingHealthTriage;
   const { conflictResolution, lifecycleRecovery } = conflictAndLifecycleSlices(
     sliceInput(wantsGovernanceSlices),
     core,
@@ -78,7 +94,7 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
     derived,
     conflictResolution,
     actions,
-    healthTriage,
+    supportingHealthTriage,
   );
   const { auditEvidence } = healthSurfaceSlices(
     sliceInput(wantsAuditEvidence),
@@ -86,7 +102,7 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
     derived,
     {
       conflictResolution,
-      healthTriage,
+      healthTriage: supportingHealthTriage,
       validationReadiness,
     },
     wantsAuditEvidence,

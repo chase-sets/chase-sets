@@ -240,7 +240,7 @@ describe("issue-5258-marketplace-ac2 review decider safeguard", () => {
     });
     expect(
       decideReview(initialReviewState, submitReviewCommand("Fast shipping, see https://example.com/p")),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("rejects newly authored unsafe feedback on update but carries stored legacy feedback forward", () => {

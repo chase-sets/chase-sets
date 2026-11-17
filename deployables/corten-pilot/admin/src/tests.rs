@@ -1957,12 +1957,17 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
 }
 
 /// The all-scopes alias review (`alias-review?limit=200`): a pending, flagged candidate with its
-/// evidence, and an accepted one. It cannot be read for `queue-down`.
+/// evidence, an accepted one, and a pending one from a Source Observation. It cannot be read for
+/// `queue-down`.
 fn all_scopes_alias_review(cookie: &str) -> Response {
     if cookie.contains("queue-down") {
         return refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Alias review is unavailable.");
     }
-    Json(json!({
+    Json(all_scopes_alias_review_json()).into_response()
+}
+
+fn all_scopes_alias_review_json() -> Value {
+    json!({
         "schemaVersion": "catalog-alias-review-v1", "generatedAt": "2026-11-03T00:00:00.000Z",
         "counts": { "total": 2, "pending": 1, "accepted": 1, "autoAccepted": 0, "rejected": 0, "revoked": 0,
                     "needsReview": 1, "autoAcceptEligible": 0, "warned": 1 },
@@ -1985,14 +1990,14 @@ fn all_scopes_alias_review(cookie: &str) -> Response {
               "autoAccept": { "eligible": false, "reasons": [] },
               "reviewable": false, "availableActions": ["alias.revoke"] },
             { "aliasHash": "ah_dracaufeu", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "observationId": "obs_2",
               "nativePrintedName": "Dracaufeu", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
               "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "pending",
               "sourceCategory": "official-provider", "providerKey": "tcgdex", "evidence": [], "warnings": [],
               "autoAccept": { "eligible": true, "reasons": [] },
               "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
         ],
-    }))
-    .into_response()
+    })
 }
 
 const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
@@ -4198,6 +4203,47 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
 }
 
 #[tokio::test]
+async fn each_alias_candidate_on_the_scopes_list_links_its_evidence_and_the_list_opens_the_timeline_it_resolves() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let link =
+        |reference: &str| format!(r#"href="/catalog/scopes?status=active&amp;evidenceRef={reference}" data-alias-evidence>"#);
+    for (reference, label) in [
+        ("catalog-item%2Fcat_charizard", "Audit timeline: cat_charizard"),
+        ("catalog-item%2Fcat_pikachu", "Audit timeline: cat_pikachu"),
+        ("source-observation%2Fobs_2", "Audit timeline: obs_2"),
+    ] {
+        assert!(html.contains(&format!("{}{label}</a>", link(reference))), "{reference}: {html}");
+    }
+    assert!(integrations_calls(&pilot).is_empty(), "no surface is read without a reference");
+    let reviews =
+        |pilot: &Pilot| pilot.catalog_calls().iter().filter(|c| c.path == "/api/catalog/alias-review?limit=200").count();
+    let before = reviews(&pilot);
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active&evidenceRef=candidate%2Fcand_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let calls = integrations_calls(&pilot);
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.ends_with("/daily?location=%2Fcatalog%2Fscopes%3Fstatus%3Dactive%26evidenceRef%3Dcandidate%252Fcand_1")),
+        "the API resolves it for the list's address: {calls:?}"
+    );
+    assert_eq!(reviews(&pilot), before, "the alias review comes with the surface");
+    let drawer = html.find(r#"id="scopes-evidence-audit""#).expect("the timeline is drawn");
+    assert!(drawer < html.find("data-attention-queue").unwrap(), "above the queue: {html}");
+    assert!(html.contains("Candidate cand_1 reviewed."), "{html}");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#) && html.contains(&link("source-observation%2Fobs_2")), "{html}");
+    assert!(!html.contains("evidenceRef=candidate%2Fcand_1&amp;evidenceRef="), "a link replaces the reference: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes?evidenceRef=scope%2Fscp_down", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "the list still draws: {html}");
+    assert!(html.contains("Audit projection is unavailable") && !html.contains(r#"id="scopes-evidence-audit""#), "{html}");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#) && html.contains("Paldean Fates"), "{html}");
+}
+
+#[tokio::test]
 async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_post_the_alias_review() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
@@ -4570,6 +4616,44 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobs=c2", Some("staff"))).await;
     assert!(pilot.catalog_calls().iter().any(|c| c.path.ends_with("&status=completed&cursor=c2")));
     assert!(html.contains(r#"href="/catalog/scopes/scp_paf">"#) && !html.contains("?jobs="), "first page, no next: {html}");
+}
+
+#[tokio::test]
+async fn a_scopes_page_keeps_its_members_health_and_their_jobs_recovery() {
+    let pilot = Pilot::new().await;
+    let health = |html: &str| {
+        let start = html.find(r#"data-catalog-scope-health="true""#).expect("the scope's health");
+        let end = start + html[start..].find("</section>").expect("its end");
+        html[start..end].to_owned()
+    };
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let part = health(&html);
+    assert!(part.contains("Scope unit readiness and recovery") && part.contains("Degraded"), "{part}");
+    // The member unit with its readiness and its provider's page; the Lorcast unit is not a member.
+    assert!(part.contains(r#"data-catalog-health-unit="tcgplayer:pokemon:card""#), "{part}");
+    assert!(!part.contains("lorcast:pokemon:card"), "{part}");
+    assert!(part.contains("Add fixture coverage for this ingestion unit.") && part.contains("fixture_missing"), "{part}");
+    assert!(
+        part.contains(r#"href="/catalog/providers/tcgplayer?unitKey=tcgplayer%3Apokemon%3Acard""#)
+            && part.contains("Provider setup: tcgplayer"),
+        "{part}"
+    );
+    // The provenance of the scope's two reads, not the audit's.
+    assert!(part.contains(r#"data-catalog-health-provenance="true""#), "{part}");
+    assert!(part.contains("Unit readiness comes from the overview.") && part.contains("Job progress comes from durable jobs."));
+    assert!(!part.contains("Audit projection is partial."), "{part}");
+    // The member's job with its progress and recovery, posted with the working set; the job of
+    // another scope is not drawn.
+    assert!(part.contains(r#"data-catalog-scope-health-job="job_1""#) && part.contains("3/10 work units"), "{part}");
+    assert!(!part.contains("job_other"), "{part}");
+    assert!(part.contains(r#"action="/catalog/integrations/jobs/job_1?home=scp_paf""#), "{part}");
+    assert!(part.contains(r#"value="retry""#) && part.contains(r#"value="cancel""#), "{part}");
+    assert!(!part.contains("Resolution unavailable"), "{part}");
+
+    // A job in the address that is not a member's: the resolution is unavailable.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobId=job_other", Some("staff"))).await;
+    assert!(health(&html).contains("Resolution unavailable: the target is missing or deleted."), "{html}");
 }
 
 #[tokio::test]
@@ -6910,6 +6994,7 @@ fn intake_fields<'a>(version: &'a str, received_at: &'a str, custody: &'a str) -
         ("owner", "Facility operations"),
         ("nextAction", "Complete custody handoff"),
         ("notes", ""),
+        ("zone", "UTC"),
     ]
 }
 
@@ -6981,6 +7066,13 @@ async fn completing_an_intake_sends_each_photo_then_cites_it_at_the_operators_ti
     let photos: [(&str, &str, &str, &[u8]); 2] =
         [("evidence", "front.jpg", "image/jpeg", b"front"), ("evidence", "label.png", "image/png", b"label")];
     let fields = intake_fields("3", "2026-10-30T14:05", "CUST-1");
+    let fields: Vec<_> = fields.into_iter().map(|(k, v)| if k == "zone" { (k, "America/Chicago") } else { (k, v) }).collect();
+    let (_, _, html) = pilot.send(get(at, Some("intake-manager; corten-zone=America/Chicago"))).await;
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the custody form sends its zone back and names it: {html}"
+    );
     let (status, headers, html) =
         pilot.send(post_multipart(at, "intake-manager", Some("America/Chicago"), &fields, &photos)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
@@ -7033,6 +7125,12 @@ async fn a_refused_intake_redraws_the_station_and_sends_nothing_it_should_not() 
     assert!(html.contains("Enter the date and time the package was received."), "{html}");
     let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
     assert_eq!(before, after, "no photo is sent for a time that cannot be read");
+    let unzoned: Vec<_> = intake_fields("3", "2026-10-30T14:05", "CUST-1").into_iter().filter(|(k, _)| *k != "zone").collect();
+    let (status, _, html) = pilot.send(post_multipart(at, "intake-manager", None, &unzoned, &photo)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "a time without the form's zone: {html}");
+    let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
+    assert_eq!(before, after, "no photo is sent without the zone");
 
     let many: Vec<(&str, &str, &str, &[u8])> = (0..11).map(|_| ("evidence", "p.jpg", "image/jpeg", b"p" as &[u8])).collect();
     let (status, _, html) =
@@ -7069,6 +7167,7 @@ async fn the_station_records_unidentified_packages_reconciles_them_and_corrects_
         ("owner", "Facility operations"),
         ("nextAction", "Hold for review"),
         ("notes", "No label"),
+        ("zone", "UTC"),
     ];
     let (status, headers, html) = pilot.send(post_multipart(at, "intake-manager", None, &unidentified, &photo)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
@@ -7939,6 +8038,12 @@ async fn the_promo_bar_previews_live_messages_and_shows_each_messages_status() {
     let (_, _, html) =
         pilot.send(get("/growth/promo-bar?edit=pbm_off", Some("growth-viewer; corten-zone=America/Chicago"))).await;
     assert!(html.contains("<dialog") && html.contains(r#"value="2026-11-10T09:00""#), "the time in the operator's zone: {html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let (_, _, html) = pilot.send(get("/growth/promo-bar", Some("growth-viewer"))).await;
+    assert!(html.contains(r#"name="zone" value="UTC""#) && html.contains(">UTC<"), "UTC until the browser says: {html}");
     let (_, _, html) = pilot.send(get("/growth/promo-bar?delete=pbm_off", Some("growth-viewer"))).await;
     assert!(html.contains(r#"role="alertdialog""#) && html.contains("Old news"), "{html}");
 }
@@ -7948,7 +8053,7 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     let pilot = Pilot::new().await;
     let session = "growth-viewer; corten-zone=America/Chicago";
     let create = "intent=create&title=New&description=&href=%2Fx&linkLabel=Go&tone=warning&isActive=true&displayOrder=5\
-                  &startsAt=2026-11-10T09%3A00&endsAt=";
+                  &startsAt=2026-11-10T09%3A00&endsAt=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, "/growth/promo-bar", create, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -7959,6 +8064,18 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     assert_eq!(body["startsAt"], json!("2026-11-10T15:00:00Z"), "Chicago's 9:00 as its instant");
     assert_eq!((body["endsAt"].clone(), body["description"].clone()), (Value::Null, Value::Null));
     assert_eq!((body["displayOrder"].clone(), body["tone"].clone()), (json!(5.0), json!("warning")));
+
+    // The times are read in the zone the form was drawn in, not the post's.
+    let drawn_in_tokyo = create.replace("America%2FChicago", "Asia%2FTokyo");
+    let (status, _, _) = pilot.send(post_as(session, "/growth/promo-bar", &drawn_in_tokyo, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent: Vec<Call> = pilot.calls_to_path(PROMO_API).into_iter().filter(|c| c.method == Method::POST).collect();
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["startsAt"], json!("2026-11-10T00:00:00Z"), "Tokyo's 9:00");
+    let no_zone = create.replace("&zone=America%2FChicago", "");
+    let (status, _, html) = pilot.send(post_as(session, "/growth/promo-bar", &no_zone, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "times without the form's zone: {html}");
+    assert!(html.contains("No promo bar change was applied."), "{html}");
 
     for (form, method, path) in [
         ("intent=activate&id=pbm_off", Method::POST, format!("{PROMO_API}/pbm_off/activate")),
@@ -8312,6 +8429,12 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
 /// the import kill switch, with nothing to review; its location's `section` is the route's. A
 /// `scope` is the Scope Record a scope page's address was composed for.
 fn daily_surface(location: &str, scope: Option<&str>) -> Response {
+    // The scopes list's address: the API reads the all-scopes alias review in with the timeline its
+    // `evidenceRef` resolves. Here the surface for `scope/scp_down` cannot be read.
+    let landing = location.starts_with("/catalog/scopes?");
+    if landing && location.contains("evidenceRef=scope%2Fscp_down") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The workbench surface is unavailable.");
+    }
     let stopped = location.contains("providerKey=stopped");
     let section = location.split(['?', '&']).find_map(|p| p.strip_prefix("section=")).unwrap_or_default();
     let status_filter = location.split(['?', '&']).find_map(|p| p.strip_prefix("filter.status="));
@@ -8330,10 +8453,18 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
         ])
     };
     // Built apart from the surface below so one `json!` stays inside the macro's recursion limit.
+    // The alias review's narrowing is parsed from the location, as the API's route context is.
+    let param = |key: &str| {
+        let raw = location.split(['?', '&']).find_map(|p| p.strip_prefix(key)?.strip_prefix('='))?;
+        Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
+    };
+    let statuses: Vec<String> =
+        param("reviewStatuses").map(|s| s.split(',').filter(|s| !s.is_empty()).map(str::to_owned).collect()).unwrap_or_default();
     let context = json!({
         "routeContext": { "section": section, "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card",
             "scope": { "languageCode": "en", "expansionId": "sv1", "expansionName": "Scarlet & Violet" },
-            "importScope": "en:sv1", "profileVersion": null },
+            "importScope": "en:sv1", "profileVersion": null, "aliasType": param("aliasType"), "reviewStatuses": statuses,
+            "targetKind": param("targetKind"), "targetId": param("targetId") },
         "providerScope": { "providers": [
             { "providerKey": "lorcast", "displayName": "Lorcast", "units": [
                 { "unitKey": "lorcast:pokemon:card", "productDomain": "pokemon", "productForm": "card", "activeProfile": null }] },
@@ -8472,6 +8603,15 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
     }
     let serde_json::Value::Object(context) = context else { unreachable!("the context is an object") };
     surface["readModel"].as_object_mut().expect("the read model is an object").extend(context);
+    // A scope page's own surface names its Scope Record and the job its address does, its job's
+    // import scope is the TCGplayer unit's, and its health triage is the scope's members'.
+    if let Some(id) = scope {
+        let model = &mut surface["readModel"];
+        model["routeContext"]["scopeRecordId"] = json!(id);
+        model["routeContext"]["jobId"] = json!(param("jobId"));
+        model["importJobs"]["jobs"][0]["importScope"] = json!("en:sv1");
+        model["healthTriage"] = scope_health_json();
+    }
     // What the API works out for this read (`flow`, `dailyStatus`, the review's links): it opens
     // on the section's stage, else Review (there are changes); a stop blocks Run sync and is the
     // governance banner; the throttled transport is a degraded health banner.
@@ -8540,7 +8680,43 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
             "evidenceLinks": []
         });
     }
+    if landing && location.contains("evidenceRef=") {
+        surface["aliasReview"] = all_scopes_alias_review_json();
+    }
     Json(surface).into_response()
+}
+
+/// A scope page's health triage as the API composes it: the workset's TCGplayer unit and its
+/// failed job, then a Lorcast unit and a job of another scope the page is not to draw, and the
+/// read models the scope's provenance names beside one it does not.
+fn scope_health_json() -> Value {
+    let read_model = |key: &str, message: &str| {
+        json!({ "queryKey": key, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z", "statusMessage": message,
+            "ownerMetricKey": format!("metric_{key}") })
+    };
+    let unit = |key: &str, provider: &str| {
+        json!({ "unitKey": key, "providerKey": provider, "displayName": key, "productDomain": "pokemon", "productForm": "card",
+            "ingestionPurpose": "catalog-facts", "profileVersion": "3", "status": "blocked", "semanticReadiness": "blocked",
+            "credentialReadiness": "ready", "credentialReadinessState": "configured", "transportReadiness": "ready",
+            "fixtureValidationStatus": "blocked", "dryRunStatus": "blocked", "observationFacts": 12,
+            "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 }, "diagnosticCodes": ["fixture_missing"],
+            "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+            "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+            "nextAction": "Add fixture coverage for this ingestion unit." })
+    };
+    let job = |id: &str| {
+        json!({ "jobId": id, "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "operatorStatus": "Failed",
+            "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+            "ownerMetricKey": "catalog_import_jobs", "nextAction": "Retry the failed pages." })
+    };
+    json!({ "status": "degraded", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+        "returnToPrimaryHref": "/catalog/integrations", "summary": {},
+        "readModels": [read_model("integration-health-summary", "Unit readiness comes from the overview."),
+            read_model("import-job-progress-summary", "Job progress comes from durable jobs."),
+            read_model("audit-evidence-timeline", "Audit projection is partial.")],
+        "providers": [], "rolloutControls": [], "auditPreview": { "projectionStatus": "ready", "statusMessage": "", "entries": [] },
+        "units": [unit("tcgplayer:pokemon:card", "tcgplayer"), unit("lorcast:pokemon:card", "lorcast")],
+        "recentJobs": [job("job_1"), job("job_other")] })
 }
 
 /// The daily surface's source options for TCGplayer cards: Language, then Expansion under it
@@ -8845,6 +9021,36 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
             "redactionState": "redacted", "evidenceLinks": [] }]) },
         "evidenceLinks": []
     });
+    // The health triage: TCGplayer's row with its usage budget, its one unit's readiness, the failed
+    // job's progress, and the read models each home names as its source.
+    let read_model = |key: &str, message: &str| {
+        json!({ "queryKey": key, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z", "statusMessage": message,
+            "ownerMetricKey": format!("metric_{key}") })
+    };
+    let triage = json!({ "status": "degraded", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+        "readModels": [read_model("integration-health-summary", "Unit readiness comes from the overview."),
+            read_model("provider-transport-readiness-summary", "Transport readiness is derived separately."),
+            read_model("import-job-progress-summary", "Job progress comes from durable jobs."),
+            read_model("audit-evidence-timeline", "Audit projection is partial.")],
+        "providers": [{ "providerKey": "tcgplayer", "adapterKey": "tcgplayer-catalog", "status": "degraded", "readiness": "degraded",
+            "credentialReadiness": "ready", "credentialReadinessState": "configured", "unitKeys": ["tcgplayer:pokemon:card"],
+            "apiReachability": "ready", "optionQueryHealth": "degraded", "rateLimitStatus": "ready", "payloadAcquisition": "ready",
+            "usageBudget": { "creditBalance": 40, "creditAllowance": null, "creditUnit": "credits", "readiness": "degraded",
+                "freshness": "stale", "observedAt": null, "lagCategory": "beyond-provider-window", "diagnosticCode": "usage_stale",
+                "diagnostic": "Usage is older than its window.", "estimatedCalls": null, "estimatedScope": null },
+            "diagnosticCodes": ["option_query_slow"], "latestDiagnosticText": "Option queries are slow.",
+            "ownerMetricKey": "catalog_provider_option_queries", "nextAction": "Refresh provider option queries." }],
+        "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "displayName": "Pokemon singles",
+            "productDomain": "pokemon", "productForm": "card", "ingestionPurpose": "catalog-facts", "profileVersion": null,
+            "status": "blocked", "semanticReadiness": "blocked", "credentialReadiness": "ready",
+            "credentialReadinessState": "configured", "transportReadiness": "ready", "fixtureValidationStatus": "blocked",
+            "dryRunStatus": "blocked", "observationFacts": 12, "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 },
+            "diagnosticCodes": ["fixture_missing"], "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+            "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+            "nextAction": "Add fixture coverage for this ingestion unit." }],
+        "recentJobs": [{ "jobId": "job_9", "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card",
+            "operatorStatus": "Failed", "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+            "ownerMetricKey": "catalog_import_jobs", "nextAction": "Open the durable job evidence." }] });
     let mut surface = json!({
         "readModelFailures": [],
         "providerRefreshSchedules": schedules,
@@ -8855,11 +9061,7 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
             "validationReadiness": validation_readiness(selected),
             "routeContext": { "providerKey": "tcgplayer", "unitKey": null, "jobId": job, "profileVersion": selected },
             "readiness": { "freshness": "fresh", "blockers": [], "providerTransport": [], "rolloutEnabled": true, "rbacAllowed": true },
-            "healthTriage": { "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
-                "providers": [{ "providerKey": "tcgplayer", "status": "degraded", "credentialReadiness": "ready",
-                    "credentialReadinessState": "configured", "apiReachability": "ready", "optionQueryHealth": "degraded",
-                    "rateLimitStatus": "ready", "payloadAcquisition": "ready", "latestDiagnosticText": "Option queries are slow." }],
-                "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "status": "blocked" }] },
+            "healthTriage": null,
             "providerScope": { "providers": [{ "providerKey": "tcgplayer", "units": [{ "unitKey": "tcgplayer:pokemon:card",
                 "productDomain": "pokemon", "productForm": "card", "importScopes": ["set-name"],
                 "activeProfile": { "profileVersion": "2026.07.13" } }] }] },
@@ -8892,12 +9094,14 @@ fn provider_surface(location: &str, cookie: &str) -> Response {
                 "jobs": [{ "jobId": "job_9",
                 "state": "failed", "operatorStatus": "Failed", "summary": "Pull stopped at page 3.", "completed": 3, "total": 10,
                 "progressPercent": 30, "providerKey": "tcgplayer", "createdAt": "2026-11-04T09:00:00.000Z", "failureGroups": [],
+                "unitKey": "tcgplayer:pokemon:card",
                 "retryAvailable": true, "resumeAvailable": false, "cancelAvailable": false,
                 "sourceObservationReviewHref": "/catalog/integrations?jobId=job_9", "auditEvidenceUrl": "/catalog/integrations/health",
                 "result": { "observedCount": 12, "skippedCount": 1, "failedCount": 2 }, "blockers": [] }] }
         }
     });
     surface["readModel"]["auditEvidence"] = audit;
+    surface["readModel"]["healthTriage"] = triage;
     Json(surface).into_response()
 }
 
@@ -9134,6 +9338,55 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
     assert!(section.contains(".provider-page__schedule-row") && section.contains(".provider-page__job-pair"), "{section}");
+}
+
+#[tokio::test]
+async fn provider_detail_keeps_the_health_facts_at_their_homes() {
+    // admin-web keeps each health fact where its entity is (chase-sets/chase-sets#9072): the
+    // provider's in the header, a unit's on the unit, a job's on the job, each home naming the read
+    // model it came from, and none of them the whole source's audit.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-provider-health="tcgplayer""#), "{html}");
+    for fact in ["tcgplayer-catalog", "option_query_slow", "catalog_provider_option_queries", "Refresh provider option queries."]
+    {
+        assert!(html.contains(fact), "the provider's {fact}: {html}");
+    }
+    // The usage budget: what was not reported says so, never zero.
+    assert!(html.contains("40 / Not reported / credits") && html.contains("usage_stale"), "{html}");
+    assert!(html.contains("Usage observed at") && html.contains("Estimated call scope"), "{html}");
+    // A unit's readiness and recovery, on the unit.
+    assert!(html.contains(r#"data-catalog-health-unit="tcgplayer:pokemon:card""#), "{html}");
+    for fact in [
+        "Pokemon singles / tcgplayer:pokemon:card",
+        "catalog-facts",
+        "0 / 1 / 2",
+        "fixture_missing",
+        "Add fixture coverage for this ingestion unit.",
+    ] {
+        assert!(html.contains(fact), "the unit's {fact}: {html}");
+    }
+    // A job's progress and recovery, on the job.
+    assert!(html.contains("Job progress and recovery") && html.contains("3/10 work units"), "{html}");
+    assert!(html.contains("Open the durable job evidence."), "{html}");
+    // Each home's provenance names its own read model and not the audit's.
+    assert_eq!(html.matches(r#"data-catalog-health-provenance="true""#).count(), 3, "{html}");
+    for message in [
+        "Transport readiness is derived separately.",
+        "Unit readiness comes from the overview.",
+        "Job progress comes from durable jobs.",
+    ] {
+        assert!(html.contains(message), "{message}: {html}");
+    }
+    assert!(!html.contains("Audit projection is partial."), "the source's audit is not the provider's: {html}");
+
+    // A provider the triage has no row for reads unavailable, not healthy or an empty count.
+    let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Provider readiness unavailable"), "{html}");
+    assert!(html.contains("no healthy state or empty unit count is implied"), "{html}");
+    assert!(!html.contains("Refresh provider option queries."), "another provider's facts: {html}");
 }
 
 #[tokio::test]
@@ -9508,6 +9761,16 @@ async fn settings_and_governance_draw_the_governance_controls_with_their_evidenc
         );
         assert!(html.contains("<details") && html.contains("Audit events"), "the evidence opens on the page: {html}");
         assert!(!html.contains("Integration health triage"), "{path}: {html}");
+        // The health facts kept at Settings (chase-sets/chase-sets#9072): the triage's provenance
+        // without a read model's row, each control's severity and next action, and the evidence
+        // drawer's own projection facts.
+        assert!(html.contains("Source health provenance (not entity readiness)"), "{path}: {html}");
+        assert!(!html.contains("Provider adapter transport readiness is derived separately."), "no read model row: {html}");
+        assert!(html.contains("Clear the stop.") && html.contains(">error<"), "the control's health: {html}");
+        assert!(
+            html.contains("Projection status message") && html.contains("catalog.integration.audit.generated_at"),
+            "the drawer's provenance: {html}"
+        );
     }
     let calls = integrations_calls(&pilot);
     assert!(
@@ -10032,6 +10295,27 @@ async fn the_workset_draws_each_units_state_and_its_sync_and_reapply_and_opens_i
     // Without units nothing draws.
     let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped", Some("staff"))).await;
     assert!(!html.contains("data-catalog-source-scope-workset"), "{html}");
+}
+
+#[tokio::test]
+async fn the_review_stages_alias_review_is_narrowed_as_the_address_narrows_it() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon&aliasType=language-edition&reviewStatuses=rejected%2Cpending\
+              &targetKind=catalog-item&targetId=cat_1";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let want = "/api/catalog/alias-review?providerKey=tcgplayer&aliasType=language-edition&reviewStatuses=rejected%2Cpending\
+                &targetKind=catalog-item&targetId=cat_1";
+    let reads: Vec<String> = pilot
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/catalog/alias-review"))
+        .map(|c| c.path.clone())
+        .collect();
+    assert_eq!(reads, [want], "read once, with the API's route context's narrowing");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#), "{html}");
 }
 
 #[tokio::test]
@@ -10881,7 +11165,12 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let (_, _, html) = pilot.send(get(page, Some(session))).await;
     assert!(html.contains("Scheduled for Dec 1, 2026, 12:00 AM"), "in Chicago: {html}");
     assert!(html.contains("&quot;maximumDays&quot;: 14"), "the value, indented, to edit: {html}");
-    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, page, revise, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -10902,10 +11191,22 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
     assert_eq!(calls, 2, "nothing sent for JSON that does not read");
 
-    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let unzoned = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let (status, _, html) = pilot.send(post_as(session, page, unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
+    let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
+    assert_eq!(calls, 2, "nothing sent without the zone");
+
+    // Read in the zone the form was drawn in, and drawn again in it.
+    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00&zone=Asia%2FTokyo";
     let (status, _, html) = pilot.send(post_as(session, page, negative, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("maximumDays must be at least 0.") && html.contains(r#"value="2026-12-01T00:00""#), "{html}");
+    assert!(html.contains(r#"name="zone" value="Asia/Tokyo""#), "drawn again in the posted zone: {html}");
+    let sent = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions");
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["effectiveFrom"], json!("2026-11-30T15:00:00Z"), "midnight in Tokyo");
 }
 
 /// Marketplace's Listing Evidence Policy: the compiled fallback in effect, an active, a draft and a
@@ -11051,9 +11352,12 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
     assert!(html.contains("4 listings would receive changed requirements."), "{html}");
     assert!(html.contains("Added: rule-2") && html.contains("Removed: a"), "{html}");
     assert!(html.contains(r#"name="policyId" value="lep_3""#) && html.contains(r#"value="impact_1""#), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the Activate form sends its zone back and names it: {html}"
+    );
 
-    let activate =
-        "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    let activate = "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     let (status, _, html) = pilot.send(post_as(session, page, activate, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Review and acknowledge the current Policy Impact Preview."), "{html}");
@@ -11061,6 +11365,10 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
         pilot.send(post_as(session, page, "intent=activate&policyId=lep_3&impactAcknowledged=yes&effectiveFrom=", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Choose a valid effective time before activation."), "{html}");
+    let unzoned = activate.replace("&zone=America%2FChicago", "&impactAcknowledged=yes");
+    let (status, _, html) = pilot.send(post_as(session, page, &unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
     assert!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts/lep_3/activate").is_empty());
 
     let (status, headers, _) = pilot.send(post_as(session, page, &format!("{activate}&impactAcknowledged=yes"), false)).await;

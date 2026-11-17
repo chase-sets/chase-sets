@@ -274,7 +274,7 @@ pub fn app(config: Config) -> App {
     App::new(url::files::router(shared.clone()))
         .assets(Static)
         .policy(if shared.proto() == "https" { policy.hsts() } else { policy })
-        .layer(platform::access_log::AccessLog::new())
+        .access_log(true)
         .messages::<crate::text::MarketMsg>()
         .components(views::COMPONENTS)
         .area(|area| url::help::area(area, shared.clone()).components(views::HELP))

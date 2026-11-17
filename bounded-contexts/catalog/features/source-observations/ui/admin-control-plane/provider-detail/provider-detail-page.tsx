@@ -54,6 +54,8 @@ import { ProviderReadinessSection } from "../validation/provider-readiness-secti
 import { SemanticCompareSection } from "../validation/semantic-checks-section";
 import { catalogProviderDetailHref } from "./provider-detail-links";
 import { ProviderDetailHeader } from "./provider-detail-header";
+import { IntegrationUnitHealth } from "../validation/integration-unit-health";
+import { HealthSourceProvenance } from "../validation/health-source-provenance";
 import { ProviderVersionHistory } from "./provider-version-history";
 import { SectionDirtySummary } from "./section-dirty-summary";
 
@@ -269,6 +271,7 @@ function ProviderParticipatingUnits({
       {selectedUnitKey && !units.some((unit) => unit.unitKey === selectedUnitKey) ? (
         <WorkbenchText tone="secondary">{t("catalog.features.attentionQueue.resolution.unavailable")}</WorkbenchText>
       ) : null}
+      <HealthSourceProvenance health={readModel.healthTriage} queryKeys={["integration-health-summary"]} />
     </WorkflowModule>
   );
 }
@@ -286,7 +289,13 @@ function ProviderParticipatingUnit({
   const none = t("catalog.features.sourceObservations.ui.primaryWorkbench.none");
 
   return (
-    <Box element="div" gap={0} data-provider-unit-selected={selected ? "true" : undefined}>
+    <Box
+      element="div"
+      gap={0}
+      data-catalog-health-unit={unit.unitKey}
+      data-provider-unit-selected={selected ? "true" : undefined}
+    >
+      <IntegrationUnitHealth unit={health} />
       <KeyValueList
         density="compact"
         variant="surface"
@@ -301,22 +310,6 @@ function ProviderParticipatingUnit({
             value:
               unit.activeProfile?.profileVersion ??
               t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-          },
-          {
-            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
-            value: health ? stateLabel(health.semanticReadiness) : none,
-          },
-          {
-            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
-            value: health ? stateLabel(health.transportReadiness) : none,
-          },
-          {
-            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
-            value: `${stateLabel(readModel.healthTriage.freshness)} · ${formatDateTime(readModel.healthTriage.generatedAt)}`,
-          },
-          {
-            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
-            value: health?.latestDiagnosticText ?? none,
           },
         ]}
       />
@@ -403,6 +396,26 @@ function ProviderRecentJobs({
       cell: (job) => <Badge tone={jobStateTone(job.state)}>{stateLabel(job.operatorStatus)}</Badge>,
     },
     {
+      key: "health",
+      header: t("catalog.features.sourceObservations.ui.healthFacts.progress"),
+      cell: (job) => {
+        const health = readModel.healthTriage.recentJobs.find((row) => row.jobId === job.jobId);
+        return (
+          <WorkbenchStack gap="sm">
+            <WorkbenchText>{job.unitKey}</WorkbenchText>
+            <WorkbenchText>{health?.phase ?? job.state}</WorkbenchText>
+            {health ? (
+              <>
+                <WorkbenchText>{health.progressLabel}</WorkbenchText>
+                <WorkbenchText size="xs">{health.ownerMetricKey}</WorkbenchText>
+                <WorkbenchText>{health.nextAction}</WorkbenchText>
+              </>
+            ) : null}
+          </WorkbenchStack>
+        );
+      },
+    },
+    {
       key: "scope",
       header: t("catalog.features.sourceObservations.ui.providerDetail.jobs.scope"),
       mobileLabel: t("catalog.features.sourceObservations.ui.providerDetail.jobs.scope"),
@@ -430,6 +443,7 @@ function ProviderRecentJobs({
       density="compact"
       data-catalog-provider-recent-jobs="true"
     >
+      <HealthSourceProvenance health={readModel.healthTriage} queryKeys={["import-job-progress-summary"]} />
       <DataTable
         rows={jobs}
         columns={columns}

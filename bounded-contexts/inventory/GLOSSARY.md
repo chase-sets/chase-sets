@@ -218,6 +218,13 @@ Values:
 
 `written-off` is a Restock Decision Outcome, not an Inventory Adjustment Reason. A written-off decision changes no quantity and emits no adjustment.
 
+## Adjustment Request Idempotency Key
+
+An **Adjustment Request Idempotency Key** is the supplied request identity retained on
+an adjustment as `requestIdempotencyKey`, including offline-sale adjustments. It is not
+manufactured for unkeyed requests. Offline-sale recovery uses this native field when
+present; only absent historical fields fall back to the nested legacy CSAT key.
+
 ## Adjustment Note
 
 An **Adjustment Note** is optional operator context attached to an Inventory adjustment. A blank note is stored as no note, and it never replaces or derives from the required free-text reason.

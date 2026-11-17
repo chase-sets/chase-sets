@@ -173,6 +173,15 @@ yields completion. Historical captures without a source field are not classified
 Support remains sourced from Platform Operations; return requests yield return
 resolution. Legacy CSAT sibling events and nested payout facts are not projected.
 
+Marketplace publication, acceptance and review facts retain payload occurrence times.
+Reviews describe the author account and role. Historical nested-only listing publications
+retain their usable legacy identity and time; empty publications yield no fact. Native
+listing fields take precedence. Other nested facts and review siblings are ignored.
+Inventory creation and adjustment facts use the envelope occurrence time and event id
+(`inventory:item.adjusted:<eventId>`), including seed, external-channel and sale-consumed
+occurrences. Creation uses its payload account; adjustment uses the envelope account.
+Raw adjustment reason codes remain unchanged, with absent reasons stored as null.
+
 ## Sampling Policy
 
 A **Sampling Policy** decides which eligible outcomes receive a survey and records

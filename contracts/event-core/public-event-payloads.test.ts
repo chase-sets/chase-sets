@@ -43,6 +43,7 @@ import type {
   InventoryChannelStockAllocationSetPayload,
   InventoryExternalChannelSaleRecordedPayload,
   InventoryItemCreatedPayload,
+  InventoryItemAdjustedPayload,
   InventoryItemOfflineSaleRecordedPayload,
   MarketplaceAutomaticListingEnforcementData,
   MarketplaceListingAutoUnlistedEnforcedPayload,
@@ -51,6 +52,8 @@ import type {
   MarketplaceListingCreatedPayload,
   MarketplaceListingOperatorUnlistedPayload,
   MarketplaceListingPriceUpdatedPayload,
+  MarketplaceListingPublishedPayload,
+  MarketplaceReviewSubmittedPayload,
   MarketplaceOfferLifecyclePayload,
   MarketplaceOperatorListingEnforcementData,
   MarketplaceSalesFeeLineSnapshotPayload,
@@ -91,6 +94,19 @@ import type { PublicPresenceEventPayloads } from "./public-event-payloads/public
 import type { SettlementEventPayloads } from "./public-event-payloads/settlement";
 
 describe("native CSAT source payloads", () => {
+  it("exports compatible publication history, native review fields and an optional adjustment request key", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.listing.published"]
+    >().toEqualTypeOf<MarketplaceListingPublishedPayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.review.submitted"]
+    >().toEqualTypeOf<MarketplaceReviewSubmittedPayload>();
+    expectTypeOf<ChaseSetsEventPayloads["inventory.item.adjusted"]>().toEqualTypeOf<InventoryItemAdjustedPayload>();
+    expectTypeOf<MarketplaceListingPublishedPayload["publishedAt"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<InventoryItemAdjustedPayload["requestIdempotencyKey"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<MarketplaceReviewSubmittedPayload["authorRole"]>().toEqualTypeOf<"buyer" | "seller">();
+    expect({} satisfies MarketplaceListingPublishedPayload).toEqual({});
+  });
   it("keeps historical capture classification optional and exports native payout and Support fields", () => {
     expectTypeOf<PaymentCapturedPayload["sourceContext"]>().toEqualTypeOf<string | null | undefined>();
     expectTypeOf<ChaseSetsEventPayloads["settlement.payout.completed"]>().toEqualTypeOf<PayoutCompletedPayload>();
@@ -930,7 +946,7 @@ const aggregateTypeIdentity = {
   >,
   "marketplace.listing.published": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.published"],
-    EmptyEventPayload
+    MarketplaceListingPublishedPayload
   >,
   "payments.payment-captured": true satisfies IsExactly<
     ChaseSetsEventPayloads["payments.payment-captured"],

@@ -61,10 +61,7 @@ describe("issue-5258-marketplace-ac2 safeguard bypass control", () => {
       { orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 4, feedback: text },
       context,
     );
-    expect(allEvents.map((event) => event.eventType)).toEqual([
-      "marketplace.review.submitted",
-      "marketplace.csat-outcome-fact.v1",
-    ]);
+    expect(allEvents.map((event) => event.eventType)).toEqual(["marketplace.review.submitted"]);
 
     await runtime.commandHandler({
       streamId: `marketplace.review-${reviewId}`,

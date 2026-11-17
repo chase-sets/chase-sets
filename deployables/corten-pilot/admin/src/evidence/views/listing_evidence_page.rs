@@ -4,8 +4,9 @@
 //!
 //! Every rule sends every rule field, hidden where its selector does not use it, so the parallel
 //! lists the form posts stay in step. A selector's values are drawn for the kind the form was
-//! drawn with: after choosing another kind, Show values draws the form again with its values.
-use corten::prelude::*;
+//! drawn with: after choosing another kind, Show values draws the form again with its values. The
+//! Activate form's times are drawn in `zone`, named under each, and the form sends it back.
+use corten::{form::DrawZone, prelude::*};
 
 use super::{NONE, ids, kind, lifecycle, view_set, when};
 use crate::{
@@ -181,7 +182,7 @@ fn RuleFields<'a>(o: Ops, p: Pilot, index: usize, row: &'a Row, selectors: &'a S
 }
 
 #[component(css)]
-pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, screen: &'a EvidenceScreen) -> impl Render {
+pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, zone: &'a DrawZone, screen: &'a EvidenceScreen) -> impl Render {
     let f = Posted::FIELDS;
     let current = &screen.overview.current;
     let at = |value: Option<&str>, otherwise: &str| value.map_or_else(|| otherwise.to_owned(), |v| when(o, here, v));
@@ -271,13 +272,16 @@ pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, screen: &'a Evi
                                 value={&validation.impact_preview.preview_hash}
                             >
                             <div class={(Fields, Two)}>
+                                {zone.field(f.zone)}
                                 <label class={Field}>
                                     <span>{o.lep_effective_from()}</span>
                                     <input type="datetime-local" name={f.effective_from} required>
+                                    <small class={Muted}>{zone.name()}</small>
                                 </label>
                                 <label class={Field}>
                                     <span>{o.lep_effective_until()}</span>
                                     <input type="datetime-local" name={f.effective_until}>
+                                    <small class={Muted}>{zone.name()}</small>
                                 </label>
                             </div>
                             <label class={Check}>

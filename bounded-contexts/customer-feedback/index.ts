@@ -30,6 +30,8 @@ import { buildFulfillmentOutcomeFactProjectionHandlers } from "./features/csat/i
 import { buildPaymentsOutcomeFactProjectionHandlers } from "./features/csat/integrations/payments/outcome-fact-projection";
 import { buildSettlementOutcomeFactProjectionHandlers } from "./features/csat/integrations/settlement/outcome-fact-projection";
 import { buildSupportOutcomeFactProjectionHandlers } from "./features/csat/integrations/platform-operations/outcome-fact-projection";
+import { buildMarketplaceOutcomeFactProjectionHandlers } from "./features/csat/integrations/marketplace/outcome-fact-projection";
+import { buildInventoryOutcomeFactProjectionHandlers } from "./features/csat/integrations/inventory/outcome-fact-projection";
 
 const customerFeedbackContextManifest = contextManifest as BcContextManifest;
 
@@ -75,6 +77,9 @@ const contextModule = defineBoundedContextModule<
           buildSettlementOutcomeFactProjectionHandlers(),
         "platform-operations.customer-feedback-csat-outcome-fact-projection": () =>
           buildSupportOutcomeFactProjectionHandlers(),
+        "marketplace.customer-feedback-csat-outcome-fact-projection": () =>
+          buildMarketplaceOutcomeFactProjectionHandlers(),
+        "inventory.customer-feedback-csat-outcome-fact-projection": () => buildInventoryOutcomeFactProjectionHandlers(),
       },
     }),
     ...buildEventReactionsFromManifest({
