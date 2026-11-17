@@ -29,7 +29,11 @@ class GhApiFailure extends Error {
 
 function classifyGhFailure(error, stderr) {
   const detail = String(stderr ?? "");
-  const status = Number(/^gh: [^\r\n]* \(HTTP ([45]\d{2})\)\r?$/m.exec(detail)?.[1]);
+  // gh api appends the status to JSON error messages (which may span lines), or prints a bare status.
+  let status;
+  if (/^gh: /m.test(detail))
+    for (const [, bare, suffix] of detail.matchAll(/^gh: HTTP ([45]\d{2})\r?$| \(HTTP ([45]\d{2})\)\r?$/gm))
+      status = Number(bare ?? suffix);
   if (status) return new GhApiFailure(`http-${status}`, status === 429 || status >= 500);
   if (error.code === "ABORT_ERR" || (!error.code && error.killed && error.signal === "SIGTERM"))
     return new GhApiFailure("timeout", true);

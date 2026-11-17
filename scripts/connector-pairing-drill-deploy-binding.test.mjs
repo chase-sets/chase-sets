@@ -165,7 +165,7 @@ describe("connector-pairing-drill-deploy-binding", () => {
     });
 
   it.each([
-    ["503", () => failedGh(1, "gh: private-stderr (HTTP 503)")],
+    ["bare 503", () => failedGh(1, "gh: HTTP 503\r\n")],
     ["429", () => failedGh(1, "gh: private-stderr (HTTP 429)")],
     ["transport", () => failedGh(1, 'Get "https://private-url": unexpected EOF')],
     ["timeout", () => failedGh("ABORT_ERR")],
@@ -185,7 +185,7 @@ describe("connector-pairing-drill-deploy-binding", () => {
   });
 
   it.each([
-    ["workflow-runs", "/workflows/", 1, "gh: private-stderr (HTTP 403)", "http-403", 1],
+    ["workflow-runs", "/workflows/", 1, "gh: private-stderr\ncontinued (HTTP 403)", "http-403", 1],
     ["attempt-jobs", "/attempts/", 1, "gh: private-stderr (HTTP 404)", "http-404", 1],
     ["attempt-jobs", "/attempts/", 1, "gh: private-stderr (HTTP 503)", "http-503", 3],
     ["deploy-job-log", "/logs", 4, "private-stderr", "exit-4", 1],
