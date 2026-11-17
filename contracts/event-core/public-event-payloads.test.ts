@@ -946,7 +946,7 @@ const aggregateTypeIdentity = {
   >,
   "marketplace.listing.published": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.published"],
-    EmptyEventPayload
+    MarketplaceListingPublishedPayload
   >,
   "payments.payment-captured": true satisfies IsExactly<
     ChaseSetsEventPayloads["payments.payment-captured"],

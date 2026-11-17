@@ -47,7 +47,7 @@ export function listingFact() {
 }
 
 export function offerFact() {
-  return decideMarketplaceOffer(
+  const accepted = decideMarketplaceOffer(
     {
       ...initialMarketplaceOfferState,
       offerId: "off_native" as never,
@@ -101,6 +101,24 @@ export function offerFact() {
       },
     },
   ).find((event) => event.type === "marketplace.offer.accepted")!;
+  const { marketplaceSalesFeePercentageBps, marketplaceSalesFeeFixedAmount, marketplaceSalesFeeCapAmount } =
+    accepted.data;
+  if (
+    marketplaceSalesFeePercentageBps === undefined ||
+    marketplaceSalesFeeFixedAmount === undefined ||
+    marketplaceSalesFeeCapAmount === undefined
+  ) {
+    throw new Error("Native Offer acceptance must include all fee fields.");
+  }
+  return {
+    ...accepted,
+    data: {
+      ...accepted.data,
+      marketplaceSalesFeePercentageBps,
+      marketplaceSalesFeeFixedAmount,
+      marketplaceSalesFeeCapAmount,
+    },
+  };
 }
 
 export function reviewFact(authorRole: "buyer" | "seller" = "buyer") {
