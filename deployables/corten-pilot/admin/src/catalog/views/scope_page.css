@@ -57,6 +57,15 @@
   justify-self: start;
   font-weight: 600;
 }
+.evidence-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
 .pills {
   display: flex;
   flex-wrap: wrap;
