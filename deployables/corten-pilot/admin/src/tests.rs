@@ -10959,9 +10959,12 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
     assert!(html.contains("4 listings would receive changed requirements."), "{html}");
     assert!(html.contains("Added: rule-2") && html.contains("Removed: a"), "{html}");
     assert!(html.contains(r#"name="policyId" value="lep_3""#) && html.contains(r#"value="impact_1""#), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the Activate form sends its zone back and names it: {html}"
+    );
 
-    let activate =
-        "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    let activate = "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     let (status, _, html) = pilot.send(post_as(session, page, activate, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Review and acknowledge the current Policy Impact Preview."), "{html}");
@@ -10969,6 +10972,10 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
         pilot.send(post_as(session, page, "intent=activate&policyId=lep_3&impactAcknowledged=yes&effectiveFrom=", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Choose a valid effective time before activation."), "{html}");
+    let unzoned = activate.replace("&zone=America%2FChicago", "&impactAcknowledged=yes");
+    let (status, _, html) = pilot.send(post_as(session, page, &unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
     assert!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts/lep_3/activate").is_empty());
 
     let (status, headers, _) = pilot.send(post_as(session, page, &format!("{activate}&impactAcknowledged=yes"), false)).await;

@@ -164,20 +164,6 @@ pub fn sent(entry: &Entry<LocalDateTime>, zone: Option<&FormZone>) -> Option<Val
     })
 }
 
-/// A `datetime-local` value as the instant it is in `zone`, or the text as typed when it cannot be read.
-/// For the listing evidence and policy console forms, which do not yet send their zone back.
-pub fn sent_time(text: &str, zone: &TimeZone) -> Value {
-    let text = text.trim();
-    if text.is_empty() {
-        return Value::Null;
-    }
-    let read = text.parse::<jiff::civil::DateTime>().ok().and_then(|civil| civil.to_zoned(zone.clone()).ok());
-    match read {
-        Some(zoned) => json!(zoned.timestamp().to_string()),
-        None => json!(text),
-    }
-}
-
 impl MessageForm {
     /// A new message: admin-web's defaults.
     pub fn new() -> Self {
@@ -415,11 +401,6 @@ mod tests {
 
     #[test]
     fn times_are_the_operators_and_the_body_is_admin_webs() {
-        let chicago = TimeZone::get("America/Chicago").unwrap();
-        assert_eq!(sent_time("2026-11-10T09:00", &chicago), json!("2026-11-10T15:00:00Z"));
-        assert_eq!(sent_time("2026-10-20T09:00", &chicago), json!("2026-10-20T14:00:00Z"), "daylight time");
-        assert_eq!(sent_time("soon", &chicago), json!("soon"), "the API refuses it in its words");
-
         let drawn_in = DrawZone::from(corten::i18n::Visitor::named("America/Chicago"));
         let start = drawn(Some("2026-11-10 15:00:05.250+00"), &drawn_in);
         assert_eq!(start.value().map(|at| at.to_string()).as_deref(), Some("2026-11-10T09:00"), "to the minute");
