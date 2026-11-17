@@ -8,7 +8,8 @@ import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout
 import type { CheckoutSellListConfirmationRow } from "../read-model/queries";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
-import { checkoutOwnerRuntimeFixture, choices } from "./owner-read.fixture";
+import { checkoutOwnerRuntimeFixture, choices, fixtureLine } from "./owner-read.fixture";
+import { createCheckoutApiClient } from "../../../client";
 
 const readySellerReadiness: SellListReadinessSnapshot["sellerReadiness"] = {
   status: "ready",
@@ -1054,6 +1055,57 @@ describe("API-owned Sell List review readiness", () => {
       sellerAccountId: "anon_sell_1",
       decisions: { lineActions: [], lineOutcomes: [] },
       sellerEvidence: null,
+    });
+  });
+});
+
+describe("Sell List composite HTTP reads", () => {
+  it("serializes account decimal answers and enforces account access", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    f.setLines([{ ...fixtureLine, quantity: 2 }]);
+    const app = buildApp({ actor: sellerActor(), services: f.services });
+    const response = await app.request("/account/sell-list/composite-review");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      screen: {
+        selectedOfferGross: "20.00",
+        expectedSellerPayout: "20.00",
+        estimatedSalesFees: "0.00",
+        futureListingGross: "0.00",
+        canContinue: true,
+      },
+    });
+    expect(
+      (await buildApp({ actor: null, services: f.services }).request("/account/sell-list/composite-review")).status,
+    ).toBe(401);
+  });
+
+  it("uses only the anonymous header for the guest composite client and returns an empty envelope without it", async () => {
+    const f = checkoutOwnerRuntimeFixture("anon_fixture");
+    const loadGuestCompositeReview = vi.spyOn(f.services, "loadGuestCompositeReview");
+    const app = buildApp({ actor: sellerActor(), services: f.services });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => app.fetch(new Request(input, init)));
+    const client = createCheckoutApiClient({ baseUrl: "http://checkout.test", fetch });
+    const guest = await client.getGuestSellListCompositeReview("anon_fixture");
+    expect(loadGuestCompositeReview).toHaveBeenCalledWith("anon_fixture");
+    expect(guest).toMatchObject({
+      inventoryItems: [],
+      productOfferReviews: [],
+      screen: {
+        payoutReadiness: null,
+        payoutIsReady: true,
+        canContinue: false,
+        selectedOfferGross: "10.00",
+        expectedSellerPayout: "10.00",
+      },
+    });
+    const empty = await client.getGuestSellListCompositeReview(null);
+    expect(loadGuestCompositeReview).toHaveBeenLastCalledWith(null);
+    expect(empty.screen).toMatchObject({
+      lineCount: 0,
+      canContinue: false,
+      selectedOfferGross: "0.00",
+      expectedSellerPayout: "0.00",
     });
   });
 });

@@ -30,7 +30,11 @@ const waitForSeedMisses = { timeout: 20_000, interval: 50 };
 
 const tokensOf = (trace: readonly LeaseTraceEntry[], ownerId: string, operation: LeaseTraceEntry["operation"]) =>
   trace
-    .filter((entry) => entry.ownerId === ownerId && entry.operation === operation)
+    .filter(
+      (entry) =>
+        (ownerId === SEED_OWNER ? entry.ownerId.startsWith(ownerId) : entry.ownerId === ownerId) &&
+        entry.operation === operation,
+    )
     .map((entry) => entry.fencingToken!);
 
 describeDb("inline seed group lease (real Postgres)", () => {
@@ -60,7 +64,7 @@ describeDb("inline seed group lease (real Postgres)", () => {
     expect(tokensOf(plane.trace, SEED_OWNER, "released")).toEqual(acquired);
     expect(await readProjectedItems(pools())).toEqual(["item-1"]);
     const checkpoint = await readTargetCheckpoint(pools());
-    expect(checkpoint).toMatchObject({ checkpoint: "1", ownerId: SEED_OWNER });
+    expect(checkpoint).toMatchObject({ checkpoint: "1", ownerId: expect.stringMatching(/^seed:platform-api:/) });
     expect(acquired).toContain(checkpoint?.fencingToken);
     expect(await readTargetLeases(plane.controlPlane)).toEqual([]);
   });
@@ -109,7 +113,7 @@ describeDb("inline seed group lease (real Postgres)", () => {
       (entry) => entry.ownerId === WORKER_OWNER && entry.operation === "released",
     );
     const firstSeedAcquire = plane.trace.findIndex(
-      (entry) => entry.ownerId === SEED_OWNER && entry.operation === "acquired",
+      (entry) => entry.ownerId.startsWith(SEED_OWNER) && entry.operation === "acquired",
     );
     expect(firstSeedAcquire).toBeGreaterThan(workerRelease);
     expect(seedTokens.every((token) => BigInt(token) > BigInt(workerToken!))).toBe(true);
@@ -144,12 +148,12 @@ describeDb("inline seed group lease (real Postgres)", () => {
     expect(BigInt(rebuildToken!)).toBeGreaterThan(BigInt(operation.lease.fencingToken));
     expect(await readProjectedItems(pools())).toEqual(["item-1", "item-2"]);
     const rebuilt = await readTargetCheckpoint(pools());
-    expect(rebuilt).toMatchObject({ checkpoint: "2", ownerId: SEED_OWNER });
+    expect(rebuilt).toMatchObject({ checkpoint: "2", ownerId: expect.stringMatching(/^seed:platform-api:/) });
     expect(BigInt(rebuilt!.fencingToken!)).toBeGreaterThanOrEqual(BigInt(rebuildToken!));
     expect(await readTargetLeases(plane.controlPlane)).toEqual([]);
   });
 
-  it("fences a same-host seed reclaim: the token bumps and the stale seed holder's refused renewal stops it before any write", async () => {
+  it("fences an expired same-host seed reclaim: the token bumps and the stale seed holder's refused renewal stops it before any write", async () => {
     const plane = createRecordingControlPlane(pools().platform);
     const registry = createTargetRegistry({});
     await appendTargetItem(pools(), "item-1");
@@ -174,7 +178,11 @@ describeDb("inline seed group lease (real Postgres)", () => {
     );
     await acquiredByStaleHolder.promise;
 
-    // The same owner id reclaims the live lease at once with a higher fencing token.
+    // A crashed acquisition can be reclaimed only after its TTL expires.
+    await pools().platform.query(
+      "UPDATE platform_control_leases SET expires_at = now() - interval '1 second' WHERE lease_name = $1",
+      [TARGET_LEASE_NAME],
+    );
     await seedTarget(pools(), registry, plane.recording);
     const reclaimTokens = tokensOf(plane.trace, SEED_OWNER, "acquired").filter(
       (token) => BigInt(token) > BigInt(staleToken!),
@@ -187,7 +195,11 @@ describeDb("inline seed group lease (real Postgres)", () => {
     vi.advanceTimersByTime(30_000);
     await Promise.all(plane.renewals);
     await new Promise((resolve) => setImmediate(resolve));
-    expect(plane.trace).toContainEqual({ operation: "renewal-refused", ownerId: SEED_OWNER, fencingToken: staleToken });
+    expect(plane.trace).toContainEqual({
+      operation: "renewal-refused",
+      ownerId: expect.stringMatching(/^seed:platform-api:/),
+      fencingToken: staleToken,
+    });
 
     await appendTargetItem(pools(), "item-3");
     staleGate.resolve();

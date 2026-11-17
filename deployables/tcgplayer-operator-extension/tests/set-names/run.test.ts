@@ -19,7 +19,7 @@ const entry = (categoryId = 3) => ({
 });
 
 describe("SetNames Run endpoint adapter", () => {
-  it.each([1, 2, 3, 68])(
+  it.each([1, 2, 3, 68, 71])(
     "makes one unchanged credential-free request for selected bound line %s",
     async (productLineId) => {
       const body = { errors: [], results: [entry(productLineId)] };

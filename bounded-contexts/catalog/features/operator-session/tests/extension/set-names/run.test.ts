@@ -24,7 +24,7 @@ describe("SetNames Run", () => {
     });
     expect(post).toHaveBeenCalledOnce();
   });
-  it.each([1, 2, 3, 68])(
+  it.each([1, 2, 3, 68, 71])(
     "fetches bound product line %s once and grant-posts the entire response once",
     async (productLineId) => {
       const request = vi.fn(async () => response({ errors: [], results: [entry({ categoryId: productLineId })] }));
@@ -41,7 +41,7 @@ describe("SetNames Run", () => {
       });
     },
   );
-  it.each([71, 82, 0, NaN])("never requests or posts unbound line %s", async (productLineId) => {
+  it.each([82, 0, NaN])("never requests or posts unbound line %s", async (productLineId) => {
     const request = vi.fn();
     const post = vi.fn();
     expect(await runTcgplayerSetNames({ productLineId, environment: "staging", request, post })).toEqual({

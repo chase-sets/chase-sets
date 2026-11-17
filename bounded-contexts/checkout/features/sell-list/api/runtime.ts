@@ -61,7 +61,9 @@ import {
   listSellListLines,
   listSellListReadinessLines,
   loadCheckoutGuestSellListOfferReviews,
+  loadCheckoutGuestSellListCompositeReview,
   loadCheckoutSellListCompositeReview,
+  loadCheckoutSellListRawReview,
   type CheckoutCommercialTermsResolver,
   type CheckoutOfferAcceptanceTermsSource,
   type CheckoutSellListConfirmationRow,
@@ -299,11 +301,12 @@ export type CheckoutSellListServices = Readonly<{
   getOfferMatch: (sellerAccountId: string, offerId: string) => ReturnType<typeof getCheckoutSellOfferMatch>;
   loadCompositeReview: (
     sellerAccountId: string,
-    options?: Readonly<{ includeStandardComparison?: boolean }>,
+    options?: Readonly<{ includeStandardComparison?: boolean; sellListPath?: string }>,
   ) => ReturnType<typeof loadCheckoutSellListCompositeReview>;
   loadGuestOfferReviews: (
     ownerId: string,
   ) => Promise<Awaited<ReturnType<typeof loadCheckoutGuestSellListOfferReviews>>>;
+  loadGuestCompositeReview: (ownerId: string | null) => ReturnType<typeof loadCheckoutGuestSellListCompositeReview>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -344,7 +347,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       preparation
         ? Promise.resolve(preparation.review)
         : deps.commercialTermsResolver
-          ? loadCheckoutSellListCompositeReview(deps.db, deps.commercialTermsResolver, {
+          ? loadCheckoutSellListRawReview(deps.db, deps.commercialTermsResolver, {
               sellerAccountId: params.sellerAccountId,
               lines,
               offerAcceptanceTermsSource: deps.offerAcceptanceTermsSource,
@@ -722,12 +725,17 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         sellerAccountId,
         lines,
         includeStandardComparison: options.includeStandardComparison,
+        sellListPath: options.sellListPath,
         offerAcceptanceTermsSource: deps.offerAcceptanceTermsSource,
       });
     },
     loadGuestOfferReviews: async (ownerId) => {
       const lines = await listSellListLines(deps.db, ownerId);
       return loadCheckoutGuestSellListOfferReviews(commercialTermsResolver, lines);
+    },
+    loadGuestCompositeReview: async (ownerId) => {
+      const lines = ownerId ? await listSellListLines(deps.db, ownerId) : [];
+      return loadCheckoutGuestSellListCompositeReview(commercialTermsResolver, lines);
     },
     mergeSellListIntoAccount: async (params, context) => {
       const owner = sellerCheckoutOwner(params.sourceOwnerId);

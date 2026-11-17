@@ -1,175 +1,36 @@
 import { t } from "@chase-sets/localization";
 import { evidenceCoverageCodeLocaleKey } from "../../../support/request-support/marketplace-listing-evidence";
-import type { CheckoutSellListLineRow } from "../read-model/queries";
-import { isPublicStandardTerms, positiveMoney } from "./sell-list-formatting";
-import type {
-  LineReadiness,
-  SellListInventoryItem,
-  SellListOfferReview,
-  SellListProductOfferReview,
-} from "./sell-list-page-types";
+import type { SellListLineScreenReview } from "../read-model/screen-review";
+import type { LineReadiness } from "./sell-list-page-types";
 
-function listingSetupHref(line: CheckoutSellListLineRow, priceAmount: string | null | undefined) {
-  const searchParams = new URLSearchParams({
-    catalogItemId: line.catalog_catalog_item_id,
-  });
-  if (positiveMoney(priceAmount) !== null && priceAmount) {
-    searchParams.set("recommendedPrice", priceAmount);
-  }
-  if (line.selected_options.length > 0) {
-    searchParams.set("selectedOptions", JSON.stringify(line.selected_options));
-  }
+const labelKeys = {
+  ready: "checkout.features.sellList.ui.sellListPage.ready",
+  "needs-refresh": "checkout.features.sellList.ui.sellListPage.needs.refresh",
+  "needs-action": "checkout.features.sellList.ui.sellListPage.needs.action",
+  "evidence-needs-action": "checkout.features.sellList.ui.sellListPage.evidence.needs.action",
+} as const;
 
-  return `/account/listings/new?${searchParams.toString()}`;
-}
+const detailKeys = {
+  "public-standard-preview-ready":
+    "checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail",
+  "selected-offer-ready": "checkout.features.sellList.ui.sellListPage.selected.offer.ready.detail",
+  "offer-terms-need-refresh": "checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh",
+  "evidence-unavailable": "checkout.features.sellList.ui.sellListPage.evidence.unavailable",
+  "smart-match-ready": "checkout.features.sellList.ui.sellListPage.smart.match.ready.detail",
+  "fallback-listing-ready": "checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail",
+  "fallback-listing-form-ready": "checkout.features.sellList.ui.sellListPage.fallback.listing.form.ready.detail",
+  "choose-sale-action": "checkout.features.sellList.ui.sellListPage.choose.sale.action.before.checkout",
+} as const;
 
-export function inventorySetupHref(line: CheckoutSellListLineRow) {
-  const searchParams = new URLSearchParams({
-    catalogItemId: line.catalog_catalog_item_id,
-    returnTo: "/account/sell-list",
-  });
-  if (line.selected_options.length > 0) {
-    searchParams.set("selectedOptions", JSON.stringify(line.selected_options));
-  }
-
-  return `/account/inventory?${searchParams.toString()}`;
-}
-
-function inventoryListingSetupHref(inventoryItemId: string, priceAmount: string | null | undefined) {
-  const searchParams = new URLSearchParams({ inventoryItemId });
-  if (positiveMoney(priceAmount) !== null && priceAmount) {
-    searchParams.set("recommendedPrice", priceAmount);
-  }
-
-  return `/account/listings/new?${searchParams.toString()}`;
-}
-
-export function sellListLineSetupHref(line: CheckoutSellListLineRow, inventoryItem?: SellListInventoryItem | null) {
-  if (line.line_type === "product" && inventoryItem) {
-    return inventoryListingSetupHref(inventoryItem.item_id, line.minimum_listing_price_amount);
-  }
-
-  return listingSetupHref(
-    line,
-    line.line_type === "selected-offer" ? line.offer_price_amount : line.minimum_listing_price_amount,
-  );
-}
-
-export function sellListLineRecoveryHref(line: CheckoutSellListLineRow, inventoryItem?: SellListInventoryItem | null) {
-  if (line.line_type === "product" && !inventoryItem) {
-    return inventorySetupHref(line);
-  }
-
-  return sellListLineSetupHref(line, inventoryItem);
-}
-
-export function selectedOfferReadiness(review: SellListOfferReview | undefined): LineReadiness {
-  const evidence = review?.evidence;
-  if (review?.status === "ready" && review.terms && evidence === null) {
-    return {
-      ready: false,
-      label: t("checkout.features.sellList.ui.sellListPage.evidence.needs.action"),
-      detail: t("checkout.features.sellList.ui.sellListPage.evidence.unavailable"),
-      tone: "warning",
-    };
-  }
-  if (review?.status === "ready" && review.terms && evidence && !evidence.coverage.complete) {
-    const unmetReasons = evidence.coverage.unmetCodes.map((code) => t(evidenceCoverageCodeLocaleKey(code)));
-    return {
-      ready: false,
-      label: t("checkout.features.sellList.ui.sellListPage.evidence.needs.action"),
-      detail: unmetReasons.join(" "),
-      tone: "warning",
-    };
-  }
-
-  if (review?.status === "ready" && review.terms) {
-    return {
-      ready: true,
-      label: t("checkout.features.sellList.ui.sellListPage.ready"),
-      detail: isPublicStandardTerms(review.terms)
-        ? t("checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail")
-        : t("checkout.features.sellList.ui.sellListPage.selected.offer.ready.detail"),
-      tone: "success",
-    };
-  }
-
+export function formatLineReadiness(answer: SellListLineScreenReview): LineReadiness {
   return {
-    ready: false,
-    label: t("checkout.features.sellList.ui.sellListPage.needs.refresh"),
-    detail: review?.message ?? t("checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh"),
-    tone: "warning",
-  };
-}
-
-function incompleteProductOfferEvidence(review: SellListProductOfferReview | undefined) {
-  return (review?.offers ?? []).find(
-    (item) => item.evidence !== undefined && (!item.evidence || !item.evidence.coverage.complete),
-  );
-}
-
-export function productLineCanSubmitCheckout(options: {
-  review: SellListProductOfferReview | undefined;
-  defaultInventoryItem: SellListInventoryItem | null;
-}): boolean {
-  if (incompleteProductOfferEvidence(options.review)) {
-    return false;
-  }
-  const readyOfferCount = options.review?.offers.length ?? 0;
-  return readyOfferCount > 0 || Boolean(options.defaultInventoryItem);
-}
-
-export function productLineReadiness(options: {
-  review: SellListProductOfferReview | undefined;
-  line: CheckoutSellListLineRow;
-  defaultInventoryItem: SellListInventoryItem | null;
-}): LineReadiness {
-  const readyOfferCount = options.review?.offers.length ?? 0;
-  const fallbackReady =
-    options.line.fallback_mode === "create-listing" &&
-    Boolean(options.defaultInventoryItem) &&
-    positiveMoney(options.line.minimum_listing_price_amount) !== null;
-
-  const blockedOffer = incompleteProductOfferEvidence(options.review);
-  if (blockedOffer?.evidence === null) {
-    return {
-      ready: false,
-      label: t("checkout.features.sellList.ui.sellListPage.evidence.needs.action"),
-      detail: t("checkout.features.sellList.ui.sellListPage.evidence.unavailable"),
-      tone: "warning",
-    };
-  }
-  if (blockedOffer?.evidence && !blockedOffer.evidence.coverage.complete) {
-    const unmetReasons = blockedOffer.evidence.coverage.unmetCodes.map((code) =>
-      t(evidenceCoverageCodeLocaleKey(code)),
-    );
-    return {
-      ready: false,
-      label: t("checkout.features.sellList.ui.sellListPage.evidence.needs.action"),
-      detail: unmetReasons.join(" "),
-      tone: "warning",
-    };
-  }
-
-  if (readyOfferCount > 0 || fallbackReady || (readyOfferCount === 0 && options.defaultInventoryItem)) {
-    return {
-      ready: true,
-      label: t("checkout.features.sellList.ui.sellListPage.ready"),
-      detail:
-        readyOfferCount > 0
-          ? t("checkout.features.sellList.ui.sellListPage.smart.match.ready.detail", { count: readyOfferCount })
-          : fallbackReady
-            ? t("checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail")
-            : t("checkout.features.sellList.ui.sellListPage.fallback.listing.form.ready.detail"),
-      tone: "success",
-    };
-  }
-
-  return {
-    ready: false,
-    label: t("checkout.features.sellList.ui.sellListPage.needs.action"),
+    ready: answer.ready,
+    label: t(labelKeys[answer.labelCode]),
     detail:
-      options.review?.message ?? t("checkout.features.sellList.ui.sellListPage.choose.sale.action.before.checkout"),
-    tone: "warning",
+      answer.message ??
+      (answer.detailCode === "evidence-incomplete"
+        ? answer.unmetEvidenceCodes.map((code) => t(evidenceCoverageCodeLocaleKey(code))).join(" ")
+        : t(detailKeys[answer.detailCode], answer.parameters)),
+    tone: answer.ready ? "success" : "warning",
   };
 }

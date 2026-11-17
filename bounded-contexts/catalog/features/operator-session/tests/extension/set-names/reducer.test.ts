@@ -22,11 +22,13 @@ describe("lossless SetNames reducer", () => {
     expect(JSON.stringify(reduced.receipt)).not.toMatch(/toString|Synthetic|synthetic-pokemon/);
     expect(reduceTcgplayerSetNames(response(), 3, observedAt)).toMatchObject({ outcome: "qualified" });
   });
-  it("pins the accepted report hash without inventing supplemental authority", () => {
+  it("pins the accepted report hashes including the supplemental Lorcana authority", () => {
     expect(tcgplayerSetNameObservationAuthority.reportSha256).toBe(
       "973c4a89869c9f14b3ea67acae9210123a235d7ff6c1f5040d0aa9b229cd989b",
     );
-    expect(tcgplayerSetNameObservationAuthority.lorcanaSupplementalReportSha256).toBeNull();
+    expect(tcgplayerSetNameObservationAuthority.lorcanaSupplementalReportSha256).toBe(
+      "b948e35961aef6f14e51c3a7051ae13517e73c34f47ee83007f5ea1962a91cd4",
+    );
   });
   it("preserves synthetic Pokemon Unicode, raw identities, nulls, flags and local dates through the real parser", () => {
     const opaque = "Synthetic\u0007\u200b\ue000\u0378";

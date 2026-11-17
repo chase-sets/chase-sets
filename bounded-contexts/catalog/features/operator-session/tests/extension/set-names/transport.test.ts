@@ -9,7 +9,7 @@ import {
   type OperatorRecord,
 } from "../../../domain/extension/record";
 import { createOperatorTransport } from "../../../domain/extension/transport";
-import { counts, post } from "./fixture";
+import { counts, entry, post } from "./fixture";
 
 const grant = "A".repeat(43);
 const origin = `chrome-extension://${operatorExtensionId}`;
@@ -36,27 +36,33 @@ function setup(status = 200, body: unknown = counts, initial?: OperatorRecord) {
 }
 
 describe("SetNames grant transport", () => {
-  it("posts exactly once with the existing environment grant and closed response counts", async () => {
-    const { background, fetcher, writes } = setup();
-    await background.receive({ action: "pair", environment: "staging", grant }, sender, operatorExtensionId);
-    const before = writes.length;
-    await expect(background.receiveSetNamePost(message(), sender, operatorExtensionId)).resolves.toEqual({
-      outcome: "recorded",
-      ...counts,
-    });
-    expect(fetcher).toHaveBeenCalledExactlyOnceWith(
-      `${operatorOrigins.staging}/api/public/catalog/operator-session/scope-observations/tcgplayer-set-names`,
-      {
-        method: "POST",
-        credentials: "omit",
-        redirect: "error",
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${grant}`, "Content-Type": "application/json" },
-        body: JSON.stringify(post()),
-      },
-    );
-    expect(writes).toHaveLength(before);
-  });
+  it.each([3, 71])(
+    "posts line %s exactly once with the existing grant and closed response counts",
+    async (productLineId) => {
+      const { background, fetcher, writes } = setup();
+      const candidate = { ...post(), productLineId, sets: [entry({ categoryId: productLineId })] };
+      await background.receive({ action: "pair", environment: "staging", grant }, sender, operatorExtensionId);
+      const before = writes.length;
+      await expect(
+        background.receiveSetNamePost({ ...message(), post: candidate }, sender, operatorExtensionId),
+      ).resolves.toEqual({
+        outcome: "recorded",
+        ...counts,
+      });
+      expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+        `${operatorOrigins.staging}/api/public/catalog/operator-session/scope-observations/tcgplayer-set-names`,
+        {
+          method: "POST",
+          credentials: "omit",
+          redirect: "error",
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${grant}`, "Content-Type": "application/json" },
+          body: JSON.stringify(candidate),
+        },
+      );
+      expect(writes).toHaveLength(before);
+    },
+  );
   it.each([401, 403])(
     "turns %s into re-pair-required with no retry, response read or provider persistence",
     async (status) => {
@@ -112,7 +118,7 @@ describe("SetNames grant transport", () => {
     const { background, fetcher } = setup();
     for (const candidate of [
       { ...message(), extra: true },
-      { ...message(), post: { ...post(), productLineId: 71 } },
+      { ...message(), post: { ...post(), productLineId: 82, sets: [entry({ categoryId: 82 })] } },
       { ...message(), post: { ...post(), sets: [] } },
     ]) {
       expect(await background.receiveSetNamePost(candidate, sender, operatorExtensionId)).toBeNull();

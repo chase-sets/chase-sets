@@ -3,6 +3,43 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { CheckoutSellListPage } from "./sell-list-page";
+import type { ComponentProps } from "react";
+import { deriveSellListCompositeReview } from "../read-model/screen-review";
+import type { CheckoutSellListRawReview, CheckoutSellPayoutReadinessRow } from "../read-model/queries";
+import type {
+  SellListOfferReview,
+  SellListProductOfferReview,
+  SellListInventoryItem,
+  PayoutReadiness,
+} from "./sell-list-page-types";
+
+function FixtureSellListPage({
+  offerReviews = [],
+  productOfferReviews = [],
+  inventoryItems = [],
+  payoutReadiness = null,
+  ...props
+}: ComponentProps<typeof CheckoutSellListPage> & {
+  offerReviews?: readonly SellListOfferReview[];
+  productOfferReviews?: readonly SellListProductOfferReview[];
+  inventoryItems?: readonly SellListInventoryItem[];
+  payoutReadiness?: PayoutReadiness | null;
+}) {
+  const compositeReview = deriveSellListCompositeReview({
+    lines: props.sellListLines,
+    review: { offerReviews, productOfferReviews, inventoryItems } as CheckoutSellListRawReview,
+    isAccount: props.isSignedIn !== false,
+    payoutReadiness: payoutReadiness
+      ? ({
+          ...payoutReadiness,
+          account_id: "acc_seller",
+          updated_at: "2026-11-16T00:00:00.000Z",
+        } as CheckoutSellPayoutReadinessRow)
+      : null,
+    sellListPath: props.sellListPath,
+  });
+  return <CheckoutSellListPage {...props} compositeReview={props.compositeReview ?? compositeReview} />;
+}
 import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
 
 afterEach(async () => {
@@ -113,9 +150,77 @@ const tintedSurfaceExcluded = [
 const outlinedSurfaceExcluded = ["surface-border", "ds-glass", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"] as const;
 
 describe("checkout sell list page", () => {
-  it("pins selected-offer, product-line, and seller-readiness roots to their ratified chrome", () => {
+  it("renders API readiness, permission, totals and recovery unchanged when raw inputs disagree", () => {
+    const compositeReview = deriveSellListCompositeReview({
+      lines: [selectedOfferLine],
+      isAccount: true,
+      review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+    });
+    const answer = compositeReview.screen.lines[selectedOfferLine.line_id]!;
     render(
       <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        compositeReview={{
+          ...compositeReview,
+          screen: {
+            ...compositeReview.screen,
+            canContinue: true,
+            payoutIsReady: true,
+            blockedLineCount: 0,
+            readyLineCount: 7,
+            lineCount: 7,
+            totalQuantity: 9,
+            selectedOfferGross: "123.45",
+            futureListingGross: "23.45",
+            estimatedSalesFees: "3.45",
+            expectedSellerPayout: "120.00",
+            recoveryHref: "/account/inventory?api=chosen",
+            recoveryCode: "resolve-items",
+            hasMultipleOffers: true,
+            lines: {
+              [selectedOfferLine.line_id]: {
+                ...answer,
+                ready: true,
+                canSubmit: false,
+                labelCode: "ready",
+                detailCode: "smart-match-ready",
+                parameters: { count: 7 },
+              },
+            },
+          },
+        }}
+      />,
+    );
+    expect(
+      screen
+        .getAllByRole("button", { name: "Continue to seller checkout" })
+        .every((button) => !button.hasAttribute("disabled")),
+    ).toBe(true);
+    expect(screen.getAllByText("$123.45").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$23.45").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$3.45").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$120.00").length).toBeGreaterThan(0);
+    expect(
+      screen
+        .getAllByRole("link", { name: "Resolve items" })
+        .every((link) => link.getAttribute("href") === "/account/inventory?api=chosen"),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
+    expect(screen.getByRole("dialog").textContent).toContain("7");
+    expect(within(screen.getByRole("dialog")).getByText("Ready")).toBeTruthy();
+  });
+
+  it("does not invent quotes or continuation when the composite envelope is missing", () => {
+    const markup = renderToString(<CheckoutSellListPage sellListLines={[selectedOfferLine]} compositeReview={null} />);
+    expect(markup).toContain("Needs refresh");
+    expect(markup).not.toContain("review-sell-list-checkout");
+    expect(markup).not.toContain("Selected offer gross");
+    expect(markup).not.toContain("$700.00");
+  });
+
+  it("pins selected-offer, product-line, and seller-readiness roots to their ratified chrome", () => {
+    render(
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine, { ...productLine, item_title: "Blastoise", item_subtitle: "Base Set 2" }]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         offerReviews={[
@@ -173,7 +278,7 @@ describe("checkout sell list page", () => {
 
   it("renders pending fresh-write and latest confirmation as tinted furniture", () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[]}
         recoveryState={{
           kind: "pending-fresh-write",
@@ -192,7 +297,7 @@ describe("checkout sell list page", () => {
 
     cleanup();
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[]}
         latestConfirmation={latestConfirmation}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
@@ -208,7 +313,7 @@ describe("checkout sell list page", () => {
 
   it("renders a simple seller review with readiness and payout before checkout", () => {
     const markup = renderToString(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine, productLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         offerReviews={[
@@ -288,7 +393,7 @@ describe("checkout sell list page", () => {
 
   it("uses Seller Desk language and preserves its path through payout setup", () => {
     const markup = renderToString(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[productLine]}
         payoutReadiness={{ status: "restricted", missing_requirements: ["bank account"] }}
         sellListPath="/account/desk/offers"
@@ -302,7 +407,7 @@ describe("checkout sell list page", () => {
 
   it("reviews competing offers from item cards in a terms-comparison drawer", async () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine, productLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         offerReviews={[
@@ -422,7 +527,7 @@ describe("checkout sell list page", () => {
 
   it("uses the responsive item-card grid instead of narrow action rows", () => {
     const markup = renderToString(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine, productLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         offerReviews={[
@@ -494,7 +599,7 @@ describe("checkout sell list page", () => {
     };
 
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[blockedProductLine]}
         payoutReadiness={{ status: "restricted", missing_requirements: ["bank account"] }}
         productOfferReviews={[
@@ -523,7 +628,7 @@ describe("checkout sell list page", () => {
 
   it("surfaces evaluator coverage and blocks selected-offer checkout until evidence is complete", async () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         offerReviews={[
@@ -597,7 +702,7 @@ describe("checkout sell list page", () => {
     };
 
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[productWithoutMatches]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         productOfferReviews={[
@@ -641,7 +746,7 @@ describe("checkout sell list page", () => {
 
   it("links unavailable selected offers to matching listing setup", () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         offerReviews={[
@@ -664,7 +769,7 @@ describe("checkout sell list page", () => {
   });
 
   it("shows a simple empty Sell List recovery state", () => {
-    const markup = renderToString(<CheckoutSellListPage sellListLines={[]} />);
+    const markup = renderToString(<FixtureSellListPage sellListLines={[]} />);
 
     expect(markup).toContain("Your Sell List is empty");
     expect(markup).toContain("Add selected offers or products");
@@ -680,7 +785,7 @@ describe("checkout sell list page", () => {
 
   it("shows pending fresh-write recovery instead of the normal empty Sell List state", () => {
     const markup = renderToString(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[]}
         recoveryState={{
           kind: "pending-fresh-write",
@@ -704,7 +809,7 @@ describe("checkout sell list page", () => {
     "withholds populated review conclusions during pending composite recovery (auto-refresh=%s)",
     (isAutoRevalidating) => {
       render(
-        <CheckoutSellListPage
+        <FixtureSellListPage
           sellListLines={[selectedOfferLine, productLine]}
           offerReviews={[]}
           productOfferReviews={[]}
@@ -743,7 +848,7 @@ describe("checkout sell list page", () => {
 
   it("shows healthy review terms and enables checkout once pending composite recovery clears", () => {
     const { rerender } = render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         recoveryState={{
           kind: "pending-fresh-write",
@@ -755,7 +860,7 @@ describe("checkout sell list page", () => {
     );
 
     rerender(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         recoveryState={null}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
@@ -796,7 +901,7 @@ describe("checkout sell list page", () => {
 
   it("shows an actionable expired fresh-write recovery when the added line stays missing", () => {
     const markup = renderToString(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[]}
         recoveryState={{
           kind: "missing-after-fresh-write",
@@ -817,7 +922,7 @@ describe("checkout sell list page", () => {
 
   it("shows a signed-in registration return notice after anonymous Sell List merge", () => {
     const markup = renderToString(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         registrationReturn="seller-checkout"
@@ -849,7 +954,7 @@ describe("checkout sell list page", () => {
 
   it("shows latest seller confirmation as pending seller activity without completed downstream facts", () => {
     const markup = renderToString(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[]}
         latestConfirmation={latestConfirmation}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
@@ -888,7 +993,7 @@ describe("checkout sell list page", () => {
     };
 
     const { container } = render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         isSignedIn={false}
         sellListLines={[guestSelectedOfferLine]}
         offerReviews={[
@@ -959,7 +1064,7 @@ describe("checkout sell list page", () => {
 
   it("preserves Sell List handoff receipts in guest account-gate auth links", () => {
     const { container } = render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         isSignedIn={false}
         sellerCheckoutRegisterHref="/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout%26afterWrite%3Dfresh%26postWriteHandoff%3Dhandoff"
@@ -973,7 +1078,7 @@ describe("checkout sell list page", () => {
 
   it("keeps registered term deltas in Reference Info with minimal row copy", () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
         registrationReturn="seller-checkout"
@@ -1055,7 +1160,7 @@ describe("checkout sell list page", () => {
       buyer_display_name: null,
     };
 
-    render(<CheckoutSellListPage sellListLines={[lineWithoutPublicBuyerName]} />);
+    render(<FixtureSellListPage sellListLines={[lineWithoutPublicBuyerName]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     expect(screen.getAllByText("Buyer").length).toBeGreaterThan(0);
@@ -1085,7 +1190,7 @@ describe("Sell List payout and acceptance presentation", () => {
 
   it("agrees on selected-offer payout and keeps not-started payout setup unchanged", () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         offerReviews={[quotedReview]}
         payoutReadiness={{ status: "not-started", missing_requirements: ["provider-onboarding", "seller-agreement"] }}
@@ -1124,7 +1229,7 @@ describe("Sell List payout and acceptance presentation", () => {
       },
     }));
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[{ ...productLine, quantity: 2 }]}
         productOfferReviews={[{ lineId: productLine.line_id, status: "ready", offers, message: null }]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
@@ -1139,7 +1244,7 @@ describe("Sell List payout and acceptance presentation", () => {
 
   it("agrees on the complete quoted allocation for one product offer", () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[productLine]}
         productOfferReviews={[
           {
@@ -1178,7 +1283,7 @@ describe("Sell List payout and acceptance presentation", () => {
     const lines =
       kind === "selected" ? [selectedOfferLine] : kind === "product" ? [productLine] : [selectedOfferLine, productLine];
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={lines}
         offerReviews={kind === "mixed" ? [quotedReview] : []}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
@@ -1195,7 +1300,7 @@ describe("Sell List payout and acceptance presentation", () => {
 
   it("keeps a quoted zero numeric and future listing gross separate", () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[
           { ...selectedOfferLine, offer_price_amount: "0.00" },
           { ...productLine, quantity: 2 },
@@ -1250,7 +1355,7 @@ describe("Sell List payout and acceptance presentation", () => {
 
   it.each([1, 3])("names %i blocked items with correct grammar and a recovery link", (count) => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={Array.from({ length: count }, (_, index) => ({
           ...selectedOfferLine,
           line_id: `blocked_${index}`,
@@ -1285,7 +1390,7 @@ describe("Sell List payout and acceptance presentation", () => {
     null,
   ])("explains payout readiness without exposing codes: %j", (readiness) => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         offerReviews={[quotedReview]}
         payoutReadiness={readiness}
@@ -1310,7 +1415,7 @@ describe("Sell List payout and acceptance presentation", () => {
 
   it("shows acceptance ready only when payout and every line are ready", () => {
     render(
-      <CheckoutSellListPage
+      <FixtureSellListPage
         sellListLines={[selectedOfferLine]}
         offerReviews={[quotedReview]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}

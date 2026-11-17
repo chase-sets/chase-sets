@@ -28,6 +28,47 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     databaseSuffix: "platform_api_bootstrap_production_reconciliation",
     bootBearingCases: "all",
     cases: [
+      // Structural enrollment estimates, not captured timing evidence. Hosted DB CI qualifies these cases.
+      {
+        name: "inline-seed-direct-lease: admin waits for a worker before resetting or advancing",
+        referenceDurationMs: 2000,
+        identity: "b1a85e70db6d5c19",
+      },
+      {
+        name: "inline-seed-direct-lease: representative sync waits for a projection operation before resetting",
+        referenceDurationMs: 2000,
+        identity: "61f3672505c0b399",
+      },
+      {
+        name: "inline-seed-direct-lease: all-group drain refuses live same-host reentry until release",
+        referenceDurationMs: 2000,
+        identity: "2cdc67ed58c39f9e",
+      },
+      {
+        name: "inline-seed-direct-lease: no-groups admin and all-group paths refuse ungrouped runners without writes",
+        referenceDurationMs: 1000,
+        identity: "483bf45fb8a34efa",
+      },
+      {
+        name: "inline-seed-direct-lease: admin miss times out and never acquires after the holder later expires",
+        referenceDurationMs: 6000,
+        identity: "670382f4a2d1eda3",
+      },
+      {
+        name: "inline-seed-direct-lease: representative timeout awaits late acquisition and exact-token cleanup",
+        referenceDurationMs: 1000,
+        identity: "2a75c82440884118",
+      },
+      {
+        name: "inline-seed-direct-lease: admin renewal loss rolls back reset and releases only its exact token",
+        referenceDurationMs: 1000,
+        identity: "5a86a4367c7afdc4",
+      },
+      {
+        name: "inline-seed-direct-lease: all-group renewal loss rolls back drain and preserves the successor lease",
+        referenceDurationMs: 1000,
+        identity: "7a9fd1c1ccb397e8",
+      },
       {
         name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
         referenceDurationMs: 8538,
@@ -472,9 +513,9 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
   },
 });
 
-// The accepted capture's source assignment is the enrolled three-unit topology.
+// Retain the three-unit topology; unit 1 includes eight newly enrolled direct-lease cases.
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
-  "test:db:1": 18,
+  "test:db:1": 26,
   "test:db:2": 32,
   "test:db:3": 19,
 });

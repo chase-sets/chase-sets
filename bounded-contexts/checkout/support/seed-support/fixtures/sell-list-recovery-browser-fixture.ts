@@ -1,5 +1,6 @@
 import type { createMemoryRouter } from "react-router";
 import type { loader } from "../../../routes/account-sell-list";
+import { deriveSellListCompositeReview } from "../../../features/sell-list/read-model/screen-review";
 
 // Synthetic loader data seeds the browser router; the real loader is covered by account-sell-list-recovery.test.tsx.
 export function sellListRecoveryBrowserData() {
@@ -39,11 +40,14 @@ export function sellListRecoveryBrowserData() {
         },
       ],
     },
-    offerReviews: [],
-    productOfferReviews: [],
-    inventoryItems: [],
-    payoutReadiness: { account_id: "acc_synthetic_9082", status: "ready", missing_requirements: [], updated_at: null },
+    compositeReview: null,
   };
+  ready.compositeReview = deriveSellListCompositeReview({
+    lines: ready.sellList.items,
+    isAccount: true,
+    payoutReadiness: { account_id: "acc_synthetic_9082", status: "ready", missing_requirements: [], updated_at: null },
+    review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+  });
   return ready;
 }
 
