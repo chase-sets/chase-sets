@@ -138,7 +138,7 @@ dbDescribe("report first outcomes and threshold repair on PostgreSQL", () => {
       reporterUserId: "usr_reporter",
       reason: "other" as const,
       details: "Please check.",
-      sourceRoutePath: "/accounts/seller",
+      sourceRoutePath: "/accounts/review-subject",
     };
     const [first, replay] = await Promise.all([
       runtime().reportReview(input, context),
