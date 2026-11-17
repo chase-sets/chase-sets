@@ -19,11 +19,11 @@
 //! send again (409), as marketplace's `SellListAttemptBoundary` does; one refused draws the
 //! page with the API's words (422).
 //!
-//! One of the page's rules is marketplace's web layer's, copied here until the API has it: each
-//! line's readiness and the list's payout totals
-//! ([chase-sets/chase-sets#10749](https://github.com/chase-sets/chase-sets/issues/10749)), worked
-//! out in whole cents where marketplace's page adds floats (`moneyNumber`). Continue's review plan
-//! is Checkout's: the page sends what the seller chose, and Checkout plans and keeps it.
+//! Each line's readiness, the list's totals and the way forward are Checkout's: its composite
+//! review answers them for the page (`screen`,
+//! [chase-sets/chase-sets#10749](https://github.com/chase-sets/chase-sets/issues/10749)), and the
+//! page puts them in words. Continue's review plan is Checkout's too: the page sends what the
+//! seller chose, and Checkout plans and keeps it.
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
@@ -35,9 +35,9 @@ use platform::{api::segment, money, receipt::Receipt};
 
 use crate::{
     api::{
-        ApiError, CartWrite, CommandError, CompositeReview, InventoryOption, LineSelection, ListingCommand, ListingEvidence,
-        ListingSelection, OfferMatchCalls as _, OfferReview, OfferSelection, Photo, ProductOfferReview, ReviewSelections,
-        SellList as _, SellListConfirmation, SellListRow, SellPayoutReadiness, SellerListings as _,
+        ApiError, CartWrite, CommandError, CompositeReview, InventoryOption, LineSelection, ListingCommand, ListingSelection,
+        OfferMatchCalls as _, OfferReview, OfferSelection, Photo, ProductOfferReview, ReviewSelections, SellList as _,
+        SellListConfirmation, SellListLineReview, SellListRow, SellListScreenReview, SellPayoutReadiness, SellerListings as _,
     },
     app::{Config, Shared, read_failed, sign_in_back_to, url},
     auth::{DeskSeller, Session},
@@ -240,77 +240,47 @@ fn times(amount: Option<&str>, quantity: u64) -> i64 {
     cents(amount).saturating_mul(i64::try_from(quantity).unwrap_or(i64::MAX))
 }
 
-/// An evidence review that is not complete: `Some(None)` could not be read, `Some(Some(e))` misses
-/// `e`'s unmet codes. Absent is no review.
-fn evidence_blocks(evidence: &Option<Option<ListingEvidence>>) -> Option<LineReadiness> {
-    let blocked = |detail| Some(LineReadiness { ready: false, label: ReadinessLabel::EvidenceNeedsAction, detail });
-    match evidence {
-        Some(None) => blocked(ReadinessDetail::EvidenceUnavailable),
-        Some(Some(e)) if !e.coverage.complete => blocked(ReadinessDetail::Unmet(e.coverage.unmet_codes.clone())),
-        _ => None,
-    }
-}
-
-/// A selected offer's readiness (`selectedOfferReadiness`).
-pub fn selected_offer_readiness(review: Option<&OfferReview>) -> LineReadiness {
-    match review {
-        Some(r) if r.status == "ready" && r.terms.is_some() => {
-            if let Some(blocked) = evidence_blocks(&r.evidence) {
-                return blocked;
-            }
-            let standard = r.terms.as_ref().is_some_and(|t| t.standard());
-            LineReadiness {
-                ready: true,
-                label: ReadinessLabel::Ready,
-                detail: if standard { ReadinessDetail::StandardPreview } else { ReadinessDetail::SelectedOffer },
+/// A line's readiness as Checkout reviewed it (`screen.lines`), in the page's terms. A line the
+/// review does not answer for (it could not be read) is not ready: a selected offer's terms need a
+/// refresh, a product line a sale action.
+pub fn readiness(review: Option<&SellListLineReview>, offer: bool) -> LineReadiness {
+    let unknown = || {
+        if offer {
+            LineReadiness { ready: false, label: ReadinessLabel::NeedsRefresh, detail: ReadinessDetail::OfferTermsNeedRefresh }
+        } else {
+            LineReadiness { ready: false, label: ReadinessLabel::NeedsAction, detail: ReadinessDetail::ChooseSaleAction }
+        }
+    };
+    let Some(review) = review else { return unknown() };
+    let label = match review.label_code.as_str() {
+        "ready" => ReadinessLabel::Ready,
+        "evidence-needs-action" => ReadinessLabel::EvidenceNeedsAction,
+        "needs-refresh" => ReadinessLabel::NeedsRefresh,
+        _ => ReadinessLabel::NeedsAction,
+    };
+    let message = review.message.as_deref().map(str::trim).filter(|m| !m.is_empty());
+    let detail = match (message, review.detail_code.as_str()) {
+        (Some(message), _) => ReadinessDetail::Message(message.to_owned()),
+        (None, "evidence-unavailable") => ReadinessDetail::EvidenceUnavailable,
+        (None, "evidence-incomplete") => ReadinessDetail::Unmet(review.unmet_evidence_codes.clone()),
+        (None, "public-standard-preview-ready") => ReadinessDetail::StandardPreview,
+        (None, "selected-offer-ready") => ReadinessDetail::SelectedOffer,
+        (None, "smart-match-ready") => ReadinessDetail::SmartMatch(review.parameters.count.unwrap_or(0) as usize),
+        (None, "fallback-listing-ready") => ReadinessDetail::Fallback,
+        (None, "fallback-listing-form-ready") => ReadinessDetail::FallbackForm,
+        (None, "offer-terms-need-refresh") => ReadinessDetail::OfferTermsNeedRefresh,
+        (None, "choose-sale-action") => ReadinessDetail::ChooseSaleAction,
+        // A code this page does not know: the line's usual words for being ready or not.
+        (None, _) if review.ready => {
+            if offer {
+                ReadinessDetail::SelectedOffer
+            } else {
+                ReadinessDetail::FallbackForm
             }
         }
-        _ => LineReadiness {
-            ready: false,
-            label: ReadinessLabel::NeedsRefresh,
-            detail: review
-                .and_then(|r| r.message.clone())
-                .map_or(ReadinessDetail::OfferTermsNeedRefresh, ReadinessDetail::Message),
-        },
-    }
-}
-
-fn incomplete_offer(review: Option<&ProductOfferReview>) -> Option<LineReadiness> {
-    review?.offers.iter().find_map(|o| evidence_blocks(&o.evidence))
-}
-
-/// A product line can go to seller checkout (`productLineCanSubmitCheckout`): no Smart Match offer missing
-/// evidence, and an offer or inventory for a listing.
-pub fn product_can_submit(review: Option<&ProductOfferReview>, inventory: Option<&InventoryOption>) -> bool {
-    incomplete_offer(review).is_none() && (review.is_some_and(|r| !r.offers.is_empty()) || inventory.is_some())
-}
-
-/// A product line's readiness (`productLineReadiness`).
-pub fn product_readiness(
-    line: &SellListRow,
-    review: Option<&ProductOfferReview>,
-    inventory: Option<&InventoryOption>,
-) -> LineReadiness {
-    if let Some(blocked) = incomplete_offer(review) {
-        return blocked;
-    }
-    let offers = review.map_or(0, |r| r.offers.len());
-    let fallback =
-        line.fallback_mode == "create-listing" && inventory.is_some() && cents(line.minimum_listing_price_amount.as_deref()) > 0;
-    let ready = |detail| LineReadiness { ready: true, label: ReadinessLabel::Ready, detail };
-    if offers > 0 {
-        ready(ReadinessDetail::SmartMatch(offers))
-    } else if fallback {
-        ready(ReadinessDetail::Fallback)
-    } else if inventory.is_some() {
-        ready(ReadinessDetail::FallbackForm)
-    } else {
-        LineReadiness {
-            ready: false,
-            label: ReadinessLabel::NeedsAction,
-            detail: review.and_then(|r| r.message.clone()).map_or(ReadinessDetail::ChooseSaleAction, ReadinessDetail::Message),
-        }
-    }
+        (None, _) => unknown().detail,
+    };
+    LineReadiness { ready: review.ready, label, detail }
 }
 
 /// An offer the seller may pick on a line: a selected offer's own, or a Smart Match offer.
@@ -332,7 +302,8 @@ pub struct Pick {
 pub struct Line {
     pub row: SellListRow,
     pub readiness: LineReadiness,
-    pub can_submit: bool,
+    /// Checkout's review of the line, with its links, when the review was read.
+    pub review: Option<SellListLineReview>,
     pub offer_review: Option<OfferReview>,
     pub product_review: Option<ProductOfferReview>,
     pub inventory: Vec<InventoryOption>,
@@ -381,39 +352,15 @@ impl Line {
         evidence.as_ref()?.evidence.iter().filter(|p| p.status == "active").find_map(|p| p.thumbnail())
     }
 
-    /// Where the seller fixes a line that is not ready (`sellListLineRecoveryHref`): inventory for a
-    /// product without it, else Create listing.
-    pub fn recovery_href(&self) -> String {
-        if !self.row.is_offer() && self.default_inventory().is_none() { self.inventory_href() } else { self.setup_href() }
+    /// Create listing for the line (Checkout's `setupHref`), when the review was read.
+    pub fn setup_href(&self) -> Option<&str> {
+        self.review.as_ref().map(|r| r.setup_href.as_str()).filter(|h| !h.is_empty())
     }
 
-    /// Create listing for the line (`sellListLineSetupHref`).
-    pub fn setup_href(&self) -> String {
-        let row = &self.row;
-        let price = if row.is_offer() { row.offer_price_amount.as_deref() } else { row.minimum_listing_price_amount.as_deref() };
-        let mut pairs = Vec::new();
-        let inventory = self.default_inventory().filter(|_| !row.is_offer());
-        match inventory {
-            Some(item) => pairs.push(("inventoryItemId", item.item_id.clone())),
-            None => pairs.push(("catalogItemId", row.catalog_catalog_item_id.clone())),
-        }
-        if cents(price) > 0 {
-            pairs.push(("recommendedPrice", price.unwrap_or_default().to_owned()));
-        }
-        if inventory.is_none() && !row.selected_options.is_empty() {
-            pairs.push(("selectedOptions", serde_json::to_string(&row.selected_options).unwrap_or_default()));
-        }
-        format!("{}?{}", url::NewListing::PATH, query(&pairs))
-    }
-
-    /// Inventory for the line's item (`inventorySetupHref`), back to the sell list.
-    pub fn inventory_href(&self) -> String {
-        let mut pairs =
-            vec![("catalogItemId", self.row.catalog_catalog_item_id.clone()), ("returnTo", url::SellList::PATH.to_owned())];
-        if !self.row.selected_options.is_empty() {
-            pairs.push(("selectedOptions", serde_json::to_string(&self.row.selected_options).unwrap_or_default()));
-        }
-        format!("{}?{}", url::Inventory::PATH, query(&pairs))
+    /// Inventory for the line's item, back to the sell list (Checkout's `inventoryHref`), when the
+    /// review was read.
+    pub fn inventory_href(&self) -> Option<&str> {
+        self.review.as_ref().map(|r| r.inventory_href.as_str()).filter(|h| !h.is_empty())
     }
 }
 
@@ -426,6 +373,9 @@ pub struct SellListScreen {
     pub registration: bool,
     pub merged: Option<Merged>,
     pub lines: Vec<Line>,
+    /// What Checkout worked out for the page: readiness, totals and the way forward
+    /// (chase-sets/chase-sets#10749). None when the review could not be read.
+    pub review: Option<SellListScreenReview>,
     pub confirmation: Option<SellListConfirmation>,
     pub payout: Option<SellPayoutReadiness>,
     pub recovery: Option<Recovery>,
@@ -435,13 +385,14 @@ pub struct SellListScreen {
     pub attempt: Option<AttemptNotice>,
 }
 
-/// The list's totals in cents (`useSellListPageModel`). The fees and the payout are none while a
-/// line is not quoted: a selected offer without terms, or a product line without an offer.
+/// The list's totals in cents, as Checkout added them up. The amounts are none while they are
+/// not known: the fees and the payout while a line is not quoted, and all of them when the review
+/// could not be read.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Totals {
     pub quantity: u64,
-    pub offer_gross: i64,
-    pub future_listing_gross: i64,
+    pub offer_gross: Option<i64>,
+    pub future_listing_gross: Option<i64>,
     pub fees: Option<i64>,
     pub payout: Option<i64>,
     /// A product line has more than one offer, so the payout is all of them (`hasMultipleOffers`).
@@ -449,6 +400,8 @@ pub struct Totals {
 }
 
 impl SellListScreen {
+    /// The page for `rows` and their review. `payout` is the payout readiness read on its own,
+    /// for a list Checkout was not asked to review; the review's own comes first.
     pub fn of(
         surface: Surface,
         account: bool,
@@ -463,22 +416,15 @@ impl SellListScreen {
         for item in review.inventory_items {
             inventory.entry(item.product_id.clone()).or_default().push(item);
         }
+        let mut screen = review.screen;
         let lines = rows
             .into_iter()
             .map(|row| {
                 let offer_review = offers.remove(&row.line_id).filter(|_| row.is_offer());
                 let product_review = products.remove(&row.line_id).filter(|_| !row.is_offer());
                 let inventory = inventory.get(&row.product_id).cloned().unwrap_or_default();
-                let (readiness, can_submit) = if row.is_offer() {
-                    let readiness = selected_offer_readiness(offer_review.as_ref());
-                    let ready = readiness.ready;
-                    (readiness, ready)
-                } else {
-                    (
-                        product_readiness(&row, product_review.as_ref(), inventory.first()),
-                        product_can_submit(product_review.as_ref(), inventory.first()),
-                    )
-                };
+                let line_review = screen.as_mut().and_then(|s| s.lines.remove(&row.line_id));
+                let readiness = readiness(line_review.as_ref(), row.is_offer());
                 let picks = match (&offer_review, &product_review) {
                     _ if row.is_offer() => row
                         .offer_id
@@ -513,15 +459,20 @@ impl SellListScreen {
                         .collect(),
                     _ => Vec::new(),
                 };
-                Line { row, readiness, can_submit, offer_review, product_review, inventory, picks }
+                Line { row, readiness, review: line_review, offer_review, product_review, inventory, picks }
             })
             .collect();
+        let payout = match &screen {
+            Some(review) => review.payout_readiness.clone(),
+            None => payout,
+        };
         SellListScreen {
             surface,
             account,
             registration: false,
             merged: None,
             lines,
+            review: screen,
             confirmation: None,
             payout,
             recovery: None,
@@ -531,69 +482,64 @@ impl SellListScreen {
     }
 
     pub fn totals(&self) -> Totals {
-        let mut t = Totals::default();
-        let (mut fees, mut payout, mut quoted) = (0, 0, true);
-        for line in &self.lines {
-            let row = &line.row;
-            t.quantity += row.quantity;
-            if row.is_offer() {
-                let terms = line.offer_review.as_ref().and_then(|r| r.terms.as_ref());
-                quoted &= terms.is_some();
-                t.offer_gross += times(row.offer_price_amount.as_deref(), row.quantity);
-                payout += times(terms.map(|t| t.seller_net_unit_amount.as_str()), row.quantity);
-                fees += times(terms.map(|t| t.marketplace_sales_fee_unit_amount.as_str()), row.quantity);
-            } else {
-                let offers = line.product_review.as_ref().map_or(&[][..], |r| &r.offers[..]);
-                quoted &= !offers.is_empty();
-                t.all_offers |= offers.len() > 1;
-                for o in offers {
-                    payout += times(Some(&o.terms.seller_net_unit_amount), o.offer.quantity_requested);
-                    fees += times(Some(&o.terms.marketplace_sales_fee_unit_amount), o.offer.quantity_requested);
-                }
-                let fallback =
-                    if row.fallback_mode == "create-listing" { row.quantity.saturating_sub(line.matched()) } else { 0 };
-                t.future_listing_gross += times(row.minimum_listing_price_amount.as_deref(), fallback);
-            }
+        let quantity = self.lines.iter().map(|l| l.row.quantity).sum();
+        let Some(review) = &self.review else { return Totals { quantity, ..Totals::default() } };
+        Totals {
+            quantity: review.total_quantity,
+            offer_gross: money::cents(&review.selected_offer_gross),
+            future_listing_gross: money::cents(&review.future_listing_gross),
+            fees: review.estimated_sales_fees.as_deref().and_then(money::cents),
+            payout: review.expected_seller_payout.as_deref().and_then(money::cents),
+            all_offers: review.has_multiple_offers,
         }
-        (t.fees, t.payout) = if quoted { (Some(fees), Some(payout)) } else { (None, None) };
-        t
     }
 
     /// Lines not ready.
     pub fn blocked(&self) -> usize {
-        self.lines.iter().filter(|l| !l.readiness.ready).count()
+        match &self.review {
+            Some(review) => usize::try_from(review.blocked_line_count).unwrap_or(usize::MAX),
+            None => self.lines.len(),
+        }
+    }
+
+    /// Lines ready.
+    pub fn ready(&self) -> usize {
+        self.review.as_ref().map_or(0, |r| usize::try_from(r.ready_line_count).unwrap_or(usize::MAX))
     }
 
     /// Payouts are ready (a guest's are checked after registration).
     pub fn payout_ready(&self) -> bool {
-        !self.account || self.payout.as_ref().is_some_and(|p| p.status == "ready")
+        match &self.review {
+            Some(review) => review.payout_is_ready,
+            None => !self.account || self.payout.as_ref().is_some_and(|p| p.status == "ready"),
+        }
     }
 
-    /// Continue to seller checkout is offered: payouts ready and every line can go.
+    /// Continue to seller checkout is offered (Checkout's `canContinue`).
     pub fn can_continue(&self) -> bool {
-        self.payout_ready() && !self.lines.is_empty() && self.lines.iter().all(|l| l.can_submit)
+        self.review.as_ref().is_some_and(|r| r.can_continue)
     }
 
     /// Payout setup, back to the page.
     pub fn payout_setup_href(&self) -> String {
-        format!("/account/payouts/setup?returnTo={}", segment(self.surface.path()))
+        match self.review.as_ref().map(|r| r.payout_setup_href.as_str()).filter(|h| !h.is_empty()) {
+            Some(href) => href.to_owned(),
+            None => format!("/account/payouts/setup?returnTo={}", segment(self.surface.path())),
+        }
     }
 
-    /// The other way forward: payout setup, the first line to fix, or keep selling.
+    /// The other way forward (Checkout's `recoveryHref` and `recoveryCode`): payout setup, the
+    /// first line to fix, or keep selling. Without the review, search, to resolve the lines.
     pub fn recovery(&self) -> (String, RecoveryLabel) {
-        if !self.payout_ready() {
-            return (self.payout_setup_href(), RecoveryLabel::SetUpPayouts);
-        }
-        let first = self.lines.iter().find(|l| !l.can_submit).or_else(|| self.lines.iter().find(|l| !l.readiness.ready));
-        match first {
-            Some(line) => {
-                (line.recovery_href(), if self.blocked() > 0 { RecoveryLabel::Resolve } else { RecoveryLabel::KeepSelling })
-            }
-            None => (
-                url::Search::PATH.to_owned(),
-                if self.blocked() > 0 { RecoveryLabel::Resolve } else { RecoveryLabel::KeepSelling },
-            ),
-        }
+        let Some(review) = self.review.as_ref().filter(|r| !r.recovery_href.is_empty()) else {
+            return (url::Search::PATH.to_owned(), RecoveryLabel::Resolve);
+        };
+        let label = match review.recovery_code.as_str() {
+            "set-up-payouts" => RecoveryLabel::SetUpPayouts,
+            "keep-selling" => RecoveryLabel::KeepSelling,
+            _ => RecoveryLabel::Resolve,
+        };
+        (review.recovery_href.clone(), label)
     }
 }
 
@@ -663,11 +609,6 @@ pub fn support_reference(confirmation_id: &str) -> String {
         .collect::<String>()
         .to_ascii_uppercase();
     format!("CS-SL-{}", if part.is_empty() { "UNKNOWN" } else { &part })
-}
-
-/// A query's text, each value encoded as `encodeURIComponent` does.
-fn query(pairs: &[(&str, String)]) -> String {
-    pairs.iter().map(|(k, v)| format!("{k}={}", segment(v))).collect::<Vec<_>>().join("&")
 }
 
 /// The guest sell list the browser presents.
@@ -778,8 +719,10 @@ async fn render(
             recovery = recovery.or(Some(Recovery::ConfirmationPending));
         }
     }
+    // A list with lines is reviewed by Checkout, payout readiness and all; an empty one has only
+    // the payout readiness to show.
     let (review, payout) = if account && !list.items.is_empty() {
-        let review = match caller.sell_list_review(place.registration()).await {
+        let review = match caller.sell_list_review(place.registration(), surface.path()).await {
             Ok(review) => review,
             Err(error) if waiting && error.catching_up() => {
                 recovery = recovery.or(Some(Recovery::Pending));
@@ -787,21 +730,20 @@ async fn render(
             }
             Err(error) => return read_failed(req, viewer, error, None),
         };
-        let payout = caller.sell_payout_readiness().await.inspect_err(|e| tracing::warn!("payout readiness: {e}")).ok();
-        (review, payout)
+        (review, None)
     } else if account {
         let payout = caller.sell_payout_readiness().await.inspect_err(|e| tracing::warn!("payout readiness: {e}")).ok();
         (CompositeReview::default(), payout)
     } else {
-        let reviews = match guest.as_deref().filter(|_| !list.items.is_empty()) {
+        let review = match guest.as_deref().filter(|_| !list.items.is_empty()) {
             Some(id) => caller
-                .guest_offer_reviews(id)
+                .guest_sell_list_review(id)
                 .await
-                .inspect_err(|e| tracing::warn!("guest offer reviews: {e}"))
+                .inspect_err(|e| tracing::warn!("guest sell list review: {e}"))
                 .unwrap_or_default(),
-            None => Vec::new(),
+            None => CompositeReview::default(),
         };
-        (CompositeReview { offer_reviews: reviews, ..CompositeReview::default() }, None)
+        (review, None)
     };
     let mut screen = SellListScreen::of(surface, account, list.items, review, payout);
     screen.registration = account && place.registration();
@@ -1187,58 +1129,52 @@ pub(crate) async fn evidence(
 mod tests {
     use super::*;
 
-    fn offer_review(status: &str, terms: bool, evidence: Option<Option<ListingEvidence>>) -> OfferReview {
-        OfferReview {
-            line_id: "sll_1".into(),
-            status: status.into(),
-            terms: terms.then(crate::api::SellTerms::default),
-            message: None,
-            evidence,
-            ..OfferReview::default()
-        }
+    fn line(answer: serde_json::Value) -> SellListLineReview {
+        serde_json::from_value(answer).unwrap()
     }
 
     #[test]
-    fn a_selected_offer_is_ready_with_terms_and_complete_or_no_evidence() {
-        assert!(selected_offer_readiness(Some(&offer_review("ready", true, None))).ready);
-        let unread = selected_offer_readiness(Some(&offer_review("ready", true, Some(None))));
-        assert_eq!((unread.ready, unread.label), (false, ReadinessLabel::EvidenceNeedsAction));
-        let refresh = selected_offer_readiness(Some(&offer_review("ready", false, None)));
-        assert_eq!((refresh.label, refresh.detail), (ReadinessLabel::NeedsRefresh, ReadinessDetail::OfferTermsNeedRefresh));
-        let said = OfferReview { message: Some("Offer expired.".into()), ..offer_review("unavailable", true, None) };
-        assert_eq!(selected_offer_readiness(Some(&said)).detail, ReadinessDetail::Message("Offer expired.".into()));
-        assert!(!selected_offer_readiness(None).ready);
+    fn a_lines_readiness_is_checkouts_answer_in_the_pages_words() {
+        let ready = readiness(
+            Some(&line(
+                serde_json::json!({ "ready": true, "labelCode": "ready", "detailCode": "smart-match-ready", "parameters": { "count": 2 } }),
+            )),
+            false,
+        );
+        assert_eq!((ready.ready, ready.label, ready.detail), (true, ReadinessLabel::Ready, ReadinessDetail::SmartMatch(2)));
+        let unmet = readiness(
+            Some(&line(
+                serde_json::json!({ "labelCode": "evidence-needs-action", "detailCode": "evidence-incomplete", "unmetEvidenceCodes": ["missing-required-view:back"] }),
+            )),
+            true,
+        );
+        assert_eq!(
+            (unmet.ready, unmet.label, unmet.detail),
+            (false, ReadinessLabel::EvidenceNeedsAction, ReadinessDetail::Unmet(vec!["missing-required-view:back".into()]))
+        );
+        // The API's own words win over its code.
+        let said = readiness(
+            Some(&line(
+                serde_json::json!({ "labelCode": "needs-refresh", "detailCode": "offer-terms-need-refresh", "message": "Offer expired." }),
+            )),
+            true,
+        );
+        assert_eq!((said.label, said.detail), (ReadinessLabel::NeedsRefresh, ReadinessDetail::Message("Offer expired.".into())));
+        // A code the page does not know keeps its label and the line's usual words.
+        let new = readiness(
+            Some(&line(serde_json::json!({ "ready": true, "labelCode": "ready", "detailCode": "something-new" }))),
+            false,
+        );
+        assert_eq!((new.ready, new.detail), (true, ReadinessDetail::FallbackForm));
+        // Without a review, a line is not ready, in its kind's words.
+        assert_eq!(readiness(None, true).detail, ReadinessDetail::OfferTermsNeedRefresh);
+        assert_eq!(readiness(None, false).detail, ReadinessDetail::ChooseSaleAction);
     }
 
-    #[test]
-    fn a_product_line_needs_an_offer_or_inventory_and_a_listing_needs_a_minimum_price() {
-        let row = |fallback: &str, minimum: Option<&str>| SellListRow {
-            line_type: "product".into(),
-            fallback_mode: fallback.into(),
-            minimum_listing_price_amount: minimum.map(str::to_owned),
-            quantity: 1,
-            ..SellListRow::default()
-        };
-        let stock = InventoryOption { item_id: "inv_1".into(), available_quantity: 1, ..InventoryOption::default() };
-        let none = product_readiness(&row("none", None), None, None);
-        assert_eq!((none.ready, none.detail), (false, ReadinessDetail::ChooseSaleAction));
-        assert!(!product_can_submit(None, None));
-        assert_eq!(
-            product_readiness(&row("create-listing", Some("20.00")), None, Some(&stock)).detail,
-            ReadinessDetail::Fallback
-        );
-        // A minimum that is not money (or 0) is the listing form, still ready.
-        assert_eq!(
-            product_readiness(&row("create-listing", Some("abc")), None, Some(&stock)).detail,
-            ReadinessDetail::FallbackForm
-        );
-        assert!(product_can_submit(None, Some(&stock)));
-    }
-
-    /// The offer line `a` (2 at 10.00) and the product line `b` (3), reviewed with or without the
-    /// offer's terms (9.00 net, 1.00 fee a unit) and with `offers` Smart Match offers of 2 each
-    /// (the first 7.00 net, the rest 7.50; 0.50 fee).
-    fn quoted_screen(offer_terms: bool, offers: usize) -> SellListScreen {
+    /// The offer line `a` (2 at 10.00) and the product line `b` (3), with `offers` Smart Match
+    /// offers of 2 each (the first 7.00 net, the rest 7.50; 0.50 fee) and the offer's terms when
+    /// `offer_terms`, reviewed by Checkout as `screen`.
+    fn quoted_screen(offer_terms: bool, offers: usize, screen: serde_json::Value) -> SellListScreen {
         let terms = |net: &str, fee: &str| serde_json::json!({ "basis_amount": "10.00", "marketplace_sales_fee_unit_amount": fee, "seller_net_unit_amount": net });
         let smart: Vec<_> = (0..offers)
             .map(|i| {
@@ -1251,6 +1187,7 @@ mod tests {
         let review: CompositeReview = serde_json::from_value(serde_json::json!({
             "offerReviews": [{ "lineId": "a", "status": "ready", "terms": if offer_terms { terms("9.00", "1.00") } else { serde_json::Value::Null } }],
             "productOfferReviews": [{ "lineId": "b", "status": "ready", "offers": smart }],
+            "screen": screen,
         }))
         .unwrap();
         let rows = vec![
@@ -1268,22 +1205,45 @@ mod tests {
     }
 
     #[test]
-    fn the_payout_and_fees_wait_for_every_line_to_be_quoted_and_say_when_they_are_all_offers() {
-        let all = quoted_screen(true, 2).totals();
-        // 2 x 9.00 + 2 x 7.00 + 2 x 7.50, and 2 x 1.00 + 4 x 0.50.
-        assert_eq!((all.payout, all.fees, all.all_offers), (Some(4_700), Some(400), true));
-        let one = quoted_screen(true, 1).totals();
-        assert_eq!((one.payout, one.fees, one.all_offers), (Some(3_200), Some(300), false));
-        // The offer without terms no longer counts at its price: nothing is quoted.
-        assert_eq!(quoted_screen(false, 1).totals().payout, None);
-        // A product line with no offer is not quoted either.
-        let none = quoted_screen(true, 0).totals();
-        assert_eq!((none.payout, none.fees), (None, None));
+    fn the_totals_and_the_way_forward_are_checkouts_and_unknown_without_its_review() {
+        let reviewed = quoted_screen(
+            true,
+            2,
+            serde_json::json!({
+                "lines": {
+                    "a": { "ready": true, "canSubmit": true, "labelCode": "ready", "detailCode": "selected-offer-ready", "setupHref": "/account/listings/new?catalogItemId=c" },
+                    "b": { "ready": false, "canSubmit": false, "labelCode": "needs-action", "detailCode": "choose-sale-action" },
+                },
+                "totalQuantity": 5, "readyLineCount": 1, "blockedLineCount": 1, "canContinue": false,
+                "payoutIsReady": true, "payoutReadiness": { "status": "ready", "missing_requirements": [] },
+                "payoutSetupHref": "/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+                "recoveryHref": "/account/inventory?catalogItemId=c", "recoveryCode": "resolve-items",
+                "hasMultipleOffers": true, "selectedOfferGross": "20.00", "futureListingGross": "0.00",
+                "estimatedSalesFees": "4.00", "expectedSellerPayout": "47.00",
+            }),
+        );
+        let totals = reviewed.totals();
+        assert_eq!(
+            (totals.quantity, totals.offer_gross, totals.future_listing_gross, totals.fees, totals.payout, totals.all_offers),
+            (5, Some(2_000), Some(0), Some(400), Some(4_700), true)
+        );
+        assert_eq!((reviewed.blocked(), reviewed.ready(), reviewed.can_continue(), reviewed.payout_ready()), (1, 1, false, true));
+        assert_eq!(reviewed.recovery(), ("/account/inventory?catalogItemId=c".to_owned(), RecoveryLabel::Resolve));
+        assert_eq!(reviewed.lines[0].setup_href(), Some("/account/listings/new?catalogItemId=c"));
+        assert_eq!(reviewed.lines[1].inventory_href(), None);
+        assert_eq!(reviewed.payout.as_ref().map(|p| p.status.as_str()), Some("ready"), "the review's payout readiness");
+
+        let unreviewed = quoted_screen(true, 2, serde_json::Value::Null);
+        let totals = unreviewed.totals();
+        assert_eq!((totals.quantity, totals.offer_gross, totals.payout), (5, None, None));
+        assert_eq!((unreviewed.blocked(), unreviewed.can_continue()), (2, false));
+        assert_eq!(unreviewed.recovery().1, RecoveryLabel::Resolve);
+        assert_eq!(unreviewed.lines[0].setup_href(), None);
     }
 
     #[test]
     fn a_lines_best_net_is_its_offers_own_quantity_or_none_without_terms() {
-        let screen = quoted_screen(false, 2);
+        let screen = quoted_screen(false, 2, serde_json::Value::Null);
         let (pick, net) = screen.lines[1].best().unwrap();
         // The 7.50 offer, for the 2 it asks for.
         assert_eq!((pick.offer_id.as_str(), net), ("off_1", Some(1_500)));

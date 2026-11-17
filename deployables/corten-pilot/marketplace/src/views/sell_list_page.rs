@@ -47,6 +47,11 @@ fn dollars(t: SellListMsg, cents: i64) -> String {
     t.money(Decimal::new(i128::from(cents), 2), usd()).to_string()
 }
 
+/// A total in cents, or not quoted yet when it is not known.
+fn gross(t: SellListMsg, cents: Option<i64>) -> String {
+    cents.map_or_else(|| t.page_not_quoted_yet().to_owned(), |c| dollars(t, c))
+}
+
 /// An amount the API sent (`formatMoney`): none is "-", one that is not money as it was sent.
 fn amount(t: SellListMsg, amount: Option<&str>) -> String {
     match amount {
@@ -379,7 +384,7 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
     let readiness_summary = if blocked > 0 {
         t.page_readiness_needs_action(blocked as u64).to_string()
     } else {
-        t.page_readiness_ready((screen.lines.len() - blocked) as u64).to_string()
+        t.page_readiness_ready(screen.ready() as u64).to_string()
     };
     html! {
         <form id={SellListFormId} class={Hidden} method="post" action={here}>
@@ -585,7 +590,7 @@ fn Summary<'a>(
             </div>
             <div>
                 <dt>{t.page_selected_offer_gross()}</dt>
-                <dd>{dollars(t, totals.offer_gross)}</dd>
+                <dd>{gross(t, totals.offer_gross)}</dd>
             </div>
             <div>
                 <dt>{payout_label}</dt>
@@ -593,7 +598,7 @@ fn Summary<'a>(
             </div>
             <div>
                 <dt>{t.page_future_listing_gross()}</dt>
-                <dd>{dollars(t, totals.future_listing_gross)}</dd>
+                <dd>{gross(t, totals.future_listing_gross)}</dd>
             </div>
             <div>
                 <dt>{t.page_estimated_sales_fees()}</dt>
@@ -731,11 +736,17 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                     <button class={(Button, Secondary)} type="submit" disabled={held}>{t.page_remove()}</button>
                 </form>
                 if !ready.ready && row.is_offer() {
-                    <a class={(Button, Secondary)} href={line.setup_href()}>{t.page_create_matching_listing()}</a>
+                    if let Some(setup) = line.setup_href() {
+                        <a class={(Button, Secondary)} href={setup}>{t.page_create_matching_listing()}</a>
+                    }
                 }
                 if !ready.ready && !row.is_offer() && offers == 0 {
-                    <a class={(Button, Secondary)} href={line.setup_href()}>{t.page_create_listing()}</a>
-                    <a class={(Button, Ghost)} href={line.inventory_href()}>{t.page_add_inventory()}</a>
+                    if let Some(setup) = line.setup_href() {
+                        <a class={(Button, Secondary)} href={setup}>{t.page_create_listing()}</a>
+                    }
+                    if let Some(inventory) = line.inventory_href() {
+                        <a class={(Button, Ghost)} href={inventory}>{t.page_add_inventory()}</a>
+                    }
                 }
             </div>
             if let Some(fingerprint) = terms.and_then(|t| t.fee_quote_fingerprint.as_deref()) {
