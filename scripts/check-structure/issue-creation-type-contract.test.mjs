@@ -82,7 +82,7 @@ const reviewedSites = {
   "scripts/staging-refresh-preflight.mjs": 1,
   "scripts/staging-wake-drills.mjs": 1,
   "scripts/stripe-money-smoke-test.mjs": 13,
-  "scripts/stripe-webhook-endpoint.mjs": 2,
+  "scripts/stripe-webhook-endpoint.mjs": 5,
 };
 const reviewedSiteContexts = {
   ".github/actions/report-scheduled-workflow-alert/action.yml":
@@ -146,7 +146,7 @@ const reviewedSiteContexts = {
   "scripts/staging-refresh-preflight.mjs": "8327da03d2d0ea8d486d3f456f9daf2fd5301ba15068a034ddf30f28b41267e3",
   "scripts/staging-wake-drills.mjs": "3c5544f6031c2473f2e69b9bf20f4c2c64f55afb08bb0be1e93a481a51c50937",
   "scripts/stripe-money-smoke-test.mjs": "b7dd30be0469e9226d03894debd4aaadb468d40657c6f2e7ce58508d7ad4672d",
-  "scripts/stripe-webhook-endpoint.mjs": "525b0a34268baf31eb5ce0695ea834c08ca56dca71e4683ccbe57f753ce0c052",
+  "scripts/stripe-webhook-endpoint.mjs": "3f81e590029ae65744d8b20dde74d18d3a0105492398988cf9e4c27220792a1b",
 };
 const sharedCallers = [
   "catalog-provider-refresh-watch.yml",
