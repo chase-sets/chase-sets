@@ -872,7 +872,7 @@ pub struct HandoffLine {
 /// A confirm's answer: the receipts of the handoff's Marketplace writes.
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-struct Confirmed {
+struct SellConfirmed {
     source_receipts: Vec<SourceReceipt>,
 }
 
@@ -988,7 +988,7 @@ impl SellList for Caller<'_> {
         if status.is_success() {
             let receipt = Receipt::from_response(res.headers());
             // The confirmation is saved: an answer without its source receipts still is.
-            let confirmed: Confirmed = res.json().await.unwrap_or_default();
+            let confirmed: SellConfirmed = res.json().await.unwrap_or_default();
             let sources = confirmed.source_receipts.into_iter().filter_map(|source| {
                 let receipt = source.command_receipt;
                 Receipt::of_metadata(receipt.commit_position.as_deref(), &receipt.commit_positions)
