@@ -5,12 +5,13 @@
 //! the listings (each with a box for Pause selected and Withdraw selected), a page at a time as
 //! links, and the fee lock report in a disclosure.
 //!
-//! Every action is a form and works without JavaScript; a picked day is read on the server where
-//! the seller is (`seller_listings::seller_zone`). The page's script counts the checked listings. One
-//! column on a phone; a listing's facts beside it from 64rem.
+//! Every action is a form and works without JavaScript; a day form is drawn where the seller is
+//! (`seller_listings::seller_zone`), names that zone, and sends it back for the server to read the
+//! picked day's start in. The page's script counts the checked listings. One column on a phone; a
+//! listing's facts beside it from 64rem.
 use corten::{
     SubmitKey,
-    i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
+    i18n::{Currency, DateStyle, Day, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
 use platform::{
@@ -152,6 +153,15 @@ fn sent(screen: &ListingsScreen, intent: &str, field: impl Fn(&ListingsForm) -> 
     if screen.sent.intent == intent { field(&screen.sent).to_owned() } else { otherwise.to_owned() }
 }
 
+/// The day a refused form was sent with, as typed, else the page's.
+fn sent_day(screen: &ListingsScreen, intent: &str, field: impl Fn(&ListingsForm) -> &Entry<Day>, otherwise: &str) -> String {
+    if screen.sent.intent != intent {
+        return otherwise.to_owned();
+    }
+    let day = field(&screen.sent);
+    day.text().map_or_else(|| day.value().map(|day| day.to_string()).unwrap_or_default(), str::to_owned)
+}
+
 /// The page.
 #[component(css)]
 pub fn SellerListingsPage<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a ListingsScreen) -> impl Render {
@@ -237,7 +247,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
     let e = screen.errors.within(DisableFormId);
     let intent = "disable-listing-availability";
     let reason = sent(screen, intent, |s| &s.reason_category, a.disabled_reason_category.as_deref().unwrap_or_default());
-    let on = sent(screen, intent, |s| &s.available_again_on, a.available_again_on.as_deref().unwrap_or_default());
+    let on = sent_day(screen, intent, |s| &s.available_again_on, a.available_again_on.as_deref().unwrap_or_default());
     html! {
         <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Badges}>
@@ -284,6 +294,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                     action={screen.filters.here()}
                 >
                     {SubmitKey::field(f.attempt)}
+                    {screen.zone.field(f.zone)}
                     <div class={Grid}>
                         <label class={Field}>
                             <span class={Label}>{t.list_reason()}</span>
@@ -298,6 +309,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                                 value={&on}
                                 {..e.aria(f.available_again_on)}
                             >
+                            <small class={Muted}>{screen.zone.name()}</small>
                             {e.message(f.available_again_on)}
                         </div>
                     </div>
@@ -338,8 +350,8 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
     let e = screen.errors.within(AwayFormId);
     let intent = "schedule-away-window";
     let reason = sent(screen, intent, |s| &s.away_window_reason_category, "");
-    let starts = sent(screen, intent, |s| &s.away_window_starts_on, "");
-    let ends = sent(screen, intent, |s| &s.away_window_ends_on, "");
+    let starts = sent_day(screen, intent, |s| &s.away_window_starts_on, "");
+    let ends = sent_day(screen, intent, |s| &s.away_window_ends_on, "");
     html! {
         <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_away_window()}</h3>
@@ -371,6 +383,7 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                     action={screen.filters.here()}
                 >
                     {SubmitKey::field(f.attempt)}
+                    {screen.zone.field(f.zone)}
                     <p class={Muted}>{t.list_away_window_description()}</p>
                     <div class={Grid3}>
                         <div class={Field}>
@@ -398,6 +411,7 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                                 required
                                 {..e.aria(f.away_window_starts_on)}
                             >
+                            <small class={Muted}>{screen.zone.name()}</small>
                             {e.message(f.away_window_starts_on)}
                         </div>
                         <div class={Field}>
@@ -409,6 +423,7 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                                 value={&ends}
                                 {..e.aria(f.away_window_ends_on)}
                             >
+                            <small class={Muted}>{screen.zone.name()}</small>
                             {e.message(f.away_window_ends_on)}
                         </div>
                     </div>

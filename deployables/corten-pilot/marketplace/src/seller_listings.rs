@@ -15,14 +15,17 @@
 //! away window, set or remove the order capacity (each redirects to the page with its
 //! receipt), and Pause or Withdraw the checked listings as one batch (the page again, each listing's
 //! outcome shown, read after the batch). A date a seller picks means the start of that day where
-//! they are (marketplace's `localDateInputToInstant`): the browser's time zone (`ClientZone`), or
-//! before the runtime has run (a first page, no JavaScript) the zone the account chose in
-//! Identity's preferences, or UTC.
+//! they are (marketplace's `localDateInputToInstant`). The page draws the day forms in the
+//! browser's time zone (`req.zone()`), or before the runtime has run (a first page, no JavaScript)
+//! the zone the account chose in Identity's preferences, or UTC; each form sends that zone back
+//! (`FormZone`) and its post reads the day's start in it (`Day::start`). A day sent without the
+//! form's zone (not from this page) is refused.
 use corten::{
-    ClientZone, LiveResponse, SubmitKey,
+    LiveResponse, SubmitKey,
     extract::State,
-    form::Errors,
+    form::{DrawZone, Errors, FormZone},
     http::{HeaderMap, StatusCode},
+    i18n::{Day, Visitor},
     prelude::*,
 };
 use futures_util::StreamExt;
@@ -135,10 +138,12 @@ pub struct ListingsForm {
     pub intent: String,
     pub reason_category: String,
     /// The date listings come back: a day where the seller is.
-    pub available_again_on: String,
+    pub available_again_on: Entry<Day>,
     pub away_window_reason_category: String,
-    pub away_window_starts_on: String,
-    pub away_window_ends_on: String,
+    pub away_window_starts_on: Entry<Day>,
+    pub away_window_ends_on: Entry<Day>,
+    /// The zone a day form was drawn in, which its days begin in.
+    pub zone: Option<FormZone>,
     pub max_open_orders: String,
     /// The checked listings, for Pause selected and Withdraw selected.
     pub listing_ids: Vec<String>,
@@ -219,6 +224,8 @@ pub struct ListingsScreen {
     pub errors: Errors,
     /// The refused form as it was sent.
     pub sent: ListingsForm,
+    /// Where the seller is: the zone the day forms are drawn in.
+    pub zone: DrawZone,
 }
 
 /// What a write adds to the page drawn after it.
@@ -227,6 +234,8 @@ struct After {
     bulk: Option<Bulk>,
     errors: Errors,
     sent: ListingsForm,
+    /// The zone a refused day form was drawn in, to draw it again in.
+    zone: Option<DrawZone>,
 }
 
 struct Reads {
@@ -294,7 +303,14 @@ async fn render(
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     // Neither has a write on this page to wait for, and neither may fail the page.
     let plain = config.platform.caller(headers, config.proto, None);
-    let (fresh, metrics, open_orders) = tokio::join!(reads(&caller, &query), plain.seller_metrics(), plain.open_order_count());
+    let zone = async {
+        match after.zone.clone() {
+            Some(zone) => zone,
+            None => seller_zone(req, &plain).await,
+        }
+    };
+    let (fresh, metrics, open_orders, zone) =
+        tokio::join!(reads(&caller, &query), plain.seller_metrics(), plain.open_order_count(), zone);
     let reads = match fresh {
         Ok(reads) => reads,
         Err(error) if receipt.is_some() && error.catching_up() => match self::reads(&plain, &query).await {
@@ -329,6 +345,7 @@ async fn render(
         bulk: after.bulk,
         errors: after.errors,
         sent: after.sent,
+        zone,
     };
     let t: SellerListingsMsg = req.t();
     let view = html! { <views::SellerListingsPage t={t} p={req.t()} screen={&screen} /> };
@@ -350,43 +367,40 @@ pub(crate) async fn page(
     render(&req, &viewer, &config, &headers, &place, receipt, After::default(), StatusCode::OK).await
 }
 
-/// A date a form sent, as the API takes it: `YYYY-MM-DD`.
-fn date(text: &str) -> Option<&str> {
-    let text = text.trim();
-    let b = text.as_bytes();
-    let digits = |range: std::ops::Range<usize>| b[range].iter().all(u8::is_ascii_digit);
-    (b.len() == 10 && b[4] == b'-' && b[7] == b'-' && digits(0..4) && digits(5..7) && digits(8..10)).then_some(text)
-}
-
-/// Where the seller is: the browser's zone, or before the runtime has run on a page (a first page,
-/// no JavaScript) the zone the account chose in Identity's preferences, or UTC when neither is
-/// known or names a zone.
-async fn seller_zone(zone: Option<ClientZone>, caller: &Api<'_>) -> jiff::tz::TimeZone {
-    if let Some(here) = zone.and_then(|ClientZone(name)| jiff::tz::TimeZone::get(&name).ok()) {
-        return here;
+/// Where the seller is, to draw the day forms in: the browser's zone, or before the runtime has run
+/// on a page (a first page, no JavaScript) the zone the account chose in Identity's preferences, or
+/// UTC when neither is known or names a zone.
+async fn seller_zone(req: &Req, caller: &Api<'_>) -> DrawZone {
+    let here = req.zone();
+    if here.is_known() {
+        return DrawZone::from(here);
     }
     match caller.user_preferences().await {
-        Ok(preferences) => preferences.time_zone.and_then(|name| jiff::tz::TimeZone::get(&name).ok()),
+        Ok(preferences) => DrawZone::from(preferences.time_zone.map_or_else(Visitor::default, |name| Visitor::named(&name))),
         Err(error) => {
             tracing::warn!("the account's time zone could not be read, so a picked day is read in UTC: {error:?}");
-            None
+            DrawZone::from(Visitor::default())
         }
     }
-    .unwrap_or(jiff::tz::TimeZone::UTC)
 }
 
-/// The start of a picked day (`YYYY-MM-DD`) in `zone`, as marketplace's script writes it
-/// (`toISOString`: `2026-11-02T06:00:00.000Z`). A midnight the zone skips is the first moment after.
-fn start_of_day(day: &str, zone: &jiff::tz::TimeZone) -> Option<String> {
-    let date: jiff::civil::Date = day.parse().ok()?;
-    let at = date.to_zoned(zone.clone()).ok()?.timestamp();
+/// The start of a picked day in the zone its form was drawn in, as marketplace's script writes it
+/// (`toISOString`: `2026-11-02T06:00:00.000Z`). A midnight the zone skips is the change.
+fn start_of_day(day: Day, zone: &FormZone) -> Option<String> {
+    let at = jiff::Timestamp::try_from(day.start(zone)?).ok()?;
     Some(format!("{}.{:03}Z", at.strftime("%Y-%m-%dT%H:%M:%S"), at.subsec_millisecond()))
 }
 
-/// The setting a form changes, or what it got wrong. A picked day is read in `zone`.
-fn setting(form: &ListingsForm, zone: &jiff::tz::TimeZone, t: SellerListingsMsg, p: Pilot) -> Result<SellerSetting, Errors> {
+/// The setting a form changes, or what it got wrong. A picked day begins where the form's zone says.
+fn setting(form: &ListingsForm, t: SellerListingsMsg, p: Pilot) -> Result<SellerSetting, Errors> {
     let f = ListingsForm::FIELDS;
     let mut errors = Errors::new();
+    let days = [&form.available_again_on, &form.away_window_starts_on, &form.away_window_ends_on];
+    if form.zone.is_none() && days.iter().any(|day| !day.is_blank()) {
+        errors.add_form(p.check_zone());
+        return Err(errors);
+    }
+    let start = |day: &Entry<Day>| form.zone.as_ref().and_then(|zone| start_of_day(day.value()?, zone));
     let reason = |text: &str, name, errors: &mut Errors| {
         let text = text.trim();
         if !text.is_empty() && !REASONS.contains(&text) {
@@ -397,15 +411,15 @@ fn setting(form: &ListingsForm, zone: &jiff::tz::TimeZone, t: SellerListingsMsg,
     let setting = match form.intent.as_str() {
         "disable-listing-availability" => {
             let reason = reason(&form.reason_category, f.reason_category, &mut errors);
-            let on = form.available_again_on.trim();
-            let at = match on {
-                "" => String::new(),
-                on => date(on).and_then(|on| start_of_day(on, zone)).unwrap_or_else(|| {
+            let on = &form.available_again_on;
+            let at = match on.is_blank() {
+                true => String::new(),
+                false => start(on).unwrap_or_else(|| {
                     errors.add(f.available_again_on, p.seller_listings_date());
                     String::new()
                 }),
             };
-            SellerSetting::Disable { reason, on: on.to_owned(), at }
+            SellerSetting::Disable { reason, on: on.value().map(|day| day.to_string()).unwrap_or_default(), at }
         }
         "enable-listing-availability" => SellerSetting::Enable,
         "schedule-away-window" => {
@@ -413,15 +427,14 @@ fn setting(form: &ListingsForm, zone: &jiff::tz::TimeZone, t: SellerListingsMsg,
             if reason.is_empty() {
                 errors.add(f.away_window_reason_category, t.error_away_window_reason_required());
             }
-            let (starts_on, ends_on) = (form.away_window_starts_on.trim(), form.away_window_ends_on.trim());
-            let starts_at = date(starts_on).and_then(|on| start_of_day(on, zone));
-            let ends_at = date(ends_on).and_then(|on| start_of_day(on, zone));
-            if starts_on.is_empty() {
+            let (starts_on, ends_on) = (&form.away_window_starts_on, &form.away_window_ends_on);
+            let (starts_at, ends_at) = (start(starts_on), start(ends_on));
+            if starts_on.is_blank() {
                 errors.add(f.away_window_starts_on, t.error_away_window_instant_required());
             } else if starts_at.is_none() {
                 errors.add(f.away_window_starts_on, p.seller_listings_date());
             }
-            if !ends_on.is_empty() && ends_at.is_none() {
+            if !ends_on.is_blank() && ends_at.is_none() {
                 errors.add(f.away_window_ends_on, p.seller_listings_date());
             }
             SellerSetting::Schedule { reason, starts_at: starts_at.unwrap_or_default(), ends_at: ends_at.unwrap_or_default() }
@@ -508,7 +521,6 @@ pub(crate) async fn write(
     req: Req,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
-    zone: Option<ClientZone>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::seller_listings::SellerListings>,
     Form(form): Form<ListingsForm>,
@@ -523,16 +535,13 @@ pub(crate) async fn write(
         return bulk(&req, &viewer, &config, &headers, &place, form, family).await;
     }
     let refused_page = |errors: Errors, form: ListingsForm, status| {
-        let after = After { errors, sent: form, ..After::default() };
+        // A refused day form is drawn again in the zone it was drawn in.
+        let zone = form.zone.as_ref().map(DrawZone::from);
+        let after = After { errors, sent: form, zone, ..After::default() };
         render(&req, &viewer, &config, &headers, &place, None, after, status)
     };
     let caller = config.platform.caller(&headers, config.proto, None);
-    // Only a form with a day reads where the seller is, so the others never read Identity.
-    let zone = match form.intent.as_str() {
-        "disable-listing-availability" | "schedule-away-window" => seller_zone(zone, &caller).await,
-        _ => jiff::tz::TimeZone::UTC,
-    };
-    let setting = match setting(&form, &zone, t, p) {
+    let setting = match setting(&form, t, p) {
         Ok(setting) => setting,
         Err(errors) => return refused_page(errors, form, StatusCode::UNPROCESSABLE_ENTITY).await,
     };
@@ -731,10 +740,16 @@ mod tests {
     }
 
     #[test]
-    fn a_date_is_four_two_and_two_digits() {
-        assert_eq!(date(" 2026-11-02 "), Some("2026-11-02"));
-        for bad in ["2026-1-02", "11/02/2026", "2026-11-0x", ""] {
-            assert_eq!(date(bad), None, "{bad}");
+    fn a_picked_day_begins_where_its_form_was_drawn() {
+        let form = |body: &[u8]| corten::form::from_bytes::<ListingsForm>(body).unwrap();
+        let chicago = form(b"availableAgainOn=2026-11-02&zone=America%2FChicago");
+        let day = chicago.available_again_on.value().unwrap();
+        assert_eq!(start_of_day(day, chicago.zone.as_ref().unwrap()).as_deref(), Some("2026-11-02T06:00:00.000Z"));
+        let utc = form(b"zone=UTC").zone.unwrap();
+        assert_eq!(start_of_day(day, &utc).as_deref(), Some("2026-11-02T00:00:00.000Z"));
+        for bad in ["2026-1-02", "11%2F02%2F2026", "2026-11-0x"] {
+            let sent = form(format!("availableAgainOn={bad}&zone=UTC").as_bytes());
+            assert!(sent.available_again_on.value().is_none() && !sent.available_again_on.is_blank(), "{bad}");
         }
     }
 }
