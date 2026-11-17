@@ -19,7 +19,8 @@ export class ListingRequestConflictError extends Error {
 }
 export class ListingRequestIndeterminateError extends Error {
   constructor(cause?: unknown) {
-    super("Listing request result is temporarily unavailable. Retry the same command.", { cause });
+    const message = "Listing request result is temporarily unavailable. Retry the same command.";
+    super(cause instanceof Error ? `${message} Cause: ${cause.message}` : message, { cause });
     this.name = "ListingRequestIndeterminateError";
   }
 }

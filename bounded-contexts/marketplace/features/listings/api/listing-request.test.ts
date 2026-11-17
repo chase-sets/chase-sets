@@ -110,13 +110,17 @@ describe("Listing request replay", () => {
   );
   it("keeps an unknown append failure indeterminate without inventing a result", async () => {
     const f = await fixture(false);
+    const outage = new Error("storage connection lost");
     const execute = createListingRequestExecutor({
       ...f.memory.eventStore,
       async appendToStreams() {
-        throw new Error("storage connection lost");
+        throw outage;
       },
     });
-    await expect(execute(f.input)).rejects.toBeInstanceOf(ListingRequestIndeterminateError);
+    const attempt = execute(f.input);
+    await expect(attempt).rejects.toBeInstanceOf(ListingRequestIndeterminateError);
+    await expect(attempt).rejects.toMatchObject({ cause: outage });
+    await expect(attempt).rejects.toThrow("storage connection lost");
     expect(f.memory.allEvents).toHaveLength(0);
     expect(await f.execute(f.input)).toEqual({ version: 2 });
     expect(f.memory.allEvents).toHaveLength(2);

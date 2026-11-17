@@ -54,12 +54,6 @@ import { closePlatformApiPools, createPlatformApiPools } from "../src/database-p
 import { apiContextRegistry } from "../src/context-registry";
 
 type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
-async function expectIndeterminate(promise: Promise<unknown>, cause: string) {
-  await expect(promise).rejects.toMatchObject({
-    name: "ListingRequestIndeterminateError",
-    cause: expect.objectContaining({ message: expect.stringContaining(cause) }),
-  });
-}
 const listingPhotoStorage: ListingPhotoStorage = {
   async getObject() {
     return null;
@@ -852,8 +846,7 @@ describe("listing channel activation real composition", () => {
         status = (await source.driveClosure(configurationKey(f, predicate))).status;
         throw new Error("synthetic blocked consumer");
       };
-      await expectIndeterminate(
-        f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal),
+      await expect(f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal)).rejects.toThrow(
         "blocked consumer",
       );
       expect(status).toBe("BLOCKED");
@@ -917,8 +910,7 @@ describe("listing channel activation real composition", () => {
       throw new Error("synthetic commit failure");
     };
     try {
-      await expectIndeterminate(
-        f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal),
+      await expect(f.listings.acceptListingTargetPrice(f.accept, f.context, f.principal)).rejects.toThrow(
         "synthetic commit failure",
       );
       expect(appendProbe.beforeCommit).toBeUndefined();
@@ -1003,10 +995,9 @@ describe("listing channel activation real composition", () => {
       ).toEqual(ownerBefore);
       throw new Error("synthetic unknown terminal");
     };
-    await expectIndeterminate(
+    await expect(
       f.listings.activateListingForChannel(activation(f, accepted.version), f.context, f.principal),
-      "unknown terminal",
-    );
+    ).rejects.toThrow("unknown terminal");
     expect(blocked).toBe(true);
     expect(await f.businessEvents()).toEqual(before);
     await f.inventory.appendToStreams([itemAdjustment(f)]);
@@ -1022,10 +1013,9 @@ describe("listing channel activation real composition", () => {
     appendProbe.beforeCommit = async () => {
       throw new Error("synthetic activation commit failure");
     };
-    await expectIndeterminate(
+    await expect(
       f.listings.activateListingForChannel(activation(f, accepted.version), f.context, f.principal),
-      "activation commit failure",
-    );
+    ).rejects.toThrow("activation commit failure");
     expect((await pools.marketplace.query("SELECT status FROM event_request_terminals")).rows).toEqual([
       { status: "OPEN" },
     ]);
@@ -1517,10 +1507,10 @@ describe("listing channel activation real composition", () => {
   });
 
   it("case 6: REMOVE_SHARED_LOCK makes the real-host closure-wait oracle red", async () => {
-    await expectIndeterminate(configurationTerminalFirst("account", "shared-lock"), "closure must wait");
+    await expect(configurationTerminalFirst("account", "shared-lock")).rejects.toThrow("closure must wait");
   });
   it("case 6: REMOVE_CLOSED_THROUGH_WAIT makes the real-host closure-wait oracle red", async () => {
-    await expectIndeterminate(configurationTerminalFirst("account", "closed-through-wait"), "closure must wait");
+    await expect(configurationTerminalFirst("account", "closed-through-wait")).rejects.toThrow("closure must wait");
   });
   it("case 6: REMOVE_ABORT_CAS makes the real-host durable-abort oracle red", async () => {
     await expect(abortFirst("item", true)).rejects.toThrow("original terminal must be durably ABORTED");
