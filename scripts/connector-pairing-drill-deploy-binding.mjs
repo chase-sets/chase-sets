@@ -4,12 +4,14 @@
 // commit must be that job's, and each required closed issue's implementation merge is compared with its deployed head.
 // Every read is `gh api`, read-only; the product drill receives only the result.
 import { execFile } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import { selectStagingDeployGeneration } from "./staging-deploy-generation.mjs";
 
 const repository = "chase-sets/chase-sets";
 const apiOrigin = "https://api.github.com";
 const maxAgeSeconds = 604_800;
 const requestTimeoutMs = 30_000;
+const retryDelaysMs = [200, 400];
 const decimalId = /^[1-9]\d{0,19}$/;
 const commitSha = /^[a-f0-9]{40}$/;
 const closingMergesQuery =
@@ -17,14 +19,50 @@ const closingMergesQuery =
 // Reviewed manual closeout: the accepted sign-in implementation, not incidental issue references.
 const manualCloseoutPullRequests = new Map([[10640, 10944]]);
 
+class GhApiFailure extends Error {
+  constructor(code, retryable = false) {
+    super("gh-api-refused");
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+function classifyGhFailure(error, stderr) {
+  const detail = String(stderr ?? "");
+  const status = Number(/^gh: [^\r\n]* \(HTTP ([45]\d{2})\)\r?$/m.exec(detail)?.[1]);
+  if (status) return new GhApiFailure(`http-${status}`, status === 429 || status >= 500);
+  if (error.code === "ABORT_ERR" || (!error.code && error.killed && error.signal === "SIGTERM"))
+    return new GhApiFailure("timeout", true);
+  if (/^(?:gh: )?(?:Get "[^\r\n]*": |net\/http: |dial tcp |read tcp |unexpected EOF)/m.test(detail))
+    return new GhApiFailure("transport", true);
+  if (Number.isInteger(error.code) && error.code >= 0 && error.code <= 255)
+    return new GhApiFailure(`exit-${error.code}`);
+  return new GhApiFailure("process-failed");
+}
+
+async function retryGitHubGet(request) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await request();
+    } catch (error) {
+      if (!(error instanceof GhApiFailure) || !error.retryable || attempt === retryDelaysMs.length) throw error;
+      await delay(retryDelaysMs[attempt]);
+    }
+  }
+}
+
+const withReadFailure = (stop, phase, error) => ({
+  stop: error instanceof GhApiFailure ? `${stop}:${phase}:${error.code}` : stop,
+});
+
 /** One read-only `gh api` call; its stdout, or a value-free refusal. */
-export function ghApi(args, { run = execFile } = {}) {
+export function ghApi(args, { run = execFile, signal } = {}) {
   return new Promise((resolve, reject) => {
     run(
       "gh",
       ["api", ...args],
-      { encoding: "buffer", maxBuffer: 16 * 1024 * 1024, timeout: requestTimeoutMs, windowsHide: true },
-      (error, stdout) => (error ? reject(new Error("gh-api-refused")) : resolve(stdout)),
+      { encoding: "buffer", maxBuffer: 16 * 1024 * 1024, timeout: requestTimeoutMs, windowsHide: true, signal },
+      (error, stdout, stderr) => (error ? reject(classifyGhFailure(error, stderr)) : resolve(stdout)),
     );
   });
 }
@@ -33,19 +71,29 @@ export function ghApi(args, { run = execFile } = {}) {
  * A `fetch`-shaped transport for the shared GitHub reader. GitHub REST paths go through `gh api`, which holds its
  * own credential (the reader's bearer header is never sent); any other URL is refused unsent.
  */
-export function ghApiTransport(gh = ghApi) {
+export function ghApiTransport(gh = ghApi, onFailure = () => {}) {
   return async (url, init = {}) => {
     const target = new URL(url);
-    if (target.origin !== apiOrigin) return new Response(null, { status: 599 });
+    if (target.origin !== apiOrigin || (init.method ?? "GET") !== "GET") return new Response(null, { status: 599 });
+    const { signal } = init;
+    const onAbort = () => onFailure(new GhApiFailure("timeout", true));
+    signal?.addEventListener("abort", onAbort, { once: true });
     try {
-      const body = await gh([
-        "-H",
-        `Accept: ${init.headers?.accept ?? "application/vnd.github+json"}`,
-        `${target.pathname.slice(1)}${target.search}`,
-      ]);
+      const body = await gh(
+        [
+          "-H",
+          `Accept: ${init.headers?.accept ?? "application/vnd.github+json"}`,
+          `${target.pathname.slice(1)}${target.search}`,
+        ],
+        { signal },
+      );
       return new Response(body, { status: 200 });
-    } catch {
+    } catch (error) {
+      if (!signal?.aborted)
+        onFailure(error instanceof GhApiFailure ? error : new GhApiFailure("transport-unclassified"));
       return new Response(null, { status: 502 });
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
   };
 }
@@ -59,7 +107,7 @@ export async function readStagingSignInReceiptFloor({ generation, requiredMerges
     Number.isFinite(Date.parse(value));
   const signInMerges = requiredMerges.filter((merge) => merge.issue === 10640);
   if (signInMerges.length !== 1 || !signInMerges[0].contained) return null;
-  const job = json(await gh([`repos/${repository}/actions/jobs/${generation.jobId}`]));
+  const job = json(await retryGitHubGet(() => gh([`repos/${repository}/actions/jobs/${generation.jobId}`])));
   if (
     String(job.id) !== generation.jobId ||
     String(job.run_id) !== generation.runId ||
@@ -136,7 +184,7 @@ async function requiredMerge(gh, issue, deployedHead) {
   if (manualCloseout) {
     const number = manualCloseoutPullRequests.get(issue);
     if (!number) return absent;
-    const pr = json(await gh([`repos/${repository}/pulls/${number}`]));
+    const pr = json(await retryGitHubGet(() => gh([`repos/${repository}/pulls/${number}`])));
     if (
       pr?.number !== number ||
       pr.merged !== true ||
@@ -149,7 +197,9 @@ async function requiredMerge(gh, issue, deployedHead) {
   }
   if (merged.length !== 1) return absent;
   const [{ number, mergeCommit }] = merged;
-  const { status } = json(await gh([`repos/${repository}/compare/${mergeCommit.oid}...${deployedHead}?per_page=1`]));
+  const { status } = json(
+    await retryGitHubGet(() => gh([`repos/${repository}/compare/${mergeCommit.oid}...${deployedHead}?per_page=1`])),
+  );
   if (manualCloseout && !["ahead", "identical", "behind", "diverged"].includes(status))
     throw new Error("mapped-merge-comparison-unreadable");
   return {
@@ -182,18 +232,39 @@ export async function readConnectorDrillDeployBinding(
   )
     return { stop: "deploy-binding-input-invalid" };
   let selection;
+  let attemptFailure;
+  let selectionFailure;
   try {
     selection = await selectGeneration({
       token: "gh-api",
-      transport: ghApiTransport(gh),
+      transport: ghApiTransport(gh, (failure) => {
+        attemptFailure = failure;
+      }),
       requestTimeoutMs,
       now: now(),
       maxAgeSeconds,
+      // Each retry gets the same reader and CLI deadline; no failed read can supply authority.
+      readGitHub: async (phase, request) => {
+        try {
+          return await retryGitHubGet(async () => {
+            attemptFailure = undefined;
+            try {
+              return await request();
+            } catch {
+              throw attemptFailure ?? new GhApiFailure("response-unreadable");
+            }
+          });
+        } catch (error) {
+          selectionFailure = withReadFailure("github-request-failed", phase, error);
+          throw error;
+        }
+      },
     });
   } catch {
     return { stop: "deploy-generation-unavailable" };
   }
-  if (selection.stop !== null) return { stop: selection.stop };
+  if (selection.stop !== null)
+    return selection.stop === "github-request-failed" && selectionFailure ? selectionFailure : { stop: selection.stop };
   const generation = selection.deployGeneration;
   if (generation.runId !== run) return { stop: "deploy-run-not-newest" };
   if (generation.deployedHead !== commit) return { stop: "deploy-commit-mismatch" };
@@ -201,13 +272,17 @@ export async function readConnectorDrillDeployBinding(
   for (const issue of requiredIssues) {
     try {
       requiredMerges.push(await requiredMerge(gh, issue, generation.deployedHead));
-    } catch {
-      return { stop: "required-merge-unreadable" };
+    } catch (error) {
+      return withReadFailure("required-merge-unreadable", "required-merges", error);
     }
   }
   let receiptFloorRunId = null;
   if (requireReceiptFloor) {
-    receiptFloorRunId = await readReceiptFloor({ generation, requiredMerges }).catch(() => null);
+    try {
+      receiptFloorRunId = await readReceiptFloor({ generation, requiredMerges });
+    } catch (error) {
+      return withReadFailure("receipt-floor-unavailable", "receipt-floor", error);
+    }
     if (typeof receiptFloorRunId !== "string" || !decimalId.test(receiptFloorRunId))
       return { stop: "receipt-floor-unavailable" };
     if (BigInt(receiptFloorRunId) > BigInt(generation.runId)) return { stop: "receipt-floor-newer-than-deploy" };
