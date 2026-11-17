@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
+import type { createMarketplaceRequestApiClient } from "../integrations/marketplace/request-support/api-client";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListConfirmationSummary } from "../domain/domain";
 import type { SellListReadinessDecisionInput } from "../domain/readiness";

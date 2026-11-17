@@ -1,4 +1,4 @@
-import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
+import { createMarketplaceRequestApiClient } from "../integrations/marketplace/request-support/api-client";
 import { SellListHandoffInterruptedError } from "./marketplace-handoff";
 import { SellListReviewPlanStaleError } from "./handoff-contracts";
 import { parseSellListReviewSelections } from "./review-plan-selections";

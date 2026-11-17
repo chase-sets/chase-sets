@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { hashMarketplaceRequest, marketplaceOfferCanonicalRequest } from "@chase-sets/marketplace/server";
+import {
+  hashMarketplaceRequest,
+  marketplaceOfferCanonicalRequest,
+} from "../integrations/marketplace/request-support/api-client";
 import type { MarketplaceRequestApiClient } from "./handoff-contracts";
 import { vi } from "vitest";
 import { isDeepStrictEqual } from "node:util";

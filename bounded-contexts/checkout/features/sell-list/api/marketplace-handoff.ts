@@ -6,7 +6,7 @@ import {
   MarketplaceApiError,
   hashMarketplaceRequest,
   marketplaceOfferCanonicalRequest,
-} from "@chase-sets/marketplace/server";
+} from "../integrations/marketplace/request-support/api-client";
 import type { SellListConfirmationSummary } from "../domain/domain";
 import { reviewedListingId } from "./reviewed-lines";
 import {
