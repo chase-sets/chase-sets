@@ -16,6 +16,7 @@ import { marketplaceApiErrorAdapter } from "../../support/request-support/route-
 import { submitReviewReport } from "../../support/route-support/review-report-action";
 import { runReviewMutation } from "../../support/route-support/review-mutation-action";
 import type { ReviewReportResult } from "../../features/reviews/ui/review-report-action";
+import type { ReviewMutationActionState } from "../../features/reviews/ui/review-mutation-form";
 import {
   authoredTextRecoveryFromApiError,
   type AuthoredTextRecovery,
@@ -28,11 +29,12 @@ const ACCOUNT_REVIEW_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/reviews/:reviewId",
 } as const satisfies PlatformPostWriteTelemetry;
 
-type ReviewReplyActionData = Readonly<{
-  error: string;
-  values: Readonly<{ feedback: string }>;
-  recovery?: AuthoredTextRecovery;
-}>;
+type ReviewReplyActionData = ReviewMutationActionState &
+  Readonly<{
+    error: string;
+    values: Readonly<{ feedback: string }>;
+    recovery?: AuthoredTextRecovery;
+  }>;
 
 function replyErrorMessage(error: unknown): string {
   if (error instanceof ReputationApiError) {

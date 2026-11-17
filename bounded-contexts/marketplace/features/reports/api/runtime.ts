@@ -2,7 +2,12 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import {
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
+  ZERO_GLOBAL_POSITION,
+  type EventStoreContext,
+  type StoredEvent,
+} from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -160,7 +165,7 @@ export function createMarketplaceReportRuntime(
         events: events.map(reportCodec.encode),
         context,
       });
-      const stored = result.storedEvents[0];
+      const stored = result[0];
       assert(stored, "Report append returned no event.");
       return stored;
     } catch (error) {
@@ -177,7 +182,18 @@ export function createMarketplaceReportRuntime(
     countedAt: string,
     context: EventStoreContext,
   ) {
-    const events = await deps.eventStore.readAll();
+    const events: StoredEvent[] = [];
+    let afterGlobalPosition = ZERO_GLOBAL_POSITION;
+    for (;;) {
+      const page = await deps.eventStore.readAll({
+        afterGlobalPosition,
+        eventTypes: ["marketplace.report.submitted"],
+        limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+      });
+      events.push(...page);
+      if (page.length < EVENT_STORE_READ_PAGE_SIZE_MAX) break;
+      afterGlobalPosition = page.at(-1)!.globalPosition;
+    }
     const reporterKeys = new Set<string>();
     const windowStartsAt = Date.parse(countedAt) - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS;
     let crossing: { reportId: string; submittedAt: string } | null = null;

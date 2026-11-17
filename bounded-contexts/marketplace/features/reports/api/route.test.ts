@@ -65,11 +65,11 @@ async function createFixture() {
     actAs(accountId: string) {
       current = actor(accountId);
     },
-    report(target: "listings/lst_1" | "reviews/rev_1", reason: string) {
+    report(target: "listings/lst_1" | "reviews/rev_1", reason: string, attemptId = crypto.randomUUID()) {
       return app.request(`/${target}/report`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reason, details: SECRET_DETAILS, sourceRoutePath: `/${target}` }),
+        body: JSON.stringify({ attemptId, reason, details: SECRET_DETAILS, sourceRoutePath: `/${target}` }),
       });
     },
   };
@@ -100,7 +100,7 @@ describe("issue-5258-marketplace-ac5 report details stay private and unjudged", 
       const bodies = await Promise.all([accepted, duplicate, invalid].map((response) => response.text()));
 
       expect([accepted.status, duplicate.status, invalid.status]).toEqual([201, 409, 400]);
-      expect(JSON.parse(bodies[1]!).error.code).toBe("report_already_submitted");
+      expect(JSON.parse(bodies[1]!).error.code).toBe("attempt_conflict");
       expect(bodies.join("\n")).not.toContain("SECRET-MARKER-7281");
       expect(
         inspect(

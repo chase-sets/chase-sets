@@ -23,6 +23,7 @@ const shapes = {
   composition:
     /\b(?:buildReviewApi|buildMarketplaceApi|createReviewRuntime|createMarketplaceListingRuntime|createMarketplaceReportRuntime|createMarketplaceServices)\s*\(/,
   moderationDispatch: /\.(?:operatorWithdrawReview|operatorRedactReviewFeedback|operatorWithdrawReviewReply)\s*\(/,
+  reportDelegation: /\b(?:submitReviewReport|submitListingReport)\s*\(/,
 } as const;
 
 const mcpToolShape = /\bMcpToolHandler\b/;
@@ -136,11 +137,16 @@ const inventory: Readonly<Record<string, InventoryEntry>> = {
   "bounded-contexts/discovery/routes/public-account.tsx": {
     surface: "browser",
     classification: "Discovery public profile Review report through Report HTTP; report details unchanged",
-    evidence: [".reportReview("],
+    evidence: ["submitReviewReport(", "@chase-sets/marketplace/server"],
   },
   "bounded-contexts/discovery/routes/public-listing.tsx": {
     surface: "browser",
     classification: "Discovery public Listing report through Report HTTP; report details unchanged",
+    evidence: ["submitListingReport(", "@chase-sets/marketplace/server"],
+  },
+  "bounded-contexts/marketplace/support/route-support/listing-report-action.ts": {
+    surface: "browser",
+    classification: "Listing report action through Report HTTP; report details unchanged",
     evidence: [".reportListing("],
   },
   "bounded-contexts/checkout/routes/account-sell-list.tsx": {

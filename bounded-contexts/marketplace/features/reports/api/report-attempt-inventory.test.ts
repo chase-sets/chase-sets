@@ -24,10 +24,11 @@ describe("review report caller partition", () => {
     );
     for (const direction of ["buyerToSeller", "sellerToBuyer"]) {
       expect(source).toContain(`if (${direction}Review.state.reviewId === null)`);
-      expect(source).toContain(`${direction}Review.committed`);
+      expect(source).toContain(`const ${direction}Review = await loadSeedReviewState(`);
     }
     expect(source).toContain("reputationReservedSeedIds.reviews.buyerToSellerActive");
     expect(source).toContain("reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn");
+    expect(source).toContain("buyerToSellerReview.committed.some(");
   });
   it.each([
     "api.submitReview({});",
@@ -58,6 +59,30 @@ describe("review report caller partition", () => {
     expect(
       unpartitionedReviewReportAttemptCallers(
         enumerateReviewReportAttemptCallers([{ path: ui, source: source.replaceAll("ReviewMutationForm", "Form") }]),
+      ),
+    ).toHaveLength(1);
+  });
+  it("exempts unit form render fixtures but never their HTTP producers", () => {
+    const source =
+      'import { it } from "vitest"; <ReviewMutationForm><button name="intent" value="reply" /></ReviewMutationForm>;';
+    expect(enumerateReviewReportAttemptCallers([{ path: "odd/fixture.tsx", source }])).toEqual([]);
+    const callers = enumerateReviewReportAttemptCallers([
+      { path: "odd/fixture.tsx", source: source + ' request.post("/api/marketplace/reviews", { data: {} });' },
+    ]);
+    expect(unpartitionedReviewReportAttemptCallers(callers)).toHaveLength(1);
+  });
+  it("exempts only the pilot's invalid report probe, not a valid report without identity", () => {
+    const path = "deployables/corten-pilot/scripts/smoke-market-account.mjs";
+    const source =
+      'request.post("/accounts/account/reviews/review/report", { form: { reason: "", details: "kept" } });';
+    expect(unpartitionedReviewReportAttemptCallers(enumerateReviewReportAttemptCallers([{ path, source }]))).toEqual(
+      [],
+    );
+    expect(
+      unpartitionedReviewReportAttemptCallers(
+        enumerateReviewReportAttemptCallers([
+          { path, source: source.replace('reason: ""', 'reason: "harassment-or-abuse"') },
+        ]),
       ),
     ).toHaveLength(1);
   });

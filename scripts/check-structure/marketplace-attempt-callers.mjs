@@ -208,6 +208,7 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false, rev
         const call = node.getText(ast);
         if (
           reviewReport &&
+          !isTest &&
           /name=["'](?:intent|rating)["']/.test(call) &&
           (/value=["'](?:report-listing|report-review|reply)["']/.test(call) || /name=["']rating["']/.test(call))
         )
@@ -259,6 +260,7 @@ export const marketplaceReviewReportCallerPartition = new Map([
   ["bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx", "attempt-form"],
   ["bounded-contexts/discovery/routes/public-listing.tsx", "attempt-form"],
   ["bounded-contexts/marketplace/support/runtime-support/seed.ts", "fixed-review-stream-history"],
+  ["deployables/corten-pilot/scripts/smoke-market-account.mjs", "invalid-report-probe"],
 ]);
 
 export function unpartitionedReviewReportAttemptCallers(callers) {
@@ -269,6 +271,8 @@ export function unpartitionedReviewReportAttemptCallers(callers) {
     if (proof === "attempt-form") return !/^<ReviewMutationForm\b/.test(caller.call);
     if (proof === "attempt-input") return !/\battemptId\b/.test(evidence);
     if (proof === "typed-forwarding") return !/json:\s*body/.test(caller.call);
+    if (proof === "invalid-report-probe")
+      return caller.method !== "http-review-action" || !/form:\s*\{\s*reason:\s*""\s*,/.test(caller.call);
     return (
       proof !== "fixed-review-stream-history" ||
       caller.method !== "commandHandler" ||
