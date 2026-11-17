@@ -1368,6 +1368,21 @@ describe("API builds the existing Sell List review allocation", () => {
 });
 
 describe("API-owned Marketplace handoff", () => {
+  function barrier() {
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => (enter = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    return {
+      entered,
+      release,
+      wait: async () => {
+        enter();
+        await released;
+      },
+    };
+  }
+
   async function prepared() {
     const f = checkoutOwnerRuntimeFixture();
     const lines: readonly CheckoutSellListLineRow[] = [
@@ -1541,7 +1556,7 @@ describe("API-owned Marketplace handoff", () => {
     expect(marketplace.acceptOfferMatch).toHaveBeenCalledTimes(3);
   });
 
-  it("returns API-observed Marketplace source receipts with the confirmation", async () => {
+  it("returns Marketplace source receipts on the first response, not on authoritative replay", async () => {
     const { f, request, marketplace } = await prepared();
     const commandReceipt = {
       mode: "eventual",
@@ -1552,7 +1567,61 @@ describe("API-owned Marketplace handoff", () => {
     marketplace.acceptOfferMatch.mockResolvedValueOnce({ id: "off_fixture", version: 4, commandReceipt } as never);
     const result = await f.services.confirmSellListCheckout(request, context, marketplace);
     expect(result.sourceReceipts).toEqual([{ commandReceipt }]);
+    const replay = await f.services.confirmSellListCheckout(request, context, marketplace);
+    expect(replay.confirmation).toEqual(result.confirmation);
+    expect(replay.sourceReceipts).toEqual([]);
   });
+
+  it.each(["aggregate read", "owner readiness reads"] as const)(
+    "replays the winner when an identical retry overlaps at the %s",
+    async (stage) => {
+      const { f, request, marketplace } = await prepared();
+      const append = vi.spyOn(f.memory.eventStore, "appendToStream");
+      const originalBarrier = barrier();
+      const accept = marketplace.acceptOfferMatch.getMockImplementation()!;
+      marketplace.acceptOfferMatch.mockImplementationOnce(async (...args) => {
+        await originalBarrier.wait();
+        return accept(...args);
+      });
+      const original = f.services.confirmSellListCheckout(request, context, marketplace);
+      expect(await Promise.race([originalBarrier.entered, original])).toBeUndefined();
+
+      const retryBarrier = barrier();
+      if (stage === "aggregate read") {
+        const read = f.memory.eventStore.readStream.bind(f.memory.eventStore);
+        vi.spyOn(f.memory.eventStore, "readStream")
+          .mockImplementationOnce(read) // First stream read reports no confirmation.
+          .mockImplementationOnce(async (input) => {
+            await retryBarrier.wait();
+            return read(input);
+          });
+      } else {
+        f.ports.readRisk.mockImplementationOnce(async () => {
+          await retryBarrier.wait();
+          return ownedAbsentRisk;
+        });
+      }
+
+      const retryMarketplace = marketplaceHandoffFixture();
+      const retry = f.services.confirmSellListCheckout(request, context, retryMarketplace);
+      try {
+        expect(await Promise.race([retryBarrier.entered, retry])).toBeUndefined();
+        originalBarrier.release();
+        const winner = await original;
+        expect(append).toHaveBeenCalledOnce();
+        if (stage === "owner readiness reads") f.setPayout("restricted");
+        retryBarrier.release();
+
+        await expect(retry).resolves.toEqual(winner);
+        for (const operation of Object.values(retryMarketplace)) expect(operation).not.toHaveBeenCalled();
+        expect(append).toHaveBeenCalledOnce();
+      } finally {
+        originalBarrier.release();
+        retryBarrier.release();
+        await Promise.allSettled([original, retry]);
+      }
+    },
+  );
 
   it("confirmation duplicate is write-free", async () => {
     const { f, request, marketplace } = await prepared();

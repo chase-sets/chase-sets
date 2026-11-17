@@ -606,7 +606,8 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         shipFrom: params.shipFrom,
         label: params.label,
       });
-      const existingConfirmation = await readConfirmation(params.sellerAccountId, params.confirmationId, requestHash);
+      const readWinner = () => readConfirmation(params.sellerAccountId, params.confirmationId, requestHash);
+      const existingConfirmation = await readWinner();
       if (existingConfirmation) return existingConfirmation;
       const aggregate = await repository.load(sellListStreamId(params.sellerAccountId));
       const preparation = await preparations.read(params.sellerAccountId, params.confirmationId);
@@ -617,8 +618,11 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
           preparation.sellListVersion !== aggregate.version ||
           preparation.decisionsHash !==
             (await computeCheckoutCommandAttemptRequestHash(params.readinessDecisions ?? {})))
-      )
+      ) {
+        const winner = await readWinner();
+        if (winner) return winner;
         throw new CheckoutDomainError("Sell List confirmation changed.", "checkout_confirmation_changed");
+      }
 
       const assessed = await assessSeller(
         {
@@ -639,18 +643,26 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         decisions: params.readinessDecisions,
         sellerEvidence,
       });
-      if (!readiness.valid) {
-        throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+      let reviewedLines: ReturnType<typeof reviewedLinesForConfirmation>;
+      try {
+        if (!readiness.valid) {
+          throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+        }
+        if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
+          throw new CheckoutDomainError("Sell List readiness must be resolved before seller checkout starts.");
+        }
+        if (readiness.current.includedLineIds.length === 0) {
+          throw new CheckoutDomainError("Sell List readiness must include at least one checkout line.");
+        }
+        assertSellerEvidenceReady(sellerEvidence);
+        if (!preparation) throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+        reviewedLines = reviewedLinesForConfirmation(currentLines, readiness.current, preparation.reviewPlan);
+      } catch (error) {
+        if (!(error instanceof CheckoutDomainError)) throw error;
+        const winner = await readWinner();
+        if (winner) return winner;
+        throw error;
       }
-      if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
-        throw new CheckoutDomainError("Sell List readiness must be resolved before seller checkout starts.");
-      }
-      if (readiness.current.includedLineIds.length === 0) {
-        throw new CheckoutDomainError("Sell List readiness must include at least one checkout line.");
-      }
-      assertSellerEvidenceReady(sellerEvidence);
-      if (!preparation) throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
-      const reviewedLines = reviewedLinesForConfirmation(currentLines, readiness.current, preparation.reviewPlan);
       const handoff = await performMarketplaceHandoff(
         marketplaceApi,
         params.confirmationId,
@@ -704,7 +716,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         });
         version = result.version;
       } catch (error) {
-        const winner = await readConfirmation(params.sellerAccountId, params.confirmationId, requestHash);
+        const winner = await readWinner();
         if (winner) return { ...winner, sourceReceipts };
         throw error;
       }
