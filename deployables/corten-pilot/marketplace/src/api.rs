@@ -6699,7 +6699,6 @@ impl OfferMatchCalls for Caller<'_> {
         let path = format!("{ACCOUNT}/offers/matches/{}/decline", segment(id));
         answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "attemptId": attempt }))).await
     }
-
 }
 
 /// An offer the account submitted (`SubmittedOfferListItem`).
