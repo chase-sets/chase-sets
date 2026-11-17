@@ -23,14 +23,17 @@ use platform::{
 };
 
 use super::{
-    integrations_page::{Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, maybe_when, state_label, transport, when},
+    integrations_page::{
+        AuditDrawer, Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, maybe_when, state_label, transport, when,
+    },
     operator_session::OperatorSession,
     profile_sections::ProfileSections,
     validation::Validation,
 };
 use crate::{
     catalog::{
-        daily::{ImportJob, JobInput, at},
+        daily::{ImportJob, JobInput, at, with_query},
+        integrations::{AuditEvidence, evidence_ref},
         provider::{
             self, Done, DraftInput, LifecycleInput, Model, Operation, Profile, ProviderScreen, RefreshInput, Said, Schedule,
         },
@@ -180,6 +183,9 @@ pub fn ProviderPage<'a>(
                 None => { <div class={Notice} id={ProviderRefusalId}></div> }
             }
             <Head t={t} p={p} model={model} key={key} />
+            if let Some(audit) = &model.audit_evidence {
+                <ProviderEvidence t={t} req={req} audit={audit} key={key} version={version} context={context} />
+            }
             if let Some(session) = &screen.operator_session {
                 <OperatorSession
                     t={t}
@@ -227,7 +233,35 @@ pub fn ProviderPage<'a>(
     }
 }
 
-/// Identity and transport readiness (`ProviderDetailHeader`), from the health triage's rows.
+/// The provider's evidence (admin-web's CatalogEntityEvidenceLinks and its evidence drawer): a link
+/// naming the provider and one naming the selected profile version, each this page with that
+/// videnceRef, then the audit timeline the API resolved for the address.
+#[component(css = ProviderPage)]
+fn ProviderEvidence<'a>(
+    t: Cat,
+    req: &'a Req,
+    audit: &'a AuditEvidence,
+    key: &'a str,
+    version: &'a str,
+    context: &'a str,
+) -> impl Render {
+    let page = provider::url::Provider { key }.href().to_string();
+    let to = |reference: String| at(&page, &with_query(context, &[("evidenceRef", Some(reference.as_str()))]));
+    let mut links = vec![(to(evidence_ref("provider", key, None)), format!("{}: {key}", t.wb_audit_title()))];
+    if !version.is_empty() {
+        links.push((to(evidence_ref("provider-profile", version, Some(key))), format!("{}: {version}", t.wb_audit_title())));
+    }
+    html! {
+        <div class={Row}>
+            for (href, label) in &links {
+                <a class={Words} href={href}>{label}</a>
+            }
+        </div>
+        <AuditDrawer t={t} req={req} audit={audit} id="pd-evidence" />
+    }
+}
+
+/// Identity and transport readiness (ProviderDetailHeader), from the health triage's rows.
 #[component(css = ProviderPage)]
 fn Head<'a>(t: Cat, p: Pilot, model: &'a Model, key: &'a str) -> impl Render {
     let triage = &model.health_triage;
