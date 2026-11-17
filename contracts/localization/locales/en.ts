@@ -4843,6 +4843,7 @@ export const englishTranslations = {
   "checkout.routes.checkoutStart.waiting.for.seller.acceptance": "Waiting for seller acceptance",
   "checkout.routes.sellCheckoutSession.confirmation.line.completed": "{itemTitle}: sale review recorded.",
   "checkout.routes.sellCheckoutSession.confirmation.line.partial": "{itemTitle}: sale review recorded for part of the line; remaining quantity stays in the Sell List.",
+  "checkout.routes.sellCheckoutSession.handoff.not.attempted": "Not attempted.",
   "checkout.routes.sellCheckoutSession.meta.description": "Review guest seller contact, ship-from, payout setup, label preference, and sale readiness.",
   "checkout.routes.sellCheckoutSession.meta.title": "Seller Checkout | Chase Sets",
   "checkout.routes.sellCheckoutSession.readiness.unavailable": "Sell List readiness could not be refreshed. Return to the Sell List and try again.",

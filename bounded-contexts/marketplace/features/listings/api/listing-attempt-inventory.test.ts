@@ -45,16 +45,21 @@ describe("listing attempt caller partition", () => {
     ).toHaveLength(1);
   });
   it("rejects the historical Checkout keyless caller and a current key-removal mutant", () => {
-    const file = "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts";
-    const baseline = execFileSync("git", ["show", `a53a07070be4c8d184ceb38af963f426ab174208:${file}`], {
+    const historicalFile =
+      "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts";
+    const baseline = execFileSync("git", ["show", `a53a07070be4c8d184ceb38af963f426ab174208:${historicalFile}`], {
       cwd: root,
       encoding: "utf8",
     });
     expect(
-      unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source: baseline }])),
+      unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: historicalFile, source: baseline }])),
     ).toHaveLength(2);
+    const file = "bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts";
     const source = readFileSync(path.join(root, file), "utf8");
-    const mutant = source.replace(/\s*idempotencyKey: createHash[^\n]+\n/g, "\n");
+    expect(unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source }]))).toEqual([]);
+    const mutant = source.replaceAll("idempotencyKey:", "removedAttemptIdentity:");
+    expect(mutant).not.toBe(source);
+    expect(mutant).not.toContain("idempotencyKey:");
     expect(
       unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source: mutant }])),
     ).toHaveLength(2);

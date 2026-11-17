@@ -250,7 +250,7 @@ export const marketplaceOfferCallerPartition = new Map([
   ["bounded-contexts/checkout/routes/account-sell-list.tsx::declineOfferMatch", "attemptId"],
   ["bounded-contexts/checkout/support/request-support/checkout-confirmation.ts::createSubmittedOffer", "attemptId"],
   [
-    "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts::acceptOfferMatch",
+    "bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts::acceptOfferMatch",
     "Checkout selected/match sourceActionKey forwarded through the imported client interface",
   ],
   [
@@ -329,7 +329,7 @@ export const marketplaceListingCallerPartition = new Map([
     "bounded-contexts/channels/features/publication-port/tests/channel-publication-invocation-boundary.test.ts",
     "Channels publication port, not Marketplace Listing commands",
   ],
-  ["bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts", "caller-identity"],
+  ["bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts", "caller-identity"],
   ["bounded-contexts/discovery/support/route-support/item-detail/action.ts", "form-attempt"],
   ["bounded-contexts/marketplace/features/channel-inbound-clamp/api/runtime.ts", "authoritative-stream"],
   [
