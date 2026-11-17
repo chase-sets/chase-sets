@@ -144,6 +144,8 @@ export function auditEvidenceFor(input: {
         const providerKey = row.providerKey ?? input.routeContext.providerKey;
         location.pathname = providerKey ? `/catalog/providers/${encodeURIComponent(providerKey)}` : "/catalog/scopes";
       }
+      if (input.routeContext.providerKey) location.searchParams.set("providerKey", input.routeContext.providerKey);
+      location.searchParams.sort();
       return {
         ...row,
         evidenceLinks: row.evidenceLinks.map((link) => ({
