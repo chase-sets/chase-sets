@@ -40,6 +40,30 @@ function entityInput(
 }
 
 describe("Catalog primary workbench read model - audit evidence", () => {
+  it("selects a provider across loaded units rather than inheriting the workbench's default unit", () => {
+    const overview = controlPlaneOverview();
+    const unit = "tcgdex:pokemon:sealed-product:source-observation-import";
+    const audit = buildCatalogPrimaryWorkbenchReadModel(
+      entityInput("provider/tcgdex", {
+        controlPlaneOverview: {
+          ...overview,
+          unitActivity: {
+            ...overview.unitActivity,
+            units: [
+              ...overview.unitActivity.units,
+              { unitKey: unit, recentJobs: [integrationJobSummary({ jobId: "sibling-unit-job", unitKey: unit })] },
+            ],
+          },
+        },
+      }),
+    ).auditEvidence;
+    expect(audit.timeline.some((row) => row.jobId === "sibling-unit-job")).toBe(true);
+    const withoutProfile = buildCatalogPrimaryWorkbenchReadModel(
+      entityInput("provider/tcgdex", { profileReviews: { items: [], total: 0, count: 0 } }),
+    ).auditEvidence;
+    expect(withoutProfile.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+    expect(withoutProfile.timeline.some((row) => row.providerKey === "tcgdex")).toBe(true);
+  });
   it("rejects foreign-provider membership even when the bounded input contains the requested id", () => {
     const audit = buildCatalogPrimaryWorkbenchReadModel(
       entityInput("source-observation/foreign", {
@@ -138,6 +162,12 @@ describe("Catalog primary workbench read model - audit evidence", () => {
     expect(audit.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
     expect(audit.timeline.map((row) => row.targetId)).toEqual(["selected"]);
     expect(audit.evidenceLinks).toHaveLength(1);
+    const roundTrip = buildCatalogPrimaryWorkbenchReadModel({
+      ...input,
+      requestUrl: new URL(audit.evidenceLinks[0]!.href, "https://admin.example").toString(),
+    }).auditEvidence;
+    expect(roundTrip.selection).toEqual(audit.selection);
+    expect(roundTrip.timeline.map((row) => row.eventId)).toEqual(audit.timeline.map((row) => row.eventId));
     const item = buildCatalogPrimaryWorkbenchReadModel({
       ...input,
       requestUrl: "https://admin.example/catalog/providers/tcgdex?evidenceRef=catalog-item/item-selected",

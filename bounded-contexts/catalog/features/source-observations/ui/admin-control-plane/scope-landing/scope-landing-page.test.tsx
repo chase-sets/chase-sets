@@ -258,7 +258,7 @@ describe("CatalogScopeLandingPage", () => {
     ).toBe(true);
     await userEvent.click(within(dialog).getByRole("button", { name: "Close evidence" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("searchbox").getAttribute("value")).toBe("paldean");
+    expect(screen.getByRole("textbox", { name: "Search" }).getAttribute("value")).toBe("paldean");
     await userEvent.click(screen.getByRole("button", { name: /All-scopes alias review/i }));
     expect(
       screen

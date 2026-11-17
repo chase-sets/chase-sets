@@ -32,6 +32,7 @@ function services() {
     getCatalogIntegrationControlPlaneReadiness: vi.fn(async () => ({
       ...controlPlaneOverview().readiness,
       generatedAt: NOW,
+      providerUsage: [],
     })),
     listRecentIntegrationJobs: vi.fn(async () => []),
     listActiveIntegrationJobs: vi.fn(async () => []),

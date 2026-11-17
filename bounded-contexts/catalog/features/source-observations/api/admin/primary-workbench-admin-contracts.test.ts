@@ -1917,11 +1917,16 @@ describe("Catalog primary workbench admin contracts", () => {
     // The base composite omits only the optional promotion result, which the composer accepts.
     const composite = minimalWorkbenchComposite();
     expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(composite))).toBeNull();
-    const unresolvedEvidence = structuredClone(composite);
-    unresolvedEvidence.auditEvidence!.selection = {
-      reference: "invalid",
-      state: "no-associated-evidence",
-      deepLinkOpen: true,
+    const unresolvedEvidence = {
+      ...composite,
+      auditEvidence: {
+        ...composite.auditEvidence!,
+        selection: {
+          reference: "invalid",
+          state: "no-associated-evidence" as const,
+          deepLinkOpen: true,
+        },
+      },
     };
     expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(unresolvedEvidence))).toBe(
       "Primary workbench audit evidence must resolve entity membership before opening or exposing records.",

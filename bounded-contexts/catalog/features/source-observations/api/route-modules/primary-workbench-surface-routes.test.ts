@@ -23,7 +23,7 @@ import {
   type CatalogProviderScope,
 } from "../provider-integration-profiles";
 import { catalogImportPreviewMatchesSelection } from "../admin/daily-import-preview";
-import type { SourceObservationIntegrationImportPreview, SourceObservationIntegrationJob } from "../../ui/contracts";
+import type { SourceObservationIntegrationImportPreview } from "../../ui/contracts";
 import { buildCatalogAliasReviewReadModel } from "../../../alias-equivalence/api/alias-review-admin-contracts";
 import {
   controlPlaneOverview,
@@ -132,7 +132,7 @@ afterEach(() => {
 
 describe("Catalog entity audit demand", () => {
   it("resolves an older selected job through the real full-overview projection before display caps", async () => {
-    const job: SourceObservationIntegrationJob = {
+    const job: Awaited<ReturnType<SourceObservationRouteServices["listRecentIntegrationJobs"]>>[number] = {
       jobId: "selected-older-job",
       syncRunId: null,
       action: "import",
@@ -156,17 +156,15 @@ describe("Catalog entity audit demand", () => {
       completedAt: NOW,
       updatedAt: NOW,
     };
-    const listJobs = vi
-      .fn<SourceObservationRouteServices["listRecentIntegrationJobs"]>()
-      .mockResolvedValue([
-        ...Array.from({ length: 13 }, (_, index) => ({
-          ...job,
-          jobId: `newer-${index}`,
-          createdAt: NOW,
-          startedAt: NOW,
-        })),
-        job,
-      ]);
+    const listJobs = vi.fn<SourceObservationRouteServices["listRecentIntegrationJobs"]>().mockResolvedValue([
+      ...Array.from({ length: 13 }, (_, index) => ({
+        ...job,
+        jobId: `newer-${index}`,
+        createdAt: NOW,
+        startedAt: NOW,
+      })),
+      job,
+    ]);
     const body = await getJson(
       buildApp(surfaceServices({ listRecentIntegrationJobs: listJobs }), mutableProfileStore()),
       surfacePath("daily", "/catalog/integrations?providerKey=tcgdex&evidenceRef=import-job/selected-older-job"),
@@ -213,7 +211,7 @@ describe("Catalog entity audit demand", () => {
           alias_type: "official-equivalent",
           confidence: "high",
           review_status: "pending",
-          provider_key: "tcgdex",
+          provider_key: "tcgplayer",
           observation_id: "home-observation",
           source_category: "provider-same-id-localized-endpoint",
           source_profile_key: "pokemon-tcg",
@@ -242,6 +240,7 @@ describe("Catalog entity audit demand", () => {
       "home-observation",
     ]);
     expect(body.readModel.auditEvidence.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+    expect(body.readModel.auditEvidence.timeline[0].providerKey).toBe("tcgplayer");
   });
   it("loads one full overview on demand, retains ordinary daily omission, and reads the bounded review once", async () => {
     const services = surfaceServices();
