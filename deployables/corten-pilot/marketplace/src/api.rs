@@ -1382,7 +1382,6 @@ pub struct SellListSnapshot {
     pub unresolved_line_ids: Vec<String>,
     /// The lines seller checkout takes.
     pub included_line_ids: Vec<String>,
-    pub line_outcomes: Vec<SnapshotLine>,
     pub seller_readiness: SnapshotSeller,
 }
 
@@ -1391,24 +1390,6 @@ impl SellListSnapshot {
     pub fn ready(&self) -> bool {
         self.status == "ready" && self.unresolved_line_ids.is_empty() && !self.included_line_ids.is_empty()
     }
-
-    /// The sale action readiness decided for an included line.
-    pub fn action(&self, line: &str) -> Option<&str> {
-        if !self.included_line_ids.iter().any(|id| id == line) {
-            return None;
-        }
-        self.line_outcomes.iter().filter(|o| o.line_id == line).find_map(|o| o.action.as_deref())
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct SnapshotLine {
-    pub line_id: String,
-    /// `checkout`, `keep-in-list` or `removed`.
-    pub outcome: String,
-    /// `selected-offer`, `smart-match` or `fallback-listing`.
-    pub action: Option<String>,
 }
 
 /// The seller's readiness in a snapshot; the page reads only whether it is ready.
@@ -6686,9 +6667,6 @@ pub trait OfferMatchCalls {
     async fn sell_list_offer(&self, id: &str) -> Result<Option<OfferMatch>, ApiError>;
     /// Declines the offer as `attempt` (`attemptId`): Marketplace applies an attempt once.
     async fn decline_offer_match(&self, id: &str, attempt: &str) -> Result<Option<Receipt>, CommandError>;
-    /// Accepts the offer at its exact listing (`listingId`, `feeQuoteFingerprint`,
-    /// `sourceActionKey` and a Smart Match's batch): the write's receipt.
-    async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
 }
 
 impl OfferMatchCalls for Caller<'_> {
@@ -6722,10 +6700,6 @@ impl OfferMatchCalls for Caller<'_> {
         answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "attemptId": attempt }))).await
     }
 
-    async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
-        let path = format!("{ACCOUNT}/offers/matches/{}/accept", segment(id));
-        Ok(self.write::<serde::de::IgnoredAny>(self.request(Method::POST, &path, MARKETPLACE).json(body)).await?.1)
-    }
 }
 
 /// An offer the account submitted (`SubmittedOfferListItem`).
