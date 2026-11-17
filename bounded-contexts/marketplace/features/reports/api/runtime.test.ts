@@ -140,6 +140,7 @@ describe("Marketplace report runtime", () => {
     for (let index = 1; index < LISTING_REPORT_AUTO_UNLIST_THRESHOLD; index += 1) {
       const result = await reports.reportListing(
         {
+          attemptId: `listing_report_attempt_${index.toString().padStart(4, "0")}`,
           listingId: "lst_reported",
           reporterKind: "visitor",
           reporterKey: `anon_${index}`,
@@ -158,6 +159,7 @@ describe("Marketplace report runtime", () => {
 
     const thresholdResult = await reports.reportListing(
       {
+        attemptId: "account_report_attempt_0001",
         listingId: "lst_reported",
         reporterKind: "account",
         reporterKey: "acc_buyer",
@@ -167,7 +169,7 @@ describe("Marketplace report runtime", () => {
         details: "Wrong card shown.",
         sourceRoutePath: "/listings/reported-listing",
       },
-      context,
+      { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
     );
 
     expect(thresholdResult).toMatchObject({
@@ -185,6 +187,7 @@ describe("Marketplace report runtime", () => {
     const report = (index: number) =>
       reports.reportListing(
         {
+          attemptId: `enforcement_report_attempt_${index.toString().padStart(4, "0")}`,
           listingId: "lst_reported",
           reporterKind: "visitor",
           reporterKey: `anon_enforcement_${index}`,
@@ -234,11 +237,12 @@ describe("Marketplace report runtime", () => {
     expect(parseIsoUtcTimestamp(payload.autoUnlistedAt)).toBe(payload.autoUnlistedAt);
   });
 
-  it("rejects duplicate reports from the same reporter for the same listing", async () => {
+  it("replays the first report and rejects a changed attempt from the same reporter", async () => {
     const { eventStore } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
     const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
     const input = {
+      attemptId: "duplicate_report_attempt_0001",
       listingId: "lst_reported",
       reporterKind: "visitor" as const,
       reporterKey: "anon_dup",
@@ -249,8 +253,10 @@ describe("Marketplace report runtime", () => {
       sourceRoutePath: "/listings/reported-listing",
     };
 
-    await reports.reportListing(input, context);
-    await expect(reports.reportListing(input, context)).rejects.toThrow("already reported");
+    const first = await reports.reportListing(input, context);
+    expect(await reports.reportListing(input, context)).toEqual(first);
+    await expect(reports.reportListing({ ...input, attemptId: "different_report_attempt_0001" }, context))
+      .rejects.toMatchObject({ code: "attempt_conflict" });
   });
 });
 
@@ -275,6 +281,7 @@ describe("Marketplace review report", () => {
 
     const result = await reports.reportReview(
       {
+        attemptId: "review_report_attempt_0001",
         reviewId: "rev_1",
         reporterAccountId: "acc_reporter",
         reporterUserId: "usr_reporter",
@@ -304,6 +311,7 @@ describe("Marketplace review report", () => {
     await expect(
       reports.reportReview(
         {
+          attemptId: "missing_report_attempt_0001",
           reviewId: "rev_missing",
           reporterAccountId: "acc_reporter",
           reporterUserId: "usr_reporter",
@@ -326,6 +334,7 @@ describe("Marketplace review report", () => {
     await expect(
       reports.reportReview(
         {
+          attemptId: "hidden_report_attempt_0001",
           reviewId: "rev_hidden",
           reporterAccountId: "acc_reporter",
           reporterUserId: "usr_reporter",
@@ -353,6 +362,7 @@ describe("Marketplace review report", () => {
     await expect(
       reports.reportReview(
         {
+          attemptId: "held_report_attempt_0001",
           reviewId: "rev_held",
           reporterAccountId: "acc_reporter",
           reporterUserId: "usr_reporter",

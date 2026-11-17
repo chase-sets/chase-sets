@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+export { shouldRevalidateReviewSubmission as shouldRevalidate } from "../../support/route-support/review-submission-route";
 import type { MetaFunction } from "react-router";
 import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";

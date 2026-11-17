@@ -15,6 +15,9 @@ import {
 } from "../../offers/api/attempt-result";
 import { offerPolicyAttemptResultSchema } from "../../offer-policy/api/attempt-result";
 import { withMarketplaceAttemptReceipt } from "./receipt";
+import { reviewAttemptResultSchema, reviewReplyAttemptResultSchema } from "../../reviews/api/attempt-result";
+import { listingReportAttemptResultSchema, reviewReportAttemptResultSchema } from "../../reports/api/attempt-result";
+import { validateReviewReportOutcome } from "./review-report-outcome";
 
 export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "readStream">) {
   // Listing kinds have no attempt stream: their owner stream carries the attempt's stamped events.
@@ -41,7 +44,11 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
       ownerStatus: "not-observed",
     };
     const resultSchema =
-      input.mutationKind === "offer.accept"
+      input.mutationKind === "review.submit" ? reviewAttemptResultSchema
+        : input.mutationKind === "review.reply" ? reviewReplyAttemptResultSchema
+        : input.mutationKind === "review.report" ? reviewReportAttemptResultSchema
+        : input.mutationKind === "listing.report" ? listingReportAttemptResultSchema
+        : input.mutationKind === "offer.accept"
         ? offerAcceptanceResultSchema
         : input.mutationKind === "offer-policy.command"
           ? offerPolicyAttemptResultSchema
@@ -79,10 +86,20 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
       prior.mutationKind !== input.mutationKind ||
       prior.attemptKeyFingerprint !== binding.attemptKeyFingerprint ||
       prior.target.kind !== input.target.kind ||
-      prior.target.id !== input.target.id ||
-      prior.canonicalRequestHash !== input.requestHash
+      prior.target.id !== input.target.id
     )
       return notObserved;
+    if (prior.canonicalRequestHash !== input.requestHash) {
+      if (input.mutationKind.startsWith("review.") || input.mutationKind === "listing.report")
+        return { ...notObserved, ownerStatus: "conflict" };
+      return notObserved;
+    }
+    try {
+      const events = await eventStore.readStream({ streamId: marketplaceAttemptStream(binding), limit: 1 });
+      await validateReviewReportOutcome(eventStore, prior, completedSchema.parse(events[0]?.payload).result);
+    } catch {
+      return { ...notObserved, ownerStatus: "ambiguous", reason: "history-incomplete" };
+    }
     return prior;
   };
 }

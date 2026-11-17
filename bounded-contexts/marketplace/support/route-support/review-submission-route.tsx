@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, ShouldRevalidateFunctionArgs } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSearchParams } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -7,6 +7,7 @@ import {
   type ReviewOpportunity,
 } from "../request-support/reputation-api-client";
 import { ReviewSubmissionPage } from "../../features/reviews/ui/review-submission-page";
+import { runReviewMutation } from "./review-mutation-action";
 import {
   authoredTextRecoveryFromApiError,
   type AuthoredTextRecovery,
@@ -14,6 +15,8 @@ import {
 
 type ReviewSubmissionActionData = Readonly<{
   error: string;
+  attemptId?: string;
+  mutationPhase?: "failed-safe";
   values: Readonly<{
     rating: number;
     feedback: string;
@@ -56,7 +59,7 @@ async function loadOpportunity(request: Request, orderId: string, notFoundMessag
 
   try {
     const opportunity = await api.getOrderReviewOpportunity(orderId);
-    if (opportunity.active_review_id) {
+    if (request.method === "GET" && opportunity.active_review_id) {
       throw redirect(`/account/reviews/${opportunity.active_review_id}`);
     }
 
@@ -99,18 +102,23 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
     const api = createReputationRequestApiClient(request);
 
     try {
-      const opportunity = await api.getOrderReviewOpportunity(orderId);
-      if (opportunity.active_review_id) {
-        return redirect(`/account/reviews/${opportunity.active_review_id}`);
-      }
-
-      const review = (await api.submitReview({
+      const subjectAccountId = String(formData.get("subjectAccountId") ?? (await api.getOrderReviewOpportunity(orderId)).subject_account_id);
+      const body = {
+        attemptId: String(formData.get("attemptId") ?? ""),
         orderId,
-        subjectAccountId: opportunity.subject_account_id,
+        subjectAccountId,
         rating,
         feedback,
-      })) as SubmittedReviewSnapshot;
-
+      };
+      const outcome = await runReviewMutation({
+        formData, kind: "review.submit", target: orderId, request: body,
+        send: () => api.submitReview(body),
+        lookup: api.lookupMutationAttempt,
+        isResponse: (error) => error instanceof ReputationApiError,
+        code: (error) => error instanceof ReputationApiError ? (error.body as { error?: { code?: string } })?.error?.code ?? null : null,
+      });
+      if (!("result" in outcome)) return { ...outcome, values: { rating, feedback } };
+      const review = outcome.result as { id: string };
       return redirect(config.buildSubmittedReviewRedirect(review));
     } catch (error) {
       if (error instanceof ReputationApiError && error.status === 404) {
@@ -119,6 +127,8 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
 
       const recovery = error instanceof ReputationApiError ? authoredTextRecoveryFromApiError(error.body) : null;
       return {
+        attemptId: String(formData.get("attemptId") ?? ""),
+        mutationPhase: "failed-safe",
         error: recovery?.message ?? (error instanceof Error ? error.message : "Review could not be submitted."),
         values: {
           rating,
@@ -153,4 +163,8 @@ export function ReviewSubmissionRoute({ config }: { config: ReviewSubmissionRout
       resolution={{ intakeAvailable }}
     />
   );
+}
+
+export function shouldRevalidateReviewSubmission({ actionResult, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) {
+  return actionResult?.mutationPhase ? false : defaultShouldRevalidate;
 }

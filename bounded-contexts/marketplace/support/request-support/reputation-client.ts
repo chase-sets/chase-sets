@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildReviewApi } from "../../features/reviews/api/http";
+import type { MarketplaceMutationKind, MarketplaceMutationRecoveryResult } from "../../features/mutation-recovery/domain/contracts";
 
 export type {
   ReviewSummary,
@@ -82,6 +83,10 @@ export function createReputationApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async lookupMutationAttempt(attemptId: string, kind: MarketplaceMutationKind, target: string, requestHash: string): Promise<MarketplaceMutationRecoveryResult> {
+      const query = new URLSearchParams({ kind, target, requestHash });
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/mutation-attempts/${encodeURIComponent(attemptId)}?${query}`, { headers }));
+    },
     async getAccountReviewSummary(accountId: string): Promise<ReviewSummary> {
       return parseJsonResponse(
         await client.accounts[":accountId"]["review-summary"].$get({
@@ -131,7 +136,7 @@ export function createReputationApiClient({
         }),
       );
     },
-    async submitReview(body: Record<string, unknown>) {
+    async submitReview(body: Record<string, unknown> & { attemptId: string }) {
       return parseJsonResponse(
         await client.reviews.$post({
           json: body,
@@ -157,7 +162,7 @@ export function createReputationApiClient({
         }),
       );
     },
-    async submitReviewReply(reviewId: string, body: Readonly<{ feedback: string }>) {
+    async submitReviewReply(reviewId: string, body: Readonly<{ attemptId: string; feedback: string }>) {
       return parseJsonResponse(
         await client.reviews[":id"].reply.$post({
           param: { id: reviewId },

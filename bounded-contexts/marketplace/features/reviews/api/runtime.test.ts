@@ -145,6 +145,7 @@ describe("marketplace review runtime", () => {
 
     const result = await runtime.submitReview(
       {
+        attemptId: "review_runtime_attempt_0001",
         orderId: "ord_1",
         authorAccountId: "acc_seller",
         subjectAccountId: "acc_buyer",
@@ -164,6 +165,7 @@ describe("marketplace review runtime", () => {
     expect(allEvents.map((event) => event.eventType)).toEqual([
       "marketplace.review.submitted",
       "marketplace.csat-outcome-fact.v1",
+      "marketplace.mutation-attempt.completed",
     ]);
     const reviewEvent = allEvents.find((event) => event.eventType === "marketplace.review.submitted");
     const outcomeFact = allEvents.find((event) => event.eventType === "marketplace.csat-outcome-fact.v1");
@@ -230,6 +232,7 @@ describe("marketplace review runtime", () => {
     await expect(
       runtime.submitReview(
         {
+          attemptId: "review_runtime_attempt_0001",
           orderId: "ord_held",
           authorAccountId: "acc_buyer",
           subjectAccountId: "acc_seller",
@@ -276,6 +279,7 @@ describe("marketplace review runtime", () => {
 
     const result = await runtime.submitReview(
       {
+        attemptId: "review_runtime_attempt_0002",
         orderId: "ord_1",
         authorAccountId: "acc_buyer",
         subjectAccountId: "acc_seller",
@@ -288,6 +292,7 @@ describe("marketplace review runtime", () => {
     expect(allEvents.map((event) => event.eventType)).toEqual([
       "marketplace.review.submitted",
       "marketplace.csat-outcome-fact.v1",
+      "marketplace.mutation-attempt.completed",
     ]);
     const reviewEvent = allEvents.find((event) => event.eventType === "marketplace.review.submitted");
     const outcomeFact = allEvents.find((event) => event.eventType === "marketplace.csat-outcome-fact.v1");
@@ -332,7 +337,7 @@ describe("marketplace review runtime", () => {
 
     await expect(
       runtime.submitReview(
-        { orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
+        { attemptId: "review_runtime_attempt_0001", orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
         context,
       ),
     ).rejects.toThrow("This transaction's review window has closed.");
@@ -390,13 +395,13 @@ describe("marketplace review runtime", () => {
     });
 
     const first = await runtime.submitReview(
-      { orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
+      { attemptId: "review_runtime_attempt_0001", orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
       context,
     );
     counterpartReviewId = first.reviewId;
 
     const second = await runtime.submitReview(
-      { orderId: "ord_1", authorAccountId: "acc_seller", subjectAccountId: "acc_buyer", rating: 4 },
+      { attemptId: "review_runtime_attempt_0001", orderId: "ord_1", authorAccountId: "acc_seller", subjectAccountId: "acc_buyer", rating: 4 },
       {
         ...context,
         audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
@@ -489,11 +494,11 @@ describe("marketplace review runtime", () => {
     });
 
     const pairA = await runtime.submitReview(
-      { orderId: "ord_pair", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
+      { attemptId: "review_runtime_attempt_0001", orderId: "ord_pair", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
       context,
     );
     const pairB = await runtime.submitReview(
-      { orderId: "ord_pair", authorAccountId: "acc_seller", subjectAccountId: "acc_buyer", rating: 4 },
+      { attemptId: "review_runtime_attempt_0001", orderId: "ord_pair", authorAccountId: "acc_seller", subjectAccountId: "acc_buyer", rating: 4 },
       { ...context, audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never } },
     );
     const singleton = await runtime.submitReview(
@@ -551,6 +556,7 @@ describe("marketplace review runtime", () => {
 
       const submitted = await runtime.submitReview(
         {
+          attemptId: "review_runtime_attempt_0001",
           orderId: "ord_1",
           authorAccountId: "acc_buyer",
           subjectAccountId: "acc_seller",
@@ -601,8 +607,8 @@ describe("marketplace review runtime", () => {
       const { runtime, allEvents, reviewId } = await createRuntimeWithRevealedReview();
 
       const replyResult = await runtime.submitReviewReply(
-        { reviewId, subjectAccountId: "acc_seller", feedback: "Thanks for the feedback." },
-        context,
+        { attemptId: "reply_runtime_attempt_0001", reviewId, subjectAccountId: "acc_seller", feedback: "Thanks for the feedback." },
+        { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
       );
 
       expect(replyResult.replyId).toMatch(/^rvr_/);
@@ -625,8 +631,8 @@ describe("marketplace review runtime", () => {
 
       await expect(
         runtime.submitReviewReply(
-          { reviewId, subjectAccountId: "acc_someone_else", feedback: "Not the subject." },
-          context,
+          { attemptId: "reply_runtime_attempt_0001", reviewId, subjectAccountId: "acc_someone_else", feedback: "Not the subject." },
+          { ...context, audit: { ...context.audit, forAccountId: "acc_someone_else" as never } },
         ),
       ).rejects.toThrow("Only the review subject may reply.");
     });

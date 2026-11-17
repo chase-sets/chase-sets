@@ -205,6 +205,7 @@ describe("discovery public account review reports", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         intent: "report-review",
+        attemptId: "public_review_report_attempt_0001",
         reviewId: "rev_1",
         reason: "personal-information",
         details: "The review includes a phone number.",
@@ -226,12 +227,13 @@ describe("discovery public account review reports", () => {
 
     const result = await action({ request: reportRequest(), params: { accountSlug: "north-store" } } as never);
 
-    expect(result).toEqual({ reviewId: "rev_1", status: "submitted" });
+    expect(result).toEqual({ reviewId: "rev_1", status: "submitted", attemptId: "public_review_report_attempt_0001", mutationPhase: "succeeded" });
     expect(postedBodies).toEqual([
       {
         reason: "personal-information",
         details: "The review includes a phone number.",
         sourceRoutePath: "/accounts/north-store",
+        attemptId: "public_review_report_attempt_0001",
       },
     ]);
   });

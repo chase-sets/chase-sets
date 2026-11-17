@@ -15,6 +15,9 @@ import {
   type MarketplaceReviewReportReason,
 } from "../domain/domain";
 import type { MarketplaceReportServices } from "./runtime";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
+import { marketplaceReceiptResponse } from "../../mutation-recovery/api/receipt";
+import { marketplaceReporterFingerprint } from "./reporter";
 
 const reportListingSubmitRateLimiter = createConfiguredInMemoryRateLimiter("marketplace.report-listing.submit", {
   max: 5,
@@ -60,7 +63,7 @@ function createVisitorReportContext(reporterKey: string): EventStoreContext {
     tenantId: MARKETPLACE_REPORT_SYSTEM_TENANT_ID,
     audit: {
       performedByUserId: MARKETPLACE_REPORT_SYSTEM_USER_ID,
-      forAccountId: reporterKey as AccountId,
+      forAccountId: marketplaceReporterFingerprint("visitor", reporterKey) as AccountId,
     },
   };
 }
@@ -97,6 +100,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
     try {
       const result = await services.reportListing(
         {
+          attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
           listingId: c.req.param("id"),
           reporterKind: actor ? "account" : "visitor",
           reporterKey: actor?.accountId ?? visitorKey ?? "",
@@ -109,7 +113,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         context,
       );
 
-      return c.json(
+      return marketplaceReceiptResponse(c.json(
         {
           id: result.reportId,
           version: result.version,
@@ -121,8 +125,10 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
           autoUnlisted: result.autoUnlisted,
         },
         201,
-      );
+      ), result);
     } catch (error) {
+      if (error instanceof MarketplaceAttemptError)
+        return c.json({ error: { code: error.code, message: error.message } }, error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400);
       if (isDuplicateReportError(error)) {
         return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
       }
@@ -169,6 +175,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
     try {
       const result = await services.reportReview(
         {
+          attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
           reviewId: c.req.param("id"),
           reporterAccountId: actor.accountId,
           reporterUserId: actor.userId,
@@ -179,7 +186,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         context,
       );
 
-      return c.json(
+      return marketplaceReceiptResponse(c.json(
         {
           id: result.reportId,
           version: result.version,
@@ -188,8 +195,10 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
           targetId: c.req.param("id"),
         },
         201,
-      );
+      ), result);
     } catch (error) {
+      if (error instanceof MarketplaceAttemptError)
+        return c.json({ error: { code: error.code, message: error.message } }, error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400);
       if (isDuplicateReportError(error)) {
         return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
       }

@@ -12,12 +12,14 @@ export type MarketplaceReportSubmissionSnapshot = Readonly<{
 }>;
 
 export type ReportListingRequest = Readonly<{
+  attemptId: string;
   reason: MarketplaceListingReportReason;
   details?: string | null;
   sourceRoutePath?: string | null;
 }>;
 
 export type ReportReviewRequest = Readonly<{
+  attemptId: string;
   reason: MarketplaceReviewReportReason;
   details?: string | null;
   sourceRoutePath?: string | null;

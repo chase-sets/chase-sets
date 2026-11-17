@@ -17,6 +17,9 @@ export function enumerateMarketplaceAttemptCallers(
 ): MarketplaceAttemptCaller[];
 export function enumerateListingAttemptCallers(sources: readonly MarketplaceCallerSource[]): MarketplaceAttemptCaller[];
 export const marketplaceListingCallerPartition: Map<string, string>;
+export function enumerateReviewReportAttemptCallers(sources: readonly MarketplaceCallerSource[]): MarketplaceAttemptCaller[];
+export const marketplaceReviewReportCallerPartition: Map<string, string>;
+export function unpartitionedReviewReportAttemptCallers(callers: readonly MarketplaceAttemptCaller[]): MarketplaceAttemptCaller[];
 export function unpartitionedListingAttemptCallers(
   callers: readonly MarketplaceAttemptCaller[],
 ): MarketplaceAttemptCaller[];

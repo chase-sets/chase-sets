@@ -141,6 +141,7 @@ describe("marketplace account purchase review route", () => {
     );
 
     const form = new FormData();
+    form.set("attemptId", "purchase_review_attempt_0001");
     form.set("rating", "5");
     form.set("feedback", "Great seller.");
 
@@ -200,6 +201,7 @@ describe("marketplace account purchase review route", () => {
 
     async function submit(feedback: string) {
       const form = new FormData();
+      form.set("attemptId", "purchase_review_attempt_0002");
       form.set("rating", "2");
       form.set("feedback", feedback);
       return action({
@@ -214,6 +216,7 @@ describe("marketplace account purchase review route", () => {
       const message = authoredTextRecoveryMessage("text_control_character");
 
       await expect(submit("Bad \u0007 text")).resolves.toEqual({
+        attemptId: "purchase_review_attempt_0002", mutationPhase: "failed-safe",
         error: message,
         values: { rating: 2, feedback: "Bad \u0007 text" },
         recovery: { code: "text_control_character", message, fieldLevel: true },
@@ -225,6 +228,7 @@ describe("marketplace account purchase review route", () => {
       const message = authoredTextRecoveryMessage("rate_limited");
 
       await expect(submit("Fine text")).resolves.toEqual({
+        attemptId: "purchase_review_attempt_0002", mutationPhase: "failed-safe",
         error: message,
         values: { rating: 2, feedback: "Fine text" },
         recovery: { code: "rate_limited", message, fieldLevel: false },
@@ -238,6 +242,7 @@ describe("marketplace account purchase review route", () => {
       });
 
       await expect(submit("Late")).resolves.toEqual({
+        attemptId: "purchase_review_attempt_0002", mutationPhase: "failed-safe",
         error: "This transaction's review window has closed.",
         values: { rating: 2, feedback: "Late" },
       });

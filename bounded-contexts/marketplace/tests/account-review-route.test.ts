@@ -5,6 +5,9 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
 } from "@chase-sets/http/responses";
 import { action as reviewAction, loader as reviewLoader } from "../routes/marketplace/account-review";
+import { action as receivedReviewAction } from "../routes/marketplace/account-received-reviews";
+import { action as writtenReviewAction } from "../routes/marketplace/account-written-reviews";
+import { action as reviewSummaryAction } from "../routes/marketplace/account-review-summary";
 import { jsonResponse, requestUrl } from "./test-support/http";
 import { authoredTextRecoveryMessage } from "../features/reviews/ui/authored-text-recovery";
 
@@ -177,7 +180,7 @@ describe("marketplace account review route", () => {
 
   describe("subject reply action (m108)", () => {
     function replyFormRequest(feedback: string) {
-      const body = new URLSearchParams({ intent: "reply", feedback });
+      const body = new URLSearchParams({ intent: "reply", feedback, attemptId: "review_response_attempt_0001" });
       return new Request("http://localhost/account/reviews/rev_1", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -213,7 +216,7 @@ describe("marketplace account review route", () => {
         context: undefined,
       } as never);
 
-      expect(replyBodies).toEqual([{ feedback: "Thanks for the feedback -- glad it arrived safely." }]);
+      expect(replyBodies).toEqual([{ feedback: "Thanks for the feedback -- glad it arrived safely.", attemptId: "review_response_attempt_0001" }]);
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
       expect(response.status).toBeGreaterThanOrEqual(300);
@@ -255,6 +258,7 @@ describe("marketplace account review route", () => {
 
       expect(result).toEqual({
         error: "A reply already exists for this review.",
+        attemptId: "review_response_attempt_0001", mutationPhase: "failed-safe",
         values: { feedback: "Second reply attempt." },
       });
     });
@@ -284,6 +288,7 @@ describe("marketplace account review route", () => {
         const message = authoredTextRecoveryMessage(error.code);
         expect(result).toEqual({
           error: message,
+          attemptId: "review_response_attempt_0001", mutationPhase: "failed-safe",
           values: { feedback: "Thanks https://a.example https://a.example" },
           recovery: { code: error.code, message, fieldLevel },
         });
@@ -292,12 +297,39 @@ describe("marketplace account review route", () => {
   });
 
   describe("customer review report action", () => {
+    it.each([reviewAction, receivedReviewAction, writtenReviewAction, reviewSummaryAction])(
+      "recovers each account report entry point by replaying only its retained identity",
+      async (action) => {
+        const sent: unknown[] = [];
+        vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = requestUrl(input);
+          if (url.includes("/api/auth/session")) return jsonResponse({ actor });
+          if (url.includes("/api/marketplace/reviews/rev_1/report")) {
+            const request = input instanceof Request ? input : new Request(url, init);
+            sent.push(await request.json());
+            if (sent.length === 1) throw new TypeError("response lost");
+            return jsonResponse({ id: "rpt_first", version: 1, status: "submitted" }, 201);
+          }
+          throw new Error(`Unexpected request: ${url}`);
+        }));
+        const first = await action({ request: reportFormRequest(), params: { reviewId: "rev_1" }, context: undefined } as never);
+        expect(first).toMatchObject({ attemptId: "review_report_attempt_0001", mutationPhase: "confirming" });
+        expect(sent).toHaveLength(1);
+        const form = await reportFormRequest().formData();
+        form.set("intent", "confirm:report-review");
+        const result = await action({ request: new Request("http://localhost/account/reviews/rev_1", { method: "POST", body: form }), params: { reviewId: "rev_1" }, context: undefined } as never);
+        expect(result).toMatchObject({ mutationPhase: "succeeded" });
+        expect(sent).toHaveLength(2);
+        expect(sent[0]).toEqual(sent[1]);
+      },
+    );
     function reportFormRequest() {
       return new Request("http://localhost/account/reviews/rev_1", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           intent: "report-review",
+          attemptId: "review_report_attempt_0001",
           reviewId: "rev_1",
           reason: "harassment-or-abuse",
           details: "This contains abusive language.",
@@ -332,12 +364,13 @@ describe("marketplace account review route", () => {
         context: undefined,
       } as never);
 
-      expect(result).toEqual({ reviewId: "rev_1", status: "submitted" });
+      expect(result).toEqual({ reviewId: "rev_1", status: "submitted", attemptId: "review_report_attempt_0001", mutationPhase: "succeeded" });
       expect(reportBodies).toEqual([
         {
           reason: "harassment-or-abuse",
           details: "This contains abusive language.",
           sourceRoutePath: "/account/reviews/rev_1",
+          attemptId: "review_report_attempt_0001",
         },
       ]);
     });
@@ -371,7 +404,7 @@ describe("marketplace account review route", () => {
         context: undefined,
       } as never);
 
-      expect(result).toEqual({ reviewId: "rev_1", status: "already-submitted" });
+      expect(result).toEqual({ reviewId: "rev_1", status: "already-submitted", attemptId: "review_report_attempt_0001", mutationPhase: "succeeded" });
     });
   });
 });

@@ -23,10 +23,10 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import {
-  appendAnonymousReportCookie,
-  createMarketplaceRequestApiClient,
+  submitListingReport,
   ensureAnonymousReportId,
 } from "@chase-sets/marketplace/server";
+import { ReviewMutationForm } from "@chase-sets/marketplace/web";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
@@ -277,6 +277,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       notFound: false,
       canonicalUrl: new URL(`/listings/${listing.listing_slug}`, url.origin).toString(),
       entryAttemptKey: createId("chkentry"),
+      anonymousReportId: ensureAnonymousReportId(request),
     };
   } catch (error) {
     if (error instanceof DiscoveryApiError) {
@@ -293,16 +294,10 @@ export const action = defineFormAction({
       const listingId = String(formData.get("listingId") ?? "");
       const slug = params.listingSlug ?? "";
       if (!listingId || !slug) return formActionRedirect(null, `/listings/${slug}`);
-      const anonymousReportId = ensureAnonymousReportId(request);
-      await createMarketplaceRequestApiClient(request).reportListing(listingId, anonymousReportId, {
-        reason: String(formData.get("reason") ?? "") as never,
-        details: String(formData.get("details") ?? "") || null,
-        sourceRoutePath: `/listings/${slug}`,
-      });
-      const headers = new Headers();
-      appendAnonymousReportCookie(headers, anonymousReportId, request);
-      return formActionRedirect(null, `/listings/${slug}?reported=1`, { headers });
+      return submitListingReport(request, formData, `/listings/${slug}`);
     },
+    "confirm:report-listing": ({ request, params, formData }) =>
+      submitListingReport(request, formData, `/listings/${params.listingSlug ?? ""}`),
   },
   onUnknownIntent: ({ params }) => formActionRedirect(null, `/listings/${params.listingSlug ?? ""}`),
 });
@@ -509,8 +504,9 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               }
             />
             <PageSection title={t("discovery.routes.publicListing.report.title")}>
-              <Form spacing="none" method="post">
+              <ReviewMutationForm spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="report-listing" readOnly />
+                <HiddenInput type="hidden" name="anonymousReportId" value={data.anonymousReportId ?? ""} readOnly />
                 <HiddenInput type="hidden" name="listingId" value={listing.listing_id} readOnly />
                 <NativeSelect
                   name="reason"
@@ -527,7 +523,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 <Button type="submit" tone="secondary" leadingIcon="warning">
                   {t("discovery.routes.publicListing.report.submit")}
                 </Button>
-              </Form>
+              </ReviewMutationForm>
             </PageSection>
           </Stack>
         </Grid>

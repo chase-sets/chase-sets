@@ -533,6 +533,7 @@ async function reportToThreshold(reports: ReturnType<typeof createMarketplaceRep
   for (let index = 1; ; index += 1) {
     const result = await reports.reportListing(
       {
+        attemptId: `enforcement_report_attempt_${index.toString().padStart(4, "0")}`,
         listingId,
         reporterKind: "visitor",
         reporterKey: `anon_${listingId}_${index}`,

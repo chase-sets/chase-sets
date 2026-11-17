@@ -6,6 +6,8 @@ import type { ReviewServices } from "./runtime";
 import { ReputationDomainError } from "../domain/common";
 import { AuthoredTextRejectedError } from "../domain/authored-text-safeguard";
 import { authoredTextRecoveryMessage } from "../ui/authored-text-recovery";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
+import { marketplaceReceiptResponse } from "../../mutation-recovery/api/receipt";
 
 const REVIEW_AUTHORING_RATE_LIMIT_SURFACE = "marketplace.review.authoring";
 
@@ -64,6 +66,7 @@ function errorMessage(error: unknown) {
 }
 
 function errorCode(error: unknown) {
+  if (error instanceof MarketplaceAttemptError) return error.code;
   if (error instanceof AuthoredTextRejectedError) {
     return error.code;
   }
@@ -224,6 +227,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
     try {
       const result = await services.submitReview(
         {
+          attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
           orderId: String(body.orderId ?? ""),
           authorAccountId: access.actor.accountId,
           subjectAccountId: String(body.subjectAccountId ?? ""),
@@ -232,7 +236,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
         },
         context,
       );
-      return c.json({ id: result.reviewId, version: result.version, status: "submitted" }, 201);
+      return marketplaceReceiptResponse(c.json({ id: result.reviewId, version: result.version, status: "submitted" }, 201), result);
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
@@ -345,16 +349,17 @@ export function createAccountReviewRoutes(services: ReviewServices) {
     try {
       const result = await services.submitReviewReply(
         {
+          attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
           reviewId: c.req.param("id"),
           subjectAccountId: access.actor.accountId,
           feedback: typeof body.feedback === "string" ? body.feedback : "",
         },
         context,
       );
-      return c.json(
+      return marketplaceReceiptResponse(c.json(
         { id: result.reviewId, replyId: result.replyId, version: result.version, status: "submitted" },
         201,
-      );
+      ), result);
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }

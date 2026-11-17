@@ -384,6 +384,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    lookupMutationAttempt: lookupAttempt,
     async reportListing(
       listingId: string,
       anonymousReporterId: string | null,
