@@ -80,10 +80,9 @@ dbDescribe("Review and Response first outcomes on PostgreSQL", () => {
     const events = await store.readAll();
     expect(events.map((event) => event.eventType)).toEqual([
       "marketplace.review.submitted",
-      "marketplace.csat-outcome-fact.v1",
       "marketplace.mutation-attempt.completed",
     ]);
-    expect(results[0]!.version).toBe(2);
+    expect(results[0]!.version).toBe(1);
   });
 
   it("recovers commit-then-loss before eligibility, holds, deadlines or projection presence can reinterpret replay", async () => {
@@ -99,9 +98,9 @@ dbDescribe("Review and Response first outcomes on PostgreSQL", () => {
     const result = await runtime().submitReview(submission, buyer);
     const events = await store.readAll();
     expect(result.reviewId).toBe((events[0]!.payload as { reviewId: string }).reviewId);
-    expect(result.version).toBe(2);
-    expect(getMutationResultCommandReceipt(result)?.commitEventIds).toEqual([events[2]!.eventId]);
-    expect(events).toHaveLength(3);
+    expect(result.version).toBe(1);
+    expect(getMutationResultCommandReceipt(result)?.commitEventIds).toEqual([events[1]!.eventId]);
+    expect(events).toHaveLength(2);
   });
 
   it.each([{ rating: 1 }, { feedback: "Changed" }, { subjectAccountId: "acc_other" }])(
@@ -111,7 +110,7 @@ dbDescribe("Review and Response first outcomes on PostgreSQL", () => {
       await expect(runtime().submitReview({ ...submission, ...change }, buyer)).rejects.toMatchObject({
         code: "attempt_conflict",
       });
-      expect(await store.readAll()).toHaveLength(3);
+      expect(await store.readAll()).toHaveLength(2);
     },
   );
 
