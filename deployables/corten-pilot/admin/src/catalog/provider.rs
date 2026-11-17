@@ -180,6 +180,9 @@ pub struct Model {
     pub lifecycle_recovery: Recovery,
     pub import_jobs: ImportJobs,
     pub validation_readiness: super::validation::Validation,
+    /// The audit timeline the API composed for the address, which resolves the page's own evidence
+    /// links (`evidenceRef`). None from an API that does not compose it, and the page draws none.
+    pub audit_evidence: Option<super::integrations::AuditEvidence>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
