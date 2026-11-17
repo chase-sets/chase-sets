@@ -141,7 +141,7 @@ pub fn app(config: Config) -> App {
         .assets(Static)
         .pwa(crate::site::pwa())
         .policy(if shared.proto == "https" { policy.hsts() } else { policy })
-        .layer(platform::access_log::AccessLog::new())
+        .access_log(true)
         .messages::<Msg>()
         // Return Intake reads a receipt time in the operator's zone.
         .client_zone()
