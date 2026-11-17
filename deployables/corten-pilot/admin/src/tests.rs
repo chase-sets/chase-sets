@@ -2120,17 +2120,20 @@ fn attention_queue(method: Method, rest: &str, query: &str, cookie: &str, header
 /// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages). A
 /// bulk archive cannot start (another change is running).
 /// A Source Observation the stand-in knows: `obs_card`, an observed Pokemon card; `obs_product`,
-/// a changed provider product; `obs_done`, a promoted one. Promoting `obs_held` is refused by a
-/// rollout control (403), as the API answers it.
+/// a changed provider product; `obs_set`, an observed YGOJSON set reference, stored without image
+/// URLs; `obs_done`, a promoted one. Promoting `obs_held` is refused by a rollout control (403), as
+/// the API answers it.
 fn observation(id: &str, status: &str) -> Value {
-    let normalized = if id == "obs_product" {
-        json!({ "kind": "provider-product", "name": "Booster Box", "imageUrls": [], "providerProductId": "pp_9",
+    let normalized = match id {
+        "obs_product" => json!({ "kind": "provider-product", "name": "Booster Box", "imageUrls": [], "providerProductId": "pp_9",
                 "productLineName": "Lorcana", "productCategoryName": null,
-                "skuReferences": [{ "externalKey": "sku-1" }, { "externalKey": "sku-2" }] })
-    } else {
-        json!({ "kind": "pokemon-card", "name": "Pikachu", "setName": "Base", "expansionName": null, "cardNumber": "58",
+                "skuReferences": [{ "externalKey": "sku-1" }, { "externalKey": "sku-2" }] }),
+        "obs_set" => json!({ "kind": "yugioh-set-reference", "tcg": "yugioh", "languageCode": "en", "name": "Starter Deck Kaiba",
+                "setId": "000f0093-1847-4db7-a315-5bd07f055c7a", "setCode": "SDK", "setName": "Starter Deck Kaiba",
+                "expansionName": null, "cardNumber": null, "releaseDate": null, "cardCount": null }),
+        _ => json!({ "kind": "pokemon-card", "name": "Pikachu", "setName": "Base", "expansionName": null, "cardNumber": "58",
                 "imageUrls": ["https://images.example/pikachu.png"], "cardVariantLabel": "Holo", "rarity": "Common",
-                "imageDisclaimer": null, "illustrator": "Atsuko Nishida", "releaseDate": "1999-01-09" })
+                "imageDisclaimer": null, "illustrator": "Atsuko Nishida", "releaseDate": "1999-01-09" }),
     };
     json!({ "observation_id": id, "provider_key": "tcgdex", "external_key": "base1-58", "source_url": "https://api.example/base1-58",
             "language_code": "en", "source_record_hash": "h_1", "source_updated_at": null, "observed_at": "2026-10-30T10:00:00Z",
@@ -2147,7 +2150,7 @@ fn observation_api(method: &Method, rest: &str, _body: &str) -> Option<Response>
     let rest = rest.strip_prefix("/source-observations/")?;
     let (id, action) = rest.split_once('/').map_or((rest, None), |(id, action)| (id, Some(action)));
     let status = match id {
-        "obs_card" | "obs_held" => "observed",
+        "obs_card" | "obs_held" | "obs_set" => "observed",
         "obs_product" => "changed",
         "obs_done" => "promoted",
         "obs_down" if *method == Method::GET => return Some(StatusCode::SERVICE_UNAVAILABLE.into_response()),
@@ -5009,6 +5012,12 @@ async fn a_source_observation_shows_its_values_and_offers_what_its_status_allows
 
     let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_done", Some("staff"))).await;
     assert!(!html.contains(r#"value="promote""#) && html.contains("cat_pika") && html.contains("pokemon-cards@2"), "{html}");
+
+    // A set reference is stored without image URLs: its page draws with no image, as admin-web's.
+    let (status, _, html) = pilot.send(get("/catalog/source-observations/obs_set", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Starter Deck Kaiba | Catalog Admin</title>"), "{html}");
+    assert!(!html.contains(r#"width="180""#), "no image is drawn: {html}");
 
     let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_card", Some("catalog-viewer"))).await;
     assert!(!html.contains(r#"value="promote""#), "a viewer reviews nothing: {html}");

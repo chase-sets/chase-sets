@@ -66,6 +66,10 @@ pub struct Normalized {
     pub set_name: Option<String>,
     pub expansion_name: Option<String>,
     pub card_number: Option<String>,
+    /// The record's images. A reference-data record (a YGOJSON set reference) is stored without
+    /// them, so a missing list, or one that is not a list of URLs, is none, as admin-web's
+    /// `firstImageUrl` reads it, rather than failing the page's read.
+    #[serde(deserialize_with = "urls")]
     pub image_urls: Vec<String>,
     pub card_variant_label: Option<String>,
     pub rarity: Option<String>,
@@ -76,6 +80,13 @@ pub struct Normalized {
     pub product_line_name: Option<String>,
     pub product_category_name: Option<String>,
     pub sku_references: Vec<Sku>,
+}
+
+/// A record's image URLs: the strings of its `imageUrls` list, none when there is no list.
+fn urls<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let list = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    Ok(list.iter().filter_map(|url| url.as_str().map(str::to_owned)).collect())
 }
 
 /// The observation (`SourceObservationDetail`), without its redacted source payload, which the
@@ -242,6 +253,18 @@ pub(crate) async fn review(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_record_without_a_list_of_image_urls_has_none() {
+        let read = |normalized: serde_json::Value| serde_json::from_value::<Normalized>(normalized).unwrap().image_urls;
+        assert_eq!(read(json!({ "kind": "yugioh-set-reference", "name": "Beginner's Edition 2" })), Vec::<String>::new());
+        assert_eq!(read(json!({ "kind": "x", "name": "x", "imageUrls": null })), Vec::<String>::new());
+        assert_eq!(read(json!({ "kind": "x", "name": "x", "imageUrls": "https://a.example/1.png" })), Vec::<String>::new());
+        assert_eq!(
+            read(json!({ "kind": "x", "name": "x", "imageUrls": [7, "https://a.example/1.png"] })),
+            ["https://a.example/1.png"]
+        );
+    }
 
     #[test]
     fn promote_and_reject_are_offered_as_admin_webs_page_offers_them() {
