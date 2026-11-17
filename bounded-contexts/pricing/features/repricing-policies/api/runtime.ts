@@ -5,7 +5,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { LoadedAggregate } from "@chase-sets/event-core/aggregate-repository";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgPoolClient, PgQueryable, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import type { RepricingConfigurationWriter } from "./configuration";
 import {
   RepricingConfigurationConflict,
@@ -56,7 +56,7 @@ import {
 } from "../read-model/controls";
 
 type RepricingPolicyRuntimeDeps = Readonly<{
-  eventStore: EventStore;
+  eventStore: EventStore & Pick<PostgresEventStore, "readStreamInTransaction">;
   db: PgQueryable;
   /** The Adoption Gate over the registered goal versions, owned by the Forecast Ledger. */
   goalAdoptions: () => Promise<readonly GoalAdoption[]>;
@@ -83,6 +83,7 @@ export type RepricingPolicyServices = Readonly<{
       requestKey?: string;
       requestFingerprint?: string;
       expectedPolicyVersion?: number;
+      requireReleasedHalt?: boolean;
     }>,
   ) => Promise<RepricingPolicyReceipt | null>;
   getHalt: (accountId: string) => Promise<RepricingHaltState>;
@@ -123,30 +124,47 @@ export type RepricingPolicyServices = Readonly<{
 }>;
 
 export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): RepricingPolicyServices {
-  const { commandHandler, repository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<RepricingPolicyEvent>(),
-    initialState: () => initialRepricingPolicyState,
-    evolve: evolveRepricingPolicy,
-    decide: decideRepricingPolicy,
+  const policyAggregate = (eventStore: EventStore) =>
+    createAggregateCommandHandler({
+      eventStore,
+      codec: createPassthroughDomainEventCodec<RepricingPolicyEvent>(),
+      initialState: () => initialRepricingPolicyState,
+      evolve: evolveRepricingPolicy,
+      decide: decideRepricingPolicy,
+    });
+  const haltAggregate = (eventStore: EventStore) =>
+    createAggregateCommandHandler({
+      eventStore,
+      codec: createPassthroughDomainEventCodec<RepricingHaltEvent>(),
+      initialState: () => initialRepricingHaltState,
+      evolve: evolveRepricingHalt,
+      decide: decideRepricingHalt,
+    });
+  const policy = policyAggregate(deps.eventStore);
+  const halt = haltAggregate(deps.eventStore);
+  const transactionalStore = (client: PgPoolClient): EventStore => ({
+    ...deps.eventStore,
+    readStream: (input) => deps.eventStore.readStreamInTransaction(client, input),
   });
-  const halt = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<RepricingHaltEvent>(),
-    initialState: () => initialRepricingHaltState,
-    evolve: evolveRepricingHalt,
-    decide: decideRepricingHalt,
-  });
-  const loadOwnedRepricingPolicy: RepricingPolicyServices["loadOwnedRepricingPolicy"] = async (policyId, accountId) => {
+  const loadOwnedRepricingPolicy = async (policyId: string, accountId: string, client?: PgPoolClient) => {
+    const { repository } = client ? policyAggregate(transactionalStore(client)) : policy;
     const loaded = await repository.load(repricingPolicyStreamId(policyId));
     return loaded.state.accountId === accountId ? loaded : null;
   };
+  const loadHalt = (accountId: string, client?: PgPoolClient) => {
+    const { repository } = client ? haltAggregate(transactionalStore(client)) : halt;
+    return repository.load(repricingHaltStreamId(accountId));
+  };
+  const requireHaltReleased = (accountId: string) => ({
+    key: repricingHaltConfigurationKey(accountId),
+    allowsInstallation: async (client: PgPoolClient) => !(await loadHalt(accountId, client)).state.engaged,
+  });
 
   return {
-    commandHandler,
+    commandHandler: policy.commandHandler,
     listConfigurationRequests: deps.configuration.list.bind(deps.configuration),
     getAccountRepricingPolicy: (params) => getAccountRepricingPolicy(deps.db, params),
-    loadOwnedRepricingPolicy,
+    loadOwnedRepricingPolicy: (policyId, accountId) => loadOwnedRepricingPolicy(policyId, accountId),
     executeOwnedRepricingPolicy: async ({
       policyId,
       accountId,
@@ -155,6 +173,7 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
       requestKey,
       requestFingerprint,
       expectedPolicyVersion,
+      requireReleasedHalt,
     }) => {
       const {
         pausedAt: _paused,
@@ -175,8 +194,9 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
         requestKey,
         fingerprint: requestFingerprint ?? canonicalJson(semantic),
         parseState: parseRepricingPolicyState,
-        prepare: async () => {
-          const loaded = await loadOwnedRepricingPolicy(policyId, accountId);
+        installationGuard: requireReleasedHalt ? requireHaltReleased(accountId) : undefined,
+        prepare: async (client) => {
+          const loaded = await loadOwnedRepricingPolicy(policyId, accountId, client);
           if (!loaded) return null;
           if (expectedPolicyVersion !== undefined && loaded.version !== expectedPolicyVersion)
             throw new RepricingConfigurationConflict("Installed policy changed before request acceptance.");
@@ -199,7 +219,7 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
         },
       });
     },
-    getHalt: async (accountId) => (await halt.repository.load(repricingHaltStreamId(accountId))).state,
+    getHalt: async (accountId) => (await loadHalt(accountId)).state,
     setHalt: async (accountId, engaged, context, requestKey) => {
       const result = await deps.configuration.request({
         key: repricingHaltConfigurationKey(accountId),
@@ -207,8 +227,8 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
         requestKey,
         fingerprint: JSON.stringify({ engaged }),
         parseState: parseRepricingHaltState,
-        prepare: async () => {
-          const loaded = await halt.repository.load(repricingHaltStreamId(accountId));
+        prepare: async (client) => {
+          const loaded = await loadHalt(accountId, client);
           const events = decideRepricingHalt(loaded.state, { engaged, changedAt: new Date().toISOString() });
           return {
             append: {
@@ -240,7 +260,7 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
       };
     },
     getHaltConfigurationStatus: async (accountId) => {
-      const installed = await halt.repository.load(repricingHaltStreamId(accountId));
+      const installed = await loadHalt(accountId);
       const status = await deps.configuration.status(repricingHaltConfigurationKey(accountId), parseRepricingHaltState);
       if (status.request) return { ...status, installedState: status.installedState ?? installed.state };
       return {
@@ -257,6 +277,7 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
         requestKey,
         fingerprint,
         parseRepricingPolicyState,
+        requireHaltReleased(accountId),
       ),
     getBudget: (accountId, day) => getRepricingBudget(deps.db, accountId, day),
     listCategories: (accountId) => listRepricingCategories(deps.db, accountId),

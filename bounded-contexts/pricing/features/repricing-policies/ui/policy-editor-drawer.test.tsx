@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createRepricingPolicyRuntime } from "../api/runtime";
-import { createMemoryRepricingConfigurationWriter } from "../tests/configuration-fixture";
+import {
+  createMemoryRepricingConfigurationWriter,
+  withMemoryConfigurationTransactions,
+} from "../tests/configuration-fixture";
 import { createRepricingPolicyRoutes } from "../api/route";
 import { bindAuthoringIntent, bindGoalAuthoringIntent, compilePresetBody } from "../domain/authoring-intent";
 import { resolvePricingGoal, type RepricingPolicyState } from "../domain/domain";
@@ -123,7 +126,7 @@ describe("policy editor prerequisites and gates", () => {
       const { eventStore } = createInMemoryEventStore();
       const runtime = createRepricingPolicyRuntime({
         configuration: createMemoryRepricingConfigurationWriter(eventStore),
-        eventStore,
+        eventStore: withMemoryConfigurationTransactions(eventStore),
         db: { query: async () => ({ rows: [] }) },
         goalAdoptions: async () => [],
       });

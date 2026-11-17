@@ -100,6 +100,7 @@ export function comparisonTestServices(
       throw new Error("Synthetic comparison fixture must not resolve live Economics.");
     },
   },
+  epochs?: Parameters<typeof createRepricingConfigurationWriter>[0]["epochs"],
 ) {
   const eventStore = createPostgresEventStore({ pool: db });
   const policies = createPolicyRuntime({ eventStore, db });
@@ -110,7 +111,7 @@ export function comparisonTestServices(
     goalDefinitions: pricingGoalDefinitions,
   });
   const repricingPolicies = createRepricingPolicyRuntime({
-    configuration: createRepricingConfigurationWriter({ pool: db, eventStore }),
+    configuration: createRepricingConfigurationWriter({ pool: db, eventStore, ...(epochs && { epochs }) }),
     eventStore,
     db,
     goalAdoptions: forecastLedger.listGoalAdoptions,

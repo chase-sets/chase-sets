@@ -465,6 +465,7 @@ export function createPricingHealthServices({
           requestKey,
           requestFingerprint: fingerprint,
           expectedPolicyVersion: target.version,
+          requireReleasedHalt: true,
           command: {
             type: "ReviseRepricingPolicy",
             name: target.name,

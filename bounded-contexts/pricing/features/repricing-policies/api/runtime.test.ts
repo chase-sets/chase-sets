@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createRepricingPolicyRuntime, PolicyControlValidationError } from "./runtime";
 import { RepricingPolicyValidationError, type ReviseRepricingPolicyCommand } from "../domain/domain";
 import {
   createMemoryRepricingConfigurationWriter,
   createConfigurationPoolFixture,
+  withMemoryConfigurationTransactions,
 } from "../tests/configuration-fixture";
 import { createRepricingConfigurationWriter } from "./configuration";
 
@@ -50,7 +51,7 @@ function createMemoryEventStore() {
     readAll: async () => allEvents,
   };
 
-  return { store, allEvents };
+  return { store: withMemoryConfigurationTransactions(store), allEvents };
 }
 
 function queryStub(rows: readonly Record<string, unknown>[] = []): PgQueryable {
@@ -86,6 +87,147 @@ const rule = {
 };
 
 describe("createRepricingPolicyRuntime", () => {
+  it("accepts and installs halt and lifecycle writes with only the owner connection available", async () => {
+    let leased = false;
+    const oneSlotPool: PgTransactionalPool = {
+      async query() {
+        if (leased) throw new Error("The only owner connection is leased.");
+        return { rows: [] };
+      },
+      async connect() {
+        if (leased) throw new Error("The only owner connection is leased.");
+        leased = true;
+        return {
+          ...queryStub(),
+          release: () => {
+            leased = false;
+          },
+        };
+      },
+    };
+    const memory = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture(oneSlotPool);
+    const runtime = createRepricingPolicyRuntime({
+      eventStore: {
+        ...memory.store,
+        async readStream(input) {
+          await fixture.pool.query("SELECT synthetic_event_stream");
+          return memory.store.readStream(input);
+        },
+        async readStreamInTransaction(client, input) {
+          expect(leased).toBe(true);
+          await client.query("SELECT synthetic_event_stream");
+          return memory.store.readStream(input);
+        },
+      },
+      configuration: createRepricingConfigurationWriter({ ...fixture, eventStore: memory.store }),
+      db: fixture.pool,
+      goalAdoptions: async () => [],
+    });
+    const accountId = "acc_seller";
+    const policyId = "rpp_one_slot";
+    await runtime.commandHandler({
+      streamId: runtime.streamIdForPolicy(policyId),
+      context,
+      command: {
+        type: "CreateRepricingPolicy",
+        policyId,
+        accountId,
+        name: "Synthetic",
+        scope: { kind: "all-listings" },
+        rules: [rule],
+        maxChangesPerDay: 25,
+        createdAt: "2026-11-17T00:00:00Z",
+      },
+    });
+    expect(await runtime.setHalt(accountId, true, context, "synthetic-one-slot-halt")).toMatchObject({
+      status: "applied",
+      installedRevision: 1,
+      state: { engaged: true },
+    });
+    expect(
+      await runtime.executeOwnedRepricingPolicy({
+        policyId,
+        accountId,
+        context,
+        requestKey: "synthetic-one-slot-pause",
+        command: { type: "PauseRepricingPolicy", pausedAt: "2026-11-17T00:01:00Z" },
+      }),
+    ).toMatchObject({ status: "applied", installedRevision: 2, state: { status: "paused" } });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual([
+      "pricing.repricing-policy.created",
+      "pricing.repricing-halt.engaged",
+      "pricing.repricing-policy.paused",
+    ]);
+    expect(leased).toBe(false);
+  });
+
+  it("blocks a pending Apply Goal under the installed halt but replays the terminal receipt without a halt read", async () => {
+    const { store, allEvents } = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture();
+    let transactionalReads = 0;
+    const runtime = createRepricingPolicyRuntime({
+      eventStore: {
+        ...store,
+        readStreamInTransaction(client, input) {
+          transactionalReads++;
+          return store.readStreamInTransaction(client, input);
+        },
+      },
+      configuration: createRepricingConfigurationWriter({ ...fixture, eventStore: store }),
+      db: fixture.pool,
+      goalAdoptions: async () => [],
+    });
+    const accountId = "acc_seller";
+    const policyId = "rpp_guarded";
+    const body = { scope: { kind: "all-listings" as const }, rules: [rule], maxChangesPerDay: 25 };
+    await runtime.commandHandler({
+      streamId: runtime.streamIdForPolicy(policyId),
+      context,
+      command: {
+        ...body,
+        type: "CreateRepricingPolicy",
+        policyId,
+        accountId,
+        name: "Installed",
+        createdAt: "2026-11-17T00:00:00Z",
+      },
+    });
+    const requestKey = "synthetic-guarded-goal";
+    const fingerprint = "synthetic-apply-goal-fingerprint";
+    const retry = () => runtime.retryPolicyConfiguration(accountId, policyId, requestKey, fingerprint);
+    fixture.control.pending = true;
+    const pending = await runtime.executeOwnedRepricingPolicy({
+      policyId,
+      accountId,
+      context,
+      requestKey,
+      requestFingerprint: fingerprint,
+      requireReleasedHalt: true,
+      command: { ...body, type: "ReviseRepricingPolicy", name: "Revised", revisedAt: "2026-11-17T00:01:00Z" },
+    });
+    expect(pending).toEqual({ status: "accepted-pending", requestKey, requestedRevision: 2 });
+    fixture.control.pending = false;
+    await runtime.setHalt(accountId, true, context, "synthetic-engage");
+    expect(await retry()).toEqual(pending);
+    expect(await runtime.getPolicyConfigurationStatus(accountId, policyId)).toMatchObject({
+      installedRevision: 1,
+      requestedRevision: 2,
+      installedState: { name: "Installed" },
+      request: pending,
+    });
+    const reviseEvents = () => allEvents.filter((event) => event.eventType === "pricing.repricing-policy.revised");
+    expect(reviseEvents()).toHaveLength(0);
+    await runtime.setHalt(accountId, false, context, "synthetic-release");
+    const applied = await retry();
+    expect(applied).toMatchObject({ status: "applied", requestKey, installedRevision: 2, state: { name: "Revised" } });
+    await runtime.setHalt(accountId, true, context, "synthetic-engage-again");
+    const readsBeforeReplay = transactionalReads;
+    expect(await retry()).toEqual(applied);
+    expect(transactionalReads).toBe(readsBeforeReplay);
+    expect(reviseEvents()).toHaveLength(1);
+  });
+
   it("keeps pending lifecycle and revision requests out of installed policy and replays only their own outcome", async () => {
     const memory = createMemoryEventStore();
     const fixture = createConfigurationPoolFixture();
@@ -218,6 +360,17 @@ describe("createRepricingPolicyRuntime", () => {
     expect(await runtime().setHalt("acc_seller", true, context, "engage")).toEqual(engaged);
     expect(await runtime().setHalt("acc_seller", false, context, "release")).toEqual(superseded);
     expect(await runtime().getHalt("acc_seller")).toMatchObject({ engaged: true });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual(["pricing.repricing-halt.engaged"]);
+    const releaseRow = [...fixture.rows.values()].find((row) => row.request_key === "release")!;
+    releaseRow.receipt = { ...superseded, replacingRevision: 200 };
+    await expect(runtime().setHalt("acc_seller", false, context, "release")).rejects.toThrow(
+      "Corrupt Pricing configuration supersession",
+    );
+    expect(await runtime().getHaltConfigurationStatus("acc_seller")).toMatchObject({
+      installedRevision: 3,
+      requestedRevision: 3,
+      installedState: { engaged: true },
+    });
     expect(memory.allEvents.map((event) => event.eventType)).toEqual(["pricing.repricing-halt.engaged"]);
   });
   it("rejects partial or corrupt durable receipts rather than reporting installation", async () => {

@@ -1,9 +1,22 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { PgPoolClient, PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  PgPoolClient,
+  PgTransactionalPool,
+  PgQueryable,
+  PostgresEventStore,
+} from "@chase-sets/event-core-postgres";
 import type { ConfigurationClosureStatus } from "@chase-sets/event-core/configuration-epoch";
 import { randomUUID } from "node:crypto";
 import { RepricingConfigurationConflict, type RepricingConfigurationWriter } from "../api/configuration";
 import { parseRepricingConfigurationReceipt } from "../domain/configuration-receipt";
+
+export function withMemoryConfigurationTransactions(eventStore: EventStore) {
+  return {
+    ...eventStore,
+    readStreamInTransaction: (_, input) => eventStore.readStream(input),
+    appendToStreamInTransaction: (_, input) => eventStore.appendToStream(input),
+  } satisfies EventStore & Pick<PostgresEventStore, "readStreamInTransaction" | "appendToStreamInTransaction">;
+}
 
 export function createMemoryRepricingConfigurationWriter(eventStore: EventStore): RepricingConfigurationWriter {
   const requests = new Map<string, { key: string; fingerprint: string; receipt: unknown }>();
@@ -20,6 +33,8 @@ export function createMemoryRepricingConfigurationWriter(eventStore: EventStore)
       }
       const prepared = await input.prepare(client);
       if (!prepared) return null;
+      if (input.installationGuard && !(await input.installationGuard.allowsInstallation(client)))
+        throw new Error("Use the durable writer fixture to exercise guarded pending installation.");
       const requestedRevision =
         (heads.get(input.key) ??
           (typeof prepared.append.expectedVersion === "number" ? prepared.append.expectedVersion : 0)) + 1;

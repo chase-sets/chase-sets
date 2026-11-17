@@ -13,7 +13,7 @@ import { module as pricingModule } from "../../../index";
 import type { PricingApiEnv } from "../../../api";
 import { getRepricingAuthoringFacts } from "../read-model/controls";
 import { createRepricingPolicyRuntime } from "../api/runtime";
-import { createMemoryRepricingConfigurationWriter } from "./configuration-fixture";
+import { createMemoryRepricingConfigurationWriter, withMemoryConfigurationTransactions } from "./configuration-fixture";
 import { createRepricingPolicyRoutes } from "../api/route";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -77,7 +77,7 @@ describeDb("authoring prerequisites", () => {
       "/policies",
       createRepricingPolicyRoutes({
         ...createRepricingPolicyRuntime({
-          eventStore,
+          eventStore: withMemoryConfigurationTransactions(eventStore),
           db: pools.pricing,
           configuration: createMemoryRepricingConfigurationWriter(eventStore),
           goalAdoptions: async () => [],

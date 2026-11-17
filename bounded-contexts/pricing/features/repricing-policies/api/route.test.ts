@@ -9,15 +9,23 @@ import { createRepricingPolicyRoutes } from "./route";
 import { createRepricingPolicyRuntime, type RepricingPolicyServices } from "./runtime";
 import { DryRunRequiredError } from "./activation";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
-import { createMemoryRepricingConfigurationWriter } from "../tests/configuration-fixture";
+import {
+  createConfigurationPoolFixture,
+  createMemoryRepricingConfigurationWriter,
+  withMemoryConfigurationTransactions,
+} from "../tests/configuration-fixture";
+import { createRepricingConfigurationWriter } from "./configuration";
+import { ConfigurationEpochError } from "@chase-sets/event-core/configuration-epoch";
 
-async function fixture() {
-  const { eventStore } = createInMemoryEventStore();
+async function fixture(durable?: ReturnType<typeof createConfigurationPoolFixture>) {
+  const eventStore = withMemoryConfigurationTransactions(createInMemoryEventStore().eventStore);
   const db: PgQueryable = { query: async () => ({ rows: [] }) };
   const runtime = createRepricingPolicyRuntime({
     eventStore,
     db,
-    configuration: createMemoryRepricingConfigurationWriter(eventStore),
+    configuration: durable
+      ? createRepricingConfigurationWriter({ ...durable, eventStore })
+      : createMemoryRepricingConfigurationWriter(eventStore),
     goalAdoptions: async () => [],
   });
   const created = await runtime.commandHandler({
@@ -128,13 +136,76 @@ async function fixture() {
   }
   return { app, services, eventStore };
 }
-const post = (body: unknown = {}) => ({
+const post = (body: unknown = {}, requestKey?: string) => ({
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: { "content-type": "application/json", ...(requestKey && { "Idempotency-Key": requestKey }) },
   body: JSON.stringify(body),
 });
 
 describe("account policy controls", () => {
+  it("rejects a changed target under the original key even before the owned policy has a configuration head", async () => {
+    const durable = createConfigurationPoolFixture();
+    const { app, eventStore } = await fixture(durable);
+    const api = app();
+    const halt = () => api.request("/policies/halt", post({ engaged: true }, "synthetic-shared-key"));
+    durable.control.pending = true;
+    const accepted = await halt();
+    expect(accepted.status).toBe(202);
+    const receipt = await accepted.json();
+    const conflict = await api.request("/policies/rpp_synthetic_7911/pause", post({}, "synthetic-shared-key"));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ error: { code: "concurrency_conflict" } });
+    expect(durable.rows.size).toBe(1);
+    expect([...durable.heads.keys()]).toEqual(["pricing.repricing-halt:acc_7910"]);
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual(["pricing.repricing-policy.created"]);
+    const replay = await halt();
+    expect(replay.status).toBe(202);
+    expect(await replay.json()).toEqual(receipt);
+  });
+
+  it("returns the original pending receipt for an installation timeout and retries it without accepting again", async () => {
+    const durable = createConfigurationPoolFixture();
+    const install = durable.epochs.installClosureInTransaction;
+    const installFailure = vi
+      .spyOn(durable.epochs, "installClosureInTransaction")
+      .mockRejectedValueOnce(new ConfigurationEpochError("participation query timed out; closure remains pending"));
+    const { app, eventStore, services } = await fixture(durable);
+    const api = app();
+    const halt = () => api.request("/policies/halt", post({ engaged: true }, "synthetic-timed-out"));
+    const pending = await halt();
+    expect(pending.status).toBe(202);
+    expect(await pending.json()).toEqual({
+      status: "accepted-pending",
+      requestKey: "synthetic-timed-out",
+      requestedRevision: 1,
+    });
+    expect(await services.getHaltConfigurationStatus("acc_7910")).toMatchObject({
+      installedRevision: 0,
+      installedState: { engaged: false },
+    });
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual(["pricing.repricing-policy.created"]);
+    installFailure.mockRejectedValueOnce(new ConfigurationEpochError("corrupt source journal"));
+    await expect(services.setHalt("acc_7910", true, dryRunContext, "synthetic-timed-out")).rejects.toThrow(
+      "corrupt source journal",
+    );
+    installFailure.mockImplementation(install);
+    const applied = await halt();
+    expect(applied.status).toBe(200);
+    const receipt = await applied.json();
+    expect(receipt).toMatchObject({
+      status: "applied",
+      requestKey: "synthetic-timed-out",
+      requestedRevision: 1,
+      installedRevision: 1,
+      state: { engaged: true },
+    });
+    expect(await (await halt()).json()).toEqual(receipt);
+    expect(durable.rows.size).toBe(1);
+    expect(
+      (await eventStore.readAll()).filter((event) => event.eventType === "pricing.repricing-halt.engaged"),
+    ).toHaveLength(1);
+  });
+
   it("binds installed reads to the revision snapshot even when an earlier aggregate read is stale", async () => {
     const { app, services } = await fixture();
     const loaded = await services.loadOwnedRepricingPolicy("rpp_synthetic_7911", "acc_7910");

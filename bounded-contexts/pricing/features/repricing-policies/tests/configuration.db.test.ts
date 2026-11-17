@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  createPgPool,
   createPostgresEventStore,
   initializeConfigurationConsumer,
   type PgTransactionalPool,
@@ -19,7 +20,7 @@ import {
 } from "../api/configuration";
 import { createRepricingPolicyRuntime } from "../api/runtime";
 import { pricingRepricingPolicySchemaMigrations } from "../read-model/migrations";
-import { dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
+import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -30,6 +31,7 @@ const identity = { storeId: "synthetic-pricing-consumer-10422", incarnation: "sy
 
 describeDb("durable Pricing configuration requests", () => {
   let pools: Readonly<Record<"pricing" | "consumer", PgTransactionalPool>>;
+  let pricingUrl: string;
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(
       databaseBaseUrl!,
@@ -38,6 +40,7 @@ describeDb("durable Pricing configuration requests", () => {
     );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
+    pricingUrl = urls.pricing;
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
@@ -80,6 +83,53 @@ describeDb("durable Pricing configuration requests", () => {
     await epochs(true).registerConsumer(key, identity);
     return installed;
   }
+  it("uses one Postgres pool slot to accept and install halt and lifecycle writes", async () => {
+    const pool = createPgPool(pricingUrl, { max: 1 });
+    try {
+      const eventStore = createPostgresEventStore({ pool });
+      const configuration = createRepricingConfigurationWriter({ pool, eventStore });
+      const service = createRepricingPolicyRuntime({
+        eventStore,
+        db: pool,
+        configuration,
+        goalAdoptions: async () => [],
+      });
+      const policyId = "rpp_synthetic_one_slot";
+      const streamId = service.streamIdForPolicy(policyId);
+      await service.commandHandler({
+        streamId,
+        context: dryRunContext,
+        command: {
+          ...dryRunBody,
+          type: "CreateRepricingPolicy",
+          policyId,
+          accountId,
+          name: "Synthetic",
+          createdAt: "2026-11-17T00:00:00Z",
+        },
+      });
+      expect(await service.setHalt(accountId, true, dryRunContext, "synthetic-one-slot-halt")).toMatchObject({
+        status: "applied",
+        installedRevision: 1,
+        state: { engaged: true },
+      });
+      expect(
+        await service.executeOwnedRepricingPolicy({
+          policyId,
+          accountId,
+          context: dryRunContext,
+          requestKey: "synthetic-one-slot-pause",
+          command: { type: "PauseRepricingPolicy", pausedAt: "2026-11-17T00:01:00Z" },
+        }),
+      ).toMatchObject({ status: "applied", installedRevision: 2, state: { status: "paused" } });
+      expect((await eventStore.readStream({ streamId })).map((event) => event.eventType)).toEqual([
+        "pricing.repricing-policy.created",
+        "pricing.repricing-policy.paused",
+      ]);
+    } finally {
+      await closeMultiContextTestPools({ pricing: pool });
+    }
+  });
   it("migrates idempotently and preserves installed halt through withheld-store restart, supersession and exact replay", async () => {
     const installed = await enrolledHalt();
     for (let repeat = 0; repeat < 2; repeat++)

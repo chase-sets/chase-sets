@@ -28,6 +28,10 @@ export class RepricingConfigurationConflict extends Error {
 }
 
 export type PreparedRepricingConfiguration<State> = Readonly<{ append: AppendToStreamInput; state: State }>;
+type InstallationGuard = Readonly<{
+  key: string;
+  allowsInstallation: (client: PgPoolClient) => Promise<boolean>;
+}>;
 type RepricingConfigurationRequest<State> = Readonly<{
   key: string;
   accountId: string;
@@ -35,6 +39,7 @@ type RepricingConfigurationRequest<State> = Readonly<{
   fingerprint: string;
   parseState: (value: unknown) => State;
   prepare: (client: PgPoolClient) => Promise<PreparedRepricingConfiguration<State> | null>;
+  installationGuard?: InstallationGuard | undefined;
 }>;
 export type RepricingConfigurationWriter = Readonly<{
   request: <State>(input: RepricingConfigurationRequest<State>) => Promise<RepricingConfigurationReceipt<State> | null>;
@@ -45,6 +50,7 @@ export type RepricingConfigurationWriter = Readonly<{
     requestKey: string,
     fingerprint: string,
     parseState: (value: unknown) => State,
+    installationGuard?: InstallationGuard,
   ) => Promise<RepricingConfigurationReceipt<State> | null>;
   list: (
     accountId: string,
@@ -53,6 +59,10 @@ export type RepricingConfigurationWriter = Readonly<{
 
 const sourceIncarnation = "pricing-repricing-configuration-v1";
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+const isRetryableParticipationFailure = (error: unknown) =>
+  isPgRetryableTransientError(error) ||
+  (error instanceof ConfigurationEpochError &&
+    /^Configuration epoch: participation (connection|query) timed out; closure remains pending$/.test(error.message));
 type RequestRow = Readonly<{
   key: string;
   requested_revision: number;
@@ -159,11 +169,14 @@ export function createRepricingConfigurationWriter(
       )
     ).rows[0];
   }
-  function receipt<State>(row: RequestRow, parseState: (value: unknown) => State) {
+  function receipt<State>(row: RequestRow, verifiedHead: Head, parseState: (value: unknown) => State) {
     if (hash(row.prepared) !== row.prepared_hash) throw new Error("Corrupt Pricing configuration request.");
     const value = parseRepricingConfigurationReceipt(row.receipt, parseState);
     if (value.requestKey !== row.request_key || value.requestedRevision !== row.requested_revision)
       throw new Error("Corrupt Pricing configuration receipt binding.");
+    // The verified contiguous history and the primary key (key, requested_revision) bind the replacement.
+    if (value.status === "superseded-by-revision" && value.replacingRevision > verifiedHead.requested_revision)
+      throw new Error("Corrupt Pricing configuration supersession.");
     if (value.status === "applied") {
       const prepared: PreparedRepricingConfiguration<unknown> = JSON.parse(row.prepared);
       if (canonicalJson(value.state) !== canonicalJson(parseState(prepared.state)))
@@ -195,8 +208,17 @@ export function createRepricingConfigurationWriter(
       requestKey: string,
       fingerprint: string,
       parseState: (value: unknown) => State,
+      installationGuard?: InstallationGuard,
     ) {
-      return this.request({ key, accountId, requestKey, fingerprint, parseState, prepare: async () => null });
+      return this.request({
+        key,
+        accountId,
+        requestKey,
+        fingerprint,
+        parseState,
+        installationGuard,
+        prepare: async () => null,
+      });
     },
     async request<State>(input: RepricingConfigurationRequest<State>) {
       const requestKey = input.requestKey ?? randomUUID();
@@ -212,10 +234,11 @@ export function createRepricingConfigurationWriter(
           )
         ).rows[0];
         if (original) {
-          if (!(await head(client, input.key))) throw new Error("Partial Pricing configuration history.");
           if (original.key !== input.key || original.fingerprint !== input.fingerprint)
             throw new RepricingConfigurationConflict("Request key already used for another command.");
-          const current = receipt(original, input.parseState);
+          const currentHead = await head(client, input.key);
+          if (!currentHead) throw new Error("Partial Pricing configuration history.");
+          const current = receipt(original, currentHead, input.parseState);
           return { receipt: current, events: current.status === "applied" ? original.committed_events : [] };
         }
         const prepared = await input.prepare(client);
@@ -242,7 +265,7 @@ export function createRepricingConfigurationWriter(
               installedRevision: prior.installed_revision,
               installedState: null,
               requestedRevision: prior.requested_revision,
-              request: receipt(latest, input.parseState),
+              request: receipt(latest, prior, input.parseState),
             },
             input.parseState,
           );
@@ -287,45 +310,50 @@ export function createRepricingConfigurationWriter(
       recordCommittedEvents(recorded.events, "pricing");
       const accepted = recorded.receipt;
       if (!accepted || accepted.status !== "accepted-pending") return accepted;
+      const recoverPending = async (error: unknown, closureMayHaveEnded = false) => {
+        const retryable = isRetryableParticipationFailure(error);
+        if (!retryable && !closureMayHaveEnded) throw error;
+        const outcome = await transaction(async (client) => {
+          await lock(client, input.key);
+          const currentHead = await head(client, input.key);
+          const row = await requestRow(client, input.key, requestKey);
+          if (!currentHead || !row) throw new Error("Partial Pricing configuration history.");
+          const outcome = receipt(row, currentHead, input.parseState);
+          return { receipt: outcome, events: outcome.status === "applied" ? row.committed_events : [] };
+        }).catch((recheckError) => {
+          if (isRetryableParticipationFailure(recheckError)) return { receipt: accepted, events: [] };
+          throw recheckError;
+        });
+        if (outcome.receipt.status === "accepted-pending" && !retryable) throw error;
+        return outcome;
+      };
       try {
         const closure = await epochs.driveClosure(input.key);
         if (closure.pendingConsumers.length) return accepted;
       } catch (error) {
-        const terminal = await transaction(async (client) => {
-          await lock(client, input.key);
-          const row = await requestRow(client, input.key, requestKey);
-          if (!row) throw new Error("Partial Pricing configuration history.");
-          const outcome = receipt(row, input.parseState);
-          return { receipt: outcome, events: outcome.status === "applied" ? row.committed_events : [] };
-        }).catch((recheckError) => {
-          if (isPgRetryableTransientError(recheckError)) return { receipt: accepted, events: [] };
-          throw recheckError;
-        });
-        if (terminal.receipt.status !== "accepted-pending") {
-          recordCommittedEvents(terminal.events, "pricing");
-          return terminal.receipt;
-        }
-        if (
-          !isPgRetryableTransientError(error) &&
-          !(
-            error instanceof ConfigurationEpochError && /participation (connection|query) timed out/.test(error.message)
-          )
-        )
-          throw error;
-        return accepted;
+        const outcome = await recoverPending(
+          error,
+          error instanceof ConfigurationEpochError && error.message === "Configuration epoch: not CLOSING",
+        );
+        recordCommittedEvents(outcome.events, "pricing");
+        return outcome.receipt;
       }
       const installed = await transaction(async (client) => {
         await lock(client, input.key);
+        const currentHead = await head(client, input.key);
         const original = await requestRow(client, input.key, requestKey);
-        if (!original) throw new Error("Partial Pricing configuration history.");
-        const current = receipt(original, input.parseState);
+        if (!currentHead || !original) throw new Error("Partial Pricing configuration history.");
+        const current = receipt(original, currentHead, input.parseState);
         if (current.status !== "accepted-pending")
           return { receipt: current, events: current.status === "applied" ? original.committed_events : [] };
-        const currentHead = await head(client, input.key);
-        if (currentHead?.requested_revision !== current.requestedRevision)
+        if (currentHead.requested_revision !== current.requestedRevision)
           throw new Error("Partial Pricing configuration history.");
         const prepared: PreparedRepricingConfiguration<unknown> = JSON.parse(original.prepared);
         const state = input.parseState(prepared.state);
+        if (input.installationGuard) {
+          await lock(client, input.installationGuard.key);
+          if (!(await input.installationGuard.allowsInstallation(client))) return { receipt: current, events: [] };
+        }
         await epochs.installClosureInTransaction(client, input.key);
         const events = await deps.eventStore.appendToStreamInTransaction(client, prepared.append);
         const applied: RepricingConfigurationReceipt<State> = {
@@ -343,10 +371,7 @@ export function createRepricingConfigurationWriter(
           current.requestedRevision,
         ]);
         return { receipt: applied, events };
-      }).catch((error) => {
-        if (isPgRetryableTransientError(error)) return { receipt: accepted, events: [] };
-        throw error;
-      });
+      }).catch(recoverPending);
       recordCommittedEvents(installed.events, "pricing");
       return installed.receipt;
     },
@@ -370,7 +395,7 @@ export function createRepricingConfigurationWriter(
             )
           ).rows[0];
           if (!installedRow) throw new Error("Partial Pricing configuration history.");
-          const installed = receipt(installedRow, parseState);
+          const installed = receipt(installedRow, current, parseState);
           if (installed.status !== "applied") throw new Error("Corrupt installed Pricing configuration receipt.");
           installedState = installed.state;
         }
@@ -379,7 +404,7 @@ export function createRepricingConfigurationWriter(
             installedRevision: current.installed_revision,
             installedState,
             requestedRevision: current.requested_revision,
-            request: receipt(row, parseState),
+            request: receipt(row, current, parseState),
           },
           parseState,
         );
