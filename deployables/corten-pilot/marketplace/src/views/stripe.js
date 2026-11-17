@@ -69,8 +69,8 @@ const elsewhere = (/** @type {string} */ url) => {
 
 /**
  * The page's `default` Trusted Types policy on Stripe's pages: app.rs's `stripe` allows the name,
- * so `<Corten />` makes none there, and Corten leaves Stripe's markup to the app
- * (corten-run/corten#1488). As Corten's does, it passes a script URL on another origin, so this
+ * so `<Corten />` makes none there, and Corten leaves Stripe's markup to the app (the pilot's
+ * README, under Corten). As Corten's does, it passes a script URL on another origin, so this
  * file and Stripe.js load Stripe's scripts; and it passes the one SVG filter above to `DOMParser`
  * only. Every other string, and that one at any other sink, is refused. On a page that already has
  * a `default` policy (Corten's, on payout setup) it makes none, and that one decides.
