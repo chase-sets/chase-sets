@@ -172,7 +172,7 @@ describe("inline seed caller inventory (deployable callers)", () => {
     const environment = buildPlatformBootstrapEnvironment(
       workspace,
       { ...selectors, POSTGRES_DEV_HOST_PORT: "9999", PGHOSTADDR: "203.0.113.42" },
-      { ...sandboxEnvironment, DATABASE_URL: "", POSTGRES_DEV_HOST_PORT: "8888" },
+      { ...sandboxEnvironment, POSTGRES_DEV_HOST_PORT: "8888" },
       { sandbox, disposableRepresentativeCatalogReplay: true },
     );
     expect(environment.POSTGRES_DEV_HOST_PORT).toBe(String(sandbox.ports.postgres));
