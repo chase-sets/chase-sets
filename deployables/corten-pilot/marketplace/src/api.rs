@@ -804,17 +804,18 @@ pub trait SellList {
     ) -> Result<SellListReview, ApiError>;
     /// The guest sell list `guest`'s readiness, and the write's receipt.
     async fn guest_sell_list_readiness(&self, guest: &str) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
-    /// The account's readiness with the seller's `decisions` (the kept review's), the ship-from and
-    /// label `choices` Checkout works seller readiness out from, and the seller confirmation
-    /// evidence seller checkout sends before its handoff, for the confirmation and the snapshot it
-    /// started from (`entry`).
+    /// The account's readiness with the seller's `decisions` (the kept review's) and the ship-from
+    /// and label `choices` Checkout works seller readiness out from, for the confirmation and the
+    /// snapshot it started from (`entry`). Checkout reads payout, risk and fulfillment from their
+    /// owners; one that finds the seller not ready refuses with why
+    /// ([chase-sets/chase-sets#10765 [checkout] Work out seller readiness in the Checkout API from
+    /// owner reads and stop trusting page-posted evidence](https://github.com/chase-sets/chase-sets/issues/10765)).
     async fn seller_readiness(
         &self,
         decisions: &ReadinessDecisions,
         choices: &SellerChoices,
-        evidence: &SellerEvidence,
         entry: &ReadinessEntry<'_>,
-    ) -> Result<SellListSnapshot, ApiError>;
+    ) -> Result<SellListSnapshot, ReadinessError>;
     /// A seller confirmation (`GET /sell-list/confirmations/{id}`); 404 while it is not saved.
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError>;
     /// Confirms seller checkout (`POST /sell-list/confirm`), which runs the Marketplace handoff in
@@ -856,6 +857,21 @@ pub enum ConfirmError {
 impl From<ApiError> for ConfirmError {
     fn from(error: ApiError) -> Self {
         ConfirmError::Api(error)
+    }
+}
+
+/// Why seller checkout's readiness gave no snapshot to confirm from.
+#[derive(Debug)]
+pub enum ReadinessError {
+    /// Checkout found the seller not ready (400 `checkout_seller_not_ready`): its reasons
+    /// (`SellListPreparationRefusalReason`), such as `payout-setup-required` or `risk-hold`.
+    NotReady(Vec<String>),
+    Api(ApiError),
+}
+
+impl From<ApiError> for ReadinessError {
+    fn from(error: ApiError) -> Self {
+        ReadinessError::Api(error)
     }
 }
 
@@ -951,17 +967,14 @@ impl SellList for Caller<'_> {
         &self,
         decisions: &ReadinessDecisions,
         choices: &SellerChoices,
-        evidence: &SellerEvidence,
         entry: &ReadinessEntry<'_>,
-    ) -> Result<SellListSnapshot, ApiError> {
+    ) -> Result<SellListSnapshot, ReadinessError> {
         #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
         struct Sent<'a> {
             #[serde(flatten)]
             decisions: &'a ReadinessDecisions,
             #[serde(flatten)]
             choices: &'a SellerChoices,
-            seller_evidence: &'a SellerEvidence,
             #[serde(flatten)]
             entry: &'a ReadinessEntry<'a>,
         }
@@ -969,13 +982,21 @@ impl SellList for Caller<'_> {
         struct Body {
             readiness: SellListSnapshot,
         }
-        let req = sell_list_request(self, Method::POST, None, "/readiness").json(&Sent {
-            decisions,
-            choices,
-            seller_evidence: evidence,
-            entry,
-        });
-        Ok(self.write::<Body>(req).await?.0.readiness)
+        let sent = Sent { decisions, choices, entry };
+        let res = sell_list_request(self, Method::POST, None, "/readiness").json(&sent).send().await.map_err(ApiError::from)?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        if status.is_success() {
+            return Ok(res.json::<Body>().await.map_err(ApiError::from)?.readiness);
+        }
+        let body: serde_json::Value = res.json().await.unwrap_or_default();
+        let error = &body["error"];
+        let message = error["message"].as_str().unwrap_or_default().to_owned();
+        let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
+        if status == StatusCode::BAD_REQUEST && code.as_deref() == Some("checkout_seller_not_ready") {
+            let reasons = error["reasons"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).map(str::to_owned);
+            return Err(ReadinessError::NotReady(reasons.collect()));
+        }
+        Err(ApiError::Status { status, code, message }.into())
     }
 
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError> {
@@ -1433,51 +1454,6 @@ pub enum ShipFromChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LabelChoice {
     pub preference: &'static str,
-}
-
-/// The seller confirmation evidence seller checkout sends (`SellListSellerConfirmationEvidence`), as
-/// marketplace's route builds it (`buildSellerEvidence`): every dimension said to be ready, the
-/// ship-from's place and the payout readiness read
-/// ([chase-sets/chase-sets#10753](https://github.com/chase-sets/chase-sets/issues/10753)).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SellerEvidence {
-    pub ship_from: EvidenceShipFrom,
-    pub payout: EvidencePayout,
-    pub label: EvidenceLabel,
-    pub risk: EvidenceStatus,
-    pub provider: EvidenceStatus,
-    pub freshness: EvidenceStatus,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EvidenceShipFrom {
-    pub status: &'static str,
-    pub address_id: Option<String>,
-    pub country: String,
-    pub region: String,
-    pub postal_code: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EvidencePayout {
-    pub status: &'static str,
-    pub method: &'static str,
-    pub readiness_status: String,
-    pub last_checked_at: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EvidenceLabel {
-    pub status: &'static str,
-    pub preference: &'static str,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EvidenceStatus {
-    pub status: &'static str,
 }
 
 /// The header a guest's Product Alert intent names its owner in (the anonymous alert cookie's
