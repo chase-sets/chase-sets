@@ -255,7 +255,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `0ff9e6a1` (Corten `main` on 2026-11-18), whose framework package is
+`Cargo.toml` pins Corten to `229b1e92` (Corten `main` on 2026-11-18), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -301,15 +301,14 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 
 ### Corten
 
-| Issue | Workaround |
-| --- | --- |
-| [corten-run/corten#1370 A write that answers its own result with JavaScript (a patch, or its page) cannot bring a layout read up to date: only a redirect redraws the shell, so a partial result must choose between its detail and the shell's count](https://github.com/corten-run/corten/issues/1370) | open. A bulk add from a search that adds only some lines patches its sheet with JavaScript, and the shell's cart count stays as it was until the next page; without JavaScript the page gives the count it read after the write ([marketplace/src/bulk_cart.rs](marketplace/src/bulk_cart.rs), `commit`) |
+No Corten issue the pilot works around is open.
 
 These are closed and still cited here as the change the pilot relies on, or the decision that left a
 part of the workaround to the app:
 
 | Issue | What the pilot does now |
 | --- | --- |
+| [corten-run/corten#1370 A write that answers its own result with JavaScript (a patch, or its page) cannot bring a layout read up to date: only a redirect redraws the shell, so a partial result must choose between its detail and the shell's count](https://github.com/corten-run/corten/issues/1370) | closed by Corten's whole-page write answer (pinned since `229b1e92`): with JavaScript a write's own page is drawn whole, its layout reads included. A bulk add from a search that adds only some lines answers the search's page with its sheet open and gives the cart count it read after the write, with JavaScript as without ([marketplace/src/bulk_cart.rs](marketplace/src/bulk_cart.rs), `commit`) |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) are `StackStart { gap: Gap::App }` in its place. A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
 | [corten-run/corten#1366 A patch answered by another area's handler draws that area's components unstyled: the runtime's patch loads no section stylesheet and check_rendered reads the handler's path](https://github.com/corten-run/corten/issues/1366) | closed by Corten's patch stylesheets (pinned since `de46e974`): a patch from an area's handler brings that area's stylesheet. Add to List's dialog (`SaveDialog`) stays in `views::SEARCH`, since the search page draws it empty for the patch to fill ([marketplace/src/views.rs](marketplace/src/views.rs)) |
 | [corten-run/corten#1449 A Corten app writes no line per request, and an app's middleware cannot write a faithful one: it never sees a 421 or a cross-site refusal and logs a 200 where the client got a 304](https://github.com/corten-run/corten/issues/1449) | closed by Corten's `App::access_log` (pinned since `39ac3e96`): each app sets `access_log(true)`, which logs after every stage and layer, so a `421`, a cross-site refusal and a `304` are logged as the client got them; the pilot's tower layer is gone |

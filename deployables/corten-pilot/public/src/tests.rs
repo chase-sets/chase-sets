@@ -708,6 +708,7 @@ async fn a_wave_answer_saves_one_field_with_a_script_and_every_answered_field_wi
         .header(header::ORIGIN, "http://localhost:7797")
         .header("sec-fetch-site", "same-origin")
         .header("corten", "action")
+        .header("prefer", "corten-draws=whole")
         .header("x-forwarded-for", "203.0.113.9")
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from("field=inventory_size&games=pokemon&inventory_size=&store_url=https%3A%2F%2Fshop.example"))
