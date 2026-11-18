@@ -1367,7 +1367,9 @@ const outputs = [
         ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
       ])),
       // What a report whose answer was lost came to (marketplace's `ReviewMutationForm`).
-      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [["marketplace.reviewRecovery.", "attempt"]])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
+      ])),
     }),
   ],
   [
@@ -1385,7 +1387,9 @@ const outputs = [
         ["reputation.features.reviews.ui.reviewReportAction.", "report"],
         ["reputation.features.reviews.ui.reviewScoringContext.", "scoring"],
       ])),
-      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [["marketplace.reviewRecovery.", "attempt"]])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
+      ])),
     }),
   ],
   [
