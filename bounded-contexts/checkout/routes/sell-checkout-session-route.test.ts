@@ -1805,9 +1805,9 @@ describe("checkout web routes: sell checkout session", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it.each([{}, { payoutState: "failed", payoutEstimateState: "changed", riskState: "block", labelState: "failed" }])(
-    "routes valid guest checkout through registration without seller side effects (posted fields: %j)",
-    async (postedStatuses) => {
+  it.each([false, true])(
+    "routes valid guest checkout through registration without seller side effects (posted statuses: %s)",
+    async (includePostedStatuses) => {
       mockResolveActorFromAuthApi.mockResolvedValue(null);
       mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
       const { readiness } = readySellListReadinessResponse();
@@ -1829,7 +1829,11 @@ describe("checkout web routes: sell checkout session", () => {
             "Content-Type": "application/x-www-form-urlencoded",
             cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
           },
-          body: guestSellCheckoutForm(postedStatuses).toString(),
+          body: guestSellCheckoutForm(
+            includePostedStatuses
+              ? { payoutState: "failed", payoutEstimateState: "changed", riskState: "block", labelState: "failed" }
+              : undefined,
+          ).toString(),
         }),
         params: { sessionId: "chk_sell_1" },
         context: undefined,
