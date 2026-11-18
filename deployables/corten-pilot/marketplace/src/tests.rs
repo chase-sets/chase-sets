@@ -1634,7 +1634,12 @@ fn sell_review(snapshot: &str, decisions: &Value, seller: Option<&str>) -> Value
 /// plan; seller checkout's read of a kept review answers the one a test kept for its snapshot
 /// (`keep_review`), `srs_1` the default, and refuses any other, or another revision, as stale; seller
 /// readiness from `srs_moved` is stale too. Readiness with a line action, or for `anon_one`, is ready
-/// at 71, and otherwise needs resolution. A removal, or a batch of them (`/commands`), applies at 72
+/// at 71, and otherwise needs resolution. Seller checkout's readiness (one from an entry snapshot)
+/// reads the seller's payout as Checkout does from its owner: one not set up is refused as
+/// `checkout_seller_not_ready` with `payout-setup-required`, and so are the confirmations
+/// `slc_chk_hold`, `slc_chk_block`, `slc_chk_label`, `slc_chk_ship` and `slc_chk_payout_down` with
+/// their reasons; `slc_chk_legacy` answers as Checkout did before it refused, a snapshot whose seller
+/// is blocked. A removal, or a batch of them (`/commands`), applies at 72
 /// as its attempt, which a lookup answers; `sll_unknown`'s answer is lost with nothing kept, and in a
 /// batch `sll_gone` is no longer on the list (its removal a conflict, the others applied).
 fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
@@ -1758,11 +1763,26 @@ fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
                 vec![]
             };
             let included: Vec<Value> = outcomes.iter().map(|o| o["lineId"].clone()).collect();
-            let seller = match sent["sellerEvidence"]["payout"]["readinessStatus"].as_str() {
+            let confirmation = sent["confirmationId"].as_str().unwrap_or_default();
+            let seller = match sent.get("entryReadinessSnapshotId") {
                 None => "not-evaluated",
-                Some("ready") => "ready",
+                Some(_) if sell_payout(session)["status"] == "ready" => "ready",
                 Some(_) => "blocked",
             };
+            let reasons: &[&str] = match confirmation {
+                "slc_chk_hold" => &["risk-hold"],
+                "slc_chk_block" => &["risk-block", "label-not-ready"],
+                "slc_chk_label" => &["label-not-ready"],
+                "slc_chk_ship" => &["ship-from-not-ready", "label-not-ready"],
+                "slc_chk_payout_down" => &["payout-unavailable"],
+                _ if seller == "blocked" => &["payout-setup-required"],
+                _ => &[],
+            };
+            if seller != "not-evaluated" && confirmation != "slc_chk_legacy" && !reasons.is_empty() {
+                let error = json!({ "code": "checkout_seller_not_ready",
+                    "message": "Sell List readiness must be resolved before handoff.", "reasons": reasons });
+                return Some((StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response());
+            }
             committed(
                 StatusCode::OK,
                 "checkout",
@@ -18663,7 +18683,7 @@ async fn seller_checkout_says_why_it_cannot_go_on_and_refuses_a_confirm_then() {
 }
 
 #[tokio::test]
-async fn seller_checkout_checks_each_field_and_the_payout_before_it_sends_anything() {
+async fn seller_checkout_checks_each_field_before_it_sends_anything_and_checkout_checks_the_payout() {
     let pilot = Pilot::new().await;
     let at = "/checkout/sell/session/chk_one";
     let (status, _, html) =
@@ -18686,11 +18706,51 @@ async fn seller_checkout_checks_each_field_and_the_payout_before_it_sends_anythi
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Seller checkout currently supports US ship-from addresses."), "{html}");
 
-    // `lookout` has not set up payouts.
+    // `lookout` has not set up payouts: Checkout reads that from Settlement and refuses
+    // (chase-sets/chase-sets#10765), and the page says so on the payout method.
     let (status, _, html) = pilot.send(post(at, "lookout", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Payout setup is required before seller checkout can continue."), "{html}");
-    assert!(handoff_calls(&pilot).is_empty(), "nothing was sent");
+    assert!(html.contains(r#"<select name="payoutMethod" required aria-invalid="true""#), "{html}");
+    assert!(handoff_calls(&pilot).is_empty(), "nothing was handed off");
+}
+
+#[tokio::test]
+async fn checkouts_reasons_for_a_seller_not_ready_fall_on_their_fields() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        ("chk_hold", "This sale review needs support review. Return to the Sell List for next steps.", None),
+        (
+            "chk_block",
+            "This sale review cannot continue. Return to the Sell List for support-safe recovery.",
+            Some("labelPreference"),
+        ),
+        ("chk_label", "Label readiness is unavailable. Refresh the Sell List before seller checkout.", Some("labelPreference")),
+        ("chk_ship", "Seller readiness needs review. Return to the Sell List before seller checkout.", None),
+        (
+            "chk_payout_down",
+            "Payout setup is temporarily unavailable. Try again after payout setup is ready.",
+            Some("payoutMethod"),
+        ),
+    ];
+    for (session, words, field) in cases {
+        let at = format!("/checkout/sell/session/{session}");
+        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[]), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{session}: {html}");
+        assert!(text(&html).contains(words), "{session}: {html}");
+        for name in ["labelPreference", "payoutMethod"] {
+            let marked = html.contains(&format!(r#"<select name="{name}" required aria-invalid="true""#));
+            assert_eq!(marked, field == Some(name), "{session} {name}: {html}");
+        }
+    }
+    assert!(handoff_calls(&pilot).is_empty(), "nothing was handed off");
+
+    // A Checkout that answers with a snapshot whose seller is blocked (before it refused with
+    // reasons) is payout setup when the page read payouts not set up.
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_legacy", "lookout", &sell_form(&[]), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Payout setup is required before seller checkout can continue."), "{html}");
+    assert!(handoff_calls(&pilot).is_empty(), "nothing was handed off");
 }
 
 #[tokio::test]
@@ -18726,21 +18786,18 @@ async fn confirming_sends_the_kept_review_to_checkout_which_hands_it_off_and_the
     assert!(query(&to)["afterWrite"].contains(r#""commitPosition":"76""#), "the handoff's receipt: {to}");
 
     assert_eq!(handoff_calls(&pilot), ["POST /api/marketplace/account/sell-list/confirm"], "Checkout hands off");
-    // Readiness with the seller's evidence came first, with the kept review's decisions, for the
-    // confirmation and the snapshot the page started from; the plan stays with Checkout.
+    // Readiness came first, with the kept review's decisions, for the confirmation and the snapshot
+    // the page started from; the plan stays with Checkout, and so does seller readiness: the page
+    // posts no evidence of it (chase-sets/chase-sets#10765).
     let evidence = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
     let decisions: Value = serde_json::from_str(SELL_DECISIONS).unwrap();
-    assert_eq!(evidence["sellerEvidence"]["payout"]["readinessStatus"], "ready");
+    assert!(evidence.get("sellerEvidence").is_none(), "{evidence}");
     assert_eq!(
         (&evidence["confirmationId"], &evidence["entryReadinessSnapshotId"], &evidence["entryReadinessSourceRevision"]),
         (&json!("slc_chk_one"), &json!("srs_1"), &json!("rev_7"))
     );
     assert_eq!((&evidence["lineActions"], &evidence["lineOutcomes"]), (&decisions["lineActions"], &decisions["lineOutcomes"]));
     assert!(evidence.get("reviewPlan").is_none(), "{evidence}");
-    assert_eq!(
-        evidence["sellerEvidence"]["shipFrom"],
-        json!({ "status": "ready", "addressId": null, "country": "US", "region": "IL", "postalCode": "60201" })
-    );
     // The choices Checkout reads seller readiness from (chase-sets/chase-sets#10764), at readiness
     // and again with the confirm.
     let typed = json!({ "name": "Demo Collector", "line1": "42 Binder Lane", "line2": null, "city": "Evanston",

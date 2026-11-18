@@ -7,9 +7,9 @@
 //! decisions, `POST /sell-list/readiness` with the snapshot): a list changed since, or one that is
 //! not ready, is a recovery that sends the seller back to the Sell List. Confirming (one form)
 //! checks the fields, then does what marketplace's route does: the seller's ship-from and label
-//! choices with the seller confirmation evidence sent for readiness (Checkout reads risk,
-//! fulfillment and the payout estimate from their owners with the choices, and checks them again
-//! before it confirms), and `POST /sell-list/confirm` with the same choices. Checkout's confirm
+//! choices sent for readiness (Checkout reads payout, risk, fulfillment and the payout estimate
+//! from their owners with the choices, refuses a seller it finds not ready with why, and checks
+//! them again before it confirms), and `POST /sell-list/confirm` with the same choices. Checkout's confirm
 //! checks the kept plan against the snapshot and runs the Marketplace handoff (each selected offer
 //! and Smart Match target accepted, each fallback listing created and published, with keys derived
 //! from the confirmation, so a resent form replays). The confirmation page is read after the
@@ -24,8 +24,6 @@
 //! A guest's page is the same review of the guest sell list; confirming checks the fields and goes
 //! to marketplace's registration, back to the Sell List.
 //!
-//! One step is marketplace's web layer's, copied here until the API has it: the seller evidence
-//! ([chase-sets/chase-sets#10753](https://github.com/chase-sets/chase-sets/issues/10753)).
 //! Not ported: marketplace's preview hooks (`recovery`, `payoutState`, `riskState` and the other
 //! `*State` query parameters and hidden fields), which only force a state.
 use std::collections::BTreeMap;
@@ -39,9 +37,9 @@ use serde_json::json;
 
 use crate::{
     api::{
-        ApiError, CheckoutSessions as _, ConfirmError, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus,
-        LabelChoice, ReadinessDecisions, ReadinessEntry, SavedAddress, SellList as _, SellListConfirmation, SellListReview,
-        SellListRow, SellListSnapshot, SellPayoutReadiness, SellerChoices, SellerEvidence, ShipFromChoice,
+        ApiError, CheckoutSessions as _, ConfirmError, LabelChoice, ReadinessDecisions, ReadinessEntry, ReadinessError,
+        SavedAddress, SellList as _, SellListConfirmation, SellListReview, SellListRow, SellListSnapshot, SellPayoutReadiness,
+        SellerChoices, ShipFromChoice,
     },
     app::{Shared, read_failed, sign_in_back_to, url},
     auth::Session,
@@ -110,14 +108,6 @@ impl Payout {
 
     pub fn ready(&self) -> bool {
         *self == Payout::Ready
-    }
-
-    fn status(&self) -> &str {
-        match self {
-            Payout::Ready => "ready",
-            Payout::NeedsSetup { status, .. } => status,
-            Payout::Unavailable => "unavailable",
-        }
     }
 }
 
@@ -425,31 +415,56 @@ pub fn choices(values: &Values) -> SellerChoices {
     SellerChoices { ship_from, label: LabelChoice { preference } }
 }
 
-/// The seller confirmation evidence marketplace's route builds (`buildSellerEvidence`): every
-/// dimension ready, the ship-from's place and the payout readiness read.
-pub fn evidence(values: &Values, payout: &Payout) -> SellerEvidence {
-    SellerEvidence {
-        ship_from: EvidenceShipFrom {
-            status: "ready",
-            address_id: (values.ship_from_address_id != MANUAL).then(|| values.ship_from_address_id.clone()),
-            country: values.country.clone(),
-            region: values.state.clone(),
-            postal_code: values.postal_code.clone(),
-        },
-        payout: EvidencePayout {
-            status: "ready",
-            method: "saved-payout",
-            readiness_status: payout.status().to_owned(),
-            last_checked_at: None,
-        },
-        label: EvidenceLabel {
-            status: "ready",
-            preference: if values.label_preference == "seller-label-later" { "seller-label-later" } else { "prepaid-label" },
-        },
-        risk: EvidenceStatus { status: "clear" },
-        provider: EvidenceStatus { status: "ready" },
-        freshness: EvidenceStatus { status: "current" },
+/// Where Checkout's reasons for a seller it found not ready fall (marketplace's
+/// `sellerReadinessFieldErrors`): payout setup on the payout method, a label not ready (from a
+/// ship-from that is) on the label, risk on the whole form, and anything else as seller readiness
+/// to review there.
+fn not_ready(t: SellCheckoutMsg, reasons: &[String]) -> Errors {
+    let has = |reason: &str| reasons.iter().any(|r| r == reason);
+    let mut e = Errors::new();
+    if has("payout-setup-required") {
+        e.insert("payoutMethod", t.route_validation_payout_setup_required().to_owned());
+    } else if has("payout-unavailable") {
+        e.insert("payoutMethod", t.route_validation_payout_failed().to_owned());
     }
+    if has("label-not-ready") && !has("ship-from-not-ready") {
+        e.insert("labelPreference", t.route_validation_label_failed().to_owned());
+    }
+    if has("risk-block") {
+        e.insert("form", t.route_validation_risk_block().to_owned());
+    } else if has("risk-hold") {
+        e.insert("form", t.route_validation_risk_hold().to_owned());
+    } else if e.is_empty() {
+        e.insert("form", t.route_validation_seller_readiness_failed().to_owned());
+    }
+    e
+}
+
+/// The form's fields as posted, which a page waiting for the same form again holds (marketplace's
+/// retained fields): only the ones the form has.
+fn retained(raw: &Raw) -> Vec<(String, String)> {
+    const FIELDS: [&str; 19] = [
+        "sessionId",
+        "readinessSnapshotId",
+        "readinessSourceRevision",
+        "sellerName",
+        "email",
+        "phone",
+        "shipFromAddressId",
+        "shipFromName",
+        "company",
+        "shipFromLine1",
+        "shipFromLine2",
+        "shipFromCity",
+        "shipFromState",
+        "shipFromPostalCode",
+        "shipFromCountry",
+        "payoutMethod",
+        "payoutHandoff",
+        "labelPreference",
+        "termsAccepted",
+    ];
+    cart_attempt::posted(raw).into_iter().filter(|(name, _)| FIELDS.contains(&name.as_str())).collect()
 }
 
 /// The state the page and its form start from: the lines, whether the snapshot still holds, and
@@ -615,16 +630,13 @@ pub(crate) async fn write(
     };
     screen.values = Values::read(&raw).with_saved(&screen.addresses);
     if unknown {
-        screen.attempt = Some(Attempt { state: Attempted::Ambiguous, lines: Vec::new(), resend: cart_attempt::posted(&raw) });
+        screen.attempt = Some(Attempt { state: Attempted::Ambiguous, lines: Vec::new(), resend: retained(&raw) });
         return render(&req, session, screen, StatusCode::CONFLICT);
     }
     if screen.recovery.is_some() {
         return refuse(&req, session, screen, t.route_validation_readiness_recovery());
     }
     screen.errors = validate(t, &screen.values, screen.account);
-    if screen.account && !screen.payout.as_ref().is_some_and(Payout::ready) {
-        screen.errors.insert("payoutMethod", t.route_validation_payout_setup_required().to_owned());
-    }
     if !screen.errors.is_empty() {
         return render(&req, session, screen, StatusCode::UNPROCESSABLE_ENTITY);
     }
@@ -632,7 +644,7 @@ pub(crate) async fn write(
         let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
         return req.redirect(&url::Register { join: crate::register::Join::back_to(&back) });
     }
-    confirm(&req, session, &caller, screen, cart_attempt::posted(&raw)).await
+    confirm(&req, session, &caller, screen, retained(&raw)).await
 }
 
 /// The saved confirmation's page, as a resent form finds it.
@@ -646,7 +658,7 @@ fn refuse(req: &Req, session: Option<&Session>, mut screen: Screen, message: &st
     render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
 }
 
-/// An account's confirm: once per session, readiness with the seller's evidence, then Checkout's
+/// An account's confirm: once per session, readiness with the seller's choices, then Checkout's
 /// confirm, which runs the handoff; then the confirmation, read after both. `resend` is the form
 /// as posted, which a confirm that is not known to have finished offers to send again.
 async fn confirm(
@@ -665,15 +677,13 @@ async fn confirm(
     let Some(decisions) = screen.decisions.clone() else {
         return refuse(req, session, screen, t.route_validation_review_plan_required());
     };
-    let payout = screen.payout.clone().unwrap_or(Payout::Unavailable);
-    let evidence = evidence(&screen.values, &payout);
     let choices = choices(&screen.values);
     let entry = ReadinessEntry {
         confirmation_id: &confirmation,
         entry_readiness_snapshot_id: &readiness.snapshot_id,
         entry_readiness_source_revision: &readiness.source_revision,
     };
-    match caller.seller_readiness(&decisions, &choices, &evidence, &entry).await {
+    match caller.seller_readiness(&decisions, &choices, &entry).await {
         Ok(now) if now.status == "ready" && now.unresolved_line_ids.is_empty() && now.seller_readiness.status == "ready" => {
             let body = json!({
                 "confirmationId": confirmation, "readinessSnapshotId": now.snapshot_id,
@@ -713,8 +723,19 @@ async fn confirm(
             let to = url::SellConfirmation { id: &key, place };
             req.redirect(&to.href().parse::<Uri>().map_err(corten::Error::new)?)
         }
+        // Checkout found the seller not ready: on the fields its reasons fall on (422).
+        Err(ReadinessError::NotReady(reasons)) => {
+            screen.errors = not_ready(t, &reasons);
+            render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
+        }
+        // A Checkout that answers a seller not ready with the snapshot rather than its reasons
+        // (before chase-sets/chase-sets#10765): payout setup when the page read it not ready.
+        Ok(now) if now.seller_readiness.status != "ready" && !screen.payout.as_ref().is_some_and(Payout::ready) => {
+            screen.errors.insert("payoutMethod", t.route_validation_payout_setup_required().to_owned());
+            render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
+        }
         Ok(_) => refuse(req, session, screen, t.route_validation_readiness_recovery()),
-        Err(error) => failed(req, session, screen, error, t),
+        Err(ReadinessError::Api(error)) => failed(req, session, screen, error, t),
     }
 }
 
@@ -837,15 +858,21 @@ mod tests {
     }
 
     #[test]
-    fn the_evidence_names_a_saved_address_only_when_one_was_chosen() {
-        let mut values = Values { state: "IL".into(), postal_code: "60201".into(), ..Values::default() };
-        assert_eq!(evidence(&values, &Payout::Ready).ship_from.address_id, None);
-        values.ship_from_address_id = "adr_home".into();
-        values.label_preference = "anything".into();
-        let sent = evidence(&values, &Payout::Unavailable);
-        assert_eq!(sent.ship_from.address_id.as_deref(), Some("adr_home"));
-        assert_eq!(sent.label.preference, "prepaid-label");
-        assert_eq!(sent.payout.readiness_status, "unavailable");
+    fn the_form_held_again_is_only_the_forms_fields() {
+        let mut raw = Raw::new();
+        for (k, v) in [
+            ("sessionId", "chk_1"),
+            ("sellerName", "Demo"),
+            ("riskState", "clear"),
+            ("sellerEvidence", "{}"),
+            ("termsAccepted", "accepted"),
+        ] {
+            crate::items::put(&mut raw, k.to_owned(), v.to_owned());
+        }
+        let held = retained(&raw);
+        let names: Vec<&str> = held.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(names.contains(&"sessionId") && names.contains(&"sellerName") && names.contains(&"termsAccepted"), "{names:?}");
+        assert!(!names.contains(&"riskState") && !names.contains(&"sellerEvidence"), "{names:?}");
     }
 
     #[test]
