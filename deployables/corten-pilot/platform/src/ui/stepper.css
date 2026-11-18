@@ -1,4 +1,4 @@
-/* corten ui 0.1.0: stepper 57175a5ce13533dc */
+/* corten ui 0.2.0: stepper 509eedf6262c88df */
 /* NumberField's root is display: contents, so a unit before it sits between the decrease button
    and the input. */
 .stepper { display: inline-flex; align-items: center; gap: .25rem; }
@@ -26,5 +26,6 @@
   .stepper input::-webkit-inner-spin-button { appearance: auto; }
 }
 .unit { order: 1; font-size: .875rem; color: var(--muted-foreground); }
-.unit ~ * > input { order: 2; }
-.unit ~ * > button:last-child { order: 3; }
+/* `.unit ~` alone would reach past the stepper; `:where()` adds no specificity. */
+:where(.stepper) .unit ~ * > input { order: 2; }
+:where(.stepper) .unit ~ * > button:last-child { order: 3; }
