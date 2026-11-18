@@ -152,6 +152,8 @@ export async function runCountPreparation({
 } = {}) {
   const run = countPreparationIdentity(env);
   const input = countPreparationInput(env, now());
+  if (input.mode === "quote" && input.observeUsage && run.runAttempt !== "1")
+    throw refuse("usage-observation-requires-fresh-dispatch");
   const { email, password } = adminCredentials(env);
   const fenced = stagingOriginFetch(fetch);
   const token = await signInStagingAdmin({ email, password, fetch: fenced });

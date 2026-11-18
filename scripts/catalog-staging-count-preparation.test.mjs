@@ -169,6 +169,7 @@ describe("catalog staging count preparation workflow (#9591)", () => {
       "whole-quote admission",
       "`observe_usage=true`",
       "one general credit",
+      "a fresh dispatch",
     ])
       expect(paragraph).toContain(phrase);
   });
@@ -593,6 +594,15 @@ describe("catalog staging count preparation runner (credential-free integration)
     });
     expect(requestLines(admin)).toEqual(["POST /api/auth/password-sign-in", `GET ${usagePath}`]);
     expect(uploadedReceipt(receiptPath, env).usageObservation).toEqual({ requested: true, observedAt, attemptState });
+  });
+
+  it("refuses to reuse the same dispatch's authorization on a GitHub rerun", async () => {
+    const admin = fakeStagingAdmin();
+    const env = runnerEnv({ CATALOG_COUNT_PREPARATION_OBSERVE_USAGE: "true", GITHUB_RUN_ATTEMPT: "2" });
+    await expect(
+      runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath: temporaryReceipt() }),
+    ).rejects.toMatchObject({ code: "usage-observation-requires-fresh-dispatch" });
+    expect(admin.requests).toEqual([]);
   });
 
   it("a no-Scrydex quote is a validated not-required handoff to independent reservation checks", async () => {
