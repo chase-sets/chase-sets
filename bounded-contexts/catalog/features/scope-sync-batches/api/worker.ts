@@ -60,14 +60,16 @@ export function createScopeSyncBatchWorker(deps: {
         await deps.repository.recordTerminal({
           claim,
           state: "failed",
-          errorMessage: supportSafeError(run.errorMessage ?? `Scope Sync Run ended ${run.status}.`),
+          errorMessage: supportSafeError(scopeSyncRunError(run) ?? `Scope Sync Run ended ${run.status}.`),
         });
       }
     } catch (error) {
       await deps.repository.recordTerminal({
         claim,
         state: "failed",
-        errorMessage: supportSafeError(error),
+        errorMessage: supportSafeError(
+          error instanceof Error ? error.message : "Scope Sync Run could not be advanced.",
+        ),
       });
     }
   }
@@ -75,10 +77,23 @@ export function createScopeSyncBatchWorker(deps: {
   return { processNext };
 }
 
-function supportSafeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "Scope Sync Run could not be advanced.";
+function scopeSyncRunError(run: CatalogSyncRun): string | null {
+  if (run.errorMessage) return run.errorMessage;
+  for (const child of run.childJobs) {
+    if (child.status !== "failed" && child.status !== "partial" && child.status !== "cancelled") continue;
+    const message =
+      child.errorMessage ||
+      child.job?.errorMessage ||
+      child.job?.result?.outcomes.find((outcome) => outcome.status === "failed" && outcome.reason)?.reason;
+    if (message) return message;
+  }
+  return null;
+}
+
+function supportSafeError(message: string): string {
   return message
     .replaceAll(/https?:\/\/\S+/gi, "[redacted-url]")
-    .replaceAll(/(?:token|secret|password|authorization|cookie|account)[=:]\s*\S+/gi, "[redacted]")
+    .replaceAll(/\bbearer\s+\S+/gi, "[redacted]")
+    .replaceAll(/(?:api[-_ ]?key|token|secret|password|authorization|cookie|account)\s*[=:]\s*\S+/gi, "[redacted]")
     .slice(0, 500);
 }

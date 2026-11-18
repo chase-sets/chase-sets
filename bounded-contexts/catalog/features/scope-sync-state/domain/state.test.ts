@@ -35,8 +35,15 @@ describe("deriveCatalogScopeSyncUnitState", () => {
     expect(deriveCatalogScopeSyncUnitState("stale")).toBe("stale");
   });
 
-  it("maps partial outcomes to running (still needs attention before it can settle)", () => {
-    expect(deriveCatalogScopeSyncUnitState("partial")).toBe("running");
+  it("marks a finished provider attempt with failed outcomes as failed, not running", () => {
+    const path: readonly CatalogScopeSyncUnitObservedStatus[] = [
+      "queued",
+      "running",
+      "partial",
+      "retried",
+      "completed",
+    ];
+    expect(path.map(deriveCatalogScopeSyncUnitState)).toEqual(["pending", "running", "failed", "running", "settled"]);
   });
 });
 
