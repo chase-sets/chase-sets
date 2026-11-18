@@ -2791,7 +2791,8 @@ fn get_json(uri: &str) -> Request<Body> {
 /// answered at a path with no `GET`) see these posts as a browser's.
 const BROWSER_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
-/// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
+/// A form post as the runtime sends it (`corten: action`, asking for a write's own page whole), or
+/// as a browser without JavaScript.
 fn post(uri: &str, session: &str, body: &str, script: bool) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
@@ -2799,7 +2800,7 @@ fn post(uri: &str, session: &str, body: &str, script: bool) -> Request<Body> {
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
-        req = req.header("corten", "action");
+        req = req.header("corten", "action").header("prefer", "corten-draws=whole");
     }
     req.body(Body::from(body.to_owned())).unwrap()
 }
@@ -5720,10 +5721,12 @@ async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
     // Each case its own attempt: an attempt sent again is the one the API kept.
     let attempt = |words: &str| format!("bulk-attempt-{words}-0123456789");
     let sent = |words: &str| format!("q={words}&attempt={}", attempt(words));
-    // Some lines added: the counts, each line that was not, and Review Buy Cart.
+    // Some lines added: the counts, each line that was not, and Review Buy Cart, on the search's
+    // page with the sheet open and the shell's count read after the add, with a script as without.
     let (status, headers, html) = pilot.send(post(BULK, "watcher", &sent("partial"), true)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(!headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
     let sheet = text(&html);
     for said in ["Buy Cart updated", "Card 3: No listings are available.", "1 added, 0 merged", "1 products could not be added."]
     {
@@ -5731,6 +5734,8 @@ async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
     }
     assert!(html.contains(r#"href="/account/cart">Review Buy Cart</a>"#), "{html}");
     assert!(!sheet.contains("Add eligible products"), "{sheet}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
     // Without a script, the search with it open, and the shell's count read after the add.
     let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("partial"), false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -10081,10 +10086,8 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let (status, headers, html) =
         pilot.send(post(&webhook, "buyer", "callback_url=https%3A%2F%2Fagent.example%2Fnew", true)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        headers.contains_key("corten-page") && headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"),
-        "{headers:?}"
-    );
+    // The runtime draws a write's own page whole, so the shell's reads are current too.
+    assert!(html.contains("<html") && headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
     assert!(html.contains("whsec_synthetic_new_secret"), "the page with its secret replaces this one");
 
     let (status, _, html) = pilot.send(post(&webhook, "buyer", "callback_url=http%3A%2F%2Fagent.example", false)).await;

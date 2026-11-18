@@ -1126,7 +1126,8 @@ fn post_as(session: &str, uri: &str, body: &str, script: bool) -> Request<Body> 
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
-        req = req.header("corten", "action");
+        // As the runtime sends a form: a write's own page is drawn whole.
+        req = req.header("corten", "action").header("prefer", "corten-draws=whole");
     }
     req.body(Body::from(body.to_owned())).unwrap()
 }
