@@ -2,7 +2,6 @@ import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-c
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogProviderIntegrationProfileVersionReader } from "../../source-observations/api/source-observation-runtime-contracts";
 import { catalogProviderProfileVersionIngestionUnitKey } from "../../source-observations/api/provider-integration-profiles";
-import { catalogSyncAcceptedScopeMappingFromRow } from "../../source-observations/api/providers/catalog-sync-scope-planner";
 import { isActiveProviderOptionQueryProfileVersion } from "../../source-observations/api/governance/catalog-integration-control-plane-readiness";
 import { createCatalogIntegrationRolloutControlPolicyFromEnv } from "../../source-observations/api/governance/catalog-integration-rollout-controls";
 import {
@@ -105,8 +104,8 @@ export function createScopeSyncCountRuntime(deps: {
           )
         )
           throw new CountAcquisitionRefused("profile-option-query-missing");
-        const { setId, setName } = catalogSyncAcceptedScopeMappingFromRow(mapping);
-        const parentValue = setId ?? (version.profile.supportedScopes.includes("set-name") ? setName : null);
+        const setName = version.profile.supportedScopes.includes("set-name") ? mapping.set_name?.trim() : null;
+        const parentValue = mapping.set_id?.trim() || setName;
         if (!parentValue) throw new CountAcquisitionRefused("provider-set-id-missing");
         if (!["set", "expansion"].includes(record.scope_kind))
           throw new CountAcquisitionRefused("unsupported-scope-kind");
