@@ -8993,9 +8993,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       expect(admin.calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/confirm"))).toEqual([]);
     });
   }
-  test("AC1 start records fingerprint, scope count and planned requests, returns batch_id, and refuses a zero Scrydex limit", async ({
-    page,
-  }) => {
+  test("AC1 start refuses Scrydex and records the no-Scrydex preview and batch ID", async ({ page }) => {
     const providers = [
       ["tcgdex", 3, 120],
       ["scrydex", 2, 40],
@@ -9005,7 +9003,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         return { html: fixtureNewBatchForm() };
       }
       if (request.path === "/catalog/scopes/sync-batches" && request.body.includes("intent=preview")) {
-        return { html: fixturePreview(providers) };
+        return { html: fixturePreview(request.body.includes("productDomain=pokemon") ? [providers[0]] : providers) };
       }
       if (request.path === "/catalog/scopes/sync-batches" && request.body.includes("intent=confirm")) {
         return {
@@ -9022,37 +9020,42 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
 
-    const receipt = await wholeGameStart(
-      page,
-      parseWholeGameStartInput({
-        CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
-        CATALOG_WHOLE_GAME_LANGUAGE_CODE: "ja",
-        CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=40,maxScopesPerTurn=2",
-      }),
-      fixtureRun,
-    );
+    const paid = parseWholeGameStartInput({
+      CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
+      CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=50",
+    });
+    await expect(wholeGameStart(page, paid, fixtureRun)).rejects.toMatchObject({
+      code: "scrydex-host-decision-required",
+    });
+    expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
+
+    const noScrydex = parseWholeGameStartInput({
+      CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "pokemon",
+      CATALOG_WHOLE_GAME_LANGUAGE_CODE: "ja",
+      CATALOG_WHOLE_GAME_BUDGET: "maxScopesPerTurn=2",
+    });
+    const receipt = await wholeGameStart(page, noScrydex, fixtureRun);
     expect(receipt).toMatchObject({
       batchId: "batch-requested",
       state: "confirmed",
       preview: {
         planFingerprint: "sha256:fixture-plan",
         scopeCount: 3,
-        providers: [
-          { providerKey: "tcgdex", units: 3, plannedRequests: 120 },
-          { providerKey: "scrydex", units: 2, plannedRequests: 40 },
-        ],
+        providers: [{ providerKey: "tcgdex", units: 3, plannedRequests: 120 }],
       },
     });
     expect(validateWholeGameReceipt(receipt)).toEqual([]);
     const previewCall = calls.filter((call) => call.includes("intent=preview")).at(-1) ?? "";
     for (const field of [
-      "productDomain=one-piece",
+      "productDomain=pokemon",
+      "scopeKind=expansion",
       "languageCode=ja",
-      "scrydexRequestLimit=40",
+      "scrydexRequestLimit=0",
       "maxScopesPerTurn=2",
     ]) {
       expect(previewCall).toContain(field);
     }
+    expect(calls.filter((call) => call.includes("intent=confirm"))).toHaveLength(1);
   });
 
   test("AC1 Pokemon start selects canonical expansion scopes before preview", async ({ page }) => {

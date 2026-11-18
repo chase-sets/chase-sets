@@ -1088,7 +1088,7 @@ describe("whole-game rehearsal inputs", () => {
 });
 
 describe("AC1 whole-game start confirmation", () => {
-  it("reads rendered participation rows and refuses confirmation when Scrydex participates with a zero limit", () => {
+  it("reads rendered participation rows and refuses ordinary start when Scrydex participates", () => {
     expect(parseProviderParticipation("scrydex", "2 / 40")).toEqual({
       providerKey: "scrydex",
       units: 2,
@@ -1105,9 +1105,9 @@ describe("AC1 whole-game start confirmation", () => {
     expect(
       startConfirmationRefusal(preview({ providers: [scrydex] }), {
         ...defaultWholeGameBudget,
-        scrydexRequestLimit: 40,
+        scrydexRequestLimit: 50,
       }),
-    ).toBeNull();
+    ).toBe("scrydex-host-decision-required");
     expect(
       startConfirmationRefusal(preview({ providers: [{ ...scrydex, units: 0 }] }), defaultWholeGameBudget),
     ).toBeNull();

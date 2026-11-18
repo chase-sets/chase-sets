@@ -179,7 +179,9 @@ export function startConfirmationRefusal(preview: WholeGamePreviewRecord, budget
   if (!Number.isInteger(preview.scopeCount)) return "preview-scope-count-unreadable";
   if (preview.scopeCount <= 0) return "preview-empty";
   const scrydex = preview.providers.find((provider) => provider.providerKey === "scrydex");
-  if (scrydex && scrydex.units > 0 && budget.scrydexRequestLimit === 0) return "scrydex-credit-limit-zero";
+  if (scrydex && scrydex.units > 0) {
+    return budget.scrydexRequestLimit === 0 ? "scrydex-credit-limit-zero" : "scrydex-host-decision-required";
+  }
   if (!preview.confirmAllowed) return "preview-not-confirmable";
   return null;
 }
