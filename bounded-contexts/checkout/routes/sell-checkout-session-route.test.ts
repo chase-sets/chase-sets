@@ -113,6 +113,7 @@ const confirmThroughApi = vi.fn(
     expect(body).not.toHaveProperty("handoffSummary");
     expect(body).not.toHaveProperty("completedLineIds");
     expect(body).not.toHaveProperty("remainingLineQuantities");
+    expect(body).not.toHaveProperty("sellerEvidence");
     const api = mockCreateCheckoutRequestApiClient.mock.results.at(-1)!.value;
     const lines = (await api.getSellList()).items;
     const stored = await mockCreateSellListReadiness.mock.results.at(-1)!.value;
@@ -137,7 +138,6 @@ const confirmThroughApi = vi.fn(
       );
       const result = await mockRecordSellListConfirmation({
         ...body,
-        sellerEvidence: mockCreateSellListReadiness.mock.calls.at(-1)![0].sellerEvidence,
         completedLineIds: handoff.completedLineIds,
         remainingLineQuantities: handoff.remainingLineQuantities,
         handoffSummary: handoff.summary,
@@ -368,10 +368,6 @@ describe("checkout web routes: sell checkout session", () => {
       payoutHandoff: "create-account",
       labelPreference: "prepaid-label",
       termsAccepted: "accepted",
-      payoutState: "ready",
-      payoutEstimateState: "current",
-      riskState: "clear",
-      labelState: "ready",
       ...overrides,
     });
     return form;
@@ -413,11 +409,6 @@ describe("checkout web routes: sell checkout session", () => {
       payoutMethod: "saved-payout",
       labelPreference: "prepaid-label",
       termsAccepted: "accepted",
-      payoutState: "ready",
-      payoutEstimateState: "current",
-      riskState: "clear",
-      labelState: "ready",
-      sellerReadinessState: "ready",
       ...fields,
     });
     return form;
@@ -510,6 +501,7 @@ describe("checkout web routes: sell checkout session", () => {
 
   it("uses the selected saved ship-from address before signed-in validation", async () => {
     mockSignedInSellCheckoutState();
+    mockGetPayoutReadiness.mockRejectedValueOnce(new Error("Display-only payout summary unavailable"));
 
     const result = await sellCheckoutSessionAction({
       request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
@@ -520,6 +512,11 @@ describe("checkout web routes: sell checkout session", () => {
           shipFromLine1: "",
           shipFromCity: "",
           shipFromPostalCode: "",
+          payoutState: "failed",
+          payoutEstimateState: "changed",
+          riskState: "block",
+          labelState: "failed",
+          sellerReadinessState: "blocked",
         }).toString(),
       }),
       params: { sessionId: "chk_sell_1" },
@@ -532,52 +529,66 @@ describe("checkout web routes: sell checkout session", () => {
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
-    expect(mockRecordSellListConfirmation).toHaveBeenCalledWith(
+    expect(mockCreateSellListReadiness).toHaveBeenLastCalledWith(
       expect.objectContaining({
         confirmationId: "slc_chk_sell_1",
-        sellerEvidence: expect.objectContaining({
-          shipFrom: expect.objectContaining({
-            addressId: "adr_seller",
-            country: "US",
-            region: "KS",
-            postalCode: "67202",
-          }),
-        }),
+        shipFrom: { addressId: "adr_seller" },
+        label: { preference: "prepaid-label" },
       }),
     );
+    expect(mockCreateSellListReadiness.mock.calls.at(-1)![0]).not.toHaveProperty("sellerEvidence");
   });
 
-  it.each([
-    [
-      "unsupported ship-from",
-      { shipFromAddressId: "__manual", shipFromState: "PR" },
-      "shipFromState",
-      "This ship-from region is not supported",
-    ],
-    ["payout setup required", { payoutState: "setup-required" }, "payoutMethod", "Payout setup is required"],
-    ["payout setup failure", { payoutState: "failed" }, "payoutMethod", "Payout setup is temporarily unavailable"],
-    ["changed payout", { payoutEstimateState: "changed" }, "form", "The payout estimate changed"],
-    ["risk hold", { riskState: "hold" }, "form", "This sale review needs support review"],
-    ["risk block", { riskState: "block" }, "form", "This sale review cannot continue"],
-    ["label failure", { labelState: "failed" }, "labelPreference", "Label readiness is unavailable"],
-    ["seller readiness failure", { sellerReadinessState: "blocked" }, "form", "Seller readiness needs review"],
-  ])("blocks signed-in seller checkout on %s without side effects", async (_label, overrides, fieldName, message) => {
+  it("validates an unsupported signed-in ship-from region without side effects", async () => {
     mockSignedInSellCheckoutState();
 
     const result = await sellCheckoutSessionAction({
       request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: signedInSellCheckoutForm(overrides).toString(),
+        body: signedInSellCheckoutForm({ shipFromAddressId: "__manual", shipFromState: "PR" }).toString(),
       }),
       params: { sessionId: "chk_sell_1" },
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("error");
-    expect(result.status === "error" ? result.fieldErrors[fieldName as keyof typeof result.fieldErrors] : "").toContain(
-      message,
-    );
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { shipFromState: expect.stringContaining("This ship-from region is not supported") },
+    });
+    expectNoSellerCommitSideEffects();
+  });
+
+  it.each([
+    ["payout-setup-required", "payoutMethod", "Payout setup is required"],
+    ["payout-unavailable", "payoutMethod", "Payout setup is temporarily unavailable"],
+    ["risk-hold", "form", "This sale review needs support review"],
+    ["risk-block", "form", "This sale review cannot continue"],
+    ["label-not-ready", "labelPreference", "Label readiness is unavailable"],
+    ["provider-not-ready", "form", "Seller readiness needs review"],
+  ])("renders the signed-in preparation refusal %s before any sale write", async (reason, field, message) => {
+    mockSignedInSellCheckoutState();
+    const form = signedInSellCheckoutForm({
+      payoutState: "ready",
+      riskState: "clear",
+      labelState: "ready",
+      sellerReadinessState: "ready",
+    });
+    const loadReview = mockCreateSellListReadiness.getMockImplementation()!;
+    mockCreateSellListReadiness.mockImplementation(async (body) => {
+      if (body.entryReadinessSnapshotId) {
+        throw new MockCheckoutApiError(400, { error: { code: "checkout_seller_not_ready", reasons: [reason] } });
+      }
+      return loadReview(body);
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({ status: "error", fieldErrors: { [field]: expect.stringContaining(message) } });
     expectNoSellerCommitSideEffects();
   });
 
@@ -1174,18 +1185,25 @@ describe("checkout web routes: sell checkout session", () => {
     const failure = new MockCheckoutApiError(503, { error: { code: "checkout_unavailable" } });
     mockSignedInSellCheckoutState();
     mockGetSellListConfirmation.mockRejectedValue(failure);
+    const form = signedInSellCheckoutForm({ riskState: "clear", sellerEvidence: "{}" });
 
     await expect(
       sellCheckoutSessionAction({
         request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: signedInSellCheckoutForm().toString(),
+          body: form.toString(),
         }),
         params: { sessionId: "chk_sell_1" },
         context: undefined,
       } as never),
-    ).resolves.toMatchObject({ status: "error", attempt: { state: "ambiguous" } });
+    ).resolves.toMatchObject({
+      status: "error",
+      attempt: {
+        state: "ambiguous",
+        fields: [...form.entries()].filter(([name]) => name !== "riskState" && name !== "sellerEvidence"),
+      },
+    });
 
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expectNoSellerCommitSideEffects();
@@ -1759,15 +1777,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateListing).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["unsupported ship-from", { shipFromState: "PR" }, "shipFromState", "This ship-from region is not supported"],
-    ["payout setup required", { payoutState: "setup-required" }, "payoutHandoff", "Payout setup is required"],
-    ["payout setup failure", { payoutState: "failed" }, "payoutHandoff", "Payout setup is temporarily unavailable"],
-    ["changed payout", { payoutEstimateState: "changed" }, "form", "The payout estimate changed"],
-    ["risk hold", { riskState: "hold" }, "form", "This sale review needs support review"],
-    ["risk block", { riskState: "block" }, "form", "This sale review cannot continue"],
-    ["label failure", { labelState: "failed" }, "labelPreference", "Label readiness is unavailable"],
-  ])("blocks guest seller checkout on %s without side effects", async (_label, overrides, fieldName, message) => {
+  it("validates an unsupported guest ship-from region without side effects", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -1782,50 +1792,63 @@ describe("checkout web routes: sell checkout session", () => {
           "Content-Type": "application/x-www-form-urlencoded",
           cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
         },
-        body: guestSellCheckoutForm(overrides).toString(),
+        body: guestSellCheckoutForm({ shipFromState: "PR" }).toString(),
       }),
       params: { sessionId: "chk_sell_1" },
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("error");
-    expect(result.status === "error" ? result.fieldErrors[fieldName as keyof typeof result.fieldErrors] : "").toContain(
-      message,
-    );
-    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
-    expect(mockCreateListing).not.toHaveBeenCalled();
-  });
-
-  it("routes guest seller checkout through registration before seller-committing side effects", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getGuestSellList: mockGetGuestSellList,
-      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { shipFromState: expect.stringContaining("This ship-from region is not supported") },
     });
-
-    const result = await sellCheckoutSessionAction({
-      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
-        },
-        body: guestSellCheckoutForm().toString(),
-      }),
-      params: { sessionId: "chk_sell_1" },
-      context: undefined,
-    } as never);
-
-    expect(result).toBeInstanceOf(Response);
-    expect((result as Response).status).toBe(302);
-    expect((result as Response).headers.get("Location")).toBe(
-      "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
-    );
-    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
-    expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
     expectNoSellerCommitSideEffects();
   });
+
+  it.each([false, true])(
+    "routes valid guest checkout through registration without seller side effects (posted statuses: %s)",
+    async (includePostedStatuses) => {
+      mockResolveActorFromAuthApi.mockResolvedValue(null);
+      mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+      const { readiness } = readySellListReadinessResponse();
+      mockCreateGuestSellListReadiness.mockResolvedValue({
+        readiness: {
+          ...readiness,
+          sellerReadiness: { ...readiness.sellerReadiness, status: "blocked", payout: "blocked" },
+        },
+      });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getGuestSellList: mockGetGuestSellList,
+        createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+      });
+
+      const result = await sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+          },
+          body: guestSellCheckoutForm(
+            includePostedStatuses
+              ? { payoutState: "failed", payoutEstimateState: "changed", riskState: "block", labelState: "failed" }
+              : undefined,
+          ).toString(),
+        }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("Location")).toBe(
+        "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
+      );
+      expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+      expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
+      expectNoSellerCommitSideEffects();
+    },
+  );
 
   it("stored review plan survives reload and preparation", async () => {
     mockSignedInSellCheckoutState();

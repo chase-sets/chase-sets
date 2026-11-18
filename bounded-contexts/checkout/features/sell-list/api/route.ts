@@ -1,6 +1,6 @@
 import { createMarketplaceRequestApiClient } from "../integrations/marketplace/request-support/api-client";
 import { SellListHandoffInterruptedError } from "./marketplace-handoff";
-import { SellListReviewPlanStaleError } from "./handoff-contracts";
+import { SellListPreparationRefusedError, SellListReviewPlanStaleError } from "./handoff-contracts";
 import { parseSellListReviewSelections } from "./review-plan-selections";
 import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
@@ -16,7 +16,6 @@ import {
   createCheckoutAccessGuard,
   createGuestCheckoutContext,
 } from "../../../support/request-support/checkout-route-guard";
-import type { SellListSellerConfirmationEvidence } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
 import { parseSellerCheckoutChoices } from "../read-model/seller-checkout-owner-reads";
 import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
@@ -74,6 +73,9 @@ function writeError(c: Context<CheckoutApiEnv>, error: unknown) {
       },
       409,
     );
+  }
+  if (error instanceof SellListPreparationRefusedError) {
+    return c.json({ error: { code: error.code, message: error.message, reasons: error.reasons } }, 400);
   }
   if (error instanceof TypedIdBoundaryDomainError) return c.json(error.body, 400);
   if (!(error instanceof CheckoutDomainError)) throw error;
@@ -187,63 +189,6 @@ function isExistingSellListLine(
     line.fallback_mode === body.fallbackMode &&
     (line.minimum_listing_price_amount ?? null) === (body.minimumListingPriceAmount ?? null)
   );
-}
-
-function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence | null {
-  const source = objectValue(value);
-  const shipFrom = objectValue(source?.shipFrom);
-  const payout = objectValue(source?.payout);
-  const label = objectValue(source?.label);
-  const risk = objectValue(source?.risk);
-  const provider = objectValue(source?.provider);
-  const freshness = objectValue(source?.freshness);
-  if (!shipFrom || !payout || !label || !risk || !provider || !freshness) {
-    return null;
-  }
-  if (
-    shipFrom.status !== "ready" ||
-    payout.status !== "ready" ||
-    payout.method !== "saved-payout" ||
-    label.status !== "ready" ||
-    (label.preference !== "prepaid-label" && label.preference !== "seller-label-later") ||
-    risk.status !== "clear" ||
-    provider.status !== "ready" ||
-    freshness.status !== "current"
-  ) {
-    return null;
-  }
-  const shipFromCountry = stringValue(shipFrom.country);
-  const shipFromRegion = stringValue(shipFrom.region);
-  const shipFromPostalCode = stringValue(shipFrom.postalCode);
-  const payoutReadinessStatus = stringValue(payout.readinessStatus);
-  if (!shipFromCountry || !shipFromRegion || !shipFromPostalCode || payoutReadinessStatus !== "ready") {
-    return null;
-  }
-
-  return {
-    shipFrom: {
-      status: "ready",
-      addressId:
-        shipFrom.addressId === null || shipFrom.addressId === undefined ? null : stringValue(shipFrom.addressId),
-      country: shipFromCountry,
-      region: shipFromRegion,
-      postalCode: shipFromPostalCode,
-    },
-    payout: {
-      status: "ready",
-      method: "saved-payout",
-      readinessStatus: payoutReadinessStatus,
-      lastCheckedAt:
-        payout.lastCheckedAt === null || payout.lastCheckedAt === undefined ? null : stringValue(payout.lastCheckedAt),
-    },
-    label: {
-      status: "ready",
-      preference: label.preference,
-    },
-    risk: { status: "clear" },
-    provider: { status: "ready" },
-    freshness: { status: "current" },
-  };
 }
 
 function parseSellListConfirmationBody(body: Record<string, unknown>) {
@@ -378,7 +323,6 @@ export function createAccountSellListRoutes(
         {
           sellerAccountId: access.actor.accountId,
           decisions: parseSellListReadinessDecisionInput(body),
-          sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
           ...((body as Record<string, unknown>).confirmationId
             ? { confirmationId: String((body as Record<string, unknown>).confirmationId) }
             : {}),
@@ -625,7 +569,6 @@ export function createGuestSellListRoutes(
     const snapshot = await services.createReadinessSnapshot({
       sellerAccountId: ownerId,
       decisions: parseSellListReadinessDecisionInput(body),
-      sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
       ...parseSellerCheckoutChoices(body),
     });
 
