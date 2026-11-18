@@ -135,13 +135,19 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
       .object({ selection: z.unknown(), cap: z.number().int().min(0).max(10_000).optional() })
       .strict()
       .parse(await c.req.json());
-    return c.json(
-      await services.quoteCounts({
-        selection: parseSelection(body.selection),
-        cap: body.cap,
-        context: c.get("context"),
-      }),
-    );
+    try {
+      return c.json(
+        await services.quoteCounts({
+          selection: parseSelection(body.selection),
+          cap: body.cap,
+          context: c.get("context"),
+        }),
+      );
+    } catch (error) {
+      if (error instanceof CountAcquisitionRefused && error.quoteReason)
+        return c.json({ error: { code: error.code, message: error.message, reason: error.quoteReason } }, 409);
+      throw error;
+    }
   });
   app.post("/counts/acquire", async (c) => {
     if (c.req.header(countCaptureMarker) !== undefined)

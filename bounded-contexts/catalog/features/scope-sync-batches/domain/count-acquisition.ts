@@ -267,9 +267,21 @@ export function projectCountSpend(value: unknown, generatedAt: string): CountSpe
     return [parsed.data];
   });
 }
+export const countQuoteRefusalReasonSchema = z.enum([
+  "unsupported-product-domain",
+  "unsupported-product-form",
+  "unexpected-unit-key",
+  "active-option-query-profile-missing",
+  "active-option-query-profile-ambiguous",
+  "profile-option-query-missing",
+  "provider-set-id-missing",
+  "unsupported-scope-kind",
+]);
+export type CountQuoteRefusalReason = z.infer<typeof countQuoteRefusalReasonSchema>;
+
 export class CountAcquisitionRefused extends Error {
   readonly code = "count-acquisition-refused";
-  constructor() {
+  constructor(readonly quoteReason?: CountQuoteRefusalReason) {
     super("Count acquisition is blocked. Redisplay the quote or review retained usage and uncertain spend.");
   }
 }

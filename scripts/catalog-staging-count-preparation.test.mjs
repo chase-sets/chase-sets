@@ -415,11 +415,18 @@ function runnerEnv(patch = {}) {
 }
 
 it.each([
-  [403, "forbidden", { kind: "http", status: 403, code: "forbidden" }],
-  [409, "count-acquisition-refused", { kind: "http", status: 409, code: "count-acquisition-refused" }],
-  [403, token, { kind: "http", status: 403, code: null }],
-  [null, null, { kind: "request-failed" }],
-])("reports a value-free quote failure for status %s", async (status, code, quoteFailure) => {
+  [403, "forbidden", "provider-set-id-missing", { kind: "http", status: 403, code: "forbidden" }],
+  [409, "count-acquisition-refused", undefined, { kind: "http", status: 409, code: "count-acquisition-refused" }],
+  [409, "count-acquisition-refused", token, { kind: "http", status: 409, code: "count-acquisition-refused" }],
+  [
+    409,
+    "count-acquisition-refused",
+    "provider-set-id-missing",
+    { kind: "http", status: 409, code: "count-acquisition-refused", reason: "provider-set-id-missing" },
+  ],
+  [403, token, undefined, { kind: "http", status: 403, code: null }],
+  [null, null, undefined, { kind: "request-failed" }],
+])("reports a value-free quote failure for status %s (case %#)", async (status, code, reason, quoteFailure) => {
   const receiptPath = temporaryReceipt();
   const paths = [];
   const result = await runCountPreparation({
@@ -431,14 +438,15 @@ it.each([
       paths.push(pathname);
       if (pathname === "/api/auth/password-sign-in") return Response.json({ sessionToken: token });
       if (status === null) throw new Error(token);
-      return Response.json({ error: { code, message: token } }, { status });
+      return Response.json({ error: { code, message: token, reason } }, { status });
     },
   });
   expect(paths).toEqual(["/api/auth/password-sign-in", "/api/catalog/scope-sync-batches/counts/quote"]);
   expect(result).toMatchObject({
     ok: false,
-    summary: { refusal: "quote-unavailable", continuation: "stop", quote: null, sources: 0, quoteFailure },
+    summary: { refusal: "quote-unavailable", continuation: "stop", quote: null, sources: 0 },
   });
+  expect(result.summary.quoteFailure).toEqual(quoteFailure);
   expect(JSON.stringify(result)).not.toContain(token);
   expect(readFileSync(receiptPath, "utf8")).not.toContain(token);
 });

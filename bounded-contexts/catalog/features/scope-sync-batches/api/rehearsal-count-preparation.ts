@@ -3,8 +3,10 @@ import {
   countFingerprint,
   countPreparationViewSchema,
   countQueryKey,
+  countQuoteRefusalReasonSchema,
   countQuoteSchema,
   countTimeIsCurrent,
+  type CountQuoteRefusalReason,
 } from "../domain/count-acquisition";
 import {
   parseRehearsalCountPreparationApproval,
@@ -45,11 +47,17 @@ export type RehearsalCountAdminResponse = Readonly<{ status: number; body: unkno
 const quoteErrorSchema = z.object({
   error: z.object({
     code: z.enum(["invalid-count-request", "unauthenticated", "forbidden", "count-acquisition-refused"]),
+    reason: countQuoteRefusalReasonSchema.optional().catch(undefined),
   }),
 });
 type QuoteFailure =
   | { kind: "request-failed" }
-  | { kind: "http"; status: number; code: z.infer<typeof quoteErrorSchema>["error"]["code"] | null };
+  | {
+      kind: "http";
+      status: number;
+      code: z.infer<typeof quoteErrorSchema>["error"]["code"] | null;
+      reason?: CountQuoteRefusalReason;
+    };
 
 export type RehearsalCountAdmin = Readonly<{
   quote(input: { selection: unknown; cap?: number }): Promise<RehearsalCountAdminResponse>;
@@ -354,11 +362,13 @@ export async function quoteRehearsalCounts(input: {
   const quote = parseQuote(response);
   if (!quote) {
     if (response.status !== 200 && input.onQuoteFailure) {
-      const error = quoteErrorSchema.safeParse(response.body);
+      const error = quoteErrorSchema.safeParse(response.body).data?.error;
+      const reason = response.status === 409 && error?.code === "count-acquisition-refused" ? error.reason : undefined;
       input.onQuoteFailure({
         kind: "http",
         status: response.status,
-        code: error.success ? error.data.error.code : null,
+        code: error?.code ?? null,
+        ...(reason && { reason }),
       });
     }
     return receipt(input.run, base, input.now(), {
