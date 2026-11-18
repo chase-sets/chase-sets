@@ -1002,6 +1002,9 @@ pub mod url {
         #[route("/account/listings/{id}/photos", post = crate::seller_listing::photos)]
         pub struct SellerListingPhotos<'a> {
             pub id: &'a str,
+            /// The change the page names (`Place::listing_recovery`).
+            #[route(query)]
+            pub place: crate::seller_listing::Place,
         }
     }
 
