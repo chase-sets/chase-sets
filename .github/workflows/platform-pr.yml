@@ -451,7 +451,7 @@ jobs:
 
   capture-hermetic-chromium:
     name: Capture Hermetic Chromium
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -520,7 +520,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write

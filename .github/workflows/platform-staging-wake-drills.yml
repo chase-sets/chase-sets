@@ -86,7 +86,7 @@ jobs:
 
   staging-wake-drill:
     name: Staging Wake Drill
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: staging
     needs: refuse-unconfirmed
