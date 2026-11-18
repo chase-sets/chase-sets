@@ -39,6 +39,7 @@ mod listing;
 mod listing_new;
 mod locations;
 mod market_following;
+mod marketplace_attempt;
 mod money;
 mod notifications;
 mod offer_matches;

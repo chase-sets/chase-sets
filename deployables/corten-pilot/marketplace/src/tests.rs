@@ -658,7 +658,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = listing_list(session, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = public_listings(&method, uri.path(), &headers) {
+    if let Some(answer) = public_listings(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = review_opportunity_api(&method, uri.path(), &body) {
@@ -667,7 +667,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = reviews_api(&method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = public_accounts(&method, uri.path(), session) {
+    if let Some(answer) = public_accounts(&method, uri.path(), session, &body) {
         return answer;
     }
     if let Some(answer) = notification_center(session, &method, uri.path(), &headers, &body) {
@@ -2189,16 +2189,35 @@ fn set(slug: &str) -> Response {
     }
 }
 
+/// What Marketplace answers a report for its attempt before anything else: none is a 400
+/// (`invalid_attempt`), one explained as `lost` fails each time it is sent (its answer never
+/// comes), and `clash` was another report's attempt. Any other is the report's to answer.
+fn report_attempt(body: &str) -> Option<Response> {
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if !sent["attemptId"].as_str().is_some_and(crate::recovery::valid_attempt) {
+        return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "A valid Marketplace attempt identity is required."));
+    }
+    match sent["details"].as_str() {
+        Some("lost") => Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        Some("clash") => Some(refusal(StatusCode::CONFLICT, "attempt_conflict", "The attempt was used for another command.")),
+        _ => None,
+    }
+}
+
 /// A listing's public page and its reports, as the stand-in answers them: `psa-8` (old slug
 /// `old-psa-8`) is a PSA 8 Charizard from Chase Sets in Chicago; `away` is the same, its seller
 /// away until a day; `down` fails; any other is unknown. A report is received, except from the
-/// visitor `anon_repeat` (reported already) and `anon_busy` (too many).
-fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<Response> {
+/// visitor `anon_repeat` (reported already) and `anon_busy` (too many). A report needs its
+/// `attemptId`; one explained as `lost` is never answered, and `clash` is another report's attempt.
+fn public_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     const PUBLIC: &str = "/api/marketplace/listings/";
     let rest = path.strip_prefix(PUBLIC)?;
     if let Some(id) = rest.strip_suffix("/report") {
         if *method != Method::POST || id != "lst_psa_8" {
             return None;
+        }
+        if let Some(answer) = report_attempt(body) {
+            return Some(answer);
         }
         let visitor = headers.get("x-marketplace-anonymous-report-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
         return Some(match visitor {
@@ -2239,11 +2258,15 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
 /// `chase-sets` (old slug `old-chase`, id `acc_chase`) is an active seller with 23 reviews and
 /// two listings; `quiet` has nothing yet and its chips fail; `closed` is closed; `down` fails;
 /// any other is unknown. A review's report needs an account (a visitor is a 401): `other` reported
-/// it already, `stale` sent too many, and `rev_refused` cannot be reported.
-fn public_accounts(method: &Method, path: &str, session: &str) -> Option<Response> {
+/// it already, `stale` sent too many, and `rev_refused` cannot be reported. It needs its
+/// `attemptId`, as `report_attempt` answers it.
+fn public_accounts(method: &Method, path: &str, session: &str, body: &str) -> Option<Response> {
     if let Some(review) = path.strip_prefix("/api/marketplace/reviews/").and_then(|r| r.strip_suffix("/report")) {
         if *method != Method::POST {
             return None;
+        }
+        if let Some(answer) = report_attempt(body) {
+            return Some(answer);
         }
         return Some(match (session, review) {
             ("" | "nobody", _) => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
@@ -4452,6 +4475,11 @@ const ITEM_CART: &str = "/items/charizard/cart";
 const ITEM_BUY: &str = "/items/charizard/buy";
 const KEY: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const VAULT: &str = "cat_charizard::lst_vault";
+
+/// A form's body with its attempt (`KEY`), as a form drawn with `SubmitKey::field` sends it.
+fn keyed(body: &str) -> String {
+    format!("{body}&attempt={KEY}")
+}
 
 /// A buy form's body: its button, the attempt, the quantity, the product, the listing it showed,
 /// and the page's address after them.
@@ -6930,37 +6958,73 @@ async fn buy_this_listing_starts_a_checkout_for_an_account_and_sends_a_guest_to_
 #[tokio::test]
 async fn a_report_is_received_once_and_a_repeat_or_a_busy_reporter_is_told_so() {
     let pilot = Pilot::new().await;
+    // The form draws its attempt, which the report is sent as.
+    let (_, _, html) = pilot.send(get("/listings/psa-8", None)).await;
+    let form = html.split(r#"aria-labelledby="listing-report-heading""#).nth(1).unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="attempt" data-submit value=""#), "{form}");
     // A visitor's first report: a new reporter cookie, and the page says it was received.
     let (status, headers, _) =
-        pilot.send(post("/listings/psa-8/report", "nobody", "reason=pricing-scam&details=Too+low", false)).await;
+        pilot.send(post("/listings/psa-8/report", "nobody", &keyed("reason=pricing-scam&details=Too+low"), false)).await;
     assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/listings/psa-8?reported=1"));
     let cookie = headers["set-cookie"].to_str().unwrap();
     assert!(cookie.starts_with("chase_sets_anonymous_reports=anon_cmd_"), "{cookie}");
     let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/report")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
-    assert_eq!(sent, json!({ "reason": "pricing-scam", "details": "Too low", "sourceRoutePath": "/listings/psa-8" }));
+    assert_eq!(
+        sent,
+        json!({ "attemptId": KEY, "reason": "pricing-scam", "details": "Too low", "sourceRoutePath": "/listings/psa-8" })
+    );
     let (_, _, html) = pilot.send(get("/listings/psa-8?reported=1", None)).await;
     assert!(html.contains(r#"role="status"><p>Thanks. We received your report"#) && !html.contains(r#"name="reason""#), "{html}");
 
     // The same visitor again, and one who sent too many: the page, saying so.
-    let report = |visitor: &str| {
-        let mut req = post("/listings/psa-8/report", "nobody", "reason=other&details=", false);
+    let report = |visitor: &str, details: &str| {
+        let mut req = post("/listings/psa-8/report", "nobody", &keyed(&format!("reason=other&details={details}")), false);
         req.headers_mut().insert(header::COOKIE, format!("chase_sets_anonymous_reports={visitor}").parse().unwrap());
         req
     };
-    let (status, headers, html) = pilot.send(report("anon_repeat")).await;
+    let (status, headers, html) = pilot.send(report("anon_repeat", "")).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(!headers.contains_key("set-cookie"), "the reporter keeps their cookie");
     assert!(html.contains("You have already reported this listing."), "{html}");
-    let (status, _, html) = pilot.send(report("anon_busy")).await;
+    let (status, _, html) = pilot.send(report("anon_busy", "")).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     assert!(html.contains(r#"role="alert"><p>You have sent several reports"#) && html.contains(r#"name="reason""#), "{html}");
 
+    // An answer lost twice: the attempt was sent once more, and the page cannot say whether the
+    // report was received, so it keeps what was sent without Submit.
+    let (status, _, html) = pilot.send(report("anon_lost", "lost")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Result not confirmed. Do not submit again.") && html.contains(">lost</textarea>"), "{words}");
+    let form = html.split(r#"aria-labelledby="listing-report-heading""#).nth(1).unwrap();
+    assert!(form.contains(r#"type="submit" class="#) && form.contains(" disabled"), "{form}");
+    let lost: Vec<Value> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.ends_with("/report") && c.body.contains("\"lost\""))
+        .map(|c| serde_json::from_str(&c.body).unwrap())
+        .collect();
+    assert_eq!(lost.len(), 2, "sent once more: {lost:?}");
+    assert!(lost.iter().all(|b| b["attemptId"] == KEY), "as the same attempt: {lost:?}");
+    // Another report's attempt: said so, without Submit.
+    let (status, _, html) = pilot.send(report("anon_clash", "clash")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This attempt was used for a different request."), "{html}");
+
     // A reason that is not one is refused here, with the details kept.
-    let (status, _, html) = pilot.send(post("/listings/psa-8/report", "nobody", "reason=spam&details=Keep+me", false)).await;
+    let (status, _, html) =
+        pilot.send(post("/listings/psa-8/report", "nobody", &keyed("reason=spam&details=Keep+me"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a reason for the report.") && html.contains(">Keep me</textarea>"), "{html}");
-    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 3);
+    // A form without its attempt is not sent.
+    let (status, _, html) = pilot.send(post("/listings/psa-8/report", "nobody", "reason=other&details=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The report was not sent. Reload the form before submitting."), "{html}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 6);
 }
 
 #[tokio::test]
@@ -7121,14 +7185,17 @@ async fn an_account_with_nothing_yet_says_so_and_a_failed_chips_read_shows_none(
 async fn report_review_is_received_once_refused_in_its_open_dialog_and_a_visitor_signs_in() {
     let pilot = Pilot::new().await;
     let report = "/accounts/chase-sets/reviews/rev_1/report?page=2";
-    let (status, headers, html) = pilot.send(post(report, "buyer", "reason=spam-or-manipulation&details=Paid+for", false)).await;
+    let (status, headers, html) =
+        pilot.send(post(report, "buyer", &keyed("reason=spam-or-manipulation&details=Paid+for"), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert_eq!(headers["location"].to_str().unwrap(), "/accounts/chase-sets?page=2&reported=rev_1#review-rev_1");
     let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/rev_1/report")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(
         sent,
-        json!({ "reason": "spam-or-manipulation", "details": "Paid for", "sourceRoutePath": "/accounts/chase-sets" })
+        json!({
+            "attemptId": KEY, "reason": "spam-or-manipulation", "details": "Paid for", "sourceRoutePath": "/accounts/chase-sets",
+        })
     );
     let (_, _, html) = pilot.send(get("/accounts/chase-sets?page=2&reported=rev_1", Some("buyer"))).await;
     assert!(html.contains(r#"role="status"><p class="#) && text(&html).contains("Report submitted"), "{html}");
@@ -7138,31 +7205,38 @@ async fn report_review_is_received_once_refused_in_its_open_dialog_and_a_visitor
     );
 
     // Reported already: the page, saying so, with the button off.
-    let (status, _, html) = pilot.send(post(report, "other", "reason=other&details=", false)).await;
+    let (status, _, html) = pilot.send(post(report, "other", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("This account already reported this review."), "{html}");
 
     // A reason that is not one, too many reports, and one the API refuses: the dialog drawn open
     // with what was sent.
-    let (status, _, html) = pilot.send(post(report, "buyer", "reason=nope&details=Keep+me", false)).await;
+    let (status, _, html) = pilot.send(post(report, "buyer", &keyed("reason=nope&details=Keep+me"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a reason for the report.") && html.contains(">Keep me</textarea>"), "{html}");
     let open = html.split(r#"<dialog id="report-dialog-rev_1""#).nth(1).unwrap().split('>').next().unwrap();
     assert!(open.contains(" open"), "{open}");
-    let (status, _, html) = pilot.send(post(report, "stale", "reason=other&details=", false)).await;
+    let (status, _, html) = pilot.send(post(report, "stale", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     assert!(html.contains("You have sent several reports"), "{html}");
     let refused = "/accounts/chase-sets/reviews/rev_refused/report";
-    let (status, _, html) = pilot.send(post(refused, "buyer", "reason=other&details=", false)).await;
+    let (status, _, html) = pilot.send(post(refused, "buyer", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("This review cannot be reported."), "{html}");
+    // An answer lost twice: the dialog open with what was sent, without Submit.
+    let (status, _, html) = pilot.send(post(report, "buyer", &keyed("reason=other&details=lost"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let dialog = html.split(r#"<dialog id="report-dialog-rev_1""#).nth(1).unwrap().split("</dialog>").next().unwrap();
+    assert!(dialog.split('>').next().unwrap().contains(" open"), "{dialog}");
+    assert!(text(dialog).contains("The first result could not be confirmed. Do not submit again."), "{dialog}");
+    assert!(dialog.contains(" disabled") && dialog.contains(">lost</textarea>"), "{dialog}");
 
     // A visitor signs in on marketplace, back to the page.
-    let (status, headers, _) = pilot.send(post(report, "nobody", "reason=other&details=", false)).await;
+    let (status, headers, _) = pilot.send(post(report, "nobody", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers["location"].to_str().unwrap();
     assert!(to.starts_with("/sign-in?") && to.contains("%2Faccounts%2Fchase-sets"), "{to}");
-    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 5);
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 7);
 }
 
 /// The notification center's calls to the API (the session lookups left out).
@@ -12078,6 +12152,9 @@ fn offer_policies(session: &str, method: &Method, uri: &Uri, body: &str) -> Opti
         let (Some(target), Some(hash)) = (query("target"), query("requestHash")) else {
             return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "Invalid attempt."));
         };
+        if let Some(answer) = review_attempt(attempt, query("kind").as_deref(), &target, &hash) {
+            return Some(answer);
+        }
         if target != "bop_lost" || query("kind").as_deref() != Some("offer-policy.command") {
             return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Attempt not found."));
         }
@@ -16784,12 +16861,58 @@ fn review_opportunity_api(method: &Method, path: &str, body: &str) -> Option<Res
     if path != "/api/marketplace/reviews" || *method != Method::POST {
         return None;
     }
+    if let Some(refused) = without_attempt(body) {
+        return Some(refused);
+    }
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     Some(match sent["feedback"].as_str().unwrap_or_default() {
         "see ftp://x" => refusal(StatusCode::UNPROCESSABLE_ENTITY, "text_unsafe_link", "Unsafe link."),
-        "boom" => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Boom."),
+        "boom" | "lost" | "clash" | "unsure" => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Boom."),
         _ => committed(StatusCode::CREATED, "marketplace", "51", json!({ "id": "rev_new" })),
     })
+}
+
+/// What Marketplace kept of a review's or a reply's attempt, by the words it was sent with (a
+/// review rated 5 of `acc_seller`): `lost` was committed (a review as `rev_lost`), `clash` was
+/// another request's attempt, `unsure` cannot be looked up (503), and any other was not observed.
+fn review_attempt(attempt: &str, kind: Option<&str>, target: &str, hash: &str) -> Option<Response> {
+    let (kind, target_kind) = match kind? {
+        "review.submit" => ("review.submit", "order"),
+        "review.reply" => ("review.reply", "review"),
+        _ => return None,
+    };
+    let request = |feedback: &str| match kind {
+        "review.submit" => json!({ "orderId": target, "subjectAccountId": "acc_seller", "rating": 5, "feedback": feedback }),
+        _ => json!({ "reviewId": target, "feedback": feedback }),
+    };
+    let said = ["lost", "clash", "unsure"].into_iter().find(|w| crate::market_following::request_hash(&request(w)) == hash);
+    if said == Some("unsure") {
+        return Some(refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Try again."));
+    }
+    let key = json!({ "kind": target_kind, "id": target });
+    let mut answer = json!({
+        "schemaVersion": 1, "mutationKind": kind,
+        "attemptKeyFingerprint": crate::market_following::request_hash(&json!(["acc_seller", kind, key, attempt])),
+        "actorBinding": { "accountId": "acc_seller" }, "target": key, "canonicalRequestHash": hash,
+        "ownerStatus": "not-observed",
+    });
+    match said {
+        Some("lost") => {
+            answer["ownerStatus"] = json!("committed");
+            let id = if kind == "review.submit" { "rev_lost" } else { target };
+            answer["ownerReceipt"] = json!({ "id": id, "version": 1 });
+        }
+        Some("clash") => answer["ownerStatus"] = json!("conflict"),
+        _ => {}
+    }
+    Some(Json(answer).into_response())
+}
+
+/// A review write's attempt (`attemptId`), which Marketplace requires.
+fn without_attempt(body: &str) -> Option<Response> {
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    (!sent["attemptId"].as_str().is_some_and(crate::recovery::valid_attempt))
+        .then(|| refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "A valid Marketplace attempt identity is required."))
 }
 
 /// The review writes the order review form sent: their bodies.
@@ -16815,6 +16938,7 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
         "{words}"
     );
     assert!(html.contains(r#"value="5" checked"#), "five stars to start: {html}");
+    assert!(html.contains(r#"<input type="hidden" name="attempt" data-submit value=""#), "the form's attempt: {html}");
     assert!(words.contains("Item not received") && words.contains("Problem with this order?"), "{words}");
     assert!(html.contains(r#"href="/account/purchases/ord_rev""#), "Back: {html}");
     // With JavaScript the form takes back a draft kept for the order, and its sends are counted.
@@ -16844,23 +16968,49 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
     assert!(!text(&html).contains("Resolve this order first?") && html.contains(">meh</textarea>"), "{html}");
     assert!(reviews_sent(&pilot).is_empty(), "nothing sent yet");
 
-    let body = "intent=feedback-only&feedbackOnlyAcknowledged=true&rating=2&feedback=meh";
-    let (status, headers, _) = pilot.send(post(FORM, "reviewer", body, false)).await;
+    let body = keyed("intent=feedback-only&feedbackOnlyAcknowledged=true&rating=2&feedback=meh");
+    let (status, headers, _) = pilot.send(post(FORM, "reviewer", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/account/reviews/rev_new?after_write="), "the review, read after it: {to}");
     assert_eq!(
         reviews_sent(&pilot),
-        [json!({ "orderId": "ord_rev", "subjectAccountId": "acc_seller", "rating": 2, "feedback": "meh" })]
+        [json!({ "attemptId": KEY, "orderId": "ord_rev", "subjectAccountId": "acc_seller", "rating": 2, "feedback": "meh" })]
     );
 
-    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=see+ftp%3A%2F%2Fx", false)).await;
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=see+ftp%3A%2F%2Fx"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Links must start with https://."), "{html}");
     assert!(html.contains(r##"href="#review-feedback""##) && html.contains(r#"aria-invalid="true""#), "{html}");
-    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=boom", false)).await;
+
+    // An answer lost on the way is looked up by its attempt: not observed keeps the form to send
+    // again; committed is the review written; another review's attempt, or a lookup that fails,
+    // keeps what was typed without Submit.
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=boom"), false)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert!(text(&html).contains("Review could not be submitted.") && html.contains(">boom</textarea>"), "{html}");
+    assert!(text(&html).contains("No committed result was found. Your work is still here."), "{html}");
+    assert!(html.contains(">boom</textarea>") && !html.contains(" disabled>"), "{html}");
+    let (status, headers, _) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=lost"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/reviews/rev_lost");
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=clash"), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This attempt was used for a different request."), "{html}");
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=unsure"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Result not confirmed. Do not submit again.") && html.contains(">unsure</textarea>"), "{words}");
+    assert!(html.contains(" disabled>Submit account review</button>"), "Submit is off: {html}");
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 4, "{lookups:?}");
+    assert!(lookups.iter().all(|c| c.contains(&format!("{KEY}?kind=review.submit&target=ord_rev&"))), "{lookups:?}");
+
+    // A form without its attempt is not sent.
+    let before = reviews_sent(&pilot).len();
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=fine", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The request was not sent. Reload the form before submitting."), "{html}");
+    assert_eq!(reviews_sent(&pilot).len(), before);
 }
 
 #[tokio::test]
@@ -16870,7 +17020,7 @@ async fn a_sellers_review_is_sent_as_rated_and_each_state_says_where_the_review_
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Review acc_buyer") && !text(&html).contains("Item not received"), "a seller's: {html}");
     let (status, headers, _) =
-        pilot.send(post("/account/sales/ord_sold/review", "reviewer", "rating=1&feedback=late", false)).await;
+        pilot.send(post("/account/sales/ord_sold/review", "reviewer", &keyed("rating=1&feedback=late"), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "a seller is not asked first");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/reviews/rev_new"));
 
@@ -16995,15 +17145,19 @@ fn review_api(id: &str, headers: &HeaderMap) -> Response {
 }
 
 /// A reply, as Reputation answers it by what it says: a link that is not https is a closed authoring
-/// code, `slow` is one reply too many, `twice` is refused in the API's words, `down` fails, and
-/// anything else is committed at position 47.
+/// code, `slow` is one reply too many, `twice` is refused in the API's words, `down`, `lost`,
+/// `clash` and `unsure` fail (`review_attempt` says what came of them), and anything else is
+/// committed at position 47. It needs its `attemptId`.
 fn reply_api(id: &str, body: &str) -> Response {
+    if let Some(refused) = without_attempt(body) {
+        return refused;
+    }
     let feedback = serde_json::from_str::<Value>(body).ok().and_then(|b| b["feedback"].as_str().map(str::to_owned));
     match (id, feedback.as_deref().unwrap_or_default()) {
         (_, f) if f.contains("http://") => refusal(StatusCode::BAD_REQUEST, "text_unsafe_link", "Unsafe link."),
         (_, "slow") => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests."),
         (_, "twice") => refusal(StatusCode::CONFLICT, "reply_already_submitted", "This review already has a response."),
-        (_, "down") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        (_, "down" | "lost" | "clash" | "unsure") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         ("rev_good", _) => committed(StatusCode::CREATED, "reputation", "47", json!({ "id": "rpl_new" })),
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Review not found."),
     }
@@ -17044,14 +17198,14 @@ async fn a_review_page_offers_the_reply_only_to_the_account_reviewed_and_links_i
 async fn a_reply_is_read_after_its_receipt_and_a_refused_one_keeps_its_words() {
     let pilot = Pilot::new().await;
     let at = format!("{REVIEWS}/rev_good");
-    let send = |body: &str| post(&at, "reviewer", body, false);
+    let send = |body: &str| post(&at, "reviewer", &keyed(body), false);
     let (status, headers, _) = pilot.send(send("intent=reply&feedback=Thank+you%21")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/reviews/rev_good?after_write="), "{to}");
     let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/reply")).cloned().unwrap();
     assert_eq!(sent.path, "/api/marketplace/reviews/rev_good/reply");
-    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap()["feedback"], "Thank you!");
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap(), json!({ "attemptId": KEY, "feedback": "Thank you!" }));
     let (status, _, html) = pilot.send(get(&to, Some("reviewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Review is preparing") && html.contains("Refresh review"), "still catching up: {html}");
@@ -17077,9 +17231,30 @@ async fn a_reply_is_read_after_its_receipt_and_a_refused_one_keeps_its_words() {
     let (status, _, html) = pilot.send(send("intent=reply&feedback=twice")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This review already has a response."), "the API's words: {html}");
+
+    // An answer lost on the way is looked up by its attempt: not observed keeps the words to post
+    // again; committed is the review read again; one that cannot be confirmed, or another reply's
+    // attempt, keeps the words without Post response.
     let (status, _, html) = pilot.send(send("intent=reply&feedback=down")).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert!(html.contains("Response could not be posted.") && html.contains(">down</textarea>"), "{html}");
+    assert!(text(&html).contains("No committed result was found. Your work is still here."), "{html}");
+    assert!(html.contains(">down</textarea>") && !html.contains(" disabled>Post response</button>"), "{html}");
+    let (status, headers, _) = pilot.send(send("intent=reply&feedback=lost")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/reviews/rev_good");
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=unsure")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(text(&html).contains("Result not confirmed. Do not submit again.") && html.contains(">unsure</textarea>"), "{html}");
+    assert!(html.contains(" disabled>Post response</button>"), "{html}");
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=clash")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This attempt was used for a different request."), "{html}");
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 4, "{lookups:?}");
+    assert!(lookups.iter().all(|c| c.contains(&format!("{KEY}?kind=review.reply&target=rev_good&"))), "{lookups:?}");
+    let (status, _, html) = pilot.send(post(&at, "reviewer", "intent=reply&feedback=fine", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The request was not sent. Reload the form before submitting."), "{html}");
 
     let (status, headers, _) = pilot.send(send("intent=report-review&review_id=rev_good&reason=other")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -17162,7 +17337,10 @@ async fn a_review_list_stands_in_for_reviews_it_cannot_show_and_filters_by_role(
 async fn a_report_is_received_once_and_a_refused_one_reopens_its_dialog() {
     let pilot = Pilot::new().await;
     let at = format!("{REVIEWS}/received?role=seller");
-    let send = |session: &str, body: &str| post(&at, session, body, false);
+    let send = |session: &str, body: &str| post(&at, session, &keyed(body), false);
+    let (_, _, html) = pilot.send(get(&at, Some("reviewer"))).await;
+    let dialog = html.split(r#"<dialog id="report-review-dialog-rev_good""#).nth(1).unwrap().split("</dialog>").next().unwrap();
+    assert!(dialog.contains(r#"<input type="hidden" name="attempt" data-submit value=""#), "the form's attempt: {dialog}");
     let (status, headers, _) = pilot.send(send("reviewer", "review_id=rev_good&reason=spam-or-manipulation&details=Fake")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
@@ -17170,7 +17348,7 @@ async fn a_report_is_received_once_and_a_refused_one_reopens_its_dialog() {
     let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/report")).cloned().unwrap();
     assert_eq!(sent.path, "/api/marketplace/reviews/rev_good/report");
     let body: Value = serde_json::from_str(&sent.body).unwrap();
-    assert_eq!(body["reason"], "spam-or-manipulation", "{body}");
+    assert_eq!((&body["reason"], &body["attemptId"]), (&json!("spam-or-manipulation"), &json!(KEY)), "{body}");
     assert_eq!(body["sourceRoutePath"], "/account/reviews/received", "{body}");
     let (_, _, html) = pilot.send(get(to.split('#').next().unwrap(), Some("reviewer"))).await;
     assert!(html.contains("Report submitted") && html.contains("Moderation received your report."), "{html}");
@@ -17186,20 +17364,26 @@ async fn a_report_is_received_once_and_a_refused_one_reopens_its_dialog() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Keep the explanation to 1,000 characters or fewer.") && html.contains(&long), "{html}");
     let all = format!("{REVIEWS}/received");
-    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_refused&reason=other", false)).await;
+    let (status, _, html) = pilot.send(post(&all, "reviewer", &keyed("review_id=rev_refused&reason=other"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This review cannot be reported."), "the API's words: {html}");
-    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_reported&reason=other", false)).await;
+    let (status, _, html) = pilot.send(post(&all, "reviewer", &keyed("review_id=rev_reported&reason=other"), false)).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(html.contains("Report already submitted") && html.contains("already reported this review"), "{html}");
-    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_flood&reason=other", false)).await;
+    let (status, _, html) = pilot.send(post(&all, "reviewer", &keyed("review_id=rev_flood&reason=other"), false)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     assert!(html.contains("several reports in a short time"), "{html}");
+    // Another report's attempt: the dialog open with what was sent, without Submit report.
+    let (status, _, html) = pilot.send(send("reviewer", "review_id=rev_good&reason=other&details=clash")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let dialog = html.split(r#"<dialog id="report-review-dialog-rev_good""#).nth(1).unwrap().split("</dialog>").next().unwrap();
+    assert!(text(dialog).contains("This attempt conflicts with the first request."), "{dialog}");
+    assert!(dialog.contains(" disabled>Submit report</button>") && dialog.contains(">clash</textarea>"), "{dialog}");
 
     let (status, _, _) = pilot.send(send("review_reader", "review_id=rev_good&reason=other")).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "reporting needs reputation.manage");
     let reports = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count();
-    assert_eq!(reports, 4, "only the forms the page could send");
+    assert_eq!(reports, 5, "only the forms the page could send");
 }
 
 const TEAM: &str = "/account/team";

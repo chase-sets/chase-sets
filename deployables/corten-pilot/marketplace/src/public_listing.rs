@@ -12,6 +12,10 @@
 //! (chase-sets/chase-sets#10615), the pilot says it was received, or already reported, or to try
 //! again later.
 //!
+//! A report is sent as its form's attempt, and an answer lost on the way is settled as
+//! `marketplace_attempt` says: sent once more as the same attempt, as the same reporter, and a
+//! result that cannot be confirmed keeps the form open without its send.
+//!
 //! On the production marketplace, a listing whose Google Shopping payload is eligible and matches
 //! it writes its Product JSON-LD (`views::listing_json_ld`), as marketplace's page does.
 //!
@@ -34,6 +38,7 @@ use crate::{
     buying::{guest_checkout, is_guest},
     cart_attempt,
     items::{Raw, available},
+    marketplace_attempt::{self, Locked},
     text::{ListingMsg, Pilot},
     views::{self, ListingNotice},
 };
@@ -320,10 +325,20 @@ pub(crate) async fn report(
     }
     let kept = cookie::get(&headers, ANONYMOUS_REPORT_COOKIE).filter(|id| id.starts_with("anon_")).map(str::to_owned);
     let anonymous = kept.clone().unwrap_or_else(|| format!("anon_cmd_{}", uuid::Uuid::new_v4().simple()));
+    let Some(attempt) = marketplace_attempt::presented(field(&raw, ATTEMPT)) else {
+        let t: ListingMsg = req.t();
+        return again(refused(t.attempt_report_not_sent()), StatusCode::UNPROCESSABLE_ENTITY);
+    };
     let path = format!("/listings/{slug}");
-    let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: &path };
-    match caller.report_listing(&listing.listing.listing_id, &anonymous, &body).await {
-        Ok(()) => {
+    let body = ListingReport {
+        attempt_id: attempt,
+        reason,
+        details: (!details.is_empty()).then_some(details),
+        source_route_path: &path,
+    };
+    let id = &listing.listing.listing_id;
+    match marketplace_attempt::report(|| caller.report_listing(id, &anonymous, &body)).await {
+        marketplace_attempt::Reported::Sent => {
             let to = url::PublicListing { slug: &slug, reported: Reported { reported: Some("1".to_owned()) } };
             let mut res = req.redirect(&to)?;
             if kept.is_none() {
@@ -333,7 +348,11 @@ pub(crate) async fn report(
             }
             Ok(res)
         }
-        Err(error) => match (error.status(), error.code()) {
+        marketplace_attempt::Reported::Locked(locked) => {
+            let status = if locked == Locked::Conflict { StatusCode::CONFLICT } else { StatusCode::BAD_GATEWAY };
+            again(ListingNotice::ReportLocked { locked, reason: reason.to_owned(), details: details.to_owned() }, status)
+        }
+        marketplace_attempt::Reported::Refused(error) => match (error.status(), error.code()) {
             (_, Some("report_already_submitted")) => again(ListingNotice::Repeat, StatusCode::CONFLICT),
             (Some(StatusCode::TOO_MANY_REQUESTS), _) => again(ListingNotice::Limited, StatusCode::TOO_MANY_REQUESTS),
             (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &slug),
