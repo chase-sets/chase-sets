@@ -43,7 +43,6 @@ import {
   requoteMarketplaceListingFeeLock,
 } from "../../../support/runtime-support/fee-quotes";
 import type {
-  ListingRecoveryIdentity,
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
@@ -134,10 +133,10 @@ import {
   assertListingBatchId,
   lookupListingBatch as lookupPersistedListingBatch,
   runListingBatch,
-  prepareListingBatch,
   type ListingBatchDecision,
   type ListingBatchTarget,
 } from "./listing-batch";
+import { createListingRecovery } from "./listing-recovery";
 import { MarketplaceListingRequestError } from "./listing-request-error";
 import { TypedIdBoundaryDomainError } from "@chase-sets/http/typed-id";
 import {
@@ -316,7 +315,9 @@ type MarketplaceCreateListing = {
   (params: MarketplaceCreateListingParams, context: EventStoreContext): Promise<MarketplaceCreateListingResult>;
 };
 
-export type MarketplaceListingServices = MarketplaceListingCoreServices & ListingTargetServices;
+export type MarketplaceListingServices = MarketplaceListingCoreServices &
+  ListingTargetServices &
+  ReturnType<typeof createListingRecovery>;
 
 type MarketplaceListingCoreServices = Readonly<{
   operatorUnlistListing: (
@@ -568,11 +569,6 @@ type MarketplaceListingCoreServices = Readonly<{
   lookupListingBatch: (
     params: Readonly<{ accountId: string; family: MarketplaceListingBatchFamily; batchId: string }>,
   ) => Promise<MarketplaceListingBatchResult | null>;
-  prepareListingBatch: (
-    accountId: string,
-    identity: ListingRecoveryIdentity,
-    context: EventStoreContext,
-  ) => Promise<void>;
   /**
    * A Listing's complete authoritative stream for seed and clamp decisions that must never trust a projection.
    * An empty stream is `absent`; a history that does not open with this Listing's creation for this owner, or
@@ -2651,8 +2647,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         }),
       };
     },
-    prepareListingBatch: (accountId, identity, context) =>
-      prepareListingBatch(deps.eventStore, accountId, identity, context),
+    ...createListingRecovery(deps.eventStore),
     lookupListingBatch: (params) =>
       lookupPersistedListingBatch(deps.eventStore, {
         accountId: params.accountId,

@@ -117,6 +117,10 @@ function canonicalPurchaseLimits(value: unknown) {
   };
 }
 
+function canonicalSellerFormText(value: unknown) {
+  return typeof value === "string" ? value.trim() || null : (value ?? null);
+}
+
 /** Every business field of a Listing or seller-account command; amount and currency compare together. */
 export function marketplaceListingCanonicalRequest(
   kind: MarketplaceListingMutationKind,
@@ -155,16 +159,16 @@ export function marketplaceListingCanonicalRequest(
     case "seller.availability":
       return {
         status: input.status,
-        reasonCategory: input.reasonCategory ?? null,
-        availableAgainOn: input.availableAgainOn ?? null,
-        availableAgainAt: input.availableAgainAt ?? null,
+        reasonCategory: canonicalSellerFormText(input.reasonCategory),
+        availableAgainOn: canonicalSellerFormText(input.availableAgainOn),
+        availableAgainAt: canonicalSellerFormText(input.availableAgainAt),
       };
     case "seller.away":
       return {
         action: input.action,
-        startsAt: input.startsAt ?? null,
-        endsAt: input.endsAt ?? null,
-        reasonCategory: input.reasonCategory ?? null,
+        startsAt: canonicalSellerFormText(input.startsAt),
+        endsAt: canonicalSellerFormText(input.endsAt),
+        reasonCategory: canonicalSellerFormText(input.reasonCategory),
       };
     case "seller.order-capacity":
       return { maxOpenOrders: input.maxOpenOrders ?? null };

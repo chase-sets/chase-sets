@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ChaseRoot } from "@chase-sets/design-system";
+import { Hono } from "hono";
+import type { MarketplaceApiEnv } from "../api";
 import Route, { action, loader, shouldRevalidate, ErrorBoundary } from "../routes/account-listings";
 import ListingRoute, {
   action as listingAction,
@@ -12,15 +14,17 @@ import ListingRoute, {
 } from "../routes/account-listing";
 import { hashMarketplaceRequest, marketplaceAttemptBinding } from "../features/mutation-recovery/api/attempt";
 import {
-  listingRecoveryForForm,
   listingRecoveryUrl,
-  type ListingRecoveryIdentity,
+  prepareListingForm,
   type ListingRecoveryOutcome,
 } from "../features/listings/ui/listing-batch";
+import type { ListingRecoveryIdentity, ListingRecoveryReference } from "../features/listings/ui/contracts";
+import { listingRecoveryForCommand, recoverListingBatch } from "../features/listings/api/listing-recovery";
 import { t } from "@chase-sets/localization";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createMarketplaceListingRuntime } from "../features/listings/api/runtime";
+import { createMarketplaceListingRuntime, type MarketplaceListingServices } from "../features/listings/api/runtime";
+import { createAccountListingRoutes } from "../features/listings/api/route";
 import { createListingMutationLookup } from "../features/listings/api/listing-attempt";
 
 const actor = {
@@ -93,6 +97,7 @@ describe("Listing recovery through a real data router", () => {
       retained?: boolean;
       loseSend?: boolean;
       holdLookup?: Promise<void>;
+      holdPreparation?: Promise<void>;
       poisoned?: boolean;
       injected?: boolean;
       loseRouteResponse?: boolean;
@@ -159,88 +164,108 @@ describe("Listing recovery through a real data router", () => {
     }
     let routeResponseLost = false;
     let router: ReturnType<typeof createMemoryRouter>;
+    if (established)
+      await runtime.prepareListingRecovery(
+        actor.accountId,
+        {
+          intent: "bulk-pause-listings",
+          idempotencyKey: batchId.replace(/_bulk-pause-listings$/, ""),
+          listingId: null,
+          listingIds: ids,
+          fields: {},
+        },
+        context,
+      );
+    const services: MarketplaceListingServices = {
+      ...runtime,
+      async recoverListingBatch(accountId, recoveryReference) {
+        const vector = options.realNoOp
+          ? await runtime.lookupListingBatch({
+              accountId,
+              batchId: recoveryReference.batchId,
+              family: recoveryReference.mutationKind,
+            })
+          : {
+              batchId: recoveryReference.batchId,
+              family: recoveryReference.mutationKind,
+              items: prepared.targets.map(({ id, requestHash }) => {
+                const outcome = state.get(id) ?? "unknown";
+                return {
+                  targetId: id,
+                  outcome: outcome === "ambiguous" ? ("unknown" as const) : outcome,
+                  version: outcome === "succeeded" ? 2 : 0,
+                  requestHash,
+                  attemptKeyFingerprint: marketplaceAttemptBinding({
+                    accountId,
+                    attemptId: recoveryReference.batchId,
+                    mutationKind: recoveryReference.mutationKind,
+                    target: { kind: "listing", id },
+                    request: null,
+                  }).attemptKeyFingerprint,
+                };
+              }),
+            };
+        return recoverListingBatch(recoveryReference, accountId, vector, async (input) => {
+          const id = input.target.id;
+          lookups.push(id);
+          await options.holdLookup;
+          if (options.realNoOp) return createListingMutationLookup(eventStore)(input);
+          const binding = marketplaceAttemptBinding({ ...input, requestHash: undefined, request: null });
+          return {
+            ...binding,
+            canonicalRequestHash: options.poisoned ? "0".repeat(64) : input.requestHash,
+            ownerStatus:
+              state.get(id) === "succeeded"
+                ? "committed"
+                : state.get(id) === "ambiguous"
+                  ? "ambiguous"
+                  : "not-observed",
+            ...(state.get(id) === "succeeded" ? { ownerReceipt: { id, version: 2 } } : {}),
+          };
+        });
+      },
+      async prepareListingRecovery(accountId, input, requestContext) {
+        await options.holdPreparation;
+        const response = await runtime.prepareListingRecovery(accountId, input, requestContext);
+        if ("reference" in response && !input.retained) {
+          prepared = listingRecoveryForCommand(input, accountId)!;
+          established = true;
+        }
+        return response;
+      },
+      async applyListingBatch(input, requestContext) {
+        if (input.family !== "listing.pause") throw new Error("Unexpected batch family");
+        expect(router.state.location.search).toContain("listingRecovery=");
+        expect(established).toBe(true);
+        sends.push([...input.listingIds]);
+        if (options.realNoOp) return runtime.applyListingBatch(input, requestContext);
+        for (const id of input.listingIds) state.set(id, "succeeded");
+        return {
+          batchId: input.batchId,
+          family: input.family,
+          items: input.listingIds.map((targetId) => ({ targetId, outcome: "succeeded", version: 2 })),
+        };
+      },
+    };
+    const api = new Hono<MarketplaceApiEnv>();
+    api.use("*", async (c, next) => {
+      c.set("actor", actor as NonNullable<MarketplaceApiEnv["Variables"]["actor"]>);
+      c.set("context", context);
+      await next();
+    });
+    api.route("/api/marketplace/account", createAccountListingRoutes(services));
     const transport = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
-      if (url.pathname.endsWith("/listings/batch/prepare")) {
-        if (options.failPreparation) throw new TypeError("preparation unavailable");
-        prepared = JSON.parse(String(init?.body));
-        if (options.realNoOp) await runtime.prepareListingBatch(actor.accountId, prepared, context);
-        established = true;
-        return json({ prepared: true });
-      }
-      if (routeResponseLost && options.failReadsAfterRouteLoss) {
-        if (url.pathname.includes("mutation-attempts")) lookups.push(url.searchParams.get("target")!);
-        throw new TypeError("read connection unavailable");
-      }
-      if (url.pathname.includes("mutation-attempts")) {
-        const id = url.searchParams.get("target")!;
-        lookups.push(id);
-        await options.holdLookup;
-        if (options.realNoOp)
-          return json(
-            await createListingMutationLookup(eventStore)({
-              attemptId: decodeURIComponent(url.pathname.split("/").at(-1)!),
-              accountId: actor.accountId,
-              mutationKind: "listing.pause",
-              target: { kind: "listing", id },
-              requestHash: url.searchParams.get("requestHash")!,
-            }),
-          );
-        const binding = marketplaceAttemptBinding({
-          attemptId: decodeURIComponent(url.pathname.split("/").at(-1)!),
-          accountId: actor.accountId,
-          mutationKind: url.searchParams.get("kind") as "listing.pause",
-          target: { kind: "listing", id },
-          request: null,
-        });
-        return json({
-          ...binding,
-          canonicalRequestHash: options.poisoned ? "0".repeat(64) : url.searchParams.get("requestHash"),
-          ownerStatus:
-            state.get(id) === "succeeded" ? "committed" : state.get(id) === "ambiguous" ? "ambiguous" : "not-observed",
-          ...(state.get(id) === "succeeded" ? { ownerReceipt: { id, version: 2 } } : {}),
-        });
-      }
+      if (routeResponseLost && options.failReadsAfterRouteLoss) throw new TypeError("read connection unavailable");
       if (url.pathname.includes("/listings/batch/")) {
-        if (options.realNoOp)
-          return json(
-            await runtime.lookupListingBatch({
-              accountId: actor.accountId,
-              batchId: decodeURIComponent(url.pathname.split("/").at(-1)!),
-              family: "listing.pause",
-            }),
-          );
-        return json({
-          batchId: decodeURIComponent(url.pathname.split("/").at(-1)!),
-          family: url.searchParams.get("family"),
-          items: [...state].map(([targetId, outcome]) => ({
-            targetId,
-            outcome: outcome === "ambiguous" ? "unknown" : outcome,
-            version: outcome === "succeeded" ? 2 : 0,
-            requestHash: prepared.targets.find((target) => target.id === targetId)?.requestHash,
-          })),
-        });
-      }
-      if (url.pathname.endsWith("/listings/batch") && init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { batchId: string; family: string; listingIds: string[] };
-        expect(router.state.location.search).toContain("listingRecovery=");
-        expect(established).toBe(true);
-        sends.push(body.listingIds);
-        if (options.realNoOp) {
-          await runtime.applyListingBatch(
-            { accountId: actor.accountId, batchId: body.batchId, family: "listing.pause", listingIds: body.listingIds },
-            context,
-          );
-          throw new TypeError("synthetic no-op response lost");
-        }
-        for (const id of body.listingIds) state.set(id, "succeeded");
-        if (options.loseSend) throw new TypeError("response lost after commit");
-        return json({
-          batchId: body.batchId,
-          family: body.family,
-          items: body.listingIds.map((targetId) => ({ targetId, outcome: "succeeded", version: 2 })),
-        });
+        if (url.pathname.endsWith("/prepare") && options.failPreparation)
+          throw new TypeError("preparation unavailable");
+        const sentBefore = sends.length;
+        const response = await api.request(url, init);
+        if ((options.loseSend || options.realNoOp) && sends.length > sentBefore)
+          throw new TypeError("response lost after commit");
+        return response;
       }
       if (options.failPageReads) throw new TypeError("projected reads unavailable");
       if (url.pathname.endsWith("listing-availability")) return json(availability);
@@ -512,13 +537,23 @@ describe("Listing recovery through a real data router", () => {
     form.set("priceAmount", "1234.56");
     form.set("priceCurrencyCode", "USD");
     form.set("csv", "private inventory bytes");
-    const reference = await listingRecoveryForForm(form, "lst_one", actor.accountId);
-    const url = listingRecoveryUrl(`${path}?maxOpenOrders=17&awayWindowReasonCategory=travel`, reference!);
+    const reference = {
+      batchId: "listing_recovery_price_00001_updateListingPrice",
+      mutationKind: "listing.update-price",
+      bulk: false,
+    } as const;
+    const api = { prepareListingBatch: vi.fn(async () => ({ reference })) };
+    expect(await prepareListingForm(api, form, "lst_one")).toEqual({ reference });
+    expect(api.prepareListingBatch).toHaveBeenCalledExactlyOnceWith({
+      intent: "update-price",
+      listingId: "lst_one",
+      listingIds: [],
+      idempotencyKey: "listing_recovery_price_00001",
+      fields: { priceAmount: "1234.56", priceCurrencyCode: "USD" },
+    });
+    const url = listingRecoveryUrl(`${path}?maxOpenOrders=17&awayWindowReasonCategory=travel`, reference);
     expect(decodeURIComponent(url)).not.toMatch(/1234\.56|USD|private inventory|priceAmount|csv|blob:|storage/i);
     expect(url).not.toMatch(/maxOpenOrders|travel|awayWindow/);
-    expect(reference?.targets[0]?.requestHash).toBe(
-      hashMarketplaceRequest({ listingId: "lst_one", priceAmount: "1234.56", priceCurrencyCode: "USD" }),
-    );
   });
 
   it("fails safely before send when the submitted attempt is missing", async () => {
@@ -539,20 +574,11 @@ describe("Listing recovery through a real data router", () => {
   });
 
   it("discards an older preparation when another navigation wins the generation", async () => {
-    const fixture = await setup(["unknown"], { retained: false });
     let release!: () => void;
-    const hold = new Promise<void>((resolve) => {
+    const holdPreparation = new Promise<void>((resolve) => {
       release = resolve;
     });
-    vi.stubGlobal("crypto", {
-      randomUUID: () => webcrypto.randomUUID(),
-      subtle: {
-        digest: async (...args: Parameters<typeof webcrypto.subtle.digest>) => {
-          await hold;
-          return webcrypto.subtle.digest(...args);
-        },
-      },
-    });
+    const fixture = await setup(["unknown"], { retained: false, holdPreparation });
     fireEvent.click(screen.getAllByLabelText("Select row lst_one")[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Pause selected" }));
     await act(async () => {
@@ -560,7 +586,7 @@ describe("Listing recovery through a real data router", () => {
     });
     await act(async () => {
       release();
-      await hold;
+      await holdPreparation;
     });
     expect(fixture.router.state.location.search).toBe("?search=newer");
     expect(fixture.sends).toEqual([]);
@@ -576,6 +602,38 @@ describe("Listing recovery through a real data router", () => {
       let sends = 0;
       let prepared: ListingRecoveryIdentity | null = null;
       const lookups: string[] = [];
+      const recover = (reference: ListingRecoveryReference) =>
+        recoverListingBatch(
+          reference,
+          actor.accountId,
+          {
+            batchId: prepared!.batchId,
+            family: prepared!.mutationKind,
+            items: prepared!.targets.map(({ id, requestHash }) => ({
+              targetId: id,
+              requestHash,
+              outcome: "unknown",
+              version: 0,
+              attemptKeyFingerprint: marketplaceAttemptBinding({
+                accountId: actor.accountId,
+                attemptId: reference.batchId,
+                mutationKind: reference.mutationKind,
+                target: { kind: "listing", id },
+                request: null,
+              }).attemptKeyFingerprint,
+            })),
+          },
+          async (input) => {
+            const id = input.target.id;
+            lookups.push(id);
+            return {
+              ...marketplaceAttemptBinding({ ...input, requestHash: undefined, request: null }),
+              canonicalRequestHash: input.requestHash,
+              ownerStatus: committed ? "committed" : "not-observed",
+              ...(committed ? { ownerReceipt: { id, version: 2 } } : {}),
+            };
+          },
+        );
       let router: ReturnType<typeof createMemoryRouter>;
       vi.stubGlobal(
         "fetch",
@@ -583,37 +641,23 @@ describe("Listing recovery through a real data router", () => {
           const url = new URL(String(input), "http://localhost");
           if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
           if (url.pathname.endsWith("/listings/batch/prepare")) {
-            prepared = JSON.parse(String(init?.body));
-            return json({ prepared: true });
+            const input = JSON.parse(String(init?.body));
+            if (input.retained) {
+              const recovery = await recover(input.retained);
+              return json(recovery.reentry ? { reference: input.retained } : { recovery });
+            }
+            prepared = listingRecoveryForCommand(input, actor.accountId);
+            const { batchId, mutationKind, bulk } = prepared!;
+            return json({ reference: { batchId, mutationKind, bulk } });
           }
           if (url.pathname.includes("/listings/batch/"))
-            return json({
-              batchId: prepared!.batchId,
-              family: prepared!.mutationKind,
-              items: prepared!.targets.map((target) => ({
-                targetId: target.id,
-                requestHash: target.requestHash,
-                outcome: "unknown",
-                version: 0,
-              })),
-            });
-          if (url.pathname.includes("mutation-attempts")) {
-            const id = url.searchParams.get("target")!;
-            lookups.push(id);
-            const binding = marketplaceAttemptBinding({
-              attemptId: decodeURIComponent(url.pathname.split("/").at(-1)!),
-              accountId: actor.accountId,
-              mutationKind: "listing.pause",
-              target: { kind: "listing", id },
-              request: null,
-            });
-            return json({
-              ...binding,
-              canonicalRequestHash: url.searchParams.get("requestHash"),
-              ownerStatus: committed ? "committed" : "not-observed",
-              ...(committed ? { ownerReceipt: { id, version: 2 } } : {}),
-            });
-          }
+            return json(
+              await recover({
+                batchId: decodeURIComponent(url.pathname.split("/").at(-1)!),
+                mutationKind: "listing.pause",
+                bulk: false,
+              }),
+            );
           if (init?.method === "POST") {
             expect(router.state.location.search).toContain("listingRecovery=");
             sends++;
