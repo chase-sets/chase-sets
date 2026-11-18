@@ -255,7 +255,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `bbd9d743` (Corten `main` on 2026-11-17), whose framework package is
+`Cargo.toml` pins Corten to `8d0ae1f8` (Corten `main` on 2026-11-17), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -377,6 +377,7 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10820 [payments] Start payment offers wallet balance that Payments withholds, and never says why](https://github.com/chase-sets/chase-sets/issues/10820) | [marketplace/src/views/payment_start_page.rs](marketplace/src/views/payment_start_page.rs) |
 | [chase-sets/chase-sets#10823 [catalog] A new or changed category, component or blueprint can be missing from its admin list or page for good: the admin projections read tables another projection writes](https://github.com/chase-sets/chase-sets/issues/10823) | [admin/src/catalog/api.rs](admin/src/catalog/api.rs), [admin/src/catalog/blueprints.rs](admin/src/catalog/blueprints.rs), [admin/src/catalog/components.rs](admin/src/catalog/components.rs), [admin/src/catalog/mod.rs](admin/src/catalog/mod.rs), [admin/src/catalog/views/blueprints.rs](admin/src/catalog/views/blueprints.rs), [admin/src/tests.rs](admin/src/tests.rs) |
 | [chase-sets/chase-sets#11461 [marketplace] Prepare and recover a Listing vector in the Marketplace API: marketplace-web computes each target's request hash and classifies recovered outcomes itself](https://github.com/chase-sets/chase-sets/issues/11461) | [marketplace/src/seller_listings.rs](marketplace/src/seller_listings.rs) |
+| [chase-sets/chase-sets#11491 [pricing] Send the bulk reprice upload's attempt as Idempotency-Key so a resent CSV lands on its first job](https://github.com/chase-sets/chase-sets/issues/11491) (the pilot sends the form's attempt; nothing to remove) | [marketplace/src/bulk_reprice.rs](marketplace/src/bulk_reprice.rs) |
 | [chase-sets/chase-sets#10779 [channels] Disconnect answers no commit receipt, so the read after it still shows the connection before the disconnect](https://github.com/chase-sets/chase-sets/issues/10779) | [marketplace/src/channels.rs](marketplace/src/channels.rs) |
 | [chase-sets/chase-sets#10809 [channels] A stale publication write shows 'Channels API error 409' instead of 'Settings changed'](https://github.com/chase-sets/chase-sets/issues/10809) | none: the pilot answers the 409 with the conflict notice ([marketplace/src/channels.rs](marketplace/src/channels.rs)) |
 | [chase-sets/chase-sets#10812 [channels] A refused manual sync download shows Channels' JSON error instead of the connection](https://github.com/chase-sets/chase-sets/issues/10812) | none: the pilot goes back to the connection and says the download failed ([marketplace/src/channels.rs](marketplace/src/channels.rs)) |

@@ -10,6 +10,7 @@ import {
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { module as pricingModule } from "../../../index";
 import { createRepricingPolicyRuntime } from "../api/runtime";
+import { createRepricingConfigurationWriter } from "../api/configuration";
 import { buildRepricingHaltProjectionHandlers } from "../read-model/halt-projection";
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
 import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../../repricing-engine/api/runtime";
@@ -36,7 +37,12 @@ describeDb("Repricing Halt steady-state lifecycle", () => {
   it("engage excludes, repeat emits nothing, release rejoins the next drift sweep without resuming an intended pause", async () => {
     const db = pools.pricing;
     const eventStore = createPostgresEventStore({ pool: db });
-    const controls = createRepricingPolicyRuntime({ db, eventStore, goalAdoptions: async () => [] });
+    const controls = createRepricingPolicyRuntime({
+      db,
+      eventStore,
+      configuration: createRepricingConfigurationWriter({ pool: db, eventStore }),
+      goalAdoptions: async () => [],
+    });
     const engine = createRepricingEngineRuntime({ economics: economicsNeverResolved, db, eventStore });
     await seedDryRunListings(db, 2, 1);
     for (const [policyId, listingId, paused] of [

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { dryRunBody } from "../features/repricing-engine/tests/dry-run-fixture";
 import {
   appendFreshWriteToken,
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
@@ -49,13 +50,26 @@ const policy = {
   name: "Undercut raw singles",
   scope: { kind: "all-listings" },
   excludedListingIds: [],
-  rules: [],
+  rules: dryRunBody.rules,
   maxChangesPerDay: 500,
   status: "active",
   createdAt: "2026-09-20T00:00:00.000Z",
   updatedAt: "2026-09-25T00:00:00.000Z",
+  configuration: { installedRevision: 1, installedState: null, requestedRevision: 1, request: null },
 };
-const halt = { engaged: false, engagedAt: null, releasedAt: null };
+const halt = {
+  engaged: false,
+  engagedAt: null,
+  releasedAt: null,
+  configuration: { installedRevision: 0, installedState: null, requestedRevision: 0, request: null },
+};
+const applied = (state: unknown) => ({
+  status: "applied",
+  requestKey: "synthetic-request",
+  requestedRevision: 2,
+  installedRevision: 2,
+  state,
+});
 
 type Call = { method: string; url: string; path: string; body: string | null; headers: Headers };
 
@@ -93,7 +107,9 @@ function stubPricingApi(
         headers: request.headers,
       };
       calls.push(call);
-      const handler = handlers[`${request.method} ${path}`];
+      const handler =
+        handlers[`${request.method} ${path}`] ??
+        (request.method === "GET" && path === "/configuration-requests" ? () => jsonResponse([]) : undefined);
       if (!handler) throw new Error(`unexpected pricing API call ${request.method} ${url.pathname}`);
       return handler(call);
     }),
@@ -116,8 +132,80 @@ function freshWriteReceiptOf(call: Call | undefined) {
 }
 
 describe("Seller Desk repricing routes", () => {
+  it.each([
+    ["accepted-pending", 202],
+    ["superseded-by-revision", 409],
+  ] as const)("never redirects a %s create, revise, lifecycle or halt request", async (status, httpStatus) => {
+    const receipt = {
+      requestKey: "synthetic-stable-key",
+      requestedRevision: 2,
+      status,
+      ...(status === "superseded-by-revision" ? { replacingRevision: 3 } : {}),
+    };
+    for (const [action, intent, path] of [
+      [listAction, "create-policy", ""],
+      [listAction, "pause-policy", "/rpp_1/pause"],
+      [listAction, "resume-policy", "/rpp_1/resume"],
+      [listAction, "engage-halt", "/halt"],
+      [listAction, "release-halt", "/halt"],
+      [detailAction, "revise-policy", "/rpp_1/revise"],
+      [detailAction, "pause-policy", "/rpp_1/pause"],
+      [detailAction, "resume-policy", "/rpp_1/resume"],
+      [detailAction, "delete-policy", "/rpp_1/delete"],
+      [detailAction, "engage-halt", "/halt"],
+      [detailAction, "release-halt", "/halt"],
+    ] as const) {
+      const calls = stubPricingApi({ [`POST ${path}`]: () => jsonResponse(receipt, httpStatus) });
+      const result = await action({
+        request: formRequest("http://localhost/account/desk/repricing", {
+          intent,
+          policyId: "rpp_1",
+          dryRunId: "completed",
+          name: "Requested",
+          body: JSON.stringify(dryRunBody),
+          requestKey: receipt.requestKey,
+        }),
+        params: {},
+        context: undefined,
+      } as never);
+      expect(result).toEqual({ configuration: receipt });
+      expect(result).not.toBeInstanceOf(Response);
+      expect(calls[0]!.headers.get("Idempotency-Key")).toBe(receipt.requestKey);
+    }
+  });
+  it("loaders preserve installed policy and engaged halt alongside pending changes", async () => {
+    const pending = { requestKey: "synthetic-release", requestedRevision: 2, status: "accepted-pending" };
+    const installedHalt = {
+      ...halt,
+      engaged: true,
+      engagedAt: "2026-09-25T00:00:00Z",
+      configuration: { installedRevision: 1, installedState: null, requestedRevision: 2, request: pending },
+    };
+    stubPricingApi({
+      "GET ": () => jsonResponse([{ ...policy, changesUsedToday: 0 }]),
+      "GET /halt": () => jsonResponse(installedHalt),
+      "GET /dry-runs": () => jsonResponse([]),
+      "GET /configuration-requests": () => jsonResponse([pending]),
+      "GET /rpp_1": () =>
+        jsonResponse({
+          ...policy,
+          configuration: { installedRevision: 1, installedState: null, requestedRevision: 2, request: pending },
+        }),
+      "GET /budget": () => jsonResponse({ changesUsed: 0 }),
+      "GET /rpp_1/activity": () => jsonResponse({ items: [], nextCursor: null }),
+    });
+    expect(await listLoader(loaderArgs("/account/desk/repricing"))).toMatchObject({
+      halt: installedHalt,
+      policies: [{ name: policy.name }],
+      configurationRequests: [pending],
+    });
+    expect(await detailLoader(loaderArgs("/account/desk/repricing/rpp_1", { policyId: "rpp_1" }))).toMatchObject({
+      halt: installedHalt,
+      policy: { name: policy.name, status: "active", configuration: { request: pending } },
+    });
+  });
   it("creates from the exact completed run and carries the receipt to the list", async () => {
-    const calls = stubPricingApi({ "POST ": () => jsonResponse(policy, 201, commitHeaders("51")) });
+    const calls = stubPricingApi({ "POST ": () => jsonResponse(applied(policy), 201, commitHeaders("51")) });
     const response = (await listAction({
       request: formRequest("http://localhost/account/desk/repricing", {
         intent: "create-policy",
@@ -133,7 +221,9 @@ describe("Seller Desk repricing routes", () => {
     expect(location).toContain("postWriteToken=");
   });
   it("revises without a dry run, forwards the full body and retains the detail receipt", async () => {
-    const calls = stubPricingApi({ "POST /rpp_1/revise": () => jsonResponse(policy, 200, commitHeaders("52")) });
+    const calls = stubPricingApi({
+      "POST /rpp_1/revise": () => jsonResponse(applied(policy), 200, commitHeaders("52")),
+    });
     const body = {
       name: "Revised",
       scope: { kind: "all-listings" },
@@ -230,7 +320,7 @@ describe("Seller Desk repricing routes", () => {
     ["engage-halt", "POST /halt", "/account/desk/repricing"],
     ["release-halt", "POST /halt", "/account/desk/repricing"],
   ])("list action %s calls %s and redirects back to the list", async (intent, route, location) => {
-    const calls = stubPricingApi({ [route]: () => jsonResponse(route.endsWith("halt") ? halt : policy) });
+    const calls = stubPricingApi({ [route]: () => jsonResponse(applied(route.endsWith("halt") ? halt : policy)) });
 
     const response = await listAction({
       request: formRequest("http://localhost/account/desk/repricing", { intent, policyId: "rpp_1" }),
@@ -315,7 +405,7 @@ describe("Seller Desk repricing routes", () => {
     ["resume-policy", "POST /rpp_1/resume", "/account/desk/repricing/rpp_1"],
     ["delete-policy", "POST /rpp_1/delete", "/account/desk/repricing"],
   ])("policy action %s calls %s and redirects to %s", async (intent, route, location) => {
-    stubPricingApi({ [route]: () => jsonResponse(policy) });
+    stubPricingApi({ [route]: () => jsonResponse(applied(policy)) });
 
     const response = await detailAction({
       request: formRequest("http://localhost/account/desk/repricing/rpp_1", { intent, policyId: "rpp_1" }),
@@ -354,7 +444,7 @@ describe("Seller Desk repricing routes", () => {
 
     it("carries a pause receipt into the list's policy read and nowhere else", async () => {
       stubPricingApi({
-        "POST /rpp_1/pause": () => jsonResponse({ ...policy, status: "paused" }, 200, commitHeaders("42")),
+        "POST /rpp_1/pause": () => jsonResponse(applied({ ...policy, status: "paused" }), 200, commitHeaders("42")),
       });
       const response = (await listAction({
         request: formRequest("http://localhost/account/desk/repricing", { intent: "pause-policy", policyId: "rpp_1" }),
@@ -389,7 +479,7 @@ describe("Seller Desk repricing routes", () => {
       ["pause-policy", "POST /rpp_1/pause"],
       ["resume-policy", "POST /rpp_1/resume"],
     ])("carries a %s receipt into the policy's own fresh read", async (intent, route) => {
-      stubPricingApi({ [route]: () => jsonResponse(policy, 200, commitHeaders("43")) });
+      stubPricingApi({ [route]: () => jsonResponse(applied(policy), 200, commitHeaders("43")) });
       const response = (await detailAction({
         request: formRequest("http://localhost/account/desk/repricing/rpp_1", { intent, policyId: "rpp_1" }),
         params: { policyId: "rpp_1" },
@@ -412,7 +502,7 @@ describe("Seller Desk repricing routes", () => {
     });
 
     it("keeps a resumed policy catching up through two receipt-bound timeouts before showing active", async () => {
-      stubPricingApi({ "POST /rpp_1/resume": () => jsonResponse(policy, 200, commitHeaders("49")) });
+      stubPricingApi({ "POST /rpp_1/resume": () => jsonResponse(applied(policy), 200, commitHeaders("49")) });
       const response = (await detailAction({
         request: formRequest("http://localhost/account/desk/repricing/rpp_1", {
           intent: "resume-policy",
@@ -473,7 +563,7 @@ describe("Seller Desk repricing routes", () => {
       "never lists a deleted policy after the delete redirect when the projection is %s",
       async (_label, listResponse, catchingUp) => {
         stubPricingApi({
-          "POST /rpp_1/delete": () => jsonResponse({ ...policy, status: "deleted" }, 200, commitHeaders("44")),
+          "POST /rpp_1/delete": () => jsonResponse(applied({ ...policy, status: "deleted" }), 200, commitHeaders("44")),
         });
         const response = (await detailAction({
           request: formRequest("http://localhost/account/desk/repricing/rpp_1", {
@@ -501,7 +591,12 @@ describe("Seller Desk repricing routes", () => {
       ["release-halt", false],
     ] as const)("keeps %s a plain redirect because the halt is read from its aggregate", async (intent, engaged) => {
       const calls = stubPricingApi({
-        "POST /halt": () => jsonResponse({ ...halt, engaged }, 200, commitHeaders("45")),
+        "POST /halt": () =>
+          jsonResponse(
+            applied({ ...halt, engaged, engagedAt: engaged ? "2026-11-17T00:00:00Z" : null }),
+            200,
+            commitHeaders("45"),
+          ),
       });
       const response = (await listAction({
         request: formRequest("http://localhost/account/desk/repricing", { intent }),
