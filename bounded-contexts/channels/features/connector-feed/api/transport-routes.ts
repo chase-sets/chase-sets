@@ -10,6 +10,7 @@ import {
   connectorOperations,
   type ConnectorAuditReason,
   type ConnectorIdentity,
+  type ConnectorOperation,
 } from "../domain/contracts";
 import { ConnectorTransportError } from "../domain/transport";
 import { connectorReportMaxBytes } from "../domain/policy";
@@ -54,7 +55,7 @@ export function createConnectorTransportRoutes(services: ConnectorTransportServi
         reason = "accepted";
         c.set("connectorOutcome", "accepted");
       } catch (error) {
-        const failure = safeTransportFailure(error, operation === "report");
+        const failure = safeTransportFailure(error, operation);
         response = failure.response;
         reason = failure.reason;
       }
@@ -96,7 +97,7 @@ async function readBody(request: Request, maxBytes: number): Promise<unknown> {
 
 function safeTransportFailure(
   error: unknown,
-  report: boolean,
+  operation: ConnectorOperation,
 ): Readonly<{ reason: ConnectorAuditReason; response: Response }> {
   if (error instanceof OutboundSyncError) {
     const reportReasons = [
@@ -106,7 +107,7 @@ function safeTransportFailure(
       "stale-fence",
       "run-settlement-unavailable",
     ];
-    if (report && reportReasons.includes(error.code))
+    if (operation === "report" && reportReasons.includes(error.code))
       return {
         reason: error.code === "invalid-input" ? "invalid-request" : "conflict",
         response: Response.json(
@@ -127,11 +128,19 @@ function safeTransportFailure(
     return {
       reason: "invalid-request",
       response: Response.json(
-        report ? { code: "report-refused", reason: "invalid-input" } : { code: "invalid-input" },
+        operation === "report" ? { code: "report-refused", reason: "invalid-input" } : { code: "invalid-input" },
         { status: 400 },
       ),
     };
   if (error instanceof ConnectorPairingError || error instanceof ConnectorOAuthError) {
+    if (operation === "claim" && (error.code === "invalid-credential" || error.code === "connection-not-found"))
+      return {
+        reason: "authorization-refused",
+        response: Response.json(
+          { code: "invalid-credential" },
+          { status: 401, headers: { "WWW-Authenticate": "Bearer" } },
+        ),
+      };
     const invalid = error.code === "invalid-request";
     const unavailable = error.code === "unavailable";
     return {

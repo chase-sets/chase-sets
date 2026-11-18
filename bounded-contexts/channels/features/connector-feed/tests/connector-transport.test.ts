@@ -114,10 +114,10 @@ function http() {
   return {
     services,
     query,
-    request: (operation: string, value: unknown = {}, token = "sentinel-token") =>
-      app.request(`/connections/connection_test/${operation}`, {
+    request: (operation: string, value: unknown = {}, connectionId = "connection_test") =>
+      app.request(`/connections/${connectionId}/${operation}`, {
         method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        headers: { authorization: "Bearer sentinel-token", "content-type": "application/json" },
         body: JSON.stringify(value),
       }),
   };
@@ -516,31 +516,75 @@ describe("connector-feed-audit-completeness", () => {
     expect(h.query).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(h.query.mock.calls)).not.toContain("raw-secret-sentinel");
   });
-  it("uses the same refusal for foreign and nonexistent targets, with no unverified route identity", async () => {
+  it("returns a value-free 401 when the stored claim credential is invalidated by Unpair", async () => {
     const h = http();
-    h.services.ingest
+    h.services.claim.mockRejectedValue(new ConnectorPairingError("invalid-credential"));
+    const response = await h.request("claim");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe("Bearer");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ code: "invalid-credential" });
+    expect(h.query).toHaveBeenCalledTimes(1);
+    expect(h.query.mock.calls[0]?.[1]?.slice(1, 6)).toEqual([null, null, "claim", "refused", "authorization-refused"]);
+  });
+  it("keeps verified claim authority refusals at 403", async () => {
+    const h = http();
+    h.services.claim.mockImplementation(async (_input, _value, identify) => {
+      identify({ connectionId: "connection_test", pairingId: "pair_test" });
+      throw new ConnectorPairingError("authorization-refused");
+    });
+    const response = await h.request("claim");
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "authorization-refused" });
+    expect(h.query).toHaveBeenCalledTimes(1);
+    expect(h.query.mock.calls[0]?.[1]?.slice(1, 6)).toEqual([
+      "connection_test",
+      "pair_test",
+      "claim",
+      "refused",
+      "authorization-refused",
+    ]);
+  });
+  it("keeps invalid claims at 400", async () => {
+    const h = http();
+    h.services.claim.mockRejectedValue(new ConnectorPairingError("invalid-request"));
+    const response = await h.request("claim");
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "invalid-input" });
+    expect(h.query).toHaveBeenCalledTimes(1);
+  });
+  it.each(["claim", "ingest", "report"] as const)("hides foreign and nonexistent %s targets", async (operation) => {
+    const h = http();
+    h.services[operation]
       .mockRejectedValueOnce(new ConnectorPairingError("invalid-credential"))
       .mockRejectedValueOnce(new ConnectorPairingError("connection-not-found"));
-    const first = await h.request("ingest");
-    const second = await h.request("ingest");
-    expect(first.status).toBe(second.status);
+    const first = await h.request(operation, {}, "foreign_connection");
+    const second = await h.request(operation, {}, "nonexistent_connection");
+    expect(first.status).toBe(operation === "claim" ? 401 : 403);
+    expect(second.status).toBe(first.status);
+    expect([...second.headers]).toEqual([...first.headers]);
     expect(await first.text()).toBe(await second.text());
+    expect(h.query).toHaveBeenCalledTimes(2);
     for (const [, params] of h.query.mock.calls) expect(params?.slice(1, 3)).toEqual([null, null]);
   });
-  it("does not acknowledge or leak a failed required audit", async () => {
-    const h = http();
-    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      h.query.mockRejectedValue(new Error("audit-secret-sentinel"));
-      const response = await h.request("ingest");
-      expect(response.status).toBe(503);
-      expect(await response.text()).toBe('{"code":"unavailable"}');
-      expect(h.query).toHaveBeenCalledTimes(1);
-      expect(JSON.stringify(logs.mock.calls)).not.toContain("audit-secret-sentinel");
-    } finally {
-      logs.mockRestore();
-    }
-  });
+  it.each(["claim", "ingest"] as const)(
+    "does not acknowledge or leak a failed required %s audit",
+    async (operation) => {
+      const h = http();
+      const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        if (operation === "claim") h.services.claim.mockRejectedValue(new ConnectorPairingError("invalid-credential"));
+        h.query.mockRejectedValue(new Error("audit-secret-sentinel"));
+        const response = await h.request(operation);
+        expect(response.status).toBe(503);
+        expect(await response.text()).toBe('{"code":"unavailable"}');
+        expect(h.query).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(logs.mock.calls)).not.toContain("audit-secret-sentinel");
+      } finally {
+        logs.mockRestore();
+      }
+    },
+  );
   it("bounds unknown failures without logging their exception message", async () => {
     const h = http();
     const logs = vi.spyOn(console, "error").mockImplementation(() => {});
