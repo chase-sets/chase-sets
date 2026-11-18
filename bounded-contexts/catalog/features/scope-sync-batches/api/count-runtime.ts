@@ -104,9 +104,11 @@ export function createScopeSyncCountRuntime(deps: {
           )
         )
           throw new CountAcquisitionRefused("profile-option-query-missing");
+        const setId = mapping.set_id?.trim();
         const setName = version.profile.supportedScopes.includes("set-name") ? mapping.set_name?.trim() : null;
-        const parentValue = mapping.set_id?.trim() || setName;
-        if (!parentValue) throw new CountAcquisitionRefused("provider-set-id-missing");
+        const parentValue = setId || setName;
+        if (!parentValue || parentValue === "." || parentValue === ".." || (!setId && /[\\"]/.test(parentValue)))
+          throw new CountAcquisitionRefused("provider-set-id-missing");
         if (!["set", "expansion"].includes(record.scope_kind))
           throw new CountAcquisitionRefused("unsupported-scope-kind");
         for (const capability of ["provider-transport", "provider-option-query", "import"] as const) {
