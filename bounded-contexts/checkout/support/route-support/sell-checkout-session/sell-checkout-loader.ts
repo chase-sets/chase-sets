@@ -8,17 +8,14 @@ import {
   type CheckoutShipFromAddressRow,
 } from "../../request-support/api-client";
 import { readAnonymousSellListId } from "../../request-support/guest-checkout";
+import { guestSellCheckoutDefaultValues } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import { signedInSellCheckoutDefaultValues } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
 import type {
   SignedInSellCheckoutFormValues,
   SignedInSellCheckoutPayoutSummary,
   SignedInSellCheckoutShipFromAddress,
 } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
-import {
-  guestDefaultValuesFromSearchParams,
-  normalizeQueryText,
-  signedInDefaultStateFromSearchParams,
-} from "./sell-checkout-form";
+import { normalizeQueryText } from "./sell-checkout-form";
 import {
   filterIncludedLines,
   recoveryFromSearchParams,
@@ -103,22 +100,11 @@ export async function loadPayoutSummary(request: Request): Promise<SignedInSellC
 
 function signedInDefaultsFromFacts(
   savedShipFromAddresses: readonly SignedInSellCheckoutShipFromAddress[],
-  payoutSummary: SignedInSellCheckoutPayoutSummary | null,
-  state: ReturnType<typeof signedInDefaultStateFromSearchParams>,
 ): SignedInSellCheckoutFormValues {
   const defaultAddress =
     savedShipFromAddresses.find((address) => address.isDefault) ?? savedShipFromAddresses[0] ?? null;
-  const payoutState =
-    state.payoutState !== signedInSellCheckoutDefaultValues.payoutState
-      ? state.payoutState
-      : payoutSummary?.status === "ready"
-        ? "ready"
-        : "setup-required";
-
   return {
     ...signedInSellCheckoutDefaultValues,
-    ...state,
-    payoutState,
     sellerName: defaultAddress?.name ?? "",
     email: defaultAddress?.email ?? "",
     phone: defaultAddress?.phone ?? "",
@@ -345,15 +331,10 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<S
     return {
       ...state,
       recovery: forcedRecovery ?? state.recovery,
-      defaultValues: signedInDefaultsFromFacts(
-        state.savedShipFromAddresses,
-        state.payoutSummary,
-        signedInDefaultStateFromSearchParams(url.searchParams),
-      ),
+      defaultValues: signedInDefaultsFromFacts(state.savedShipFromAddresses),
     };
   }
 
-  const defaultValues = guestDefaultValuesFromSearchParams(url.searchParams);
   const forcedRecovery = recoveryFromSearchParams(url.searchParams);
   const state = await loadGuestSellCheckoutState(request, sessionId, {
     readinessSnapshotId: normalizeQueryText(url.searchParams, "readinessSnapshotId"),
@@ -363,6 +344,6 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<S
   return {
     ...state,
     recovery: forcedRecovery ?? state.recovery,
-    defaultValues,
+    defaultValues: guestSellCheckoutDefaultValues,
   };
 }

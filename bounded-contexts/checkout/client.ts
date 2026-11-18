@@ -21,11 +21,7 @@ import type {
 } from "./features/sell-list/read-model/queries";
 import type { CheckoutShipFromAddressRow } from "./features/cart/integrations/identity/identity-queries";
 import type { SellerCheckoutChoices } from "./features/sell-list/domain/owner-reads";
-import type {
-  SellListReadinessDecisionInput,
-  SellListReadinessSnapshot,
-  SellListSellerConfirmationEvidence,
-} from "./features/sell-list/api/contracts";
+import type { SellListReadinessDecisionInput, SellListReadinessSnapshot } from "./features/sell-list/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 import type { CheckoutSavedPaymentInstrumentRow } from "./features/sessions/integrations/payments/payment-affordance-queries";
 import type { CheckoutPaymentSummaryRow } from "./features/sessions/integrations/payments/payment-summary-queries";
@@ -636,7 +632,6 @@ export function createCheckoutApiClient({
     async createSellListReadiness(
       body: SellListReadinessDecisionInput &
         SellerCheckoutChoices & {
-          sellerEvidence?: SellListSellerConfirmationEvidence | null;
           confirmationId?: string;
           entryReadinessSnapshotId?: string;
           entryReadinessSourceRevision?: string;
@@ -655,7 +650,7 @@ export function createCheckoutApiClient({
     },
     async createGuestSellListReadiness(
       anonymousSellListId: string,
-      body: SellListReadinessDecisionInput & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
+      body: SellListReadinessDecisionInput = {},
     ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(
         await client.guest["sell-list"].readiness.$post({
