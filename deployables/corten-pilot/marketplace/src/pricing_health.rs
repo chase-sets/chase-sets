@@ -5,8 +5,10 @@
 //!
 //! The read is Pricing's, for the policy the address names (`?policyId=`) or its choice of one.
 //! Compute verdict and Compare goals post to the page and go back to it for that policy; Apply
-//! goal answers with the page and what it changed, as marketplace's action does. While a verdict
-//! is computing the page reads itself again every 2 s (`ReadAgain`, which marketplace's
+//! goal answers with the page and what it changed, as marketplace's action does, or that its
+//! request is pending or was replaced when Pricing records the goal's revise without installing it
+//! (chase-sets/chase-sets#11459). While a verdict is computing the page reads itself again every 2 s
+//! (`ReadAgain`, which marketplace's
 //! `useRevalidator` does with a script). A read that fails on Pricing's side is the page with
 //! the error and Retry (502), as marketplace's `loadFailed` is; a policy Pricing does not know is a
 //! 404. The writes are for a seller with `pricing.manage` (`PricingManager` refuses a post
@@ -20,7 +22,7 @@ use corten::{
 use serde::Deserialize;
 
 use crate::{
-    api::{ApiError, AppliedGoal, ApplyGoal, PricingHealth, PricingHealthCalls as _},
+    api::{ApiError, ApplyGoal, GoalAnswer, PricingHealth, PricingHealthCalls as _},
     app::{Shared, read_failed, sign_in, url},
     auth::{PricingManager, Viewer},
     text::RepricingMsg,
@@ -98,8 +100,8 @@ pub struct HealthScreen {
     pub data: Option<PricingHealth>,
     /// What failed: the read, or a write.
     pub error: Option<String>,
-    /// What Apply goal changed.
-    pub applied: Option<AppliedGoal>,
+    /// What Apply goal changed, or its request Pricing did not install.
+    pub applied: Option<GoalAnswer>,
     /// The page's address, for Retry.
     pub here: String,
 }
@@ -112,7 +114,7 @@ async fn render(
     headers: &HeaderMap,
     place: &Place,
     error: Option<String>,
-    applied: Option<AppliedGoal>,
+    applied: Option<GoalAnswer>,
     status: StatusCode,
 ) -> HtmlResult {
     let t: RepricingMsg = req.t();
@@ -169,7 +171,7 @@ pub(crate) async fn write(
     let place = if policy.is_empty() { Place::default() } else { Place::of(&policy) };
     let refused = |words: &str, status| (Some(words.to_owned()), status);
     let caller = config.platform.caller(&headers, config.proto, None);
-    let outcome: Result<Option<AppliedGoal>, ApiError> = match (form.intent.as_str(), policy.is_empty()) {
+    let outcome: Result<Option<GoalAnswer>, ApiError> = match (form.intent.as_str(), policy.is_empty()) {
         (command @ ("compute" | "compare"), false) => caller.pricing_health_command(&policy, command).await.map(|()| None),
         ("apply", false) => match form.apply() {
             Some(goal) => caller.apply_pricing_goal(&policy, &goal).await.map(Some),
