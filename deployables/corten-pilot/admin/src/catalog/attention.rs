@@ -152,12 +152,12 @@ async fn review(
 ) -> HtmlResult {
     let (query, item) = (route.query, route.item);
     let key = item.item.unwrap_or_default();
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let caller = config.platform.caller(&headers, config.proto, None);
         let queue = scopes::read_queue(&caller, &query).await;
         let found = queue.as_ref().ok().and_then(|q| q.items.iter().find(|i| i.item_key == key));
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
-        return req.patch(views::AttentionSheet {
+        return script.patch(views::AttentionSheet {
             t,
             p,
             req: &req,

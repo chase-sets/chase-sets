@@ -309,8 +309,11 @@ async fn render(
     };
     let m: crate::text::Msg = req.t();
     // A refused form with a script: only that form is drawn again, in place.
-    if req.mode == corten::Mode::Action && refused {
-        return req.patch_with_status(StatusCode::UNPROCESSABLE_ENTITY, views::refused_stock(t, p, m, viewer, &screen, &drafts));
+    if let Some(script) = req.action()
+        && refused
+    {
+        return script
+            .patch_with_status(StatusCode::UNPROCESSABLE_ENTITY, views::refused_stock(t, p, m, viewer, &screen, &drafts));
     }
     let code = if refused { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::OK };
     let title = t.item_route_inventory_item_marketplace();

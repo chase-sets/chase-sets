@@ -197,7 +197,7 @@ async fn items(
     Params(route): Params<crate::catalog::items::url::Items>,
 ) -> HtmlResult {
     let (query, after) = (route.query, route.notice);
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let caller = config.platform.caller(&headers, config.proto, None);
         let page = query.page.unwrap_or(1).max(1);
         let list = match caller.list::<ItemRow>(Kind::Items, &api_query(&query, page)).await {
@@ -211,7 +211,7 @@ async fn items(
             {views::item_rows(t, p, &query, &screen, manage)}
             {views::item_live(t, &query)}
         };
-        return req.patch(view);
+        return script.patch(view);
     }
     item_list(&req, &staff.viewer, &config, &headers, &query, &after, None, None).await
 }
@@ -395,8 +395,8 @@ async fn answer(
     if !errors.is_empty() {
         return req.invalid(errors, view, || item_list(req, viewer, config, headers, query, &none, None, Some(dialog))).await;
     }
-    if req.mode == Mode::Action {
-        return req.patch(view);
+    if let Some(script) = req.action() {
+        return script.patch(view);
     }
     item_list(req, viewer, config, headers, query, &none, None, Some(dialog)).await
 }
