@@ -1294,7 +1294,7 @@ spec:
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 132,
+      "platform-api": 133,
       "platform-bootstrap": 59,
       "platform-worker": 134,
       "public-web": 13,
