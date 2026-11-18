@@ -776,9 +776,8 @@ impl ItemScreen {
     }
 
     /// The seller's match for the offer shown: whether their listing can fill it and whether it
-    /// is on their Sell List. None when no listing of theirs matches that offer; marketplace then
-    /// shows its best match in the rail instead, which can be another offer than the one chosen
-    /// (chase-sets/chase-sets#11315), and the pilot shows the offer chosen.
+    /// is on their Sell List. None when no listing of theirs matches that offer; the rail then shows
+    /// the offer chosen without a match, as marketplace's does (chase-sets/chase-sets#11315).
     pub fn selected_match(&self) -> Option<&AccountOfferMatch> {
         let id = self.offer_id.as_deref()?;
         self.seller_matches.iter().find(|m| m.offer_id == id)

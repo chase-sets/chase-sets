@@ -3,7 +3,7 @@
 //! job relays live: the upload form (off while a job runs) and the job's progress with Cancel or
 //! Download results. Every action is a form or a link and works without a script. One column on a
 //! phone; the job's four counts are the kit's Stats.
-use corten::prelude::*;
+use corten::{SubmitKey, prelude::*};
 use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use crate::{
@@ -62,6 +62,7 @@ fn BulkPart<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) -> impl Rende
             <section class={Section} aria-labelledby="bulk-upload-title">
                 <h2 id="bulk-upload-title" class={PartTitle}>{t.bulk_upload()}</h2>
                 <form class={(Card, Form)} method="post" action={url::BulkReprice::default()} enctype="multipart/form-data">
+                    {SubmitKey::field(f.attempt)}
                     <p class={Muted}>{t.bulk_upload_description()}</p>
                     <label class={Field}>
                         <span class={Label}>{t.bulk_csv_file()}</span>

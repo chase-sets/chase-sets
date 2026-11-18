@@ -65,11 +65,11 @@ async function createFixture() {
     actAs(accountId: string) {
       current = actor(accountId);
     },
-    report(target: "listings/lst_1" | "reviews/rev_1", reason: string) {
+    report(target: "listings/lst_1" | "reviews/rev_1", reason: string, attemptId = crypto.randomUUID()) {
       return app.request(`/${target}/report`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reason, details: SECRET_DETAILS, sourceRoutePath: `/${target}` }),
+        body: JSON.stringify({ attemptId, reason, details: SECRET_DETAILS, sourceRoutePath: `/${target}` }),
       });
     },
   };

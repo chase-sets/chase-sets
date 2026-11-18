@@ -14,7 +14,9 @@ import { ReviewDetailPage, ReviewDetailRecoveryPage } from "../../features/revie
 import contextManifest from "../../context.json";
 import { marketplaceApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { submitReviewReport } from "../../support/route-support/review-report-action";
+import { runReviewMutation } from "../../support/route-support/review-mutation-action";
 import type { ReviewReportResult } from "../../features/reviews/ui/review-report-action";
+import type { ReviewMutationActionState } from "../../features/reviews/ui/review-mutation-form";
 import {
   authoredTextRecoveryFromApiError,
   type AuthoredTextRecovery,
@@ -27,11 +29,12 @@ const ACCOUNT_REVIEW_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/reviews/:reviewId",
 } as const satisfies PlatformPostWriteTelemetry;
 
-type ReviewReplyActionData = Readonly<{
-  error: string;
-  values: Readonly<{ feedback: string }>;
-  recovery?: AuthoredTextRecovery;
-}>;
+type ReviewReplyActionData = ReviewMutationActionState &
+  Readonly<{
+    error: string;
+    values: Readonly<{ feedback: string }>;
+    recovery?: AuthoredTextRecovery;
+  }>;
 
 function replyErrorMessage(error: unknown): string {
   if (error instanceof ReputationApiError) {
@@ -68,6 +71,8 @@ export const action = defineFormAction({
   authorization: { permission: "reputation.manage" },
   intents: {
     "report-review": ({ request, formData }) => submitReviewReport(request, formData),
+    "confirm:report-review": ({ request, formData }) => submitReviewReport(request, formData),
+    "confirm:reply": async ({ request, params, formData }) => submitReply(request, params.reviewId!, formData),
     reply: async ({ request, params, formData }) => {
       const reviewId = params.reviewId;
       if (!reviewId) {
@@ -75,12 +80,7 @@ export const action = defineFormAction({
       }
       const feedbackEntry = formData.get("feedback");
       const feedback = typeof feedbackEntry === "string" ? feedbackEntry : "";
-      const reply = (await createReputationRequestApiClient(request).submitReviewReply(reviewId, {
-        feedback,
-      })) as Readonly<{ id: string }>;
-      return formActionRedirect(reply, `/account/reviews/${reviewId}`, {
-        telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY,
-      });
+      return submitReply(request, reviewId, formData);
     },
   },
   onUnknownIntent: () => null,
@@ -91,12 +91,35 @@ export const action = defineFormAction({
     const feedbackEntry = formData.get("feedback");
     const recovery = error instanceof ReputationApiError ? authoredTextRecoveryFromApiError(error.body) : null;
     return {
+      attemptId: String(formData.get("attemptId") ?? ""),
+      mutationPhase: "failed-safe" as const,
       error: recovery?.message ?? replyErrorMessage(error),
       values: { feedback: typeof feedbackEntry === "string" ? feedbackEntry : "" },
       ...(recovery ? { recovery } : {}),
     } satisfies ReviewReplyActionData;
   },
 });
+
+async function submitReply(request: Request, reviewId: string, formData: FormData) {
+  const feedback = String(formData.get("feedback") ?? "");
+  const api = createReputationRequestApiClient(request);
+  const body = { attemptId: String(formData.get("attemptId") ?? ""), feedback };
+  const outcome = await runReviewMutation({
+    formData,
+    kind: "review.reply",
+    target: reviewId,
+    request: { reviewId, feedback },
+    send: () => api.submitReviewReply(reviewId, body),
+    lookup: api.lookupMutationAttempt,
+    isResponse: (error) => error instanceof ReputationApiError,
+    code: (error) =>
+      error instanceof ReputationApiError ? ((error.body as { error?: { code?: string } })?.error?.code ?? null) : null,
+  });
+  if (!("result" in outcome)) return { ...outcome, values: { feedback } };
+  return formActionRedirect(outcome.result, `/account/reviews/${reviewId}`, {
+    telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY,
+  });
+}
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("reputation.routes.marketplace.accountReview.review.marketplace") });
@@ -114,6 +137,7 @@ export default function MarketplaceAccountReviewRoute() {
   const reportResult = actionData && "reviewId" in actionData ? (actionData as ReviewReportResult) : null;
   const replyResult = actionData && !("reviewId" in actionData) ? actionData : null;
   const submittingIntent = navigation.formData?.get("intent");
+  const isReportIntent = submittingIntent === "report-review" || submittingIntent === "confirm:report-review";
 
   if (!data.review) {
     return <ReviewDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
@@ -133,10 +157,10 @@ export default function MarketplaceAccountReviewRoute() {
       viewerAccountId={data.viewerAccountId}
       replyErrorMessage={replyResult?.error ?? null}
       replyRecovery={replyResult?.recovery ?? null}
-      isSubmittingReply={navigation.state === "submitting" && submittingIntent !== "report-review"}
+      isSubmittingReply={navigation.state === "submitting" && !isReportIntent}
       defaultReplyFeedback={replyResult?.values?.feedback ?? ""}
       reportResult={reportResult}
-      isSubmittingReport={navigation.state === "submitting" && submittingIntent === "report-review"}
+      isSubmittingReport={navigation.state === "submitting" && isReportIntent}
     />
   );
 }

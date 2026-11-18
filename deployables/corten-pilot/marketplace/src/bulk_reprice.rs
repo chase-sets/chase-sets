@@ -12,13 +12,18 @@
 //! part rather than reading itself whole). The CSVs
 //! are Pricing's, passed on with their type and file name.
 //!
+//! An upload is one attempt (the form's `SubmitKey`, sent as Pricing's `Idempotency-Key`): the same
+//! form sent again (a double click, a resend after a lost answer) lands on the job it started, and
+//! a different file under the same form is refused with Pricing's words. Marketplace's action sends
+//! no key, so each resend starts another job (chase-sets/chase-sets#11491).
+//!
 //! While Pricing has bulk reprice switched off, every one of its routes answers 404 and marketplace
 //! still draws the page (chase-sets/chase-sets#10772). The pilot draws it too, and says bulk reprice
 //! is not available when an upload is refused for that, rather than "API error 404".
 use std::time::Duration;
 
 use corten::{
-    LiveResponse, Relay,
+    LiveResponse, Relay, SubmitKey,
     http::{Body, HeaderMap, StatusCode, header},
     prelude::*,
 };
@@ -31,6 +36,7 @@ use crate::{
     auth::{BulkRepricer, Viewer},
     items::Raw,
     listing_new::first,
+    recovery::valid_attempt,
     text::{Pilot, RepricingMsg},
     uploads::{self, Limits, Over},
     views::{self, Layout},
@@ -66,6 +72,8 @@ impl Place {
 pub struct UploadForm {
     pub file: String,
     pub csv_text: String,
+    /// The upload's attempt, drawn with the form: the same form sent again is the same job.
+    pub attempt: Option<SubmitKey>,
 }
 
 /// What the page shows.
@@ -152,8 +160,9 @@ fn refused(req: &Req, error: ApiError) -> Result<String, Box<HtmlResult>> {
     }
 }
 
-/// Upload: the file's text (or pasted rows) as a new job, then the page following it. A file that
-/// is not UTF-8 text or over the limit is refused here, not sent.
+/// Upload: the file's text (or pasted rows) as the form's attempt's job, then the page following
+/// it. A file that is not UTF-8 text or over the limit, or a form without its attempt (not drawn by
+/// this page), is refused here, not sent.
 pub(crate) async fn upload(
     req: Req,
     Caller(BulkRepricer(viewer)): Caller<BulkRepricer>,
@@ -185,8 +194,13 @@ pub(crate) async fn upload(
         let error = Some(p.bulk_reprice_not_text().to_owned());
         return render(&req, &viewer, &config, &headers, &place, error, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
+    let attempt = first(&posted.fields, f.attempt.as_str());
+    if !valid_attempt(&attempt) {
+        let error = Some(p.check_attempt().to_owned());
+        return render(&req, &viewer, &config, &headers, &place, error, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
     let caller = config.platform.caller(&headers, config.proto, None);
-    match caller.start_bulk_reprice(&text, filename.as_deref()).await {
+    match caller.start_bulk_reprice(&attempt, &text, filename.as_deref()).await {
         Ok(job) => req.redirect(&url::BulkReprice { place: Place::following(&job.job_id) }),
         Err(error) => match refused(&req, error) {
             Ok(message) => {
