@@ -23,6 +23,7 @@ use crate::{
     api::{AccountListing, AccountReview, PublicAccount},
     app::url,
     items::Address,
+    marketplace_attempt::Locked,
     text::{AccountMsg, Pilot},
 };
 
@@ -566,7 +567,16 @@ fn ReportAction<'a>(
         Some(ReviewNotice::Refused { message, reason, details }) => Some((message.as_str(), reason.as_str(), details.as_str())),
         _ => None,
     };
-    let (reason, details) = refused.map_or(("", ""), |(_, r, d)| (r, d));
+    let locked = match notice {
+        Some(ReviewNotice::Locked { locked: Locked::Conflict, reason, details }) => {
+            Some((t.attempt_conflict(), t.attempt_changed_request(), reason.as_str(), details.as_str()))
+        }
+        Some(ReviewNotice::Locked { locked: Locked::Unconfirmed, reason, details }) => {
+            Some((t.attempt_ambiguous(), t.attempt_unconfirmed(), reason.as_str(), details.as_str()))
+        }
+        _ => None,
+    };
+    let (reason, details) = refused.map(|(_, r, d)| (r, d)).or(locked.map(|(_, _, r, d)| (r, d))).unwrap_or(("", ""));
     let dialog = ReportDialogId(review);
     let heading = format!("report-dialog-{review}-title");
     let f = ReviewReportFields::FIELDS;
@@ -587,7 +597,7 @@ fn ReportAction<'a>(
                     id={dialog}
                     class={Dialog}
                     aria-labelledby={&heading}
-                    open={refused.is_some()}
+                    open={refused.is_some() || locked.is_some()}
                     on:connect={corten_ui::dialog::modal(target)}
                 >
                     <div class={DialogHead}>
@@ -604,6 +614,13 @@ fn ReportAction<'a>(
                                 <p>{message}</p>
                             </div>
                         }
+                        if let Some((title, description, _, _)) = locked {
+                            <div class={Banner} data-tone="danger" role="alert">
+                                <p class={Strong}>{title}</p>
+                                <p>{description}</p>
+                            </div>
+                        }
+                        {SubmitKey::field(f.attempt)}
                         <label class={Field}>
                             <span>{t.report_reason()}<span class={Required} aria-hidden="true">" *"</span></span>
                             <select
@@ -628,7 +645,9 @@ fn ReportAction<'a>(
                             </textarea>
                             <span class={Faint}>{t.report_details_description()}</span>
                         </label>
-                        <p><button type="submit" class={Secondary}>{t.report_submit()}</button></p>
+                        <p>
+                            <button type="submit" class={Secondary} disabled={locked.is_some()}>{t.report_submit()}</button>
+                        </p>
                     </form>
                 </dialog>
             }

@@ -8,6 +8,11 @@
 //! preparing and reads itself again. A refused reply is the page again with what was typed, and
 //! the closed authoring codes (`authoredTextRecoveryCopy`) say how to fix it.
 //!
+//! Both are sent as their form's attempt (`marketplace_attempt`). A reply whose answer was lost is
+//! looked up by its attempt: committed is the review read again, not observed keeps the words to
+//! send again, and one that cannot be confirmed, or whose attempt was another reply's, keeps the
+//! words without Post response until the page is opened again.
+//!
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /account/reviews/{id}?<place>` | the review, read after the reply whose receipt it carries |
@@ -21,12 +26,15 @@ use corten::{
 };
 use platform::receipt::Receipt;
 use serde::Serialize;
+use serde_json::json;
 
 use crate::{
     accounts::{ReviewNotice, Role},
     api::{ApiError, Caller as ApiCaller, ReviewCalls as _, ReviewItem},
     app::{Shared, read_failed, sign_in, url},
     auth::{ReviewMember, Viewer},
+    marketplace_attempt::{self, Locked, Observed},
+    recovery::attempt_text,
     reviews::{self, ReportInput, Reported},
     text::{Pilot, ReviewsMsg},
     views::{self, Layout},
@@ -43,14 +51,15 @@ pub struct ReviewPlace {
     pub reported: Option<String>,
 }
 
-/// A refused reply: what to say, whether the text itself is at fault (a rate limit is not), and
-/// what was typed.
+/// A refused reply: what to say, whether the text itself is at fault (a rate limit is not), what
+/// was typed, and why Post response is off, when it is.
 #[derive(Clone, Debug)]
 pub struct ReplyRefused {
     pub message: String,
     pub field: bool,
     pub recovery: bool,
     pub draft: String,
+    pub locked: Option<Locked>,
 }
 
 /// The page: the review, who is looking, and what came of a report or a reply.
@@ -182,7 +191,7 @@ pub(crate) async fn write(
     match input.intent.as_str() {
         "report-review" => {
             let from = url::Review { id: &id, place: ReviewPlace::default() }.href();
-            match reviews::send_report(req.t(), &caller, &id, &input, &from).await {
+            match reviews::send_report(req.t(), req.t(), &caller, &id, &input, &from).await {
                 Reported::Sent => req.redirect(&url::Review {
                     id: &id,
                     place: ReviewPlace { reported: Some(id.clone()), ..ReviewPlace::default() },
@@ -192,7 +201,10 @@ pub(crate) async fn write(
                 Reported::Failed(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
             }
         }
-        "reply" => reply(&req, &viewer, &caller, &id, input.feedback).await,
+        "reply" => {
+            let attempt = attempt_text(&input.attempt).to_owned();
+            reply(&req, &viewer, &caller, &id, &attempt, input.feedback).await
+        }
         // Marketplace's action answers nothing for another intent, and the page is read again.
         _ => req.redirect(&url::Review { id: &id, place: ReviewPlace::default() }),
     }
@@ -217,12 +229,20 @@ async fn again(
 }
 
 /// Respond to this review: the words are needed and at most 1,000 characters (as the form's
-/// `maxLength` counts them), sent as typed; the API decides the rest.
-async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, feedback: String) -> HtmlResult {
+/// `maxLength` counts them), sent as typed with the form's attempt; the API decides the rest.
+async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, attempt: &str, feedback: String) -> HtmlResult {
     let p: Pilot = req.t();
     let t: ReviewsMsg = req.t();
     let refused = |message: &str, field: bool, recovery: bool, status: StatusCode, draft: String| {
-        let reply = ReplyRefused { message: message.to_owned(), field, recovery, draft };
+        let reply = ReplyRefused { message: message.to_owned(), field, recovery, draft, locked: None };
+        again(req, viewer, caller, id, status, move |s| s.reply = Some(reply))
+    };
+    let locked = |locked: Locked, draft: String| {
+        let (message, status) = match locked {
+            Locked::Conflict => (t.attempt_changed_request(), StatusCode::CONFLICT),
+            Locked::Unconfirmed => (t.attempt_unconfirmed(), StatusCode::BAD_GATEWAY),
+        };
+        let reply = ReplyRefused { message: message.to_owned(), field: false, recovery: false, draft, locked: Some(locked) };
         again(req, viewer, caller, id, status, move |s| s.reply = Some(reply))
     };
     if feedback.trim().is_empty() {
@@ -231,10 +251,26 @@ async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, fee
     if feedback.encode_utf16().count() > MOST_REPLY {
         return refused(p.reviews_reply_too_long(), true, false, StatusCode::UNPROCESSABLE_ENTITY, feedback).await;
     }
-    match caller.reply_to_review(id, &feedback).await {
+    let Some(attempt) = marketplace_attempt::presented(attempt) else {
+        return refused(t.attempt_not_sent(), false, false, StatusCode::UNPROCESSABLE_ENTITY, feedback).await;
+    };
+    match caller.reply_to_review(id, attempt, &feedback).await {
         Ok(receipt) => {
             let after_write = receipt.map(|r| r.param());
             req.redirect(&url::Review { id, place: ReviewPlace { after_write, reported: None } })
+        }
+        Err(error) if marketplace_attempt::locked_by(&error).is_some() => {
+            locked(marketplace_attempt::locked_by(&error).unwrap_or(Locked::Unconfirmed), feedback).await
+        }
+        Err(error) if marketplace_attempt::lost(&error) => {
+            tracing::warn!("a review reply had no answer, looking up its attempt: {error}");
+            let request = json!({ "reviewId": id, "feedback": marketplace_attempt::review_text(&feedback) });
+            match marketplace_attempt::observe(caller, "review.reply", "review", id, attempt, &request).await {
+                Observed::Committed { .. } => req.redirect(&url::Review { id, place: ReviewPlace::default() }),
+                Observed::Conflict => locked(Locked::Conflict, feedback).await,
+                Observed::NotObserved => refused(t.attempt_not_observed(), false, false, StatusCode::BAD_GATEWAY, feedback).await,
+                Observed::Unsettled => locked(Locked::Unconfirmed, feedback).await,
+            }
         }
         Err(error) => match error.status() {
             Some(StatusCode::NOT_FOUND) => Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND)),

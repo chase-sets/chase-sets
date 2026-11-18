@@ -1,4 +1,11 @@
 {
+  "shared.configuration.accepted-pending": "Request {revision} is pending. Installed policy and halt are unchanged.",
+  "shared.configuration.superseded-by-revision": "Request {revision} was replaced by request {replacement}.",
+  "shared.configuration.applied": "Request {revision} is installed.",
+  "health.goals.pending": "Pricing goal request is pending",
+  "health.goals.pending.description": "Request {revision} is recorded. The installed policy is unchanged.",
+  "health.goals.superseded": "Pricing goal request was replaced",
+  "health.goals.superseded.description": "Request {revision} was replaced by request {replacement}.",
   "pricing_health": "Pricing Health",
   "health.description": "A stored verdict for one active policy, with disclosed platform-wide Forecast Grades.",
   "health.back": "Repricing policies",

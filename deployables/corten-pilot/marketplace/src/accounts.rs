@@ -7,6 +7,10 @@
 //! |---|---|---|
 //! | Report review | `/accounts/{slug}/reviews/{id}/report` | the page at the review, saying the report was received (`?reported={id}#review-{id}`) |
 //!
+//! A report is sent as its form's attempt, and an answer lost on the way is settled as
+//! `marketplace_attempt` says: sent once more as the same attempt, and a result that cannot be
+//! confirmed keeps the dialog open without its send.
+//!
 //! An old slug or the account's id moves to its slug for good, with the address's query, as
 //! marketplace's loader does. An account the API does not have is a 404 and a failed read a 502;
 //! marketplace answers both with a 200 that says the account was not found
@@ -30,6 +34,7 @@ use crate::{
     app::{Shared, marketplace_origin, sign_in_at, url},
     auth::Session,
     items::Raw,
+    marketplace_attempt::{self, Locked},
     text::{AccountMsg, Pilot},
     views,
 };
@@ -52,10 +57,12 @@ pub struct AccountQuery {
     pub reported: Option<String>,
 }
 
-/// Report review's fields, for their names.
+/// Report review's fields, for their names: the attempt (the form's `SubmitKey`), the reason and
+/// the explanation.
 #[derive(Fields)]
 #[allow(dead_code)]
 pub struct ReviewReportFields {
+    attempt: SubmitKey,
     reason: String,
     details: String,
 }
@@ -93,6 +100,19 @@ pub enum ReviewNotice {
     Already,
     /// The report was refused, with what was sent.
     Refused { message: String, reason: String, details: String },
+    /// Whether the report was received cannot be confirmed, or its attempt was another report's:
+    /// what was sent, and no send until the page is opened again.
+    Locked { locked: Locked, reason: String, details: String },
+}
+
+impl ReviewNotice {
+    /// The status a page with this notice answers.
+    pub fn locked_status(locked: Locked) -> StatusCode {
+        match locked {
+            Locked::Conflict => StatusCode::CONFLICT,
+            Locked::Unconfirmed => StatusCode::BAD_GATEWAY,
+        }
+    }
 }
 
 /// What the page shows.
@@ -320,6 +340,7 @@ pub(crate) async fn report_review(
     let account = read(&caller, &slug, role, page).await?;
     let f = ReviewReportFields::FIELDS;
     let (reason, details) = (field(&raw, f.reason.as_str()), field(&raw, f.details.as_str()));
+    let attempt = field(&raw, f.attempt.as_str());
     let refused = |message: &str| ReviewNotice::Refused {
         message: message.to_owned(),
         reason: reason.to_owned(),
@@ -338,15 +359,29 @@ pub(crate) async fn report_review(
         screen.chips = chips(&caller, &screen.account).await;
         return again(screen, refused(p.account_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
     }
+    let Some(attempt) = marketplace_attempt::presented(attempt) else {
+        let t: AccountMsg = req.t();
+        screen.chips = chips(&caller, &screen.account).await;
+        return again(screen, refused(t.attempt_report_not_sent()), StatusCode::UNPROCESSABLE_ENTITY);
+    };
     let path = format!("/accounts/{}", screen.account.account_slug);
-    let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: &path };
-    let result = caller.report_review(&review, &body).await;
-    match result {
-        Ok(()) => {
+    let body = ListingReport {
+        attempt_id: attempt,
+        reason,
+        details: (!details.is_empty()).then_some(details),
+        source_route_path: &path,
+    };
+    match marketplace_attempt::report(|| caller.report_review(&review, &body)).await {
+        marketplace_attempt::Reported::Sent => {
             let to = url::Account { slug: &screen.account.account_slug, query: screen.query(Some(&review)) };
             req.redirect(&to.at(views::ReviewId(&review)))
         }
-        Err(error) => {
+        marketplace_attempt::Reported::Locked(locked) => {
+            screen.chips = chips(&caller, &screen.account).await;
+            let notice = ReviewNotice::Locked { locked, reason: reason.to_owned(), details: details.to_owned() };
+            again(screen, notice, ReviewNotice::locked_status(locked))
+        }
+        marketplace_attempt::Reported::Refused(error) => {
             screen.chips = chips(&caller, &screen.account).await;
             match (error.status(), error.code()) {
                 (_, Some("report_already_submitted")) => again(screen, ReviewNotice::Already, StatusCode::CONFLICT),

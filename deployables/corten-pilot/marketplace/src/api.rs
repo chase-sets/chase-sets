@@ -1609,19 +1609,24 @@ pub trait Marketplace {
     async fn standard_terms(&self, price: &str) -> Result<StandardTerms, ApiError>;
     /// Report a listing (`POST /listings/{id}/report`): as the account signed in, else as the
     /// visitor `anonymous` (`anon_..`, marketplace's report cookie). A second report from the
-    /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429.
+    /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429. The
+    /// report's `attemptId` makes it one report however often it is sent (a 409
+    /// `attempt_conflict` for the same attempt with other words).
     async fn report_listing(&self, listing: &str, anonymous: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
     /// Report a review (`POST /reviews/{id}/report`), as the account signed in only: a visitor is
-    /// a 401. A second report from the same account is a 409 `report_already_submitted`.
+    /// a 401. A second report from the same account is a 409 `report_already_submitted`. Its
+    /// `attemptId` makes it one report, as a listing's.
     async fn report_review(&self, review: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
     /// A seller's buyer-facing chips (`GET /accounts/{id}/behavioral-metrics-chips`).
     async fn metrics_chips(&self, account: &str) -> Result<MetricsChips, ApiError>;
 }
 
-/// A listing report's body (`ReportListingRequest`).
+/// A listing report's body (`ReportListingRequest`), and a review report's: the attempt (the
+/// form's `SubmitKey`), the reason, the explanation and the page it was sent from.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListingReport<'a> {
+    pub attempt_id: &'a str,
     pub reason: &'a str,
     pub details: Option<&'a str>,
     pub source_route_path: &'a str,
@@ -5283,15 +5288,17 @@ pub trait ReviewCalls {
     /// A review the account wrote or received (`GET /reviews/{id}`).
     async fn review(&self, review: &str) -> Result<ReviewItem, ApiError>;
     /// The account's one public response to a review it received (`POST /reviews/{id}/reply`). The
-    /// answer is the write's receipt.
-    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
+    /// answer is the write's receipt. Sent as `attempt` (`attemptId`), which Marketplace applies
+    /// once.
+    async fn reply_to_review(&self, review: &str, attempt: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
     /// Whether the account may review the other side of `order`
     /// (`GET /reviews/opportunities/orders/{id}`); `None` when it has no such order.
     async fn review_opportunity(&self, order: &str) -> Result<Option<ReviewOpportunity>, ApiError>;
     /// Submit a review of the order's other side (`POST /reviews`): the review's id and the
-    /// write's receipt.
+    /// write's receipt. Sent as `attempt` (`attemptId`), which Marketplace applies once.
     async fn submit_review(
         &self,
+        attempt: &str,
         order: &str,
         subject: &str,
         rating: i64,
@@ -5321,9 +5328,10 @@ impl ReviewCalls for Caller<'_> {
         self.read(&format!("/api/marketplace/reviews/{}", segment(review)), MARKETPLACE).await
     }
 
-    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError> {
+    async fn reply_to_review(&self, review: &str, attempt: &str, feedback: &str) -> Result<Option<Receipt>, ApiError> {
         let path = format!("/api/marketplace/reviews/{}/reply", segment(review));
-        let req = self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "feedback": feedback }));
+        let body = serde_json::json!({ "attemptId": attempt, "feedback": feedback });
+        let req = self.request(Method::POST, &path, MARKETPLACE).json(&body);
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
@@ -5338,6 +5346,7 @@ impl ReviewCalls for Caller<'_> {
 
     async fn submit_review(
         &self,
+        attempt: &str,
         order: &str,
         subject: &str,
         rating: i64,
@@ -5347,7 +5356,9 @@ impl ReviewCalls for Caller<'_> {
         struct Submitted {
             id: String,
         }
-        let body = serde_json::json!({ "orderId": order, "subjectAccountId": subject, "rating": rating, "feedback": feedback });
+        let body = serde_json::json!({
+            "attemptId": attempt, "orderId": order, "subjectAccountId": subject, "rating": rating, "feedback": feedback,
+        });
         let req = self.request(Method::POST, "/api/marketplace/reviews", MARKETPLACE).json(&body);
         let (submitted, receipt) = self.write::<Submitted>(req).await?;
         Ok((submitted.id, receipt))
