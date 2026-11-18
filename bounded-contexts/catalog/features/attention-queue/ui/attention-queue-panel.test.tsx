@@ -80,6 +80,7 @@ function oneOfEachKindSources(): CatalogAttentionQueueSources {
           recentJobs: [
             {
               jobId: "j1",
+              syncRunId: null,
               action: "import",
               operatorStatus: "failed",
               phase: "failed",

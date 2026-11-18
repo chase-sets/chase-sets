@@ -154,6 +154,66 @@ describe("connector-pairing-drill-deploy-binding", () => {
     });
   });
 
+  const failedGh = (code, stderr = "") =>
+    ghApi([], {
+      run: (_file, _args, _options, done) =>
+        done(
+          Object.assign(new Error("token=private-error"), { code }),
+          Buffer.from("private-body"),
+          Buffer.from(stderr),
+        ),
+    });
+
+  it.each([
+    ["bare 503", () => failedGh(1, "gh: HTTP 503\r\n")],
+    ["429", () => failedGh(1, "gh: private-stderr (HTTP 429)")],
+    ["transport", () => failedGh(1, 'Get "https://private-url": unexpected EOF')],
+    ["timeout", () => failedGh("ABORT_ERR")],
+  ])("retries a transient jobs GET and binds the exact applied job (%s)", async (_kind, fail) => {
+    const { gh } = fakeGh();
+    let firstJobsPage;
+    let calls = 0;
+    const flaky = (args) => {
+      const path = args.at(-1);
+      if (path.includes("/attempts/")) firstJobsPage ??= path;
+      return path === firstJobsPage && ++calls === 1 ? fail() : gh(args);
+    };
+    expect(await read({}, { gh: flaky, readReceiptFloor: async () => capturedRun })).toMatchObject({
+      binding: { runId: capturedRun, jobId: "118064914233", deployedHead: capturedHead },
+    });
+    expect(calls).toBe(2);
+  });
+
+  it.each([
+    ["workflow-runs", "/workflows/", 1, "gh: private-stderr\ncontinued (HTTP 403)", "http-403", 1],
+    ["attempt-jobs", "/attempts/", 1, "gh: private-stderr (HTTP 404)", "http-404", 1],
+    ["attempt-jobs", "/attempts/", 1, "gh: private-stderr (HTTP 503)", "http-503", 3],
+    ["deploy-job-log", "/logs", 4, "private-stderr", "exit-4", 1],
+  ])("refuses an unreadable %s phase with only the safe class", async (phase, match, code, stderr, reason, count) => {
+    const { gh } = fakeGh();
+    const fail = vi.fn(() => failedGh(code, stderr));
+    const readReceiptFloor = vi.fn();
+    const result = await read(
+      {},
+      {
+        gh: (args) => (args.at(-1).includes(match) ? fail() : gh(args)),
+        readReceiptFloor,
+      },
+    );
+    expect(result).toEqual({ stop: `github-request-failed:${phase}:${reason}` });
+    expect(fail).toHaveBeenCalledTimes(count);
+    expect(readReceiptFloor).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a GraphQL POST even on a retryable HTTP status", async () => {
+    const { gh } = fakeGh();
+    const fail = vi.fn(() => failedGh(1, "gh: private-stderr (HTTP 503)"));
+    expect(await read({}, { gh: (args) => (args[0] === "graphql" ? fail() : gh(args)) })).toEqual({
+      stop: "required-merge-unreadable:required-merges:http-503",
+    });
+    expect(fail).toHaveBeenCalledTimes(1);
+  });
+
   it.each([{ linked: [] }, { linked: [crossReference(), crossReference(linkedPr({ number: 19002 }))] }])(
     "accepts only the mapped implementation regardless of incidental timeline references: %j",
     async ({ linked }) => {
@@ -320,12 +380,12 @@ describe("connector-pairing-drill-deploy-binding", () => {
       headers: { authorization: "Bearer gh-api", accept: "application/vnd.github.raw+json" },
     });
     expect(response.status).toBe(200);
-    expect(gh).toHaveBeenCalledWith([
-      "-H",
-      "Accept: application/vnd.github.raw+json",
-      `${repo}/actions/runs/1/attempts/1?x=1`,
-    ]);
+    expect(gh).toHaveBeenCalledWith(
+      ["-H", "Accept: application/vnd.github.raw+json", `${repo}/actions/runs/1/attempts/1?x=1`],
+      { signal: undefined },
+    );
     expect((await transport("https://synthetic.blob.core.windows.net/logs/1")).status).toBe(599);
+    expect((await transport(`https://api.github.com/${repo}`, { method: "POST" })).status).toBe(599);
     expect(gh).toHaveBeenCalledTimes(1);
     const refusing = ghApiTransport(async () => {
       throw new Error("gh-api-refused");

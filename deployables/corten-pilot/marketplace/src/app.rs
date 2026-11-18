@@ -1002,6 +1002,9 @@ pub mod url {
         #[route("/account/listings/{id}/photos", post = crate::seller_listing::photos)]
         pub struct SellerListingPhotos<'a> {
             pub id: &'a str,
+            /// The change the page names (`Place::listing_recovery`).
+            #[route(query)]
+            pub place: crate::seller_listing::Place,
         }
     }
 
@@ -1957,7 +1960,7 @@ pub fn app(config: Config) -> App {
         .assets(Static)
         .pwa(pwa())
         .policy(if shared.proto == "https" { policy.hsts() } else { policy })
-        .layer(platform::access_log::AccessLog::new())
+        .access_log(true)
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
         .client_zone()

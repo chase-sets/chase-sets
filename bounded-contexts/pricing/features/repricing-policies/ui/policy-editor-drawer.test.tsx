@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createRepricingPolicyRuntime } from "../api/runtime";
+import {
+  createMemoryRepricingConfigurationWriter,
+  withMemoryConfigurationTransactions,
+} from "../tests/configuration-fixture";
 import { createRepricingPolicyRoutes } from "../api/route";
 import { bindAuthoringIntent, bindGoalAuthoringIntent, compilePresetBody } from "../domain/authoring-intent";
 import { resolvePricingGoal, type RepricingPolicyState } from "../domain/domain";
@@ -121,7 +125,8 @@ describe("policy editor prerequisites and gates", () => {
           : compiled;
       const { eventStore } = createInMemoryEventStore();
       const runtime = createRepricingPolicyRuntime({
-        eventStore,
+        configuration: createMemoryRepricingConfigurationWriter(eventStore),
+        eventStore: withMemoryConfigurationTransactions(eventStore),
         db: { query: async () => ({ rows: [] }) },
         goalAdoptions: async () => [],
       });
@@ -169,8 +174,12 @@ describe("policy editor prerequisites and gates", () => {
         createRepricingPolicyRoutes({
           ...runtime,
           getAccountRepricingPolicy: async ({ accountId }) => (accountId === "acc_7910" ? record : null),
-          activateRepricingPolicy: async ({ name }, context) =>
-            (
+          activateRepricingPolicy: async ({ name }, context) => ({
+            status: "applied",
+            requestKey: "synthetic_activate",
+            requestedRevision: 1,
+            installedRevision: 1,
+            state: (
               await runtime.commandHandler({
                 streamId: runtime.streamIdForPolicy("rpp_8340"),
                 context,
@@ -184,6 +193,7 @@ describe("policy editor prerequisites and gates", () => {
                 },
               })
             ).state,
+          }),
         }),
       );
       const client = createPricingApiClient({
@@ -202,7 +212,9 @@ describe("policy editor prerequisites and gates", () => {
           initialBody={authored}
           onClose={vi.fn()}
           onSave={async ({ body: next, dryRunId }) => {
-            saved = await client.createRepricingPolicy({ name: next.name, dryRunId: dryRunId! });
+            const receipt = await client.createRepricingPolicy({ name: next.name, dryRunId: dryRunId! });
+            if (receipt.status !== "applied") throw new Error("Expected installed activation.");
+            saved = receipt.state;
           }}
         />,
       );
@@ -230,7 +242,9 @@ describe("policy editor prerequisites and gates", () => {
           }}
           onClose={vi.fn()}
           onSave={async ({ body: next }) => {
-            saved = await client.reviseRepricingPolicy("rpp_8340", next);
+            const receipt = await client.reviseRepricingPolicy("rpp_8340", next);
+            if (receipt.status !== "applied") throw new Error("Expected installed revision.");
+            saved = receipt.state;
           }}
         />,
       );
@@ -480,7 +494,14 @@ describe("policy editor prerequisites and gates", () => {
       expect((screen.getByRole("button", { name: "Activate policy" }) as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(screen.getByRole("button", { name: "Activate policy" }));
-    expect(onSave).toHaveBeenCalledWith({ body, dryRunId: "synthetic-run" });
+    expect(onSave).toHaveBeenCalledWith({
+      body,
+      dryRunId: "synthetic-run",
+      requestKey: expect.stringMatching(/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i),
+    });
+    const firstSubmission = onSave.mock.calls[0]![0];
+    fireEvent.click(screen.getByRole("button", { name: "Activate policy" }));
+    expect(onSave).toHaveBeenNthCalledWith(2, firstSubmission);
     fill("Policy name", "Changed");
     expect((screen.getByRole("button", { name: "Activate policy" }) as HTMLButtonElement).disabled).toBe(true);
     let resolve!: (run: RepricingDryRun) => void;

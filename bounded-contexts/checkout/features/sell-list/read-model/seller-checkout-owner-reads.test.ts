@@ -203,10 +203,7 @@ describe("AC3 missing authority is explicit", () => {
   });
   it("does not authorize from posted ready statuses when the owner port is omitted", async () => {
     const f = checkoutOwnerRuntimeFixture();
-    const snapshot = await createCheckoutSellListRuntime({
-      ...f.deps,
-      sellerCheckoutOwners: undefined,
-    }).createReadinessSnapshot({
+    const postedRequest = {
       sellerAccountId: "acc_seller",
       ...choices,
       sellerEvidence: {
@@ -217,7 +214,11 @@ describe("AC3 missing authority is explicit", () => {
         provider: { status: "ready" },
         freshness: { status: "current" },
       },
-    });
+    };
+    const snapshot = await createCheckoutSellListRuntime({
+      ...f.deps,
+      sellerCheckoutOwners: undefined,
+    }).createReadinessSnapshot(postedRequest);
     expect(snapshot.sellerReadiness).toMatchObject({
       risk: "blocked",
       label: "blocked",

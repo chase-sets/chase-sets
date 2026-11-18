@@ -4,17 +4,21 @@ import {
   createTestEventStoreContext,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
+import { representativePersonaIds } from "@chase-sets/catalog-seed/ids";
+import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../../../support/runtime-support/services";
-import { createAuthServices } from "../../../support/runtime-support/services";
+import { createAuthServices, startInteractiveAuth } from "../../../support/runtime-support/services";
 import contextManifest from "../../../context.json" with { type: "json" };
 import type { AuthApiEnv } from "../../../support/api-support/support";
 import { buildAuthApi } from "../../../api";
+import { loader as adminMagicLinkLoader } from "../../../routes/access-admin/sign-in-magic";
+import type { LoaderFunctionArgs } from "react-router";
 
 const secret = "cs_stg_persona_synthetic_secret";
 const verifier = createHash("sha256").update(secret).digest("hex");
 const origin = "https://marketplace.staging.chasesets.com";
+const adminOrigin = "https://admin.staging.chasesets.com";
 
 const { limiters } = vi.hoisted(() => ({
   limiters: [] as { surface: string; check: ReturnType<typeof vi.fn>; clear: () => void }[],
@@ -97,13 +101,18 @@ function requestHeaders(bearer = secret, requestOrigin = origin) {
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 beforeEach(() => {
   for (const limiter of limiters) {
     limiter.clear();
     limiter.check.mockClear();
   }
   vi.mocked(timingSafeEqual).mockClear();
+  vi.mocked(startInteractiveAuth).mockClear();
 });
 
 function post(
@@ -111,11 +120,12 @@ function post(
   alias = "card-vault",
   headers: Record<string, string> = requestHeaders(),
   url = origin,
+  destination?: unknown,
 ) {
   return appFor(input).request(`${url}/staging-persona-sign-in`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ alias }),
+    body: JSON.stringify({ alias, destination }),
   });
 }
 function noWrites(input: AuthServices) {
@@ -210,6 +220,66 @@ describe("staging persona sign-in", () => {
     ]);
   });
 
+  it.each(["card-vault", "sealed-stockroom"] as const)("issues an admin-host link for %s", async (alias) => {
+    const input = services();
+    const response = await post(input, alias, requestHeaders(), origin, "admin");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { alias: string; link: string; expiresAt: string };
+    expect(body.alias).toBe(alias);
+    expect(new URL(body.link).origin).toBe(adminOrigin);
+    expect(new URL(body.link).pathname).toBe("/access/sign-in/magic");
+    expect(new URL(body.link).searchParams.get("token")).toBe("magic-link-token");
+    expect(Date.parse(body.expiresAt)).toBeLessThanOrEqual(Date.now() + 600_000);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(input.identity.getUser).toHaveBeenCalledWith(representativePersonaIds[alias].userId);
+    expect(input.identity.getActiveMembershipForUserAccount).toHaveBeenCalledWith(
+      representativePersonaIds[alias].userId,
+      representativePersonaIds[alias].accountId,
+    );
+  });
+
+  it("keeps explicit marketplace issuance identical to the omitted destination", async () => {
+    const response = await post(services(), "card-vault", requestHeaders(), origin, "marketplace");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      alias: "card-vault",
+      link: `${origin}/sign-in/magic?token=magic-link-token`,
+    });
+  });
+
+  it.each(["unknown", "https://evil.example", "Admin", "", null, 1, {}, ["admin"]].map((destination) => [destination]))(
+    "refuses destination %j before identity reads or writes",
+    async (destination) => {
+      const input = services();
+      const response = await post(input, "card-vault", requestHeaders(), origin, destination);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "destination-refused" });
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(input.identity.getUser).not.toHaveBeenCalled();
+      noWrites(input);
+    },
+  );
+
+  it("keeps the issuer's marketplace Origin/Host and bearer guards for admin links", async () => {
+    const input = services();
+    expect((await post(input, "card-vault", requestHeaders(secret, adminOrigin), adminOrigin, "admin")).status).toBe(
+      403,
+    );
+    expect((await post(input, "card-vault", requestHeaders("wrong-bearer"), origin, "admin")).status).toBe(401);
+    expect((await post(input, "not-a-persona", requestHeaders(), origin, "admin")).status).toBe(403);
+    noWrites(input);
+  });
+
+  it("shares the alias rate limit across destinations", async () => {
+    const input = services();
+    for (const destination of [undefined, "admin", "marketplace"])
+      expect((await post(input, "card-vault", requestHeaders(), origin, destination)).status).toBe(200);
+    vi.mocked(input.db.query).mockClear();
+    vi.mocked(input.auth.issueOpaqueToken).mockClear();
+    expect((await post(input, "card-vault", requestHeaders(), origin, "admin")).status).toBe(429);
+    noWrites(input);
+  });
+
   it("issues without an event or mail delivery", async () => {
     const input = services();
     expect((await post(input)).status).toBe(200);
@@ -297,38 +367,73 @@ describe("staging persona sign-in", () => {
     noWrites(input);
   });
 
-  it("consumes the server-issued link once through the unchanged consume route and returns 401 the second time", async () => {
-    const input = services();
-    let stored: Record<string, unknown> | null = null;
-    vi.mocked(input.db.query).mockImplementation(async (sql, params) => {
-      if (sql.includes("INSERT INTO identity_magic_link_tokens"))
-        stored = {
-          token_id: params![0],
-          user_id: params![1],
-          email: params![2],
-          token_hash: params![3],
-          expires_at: params![5],
-          consumed_at: null,
-        };
-      if (sql.includes("SET consumed_at = now()")) {
-        const rows = stored && stored.token_hash === params![0] ? [stored] : [];
-        stored = null;
-        return { rows } as never;
-      }
-      return { rows: [] } as never;
-    });
-    const issuance = await post(input);
-    expect(issuance.status).toBe(200);
-    const { link } = (await issuance.json()) as { link: string };
-    const consume = () =>
-      appFor(input).request(`${origin}/magic-link/consume`, {
-        method: "POST",
-        headers: requestHeaders(),
-        body: JSON.stringify({ token: new URL(link).searchParams.get("token") }),
+  it.each([undefined, "admin"])(
+    "consumes the server-issued %s link once through the existing host flow",
+    async (destination) => {
+      const input = services();
+      let stored: Record<string, unknown> | null = null;
+      vi.mocked(input.db.query).mockImplementation(async (sql, params) => {
+        if (sql.includes("INSERT INTO identity_magic_link_tokens"))
+          stored = {
+            token_id: params![0],
+            user_id: params![1],
+            email: params![2],
+            token_hash: params![3],
+            expires_at: params![5],
+            consumed_at: null,
+          };
+        if (sql.includes("SET consumed_at = now()")) {
+          const rows = stored && stored.token_hash === params![0] ? [stored] : [];
+          stored = null;
+          return { rows } as never;
+        }
+        return { rows: [] } as never;
       });
-    expect((await consume()).status).toBe(200);
-    expect((await consume()).status).toBe(401);
-  });
+      const issuance = await post(input, "card-vault", requestHeaders(), origin, destination);
+      expect(issuance.status).toBe(200);
+      const { link } = (await issuance.json()) as { link: string };
+      const consume = () =>
+        appFor(input).request(`${new URL(link).origin}/magic-link/consume`, {
+          method: "POST",
+          headers: requestHeaders(),
+          body: JSON.stringify({ token: new URL(link).searchParams.get("token") }),
+        });
+      if (destination === "admin") {
+        vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "http://platform-api.internal:8080");
+        vi.stubGlobal(
+          "fetch",
+          vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+            expect(new Request(_url, init).url).toBe("http://platform-api.internal:8080/api/auth/magic-link/consume");
+            expect(JSON.parse(String(init?.body))).toEqual({ token: new URL(link).searchParams.get("token") });
+            return consume();
+          }),
+        );
+        const response = await adminMagicLinkLoader({
+          request: new Request(link),
+          params: {},
+          context: {},
+        } as LoaderFunctionArgs);
+        expect(response).toBeInstanceOf(Response);
+        const landing = response as Response;
+        expect(landing.status).toBe(302);
+        expect(landing.headers.get("Location")).toBe("/");
+        const cookies = landing.headers.getSetCookie().join(";");
+        expect(cookies).toContain("chase_sets_session=synthetic-session-token");
+        expect(cookies).toContain("Secure");
+        expect(cookies).not.toMatch(/domain=/i);
+      } else {
+        expect((await consume()).status).toBe(200);
+      }
+      expect(startInteractiveAuth).toHaveBeenCalledWith(
+        input,
+        expect.objectContaining({
+          userId: "usr_repr_card_vault_user",
+          authenticationMethod: "magic-link",
+        }),
+      );
+      expect((await consume()).status).toBe(401);
+    },
+  );
 
   it("does not expose the synthetic bearer, token or link in console/stdout", async () => {
     const output: string[] = [];

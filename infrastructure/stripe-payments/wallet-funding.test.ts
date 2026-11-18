@@ -39,8 +39,9 @@ describe("wallet funding Stripe contract (synthetic responses only)", () => {
     expect(form.get("amount")).toBe("1061");
     expect(form.get("metadata[purpose]")).toBe("wallet-funding");
     expect(form.get("payment_method_options[card][request_three_d_secure]")).toBe("any");
-    expect(form.get("payment_method_types[0]")).toBe("card");
-    expect(form.has("payment_method_types[1]")).toBe(false);
+    expect(form.get("allowed_payment_method_types[0]")).toBe("card");
+    expect(form.has("allowed_payment_method_types[1]")).toBe(false);
+    expect([...form.keys()].some((key) => key.startsWith("payment_method_types"))).toBe(false);
     expect(form.has("transfer_data[destination]")).toBe(false);
   });
   it.each(["pending", "failed", "canceled", "succeeded"])(
@@ -136,8 +137,9 @@ describe("wallet-funding-card-cohort (synthetic responses only, not provider met
     const created = await gateway().createPaymentSession(input);
     const [url, init] = fetch.mock.calls[0];
     const form = new URLSearchParams(String(init?.body));
+    expect([...form.keys()].some((key) => key.startsWith("payment_method_types["))).toBe(false);
     const methodTypes = [...form.keys()]
-      .filter((key) => key.startsWith("payment_method_types["))
+      .filter((key) => key.startsWith("allowed_payment_method_types["))
       .map((key) => form.get(key));
     return {
       created,
@@ -203,7 +205,7 @@ describe("wallet-funding-card-cohort (synthetic responses only, not provider met
     const { url, form, methodTypes } = await capture(walletRequest(patch));
     expect(url).toBe("https://stripe.synthetic.test/v1/payment_intents");
     expect(methodTypes).toEqual(["card"]);
-    expect(form.has("payment_method_types[1]")).toBe(false);
+    expect(form.has("allowed_payment_method_types[1]")).toBe(false);
     expect([...form.keys()].some((key) => key.startsWith("automatic_payment_methods"))).toBe(false);
     expect(form.has("confirm")).toBe(false);
   });

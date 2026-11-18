@@ -13,6 +13,7 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import type { ListingPhotoStorage } from "./index";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
+import type { ListingTargetAuthority } from "../../features/listings/api/target-contracts";
 import {
   createInventoryDraftListingConsumer,
   type InventoryDraftListingConsumer,
@@ -37,6 +38,7 @@ import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 export type MarketplaceServiceOptions = Readonly<{
+  listingTargetAuthority?: ListingTargetAuthority;
   managedOfferPricing?: ManagedOfferPricing;
   offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
   commercialTermsResolver?: CommercialTermsResolver;
@@ -86,6 +88,7 @@ export function createMarketplaceServices(
   const policies = createPolicyRuntime({ eventStore, db });
   const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
   const deps = {
+    ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
     eventStore,
     checkpointStore,
     db,

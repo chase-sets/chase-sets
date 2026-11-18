@@ -526,6 +526,7 @@ export function integrationJobSummary(
 ): CatalogIntegrationRecentJobSummary {
   return {
     jobId: "job_001",
+    syncRunId: null,
     action: "import",
     operatorStatus: "running",
     phase: "processing",

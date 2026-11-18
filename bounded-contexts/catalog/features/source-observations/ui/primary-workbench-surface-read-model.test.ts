@@ -84,6 +84,74 @@ const dailyRenderedActionKeys = [
 ] as const;
 
 describe("Catalog primary workbench read model - per-surface slicing", () => {
+  it("adds only journey-member health on a verified Scope path and never reads its audit or budget poison", () => {
+    const input = fullSurfaceInput("workbench");
+    const overview = input.controlPlaneOverview;
+    let providerDiagnosticReads = 0;
+    const dailyOverview = {
+      ...overview,
+      auditLifecycle: poisoned("Scope auditLifecycle"),
+      providerReadiness: {
+        ...overview.providerReadiness,
+        providers: overview.providerReadiness.providers.map((row) => ({
+          ...row,
+          usageBudget: poisoned("Scope usageBudget"),
+          get diagnostics() {
+            providerDiagnosticReads += 1;
+            return row.diagnostics;
+          },
+        })),
+      },
+    };
+    const requestUrl =
+      String(input.requestUrl).replace("/catalog/integrations?", "/catalog/scopes/scope-base?") +
+      "&scopeRecordId=scope-base";
+    const scoped = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      ...input,
+      requestUrl,
+      controlPlaneOverview: dailyOverview,
+      profileAuthoringModel: poisoned("Scope authoring"),
+      lifecycleImpacts: poisoned("Scope lifecycle"),
+    });
+    const scopedDiagnosticReads = providerDiagnosticReads;
+    expect(scopedDiagnosticReads).toBeGreaterThan(0);
+    expect(scoped.healthTriage.units.map((unit) => unit.unitKey)).toEqual(["tcgdex:pokemon:card:import"]);
+    expect(scoped.healthTriage.providers).toEqual([]);
+    expect(scoped.healthTriage.rolloutControls).toEqual([]);
+    expect(scoped.healthTriage.auditPreview.entries).toEqual([]);
+    expect(scoped.healthTriage.readModels.map((row) => row.queryKey)).toEqual([
+      "integration-health-summary",
+      "import-job-progress-summary",
+    ]);
+    expect(scoped.profileAuthoring.availableProfiles).toEqual([]);
+    const daily = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      ...input,
+      controlPlaneOverview: dailyOverview,
+    });
+    expect(providerDiagnosticReads - scopedDiagnosticReads).toBe(scopedDiagnosticReads);
+    expect(daily.healthTriage.units).toEqual([]);
+    const queryOnly = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      ...input,
+      requestUrl: `${input.requestUrl}&scopeRecordId=scope-base`,
+      controlPlaneOverview: dailyOverview,
+    });
+    expect(queryOnly.healthTriage.units).toEqual([]);
+  });
+  it("computes only audit supporting data on daily evidence demand without touching authoring or lifecycle poison", () => {
+    const input = fullSurfaceInput("workbench");
+    const model = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      ...input,
+      requestUrl: `${input.requestUrl}&evidenceRef=source-observation/obs_001`,
+      profileAuthoringModel: poisoned("profileAuthoringModel"),
+      lifecycleImpacts: poisoned("lifecycleImpacts"),
+    });
+    expect(model.auditEvidence.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+    expect(model.auditEvidence.timeline.map((row) => row.observationId)).toEqual(["obs_001"]);
+    expect(model.profileAuthoring.availableProfiles).toEqual([]);
+    expect(model.validationReadiness.dryRunEvidence).toEqual([]);
+    expect(model.lifecycleRecovery.recentAuditEvents).toEqual([]);
+    expect(model.governanceControls.freshness).toBe("partial");
+  });
   it("validates a read model for every audience surface route", () => {
     for (const surface of ["daily", "governance", "health"] as const) {
       const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(surface, fullSurfaceInput("workbench"));

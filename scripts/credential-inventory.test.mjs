@@ -63,7 +63,17 @@ describe("credential inventory check (AC1)", () => {
   it("passes on the repository inventory, workflows and actions", () => {
     expect(checkCredentialInventory(resolve("."))).toEqual([]);
     const { inventory } = validateCredentialInventory(repositoryInventory);
-    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(13);
+    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(15);
+    for (const secret of ["STRIPE_WEBHOOK_SECRET_PREVIOUS", "STRIPE_WEBHOOK_DELIVERY_CAPTURE"]) {
+      expect(inventory.entries.find(({ name }) => name === secret)).toMatchObject({
+        scope: ["production"],
+        kind: "credential",
+        rotation: "assisted",
+        maxAgeDays: 365,
+        optional: true,
+      });
+      expect(inventory.agentTier.keys.map(({ name }) => name)).not.toContain(secret);
+    }
   });
 
   it("names a referenced secret that has no entry", () => {

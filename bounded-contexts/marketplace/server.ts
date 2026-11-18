@@ -1,4 +1,6 @@
 export { listingFormAttempt, listingCommandInput } from "./support/request-support/listing-attempt";
+export { submitReviewReport } from "./support/route-support/review-report-action";
+export { submitListingReport } from "./support/route-support/listing-report-action";
 export type { MarketplaceApiClient, MarketplaceCreateListingInput } from "./client";
 export {
   createMarketplaceApiClient,
@@ -138,3 +140,17 @@ export {
   createMarketplaceSellerAvailabilityRestoreSweepRunners,
   createMarketplaceSellerAwayWindowStartSweepRunners,
 } from "./support/runtime-support/worker-jobs";
+export { createMarketplaceListingConsumer } from "./features/listings/api/listing-consumer";
+export { ListingRequestConflictError } from "./features/listings/api/listing-request";
+export { ListingTargetCommandError } from "./features/listings/api/target-contracts";
+export type {
+  ListingTargetAuthority,
+  ListingTargetPrincipal,
+  ListingAuthorizationEvidence,
+  ListingTargetServices,
+  AcceptListingTargetPriceInput,
+  ActivateListingForChannelInput,
+  ListingTargetPriceAcceptanceResult,
+  ListingMutationResult,
+  AcceptedListingTargetPriceRead,
+} from "./features/listings/api/target-contracts";

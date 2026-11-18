@@ -201,7 +201,7 @@ const workflowLintScriptPatterns = [
 // "will this promote to staging/production" release-status signal), which
 // must not widen just because the cluster-preview surface widens.
 const clusterPreviewScriptPatterns = [
-  /^scripts\/doks-/,
+  /^scripts\/doks-(?!.*\.(?:test|spec)\.[^/]+$)/,
   /^scripts\/digitalocean-(?!.*\.(?:test|spec)\.[^/]+$)/,
   /^scripts\/platform-kubernetes-deployment\.mjs$/,
   /^scripts\/platform-kubernetes-secret\.mjs$/,

@@ -3,6 +3,7 @@
 // mounts the Offer Match decline attempt provider above the Offer Match routes.
 export { OfferMatchDeclineAttemptProvider } from "../../features/offers/ui/offer-match-decline-attempt-provider";
 export { ReviewReportAction, type ReviewReportResult } from "../../features/reviews/ui/review-report-action";
+export { ReviewMutationForm } from "../../features/reviews/ui/review-mutation-form";
 export {
   ReviewScoringContext,
   type PublicReviewScoringContext,

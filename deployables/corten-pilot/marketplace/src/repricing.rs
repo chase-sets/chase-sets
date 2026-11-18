@@ -30,10 +30,22 @@
 //!
 //! A policy's own page and its activity are `repricing_policy`, which a policy's name opens; its
 //! Edit revises the policy with the structured and advanced editors too (`repricing_body`).
+//!
+//! Each write is a configuration request (chase-sets/chase-sets#11459's receipts): Pricing installs
+//! it, or records it as pending, or answers that a later request replaced it. An installed write
+//! goes on as before; one that is not is drawn where it was posted with marketplace's message
+//! (`repricingConfigurationMessage`), and an editor stays open. The list also says what each request
+//! Pricing has not installed is (`configuration-requests`; if that read fails, the list says it
+//! could not load and the halt's switch is off, as marketplace's `haltFailed`). Every posted form
+//! sends its `SubmitKey` as the request's `Idempotency-Key`, and an editor drawn again after a
+//! request that is not installed holds the key it sent, so sending it again is the same request. The
+//! create editor's controls are a GET form, which cannot carry a key without putting it in the
+//! address, so its Activate sends none and Pricing makes one up: a second Activate is a new request
+//! that replaces the first.
 use std::time::Duration;
 
 use corten::{
-    LiveResponse,
+    LiveResponse, SubmitKey,
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
@@ -43,9 +55,9 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{
-        ApiError, PRICING_CONTEXT, PricingRefusal, RepricingCalls as _, RepricingCategory, RepricingDryRun, RepricingHalt,
-        RepricingPolicyRow, RepricingPrerequisites, RepricingScope, RepricingScopePreview, RepricingTrace,
-        repricing_dry_run_events,
+        ApiError, ConfigurationReceipt, Configured, PRICING_CONTEXT, PricingRefusal, RepricingCalls as _, RepricingCategory,
+        RepricingDryRun, RepricingHalt, RepricingPolicyRow, RepricingPrerequisites, RepricingScope, RepricingScopePreview,
+        RepricingTrace, repricing_dry_run_events,
     },
     app::{PRICING_MANAGE, Shared, sign_in, url},
     auth::{PricingManager, Viewer},
@@ -402,6 +414,8 @@ pub struct EditorScreen {
     pub run: Option<DryRunView>,
     /// What Pricing refused the last post for.
     pub errors: Vec<String>,
+    /// Activate's request, when Pricing did not install it.
+    pub requested: Option<Unsettled>,
 }
 
 /// The editor, or that it could not read what it starts from (`authoring-prerequisites`,
@@ -417,21 +431,53 @@ pub enum EditorPart {
 pub struct RepricingScreen {
     pub policies: Policies,
     pub halt: RepricingHalt,
-    /// The halt could not be read: its switch is off and the list says it could not load.
+    /// The halt, or the requests not installed, could not be read: the halt's switch is off and the
+    /// list says it could not load.
     pub halt_failed: bool,
     pub dry_runs: Vec<RepricingDryRun>,
     pub editor: Option<EditorPart>,
     /// What a list write was refused for: the message and Pricing's details.
     pub refusal: Option<(String, Vec<String>)>,
+    /// A list write's request Pricing did not install.
+    pub requested: Option<ConfigurationReceipt>,
+    /// The account's other requests Pricing has not installed.
+    pub requests: Vec<ConfigurationReceipt>,
     /// The reader may change policies and the halt (`pricing.manage`).
     pub manage: bool,
 }
 
-/// What a post's refusal puts on the page.
+/// A write Pricing recorded and did not install (pending, or replaced by a later request), and the
+/// attempt the form sent it as, which the editor's form holds again.
+#[derive(Clone, Debug)]
+pub struct Unsettled {
+    pub receipt: ConfigurationReceipt,
+    pub attempt: Option<SubmitKey>,
+}
+
+/// What marketplace says of a configuration request (`repricingConfigurationMessage`).
+pub fn configuration_message(t: RepricingMsg, receipt: &ConfigurationReceipt) -> String {
+    let revision = receipt.requested_revision().to_string();
+    match receipt {
+        ConfigurationReceipt::Applied { .. } => t.shared_configuration_applied(&revision).to_string(),
+        ConfigurationReceipt::AcceptedPending { .. } => t.shared_configuration_accepted_pending(&revision).to_string(),
+        ConfigurationReceipt::SupersededByRevision { replacing_revision, .. } => t
+            .shared_configuration_superseded_by_revision(crate::text::repricing_msg::SharedConfigurationSupersededByRevision {
+                revision: &revision,
+                replacement: &replacing_revision.to_string(),
+            })
+            .to_string(),
+    }
+}
+
+/// What a post's refusal, or its request Pricing did not install, puts on the page.
 enum Refused {
     None,
     List(String, Vec<String>),
     Editor(Vec<String>),
+    /// A list write's request.
+    Requested(ConfigurationReceipt),
+    /// The create editor's Activate's request: the editor stays open.
+    EditorRequested(Unsettled),
 }
 
 /// The session ended: the seller signs in again.
@@ -485,6 +531,7 @@ async fn editor(
     place: &Place,
     input: &EditorInput,
     errors: Vec<String>,
+    requested: Option<Unsettled>,
 ) -> Result<EditorPart, ApiError> {
     let caller = config.platform.caller(headers, config.proto, None);
     let (facts, categories) = tokio::join!(caller.repricing_prerequisites(), caller.repricing_categories());
@@ -528,7 +575,7 @@ async fn editor(
         }
         None => None,
     };
-    Ok(EditorPart::Ready(Box::new(EditorScreen { editor, facts, categories, preview, run, errors })))
+    Ok(EditorPart::Ready(Box::new(EditorScreen { editor, facts, categories, preview, run, errors, requested })))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -546,9 +593,17 @@ async fn render(
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
     let caller = config.platform.caller(headers, config.proto, None);
-    let (policies, halt, dry_runs) =
-        tokio::join!(waiting.repricing_policies(), caller.repricing_halt(), caller.repricing_dry_runs(20));
-    if [policies.as_ref().err(), halt.as_ref().err(), dry_runs.as_ref().err()].into_iter().flatten().any(ended) {
+    let (policies, halt, dry_runs, requests) = tokio::join!(
+        waiting.repricing_policies(),
+        caller.repricing_halt(),
+        caller.repricing_dry_runs(20),
+        caller.repricing_configuration_requests(),
+    );
+    if [policies.as_ref().err(), halt.as_ref().err(), dry_runs.as_ref().err(), requests.as_ref().err()]
+        .into_iter()
+        .flatten()
+        .any(ended)
+    {
         return sign_in(req);
     }
     let policies = match policies {
@@ -565,14 +620,26 @@ async fn render(
     if let Err(error) = &halt {
         tracing::warn!("the repricing halt could not be read: {error}");
     }
-    let halt_failed = halt.is_err();
+    if let Err(error) = &requests {
+        tracing::warn!("the repricing configuration requests could not be read: {error}");
+    }
+    let halt_failed = halt.is_err() || requests.is_err();
     let halt = halt.unwrap_or_default();
     let dry_runs = dry_runs.unwrap_or_default();
-    let (refusal, errors) = match refused {
-        Refused::None => (None, Vec::new()),
-        Refused::List(message, details) => (Some((message, details)), Vec::new()),
-        Refused::Editor(errors) => (None, errors),
+    let (refusal, errors, requested, editor_requested) = match refused {
+        Refused::None => (None, Vec::new(), None, None),
+        Refused::List(message, details) => (Some((message, details)), Vec::new(), None, None),
+        Refused::Editor(errors) => (None, errors, None, None),
+        Refused::Requested(receipt) => (None, Vec::new(), Some(receipt), None),
+        Refused::EditorRequested(unsettled) => (None, Vec::new(), None, Some(unsettled)),
     };
+    // This post's request is said once, by the post (marketplace's filter on its `requestKey`).
+    let posted = requested.as_ref().or(editor_requested.as_ref().map(|unsettled| &unsettled.receipt));
+    let requests = requests
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| !request.applied() && posted.is_none_or(|posted| posted.request_key() != request.request_key()))
+        .collect();
     let editor = if let Some(revise) = opened {
         match opened_part(config, headers, revise).await {
             Ok(part) => Some(part),
@@ -580,7 +647,7 @@ async fn render(
         }
     } else if place.editing() {
         let input = input.unwrap_or_else(|| place.input());
-        match editor(req, config, headers, place, &input, errors).await {
+        match editor(req, config, headers, place, &input, errors, editor_requested).await {
             Ok(part) => Some(part),
             Err(_) => return sign_in(req),
         }
@@ -589,7 +656,7 @@ async fn render(
     };
     let catching_up = matches!(policies, Policies::CatchingUp);
     let manage = viewer.actor.can(PRICING_MANAGE);
-    let screen = RepricingScreen { policies, halt, halt_failed, dry_runs, editor, refusal, manage };
+    let screen = RepricingScreen { policies, halt, halt_failed, dry_runs, editor, refusal, requested, requests, manage };
     let t: RepricingMsg = req.t();
     let head = html! {
         <meta name="description" content={t.route_meta_description()}>
@@ -626,6 +693,17 @@ async fn list_refused(
 ) -> HtmlResult {
     let refused = Refused::List(message.to_owned(), details);
     render(req, viewer, config, headers, &Place::default(), None, refused, None, StatusCode::UNPROCESSABLE_ENTITY).await
+}
+
+/// The list again with a write's request Pricing did not install.
+async fn list_requested(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    receipt: ConfigurationReceipt,
+) -> HtmlResult {
+    render(req, viewer, config, headers, &Place::default(), None, Refused::Requested(receipt), None, StatusCode::OK).await
 }
 
 /// The editor again at `place` with what its post was refused for (422).
@@ -731,8 +809,14 @@ async fn opened(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
                 return again(revise, StatusCode::UNPROCESSABLE_ENTITY, vec![refusal.to_owned()]).await;
             }
             let name = candidate["name"].as_str().unwrap_or_default().trim().to_owned();
-            match caller.create_repricing_policy(&run_id, &name).await {
-                Ok(receipt) => req.redirect(&url::Repricing { place: Place::list(receipt.as_ref()) }),
+            match caller.create_repricing_policy(form.attempt.as_ref().map(SubmitKey::as_str), &run_id, &name).await {
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
+                }
+                Ok(Configured { receipt, .. }) => {
+                    revise.requested = Some(Unsettled { receipt, attempt: form.attempt.clone() });
+                    again(revise, StatusCode::OK, Vec::new()).await
+                }
                 Err(refusal) => match messages(req, refusal, t.route_action_failed()) {
                     Ok(errors) => again(revise, StatusCode::UNPROCESSABLE_ENTITY, errors).await,
                     Err(answer) => *answer,
@@ -759,20 +843,25 @@ pub(crate) async fn write(
     if form.tier.is_some() {
         return opened(&req, &viewer, &config, &headers, &form).await;
     }
+    let attempt = form.attempt.as_ref().map(SubmitKey::as_str);
     match form.intent.as_str() {
         intent @ ("pause-policy" | "resume-policy") => {
             let change = if intent == "pause-policy" { "pause" } else { "resume" };
-            match caller.repricing_lifecycle(form.policy_id.trim(), change).await {
-                Ok(receipt) => req.redirect(&url::Repricing { place: Place::list(receipt.as_ref()) }),
+            match caller.repricing_lifecycle(attempt, form.policy_id.trim(), change).await {
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
+                }
+                Ok(Configured { receipt, .. }) => list_requested(&req, &viewer, &config, &headers, receipt).await,
                 Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
                     Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details).await,
                     Err(answer) => *answer,
                 },
             }
         }
-        intent @ ("engage-halt" | "release-halt") => match caller.set_repricing_halt(intent == "engage-halt").await {
+        intent @ ("engage-halt" | "release-halt") => match caller.set_repricing_halt(attempt, intent == "engage-halt").await {
             // The halt is its own aggregate, read without a receipt (as marketplace's redirect).
-            Ok(_) => req.redirect(&url::Repricing { place: Place::default() }),
+            Ok(Configured { receipt, .. }) if receipt.applied() => req.redirect(&url::Repricing { place: Place::default() }),
+            Ok(Configured { receipt, .. }) => list_requested(&req, &viewer, &config, &headers, receipt).await,
             Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
                 Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details).await,
                 Err(answer) => *answer,
@@ -828,8 +917,17 @@ pub(crate) async fn write(
                 let errors = vec![refusal.to_owned()];
                 return editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors).await;
             }
-            match caller.create_repricing_policy(run_id, &editor.name).await {
-                Ok(receipt) => req.redirect(&url::Repricing { place: Place::list(receipt.as_ref()) }),
+            // The address editor's form is a GET form and holds no attempt (the module's doc).
+            match caller.create_repricing_policy(attempt, run_id, &editor.name).await {
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
+                }
+                Ok(Configured { receipt, .. }) => {
+                    let place = editor.place(Some(run_id));
+                    let input = place.input();
+                    let requested = Refused::EditorRequested(Unsettled { receipt, attempt: None });
+                    render(&req, &viewer, &config, &headers, &place, Some(input), requested, None, StatusCode::OK).await
+                }
                 Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
                     Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors).await,
                     Err(answer) => *answer,

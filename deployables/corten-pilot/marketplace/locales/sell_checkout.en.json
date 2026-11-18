@@ -194,6 +194,7 @@
   "route.validation.review.plan.required": "Return to the Sell List and refresh the reviewed sale plan before confirming.",
   "route.confirmation.line.completed": "{itemTitle}: sale review recorded.",
   "route.confirmation.line.partial": "{itemTitle}: sale review recorded for part of the line; remaining quantity stays in the Sell List.",
+  "route.handoff.not.attempted": "Not attempted.",
   "policy.description": "Review checkout policies before continuing.",
   "policy.label": "Checkout policies",
   "policy.privacy": "Privacy policy",

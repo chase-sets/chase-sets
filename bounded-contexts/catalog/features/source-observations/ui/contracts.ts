@@ -290,6 +290,7 @@ export interface CatalogIntegrationUnitActivity {
 
 export interface CatalogIntegrationRecentJobSummary {
   jobId: string;
+  syncRunId: string | null;
   action: SourceObservationIntegrationJobAction;
   operatorStatus: SourceObservationIntegrationJobOperatorStatus;
   phase: SourceObservationIntegrationJobPhase;

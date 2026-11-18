@@ -1,8 +1,9 @@
 //! A policy's page (`PolicyConsoleDetailPage`). Top to bottom: the header (its context, key and
 //! schema), the publication runbook, what is in effect and what is scheduled (side by side from
 //! 48rem), the revision form for an operator who may revise, and the revision history (a table that
-//! stacks on a phone, a row a block of labelled lines).
-use corten::prelude::*;
+//! stacks on a phone, a row a block of labelled lines). The revision form's times are drawn in
+//! `zone`, named under each field, and the form sends it back.
+use corten::{form::DrawZone, prelude::*};
 use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::{status, when};
@@ -31,7 +32,7 @@ fn Pair<'a>(term: &'a str, value: String) -> impl Render {
 }
 
 #[component(css)]
-pub fn PolicyDetailPage<'a>(o: Ops, here: &'a Here, screen: &'a PolicyScreen) -> impl Render {
+pub fn PolicyDetailPage<'a>(o: Ops, here: &'a Here, zone: &'a DrawZone, screen: &'a PolicyScreen) -> impl Render {
     let f = RevisionForm::FIELDS;
     let overview = &screen.overview;
     let current = &overview.current;
@@ -96,6 +97,7 @@ pub fn PolicyDetailPage<'a>(o: Ops, here: &'a Here, screen: &'a PolicyScreen) ->
                             <textarea name={f.value} rows="10" required spellcheck="false">{&form.value}</textarea>
                         </label>
                         <div class={Fields}>
+                            {zone.field(f.zone)}
                             <label class={Field}>
                                 <span>{o.policy_detail_status_label()}</span>
                                 <select name={f.status}>
@@ -111,11 +113,13 @@ pub fn PolicyDetailPage<'a>(o: Ops, here: &'a Here, screen: &'a PolicyScreen) ->
                                 <span>{o.policy_detail_effective_from_label()}</span>
                                 <small>{o.policy_detail_effective_from_description()}</small>
                                 <input type="datetime-local" name={f.effective_from} value={&form.effective_from}>
+                                <small>{zone.name()}</small>
                             </label>
                             <label class={Field}>
                                 <span>{o.policy_detail_effective_until_label()}</span>
                                 <small>{o.policy_detail_effective_until_description()}</small>
                                 <input type="datetime-local" name={f.effective_until} value={&form.effective_until}>
+                                <small>{zone.name()}</small>
                             </label>
                         </div>
                         <button class={Button} type="submit">{o.policy_detail_revise_submit()}</button>

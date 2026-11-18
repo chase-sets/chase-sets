@@ -11,9 +11,9 @@ import { parseCLI } from "vitest/node";
  * which execution unit, what each case costs on the hosted DB Profile Tests
  * job, and what each case asserts.
  *
- * `referenceDurationMs` values are the per-case durations reported by the
- * accepted measurement named below or in `bootstrapDbScheduleModel`,
- * ceiling-rounded per case.
+ * Historical `referenceDurationMs` values retain their ceiling-rounded capture
+ * durations. New partitions label their estimates explicitly. Enrollment is
+ * structural; normal exact-head hosted DB CI supplies product proof.
  *
  * `identity` is a digest of the case's own parsed arguments after its name —
  * its callback and its per-case timeout, if any. It therefore covers every
@@ -507,7 +507,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "recreates only a missing review-eligible payment after a sibling payment has completed",
         referenceDurationMs: 90037,
-        identity: "68188141fd171819",
+        identity: "397256a962666c96",
       },
     ],
   },
@@ -521,15 +521,12 @@ export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
 });
 
 /**
- * Measured timing inputs, complete provenance, and residuals are in the
- * bootstrap-db-capture fixture named by referenceRunId. Every manifested
- * bootstrap callback and non-bootstrap census file passed on its frozen source.
- * Each case reference is ceil(observed passing duration), never a copied cost.
+ * Historical timing inputs, provenance, and residuals remain in the
+ * bootstrap-db-capture fixture named by referenceRunId. Newly enrolled
+ * partitions label reference estimates rather than claiming measured duration.
  * File/unit fixed costs use ceil(max(0, observed residuals)), including zero
  * only when every measured residual at that level is nonpositive.
- * This measured source assignment remains minimal under unchanged limits;
- * normal final-head DB CI owns product qualification.
- * Historical captures remain immutable; normal final-head DB CI owns qualification.
+ * Historical captures remain immutable; normal exact-head DB CI owns qualification.
  */
 export const bootstrapDbScheduleModel = Object.freeze({
   referenceRunId: 41551303861,
@@ -556,6 +553,7 @@ export const platformApiNonBootstrapDbCensus = Object.freeze({
   referenceRunId: 41551303861,
   referenceJobId: 125639537134,
   entries: {
+    "__tests__/listing-channel-activation-composition.db.test.ts": "test:db:1",
     "__tests__/operator-session/operator-session-grant-mint.db.test.ts": "test:db:2",
     "__tests__/operator-session/operator-session-grant-scope.db.test.ts": "test:db:2",
     "__tests__/seed-command-catalog.db.test.ts": "test:db:2",

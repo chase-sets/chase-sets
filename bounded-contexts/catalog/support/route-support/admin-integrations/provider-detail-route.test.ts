@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { providerDetailAction } from "./provider-detail-action";
 import { loadProviderDetail } from "./provider-detail-loader";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../../features/source-observations/ui/primary-workbench-read-model";
+import { controlPlaneOverview } from "../../../features/source-observations/ui/primary-workbench-test-fixtures";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../authoring-support/api";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -98,50 +99,70 @@ describe("provider detail route support", () => {
     },
   );
 
-  it("forwards health answers through the real loader and HTTP client adapter unchanged", async () => {
-    const url =
-      "https://admin.example/catalog/providers/tcgplayer?providerKey=tcgdex&profileVersion=selected&jobId=job-a";
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl: url,
-      scopes: { items: [], count: 0, total: 0 },
-      profileReviews: { items: [], count: 0, total: 0 },
-      controlPlaneOverview: null,
-      canManageCatalog: false,
-    });
-    const answer = {
-      readModel,
-      readModelFailures: [],
-      catalogSyncScope: null,
-      providerRefreshSchedules: [schedule("api-only")],
-      operatorSession: true,
-      operatorSessionActorKey: "api-user:api-membership",
-    };
-    const locations: string[] = [];
-    const api = createCatalogApiClient({
-      baseUrl: "https://catalog.test",
-      fetch: async (input, init) => {
-        const request = new Request(input, init);
-        const location = new URL(request.url).searchParams.get("location");
-        if (location) locations.push(location);
-        return Response.json(answer);
-      },
-    });
-    mockCreateCatalogRequestApiClient.mockReturnValue({ ...api, recordCatalogControlPlaneEvent: undefined });
-    const actual = await vi.importActual<typeof import("./integrations-loader-support")>(
-      "./integrations-loader-support",
-    );
-    mockLoadHealthSurface.mockImplementationOnce(actual.loadHealthSurface);
-    const result = await loadProviderDetail({ ...loaderArgs("tcgplayer"), request: new Request(url) });
-    expect(locations).toEqual([new URL(url).pathname + new URL(url).search]);
-    expect(result).toMatchObject({
-      readModel: JSON.parse(JSON.stringify(readModel)),
-      requestUrl: url,
-      providerRefreshSchedules: answer.providerRefreshSchedules,
-      operatorSession: true,
-      operatorSessionActorKey: answer.operatorSessionActorKey,
-    });
-    expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
-  });
+  it.each(["absent", "ready", "blocked"] as const)(
+    "forwards %s health answers through the real loader and HTTP client adapter unchanged",
+    async (state) => {
+      const url =
+        "https://admin.example/catalog/providers/tcgplayer?providerKey=tcgdex&profileVersion=selected&jobId=job-a";
+      const overview = controlPlaneOverview({ generatedAt: "2020-01-01T00:00:00.000Z" });
+      const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+        requestUrl: url,
+        scopes: { items: [], count: 0, total: 0 },
+        profileReviews: { items: [], count: 0, total: 0 },
+        controlPlaneOverview:
+          state === "absent"
+            ? null
+            : {
+                ...overview,
+                readiness: {
+                  ...overview.readiness,
+                  units: overview.readiness.units.map((unit) => ({ ...unit, semanticReadiness: state })),
+                },
+              },
+        canManageCatalog: false,
+      });
+      const answer = {
+        readModel,
+        readModelFailures: [],
+        catalogSyncScope: null,
+        providerRefreshSchedules: [schedule("api-only")],
+        operatorSession: true,
+        operatorSessionActorKey: "api-user:api-membership",
+      };
+      const locations: string[] = [];
+      const api = createCatalogApiClient({
+        baseUrl: "https://catalog.test",
+        fetch: async (input, init) => {
+          const request = new Request(input, init);
+          const location = new URL(request.url).searchParams.get("location");
+          if (location) locations.push(location);
+          return Response.json(answer);
+        },
+      });
+      mockCreateCatalogRequestApiClient.mockReturnValue({ ...api, recordCatalogControlPlaneEvent: undefined });
+      const actual = await vi.importActual<typeof import("./integrations-loader-support")>(
+        "./integrations-loader-support",
+      );
+      mockLoadHealthSurface.mockImplementationOnce(actual.loadHealthSurface);
+      const result = await loadProviderDetail({ ...loaderArgs("tcgplayer"), request: new Request(url) });
+      expect(locations).toEqual([new URL(url).pathname + new URL(url).search]);
+      expect(result).toMatchObject({
+        readModel: JSON.parse(JSON.stringify(readModel)),
+        requestUrl: url,
+        providerRefreshSchedules: answer.providerRefreshSchedules,
+        operatorSession: true,
+        operatorSessionActorKey: answer.operatorSessionActorKey,
+      });
+      expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
+      expect(result.readModel.healthTriage.freshness).toBe(state === "absent" ? "partial" : "fresh");
+      if (state === "absent") {
+        expect(result.readModel.healthTriage).toMatchObject({ status: "unavailable", units: [], providers: [] });
+      } else {
+        expect(result.readModel.healthTriage.generatedAt).toBe("2020-01-01T00:00:00.000Z");
+        expect(result.readModel.healthTriage.units[0]?.status).toBe(state);
+      }
+    },
+  );
 
   it("runs and pauses refreshes for the path provider without leaving its selected profile", async () => {
     const runCatalogProviderRefreshNow = vi.fn().mockResolvedValue({});

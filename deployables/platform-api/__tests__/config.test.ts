@@ -5148,15 +5148,18 @@ const CALLER_ARGUMENT_CONTROLS: readonly Readonly<{ name: string; replacement: s
 ];
 
 describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
-  it("reports exactly twelve calls, every argument an admitted tuple-member string literal", () => {
+  it("reports exactly thirteen calls, every argument an admitted tuple-member string literal", () => {
     const inventory = discoverLoaderCallers();
 
     expect(inventory.violations).toEqual([]);
-    expect(inventory.calls).toHaveLength(12);
-    expect(inventory.calls.filter((call) => call.argumentKind === "StringLiteral")).toHaveLength(12);
+    expect(inventory.calls).toHaveLength(13);
+    expect(inventory.calls.filter((call) => call.argumentKind === "StringLiteral")).toHaveLength(13);
     expect(inventory.calls.every((call) => call.admitted)).toBe(true);
     expect(inventory.calls.filter((call) => call.file.startsWith("deployables/platform-api/src/"))).toHaveLength(1);
     expect(inventory.calls.filter((call) => call.file.startsWith("deployables/platform-worker/src/"))).toHaveLength(1);
+    expect(inventory.calls.filter((call) => call.file === "scripts/platform-kubernetes-secret.test.mjs")).toHaveLength(
+      1,
+    );
     console.log(
       `[clause-1j] ${JSON.stringify({
         scannedFiles: inventory.scannedFiles,
@@ -5183,19 +5186,19 @@ describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
         overlay: new Map([[normalizeAnalysisPath(PLATFORM_API_CONFIG_PATH), mutated]]),
       });
 
-      expect(inventory.calls).toHaveLength(12);
+      expect(inventory.calls).toHaveLength(13);
       expect(inventory.violations).toHaveLength(1);
     });
   }
 
   for (const control of FUTURE_SITE_CONTROLS) {
-    it(`control ${control.name} raises the derived inventory from twelve to thirteen and is judged`, () => {
+    it(`control ${control.name} raises the derived inventory from thirteen to fourteen and is judged`, () => {
       const admitted = discoverLoaderCallers({ overlay: syntheticOverlay(control.files) });
-      expect(admitted.calls).toHaveLength(13);
+      expect(admitted.calls).toHaveLength(14);
       expect(admitted.violations).toEqual([]);
 
       const refused = discoverLoaderCallers({ overlay: syntheticOverlay(control.identifierFiles) });
-      expect(refused.calls).toHaveLength(13);
+      expect(refused.calls).toHaveLength(14);
       expect(refused.violations).toHaveLength(1);
       expect(refused.violations[0]).toContain("Identifier");
     });
@@ -5235,7 +5238,7 @@ describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
   });
 
   it("bare grep is only a lower bound and never the authority", () => {
-    // Every current call is directly spelled, so the bare-spelling lower bound agrees at twelve. The
+    // Every current call is directly spelled, so the bare-spelling lower bound agrees at thirteen. The
     // renamed and re-exported future-site controls above are the shapes it cannot see.
     const inventory = discoverLoaderCallers();
     const spelled = inventory.calls.filter((call) => call.callee.includes(LOADER_NAME));

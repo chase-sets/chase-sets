@@ -63,7 +63,7 @@ const columns = `run.dry_run_id AS "dryRunId", run.body, run.body_hash AS "bodyH
   run.completed_at::text AS "completedAt", run.consumed_at::text AS "consumedAt",
   run.summary, run.health, run.cursor, run.updated_at::text AS "updatedAt"`;
 
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
     return `{${Object.entries(value)

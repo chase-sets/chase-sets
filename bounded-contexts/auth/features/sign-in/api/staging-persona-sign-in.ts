@@ -14,6 +14,10 @@ export const STAGING_PERSONA_SIGN_IN_PATH = "/staging-persona-sign-in" as const;
 export const STAGING_PERSONA_MAGIC_LINK_PATH = "/sign-in/magic" as const;
 export const STAGING_PERSONA_CANONICAL_ORIGIN = linkIntentOrigins["marketplace-web"].staging;
 const stagingPersonaHost = new URL(STAGING_PERSONA_CANONICAL_ORIGIN).host;
+const stagingPersonaDestinations = {
+  marketplace: { origin: STAGING_PERSONA_CANONICAL_ORIGIN, path: STAGING_PERSONA_MAGIC_LINK_PATH },
+  admin: { origin: linkIntentOrigins["admin-web"].staging, path: "/access/sign-in/magic" },
+} as const;
 
 export type StagingPersonaAlias = "card-vault" | "sealed-stockroom";
 
@@ -69,6 +73,11 @@ function findPersona(alias: StagingPersonaAlias) {
   return STAGING_PERSONAS.find((persona) => persona.alias === alias) ?? null;
 }
 
+function readDestination(value: unknown) {
+  if (value === undefined || value === "marketplace") return stagingPersonaDestinations.marketplace;
+  return value === "admin" ? stagingPersonaDestinations.admin : null;
+}
+
 function originRefused(request: Request) {
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
@@ -103,10 +112,16 @@ export function registerStagingPersonaSignInRoutes(app: AuthApiApp, services: Au
     } catch {
       body = null;
     }
-    const alias = readAlias(body && typeof body === "object" ? (body as { alias?: unknown }).alias : undefined);
+    const input = body && typeof body === "object" ? (body as { alias?: unknown; destination?: unknown }) : null;
+    const alias = readAlias(input?.alias);
     const persona = alias ? findPersona(alias) : null;
     if (!persona) {
       return noStoreJson(c, { error: "alias-refused" }, 403);
+    }
+
+    const destination = readDestination(input?.destination);
+    if (!destination) {
+      return noStoreJson(c, { error: "destination-refused" }, 403);
     }
 
     const user = await services.identity.getUser(persona.userId);
@@ -139,7 +154,7 @@ export function registerStagingPersonaSignInRoutes(app: AuthApiApp, services: Au
       expiresAt,
     });
 
-    const link = `${STAGING_PERSONA_CANONICAL_ORIGIN}${STAGING_PERSONA_MAGIC_LINK_PATH}?token=${encodeURIComponent(token)}`;
+    const link = `${destination.origin}${destination.path}?token=${encodeURIComponent(token)}`;
     c.header("Cache-Control", "no-store");
     return c.json({ alias: persona.alias, link, expiresAt }, 200);
   });

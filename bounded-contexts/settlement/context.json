@@ -117,7 +117,7 @@
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
+  "allowedContextDependencies": ["@chase-sets/identity"],
   "seedRequirements": ["identity", "payments"],
   "eventSubscriptions": [
     {

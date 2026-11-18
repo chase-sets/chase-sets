@@ -1,12 +1,12 @@
 import { t } from "@chase-sets/localization";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { navigateAfterWriteFromSourcesWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
-import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type ActionFunctionArgs } from "react-router";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../../request-support/api-client";
 import type { GuestSellCheckoutActionState } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import type { SignedInSellCheckoutActionState } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
+import type { SellListPreparationRefusalReason } from "../../../features/sell-list/api/handoff-contracts";
 import {
   applySelectedSavedShipFromAddress,
   hasFieldErrors,
@@ -18,22 +18,33 @@ import {
   validateGuestSellCheckoutValues,
 } from "./sell-checkout-form";
 import {
-  buildSellerEvidence,
-  performMarketplaceHandoff,
-  SellListHandoffInterruptedError,
-} from "./sell-checkout-handoff";
-import {
   canUseSignedInSellCheckout,
   loadGuestSellCheckoutState,
   loadSignedInSellCheckoutState,
 } from "./sell-checkout-loader";
-import {
-  confirmationPathForSession,
-  confirmationIdForSession,
-  reviewedLinesForConfirmation,
-} from "./sell-checkout-readiness";
-import { SellListReviewPlanStaleError } from "./sell-checkout-types";
+import { confirmationPathForSession, confirmationIdForSession } from "./sell-checkout-readiness";
 import { SELLER_CHECKOUT_REGISTER_HREF } from "../../../features/sell-list/ui/registration-return";
+
+function sellerReadinessFieldErrors(reasons: unknown) {
+  const has = (reason: SellListPreparationRefusalReason) => Array.isArray(reasons) && reasons.includes(reason);
+  const errors: Extract<SignedInSellCheckoutActionState, { status: "error" }>["fieldErrors"] = {};
+  if (has("payout-setup-required")) {
+    errors.payoutMethod = t("checkout.routes.sellCheckoutSession.validation.payout.setup.required");
+  } else if (has("payout-unavailable")) {
+    errors.payoutMethod = t("checkout.routes.sellCheckoutSession.validation.payout.failed");
+  }
+  if (has("label-not-ready") && !has("ship-from-not-ready")) {
+    errors.labelPreference = t("checkout.routes.sellCheckoutSession.validation.label.failed");
+  }
+  if (has("risk-block")) {
+    errors.form = t("checkout.routes.sellCheckoutSession.validation.risk.block");
+  } else if (has("risk-hold")) {
+    errors.form = t("checkout.routes.sellCheckoutSession.validation.risk.hold");
+  } else if (!hasFieldErrors(errors)) {
+    errors.form = t("checkout.routes.sellCheckoutSession.validation.seller.readiness.failed");
+  }
+  return errors;
+}
 
 async function getExistingSellListConfirmation(
   api: ReturnType<typeof createCheckoutRequestApiClient>,
@@ -54,12 +65,17 @@ export async function action({
 }: ActionFunctionArgs): Promise<GuestSellCheckoutActionState | SignedInSellCheckoutActionState | Response> {
   const actor = await resolveActorFromAuthApi({ request });
   const formData = await request.formData();
-  const retainedFields = [...formData.entries()].filter(
-    (entry): entry is [string, string] => typeof entry[1] === "string",
-  );
   if (canUseSignedInSellCheckout(actor)) {
     const api = createCheckoutRequestApiClient(request);
     const submittedValues = signedInValuesFromFormData(formData);
+    const retainedFields = [...formData.entries()].filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === "string" &&
+        (Object.hasOwn(submittedValues, entry[0]) ||
+          entry[0] === "sessionId" ||
+          entry[0] === "readinessSnapshotId" ||
+          entry[0] === "readinessSourceRevision"),
+    );
     const sessionId = params.sessionId ?? createId("chk");
     const confirmationId = confirmationIdForSession(sessionId);
     let existingConfirmation;
@@ -92,9 +108,6 @@ export async function action({
     }
 
     const fieldErrors = validateSignedInSellCheckoutValues(values);
-    if (state.payoutSummary?.status !== "ready") {
-      fieldErrors.payoutMethod = t("checkout.routes.sellCheckoutSession.validation.payout.setup.required");
-    }
     if (hasFieldErrors(fieldErrors)) {
       return {
         status: "error",
@@ -115,9 +128,6 @@ export async function action({
 
     try {
       const readinessDecisions = state.readinessDecisions;
-      const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, state.reviewPlan);
-      const marketplaceApi = createMarketplaceRequestApiClient(request);
-      const sellerEvidence = buildSellerEvidence(values, state.payoutSummary);
       const choices = {
         shipFrom:
           values.shipFromAddressId === "__manual"
@@ -131,12 +141,13 @@ export async function action({
                 country: values.shipFromCountry,
               }
             : { addressId: values.shipFromAddressId },
-        label: { preference: sellerEvidence.label.preference },
+        label: {
+          preference: values.labelPreference === "seller-label-later" ? "seller-label-later" : "prepaid-label",
+        } as const,
       };
       const sellerReadiness = await api.createSellListReadiness({
         ...readinessDecisions,
         ...choices,
-        sellerEvidence,
         confirmationId,
         entryReadinessSnapshotId: state.readiness.snapshotId,
         entryReadinessSourceRevision: state.readiness.sourceRevision,
@@ -148,22 +159,12 @@ export async function action({
       ) {
         throw new Error(t("checkout.routes.sellCheckoutSession.validation.readiness.recovery"));
       }
-      const marketplaceHandoff = await performMarketplaceHandoff(
-        marketplaceApi,
-        confirmationId,
-        reviewedLines,
-        actor!.accountId,
-      );
       const confirmationBody = {
         confirmationId,
         readinessSnapshotId: sellerReadiness.readiness.snapshotId,
         readinessSourceRevision: sellerReadiness.readiness.sourceRevision,
         readinessDecisions,
-        completedLineIds: marketplaceHandoff.completedLineIds,
-        remainingLineQuantities: marketplaceHandoff.remainingLineQuantities,
         ...choices,
-        sellerEvidence,
-        handoffSummary: marketplaceHandoff.summary,
       };
       let result;
       try {
@@ -183,21 +184,34 @@ export async function action({
 
       return redirect(
         await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
-          [result, ...marketplaceHandoff.writeResults],
+          [result, ...result.sourceReceipts],
           confirmationPathForSession(state.sessionId),
         ),
       );
     } catch (error) {
-      if (error instanceof SellListHandoffInterruptedError) {
+      const apiError = error instanceof CheckoutApiError ? objectValue(objectValue(error.body)?.error) : null;
+      if (apiError?.code === "checkout_seller_not_ready") {
+        return { status: "error", values, fieldErrors: sellerReadinessFieldErrors(apiError.reasons) };
+      }
+      if (apiError?.code === "checkout_handoff_interrupted") {
+        const recovery = objectValue(apiError.recovery);
+        const lines = Array.isArray(apiError.lines)
+          ? apiError.lines.map(objectValue).filter((line): line is Record<string, unknown> => line !== null)
+          : [];
         return {
           status: "error",
           values,
-          fieldErrors: { form: error.message },
-          ...(error.reason instanceof SellListReviewPlanStaleError ? { recovery: error.reason.recovery } : {}),
+          fieldErrors: { form: error instanceof Error ? error.message : "" },
+          ...(recovery?.kind === "readiness-stale"
+            ? { recovery: { kind: "readiness-stale" as const, detail: String(recovery.detail ?? "") } }
+            : {}),
           attempt: {
             state: "partial",
             fields: retainedFields,
-            lines: error.lines.map((line) => ({ id: line.lineId, status: line.status })),
+            lines: lines.map((line) => ({
+              id: String(line.lineId),
+              status: line.status as "completed" | "partial" | "skipped" | "conflict" | "ambiguous" | "not-attempted",
+            })),
           },
         };
       }
@@ -212,17 +226,6 @@ export async function action({
           fieldErrors: { form: error.message },
         };
       }
-      if (error instanceof SellListReviewPlanStaleError) {
-        return {
-          status: "error",
-          values,
-          recovery: error.recovery,
-          fieldErrors: {
-            form: error.message,
-          },
-        };
-      }
-
       return {
         status: "error",
         values,

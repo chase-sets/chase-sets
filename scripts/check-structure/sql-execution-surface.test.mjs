@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterEach, describe, expect, it } from "vitest";
+import { formatSqlPartition, sqlPartitionPath } from "./sql-execution-surface-partition-format.mjs";
 import {
   SANCTIONED_SQL_RECEIVER_RESOLUTION,
   classifySqlExecutionSurface,
@@ -1041,15 +1042,12 @@ describe("repository-wide SQL execution partition", () => {
     );
   }, 120_000);
 
-  it("keeps the committed partition equal to fresh tracked-inventory classification", () => {
+  it("keeps the committed partition equal to fresh tracked-inventory classification", async () => {
     const files = listNonTestTypeScriptModules(repoRoot);
     const result = classify(files);
     expect(result.modules.map((module) => module.file)).toEqual(files);
     const actual = exceptionalSqlPartition(files, result);
-    const expected = readFileSync(
-      path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"),
-      "utf8",
-    );
-    expect(`${JSON.stringify(actual, null, 2)}\n`).toBe(expected);
+    const expected = readFileSync(sqlPartitionPath, "utf8");
+    expect(await formatSqlPartition(actual)).toBe(expected);
   }, 120_000);
 });

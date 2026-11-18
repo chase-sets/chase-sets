@@ -10,8 +10,8 @@ publish = false
 [workspace.dependencies]
 # Pinned to a Corten revision on purpose: it follows Corten's main, past the 0.2.0 release. Move it
 # forward as main moves; see README.md, "Corten pin".
-corten = { git = "https://github.com/corten-run/corten", rev = "36e55115851bfa68f9950728b3188465c0fca975", package = "corten-run", features = ["compress", "json"] }
-corten-ui = { git = "https://github.com/corten-run/corten", rev = "36e55115851bfa68f9950728b3188465c0fca975" }
+corten = { git = "https://github.com/corten-run/corten", rev = "9de7529fc3f723d80da1dc725f5d1555645cf67a", package = "corten-run", features = ["compress", "json", "zones"] }
+corten-ui = { git = "https://github.com/corten-run/corten", rev = "9de7529fc3f723d80da1dc725f5d1555645cf67a" }
 platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 futures-util = { version = "0.3", default-features = false }
@@ -29,10 +29,6 @@ time = { version = "0.3", default-features = false, features = ["std", "parsing"
 jiff = "0.2"
 uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
-# The access log's layer around each app (platform's access_log), as Corten's App::layer takes it.
-http-body = "1"
-tower-layer = "0.3"
-tower-service = "0.3"
 tower = { version = "0.5", features = ["util"] }
 
 # Thin LTO, as `corten new` writes it (corten-run/corten#952): about 1.7% fewer instructions per page

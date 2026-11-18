@@ -184,7 +184,7 @@ describe("release-tuple support deployment instance", () => {
       'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
     );
   });
-  it("renders the evidence-window admission key optional for api and worker and leaves other secrets required", () => {
+  it("renders only the evidence-window admission and Payments overlap keys optional for their consumers", () => {
     const keep = (name) => ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].includes(name);
     for (const component of ["platform-api", "platform-worker"]) {
       const env = render("release-a", "preview-a", [], undefined, component, false).filter((item) => !keep(item.name));
@@ -201,9 +201,15 @@ describe("release-tuple support deployment instance", () => {
           },
         },
       ]);
-      const required = env.filter((item) => item.valueFrom?.secretKeyRef && item.name !== windowKey[0].name);
-      expect(required.map((item) => item.name)).toContain("STRIPE_SECRET_KEY");
-      expect(required.filter((item) => "optional" in item.valueFrom.secretKeyRef)).toEqual([]);
+      const secretRefs = env.filter((item) => item.valueFrom?.secretKeyRef);
+      expect(
+        secretRefs.find((item) => item.name === "STRIPE_SECRET_KEY").valueFrom.secretKeyRef.optional,
+      ).toBeUndefined();
+      expect(secretRefs.filter((item) => "optional" in item.valueFrom.secretKeyRef).map(({ name }) => name)).toEqual(
+        component === "platform-api"
+          ? ["EVIDENCE_WINDOW_ADMISSION_SECRET", "STRIPE_WEBHOOK_SECRET_PREVIOUS"]
+          : ["EVIDENCE_WINDOW_ADMISSION_SECRET"],
+      );
     }
   });
   it("scopes the worker's Support evidence cleanup binding by the same release tuple", () => {
@@ -1248,6 +1254,31 @@ describe("platform Kubernetes deployment", () => {
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-4051" },
     });
     expect(previewArgs).not.toContain("observability.enabled=true");
+  });
+
+  it("refreshes production API pods after Secret apply even when redeploying the same image", () => {
+    const workflow = parseYaml(readFileSync(".github/workflows/platform-production.yml", "utf8"));
+    const steps = workflow.jobs["deploy-production"].steps;
+    const deploy = steps.find((step) => step.id === "production_kubernetes_deploy");
+    expect(steps.findIndex((step) => step.name === "Apply production Kubernetes runtime secrets")).toBeLessThan(
+      steps.indexOf(deploy),
+    );
+    expect(deploy.env.PRODUCTION_RUNTIME_SECRET_REVISION).toBe("${{ github.run_id }}-${{ github.run_attempt }}");
+    const args = (revision, environment = "production") =>
+      buildHelmUpgradeArgs({
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          DEPLOYMENT_ENVIRONMENT: environment,
+          OBSERVABILITY_ENABLED: "false",
+          PREVIEW_IDENTIFIER: "pr-42",
+        },
+        env: { PRODUCTION_RUNTIME_SECRET_REVISION: revision },
+      });
+    const annotation = "components.platform-api.podAnnotations.chase-sets\\.com/production-runtime-secret-revision=";
+    expect(args("1000-1")).toContain(`${annotation}1000-1`);
+    expect(args("1000-2")).toContain(`${annotation}1000-2`);
+    expect(args("1000-2", "preview").some((arg) => arg.startsWith(annotation))).toBe(false);
+    expect(() => args("invalid")).toThrow("Production runtime Secret revision must be a GitHub run ID and attempt.");
   });
 
   it("drives the exact workflow staging argv end-to-end and executes helm with the staging overlay", async () => {
@@ -3472,6 +3503,109 @@ describe("platform Kubernetes deployment", () => {
       const driftPasses = [1, 2, 3, 4, 5].flatMap((pass) => passRequests(pass, 2).slice(0, -1));
       const onePerPage = (total, runs) => runs.map((run) => page(total, [run]));
       const earlier = (run) => ({ ...run, created_at: "2026-10-31T07:59:00Z" });
+      const nonWriterMovement = (lists, hidden = dated(20)) => {
+        const final = lists.at(-1);
+        const boundary = final.map((run) => run.created_at).sort()[Math.floor(final.length / 2)];
+        const all = [...final, hidden];
+        const windows = Object.fromEntries(
+          ["<", ">="].map((operator) => {
+            const runs = all.filter((run) =>
+              operator === "<" ? run.created_at < boundary : run.created_at >= boundary,
+            );
+            return [`${operator}${boundary}`, [page(runs.length, runs)]];
+          }),
+        );
+        return lists.map((runs) => ({
+          in_progress: [page(runs.length + 1, runs), page(runs.length + 1, [])],
+          windows,
+        }));
+      };
+      const growingLists = [1, 2, 3, 4, 5].map((count) => [datedDeploy, ...datedBatch(1, count)]);
+
+      it.each([
+        ["start", growingLists],
+        ["finish", [...growingLists].reverse()],
+      ])(
+        "reconciles the missing run when only identified non-writers %s between shortfall passes",
+        async (_label, lists) => {
+          const { census, error, sleep, requests, evidence } = await readPasses(nonWriterMovement(lists));
+          expect(error).toBeUndefined();
+          expect(census.runs.map(({ id }) => id)).toEqual(
+            [...lists.at(-1).map(({ id }) => id), 20].sort((a, b) => a - b),
+          );
+          expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+          expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+          expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+          expect(requests.filter((request) => request.includes(":requested:1"))).toHaveLength(5);
+          expect(evidence()).toMatchObject({ outcome: "admitted", partitions: [{ status: "in_progress" }] });
+        },
+      );
+
+      it.each([
+        ["writer name at a non-writer path", { name: "Platform Deploy", head_sha: "b".repeat(40) }],
+        ["writer path with a non-writer name", { path: deployPath, head_sha: "b".repeat(40) }],
+        ["recovery writer", { name: "Platform Production Stale Helm Recovery", path: recoveryPath }],
+      ])("still refuses a hidden %s after non-writer movement", async (_label, overrides) => {
+        const { census, error } = await readPasses(nonWriterMovement(growingLists, dated(20, overrides)));
+        expect(error).toBeUndefined();
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([20, deploy.id]);
+        expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
+          "active or conflicting production writer",
+        );
+        expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
+          /only active writer; observed 2/,
+        );
+      });
+
+      it.each([
+        ["a possible writer in an earlier pass", { name: "Platform Deploy", head_sha: "b".repeat(40) }],
+        ["an unknown path", { path: undefined }],
+        ["a changed non-writer identity", { head_sha: "b".repeat(40) }],
+      ])("does not reconcile movement containing %s", async (_label, overrides) => {
+        const lists = growingLists.map((runs, index) =>
+          index === 0 ? runs.map((run) => (run.id === 1 ? { ...run, ...overrides } : run)) : runs,
+        );
+        const { census, error, requests } = await readPasses(nonWriterMovement(lists));
+        expect(census).toBeUndefined();
+        expect(error.message).toMatch(/^census-moving after 5 passes:/);
+        expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+      });
+
+      it("does not assume a counted but unlisted run is a non-writer after non-writer movement", async () => {
+        const passes = nonWriterMovement(growingLists);
+        for (const pass of passes) pass.windows = reconciled;
+        const { census, error } = await readPasses(passes);
+        expect(census).toBeUndefined();
+        expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:/);
+      });
+
+      it("refuses a recovered run whose writer path cannot be ruled out after non-writer movement", async () => {
+        const { census, error } = await readPasses(nonWriterMovement(growingLists, dated(20, { path: undefined })));
+        expect(census).toBeUndefined();
+        expect(error.message).toContain("window run 20 has an unknown writer identity");
+      });
+
+      it.each(["requested", "waiting"])(
+        "refuses an ambiguous run outside the partitioned status in %s after non-writer movement",
+        async (status) => {
+          const passes = nonWriterMovement(growingLists);
+          for (const pass of passes) pass[status] = [page(1, [dated(30, { status, path: undefined })])];
+          const { census, error } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:/);
+          expect(error.message).toContain("run 30 has an unknown writer identity");
+        },
+      );
+
+      it("refuses a changing unexplained count even when all listed movement is non-writers", async () => {
+        const passes = nonWriterMovement(growingLists);
+        passes[0].in_progress = [page(4, growingLists[0]), page(4, [])];
+        const { census, error, requests } = await readPasses(passes);
+        expect(census).toBeUndefined();
+        expect(error.message).toMatch(/^census-moving after 5 passes:/);
+        expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+      });
+
       // Captured identity of the provider-side queued ghost (marker-go-1030-r2.run-37642385358.json), unchanged.
       const ghost = {
         id: 37642385358,

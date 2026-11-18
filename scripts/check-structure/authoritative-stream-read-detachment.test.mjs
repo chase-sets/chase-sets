@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 27,
-      authoritativeSites: 25,
+      discoveredCallCandidates: 28,
+      authoritativeSites: 26,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives forty-two green grammar instances across thirty-seven live locations without a registry", () => {
+  it("derives forty-three green grammar instances across thirty-eight live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(42);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(37);
+    expect(green).toHaveLength(43);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(38);
     expect(
       green
         .filter((entry) => entry.file.includes("/inventory-items/api/stock-"))
@@ -747,6 +747,10 @@ const memberDeclarationSelectors = [
   [
     "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
     "writeDemandCurve.history.readStream",
+  ],
+  [
+    "bounded-contexts/pricing/features/repricing-policies/api/runtime.ts",
+    "createRepricingPolicyRuntime.transactionalStore.readStream",
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",

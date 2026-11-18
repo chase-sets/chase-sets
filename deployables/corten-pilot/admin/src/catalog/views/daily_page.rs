@@ -1851,7 +1851,7 @@ fn ReviewModule<'a>(
                     }
                 }
             </nav>
-            <AliasReviewPart t={t} p={p} action={&alias_action} review={aliases} failed={false} manage={manage} />
+            <AliasReviewPart t={t} p={p} action={&alias_action} review={aliases} failed={false} manage={manage} evidence={None} />
             <form id={EVIDENCE_OPEN} method="get" action={&daily_path} data-patch>
                 for (name, value) in &kept {
                     <input type="hidden" name={name.as_str()} value={value.as_str()}>

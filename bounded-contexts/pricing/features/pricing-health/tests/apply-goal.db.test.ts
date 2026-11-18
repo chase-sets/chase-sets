@@ -9,7 +9,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, initializeConfigurationConsumer } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
 import { buildCandidateBody } from "../api/goal-comparison";
 import { createPricingHealthRoutes } from "../api/route";
@@ -23,6 +23,10 @@ import {
 } from "./goal-comparison-db-fixture";
 import { dryRunContext, dryRunBody, seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import {
+  createRepricingConfigurationEpochStore,
+  repricingPolicyConfigurationKey,
+} from "../../repricing-policies/api/configuration";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -30,10 +34,14 @@ const describeDb = databaseBaseUrl ? describe : describe.skip;
 const now = "2026-10-20T00:00:00.000Z";
 
 describeDb("Pricing Health apply compared goal", () => {
-  let pools: Readonly<Record<"pricing", PgTransactionalPool>>;
+  let pools: Readonly<Record<"pricing" | "consumer", PgTransactionalPool>>;
 
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["pricing"], "pricing_apply_goal_9772");
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseBaseUrl!,
+      ["pricing", "consumer"],
+      "pricing_apply_goal_9772",
+    );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
   });
@@ -116,6 +124,19 @@ describeDb("Pricing Health apply compared goal", () => {
       dryRunContext,
     );
     expect(result).toMatchObject({ policyId: comparisonPolicyId, previousRevision: 1, revision: 2, dryRunId });
+    const replay = await comparisonTestServices(pools.pricing).health.applyGoal(
+      comparisonAccountId,
+      comparisonPolicyId,
+      {
+        dryRunId,
+        targetRevision: before!.version,
+        targetBodyHash: hashRepricingDryRunBody(dryRunBody),
+        candidateBodyHash: hashRepricingDryRunBody(body),
+        ...choice,
+      },
+      dryRunContext,
+    );
+    expect(replay).toEqual(result);
     const after = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
     expect(after!.state.rules[0]!.directive).toEqual(body.rules[0]!.directive);
     expect(after!.state.scope).toEqual(before!.state.scope);
@@ -127,6 +148,97 @@ describeDb("Pricing Health apply compared goal", () => {
       ),
     ).toHaveLength(1);
   });
+
+  it.each(["on retry", "during the first attempt"])(
+    "leaves Apply Goal pending when the halt engages %s",
+    async (when) => {
+      const { services, choice, body, dryRunId } = await fixture();
+      const { pricing, consumer } = pools;
+      const policyId = comparisonPolicyId;
+      const accountId = comparisonAccountId;
+      const before = await services.policies.loadOwnedRepricingPolicy(policyId, accountId);
+      // Enroll a real required consumer after the policy has its first configuration head.
+      const enrolled = await services.policies.executeOwnedRepricingPolicy({
+        policyId,
+        accountId,
+        context: dryRunContext,
+        requestKey: "synthetic-enroll",
+        command: { type: "ResumeRepricingPolicy", resumedAt: now },
+      });
+      expect(enrolled).toMatchObject({ status: "applied" });
+      await consumer.query(pricingModule.schemaSql);
+      const identity = { storeId: "synthetic-apply-goal-consumer", incarnation: "synthetic-v1" };
+      await initializeConfigurationConsumer(consumer, identity);
+      const ready = createRepricingConfigurationEpochStore({
+        pool: pricing,
+        consumers: [{ identity, pool: consumer }],
+      });
+      const withheld = createRepricingConfigurationEpochStore({ pool: pricing, consumers: [] });
+      const key = repricingPolicyConfigurationKey(accountId, policyId);
+      await ready.registerConsumer(key, identity);
+      const engage = async () => {
+        expect(await services.policies.setHalt(accountId, true, dryRunContext, "synthetic-engage")).toMatchObject({
+          status: "applied",
+          state: { engaged: true },
+        });
+      };
+      const firstEpochs =
+        when === "on retry"
+          ? withheld
+          : {
+              ...ready,
+              async driveClosure(closureKey: string) {
+                const closure = await ready.driveClosure(closureKey);
+                if (closureKey === key) await engage();
+                return closure;
+              },
+            };
+      const requestKey = "synthetic-apply-while-halt";
+      const input = {
+        dryRunId,
+        targetRevision: before!.version,
+        targetBodyHash: hashRepricingDryRunBody(dryRunBody),
+        candidateBodyHash: hashRepricingDryRunBody(body),
+        ...choice,
+      };
+      const apply = (epochs = ready) =>
+        comparisonTestServices(pricing, undefined, epochs).health.applyGoal(
+          accountId,
+          policyId,
+          input,
+          dryRunContext,
+          requestKey,
+        );
+      const expected = { status: "accepted-pending", requestKey, requestedRevision: enrolled!.requestedRevision + 1 };
+      expect(await apply(firstEpochs)).toEqual(expected);
+      if (when === "on retry") await engage();
+      const reviseEvents = async () =>
+        (
+          await createPostgresEventStore({ pool: pricing }).readStream({
+            streamId: services.policies.streamIdForPolicy(policyId),
+          })
+        ).filter((event) => event.eventType === "pricing.repricing-policy.revised");
+      expect(await apply()).toEqual(expected);
+      expect(await reviseEvents()).toHaveLength(0);
+      expect(await services.policies.loadOwnedRepricingPolicy(policyId, accountId)).toEqual(before);
+      expect(await services.policies.getPolicyConfigurationStatus(accountId, policyId)).toMatchObject({
+        installedRevision: enrolled!.requestedRevision,
+        requestedRevision: expected.requestedRevision,
+        request: expected,
+      });
+      await services.policies.setHalt(accountId, false, dryRunContext, "synthetic-release");
+      const applied = await apply();
+      expect(applied).toMatchObject({
+        status: "applied",
+        requestKey,
+        requestedRevision: expected.requestedRevision,
+        revision: before!.version + 1,
+      });
+      await services.policies.setHalt(accountId, true, dryRunContext, "synthetic-engage-again");
+      expect(await apply()).toEqual(applied);
+      expect(await reviseEvents()).toHaveLength(1);
+    },
+  );
 
   it.each(["failed", "foreign", "halt", "floor"])("refuses %s without a revision", async (reason) => {
     const { services, dryRunId, body, choice } = await fixture();

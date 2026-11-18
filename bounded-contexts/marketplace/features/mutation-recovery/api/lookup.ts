@@ -15,6 +15,9 @@ import {
 } from "../../offers/api/attempt-result";
 import { offerPolicyAttemptResultSchema } from "../../offer-policy/api/attempt-result";
 import { withMarketplaceAttemptReceipt } from "./receipt";
+import { reviewAttemptResultSchema, reviewReplyAttemptResultSchema } from "../../reviews/api/attempt-result";
+import { listingReportAttemptResultSchema, reviewReportAttemptResultSchema } from "../../reports/api/attempt-result";
+import { validateReviewReportOutcome } from "./review-report-outcome";
 
 export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "readStream">) {
   // Listing kinds have no attempt stream: their owner stream carries the attempt's stamped events.
@@ -41,15 +44,24 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
       ownerStatus: "not-observed",
     };
     const resultSchema =
-      input.mutationKind === "offer.accept"
-        ? offerAcceptanceResultSchema
-        : input.mutationKind === "offer-policy.command"
-          ? offerPolicyAttemptResultSchema
-          : input.mutationKind === "offer.update-price"
-            ? offerPriceAttemptResultSchema
-            : offerAttemptResultSchema;
+      input.mutationKind === "review.submit"
+        ? reviewAttemptResultSchema
+        : input.mutationKind === "review.reply"
+          ? reviewReplyAttemptResultSchema
+          : input.mutationKind === "review.report"
+            ? reviewReportAttemptResultSchema
+            : input.mutationKind === "listing.report"
+              ? listingReportAttemptResultSchema
+              : input.mutationKind === "offer.accept"
+                ? offerAcceptanceResultSchema
+                : input.mutationKind === "offer-policy.command"
+                  ? offerPolicyAttemptResultSchema
+                  : input.mutationKind === "offer.update-price"
+                    ? offerPriceAttemptResultSchema
+                    : offerAttemptResultSchema;
     const completedSchema = completedMarketplaceAttemptSchema<unknown>(resultSchema);
     let wrongOwner = false;
+    let completedResult: unknown;
     const reader = {
       readStream: async (request: Parameters<EventStore["readStream"]>[0]) => {
         const events = await eventStore.readStream(request);
@@ -65,6 +77,7 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
         if (state || event.eventType !== "marketplace.mutation-attempt.completed")
           throw new Error("Invalid attempt history.");
         const completed = completedSchema.parse(event.payload);
+        completedResult = completed.result;
         if (completed.recovery.ownerStatus !== "committed" || !completed.recovery.ownerReceipt)
           throw new Error("Invalid receipt.");
         return withMarketplaceAttemptReceipt(completed.recovery, event);
@@ -79,10 +92,19 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
       prior.mutationKind !== input.mutationKind ||
       prior.attemptKeyFingerprint !== binding.attemptKeyFingerprint ||
       prior.target.kind !== input.target.kind ||
-      prior.target.id !== input.target.id ||
-      prior.canonicalRequestHash !== input.requestHash
+      prior.target.id !== input.target.id
     )
       return notObserved;
+    if (prior.canonicalRequestHash !== input.requestHash) {
+      if (input.mutationKind.startsWith("review.") || input.mutationKind === "listing.report")
+        return { ...notObserved, ownerStatus: "conflict" };
+      return notObserved;
+    }
+    try {
+      await validateReviewReportOutcome(eventStore, prior, completedResult);
+    } catch {
+      return { ...notObserved, ownerStatus: "ambiguous", reason: "history-incomplete" };
+    }
     return prior;
   };
 }

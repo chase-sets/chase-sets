@@ -1,3 +1,10 @@
+import { marketplaceSourceReceipts, performMarketplaceHandoff } from "./marketplace-handoff";
+import { reviewedLinesForConfirmation } from "./reviewed-lines";
+import {
+  SellListPreparationRefusedError,
+  type MarketplaceRequestApiClient,
+  type SellListPreparationRefusalReason,
+} from "./handoff-contracts";
 import type { SellListReviewSelections, SellListReviewReadiness } from "./review-plan-contracts";
 import { buildSellListReviewPlan, readinessDecisionsFromReviewPlan } from "./review-plan";
 import { createSellListReviewPlans, staleSellListReview } from "./review-plan-store";
@@ -139,7 +146,10 @@ function assertSellerEvidenceReady(evidence: SellListSellerConfirmationEvidence)
 }
 
 function buildConfirmationRow(
-  params: Parameters<CheckoutSellListServices["confirmSellListCheckout"]>[0],
+  params: Pick<
+    Parameters<CheckoutSellListServices["confirmSellListCheckout"]>[0],
+    "sellerAccountId" | "confirmationId"
+  > & { sellerEvidence: SellListSellerConfirmationEvidence; handoffSummary: SellListConfirmationSummary },
   confirmedAt: string,
   readinessEvidence: ReturnType<typeof buildReadinessConfirmationEvidence>,
 ): CheckoutSellListConfirmationRow {
@@ -229,42 +239,21 @@ export type CheckoutSellListServices = Readonly<{
     params: Readonly<{
       sellerAccountId: AccountId;
       confirmationId: string;
-      completedLineIds?: readonly SellListLineId[] | null;
-      remainingLineQuantities?: readonly { lineId: SellListLineId; quantity: number }[] | null;
       readinessSnapshotId: string;
       readinessSourceRevision: string;
       readinessDecisions?: SellListReadinessDecisionInput | null;
-      sellerEvidence: SellListSellerConfirmationEvidence;
       shipFrom?: SellerCheckoutChoices["shipFrom"];
       label?: SellerCheckoutChoices["label"];
-      handoffSummary: Readonly<{
-        acceptedOfferCount: number;
-        publishedListingCount: number;
-        skippedLineCount: number;
-        skippedReasons: readonly string[];
-        lineOutcomes?: readonly {
-          lineId: SellListLineId;
-          itemTitle: string;
-          status: "completed" | "partial" | "skipped";
-          action: "accepted-offer" | "accepted-smart-match" | "published-listing" | "mixed" | "kept-in-sell-list";
-          quantity: number;
-          remainingQuantity: number;
-          detail: string;
-          references?: Readonly<{
-            offerIds?: readonly string[];
-            listingId?: string | null;
-          }>;
-        }[];
-        sideEffects: SellListConfirmationSummary["sideEffects"];
-      }>;
     }>,
     context: EventStoreContext,
+    marketplaceApi: MarketplaceRequestApiClient,
   ) => Promise<{
     sellerAccountId: AccountId;
     version: number;
     status: "confirmed";
     confirmation: CheckoutSellListConfirmationRow;
     completedLineIds: readonly SellListLineId[];
+    sourceReceipts: readonly { commandReceipt: CommandReceiptMetadata }[];
   }>;
   mergeSellListIntoAccount: (
     params: Readonly<{
@@ -277,7 +266,6 @@ export type CheckoutSellListServices = Readonly<{
     params: Readonly<{
       sellerAccountId: string;
       decisions?: SellListReadinessDecisionInput | null;
-      sellerEvidence?: SellListSellerConfirmationEvidence | null;
       shipFrom?: SellerCheckoutChoices["shipFrom"];
       label?: SellerCheckoutChoices["label"];
       confirmationId?: string;
@@ -388,7 +376,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       ownerReads,
     };
     const snapshot = { ...createSellListReadinessSnapshot(lines, params.decisions, sellerEvidence), ownerReads };
-    return { lines, sellerEvidence, snapshot, review: currentReview, estimate };
+    return { lines, sellerEvidence, snapshot, review: currentReview, estimate, payout };
   }
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
@@ -539,6 +527,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         handoff_summary: data.handoffSummary,
       },
       completedLineIds: data.completedLineIds,
+      sourceReceipts: [],
     };
   }
   function attemptLineResult(attempt: CheckoutCommandAttemptResult) {
@@ -610,19 +599,33 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       if (missing) await pruneProjectedSellListLines(params.sellerAccountId, [params.lineId]);
       return { lineId: params.lineId, version: result.version, attempt };
     },
-    confirmSellListCheckout: async (params, context) => {
-      const requestHash = await computeCheckoutCommandAttemptRequestHash(params);
-      const existingConfirmation = await readConfirmation(params.sellerAccountId, params.confirmationId, requestHash);
+    confirmSellListCheckout: async (params, context, marketplaceApi) => {
+      const requestHash = await computeCheckoutCommandAttemptRequestHash({
+        sellerAccountId: params.sellerAccountId,
+        confirmationId: params.confirmationId,
+        readinessSnapshotId: params.readinessSnapshotId,
+        readinessSourceRevision: params.readinessSourceRevision,
+        readinessDecisions: params.readinessDecisions,
+        shipFrom: params.shipFrom,
+        label: params.label,
+      });
+      const readWinner = () => readConfirmation(params.sellerAccountId, params.confirmationId, requestHash);
+      const existingConfirmation = await readWinner();
       if (existingConfirmation) return existingConfirmation;
       const aggregate = await repository.load(sellListStreamId(params.sellerAccountId));
       const preparation = await preparations.read(params.sellerAccountId, params.confirmationId);
       if (
         preparation &&
-        (preparation.sellListVersion !== aggregate.version ||
+        (preparation.readiness.snapshotId !== params.readinessSnapshotId ||
+          preparation.readiness.sourceRevision !== params.readinessSourceRevision ||
+          preparation.sellListVersion !== aggregate.version ||
           preparation.decisionsHash !==
             (await computeCheckoutCommandAttemptRequestHash(params.readinessDecisions ?? {})))
-      )
+      ) {
+        const winner = await readWinner();
+        if (winner) return winner;
         throw new CheckoutDomainError("Sell List confirmation changed.", "checkout_confirmation_changed");
+      }
 
       const assessed = await assessSeller(
         {
@@ -635,38 +638,54 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         params.confirmationId,
         preparation,
       );
-      params = { ...params, sellerEvidence: assessed.sellerEvidence };
+      const sellerEvidence = assessed.sellerEvidence;
       const currentLines = assessed.lines;
       const readiness = validateSellListReadinessSnapshot(currentLines, {
         snapshotId: params.readinessSnapshotId,
         sourceRevision: params.readinessSourceRevision,
         decisions: params.readinessDecisions,
-        sellerEvidence: params.sellerEvidence,
+        sellerEvidence,
       });
-      if (!readiness.valid) {
-        throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+      let reviewedLines: ReturnType<typeof reviewedLinesForConfirmation>;
+      try {
+        if (!readiness.valid) {
+          throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+        }
+        if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
+          throw new CheckoutDomainError("Sell List readiness must be resolved before seller checkout starts.");
+        }
+        if (readiness.current.includedLineIds.length === 0) {
+          throw new CheckoutDomainError("Sell List readiness must include at least one checkout line.");
+        }
+        assertSellerEvidenceReady(sellerEvidence);
+        if (!preparation) throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+        reviewedLines = reviewedLinesForConfirmation(currentLines, readiness.current, preparation.reviewPlan);
+      } catch (error) {
+        if (!(error instanceof CheckoutDomainError)) throw error;
+        const winner = await readWinner();
+        if (winner) return winner;
+        throw error;
       }
-      if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
-        throw new CheckoutDomainError("Sell List readiness must be resolved before seller checkout starts.");
-      }
-      if (readiness.current.includedLineIds.length === 0) {
-        throw new CheckoutDomainError("Sell List readiness must include at least one checkout line.");
-      }
-      assertSellerEvidenceReady(params.sellerEvidence);
-      const readinessLineIds = new Set(readiness.current.includedLineIds);
-      const requestedCompletedLineIds =
-        params.completedLineIds && params.completedLineIds.length > 0
-          ? params.completedLineIds
-          : (readiness.current.includedLineIds as readonly SellListLineId[]);
-      const completedLineIds = [...new Set(requestedCompletedLineIds)].filter((lineId) =>
-        readiness.current.includedLineIds.includes(lineId),
+      const handoff = await performMarketplaceHandoff(
+        marketplaceApi,
+        params.confirmationId,
+        reviewedLines,
+        params.sellerAccountId,
       );
-      const remainingLineQuantities = (params.remainingLineQuantities ?? []).filter((entry) =>
-        readinessLineIds.has(entry.lineId),
-      );
+      const completedLineIds = handoff.completedLineIds as readonly SellListLineId[];
+      const remainingLineQuantities = handoff.remainingLineQuantities as readonly {
+        lineId: SellListLineId;
+        quantity: number;
+      }[];
+      const handoffSummary = handoff.summary;
+      const sourceReceipts = marketplaceSourceReceipts(handoff.writeResults);
       const readinessEvidence = buildReadinessConfirmationEvidence(readiness.current);
       const confirmedAt = new Date().toISOString();
-      const confirmation = buildConfirmationRow(params, confirmedAt, readinessEvidence);
+      const confirmation = buildConfirmationRow(
+        { ...params, sellerEvidence, handoffSummary },
+        confirmedAt,
+        readinessEvidence,
+      );
       const resultHash = await computeCheckoutCommandAttemptRequestHash({
         sellerAccountId: params.sellerAccountId,
         confirmationId: params.confirmationId,
@@ -674,8 +693,8 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         completedLineIds,
         remainingLineQuantities,
         readinessEvidence,
-        sellerEvidence: params.sellerEvidence,
-        handoffSummary: params.handoffSummary,
+        sellerEvidence,
+        handoffSummary,
         requestHash,
       });
 
@@ -692,16 +711,16 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
             completedLineIds,
             remainingLineQuantities,
             readinessEvidence,
-            sellerEvidence: params.sellerEvidence,
-            handoffSummary: params.handoffSummary,
+            sellerEvidence,
+            handoffSummary,
           },
           context,
           expectedVersion: aggregate.version || "no_stream",
         });
         version = result.version;
       } catch (error) {
-        const winner = await readConfirmation(params.sellerAccountId, params.confirmationId, requestHash);
-        if (winner) return winner;
+        const winner = await readWinner();
+        if (winner) return { ...winner, sourceReceipts };
         throw error;
       }
 
@@ -711,6 +730,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         status: "confirmed",
         confirmation,
         completedLineIds,
+        sourceReceipts,
       };
     },
     getLatestConfirmation: (sellerAccountId) => getLatestSellListConfirmation(deps.db, sellerAccountId),
@@ -949,13 +969,29 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
           await assessSeller({ sellerAccountId: params.sellerAccountId, decisions: params.decisions }, "readiness")
         ).snapshot;
         if (!storedReview || currentEntry.snapshotId !== storedReview.assessedSnapshotId) throw staleSellListReview();
-        if (
-          !context ||
-          assessed.snapshot.status !== "ready" ||
-          assessed.snapshot.sellerReadiness.status !== "ready" ||
-          !assessed.review
-        )
+        if (!context || assessed.snapshot.status !== "ready")
           throw new CheckoutDomainError("Sell List readiness must be resolved before handoff.");
+        const sellerReadiness = assessed.snapshot.sellerReadiness;
+        if (sellerReadiness.status !== "ready") {
+          const reasons = sellerReadiness.outcomes.flatMap(({ reason }): SellListPreparationRefusalReason[] => {
+            if (reason === "ready") return [];
+            if (reason === "payout-not-ready") {
+              if (!assessed.payout || assessed.payout.account_id !== params.sellerAccountId) {
+                return ["payout-unavailable"];
+              }
+              if (assessed.payout.status !== "ready") return ["payout-setup-required"];
+              if (!assessed.sellerEvidence.payout.lastCheckedAt) return ["payout-unavailable"];
+            }
+            if (reason === "risk-not-clear") {
+              const risk = assessed.sellerEvidence.risk.status;
+              if (risk === "hold") return ["risk-hold"];
+              if (risk === "block") return ["risk-block"];
+            }
+            return [reason];
+          });
+          throw new SellListPreparationRefusedError(reasons);
+        }
+        if (!assessed.review) throw new CheckoutDomainError("Sell List readiness must be resolved before handoff.");
         return (
           await preparations.save(
             {

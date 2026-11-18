@@ -57,6 +57,7 @@ export type {
   MarketplaceMarketSummary,
   MarketplaceListingEvidenceCoverage,
 } from "./features/listings/api/contracts";
+import { ambiguousListingRecovery } from "./features/listings/api/contracts";
 export type {
   MarketplaceReportSubmissionSnapshot,
   MarketplaceReviewReportSubmissionSnapshot,
@@ -79,8 +80,10 @@ export type {
 
 import type {
   MarketplaceBulkListingPriceUpdateInput,
-  ListingRecoveryIdentity,
-  MarketplaceListingBatchFamily,
+  ListingRecovery,
+  ListingRecoveryPreparation,
+  ListingRecoveryPreparationResult,
+  ListingRecoveryReference,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingBatchResult,
@@ -255,32 +258,58 @@ export function createMarketplaceApiClient({
       ),
     );
 
+  const recoverListingBatch = async ({
+    batchId,
+    mutationKind,
+    bulk,
+  }: ListingRecoveryReference): Promise<ListingRecovery> =>
+    parseJsonResponse(
+      await configuredFetch(
+        joinApiPath(
+          baseUrl,
+          `/account/listings/batch/${encodeURIComponent(batchId)}?${new URLSearchParams({ family: mutationKind, bulk: String(bulk) })}`,
+        ),
+        { headers },
+      ),
+    );
+
   return {
-    lookupListingAttempt: lookupAttempt,
-    async prepareListingBatch(identity: ListingRecoveryIdentity): Promise<void> {
+    async prepareListingBatch(input: ListingRecoveryPreparation): Promise<ListingRecoveryPreparationResult> {
       const preparationHeaders = new Headers(headers);
       preparationHeaders.set("Content-Type", "application/json");
-      await parseJsonResponse(
+      return parseJsonResponse(
         await configuredFetch(joinApiPath(baseUrl, "/account/listings/batch/prepare"), {
           method: "POST",
           headers: preparationHeaders,
-          body: JSON.stringify(identity),
+          body: JSON.stringify(input),
         }),
       );
     },
-    async lookupListingBatch(
-      batchId: string,
-      family: MarketplaceListingBatchFamily,
-    ): Promise<MarketplaceListingBatchResult | null> {
-      return parseJsonResponse(
-        await configuredFetch(
-          joinApiPath(
-            baseUrl,
-            `/account/listings/batch/${encodeURIComponent(batchId)}?${new URLSearchParams({ family })}`,
-          ),
-          { headers },
-        ),
-      );
+    recoverListingBatch,
+    async recoverInterruptedListingSend(reference: ListingRecoveryReference | null, error: unknown) {
+      if (!reference || isDefiniteMarketplaceCommandResponse(error)) return null;
+      return recoverListingBatch(reference).catch(() => ambiguousListingRecovery);
+    },
+    async retryListingBatch(
+      reference: ListingRecoveryReference,
+    ): Promise<{ recovery: ListingRecovery; sent: ListingRecovery["items"] }> {
+      try {
+        return await parseJsonResponse(
+          await configuredFetch(joinApiPath(baseUrl, "/account/listings/batch/retry"), {
+            method: "POST",
+            headers: { "content-type": "application/json", ...headersToRecord(headers) },
+            body: JSON.stringify(reference),
+          }),
+        );
+      } catch (error) {
+        if (!isDefiniteMarketplaceCommandResponse(error)) throw error;
+        const recovery = await recoverListingBatch(reference).catch(() => ambiguousListingRecovery);
+        // A transport rejection does not change the recovered outcome of any target.
+        return {
+          recovery,
+          sent: recovery.retryTargetIds.map((targetId) => ({ targetId, outcome: "error" })),
+        };
+      }
     },
     async listBuyerOfferPolicies(
       offerIds: readonly string[] = [],
@@ -384,6 +413,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    lookupMutationAttempt: lookupAttempt,
     async reportListing(
       listingId: string,
       anonymousReporterId: string | null,

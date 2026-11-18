@@ -410,12 +410,58 @@ export const listingRecoveryReferenceSchema = z.strictObject({
   ]),
   bulk: z.boolean(),
 });
+export type ListingRecoveryReference = z.infer<typeof listingRecoveryReferenceSchema>;
+
+const MAX_LISTING_RECOVERY_TARGETS = 500;
+export const listingRecoveryFields = [
+  "priceAmount",
+  "priceCurrencyCode",
+  "quantityCap",
+  "maxUnitsPerOrder",
+  "maxUnitsPerDay",
+  "maxUnitsPerCustomerAccount",
+  "reasonCategory",
+  "availableAgainOn",
+  "availableAgainAt",
+  "awayWindowStartsAt",
+  "awayWindowEndsAt",
+  "awayWindowReasonCategory",
+  "maxOpenOrders",
+] as const;
+export const listingRecoveryPreparationSchema = z.strictObject({
+  intent: z.string().max(128),
+  idempotencyKey: z.string().nullable(),
+  listingId: z.string().nullable(),
+  listingIds: z.array(z.string().max(512)).max(MAX_LISTING_RECOVERY_TARGETS),
+  fields: z.partialRecord(z.enum(listingRecoveryFields), z.string()),
+  retained: listingRecoveryReferenceSchema.optional(),
+});
+export type ListingRecoveryPreparation = z.infer<typeof listingRecoveryPreparationSchema>;
+
+export type ListingRecoveryOutcome = MarketplaceListingBatchOutcome | "ambiguous";
+export type ListingRecovery = {
+  identity: ListingRecoveryReference | null;
+  phase: "confirming" | "succeeded" | "partial" | "conflict" | "failed-safe" | "ambiguous";
+  items: { targetId: string; outcome: ListingRecoveryOutcome }[];
+  retryTargetIds: string[];
+  reentry?: { intent: string; idempotencyKey: string };
+};
+export const ambiguousListingRecovery: ListingRecovery = {
+  identity: null,
+  phase: "ambiguous",
+  items: [],
+  retryTargetIds: [],
+};
+export type ListingRecoveryPreparationResult =
+  | { reference: ListingRecoveryReference | null }
+  | { recovery: ListingRecovery };
+
 export const listingRecoveryIdentitySchema = listingRecoveryReferenceSchema
   .extend({
     targets: z
       .array(z.strictObject({ id: z.string().regex(/^[A-Za-z0-9_-]{1,512}$/), requestHash: recoveryHashSchema }))
       .min(1)
-      .max(500),
+      .max(MAX_LISTING_RECOVERY_TARGETS),
   })
   .refine(
     (value) =>

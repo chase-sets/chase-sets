@@ -18,10 +18,10 @@ import type {
   MarketplaceListingBatchOutcome,
   MarketplaceListingBatchResult,
 } from "../ui/contracts";
-import type { ListingAttempt } from "./listing-attempt";
+import { runListingAttempt, type ListingAttempt } from "./listing-attempt";
 
 /**
- * The persisted terminal vector of one bulk Listing batch: one batch id per family, one C1 target attempt per
+ * The persisted vector of one bulk Listing batch: one batch id per family, one C1 target attempt per
  * target. Each run records the outcomes it decided; a later fact may only settle a target the vector still holds
  * as `unknown`, so a retry re-drives `unknown` targets and returns every terminal target without sending it again.
  */
@@ -42,6 +42,35 @@ const listingBatchFamilies = [
   "seller.away",
   "seller.order-capacity",
 ] as const satisfies readonly MarketplaceListingBatchFamily[];
+
+export const listingRecoveryCommands = {
+  "bulk-pause-listings": ["listing.pause", "bulk-pause-listings", true],
+  "bulk-withdraw-listings": ["listing.withdraw", "bulk-withdraw-listings", true],
+  publish: ["listing.publish", "publishListing", false],
+  pause: ["listing.pause", "pauseListing", false],
+  withdraw: ["listing.withdraw", "withdrawListing", false],
+  "update-price": ["listing.update-price", "updateListingPrice", false],
+  "update-quantity-cap": ["listing.update-quantity", "updateListingQuantityCap", false],
+  "update-purchase-limits": ["listing.update-purchase-limits", "updateListingPurchaseLimits", false],
+  "disable-listing-availability": ["seller.availability", "disableSellerListingAvailability", false],
+  "enable-listing-availability": ["seller.availability", "enableSellerListingAvailability", false],
+  "schedule-away-window": ["seller.away", "scheduleSellerAwayWindow", false],
+  "cancel-away-window": ["seller.away", "cancelScheduledAwayWindow", false],
+  "set-order-capacity": ["seller.order-capacity", "setSellerOrderCapacity", false],
+  "clear-order-capacity": ["seller.order-capacity", "clearSellerOrderCapacity", false],
+} as const;
+
+export function listingRecoveryCommandForKey(key: string) {
+  const separator = key.lastIndexOf("_");
+  if (separator < 0) return undefined;
+  const idempotencyKey = key.slice(0, separator);
+  if (!marketplaceAttemptIdSchema.safeParse(idempotencyKey).success) return undefined;
+  const suffix = key.slice(separator + 1);
+  const command = Object.entries(listingRecoveryCommands).find(([, [, name]]) => name === suffix);
+  if (!command) return undefined;
+  const [intent, [family, , bulk]] = command;
+  return { intent, family, bulk, idempotencyKey };
+}
 
 const entrySchema = z.strictObject({
   targetId: z.string().min(1).max(512),
@@ -64,7 +93,12 @@ export type ListingBatchIdentity = Readonly<{
   family: MarketplaceListingBatchFamily;
   batchId: string;
 }>;
-export type ListingBatchVector = Readonly<{ version: number; entries: ReadonlyMap<string, ListingBatchEntry> }>;
+type ListingBatchOrigin = "direct" | "prepared";
+export type ListingBatchVector = Readonly<{
+  version: number;
+  entries: ReadonlyMap<string, ListingBatchEntry>;
+  preparation: "none" | "possible" | "recorded";
+}>;
 export type ListingBatchTarget = Readonly<{ targetId: string; attempt: ListingAttempt }>;
 export type ListingBatchDecision = Readonly<{
   outcome: MarketplaceListingBatchOutcome;
@@ -121,11 +155,12 @@ function foldFact(
     if (prior && prior.outcome !== "unknown" && !sameEntry(prior, entry)) poisoned("conflicting terminal outcome");
     entries.set(entry.targetId, entry);
   }
+  return fact.data.entries;
 }
 
 /** The complete persisted vector, or null when the batch never recorded one. Poisoned histories throw. */
 export async function readListingBatchVector(
-  store: EventStore,
+  store: Pick<EventStore, "readStream">,
   batch: ListingBatchIdentity,
 ): Promise<ListingBatchVector | null> {
   const streamId = listingBatchStreamId(batch);
@@ -137,8 +172,17 @@ export async function readListingBatchVector(
   }
   if (history.length === 0) return null;
   const entries = new Map<string, ListingBatchEntry>();
-  for (const event of history) foldFact(batch, streamId, entries, event);
-  return { version: history.at(-1)!.streamVersion, entries };
+  let preparation: ListingBatchVector["preparation"] = "none";
+  for (const [index, event] of history.entries()) {
+    const recorded = foldFact(batch, streamId, entries, event);
+    const origin = event.metadata.listingBatchOrigin;
+    if (origin === "prepared") preparation = "recorded";
+    else if (index === 0 && origin === undefined && recorded.every(({ outcome }) => outcome === "unknown")) {
+      // An unmarked first fact that could have come from prepare must still bind the command.
+      preparation = "possible";
+    } else if (origin !== undefined && origin !== "direct") poisoned("unknown fact origin");
+  }
+  return { version: history.at(-1)!.streamVersion, entries, preparation };
 }
 
 function entryFor(target: ListingBatchTarget, decision: ListingBatchDecision): ListingBatchEntry {
@@ -170,6 +214,35 @@ function matchesTarget(entry: ListingBatchEntry, target: ListingBatchTarget): bo
   );
 }
 
+export async function assertPreparedListingAttempt(
+  store: Pick<EventStore, "readStream">,
+  attempt: ListingAttempt | null,
+): Promise<void> {
+  if (!attempt) return;
+  const { idempotencyKey, binding } = attempt;
+  // Locate the candidate vector even when a different command route receives the key.
+  const command = listingRecoveryCommandForKey(idempotencyKey);
+  if (!command) return;
+  const vector = await readListingBatchVector(store, {
+    accountId: binding.actorBinding.accountId,
+    family: command.family,
+    batchId: idempotencyKey,
+  });
+  if (!vector || vector.preparation === "none") return;
+  const targetId = binding.target.id;
+  const entry = vector.entries.get(targetId);
+  if (binding.mutationKind !== command.family || !entry || !matchesTarget(entry, { targetId, attempt }))
+    throw new MarketplaceAttemptError(
+      "attempt_conflict",
+      "Marketplace attempt identity was already used for a different command.",
+    );
+}
+
+export const runBoundListingAttempt: typeof runListingAttempt = async (store, attempt, replay, run) => {
+  await assertPreparedListingAttempt(store, attempt);
+  return runListingAttempt(store, attempt, replay, run);
+};
+
 const unknownDecision: ListingBatchDecision = {
   outcome: "unknown",
   version: 0,
@@ -187,11 +260,13 @@ async function persistVector(
   context: EventStoreContext,
   prior: ListingBatchVector | null,
   entries: readonly ListingBatchEntry[],
+  origin: ListingBatchOrigin,
 ) {
   const facts = [];
   for (let index = 0; index < entries.length; index += MAX_LISTING_BATCH_FACT_ENTRIES) {
     facts.push({
       eventType: LISTING_BATCH_FACT,
+      metadata: { listingBatchOrigin: origin },
       payload: {
         schemaVersion: 1,
         family: batch.family,
@@ -200,20 +275,21 @@ async function persistVector(
       } as JsonObject,
     });
   }
-  await store.appendToStream({
+  const stored = await store.appendToStream({
     streamId: listingBatchStreamId(batch),
     // The vector's read version is the write predicate: a concurrent retry can never overwrite a settled target.
     expectedVersion: prior?.version ?? "no_stream",
     context,
     events: facts,
   });
+  return stored.at(-1)!.streamVersion;
 }
 
 /**
  * Runs one bulk batch against its persisted vector. Terminal targets return their recorded outcome with no owner
- * read or append; `unknown` and unrecorded targets go to `drive` (which consults each C1 target receipt first), and
- * the newly decided outcomes are appended under the vector's read version. An unreadable vector refuses every write
- * and reports each target `unknown`.
+ * read or append. New targets in an adoptable batch are reserved before `drive`, which consults each target's C1
+ * receipt first. Newly decided outcomes are appended under the version used to admit the targets. An unreadable
+ * vector refuses every write and reports each target `unknown`.
  */
 export async function runListingBatch<Target extends ListingBatchTarget>(input: {
   store: EventStore;
@@ -231,15 +307,37 @@ export async function runListingBatch<Target extends ListingBatchTarget>(input: 
   }
 
   const firstByTarget = new Map<string, Target>();
+  for (const target of input.targets) {
+    if (!firstByTarget.has(target.targetId)) firstByTarget.set(target.targetId, target);
+  }
+
+  const command = listingRecoveryCommandForKey(input.batch.batchId);
+  const adoptable = command?.bulk && command.family === input.batch.family;
+  if (adoptable && (!prior || prior.preparation === "none")) {
+    const additions = [...firstByTarget.values()]
+      .filter((target) => !prior?.entries.has(target.targetId))
+      .map((target) => entryFor(target, unknownDecision));
+    if (additions.length > 0) {
+      // Prepare and a direct send compete on this version before any new target can reach its owner stream.
+      try {
+        const version = await persistVector(input.store, input.batch, input.context, prior, additions, "direct");
+        const entries = new Map(prior?.entries);
+        for (const entry of additions) entries.set(entry.targetId, entry);
+        prior = { version, entries, preparation: "none" };
+      } catch {
+        prior = await readListingBatchVector(input.store, input.batch).catch(() => null);
+      }
+    }
+  }
+
   const decided = new Map<string, ListingBatchDecision>();
   const toDrive: Target[] = [];
-  for (const target of input.targets) {
-    if (firstByTarget.has(target.targetId)) continue;
-    firstByTarget.set(target.targetId, target);
+  const prepared = prior !== null && prior.preparation !== "none";
+  for (const target of firstByTarget.values()) {
     const recorded = prior?.entries.get(target.targetId);
-    if (recorded && !matchesTarget(recorded, target)) decided.set(target.targetId, changedTargetDecision);
+    if (recorded ? !matchesTarget(recorded, target) : prepared) decided.set(target.targetId, changedTargetDecision);
     else if (recorded && recorded.outcome !== "unknown") decided.set(target.targetId, recordedDecision(recorded));
-    else toDrive.push(target);
+    else if (recorded || !adoptable) toDrive.push(target);
   }
 
   if (toDrive.length > 0) {
@@ -258,7 +356,7 @@ export async function runListingBatch<Target extends ListingBatchTarget>(input: 
     });
     if (changed.length > 0) {
       try {
-        await persistVector(input.store, input.batch, input.context, prior, changed);
+        await persistVector(input.store, input.batch, input.context, prior, changed, "direct");
       } catch {
         // Any append failure may have committed or lost to a concurrent retry. Only the durable vector settles it.
         const winner = await readListingBatchVector(input.store, input.batch).catch(() => null);
@@ -333,13 +431,13 @@ export async function prepareListingBatch(
       return prior?.requestHash === entry.requestHash && prior.attemptKeyFingerprint === entry.attemptKeyFingerprint;
     });
   const prior = await readListingBatchVector(store, batch);
-  if (prior) {
-    if (!verify(prior)) poisoned("changed preparation");
-    return;
-  }
+  if (prior && !verify(prior)) poisoned("changed preparation");
+  if (prior?.preparation === "recorded") return;
+  // Adopt a matching vector without rewriting any of its recorded outcomes.
   try {
-    await persistVector(store, batch, context, null, entries);
+    await persistVector(store, batch, context, prior, prior ? [...prior.entries.values()] : entries, "prepared");
   } catch {
-    if (!verify(await readListingBatchVector(store, batch))) poisoned("preparation not established");
+    const winner = await readListingBatchVector(store, batch);
+    if (winner?.preparation !== "recorded" || !verify(winner)) poisoned("preparation not established");
   }
 }

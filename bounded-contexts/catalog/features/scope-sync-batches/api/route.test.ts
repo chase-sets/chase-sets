@@ -186,6 +186,56 @@ describe("Scope Sync Batch routes", () => {
       context,
     });
   });
+  it.each([
+    ["one-piece", "missing-profile", "active-option-query-profile-missing"],
+    ["lorcana", "missing-set-id", "provider-set-id-missing"],
+  ] as const)("names the %s staging quote guard for %s without sending", async (productDomain, fault, reason) => {
+    const record = {
+      scope_record_id: "scope-synthetic",
+      product_domain: productDomain,
+      scope_kind: "set",
+      lifecycle_status: "active",
+    };
+    const mapping = {
+      scope_record_id: record.scope_record_id,
+      provider_key: "scrydex",
+      unit_key: `scrydex:${productDomain}:single-card:source-observation-import`,
+      set_id: fault === "missing-set-id" ? null : "synthetic-set",
+    };
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("FROM catalog_scope_records")) return { rows: [record] };
+      if (sql.includes("FROM catalog_provider_scope_mappings")) return { rows: [mapping] };
+      throw new Error("Unexpected count ledger access");
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("Unexpected synthetic provider call");
+    });
+    const counts = createScopeSyncCountRuntime({
+      pool: { query } as never,
+      store: createCountStore({ query } as never, "synthetic-slot"),
+      environment: "staging",
+      accountRevision: "synthetic",
+      profiles: {
+        listProfileVersions: async () =>
+          fault === "missing-profile"
+            ? []
+            : catalogProviderIntegrationProfileVersions.filter((version) => version.providerKey === "scrydex"),
+      } as never,
+      adapterOptions: { fetch },
+    });
+    const response = await app(counts, countActor("platform-admin")).request("/counts/quote", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ selection: { mode: "matching-scope", query: { productDomain, scopeKind: "set" } } }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: { code: "count-acquisition-refused", message: new CountAcquisitionRefused().message, reason },
+    });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("a staging acquire whose retained usage goes missing or stale refuses usage-period-cap with zero sends", async () => {
     const quotedAt = "2026-10-13T08:03:00.000Z";
     const record = {

@@ -55,6 +55,7 @@ export function buildApp(
   actor: CatalogAuthoringEnv["Variables"]["actor"] = manageActor,
   listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
   getScopeRecord?: Parameters<typeof sourceObservationRoutes>[4],
+  getAliasReview?: Parameters<typeof sourceObservationRoutes>[5],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -65,7 +66,7 @@ export function buildApp(
   });
   app.route(
     "/source-observations",
-    sourceObservationRoutes(services, profileVersions, undefined, listRefreshSchedules, getScopeRecord),
+    sourceObservationRoutes(services, profileVersions, undefined, listRefreshSchedules, getScopeRecord, getAliasReview),
   );
 
   return app;

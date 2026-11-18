@@ -85,7 +85,7 @@
   "slices": ["shipments", "return-shipments", "seller-checkout-readiness"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
+  "allowedContextDependencies": [],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
     {

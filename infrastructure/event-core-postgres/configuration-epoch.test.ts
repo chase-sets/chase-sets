@@ -27,6 +27,20 @@ const empty = {
 };
 
 describe("consumer-local configuration validation read envelope", () => {
+  it("orders journal rows by the numeric column rather than the text result alias", async () => {
+    const pool = fakePool({});
+    const store = createPostgresConfigurationEpochStore({
+      pool,
+      sourceIncarnation: "source-1",
+      consumers: [],
+      readCanonicalCreation: async () => ({ kind: "CREATED", sourceIncarnation: "source-1", keyCreationEpoch: 0 }),
+    });
+    await store.status("account/existing");
+    expect(
+      pool.query.mock.calls.find(([sql]) => sql.includes("FROM event_configuration_guard_history"))?.[0],
+    ).toContain("ORDER BY event_configuration_guard_history.sequence");
+  });
+
   it("derives an absent source journal only from canonical creation without writing history", async () => {
     const pool = fakePool({});
     const readCanonicalCreation = vi.fn(async () => ({

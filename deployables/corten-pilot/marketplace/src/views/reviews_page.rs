@@ -20,6 +20,7 @@ use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice},
     api::{ReviewItem, ReviewSummary},
     app::url,
+    marketplace_attempt::Locked,
     review::{MOST_REPLY, ReviewPlace, ReviewScreen},
     reviews::{ReportInput, ReviewsScreen, Which},
     text::{Pilot, ReviewsMsg},
@@ -438,7 +439,16 @@ fn ReportAction<'a>(
         Some(ReviewNotice::Refused { message, reason, details }) => Some((message.as_str(), reason.as_str(), details.as_str())),
         _ => None,
     };
-    let (reason, details) = refused.map_or(("", ""), |(_, r, d)| (r, d));
+    let locked = match notice {
+        Some(ReviewNotice::Locked { locked: Locked::Conflict, reason, details }) => {
+            Some((t.attempt_conflict(), t.attempt_changed_request(), reason.as_str(), details.as_str()))
+        }
+        Some(ReviewNotice::Locked { locked: Locked::Unconfirmed, reason, details }) => {
+            Some((t.attempt_ambiguous(), t.attempt_unconfirmed(), reason.as_str(), details.as_str()))
+        }
+        _ => None,
+    };
+    let (reason, details) = refused.map(|(_, r, d)| (r, d)).or(locked.map(|(_, _, r, d)| (r, d))).unwrap_or(("", ""));
     let heading = format!("report-review-{review}-title");
     let f = ReportInput::FIELDS;
     let max = MOST_DETAILS.to_string();
@@ -458,7 +468,7 @@ fn ReportAction<'a>(
                     id={ReportReviewDialogId(review)}
                     class={Dialog}
                     aria-labelledby={&heading}
-                    open={refused.is_some()}
+                    open={refused.is_some() || locked.is_some()}
                     on:connect={corten_ui::dialog::modal(target)}
                 >
                     <div class={DialogHead}>
@@ -479,6 +489,13 @@ fn ReportAction<'a>(
                                 <p>{message}</p>
                             </div>
                         }
+                        if let Some((title, description, _, _)) = locked {
+                            <div class={Banner} data-tone="danger" role="alert">
+                                <p class={Strong}>{title}</p>
+                                <p>{description}</p>
+                            </div>
+                        }
+                        {SubmitKey::field(f.attempt)}
                         <label class={Field}>
                             <span>{t.report_reason()}<span class={Required} aria-hidden="true">" *"</span></span>
                             <select
@@ -503,7 +520,9 @@ fn ReportAction<'a>(
                             </textarea>
                             <span class={Faint}>{t.report_details_description()}</span>
                         </label>
-                        <p><button type="submit" class={Secondary}>{t.report_submit()}</button></p>
+                        <p>
+                            <button type="submit" class={Secondary} disabled={locked.is_some()}>{t.report_submit()}</button>
+                        </p>
                     </form>
                 </dialog>
             }
@@ -615,13 +634,20 @@ fn DetailCard<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewScreen, action: &'a
 
 /// Respond to this review: what a reply is, a refused reply's words (the closed authoring codes as
 /// `AuthoredTextRecoverySummary` with a link to the words, else a banner), the words as typed, and
-/// the community guidelines before Post response.
+/// the community guidelines before Post response, which is off while a reply's result cannot be
+/// confirmed.
 #[component(css = ReviewsPage)]
 fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> impl Render {
     let f = ReportInput::FIELDS;
     let refused = screen.reply.as_ref();
     let draft = refused.map_or("", |r| r.draft.as_str());
     let invalid = refused.is_some_and(|r| r.field).then_some("true");
+    let locked = refused.and_then(|r| r.locked);
+    let title = match locked {
+        Some(Locked::Conflict) => t.attempt_conflict(),
+        Some(Locked::Unconfirmed) => t.attempt_ambiguous(),
+        None => t.detail_reply_title(),
+    };
     let max = MOST_REPLY.to_string();
     html! {
         <div class={Card}>
@@ -636,13 +662,14 @@ fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> im
                             <p><a href={ReplyFeedbackId.fragment()}>{t.detail_reply_feedback()}</a></p>
                         }
                     } else {
-                        <p class={Strong}>{t.detail_reply_title()}</p>
+                        <p class={Strong}>{title}</p>
                         <p>{&refused.message}</p>
                     }
                 </div>
             }
             <form class={Form} method="post" action={action}>
                 <input type="hidden" name={f.intent} value="reply">
+                {SubmitKey::field(f.attempt)}
                 <label class={Field}>
                     <span>{t.detail_reply_feedback()}<span class={Required} aria-hidden="true">" *"</span></span>
                     <textarea
@@ -667,7 +694,7 @@ fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> im
                         <a href={&on_marketplace("/contact")}>{t.guidance_contact_support()}</a>
                     </p>
                 </div>
-                <p><button type="submit" class={Primary}>{t.detail_reply_submit()}</button></p>
+                <p><button type="submit" class={Primary} disabled={locked.is_some()}>{t.detail_reply_submit()}</button></p>
             </form>
         </div>
     }

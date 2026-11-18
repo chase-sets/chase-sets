@@ -18,6 +18,137 @@ function stripeSignature(rawBody: string, secret: string, timestamp = 1_776_000_
 }
 
 describe("money movement adapters", () => {
+  it("pins Endive exactly", () => expect(STRIPE_API_VERSION).toBe("2026-10-28.endive"));
+
+  it.each([
+    ["invalid_address_cmra_address", "eventually_due", false],
+    ["invalid_address_registered_agent_address", "eventually_due", false],
+    ["invalid_address_cmra_address", "currently_due", true],
+    ["invalid_address_registered_agent_address", "past_due", true],
+    ["future_error", undefined, true],
+  ])("maps %s with %s by deadline on retrieval and subscribed webhook", async (code, deadline, blocking) => {
+    const now = Math.floor(Date.now() / 1000);
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({
+        id: "acct_endive",
+        dashboard: "none",
+        requirements: {
+          entries: [
+            {
+              reference: { type: "person", resource: "person_endive" },
+              minimum_deadline: deadline ? { status: deadline } : undefined,
+              errors: [{ code, description: "Provider verification error" }],
+            },
+          ],
+        },
+        configuration: {
+          recipient: {
+            capabilities: {
+              stripe_balance: {
+                stripe_transfers: { status: "active" },
+                payouts: { status: "active" },
+              },
+            },
+          },
+        },
+      }),
+    );
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const expected = {
+      blockingRequirements: blocking ? ["identity_and_business"] : [],
+      advisoryRequirements: blocking ? [] : ["identity_and_business"],
+      payoutDestinationStatus: blocking ? "pending" : "ready",
+    };
+    await expect(
+      adapter.refreshPayoutReadiness({ accountId: "acc_endive", providerReference: "acct_endive" }),
+    ).resolves.toMatchObject(expected);
+    const rawBody = JSON.stringify({
+      id: "evt_endive",
+      type: "v2.core.account[requirements].updated",
+      created: new Date(now * 1000).toISOString(),
+      related_object: { id: "acct_endive" },
+    });
+    await expect(
+      adapter.parseMoneyMovementWebhook({ rawBody, signatureHeader: stripeSignature(rawBody, "whsec_test", now) }),
+    ).resolves.toMatchObject({ readiness: expected });
+  });
+
+  it.each(["rejected", "rejected_fraud", "rejected_terms_of_service", "rejected_other"])(
+    "keeps %s capabilities inactive without inventing remediable requirements",
+    async (code) => {
+      const now = Math.floor(Date.now() / 1000);
+      globalThis.fetch = vi.fn(async () =>
+        Response.json({
+          id: "acct_endive",
+          requirements: { entries: [] },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { status: "rejected", status_details: [{ code, resolution: "provide_info" }] },
+                  payouts: { status: "rejected", status_details: [{ code, resolution: "provide_info" }] },
+                },
+              },
+            },
+          },
+        }),
+      );
+      const adapter = createStripeConnectMoneyMovementGateway({
+        secretKey: "sk_test",
+        webhookSecret: "whsec_test",
+        apiBaseUrl: "https://stripe.test",
+      });
+      const expected = {
+        transferCapabilityStatus: "inactive",
+        payoutCapabilityStatus: "inactive",
+        payoutDestinationStatus: "pending",
+        blockingRequirements: [],
+      };
+      await expect(
+        adapter.refreshPayoutReadiness({ accountId: "acc_endive", providerReference: "acct_endive" }),
+      ).resolves.toMatchObject(expected);
+      const rawBody = JSON.stringify({
+        id: "evt_rejected",
+        type: "v2.core.account.updated",
+        created: new Date(now * 1000).toISOString(),
+        related_object: { id: "acct_endive" },
+      });
+      await expect(
+        adapter.parseMoneyMovementWebhook({ rawBody, signatureHeader: stripeSignature(rawBody, "whsec_test", now) }),
+      ).resolves.toMatchObject({ readiness: expected });
+    },
+  );
+
+  it.each(["rejected.platform_fraud", "rejected.platform_terms_of_service", "rejected.platform_other"])(
+    "retains v1 platform rejection %s",
+    async (disabled_reason) => {
+      globalThis.fetch = vi.fn(async () =>
+        Response.json({
+          id: "acct_endive",
+          payouts_enabled: false,
+          capabilities: { transfers: "inactive" },
+          requirements: { disabled_reason },
+        }),
+      );
+      const adapter = createStripeConnectMoneyMovementGateway({
+        secretKey: "sk_test",
+        webhookSecret: "whsec_test",
+        accountsApi: "v1",
+        apiBaseUrl: "https://stripe.test",
+      });
+      await expect(
+        adapter.refreshPayoutReadiness({ accountId: "acc_endive", providerReference: "acct_endive" }),
+      ).resolves.toMatchObject({
+        disabledReason: disabled_reason,
+        payoutCapabilityStatus: "inactive",
+        transferCapabilityStatus: "inactive",
+      });
+    },
+  );
   it.each([
     ["12.34", "1234"],
     ["0.01", "1"],
