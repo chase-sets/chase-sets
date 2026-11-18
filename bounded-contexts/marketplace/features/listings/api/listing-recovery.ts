@@ -214,11 +214,16 @@ export function createListingRecovery(store: EventStore) {
             return item?.targetId === id && item.requestHash === requestHash;
           });
         // The bulk retry endpoint checks owner history again and chooses its own targets.
-        if (sameCommand && retained.bulk) return { reference: retained };
+        if (sameCommand && retained.bulk) {
+          await prepareListingBatch(store, accountId, identity, context);
+          return { reference: retained };
+        }
         const recovery = await recoverListingBatch(retained, accountId, vector, lookup);
         if (recovery.phase === "ambiguous") return { recovery };
         if (!sameCommand) return { recovery: { ...recovery, phase: "failed-safe" } };
-        return recovery.reentry ? { reference: retained } : { recovery };
+        if (!recovery.reentry) return { recovery };
+        await prepareListingBatch(store, accountId, identity, context);
+        return { reference: retained };
       }
       if (!identity) return { reference: null };
       await prepareListingBatch(store, accountId, identity, context);
