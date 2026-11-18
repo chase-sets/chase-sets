@@ -156,14 +156,14 @@ describe("catalog staging count preparation workflow (#9591)", () => {
     ]);
   });
 
-  it("runbook assigns preparation before each pass's reservation and start and preserves R/C/G/D/I", () => {
+  it("runbook requires governed count preparation before preview and grants no batch authority", () => {
     const paragraph = preparationParagraph();
     for (const phrase of [
       workflowFile,
       receiptFile,
       "Link the receipt in the domain packet",
-      "R, C, G, D and I, the start refusals and every existing blocker are unchanged",
-      "grants no preview, confirm or reservation authority",
+      "grants no batch spend or confirm authority",
+      "Counts must still be 0-15 minutes old at preview and confirm",
       "never a top-up",
       "Pass 2 needs its own preparation authority",
       "whole-quote admission",
@@ -193,7 +193,6 @@ describe("catalog staging count preparation workflow (#9591)", () => {
       branch("reservation"),
     );
     expect(branch("reservation")).toEqual(["complete", "not-required"]);
-    expect(continues).toContain("only to #9224's own independent reservation, preview and confirm checks");
     expect(continues).toContain("neither is batch-ready");
     expect(outcomesIn(approves).filter((word) => rehearsalCountPreparationOutcomes.includes(word))).toEqual(
       branch("approval"),
@@ -205,8 +204,8 @@ describe("catalog staging count preparation workflow (#9591)", () => {
 
 function preparationParagraph() {
   const runbook = readFileSync(resolve("docs/runbooks/catalog-game-provider-sync-operations.md"), "utf8");
-  const preparation = runbook.indexOf("**Count preparation precedes each pass's reservation and start.**");
-  const start = runbook.indexOf("1. **Start.** Dispatch `journey_scope=full-game-start`");
+  const preparation = runbook.indexOf("**Count preparation precedes each pass's preview and start.**");
+  const start = runbook.indexOf("1. **Start.** Use the branch that matches provider participation:");
   expect(preparation).toBeGreaterThan(runbook.indexOf("### Whole-game rehearsal"));
   expect(preparation).toBeLessThan(start);
   return runbook.slice(preparation, start);
