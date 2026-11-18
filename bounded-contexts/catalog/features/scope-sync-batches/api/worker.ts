@@ -60,7 +60,7 @@ export function createScopeSyncBatchWorker(deps: {
         await deps.repository.recordTerminal({
           claim,
           state: "failed",
-          errorMessage: supportSafeError(scopeSyncRunError(run) ?? `Scope Sync Run ended ${run.status}.`),
+          errorMessage: scopeSyncRunFailureDiagnostic(run),
         });
       }
     } catch (error) {
@@ -77,17 +77,35 @@ export function createScopeSyncBatchWorker(deps: {
   return { processNext };
 }
 
-function scopeSyncRunError(run: CatalogSyncRun): string | null {
-  if (run.errorMessage) return run.errorMessage;
+function scopeSyncRunFailureDiagnostic(run: CatalogSyncRun): string {
+  const runDiagnostic = knownHttpStatusDiagnostic(run.errorMessage);
+  if (runDiagnostic) return runDiagnostic;
+  const runSummary = `Scope Sync Run ended ${run.status}`;
+  let childSummary: string | undefined;
   for (const child of run.childJobs) {
     if (child.status !== "failed" && child.status !== "partial" && child.status !== "cancelled") continue;
-    const message =
-      child.errorMessage ||
-      child.job?.errorMessage ||
-      child.job?.result?.outcomes.find((outcome) => outcome.status === "failed" && outcome.reason)?.reason;
-    if (message) return message;
+    const childDiagnostic =
+      knownHttpStatusDiagnostic(child.errorMessage) ?? knownHttpStatusDiagnostic(child.job?.errorMessage);
+    if (childDiagnostic) return childDiagnostic;
+    const result = child.job?.result;
+    for (const outcome of result?.outcomes ?? []) {
+      if (outcome.status !== "failed") continue;
+      const diagnostic = knownHttpStatusDiagnostic(outcome.reason);
+      if (diagnostic) return diagnostic;
+    }
+    if (!childSummary && child.providerKey && child.unitKey) {
+      const failed = result ? `, ${result.failed} failed` : "";
+      childSummary = `${child.providerKey.slice(0, 64)} / ${child.unitKey.slice(0, 256)} (${child.status}${failed})`;
+    }
   }
-  return null;
+  return childSummary ? `${runSummary}: ${childSummary}.` : `${runSummary}.`;
+}
+
+function knownHttpStatusDiagnostic(message: string | null | undefined): string | undefined {
+  // Keep only fixed adapter messages; parser errors can quote provider response text.
+  return /^(?:LorcanaJSON|Lorcast|MTGJSON|Scryfall|YGOPRODeck|YGOJSON) request failed with HTTP [0-9]{3}\.$/.exec(
+    message ?? "",
+  )?.[0];
 }
 
 function supportSafeError(message: string): string {

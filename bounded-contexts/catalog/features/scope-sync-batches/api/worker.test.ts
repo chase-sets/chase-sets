@@ -8,6 +8,9 @@ const context: EventStoreContext = {
   tenantId: "tnt_test",
   audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
 };
+const syntheticResponseMarker = "SYNTHDATA";
+const partialProviderSummary =
+  "Scope Sync Run ended partial: mtgjson / mtgjson:mtg:single-card:reference-data (partial, 1 failed).";
 
 function claim(overrides: Partial<ClaimedScopeSyncBatchUnit> = {}): ClaimedScopeSyncBatchUnit {
   const scopeRecordId = overrides.scopeRecordId ?? "scope-1";
@@ -126,10 +129,28 @@ describe("Scope Sync Batch worker", () => {
     );
   });
 
-  it("isolates a partial provider failure to its scope unit", async () => {
+  it.each([
+    {
+      diagnostic: "a synthetic JSON parser failure",
+      transportReason: null,
+      expected: partialProviderSummary,
+    },
+    {
+      diagnostic: "a known-safe HTTP status",
+      transportReason: "MTGJSON request failed with HTTP 503.",
+      expected: "MTGJSON request failed with HTTP 503.",
+    },
+    {
+      diagnostic: "an HTTP status followed by unclassified text",
+      transportReason: `MTGJSON request failed with HTTP 503. ${syntheticResponseMarker}`,
+      expected: partialProviderSummary,
+    },
+  ])("reconciles a partial child with $diagnostic", async ({ transportReason, expected }) => {
     const partialRun = run("partial");
     const scope = { provider: "mtgjson", setName: "TSP" };
-    const reason = "Provider import failed for https://provider.example/path token=mock-value";
+    const reason =
+      transportReason ?? (await new Response(syntheticResponseMarker).json().catch((error) => error.message));
+    if (transportReason === null) expect(reason).toContain(syntheticResponseMarker);
     const child: CatalogSyncRun["childJobs"][number] = {
       providerKey: "mtgjson",
       unitKey: "mtgjson:mtg:single-card:reference-data",
@@ -192,16 +213,18 @@ describe("Scope Sync Batch worker", () => {
       recordRunning: vi.fn(),
       recordTerminal: vi.fn(),
     };
+    const enqueueCatalogSyncRun = vi.fn();
     const worker = createScopeSyncBatchWorker({
       repository,
-      enqueueCatalogSyncRun: vi.fn(),
+      enqueueCatalogSyncRun,
       getCatalogSyncRun: vi.fn().mockResolvedValue({ ...partialRun, childJobs: [child] }),
     });
     await worker.processNext({ claimOwnerId: "worker-1", claimTtlMs: 30_000 });
+    expect(enqueueCatalogSyncRun).not.toHaveBeenCalled();
     expect(repository.recordTerminal).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         state: "failed",
-        errorMessage: "Provider import failed for [redacted-url] [redacted]",
+        errorMessage: expected,
       }),
     );
   });
