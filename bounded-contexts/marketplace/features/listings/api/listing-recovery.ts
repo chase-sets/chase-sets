@@ -16,29 +16,17 @@ import {
   type MarketplaceListingBatchResult,
 } from "../ui/contracts";
 import { createListingMutationLookup } from "./listing-attempt";
-import { lookupListingBatch, prepareListingBatch } from "./listing-batch";
-
-const commands = {
-  "bulk-pause-listings": ["listing.pause", "bulk-pause-listings", true],
-  "bulk-withdraw-listings": ["listing.withdraw", "bulk-withdraw-listings", true],
-  publish: ["listing.publish", "publishListing", false],
-  pause: ["listing.pause", "pauseListing", false],
-  withdraw: ["listing.withdraw", "withdrawListing", false],
-  "update-price": ["listing.update-price", "updateListingPrice", false],
-  "update-quantity-cap": ["listing.update-quantity", "updateListingQuantityCap", false],
-  "update-purchase-limits": ["listing.update-purchase-limits", "updateListingPurchaseLimits", false],
-  "disable-listing-availability": ["seller.availability", "disableSellerListingAvailability", false],
-  "enable-listing-availability": ["seller.availability", "enableSellerListingAvailability", false],
-  "schedule-away-window": ["seller.away", "scheduleSellerAwayWindow", false],
-  "cancel-away-window": ["seller.away", "cancelScheduledAwayWindow", false],
-  "set-order-capacity": ["seller.order-capacity", "setSellerOrderCapacity", false],
-  "clear-order-capacity": ["seller.order-capacity", "clearSellerOrderCapacity", false],
-} as const;
+import {
+  listingRecoveryCommandForKey,
+  listingRecoveryCommands,
+  lookupListingBatch,
+  prepareListingBatch,
+} from "./listing-batch";
 
 export function listingRecoveryForCommand(input: ListingRecoveryPreparation, accountId: string) {
   const { intent, fields } = input;
-  if (!Object.hasOwn(commands, intent)) return null;
-  const [mutationKind, command, bulk] = commands[intent as keyof typeof commands];
+  if (!Object.hasOwn(listingRecoveryCommands, intent)) return null;
+  const [mutationKind, command, bulk] = listingRecoveryCommands[intent as keyof typeof listingRecoveryCommands];
   const batchId = `${marketplaceAttemptIdSchema.parse(input.idempotencyKey)}_${command}`;
   const kind = marketplaceRecoveryTargetKind(mutationKind);
   const ids = bulk ? [...new Set(input.listingIds)] : [kind === "seller" ? accountId : (input.listingId ?? "")];
@@ -92,12 +80,10 @@ export function listingRecoveryForCommand(input: ListingRecoveryPreparation, acc
 }
 
 function reentryFor({ batchId, mutationKind, bulk }: ListingRecoveryReference) {
-  for (const [intent, [kind, command, isBulk]] of Object.entries(commands)) {
-    if (kind !== mutationKind || isBulk !== bulk || !batchId.endsWith(`_${command}`)) continue;
-    const idempotencyKey = batchId.slice(0, -command.length - 1);
-    if (marketplaceAttemptIdSchema.safeParse(idempotencyKey).success) return { intent, idempotencyKey };
-  }
-  return undefined;
+  const command = listingRecoveryCommandForKey(batchId);
+  if (!command || command.family !== mutationKind || command.bulk !== bulk) return undefined;
+  const { intent, idempotencyKey } = command;
+  return { intent, idempotencyKey };
 }
 
 export function listingRecoveryResult(
@@ -163,10 +149,12 @@ export async function recoverListingBatch(
           result.mutationKind !== reference.mutationKind ||
           result.canonicalRequestHash !== requestHash ||
           result.attemptKeyFingerprint !== fingerprint ||
-          result.reason === "history-incomplete" ||
           (result.ownerStatus === "committed" ? result.ownerReceipt?.id !== id : result.ownerReceipt !== undefined)
         )
           return ambiguous;
+        if (!recorded.noOp && !result.ownerReceipt && (recorded.outcome === "conflict" || recorded.outcome === "error"))
+          return { targetId: id, outcome: recorded.outcome };
+        if (result.reason === "history-incomplete") return ambiguous;
         const absent = result.ownerStatus === "not-observed" && !result.ownerReceipt;
         if (recorded.noOp)
           return absent && recorded.outcome === "succeeded" ? { targetId: id, outcome: "succeeded" } : ambiguous;
@@ -174,10 +162,7 @@ export async function recoverListingBatch(
           return result.ownerStatus === "committed" && recorded.version === result.ownerReceipt?.version
             ? { targetId: id, outcome: "succeeded" }
             : ambiguous;
-        if (recorded.outcome === "conflict" || recorded.outcome === "error")
-          return absent || result.ownerStatus === "conflict" || result.ownerStatus === "failed-safe"
-            ? { targetId: id, outcome: recorded.outcome }
-            : ambiguous;
+        if (recorded.outcome === "conflict" || recorded.outcome === "error") return ambiguous;
         if (result.ownerStatus === "committed" && result.ownerReceipt) return { targetId: id, outcome: "succeeded" };
         if (absent) return { targetId: id, outcome: "unknown" };
         if (result.ownerStatus === "conflict") return { targetId: id, outcome: "conflict" };

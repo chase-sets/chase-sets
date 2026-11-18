@@ -4,11 +4,17 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore, createInMemoryConfigurationConsumer } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { MarketplaceApiEnv } from "../../../api";
+import { createMarketplaceCommercialTermsResolver, type MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
-import { listingRecoveryResult } from "./listing-recovery";
+import { listingAttempt } from "./listing-attempt";
+import { runListingBatch } from "./listing-batch";
+import { createListingRecovery, listingRecoveryResult } from "./listing-recovery";
 import type { ListingRecoveryReference } from "../ui/contracts";
-import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
+import {
+  createMarketplaceListingRuntime,
+  MarketplaceListingEvidenceIncompleteError,
+  type MarketplaceListingServices,
+} from "./runtime";
 import { initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
 import type { AcceptedListingTargetPriceV1, ListingTargetPrincipal } from "./target-contracts";
 import { createListingRequestExecutor, ListingRequestConflictError } from "./listing-request";
@@ -611,6 +617,61 @@ describe("Listing batch recovery API", () => {
     expect(services.applyListingBatch).not.toHaveBeenCalled();
   });
 
+  it("rejects changed commands and families before appending, then commits and recovers the prepared command", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const unused = () => {
+      throw new Error("This in-memory test does not use a database or projection checkpoints.");
+    };
+    const db = { query: unused };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      db,
+      checkpointStore: { loadCheckpoint: unused, saveCheckpoint: unused },
+      commercialTermsResolver: createMarketplaceCommercialTermsResolver(db),
+    });
+    const app = buildApp({ actor: sellerActor, services });
+    const prepared = await app.request(
+      "/account/listings/batch/prepare",
+      post({ ...preparation, intent: "set-order-capacity", listingIds: [], fields: { maxOpenOrders: "7" } }),
+    );
+    expect(prepared.status).toBe(200);
+    const { reference }: { reference: ListingRecoveryReference } = await prepared.json();
+    const idempotencyKey = reference.batchId;
+    const setCapacity = (maxOpenOrders: number) =>
+      app.request("/account/order-capacity", post({ idempotencyKey, maxOpenOrders }));
+    expect(allEvents.map(({ eventType }) => eventType)).toEqual(["marketplace.listing-batch.recorded"]);
+    for (const changed of [
+      await setCapacity(9),
+      await app.request("/account/listing-availability/disable", post({ idempotencyKey, reasonCategory: "travel" })),
+    ]) {
+      expect(changed.status).toBe(409);
+      expect(await changed.json()).toMatchObject({ error: { code: "attempt_conflict" } });
+    }
+    expect(allEvents).toHaveLength(1);
+
+    for (const original of [await setCapacity(7), await setCapacity(7)]) {
+      expect(original.status).toBe(200);
+      expect(await original.json()).toMatchObject({ version: 1, maxOpenOrders: 7 });
+    }
+    const recovered = await app.request(recoverPath(reference));
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      phase: "succeeded",
+      items: [{ targetId: "acc_seller", outcome: "succeeded" }],
+    });
+    expect(allEvents.slice(1)).toMatchObject([
+      { eventType: "marketplace.seller-order-capacity.set", payload: { maxOpenOrders: 7 } },
+    ]);
+
+    const direct = () =>
+      app.request("/account/order-capacity", post({ idempotencyKey: `direct_${idempotencyKey}`, maxOpenOrders: 9 }));
+    for (const original of [await direct(), await direct()]) {
+      expect(original.status).toBe(200);
+      expect(await original.json()).toMatchObject({ version: 2, maxOpenOrders: 9 });
+    }
+    expect(allEvents).toHaveLength(3);
+  });
+
   it.each([null, { ...sellerActor!, permissions: ["listings.view"] }])(
     "requires management authority for preparation and retry",
     async (actor) => {
@@ -714,6 +775,94 @@ describe("Listing batch recovery API", () => {
       expect.anything(),
     );
   });
+
+  it.each(["error", "conflict"] as const)(
+    "keeps a bound %s on owner read failure, but never grants retry when the pending target's history is incomplete",
+    async (terminal) => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      let unavailableStream: string | undefined;
+      const store = {
+        ...eventStore,
+        readStream: async (request: Parameters<typeof eventStore.readStream>[0]) => {
+          if (request.streamId === unavailableStream) throw new Error("Listing owner history unavailable");
+          return eventStore.readStream(request);
+        },
+      };
+      const recovery = createListingRecovery(store);
+      const applyListingBatch = vi.fn(async () => ({
+        batchId: reference.batchId,
+        family: reference.mutationKind,
+        items: [{ targetId: "lst_two", outcome: "succeeded" as const, version: 1 }],
+      }));
+      const app = buildApp({ actor: sellerActor, services: { ...createServices(), ...recovery, applyListingBatch } });
+      const response = await app.request(
+        "/account/listings/batch/prepare",
+        post({ ...preparation, listingIds: ["lst_one", "lst_two"] }),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ reference });
+      const batch = { batchId: reference.batchId, family: reference.mutationKind, accountId: "acc_seller" };
+      const attemptFor = (targetId: string) =>
+        listingAttempt({
+          idempotencyKey: batch.batchId,
+          mutationKind: batch.family,
+          accountId: batch.accountId,
+          targetId,
+          request: { listingId: targetId, reason: "seller" },
+        });
+      const settled = attemptFor("lst_one");
+      await runListingBatch({
+        store,
+        batch,
+        targets: [{ targetId: "lst_one", attempt: settled }],
+        context: {
+          tenantId: "tnt_identity" as never,
+          audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+        },
+        drive: async () => new Map([["lst_one", { outcome: terminal, version: 0 }]]),
+      });
+
+      const reload = async () => {
+        const response = await app.request(recoverPath(reference));
+        expect(response.status).toBe(200);
+        return response.json();
+      };
+      const retry = async () => {
+        const response = await app.request("/account/listings/batch/retry", post(reference));
+        expect(response.status).toBe(200);
+        return response.json();
+      };
+      unavailableStream = attemptFor("lst_two").streamId;
+      expect(await retry()).toMatchObject({
+        recovery: {
+          phase: "ambiguous",
+          items: [
+            { targetId: "lst_one", outcome: terminal },
+            { targetId: "lst_two", outcome: "ambiguous" },
+          ],
+          retryTargetIds: [],
+        },
+        sent: [],
+      });
+      expect(applyListingBatch).not.toHaveBeenCalled();
+      unavailableStream = settled.streamId;
+      expect(await reload()).toMatchObject({
+        phase: "partial",
+        items: [
+          { targetId: "lst_one", outcome: terminal },
+          { targetId: "lst_two", outcome: "unknown" },
+        ],
+        retryTargetIds: ["lst_two"],
+      });
+      expect(applyListingBatch).not.toHaveBeenCalled();
+      expect(allEvents).toHaveLength(2);
+      expect(await retry()).toMatchObject({ sent: [{ targetId: "lst_two", outcome: "succeeded" }] });
+      expect(applyListingBatch).toHaveBeenCalledExactlyOnceWith(
+        { ...batch, listingIds: ["lst_two"] },
+        expect.anything(),
+      );
+    },
+  );
 
   it("never sends when vector or owner history is unavailable", async () => {
     const recovery = listingRecoveryResult(null, []);

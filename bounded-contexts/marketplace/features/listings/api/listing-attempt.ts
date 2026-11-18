@@ -12,6 +12,7 @@ import {
   type MarketplaceListingMutationKind,
   type MarketplaceMutationRecoveryResult,
 } from "../../mutation-recovery/domain/contracts";
+import { assertPreparedListingAttempt } from "./listing-batch";
 
 /**
  * The Listing attempt carrier: the shipped `idempotencyKey` becomes deterministic event ids
@@ -19,6 +20,7 @@ import {
  * request hash. The owner stream itself is the replay authority; there is no parallel attempt stream.
  */
 export type ListingAttempt = Readonly<{
+  idempotencyKey: string;
   binding: MarketplaceMutationRecoveryResult;
   streamId: string;
   receiptId: string;
@@ -113,6 +115,7 @@ export function listingAttempt(input: ListingAttemptInput): ListingAttempt {
         ? targetId
         : null;
   return {
+    idempotencyKey: input.idempotencyKey,
     binding: input.request ? binding : { ...binding, canonicalRequestHash: input.requestHash },
     streamId: ownerStream(input.mutationKind, input.accountId, listingId),
     receiptId: listingId ?? input.accountId,
@@ -234,6 +237,7 @@ export async function runListingAttempt<T extends object>(
   replay: (receipt: Readonly<{ id: string; version: number }>) => T | Promise<T>,
   run: () => Promise<T>,
 ): Promise<T> {
+  await assertPreparedListingAttempt(store, attempt);
   const first = await readListingAttemptReceipt(store, attempt);
   if (first) return withMarketplaceAttemptReceipt(await replay(first), first.last);
   try {

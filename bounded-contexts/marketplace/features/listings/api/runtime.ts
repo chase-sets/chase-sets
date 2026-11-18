@@ -131,6 +131,7 @@ import {
 } from "./listing-attempt";
 import {
   assertListingBatchId,
+  assertPreparedListingAttempt,
   lookupListingBatch as lookupPersistedListingBatch,
   runListingBatch,
   type ListingBatchDecision,
@@ -2014,6 +2015,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const laneItems: BulkAppendLaneItem<MarketplaceListingCommand>[] = [];
       for (const { update, attempt } of waves[waveIndex]!) {
         try {
+          await assertPreparedListingAttempt(deps.eventStore, attempt);
           const first = await readListingAttemptReceipt(deps.eventStore, attempt);
           if (first) {
             decided.set(update.listingId, { outcome: "succeeded", version: first.version });

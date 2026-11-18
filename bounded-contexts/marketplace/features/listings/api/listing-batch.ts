@@ -43,6 +43,35 @@ const listingBatchFamilies = [
   "seller.order-capacity",
 ] as const satisfies readonly MarketplaceListingBatchFamily[];
 
+export const listingRecoveryCommands = {
+  "bulk-pause-listings": ["listing.pause", "bulk-pause-listings", true],
+  "bulk-withdraw-listings": ["listing.withdraw", "bulk-withdraw-listings", true],
+  publish: ["listing.publish", "publishListing", false],
+  pause: ["listing.pause", "pauseListing", false],
+  withdraw: ["listing.withdraw", "withdrawListing", false],
+  "update-price": ["listing.update-price", "updateListingPrice", false],
+  "update-quantity-cap": ["listing.update-quantity", "updateListingQuantityCap", false],
+  "update-purchase-limits": ["listing.update-purchase-limits", "updateListingPurchaseLimits", false],
+  "disable-listing-availability": ["seller.availability", "disableSellerListingAvailability", false],
+  "enable-listing-availability": ["seller.availability", "enableSellerListingAvailability", false],
+  "schedule-away-window": ["seller.away", "scheduleSellerAwayWindow", false],
+  "cancel-away-window": ["seller.away", "cancelScheduledAwayWindow", false],
+  "set-order-capacity": ["seller.order-capacity", "setSellerOrderCapacity", false],
+  "clear-order-capacity": ["seller.order-capacity", "clearSellerOrderCapacity", false],
+} as const;
+
+export function listingRecoveryCommandForKey(key: string) {
+  const separator = key.lastIndexOf("_");
+  if (separator < 0) return undefined;
+  const idempotencyKey = key.slice(0, separator);
+  if (!marketplaceAttemptIdSchema.safeParse(idempotencyKey).success) return undefined;
+  const suffix = key.slice(separator + 1);
+  const command = Object.entries(listingRecoveryCommands).find(([, [, name]]) => name === suffix);
+  if (!command) return undefined;
+  const [intent, [family, , bulk]] = command;
+  return { intent, family, bulk, idempotencyKey };
+}
+
 const entrySchema = z.strictObject({
   targetId: z.string().min(1).max(512),
   attemptKeyFingerprint: recoveryHashSchema,
@@ -125,7 +154,7 @@ function foldFact(
 
 /** The complete persisted vector, or null when the batch never recorded one. Poisoned histories throw. */
 export async function readListingBatchVector(
-  store: EventStore,
+  store: Pick<EventStore, "readStream">,
   batch: ListingBatchIdentity,
 ): Promise<ListingBatchVector | null> {
   const streamId = listingBatchStreamId(batch);
@@ -168,6 +197,30 @@ function matchesTarget(entry: ListingBatchEntry, target: ListingBatchTarget): bo
     entry.attemptKeyFingerprint === target.attempt.binding.attemptKeyFingerprint &&
     entry.requestHash === target.attempt.binding.canonicalRequestHash
   );
+}
+
+export async function assertPreparedListingAttempt(
+  store: Pick<EventStore, "readStream">,
+  attempt: ListingAttempt | null,
+): Promise<void> {
+  if (!attempt) return;
+  const { idempotencyKey, binding } = attempt;
+  // The key identifies the prepared family even when a different command route receives it.
+  const command = listingRecoveryCommandForKey(idempotencyKey);
+  if (!command) return;
+  const vector = await readListingBatchVector(store, {
+    accountId: binding.actorBinding.accountId,
+    family: command.family,
+    batchId: idempotencyKey,
+  });
+  if (!vector) return;
+  const targetId = binding.target.id;
+  const entry = vector.entries.get(targetId);
+  if (binding.mutationKind !== command.family || !entry || !matchesTarget(entry, { targetId, attempt }))
+    throw new MarketplaceAttemptError(
+      "attempt_conflict",
+      "Marketplace attempt identity was already used for a different command.",
+    );
 }
 
 const unknownDecision: ListingBatchDecision = {
@@ -233,11 +286,12 @@ export async function runListingBatch<Target extends ListingBatchTarget>(input: 
   const firstByTarget = new Map<string, Target>();
   const decided = new Map<string, ListingBatchDecision>();
   const toDrive: Target[] = [];
+  const prepared = prior && listingRecoveryCommandForKey(input.batch.batchId)?.family === input.batch.family;
   for (const target of input.targets) {
     if (firstByTarget.has(target.targetId)) continue;
     firstByTarget.set(target.targetId, target);
     const recorded = prior?.entries.get(target.targetId);
-    if (recorded && !matchesTarget(recorded, target)) decided.set(target.targetId, changedTargetDecision);
+    if (recorded ? !matchesTarget(recorded, target) : prepared) decided.set(target.targetId, changedTargetDecision);
     else if (recorded && recorded.outcome !== "unknown") decided.set(target.targetId, recordedDecision(recorded));
     else toDrive.push(target);
   }
