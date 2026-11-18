@@ -60,14 +60,16 @@ export function createScopeSyncBatchWorker(deps: {
         await deps.repository.recordTerminal({
           claim,
           state: "failed",
-          errorMessage: supportSafeError(run.errorMessage ?? `Scope Sync Run ended ${run.status}.`),
+          errorMessage: scopeSyncRunFailureDiagnostic(run),
         });
       }
     } catch (error) {
       await deps.repository.recordTerminal({
         claim,
         state: "failed",
-        errorMessage: supportSafeError(error),
+        errorMessage: supportSafeError(
+          error instanceof Error ? error.message : "Scope Sync Run could not be advanced.",
+        ),
       });
     }
   }
@@ -75,10 +77,41 @@ export function createScopeSyncBatchWorker(deps: {
   return { processNext };
 }
 
-function supportSafeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "Scope Sync Run could not be advanced.";
+function scopeSyncRunFailureDiagnostic(run: CatalogSyncRun): string {
+  const runDiagnostic = knownHttpStatusDiagnostic(run.errorMessage);
+  if (runDiagnostic) return runDiagnostic;
+  const runSummary = `Scope Sync Run ended ${run.status}`;
+  let childSummary: string | undefined;
+  for (const child of run.childJobs) {
+    if (child.status !== "failed" && child.status !== "partial" && child.status !== "cancelled") continue;
+    const childDiagnostic =
+      knownHttpStatusDiagnostic(child.errorMessage) ?? knownHttpStatusDiagnostic(child.job?.errorMessage);
+    if (childDiagnostic) return childDiagnostic;
+    const result = child.job?.result;
+    for (const outcome of result?.outcomes ?? []) {
+      if (outcome.status !== "failed") continue;
+      const diagnostic = knownHttpStatusDiagnostic(outcome.reason);
+      if (diagnostic) return diagnostic;
+    }
+    if (!childSummary && child.providerKey && child.unitKey) {
+      const failed = result ? `, ${result.failed} failed` : "";
+      childSummary = `${child.providerKey.slice(0, 64)} / ${child.unitKey.slice(0, 256)} (${child.status}${failed})`;
+    }
+  }
+  return childSummary ? `${runSummary}: ${childSummary}.` : `${runSummary}.`;
+}
+
+function knownHttpStatusDiagnostic(message: string | null | undefined): string | undefined {
+  // Keep only fixed adapter messages; parser errors can quote provider response text.
+  return /^(?:LorcanaJSON|Lorcast|MTGJSON|Scryfall|YGOPRODeck|YGOJSON) request failed with HTTP [0-9]{3}\.$/.exec(
+    message ?? "",
+  )?.[0];
+}
+
+function supportSafeError(message: string): string {
   return message
     .replaceAll(/https?:\/\/\S+/gi, "[redacted-url]")
-    .replaceAll(/(?:token|secret|password|authorization|cookie|account)[=:]\s*\S+/gi, "[redacted]")
+    .replaceAll(/\bbearer\s+\S+/gi, "[redacted]")
+    .replaceAll(/(?:api[-_ ]?key|token|secret|password|authorization|cookie|account)\s*[=:]\s*\S+/gi, "[redacted]")
     .slice(0, 500);
 }

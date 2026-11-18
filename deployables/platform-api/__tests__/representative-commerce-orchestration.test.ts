@@ -170,7 +170,7 @@ function harness(currency: string | null = null, version = 0, fresh = false) {
         connect: vi.fn(),
       },
     },
-    runtime: { services, mountedContexts: [] },
+    runtime: { services, mountedContexts: [], projectionGroups: [], subscriptionRunners: [] },
     execution: { deploymentEnvironment: "staging", confirmation: "seed staging commerce" },
     evidenceOutPath: null,
     afterStepCompleted: (step: string) => {
@@ -342,6 +342,40 @@ describe("representative refresh phase isolation (synthetic runtime)", () => {
     await runRepresentativeCommerceState(state.options);
     expect(state.createListing).toHaveBeenCalledTimes(1);
     expect(state.updateListingPrice).not.toHaveBeenCalled();
+  });
+
+  it("leaves contended Source Observation replay to workers without dropping commerce projections", async () => {
+    const state = harness();
+    const itemProjector = { projectionName: "catalog-item-projection" };
+    const observationProjector = { projectionName: "catalog-source-observation-projection" };
+    const itemRunner = { ...itemProjector, targetContextName: "catalog" };
+    const observationRunner = { ...observationProjector, targetContextName: "catalog" };
+    const itemGroup = { ...itemRunner, subscriptionRunners: [itemRunner] };
+    const observationGroup = { ...observationRunner, subscriptionRunners: [observationRunner] };
+    const runtime = {
+      ...state.options.runtime,
+      mountedContexts: [{ contextName: "catalog", projectionHandlerSets: [itemProjector, observationProjector] }],
+      projectionGroups: [itemGroup, observationGroup],
+      subscriptionRunners: [itemRunner, observationRunner],
+    } as unknown as NonNullable<RepresentativeCommerceStateRunOptions["runtime"]>;
+
+    vi.mocked(seedApiHostIfEmpty).mockImplementation(async (_registry, _host, seedRuntime) => {
+      expect(seedRuntime.projectionGroups).toEqual([itemGroup]);
+      expect(seedRuntime.subscriptionRunners).toEqual([itemRunner]);
+      expect(seedRuntime.mountedContexts[0]?.projectionHandlerSets).toEqual([itemProjector]);
+    });
+    vi.mocked(drainProjectionGroups).mockImplementation(async (drainRuntime) => {
+      expect(drainRuntime.projectionGroups).toEqual([itemGroup]);
+      expect(drainRuntime.subscriptionRunners).toEqual([itemRunner]);
+    });
+
+    await runRepresentativeCommerceState({ ...state.options, runtime });
+
+    expect(drainProjectionGroups).toHaveBeenCalledTimes(1);
+    expect(logged("representative-commerce-state.complete")).toHaveLength(1);
+    expect(runtime.projectionGroups).toEqual([itemGroup, observationGroup]);
+    expect(runtime.subscriptionRunners).toEqual([itemRunner, observationRunner]);
+    expect(runtime.mountedContexts[0]?.projectionHandlerSets).toEqual([itemProjector, observationProjector]);
   });
 
   it("reports the capped remaining-drain failure after repair, never complete, then resumes without another price event", async () => {

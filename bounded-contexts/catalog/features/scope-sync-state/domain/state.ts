@@ -48,13 +48,13 @@ export function deriveCatalogScopeSyncUnitState(status: CatalogScopeSyncUnitObse
       return "settled";
     case "running":
     case "retried":
-    case "partial":
       return "running";
     case "queued":
       return "pending";
     case "stale":
       return "stale";
     case "failed":
+    case "partial":
     case "cancelled":
     case "enqueue-failed":
       return "failed";
