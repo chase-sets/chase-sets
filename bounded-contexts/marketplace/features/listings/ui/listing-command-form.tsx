@@ -8,16 +8,7 @@ export function ListingCommandForm({ children, onChange, onSubmit, ...props }: C
   const revision = useRef(0);
   const recovery = useListingRecovery();
   const write = props.method?.toLowerCase() === "post";
-  const disabled =
-    props.disabled ||
-    (write &&
-      Boolean(
-        recovery &&
-        (recovery.busy ||
-          (recovery.recovery &&
-            (recovery.recovery.phase === "ambiguous" ||
-              recovery.recovery.items.some((item) => item.outcome !== "unknown")))),
-      ));
+  const disabled = props.disabled || (write && Boolean(recovery?.busy || recovery?.blocked));
   return (
     <Form
       {...props}

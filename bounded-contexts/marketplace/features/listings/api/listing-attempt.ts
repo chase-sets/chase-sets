@@ -19,6 +19,7 @@ import {
  * request hash. The owner stream itself is the replay authority; there is no parallel attempt stream.
  */
 export type ListingAttempt = Readonly<{
+  idempotencyKey: string;
   binding: MarketplaceMutationRecoveryResult;
   streamId: string;
   receiptId: string;
@@ -113,6 +114,7 @@ export function listingAttempt(input: ListingAttemptInput): ListingAttempt {
         ? targetId
         : null;
   return {
+    idempotencyKey: input.idempotencyKey,
     binding: input.request ? binding : { ...binding, canonicalRequestHash: input.requestHash },
     streamId: ownerStream(input.mutationKind, input.accountId, listingId),
     receiptId: listingId ?? input.accountId,

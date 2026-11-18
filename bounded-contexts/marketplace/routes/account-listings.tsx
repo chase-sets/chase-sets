@@ -1,19 +1,15 @@
-import { listingFormAttempt } from "../support/request-support/listing-attempt";
 import {
+  ambiguousListingRecovery,
   LISTING_RECOVERY_PARAM,
-  listingRecoveryForForm,
-  listingRecoveryResult,
   listingRecoveryUrl,
   loadListingRecovery,
-  recoverListingBatch,
-  sameListingRecovery,
-  type ListingRecoveryIdentity,
+  prepareListingAction,
+  readListingRecoveryReference,
 } from "../features/listings/ui/listing-batch";
 import { ListingRecoveryNotice, ListingRecoveryScope } from "../features/listings/ui/listing-batch-recovery";
 export { ListingRecoveryErrorBoundary as ErrorBoundary } from "../features/listings/ui/listing-batch-recovery";
 import { t } from "@chase-sets/localization";
 import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
-import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
 import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -252,10 +248,6 @@ function bulkActionOutcomeLabel(listingId: string) {
   return t("marketplace.routes.accountListings.bulk.action.listing.label", { listingId });
 }
 
-function bulkActionOutcomeErrorMessage(error: unknown) {
-  return listingActionFeedback(error) ?? t("marketplace.routes.accountListings.bulk.action.request.failed");
-}
-
 async function navigateToAccountListingsWithReceipt(commandResult: unknown, destinationRoute: string) {
   return navigateAfterWriteWithCompactToken(commandResult, destinationRoute, {
     postWriteTokenStore: await resolveMarketplacePostWriteTokenStore(),
@@ -280,11 +272,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const pendingAvailabilityStatus = availabilityStatusFromAction(searchParams.get(AVAILABILITY_ACTION_PARAM));
   const pendingSettingsAction = searchParams.get(SETTINGS_ACTION_PARAM);
   const listingRecovery = new URL(request.url).searchParams.has(LISTING_RECOVERY_PARAM)
-    ? await loadListingRecovery(
-        createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest)),
-        request,
-        actor.accountId,
-      )
+    ? await loadListingRecovery(createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest)), request)
     : null;
 
   const loadPageReads = async (apiClient: typeof marketplaceApi): Promise<AccountListingsPageReads> => {
@@ -381,42 +369,40 @@ async function fetchSellerOpenOrderCount(request: Request): Promise<number | nul
   }
 }
 
-async function handleAction(intent: string, { request, formData, actor }: FormActionContext) {
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
-  const retained = await loadListingRecovery(api, request, actor!.accountId);
-  if (retained?.phase === "ambiguous") return { listingRecovery: retained };
+  const retry = intent === "retry-listing-batch";
+  const bulk = intent === "bulk-pause-listings" || intent === "bulk-withdraw-listings";
   if (
-    !retained &&
-    (intent === "bulk-pause-listings" || intent === "bulk-withdraw-listings") &&
+    bulk &&
+    !new URL(request.url).searchParams.has(LISTING_RECOVERY_PARAM) &&
     formData.getAll("listingIds").length === 0
   )
     return { bulkActionOutcomes: [] };
-  let submittedIdentity: ListingRecoveryIdentity | null;
-  try {
-    submittedIdentity =
-      intent === "retry-listing-batch"
-        ? (retained?.identity ?? null)
-        : await listingRecoveryForForm(formData, null, actor!.accountId);
-  } catch {
-    return { listingRecovery: { identity: null, items: [], phase: "failed-safe" as const } };
+  const preparation = retry ? { reference: null } : await prepareListingAction(api, request, formData, null, !!intent);
+  if ("recovery" in preparation) return { listingRecovery: preparation.recovery };
+  let reference = preparation.reference;
+  if (retry) {
+    try {
+      reference = readListingRecoveryReference(request);
+    } catch {
+      return { listingRecovery: ambiguousListingRecovery };
+    }
+    if (!reference?.bulk) return { listingRecovery: ambiguousListingRecovery };
   }
+  const attempt = { idempotencyKey: reference?.batchId ?? "" };
   const navigateToAccountListingsAfterWrite = (commandResult: unknown, destination: string) =>
     navigateToAccountListingsWithReceipt(
       commandResult,
-      submittedIdentity ? listingRecoveryUrl("/account/listings", submittedIdentity) : destination,
+      reference ? listingRecoveryUrl("/account/listings", reference) : destination,
     );
-  if (retained?.identity && intent !== "retry-listing-batch") {
-    if (!submittedIdentity || !sameListingRecovery(retained.identity, submittedIdentity))
-      return { listingRecovery: { ...retained, phase: "failed-safe" as const } };
-    if (retained.items.every((item) => item.outcome !== "unknown")) return { listingRecovery: retained };
-  }
 
   try {
     if (intent === "disable-listing-availability") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
           await api.disableSellerListingAvailability({
-            ...listingFormAttempt(formData, "disableSellerListingAvailability"),
+            ...attempt,
             reasonCategory: String(formData.get("reasonCategory") ?? ""),
             availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
             // Captured client-side by the disable form (seller-local
@@ -433,7 +419,7 @@ async function handleAction(intent: string, { request, formData, actor }: FormAc
     if (intent === "enable-listing-availability") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.enableSellerListingAvailability(listingFormAttempt(formData, "enableSellerListingAvailability")),
+          await api.enableSellerListingAvailability(attempt),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
         ),
       );
@@ -446,7 +432,7 @@ async function handleAction(intent: string, { request, formData, actor }: FormAc
       return redirect(
         await navigateToAccountListingsAfterWrite(
           await api.scheduleSellerAwayWindow({
-            ...listingFormAttempt(formData, "scheduleSellerAwayWindow"),
+            ...attempt,
             reasonCategory,
             // Captured client-side (seller-local start-of-day for the
             // chosen date, converted to an instant), same convention as
@@ -466,7 +452,7 @@ async function handleAction(intent: string, { request, formData, actor }: FormAc
     if (intent === "cancel-away-window") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.cancelScheduledAwayWindow(listingFormAttempt(formData, "cancelScheduledAwayWindow")),
+          await api.cancelScheduledAwayWindow(attempt),
           settingsDestination(SETTINGS_ACTIONS.cancelAwayWindow),
         ),
       );
@@ -476,7 +462,7 @@ async function handleAction(intent: string, { request, formData, actor }: FormAc
       const maxOpenOrders = Number(formData.get("maxOpenOrders") ?? "");
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.setSellerOrderCapacity(maxOpenOrders, listingFormAttempt(formData, "setSellerOrderCapacity")),
+          await api.setSellerOrderCapacity(maxOpenOrders, attempt),
           settingsDestination(SETTINGS_ACTIONS.setOrderCapacity, { maxOpenOrders: String(maxOpenOrders) }),
         ),
       );
@@ -485,66 +471,17 @@ async function handleAction(intent: string, { request, formData, actor }: FormAc
     if (intent === "clear-order-capacity") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.clearSellerOrderCapacity(listingFormAttempt(formData, "clearSellerOrderCapacity")),
+          await api.clearSellerOrderCapacity(attempt),
           settingsDestination(SETTINGS_ACTIONS.clearOrderCapacity),
         ),
       );
     }
 
-    if (intent === "bulk-pause-listings" || intent === "bulk-withdraw-listings" || intent === "retry-listing-batch") {
-      if (intent === "retry-listing-batch" && !retained?.identity?.bulk)
-        return { listingRecovery: listingRecoveryResult(null, []) };
-      if (intent !== "retry-listing-batch" && formData.getAll("listingIds").length === 0)
-        return { bulkActionOutcomes: [] };
-      const identity: ListingRecoveryIdentity | null = retained?.identity ?? submittedIdentity ?? null;
-      if (
-        !identity?.bulk ||
-        (identity.mutationKind !== "listing.pause" && identity.mutationKind !== "listing.withdraw")
-      )
-        return { bulkActionOutcomes: [] };
-      const possible =
-        retained ??
-        listingRecoveryResult(
-          identity,
-          identity.targets.map((target) => ({ targetId: target.id, outcome: "unknown" })),
-        );
-      const pendingIds = possible.items.filter((item) => item.outcome === "unknown").map((item) => item.targetId);
-      if (pendingIds.length === 0) return { listingRecovery: possible };
-      // One batch identity per submission (a resubmitted form keeps its id) and one target attempt per Listing.
-      const batchId = identity.batchId;
-      let batch: Awaited<ReturnType<typeof api.applyListingBatch>>;
-      try {
-        batch = await api.applyListingBatch({
-          batchId,
-          family: identity.mutationKind,
-          listingIds: pendingIds,
-        });
-      } catch (error) {
-        const status = marketplaceApiErrorAdapter.getStatus(error);
-        if (
-          status === null ||
-          status < 400 ||
-          status >= 500 ||
-          marketplaceApiErrorAdapter.getErrorCode(error) === "history_incomplete"
-        )
-          return { listingRecovery: await recoverListingBatch(api, identity, actor!.accountId) };
-        const message = bulkActionOutcomeErrorMessage(error);
-        return {
-          listingRecovery: listingRecoveryResult(
-            identity,
-            possible.items.map((item) => (item.outcome === "unknown" ? { ...item, outcome: "error" } : item)),
-          ),
-          bulkActionOutcomes: pendingIds.map((listingId) => ({
-            listingId,
-            label: bulkActionOutcomeLabel(listingId),
-            outcome: "error" as const,
-            message,
-          })),
-        };
-      }
-      const outcomes = new Map(batch.items.map((item) => [item.targetId, item.outcome] as const));
-      const bulkActionOutcomes: MarketplaceListingBulkActionOutcome[] = pendingIds.map((listingId) =>
-        outcomes.get(listingId) === "succeeded"
+    if (bulk || retry) {
+      if (!reference) return { bulkActionOutcomes: [] };
+      const { recovery: listingRecovery, sent } = await api.retryListingBatch(reference);
+      const bulkActionOutcomes: MarketplaceListingBulkActionOutcome[] = sent.map(({ targetId: listingId, outcome }) =>
+        outcome === "succeeded"
           ? { listingId, label: bulkActionOutcomeLabel(listingId), outcome: "success", message: null }
           : {
               listingId,
@@ -553,27 +490,13 @@ async function handleAction(intent: string, { request, formData, actor }: FormAc
               message: t("marketplace.routes.accountListings.bulk.action.request.failed"),
             },
       );
-
-      const listingRecovery = listingRecoveryResult(
-        identity,
-        possible.items.map((item) =>
-          item.outcome !== "unknown"
-            ? item
-            : { targetId: item.targetId, outcome: outcomes.get(item.targetId) ?? "ambiguous" },
-        ),
-      );
       return { bulkActionOutcomes, listingRecovery };
     }
 
     return redirect("/account/listings");
   } catch (error) {
-    if (
-      submittedIdentity &&
-      (!(error instanceof MarketplaceApiError) ||
-        error.status >= 500 ||
-        marketplaceApiErrorAdapter.getErrorCode(error) === "history_incomplete")
-    )
-      return { listingRecovery: await recoverListingBatch(api, submittedIdentity, actor!.accountId) };
+    const listingRecovery = await api.recoverInterruptedListingSend(reference, error);
+    if (listingRecovery) return { listingRecovery };
     const feedback = listingActionFeedback(error);
     if (feedback !== null) {
       return {
@@ -637,20 +560,14 @@ export default function MarketplaceAccountListingsRoute() {
 
   if ("recoveryOnly" in data && data.recoveryOnly) {
     return (
-      <ListingRecoveryScope
-        recovery={actionData?.listingRecovery ?? data.listingRecovery}
-        accountId={data.listingAvailability.account_id}
-      >
+      <ListingRecoveryScope recovery={actionData?.listingRecovery ?? data.listingRecovery}>
         <ListingRecoveryNotice />
       </ListingRecoveryScope>
     );
   }
 
   return (
-    <ListingRecoveryScope
-      recovery={actionData?.listingRecovery ?? data.listingRecovery}
-      accountId={data.listingAvailability.account_id}
-    >
+    <ListingRecoveryScope recovery={actionData?.listingRecovery ?? data.listingRecovery}>
       <MarketplaceAccountListingsRealtimeView
         key={[
           accountId ?? "anonymous",

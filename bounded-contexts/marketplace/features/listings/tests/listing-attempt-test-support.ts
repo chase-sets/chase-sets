@@ -1,5 +1,6 @@
 import type { Env, Hono } from "hono";
 import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
+import { listingRecoveryForCommand } from "../api/listing-recovery";
 import {
   marketplaceListingCanonicalRequest,
   type MarketplaceListingMutationKind,
@@ -22,6 +23,13 @@ export function listingTestCommand<T extends Record<string, unknown>>(
 
 export function listingBulkTestCommand<const T extends { updates: readonly Record<string, unknown>[] }>(request: T) {
   return { ...request, updates: request.updates.map((update) => listingTestCommand("listing.update-price", update)) };
+}
+
+export function listingPreparationResponse(init: RequestInit | undefined, accountId: string) {
+  const identity = listingRecoveryForCommand(JSON.parse(String(init?.body)), accountId);
+  if (!identity) return Response.json({ reference: null });
+  const { batchId, mutationKind, bulk } = identity;
+  return Response.json({ reference: { batchId, mutationKind, bulk } });
 }
 
 /**

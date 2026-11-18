@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { listingPreparationResponse } from "../features/listings/tests/listing-attempt-test-support";
 import {
   appendCompactPostWriteToken,
   appendFreshWriteToken,
@@ -308,8 +309,10 @@ describe("marketplace listing detail route", () => {
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
@@ -371,8 +374,10 @@ describe("marketplace listing detail route", () => {
   it("returns the current quote when a confirmed price update is stale", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
@@ -422,8 +427,10 @@ describe("marketplace listing detail route", () => {
     const currentEvidenceReadiness = { coverage: { complete: false, unmetCodes: ["slot-missing"] } };
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
         if (url.includes("/api/auth/session")) return Promise.resolve(jsonResponse({ actor: sellerActor }));
         return Promise.resolve(
           jsonResponse(
@@ -506,8 +513,10 @@ describe("marketplace listing detail route", () => {
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
