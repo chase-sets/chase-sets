@@ -55,7 +55,7 @@ describe("Capture Hermetic Chromium hosted proof", () => {
   it("uses a secret-free source-pinned checkout and strict bounded synthetic Chromium command", () => {
     const source = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}";
     expect(job.name).toBe("Capture Hermetic Chromium");
-    expect(job["runs-on"]).toBe("ubuntu-latest");
+    expect(job["runs-on"]).toBe("ubuntu-24.04");
     expect(job["timeout-minutes"]).toBe(15);
     expect(job.permissions).toEqual({ contents: "read" });
     expect(job.env).toEqual({ AC4_SOURCE_SHA: source });
