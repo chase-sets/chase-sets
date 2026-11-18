@@ -22,6 +22,8 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { createMarketplaceCommercialTermsResolver } from "../../../api";
 import { module as marketplaceModule } from "../../../index";
 import { createMarketplaceReportRuntime } from "../../reports/api/runtime";
+import { marketplaceReporterFingerprint } from "../../reports/api/reporter";
+import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import { createMarketplaceListingRuntime } from "../api/runtime";
 import {
   decideMarketplaceListing,
@@ -533,6 +535,7 @@ async function reportToThreshold(reports: ReturnType<typeof createMarketplaceRep
   for (let index = 1; ; index += 1) {
     const result = await reports.reportListing(
       {
+        attemptId: `enforcement_report_attempt_${index.toString().padStart(4, "0")}`,
         listingId,
         reporterKind: "visitor",
         reporterKey: `anon_${listingId}_${index}`,
@@ -542,8 +545,9 @@ async function reportToThreshold(reports: ReturnType<typeof createMarketplaceRep
         details: null,
         sourceRoutePath: `/listings/${listingId}`,
       },
-      contextFor("acc_reporter"),
+      contextFor(marketplaceReporterFingerprint("visitor", `anon_${listingId}_${index}`)),
     );
+    expect(getMutationResultCommandReceipt(result)?.commitEventIds).toHaveLength(1);
     if (result.autoUnlisted) {
       return result.reportId;
     }

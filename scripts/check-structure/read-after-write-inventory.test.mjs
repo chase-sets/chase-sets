@@ -248,6 +248,30 @@ afterEach(() => {
 });
 
 describe("read-after-write route inventory guard", () => {
+  it("discovers Review mutation POST forms alongside canonical forms without including GET forms", async () => {
+    const root = createTempRepo();
+    const relative = "bounded-contexts/checkout/routes/review.tsx";
+    writeFileSync(
+      path.join(root, relative),
+      [
+        '<Form spacing="none" method="post" />',
+        '<ReviewMutationForm spacing="none" method="post" />',
+        '<ReviewMutationForm method="get" />',
+      ].join("\n"),
+      "utf8",
+    );
+    const surfaces = await collectMutationConsistencySurfaces({
+      repoRoot: root,
+      contextManifests: createContextManifest(root),
+    });
+    expect(
+      surfaces
+        .filter((surface) => surface.kind === "post-form")
+        .map((surface) => surface.id)
+        .sort(),
+    ).toEqual([`post-form:${relative}:H14b7ab8ab869#1`, `post-form:${relative}:H2df726441e2a#1`]);
+  });
+
   it("issue-7171-complete-caller-census rejects added or removed raw fetches outside the shipped inventory", async () => {
     const root = createTempRepo();
     const relative = "bounded-contexts/checkout/features/sessions/ui/recovery.ts";

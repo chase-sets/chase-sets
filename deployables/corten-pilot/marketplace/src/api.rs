@@ -7804,8 +7804,11 @@ pub struct BulkRepriceResult {
 /// off, every one answers 404 (chase-sets/chase-sets#10772).
 pub trait BulkRepriceCalls {
     async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
-    /// Start a job for `csv_text` (a file's text and name, or pasted rows).
-    async fn start_bulk_reprice(&self, csv_text: &str, filename: Option<&str>) -> Result<BulkRepriceJob, ApiError>;
+    /// Start a job for `csv_text` (a file's text and name, or pasted rows) as `attempt` (Pricing's
+    /// `Idempotency-Key`): the same attempt sent again answers its first job, and different rows
+    /// under it are refused (409 `attempt_conflict`).
+    async fn start_bulk_reprice(&self, attempt: &str, csv_text: &str, filename: Option<&str>)
+    -> Result<BulkRepriceJob, ApiError>;
     async fn cancel_bulk_reprice(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
     /// The template (`template.csv`) or a job's results (`jobs/{id}/results.csv`), as Pricing sends it.
     async fn bulk_reprice_csv(&self, path: &str) -> Result<reqwest::Response, ApiError>;
@@ -7816,9 +7819,14 @@ impl BulkRepriceCalls for Caller<'_> {
         self.read(&format!("{BULK_REPRICE}/jobs/{}", segment(id)), PRICING).await
     }
 
-    async fn start_bulk_reprice(&self, csv_text: &str, filename: Option<&str>) -> Result<BulkRepriceJob, ApiError> {
+    async fn start_bulk_reprice(
+        &self,
+        attempt: &str,
+        csv_text: &str,
+        filename: Option<&str>,
+    ) -> Result<BulkRepriceJob, ApiError> {
         let body = serde_json::json!({ "csvText": csv_text, "sourceFilename": filename });
-        let req = self.request(Method::POST, BULK_REPRICE, PRICING).json(&body);
+        let req = self.request(Method::POST, BULK_REPRICE, PRICING).header(IDEMPOTENCY_KEY, attempt).json(&body);
         let (job, _) = pricing_answer(req).await.map_err(|refusal| refusal.error)?;
         serde_json::from_value(job).map_err(|error| ApiError::Status {
             status: StatusCode::BAD_GATEWAY,

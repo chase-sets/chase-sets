@@ -2,14 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  AppendToStreamInput,
-  GlobalPosition,
-  ReadAllInput,
-  ReadStreamInput,
-  StoredEvent,
-} from "@chase-sets/event-core/storage";
-import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import {
   createMarketplaceReportRuntime,
   LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
@@ -85,22 +78,24 @@ async function seedActiveListing(eventStore: EventStore, listingId = "lst_report
           evidence: [],
         },
       },
-      {
-        eventType: "marketplace.listing.published",
-        payload: {
-          marketplaceSalesFeeUnitAmount: "1.20",
-          sellerNetUnitAmount: "10.80",
-          shippingAllowancePercentageBps: 500,
-          termsScheduleId: null,
-          termsAgreementId: null,
-          termsResolvedAt: null,
-          feeQuoteFingerprint: "fee_1",
-        },
-      },
+      listingPublished,
     ],
     context,
   });
 }
+
+const listingPublished = {
+  eventType: "marketplace.listing.published",
+  payload: {
+    marketplaceSalesFeeUnitAmount: "1.20",
+    sellerNetUnitAmount: "10.80",
+    shippingAllowancePercentageBps: 500,
+    termsScheduleId: null,
+    termsAgreementId: null,
+    termsResolvedAt: null,
+    feeQuoteFingerprint: "fee_1",
+  },
+};
 
 async function seedOldListingReport(eventStore: EventStore, listingId = "lst_reported") {
   const submittedAt = new Date(Date.now() - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS - 60_000).toISOString();
@@ -131,6 +126,58 @@ async function seedOldListingReport(eventStore: EventStore, listingId = "lst_rep
 }
 
 describe("Marketplace report runtime", () => {
+  it("bounded-contexts/marketplace/features/reports/api/runtime.ts#readStream#1", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await seedActiveListing(eventStore);
+    const streamId = "marketplace.report-listing-lst_reported-visitor:anon_legacy";
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "marketplace.report.submitted",
+          payload: {
+            reportId: "rpt_legacy",
+            targetType: "listing",
+            targetId: "lst_reported",
+            targetOwnerAccountId: "acc_seller",
+            reporterKind: "visitor",
+            reporterKey: "visitor:anon_legacy",
+            reporterAccountId: null,
+            reporterUserId: null,
+            reason: "other",
+            details: null,
+            sourceRoutePath: "/listings/reported-listing",
+            submittedAt: new Date().toISOString(),
+          },
+        },
+      ],
+      context,
+    });
+    const read = vi.spyOn(eventStore, "readStream");
+    const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
+    const eventCount = allEvents.length;
+
+    await expect(
+      reports.reportListing(
+        {
+          attemptId: "legacy_report_attempt_0001",
+          listingId: "lst_reported",
+          reporterKind: "visitor",
+          reporterKey: "anon_legacy",
+          reporterAccountId: null,
+          reporterUserId: null,
+          reason: "other",
+          details: null,
+          sourceRoutePath: "/listings/reported-listing",
+        },
+        context,
+      ),
+    ).rejects.toThrow("This reporter has already reported this content.");
+    expect(read.mock.calls.filter(([request]) => request.streamId === streamId)).toEqual([[{ streamId, limit: 1 }]]);
+    expect(allEvents).toHaveLength(eventCount);
+  });
+
   it("auto-unlists an active listing only when the distinct reporter window threshold is reached", async () => {
     const { eventStore, allEvents } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
@@ -140,6 +187,7 @@ describe("Marketplace report runtime", () => {
     for (let index = 1; index < LISTING_REPORT_AUTO_UNLIST_THRESHOLD; index += 1) {
       const result = await reports.reportListing(
         {
+          attemptId: `listing_report_attempt_${index.toString().padStart(4, "0")}`,
           listingId: "lst_reported",
           reporterKind: "visitor",
           reporterKey: `anon_${index}`,
@@ -158,6 +206,7 @@ describe("Marketplace report runtime", () => {
 
     const thresholdResult = await reports.reportListing(
       {
+        attemptId: "account_report_attempt_0001",
         listingId: "lst_reported",
         reporterKind: "account",
         reporterKey: "acc_buyer",
@@ -167,7 +216,7 @@ describe("Marketplace report runtime", () => {
         details: "Wrong card shown.",
         sourceRoutePath: "/listings/reported-listing",
       },
-      context,
+      { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
     );
 
     expect(thresholdResult).toMatchObject({
@@ -176,69 +225,136 @@ describe("Marketplace report runtime", () => {
       autoUnlisted: true,
     });
     expect(allEvents.map((event) => event.eventType)).toContain("marketplace.listing.auto-unlisted");
+    expect(allEvents.filter((event) => event.eventType === "marketplace.mutation-attempt.completed")).toHaveLength(
+      LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+    );
+    expect(getMutationResultCommandReceipt(thresholdResult)?.commitEventIds).toEqual([allEvents.at(-1)!.eventId]);
   });
 
-  it("mints one listing enforcement identity per automatic removal and keeps the threshold payload", async () => {
+  it.each([0, 501])(
+    "mints one listing enforcement identity per automatic removal and keeps the threshold payload after %i unrelated reports",
+    async (unrelatedCount) => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      await seedActiveListing(eventStore);
+      if (unrelatedCount) {
+        await eventStore.appendToStream({
+          streamId: "marketplace.report-unrelated-history",
+          expectedVersion: "no_stream",
+          context,
+          events: Array.from({ length: unrelatedCount }, (_, index) => ({
+            eventType: "marketplace.report.submitted",
+            payload: {
+              reportId: `rpt_unrelated_${index}`,
+              targetType: "listing",
+              targetId: "lst_unrelated",
+              reporterKind: "visitor",
+              reporterKey: `anon_unrelated_${index}`,
+              submittedAt: new Date().toISOString(),
+            },
+          })),
+        });
+      }
+      const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
+      const report = (index: number) =>
+        reports.reportListing(
+          {
+            attemptId: `enforcement_report_attempt_${index.toString().padStart(4, "0")}`,
+            listingId: "lst_reported",
+            reporterKind: "visitor",
+            reporterKey: `anon_enforcement_${index}`,
+            reporterAccountId: null,
+            reporterUserId: null,
+            reason: "counterfeit-concern",
+            details: null,
+            sourceRoutePath: "/listings/reported-listing",
+          },
+          context,
+        );
+      const { createId, parseStrictTypedUlid } = await import("@chase-sets/primitives/typed-ids");
+      const { parseIsoUtcTimestamp } = await import("@chase-sets/primitives/iso-utc-timestamp");
+      vi.mocked(createId).mockClear();
+
+      const results = [];
+      for (let index = 1; index <= LISTING_REPORT_AUTO_UNLIST_THRESHOLD + 1; index += 1) {
+        results.push(await report(index));
+      }
+
+      expect(results.map((result) => result.autoUnlisted)).toEqual([false, false, true, false]);
+      const { calls, results: minted } = vi.mocked(createId).mock;
+      const leaMints = calls.flatMap(([prefix], index) => (prefix === "lea" ? [minted[index]!.value] : []));
+      const removals = allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted");
+      expect(removals).toHaveLength(1);
+      const thresholdReport = results[LISTING_REPORT_AUTO_UNLIST_THRESHOLD - 1]!;
+      const payload = removals[0]!.payload as Readonly<Record<string, unknown>> & {
+        autoUnlistedAt: string;
+        listingEnforcement: Readonly<{ listingEnforcementActionId: string }>;
+      };
+      expect(payload).toEqual({
+        reportId: thresholdReport.reportId,
+        reportCount: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+        threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+        autoUnlistedAt: payload.autoUnlistedAt,
+        listingEnforcement: {
+          version: 1,
+          listingEnforcementActionId: payload.listingEnforcement.listingEnforcementActionId,
+          accountId: "acc_seller",
+          source: "automatic-report-threshold",
+          sourceActionId: thresholdReport.reportId,
+          occurredAt: payload.autoUnlistedAt,
+        },
+      });
+      expect(leaMints).toEqual([payload.listingEnforcement.listingEnforcementActionId]);
+      expect(parseStrictTypedUlid(payload.listingEnforcement.listingEnforcementActionId, "lea")).toBeTruthy();
+      expect(parseIsoUtcTimestamp(payload.autoUnlistedAt)).toBe(payload.autoUnlistedAt);
+    },
+  );
+
+  it("auto-unlists a republished listing again using the next distinct report as the enforcement source", async () => {
     const { eventStore, allEvents } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
     const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
     const report = (index: number) =>
       reports.reportListing(
         {
+          attemptId: `republished_listing_report_${index}`,
           listingId: "lst_reported",
           reporterKind: "visitor",
-          reporterKey: `anon_enforcement_${index}`,
+          reporterKey: `anon_reporter_${index}`,
           reporterAccountId: null,
           reporterUserId: null,
           reason: "counterfeit-concern",
-          details: null,
           sourceRoutePath: "/listings/reported-listing",
         },
         context,
       );
-    const { createId, parseStrictTypedUlid } = await import("@chase-sets/primitives/typed-ids");
-    const { parseIsoUtcTimestamp } = await import("@chase-sets/primitives/iso-utc-timestamp");
-    vi.mocked(createId).mockClear();
 
-    const results = [];
-    for (let index = 1; index <= LISTING_REPORT_AUTO_UNLIST_THRESHOLD + 1; index += 1) {
-      results.push(await report(index));
-    }
-
-    expect(results.map((result) => result.autoUnlisted)).toEqual([false, false, true, false]);
-    const { calls, results: minted } = vi.mocked(createId).mock;
-    const leaMints = calls.flatMap(([prefix], index) => (prefix === "lea" ? [minted[index]!.value] : []));
-    const removals = allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted");
-    expect(removals).toHaveLength(1);
-    const thresholdReport = results[LISTING_REPORT_AUTO_UNLIST_THRESHOLD - 1]!;
-    const payload = removals[0]!.payload as Readonly<Record<string, unknown>> & {
-      autoUnlistedAt: string;
-      listingEnforcement: Readonly<{ listingEnforcementActionId: string }>;
-    };
-    expect(payload).toEqual({
-      reportId: thresholdReport.reportId,
-      reportCount: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-      threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-      autoUnlistedAt: payload.autoUnlistedAt,
-      listingEnforcement: {
-        version: 1,
-        listingEnforcementActionId: payload.listingEnforcement.listingEnforcementActionId,
-        accountId: "acc_seller",
-        source: "automatic-report-threshold",
-        sourceActionId: thresholdReport.reportId,
-        occurredAt: payload.autoUnlistedAt,
-      },
+    await report(1);
+    await report(2);
+    const firstCrossing = await report(3);
+    expect(firstCrossing.autoUnlisted).toBe(true);
+    const streamId = "marketplace.listing-lst_reported";
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: (await eventStore.readStream({ streamId })).length,
+      events: [listingPublished],
+      context,
     });
-    expect(leaMints).toEqual([payload.listingEnforcement.listingEnforcementActionId]);
-    expect(parseStrictTypedUlid(payload.listingEnforcement.listingEnforcementActionId, "lea")).toBeTruthy();
-    expect(parseIsoUtcTimestamp(payload.autoUnlistedAt)).toBe(payload.autoUnlistedAt);
+
+    const fourth = await report(4);
+    expect(fourth).toMatchObject({ reportCount: 4, autoUnlisted: true });
+    expect(await report(4)).toEqual(fourth);
+    expect(allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted")).toMatchObject([
+      { payload: { reportId: firstCrossing.reportId, listingEnforcement: { sourceActionId: firstCrossing.reportId } } },
+      { payload: { reportId: fourth.reportId, listingEnforcement: { sourceActionId: fourth.reportId } } },
+    ]);
   });
 
-  it("rejects duplicate reports from the same reporter for the same listing", async () => {
+  it("replays the first report and rejects duplicate reports using a different attempt", async () => {
     const { eventStore } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
     const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
     const input = {
+      attemptId: "duplicate_report_attempt_0001",
       listingId: "lst_reported",
       reporterKind: "visitor" as const,
       reporterKey: "anon_dup",
@@ -249,8 +365,14 @@ describe("Marketplace report runtime", () => {
       sourceRoutePath: "/listings/reported-listing",
     };
 
-    await reports.reportListing(input, context);
-    await expect(reports.reportListing(input, context)).rejects.toThrow("already reported");
+    const first = await reports.reportListing(input, context);
+    expect(await reports.reportListing(input, context)).toEqual(first);
+    await expect(
+      reports.reportListing({ ...input, attemptId: "different_report_attempt_0001" }, context),
+    ).rejects.toThrow("This reporter has already reported this content.");
+    await expect(reports.reportListing({ ...input, details: "Changed" }, context)).rejects.toMatchObject({
+      code: "attempt_conflict",
+    });
   });
 });
 
@@ -275,6 +397,7 @@ describe("Marketplace review report", () => {
 
     const result = await reports.reportReview(
       {
+        attemptId: "review_report_attempt_0001",
         reviewId: "rev_1",
         reporterAccountId: "acc_reporter",
         reporterUserId: "usr_reporter",
@@ -286,6 +409,11 @@ describe("Marketplace review report", () => {
     );
 
     expect(result.reportId).toMatch(/^rpt_/);
+    expect(allEvents.map((event) => event.eventType)).toEqual([
+      "marketplace.report.submitted",
+      "marketplace.mutation-attempt.completed",
+    ]);
+    expect(getMutationResultCommandReceipt(result)?.commitEventIds).toEqual([allEvents[1]!.eventId]);
     const submitted = allEvents.find((event) => event.eventType === "marketplace.report.submitted");
     expect(submitted?.payload).toMatchObject({
       targetType: "review",
@@ -304,6 +432,7 @@ describe("Marketplace review report", () => {
     await expect(
       reports.reportReview(
         {
+          attemptId: "missing_report_attempt_0001",
           reviewId: "rev_missing",
           reporterAccountId: "acc_reporter",
           reporterUserId: "usr_reporter",
@@ -326,6 +455,7 @@ describe("Marketplace review report", () => {
     await expect(
       reports.reportReview(
         {
+          attemptId: "hidden_report_attempt_0001",
           reviewId: "rev_hidden",
           reporterAccountId: "acc_reporter",
           reporterUserId: "usr_reporter",
@@ -353,6 +483,7 @@ describe("Marketplace review report", () => {
     await expect(
       reports.reportReview(
         {
+          attemptId: "held_report_attempt_0001",
           reviewId: "rev_held",
           reporterAccountId: "acc_reporter",
           reporterUserId: "usr_reporter",

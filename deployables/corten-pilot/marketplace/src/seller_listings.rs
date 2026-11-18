@@ -579,10 +579,11 @@ pub(crate) async fn write(
 /// read after the batch. The same form sent again (a double click, a resend after a lost answer)
 /// is the same batch: Marketplace answers what it decided and sends again only a listing whose
 /// outcome was unknown. Each listing says what the batch did to it, in marketplace's words
-/// (succeeded, changed elsewhere, unconfirmed, failed); marketplace's page says every one that did
-/// not succeed failed, though an unknown one may have applied (chase-sets/chase-sets#10924). An
-/// unconfirmed one says so, the count names it apart from the failed ones, and the page offers the
-/// same batch to send again. A refused batch (4xx) says why for
+/// (succeeded, changed elsewhere, unconfirmed, failed). An unconfirmed one says so, the count names
+/// it apart from the failed ones, and the page offers the same batch to send again. Marketplace's
+/// page also prepares the batch and carries a reference to it on its address, so a reload after a
+/// lost answer reads each outcome back; it works out the request hashes and the outcomes itself,
+/// which the pilot does not repeat (chase-sets/chase-sets#11461). A refused batch (4xx) says why for
 /// every listing; a failure (5xx, no answer) is the error page, as marketplace's action throws.
 #[allow(clippy::too_many_arguments)]
 async fn bulk(

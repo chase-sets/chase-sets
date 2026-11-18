@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { MarketplaceMutationRecoveryResult } from "../../mutation-recovery/domain/contracts";
 
 export const marketplaceListingReportReasons = [
   "counterfeit-concern",
@@ -56,6 +57,7 @@ export type SubmitMarketplaceReportCommand = Readonly<{
   details: string | null;
   sourceRoutePath: string;
   submittedAt: string;
+  recovery?: MarketplaceMutationRecoveryResult;
 }>;
 
 export type MarketplaceReportCommand = SubmitMarketplaceReportCommand;
@@ -75,6 +77,7 @@ export type MarketplaceReportSubmittedEvent = DomainEvent<
     details: string | null;
     sourceRoutePath: string;
     submittedAt: string;
+    recovery?: MarketplaceMutationRecoveryResult;
   }>
 >;
 
@@ -104,6 +107,7 @@ export const decideMarketplaceReport: AggregateDecider<
             details: normalizeDetails(command.details),
             sourceRoutePath: normalizeRequiredText(command.sourceRoutePath, "Source route path is required."),
             submittedAt: normalizeRequiredText(command.submittedAt, "Submission timestamp is required."),
+            ...(command.recovery ? { recovery: command.recovery } : {}),
           },
         },
       ];
