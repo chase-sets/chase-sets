@@ -104,7 +104,11 @@ export function createScopeSyncCountRuntime(deps: {
           )
         )
           throw new CountAcquisitionRefused("profile-option-query-missing");
-        if (!mapping.set_id) throw new CountAcquisitionRefused("provider-set-id-missing");
+        const setId = mapping.set_id?.trim();
+        const setName = version.profile.supportedScopes.includes("set-name") ? mapping.set_name?.trim() : null;
+        const parentValue = setId || setName;
+        if (!parentValue || parentValue === "." || parentValue === ".." || (!setId && /[\\"]/.test(parentValue)))
+          throw new CountAcquisitionRefused("provider-set-id-missing");
         if (!["set", "expansion"].includes(record.scope_kind))
           throw new CountAcquisitionRefused("unsupported-scope-kind");
         for (const capability of ["provider-transport", "provider-option-query", "import"] as const) {
@@ -126,7 +130,7 @@ export function createScopeSyncCountRuntime(deps: {
           kind,
           languageCode:
             (membership.selection.mode === "matching-scope" ? membership.selection.query.languageCode : null) ?? "en",
-          parentValue: mapping.set_id,
+          parentValue,
         });
         const source = await readScrydexCountSource(query, { ...deps.adapterOptions, countReader: deps.store });
         const blocked = !source && (await deps.store.blocked(query));
