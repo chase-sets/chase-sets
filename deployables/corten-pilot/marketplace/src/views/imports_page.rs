@@ -1,9 +1,15 @@
 //! Inventory import, after Inventory's `import-batch-page.tsx`: the header with Inventory, Listings
-//! and Pricing; what the last import said (its refusal, a batch still updating, a running job);
-//! Resume an import, and Import expired for an expired batch; a batch's summary; Upload CSV (the
-//! source, the quantity mode, the default location, a file or pasted rows); then a batch's review
-//! (the rows that need the seller, Commit accepted rows, the rows and their pages) or the recent
-//! imports.
+//! and Pricing; what the last import said (its refusal, a batch still updating, a running or failed
+//! job) and which of the page's reads it is without (the storage locations, the recent imports),
+//! each with Check again; Resume an import, and Import expired for an expired batch; a batch's
+//! summary; Upload CSV (the source, the quantity mode, the default location, a file or pasted
+//! rows); then a batch's review (the rows that need the seller, Commit accepted rows, the rows and
+//! their pages) or the recent imports, unless they could not be read or the batch is catching up.
+//!
+//! The writes' buttons are disabled while they wait (`ImportsScreen::writes_wait`). The row
+//! resolution drawer stays modal: marketplace made its `SideSheet` non-modal so the shared
+//! submission recovery outside it stays reachable, and here a submit the drawer gets no answer for
+//! is said inside it (`corten_ui::dialog::failed`).
 //!
 //! One column on a phone, where each row and each batch is a card with its facts labelled; from
 //! 64rem a table. The summary's figures are two across on a phone, three from 40rem and six from
@@ -96,8 +102,23 @@ pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, m: InventoryMsg, screen: &'a Imp
                 }
                 if let Some(job) = &screen.job {
                     <div class={Notice} data-tone={if job.failed { "danger" } else { "info" }}>
-                        <p class={Strong}>{t.page_import_job_running()}</p>
+                        <p class={Strong}>{if job.failed { t.page_import_failed() } else { t.page_import_job_running() }}</p>
                         <p class={Muted}>{job.message.as_deref().unwrap_or(t.page_import_job_waiting())}</p>
+                        <p><a class={(Button, Secondary, Small)} href={&screen.here}>{t.recovery_check()}</a></p>
+                    </div>
+                }
+                if screen.locations_unavailable {
+                    <div class={Notice} data-tone="warning">
+                        <p class={Strong}>{m.list_storage_location()}</p>
+                        <p class={Muted}>{p.imports_locations_unavailable()}</p>
+                        <p><a class={(Button, Secondary, Small)} href={&screen.here}>{t.recovery_check()}</a></p>
+                    </div>
+                }
+                if screen.batches_unavailable {
+                    <div class={Notice} data-tone="warning">
+                        <p class={Strong}>{t.page_recent_imports()}</p>
+                        <p class={Muted}>{p.imports_batches_unavailable()}</p>
+                        <p><a class={(Button, Secondary, Small)} href={&screen.here}>{t.recovery_check()}</a></p>
                     </div>
                 }
             </div>
@@ -123,7 +144,9 @@ pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, m: InventoryMsg, screen: &'a Imp
                     }
                 }
                 None => {
-                    <Recent t={t} batches={&screen.batches} />
+                    if !screen.pending && !screen.batches_unavailable {
+                        <Recent t={t} batches={&screen.batches} />
+                    }
                 }
             }
         </div>
@@ -219,7 +242,9 @@ fn UploadForm<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen) -> impl Re
                 </label>
                 <p id="import-csv-hint" class={Hint}>{t.page_csv_description()}</p>
                 <div class={Actions}>
-                    <button type="submit" class={Button}>{t.page_validate_import()}</button>
+                    <button type="submit" class={Button} disabled={screen.location_writes_wait()}>
+                        {t.page_validate_import()}
+                    </button>
                     if let Some(latest) = screen.latest() {
                         <a class={(Button, Ghost)} href={batch_href(latest, 0)}>{t.page_latest_batch()}</a>
                     }
@@ -259,7 +284,7 @@ fn Review<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen, detail: &'a cr
                 <form class={(Card, Commit)} method="post" action={url::ImportCommit { batch: &batch.batch_id }}>
                     {SubmitKey::field(CommitFields::FIELDS.attempt)}
                     <p class={Strong}>{t.page_accepted_rows_ready(count)}</p>
-                    <button type="submit" class={Button}>{t.page_commit_accepted_rows()}</button>
+                    <button type="submit" class={Button} disabled={screen.writes_wait()}>{t.page_commit_accepted_rows()}</button>
                 </form>
             }
             if detail.rows.is_empty() {
@@ -463,7 +488,10 @@ fn FixDialog<'a>(
     let close = resolve_href(batch, screen.offset, None);
     let here = resolve_href(batch, screen.offset, Some(&row.row_id));
     let (back, said) = refs();
-    let ready = fixing.ready().is_some();
+    // Only a location still in use can take a row (`canApplyRowFix`): an archived one is not
+    // offered, so a row kept there asks for another.
+    let live: Vec<_> = screen.locations.iter().filter(|location| !location.is_archived).collect();
+    let ready = fixing.ready().is_some() && !screen.location_writes_wait();
     html! {
         <dialog
             id={FixDialogId}
@@ -512,8 +540,13 @@ fn FixDialog<'a>(
                 <label class={Field}>
                     <span class={Label}>{m.list_storage_location()}</span>
                     <select name={f.storage_location_id} required>
-                        <option value="" selected={fixing.storage_location_id.is_empty()}>{t.page_choose_location()}</option>
-                        for location in &screen.locations {
+                        <option
+                            value=""
+                            selected={!live.iter().any(|location| location.storage_location_id == fixing.storage_location_id)}
+                        >
+                            {t.page_choose_location()}
+                        </option>
+                        for location in &live {
                             <option
                                 value={&location.storage_location_id}
                                 selected={location.storage_location_id == fixing.storage_location_id}

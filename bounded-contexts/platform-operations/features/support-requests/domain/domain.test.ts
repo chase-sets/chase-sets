@@ -630,7 +630,7 @@ describe("support request domain", () => {
     expect(atThreshold[0]).toMatchObject({ data: { status: "ready-for-support" } });
   });
 
-  it("requires support review before high-value return refund release", () => {
+  it("emits only native facts after required support review of a high-value return", () => {
     const opened = openReturnRequest("250.00");
     const evidence = submitReturnEvidence(fold(opened));
     const state = fold([...opened, ...evidence]);
@@ -656,11 +656,8 @@ describe("support request domain", () => {
       resolvedByRole: "support",
       resolvedAt: "2026-05-09T14:00:00.000Z",
     });
-    expect(events).toHaveLength(2);
-    expect(events[1]).toMatchObject({
-      type: "platform-operations.csat-outcome-fact.v1",
-      data: { outcomeCode: "return.resolved" },
-    });
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("support.support-request.resolved");
   });
 
   it("opens seller condition-attestation after return delivery and converts discrepancies to support review", () => {
@@ -944,7 +941,7 @@ describe("support request domain", () => {
     ).toThrow("Offer resolution does not match the response type.");
   });
 
-  it("accepts a pending offer and resolves through the existing support resolution event", () => {
+  it("emits only native facts when accepting a pending offer", () => {
     const opened = openProductNotAsDescribed();
     const offered = recordPartialRefundOffer(fold(opened));
     const state = fold([...opened, ...offered]);
@@ -960,7 +957,6 @@ describe("support request domain", () => {
     expect(accepted.map((event) => event.type)).toEqual([
       "support.support-request.offer-accepted",
       "support.support-request.resolved",
-      "platform-operations.csat-outcome-fact.v1",
     ]);
     expect(accepted[1]).toMatchObject({
       data: {
@@ -1029,7 +1025,7 @@ describe("support request domain", () => {
     ).toThrow("Closed support requests cannot accept offers.");
   });
 
-  it("resolves buyer cancellation when the seller confirms cancellation", () => {
+  it("emits only native facts when the seller confirms cancellation", () => {
     const opened = decideSupportRequest(initialSupportRequestState, {
       type: "OpenSupportRequest",
       supportRequestId: "sup_cancel" as never,
@@ -1056,7 +1052,6 @@ describe("support request domain", () => {
     expect(events.map((event) => event.type)).toEqual([
       "support.support-request.response-recorded",
       "support.support-request.resolved",
-      "platform-operations.csat-outcome-fact.v1",
     ]);
     expect(events[1]).toMatchObject({
       data: {
@@ -1266,11 +1261,8 @@ describe("support request domain", () => {
         resolvedByRole: "support",
         resolvedAt: "2026-05-09T14:00:00.000Z",
       });
-      expect(events).toHaveLength(2);
-      expect(events[1]).toMatchObject({
-        type: "platform-operations.csat-outcome-fact.v1",
-        data: { outcomeCode: "support.request-resolved" },
-      });
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe("support.support-request.resolved");
     });
   });
 

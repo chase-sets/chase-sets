@@ -1,3 +1,6 @@
+import * as marketplaceRequest from "@chase-sets/marketplace/server";
+import { SellListHandoffInterruptedError } from "./marketplace-handoff";
+import { SellListPreparationRefusedError, staleReviewPlanError } from "./handoff-contracts";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
@@ -68,12 +71,13 @@ function createServices(): CheckoutSellListServices {
   return {
     addLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 1, status: "added" })),
     removeLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 2 })),
-    confirmSellListCheckout: vi.fn(async () => ({
+    confirmSellListCheckout: vi.fn<CheckoutSellListServices["confirmSellListCheckout"]>(async () => ({
       sellerAccountId: "acc_seller" as never,
       version: 3,
       status: "confirmed",
       confirmation: confirmationRow(),
       completedLineIds: ["sll_1" as never],
+      sourceReceipts: [],
     })),
     getLatestConfirmation: vi.fn(async () => null),
     getConfirmation: vi.fn(async () => null),
@@ -267,6 +271,45 @@ describe("checkout sell list routes", () => {
       readiness: {
         sellerReadiness: { status: "ready" },
         ownerReads: { owner: { kind: "anonymous", anonymousSellListId: "anon_trusted" } },
+      },
+    });
+  });
+
+  it("returns only typed refusal reasons when signed-in preparation is blocked", async () => {
+    const services = createServices();
+    vi.mocked(services.createReadinessSnapshot).mockRejectedValue(
+      new SellListPreparationRefusedError(["risk-hold", "label-not-ready"]),
+    );
+    const app = buildApp({ actor: sellerActor(), services });
+    const response = await app.request("/account/sell-list/readiness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...choices,
+        confirmationId: "slc_synthetic",
+        entryReadinessSnapshotId: "slr_entry",
+        entryReadinessSourceRevision: "slr_source",
+        sellerEvidence: sellerEvidence(),
+      }),
+    });
+
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith(
+      {
+        ...choices,
+        sellerAccountId: "acc_seller",
+        decisions: { lineActions: [], lineOutcomes: [] },
+        confirmationId: "slc_synthetic",
+        entryReadinessSnapshotId: "slr_entry",
+        entryReadinessSourceRevision: "slr_source",
+      },
+      expect.anything(),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "checkout_seller_not_ready",
+        message: "Sell List readiness must be resolved before handoff.",
+        reasons: ["risk-hold", "label-not-ready"],
       },
     });
   });
@@ -464,7 +507,6 @@ describe("checkout sell list routes", () => {
           lineActions: [{ lineId: "sll_1", action: "smart-match" }],
           lineOutcomes: [{ lineId: "sll_2", outcome: "keep-in-list" }],
         },
-        sellerEvidence: null,
       },
       expect.objectContaining({ audit: expect.objectContaining({ forAccountId: "acc_seller" }) }),
     );
@@ -579,23 +621,15 @@ describe("checkout sell list routes", () => {
       confirmation: { confirmation_id: "slc_1" },
     });
     expect(services.confirmSellListCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({
+      {
         sellerAccountId: "acc_seller",
         confirmationId: "slc_1",
         readinessSnapshotId: "slr_ready",
         readinessSourceRevision: "slr_source",
-        readinessDecisions: {
-          lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-          lineOutcomes: [],
-        },
-        completedLineIds: ["sll_1"],
-        sellerEvidence: expect.objectContaining({ shipFrom: expect.objectContaining({ status: "ready" }) }),
-        handoffSummary: expect.objectContaining({
-          acceptedOfferCount: 1,
-          sideEffects: expect.objectContaining({ sale: "handoff-recorded" }),
-        }),
-      }),
+        readinessDecisions: { lineActions: [{ lineId: "sll_1", action: "selected-offer" }], lineOutcomes: [] },
+      },
       expect.any(Object),
+      expect.objectContaining({ acceptOfferMatch: expect.any(Function) }),
     );
   });
 
@@ -621,10 +655,9 @@ describe("checkout sell list routes", () => {
     expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
   });
 
-  it("rejects Sell List confirmation when ready seller evidence is incomplete", async () => {
+  it("posted handoff results cannot change the API-observed confirmation", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
-
     const response = await app.fetch(
       new Request("http://checkout.test/account/sell-list/confirm", {
         method: "POST",
@@ -633,24 +666,75 @@ describe("checkout sell list routes", () => {
           confirmationId: "slc_1",
           readinessSnapshotId: "slr_ready",
           readinessSourceRevision: "slr_source",
-          completedLineIds: ["sll_1"],
-          sellerEvidence: {
-            ...sellerEvidence(),
-            shipFrom: { ...sellerEvidence().shipFrom, postalCode: "" },
-          },
-          handoffSummary: handoffSummary(),
+          handoffSummary: { acceptedOfferCount: 999 },
+          completedLineIds: ["sll_attacker"],
+          remainingLineQuantities: [{ lineId: "sll_1", quantity: 999 }],
         }),
       }),
     );
+    expect(response.status).toBe(200);
+    const input = vi.mocked(services.confirmSellListCheckout).mock.calls[0]![0];
+    for (const field of ["handoffSummary", "completedLineIds", "remainingLineQuantities"])
+      expect(input).not.toHaveProperty(field);
+    await expect(response.json()).resolves.toMatchObject({
+      confirmation: { handoff_summary: { acceptedOfferCount: 1 } },
+      completedLineIds: ["sll_1"],
+    });
+  });
 
-    expect(response.status).toBe(400);
+  it("confirm forwards the request-bound Marketplace port", async () => {
+    const services = createServices();
+    const request = new Request("http://checkout.test/account/sell-list/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: "synthetic_session=value" },
+      body: JSON.stringify({
+        confirmationId: "slc_1",
+        readinessSnapshotId: "slr_ready",
+        readinessSourceRevision: "slr_source",
+      }),
+    });
+    const port = marketplaceRequest.createMarketplaceRequestApiClient(request);
+    const factory = vi.spyOn(marketplaceRequest, "createMarketplaceRequestApiClient").mockReturnValue(port);
+    try {
+      const response = await buildApp({ actor: sellerActor(), services }).fetch(request);
+      expect(response.status).toBe(200);
+      expect(factory).toHaveBeenCalledExactlyOnceWith(request);
+      expect(vi.mocked(services.confirmSellListCheckout).mock.calls[0]![2]).toBe(port);
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it("confirm transports partial handoff and re-review recovery", async () => {
+    const services = createServices();
+    vi.mocked(services.confirmSellListCheckout).mockRejectedValueOnce(
+      new SellListHandoffInterruptedError(staleReviewPlanError("Charizard"), [
+        { lineId: "sll_1", status: "ambiguous", detail: "Refresh reviewed terms." },
+        { lineId: "sll_2", status: "not-attempted", detail: "Not attempted." },
+      ]),
+    );
+    const response = await buildApp({ actor: sellerActor(), services }).fetch(
+      new Request("http://checkout.test/account/sell-list/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmationId: "slc_1",
+          readinessSnapshotId: "slr_ready",
+          readinessSourceRevision: "slr_source",
+        }),
+      }),
+    );
+    expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
       error: {
-        code: "validation_failed",
-        message: "Sell List confirmation requires current readiness, seller, and reviewed sale details.",
+        code: "checkout_handoff_interrupted",
+        recovery: { kind: "readiness-stale" },
+        lines: [
+          { lineId: "sll_1", status: "ambiguous" },
+          { lineId: "sll_2", status: "not-attempted" },
+        ],
       },
     });
-    expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
   });
 
   it("does not expose removed Sell List old endpoints", async () => {
@@ -868,6 +952,7 @@ describe("checkout sell list routes", () => {
         },
         body: JSON.stringify({
           lineOutcomes: [{ lineId: "sll_waiting", outcome: "keep-in-list" }],
+          sellerEvidence: sellerEvidence(),
         }),
       }),
     );
@@ -879,7 +964,6 @@ describe("checkout sell list routes", () => {
         lineActions: [],
         lineOutcomes: [{ lineId: "sll_waiting", outcome: "keep-in-list" }],
       },
-      sellerEvidence: null,
     });
   });
 
@@ -1054,7 +1138,6 @@ describe("API-owned Sell List review readiness", () => {
     expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
       sellerAccountId: "anon_sell_1",
       decisions: { lineActions: [], lineOutcomes: [] },
-      sellerEvidence: null,
     });
   });
 });

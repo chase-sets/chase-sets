@@ -47,7 +47,7 @@ use super::{
     api::{Catalog as _, Kind, Written, under},
     command,
     daily::{self, ImportJobs, Readiness, at, with_query},
-    integrations::{HealthProvider, HealthUnit},
+    integrations::{HealthJob, HealthProvider, HealthUnit, ReadModelState},
     manages, receipt,
 };
 use crate::{
@@ -180,6 +180,9 @@ pub struct Model {
     pub lifecycle_recovery: Recovery,
     pub import_jobs: ImportJobs,
     pub validation_readiness: super::validation::Validation,
+    /// The audit timeline the API composed for the address, which resolves the page's own evidence
+    /// links (`evidenceRef`). None from an API that does not compose it, and the page draws none.
+    pub audit_evidence: Option<super::integrations::AuditEvidence>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -191,14 +194,18 @@ pub struct RouteContext {
     pub profile_version: Option<String>,
 }
 
-/// The health triage's providers and units, for the header and the units.
+/// The health triage's providers, units and jobs, for the header, the units and the jobs, with the
+/// read models' states each section names as its source.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Triage {
+    pub status: String,
     pub freshness: String,
     pub generated_at: Option<String>,
+    pub read_models: Vec<ReadModelState>,
     pub providers: Vec<HealthProvider>,
     pub units: Vec<HealthUnit>,
+    pub recent_jobs: Vec<HealthJob>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]

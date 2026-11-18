@@ -14,7 +14,6 @@ import {
   SettlementDomainError,
   subtractMoney,
 } from "../../../support/runtime-support/common";
-import { createPayoutCompletedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import {
   getPayoutByProviderPayoutReference,
   listSettlementProviderOperationsForPayout,
@@ -152,11 +151,6 @@ export function createPayoutReconciliation(
           type: "CompletePayout",
           providerStatus: providerPayout.providerStatus,
           completedAt,
-          csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
-            accountId: payout.account_id,
-            payoutId: payout.payout_id,
-            completedAt,
-          }),
         },
         context,
       });
@@ -392,11 +386,6 @@ export function createPayoutReconciliation(
             type: "CompletePayout",
             providerStatus: providerPayout.providerStatus,
             completedAt,
-            csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
-              accountId: payout.account_id,
-              payoutId: payout.payout_id,
-              completedAt,
-            }),
           },
           context,
         });

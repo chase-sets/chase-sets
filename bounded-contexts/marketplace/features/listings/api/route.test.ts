@@ -2,10 +2,14 @@ import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-t
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore, createInMemoryConfigurationConsumer } from "@chase-sets/event-core/test-support";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
 import { initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
+import type { AcceptedListingTargetPriceV1, ListingTargetPrincipal } from "./target-contracts";
+import { createListingRequestExecutor, ListingRequestConflictError } from "./listing-request";
 
 function buildApp(
   options: Readonly<{
@@ -40,6 +44,13 @@ function buildApp(
 
 function createServices(): MarketplaceListingServices {
   return {
+    acceptListingTargetPrice: vi.fn(async () => {
+      throw new Error("not configured");
+    }),
+    activateListingForChannel: vi.fn(async () => {
+      throw new Error("not configured");
+    }),
+    readAcceptedListingTargetPrices: vi.fn(async () => []),
     getListingPhotoJpeg: vi.fn(async () => null),
     createListing: vi.fn(async () => ({
       listingId: "lst_checkout_fallback" as never,
@@ -305,6 +316,257 @@ const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
   roleKey: "owner",
   permissions: ["listings.view", "listings.manage"],
 };
+
+describe("owner-fenced target routes", () => {
+  const accepted: AcceptedListingTargetPriceV1 = {
+    schemaVersion: 1,
+    accountId: "acc_seller",
+    listingId: "lst_target",
+    target: { kind: "channel-connection", connectionId: "connection" },
+    priceAmount: "12.00",
+    priceCurrencyCode: "USD",
+    targetPriceRevision: 1,
+    listingRevision: 2,
+    acceptedByUserId: "usr_seller",
+    acceptedAt: "2026-11-16T12:00:00.000Z",
+    sourceEventId: "event",
+    decision: { kind: "seller-reference" },
+    connectionAuthority: {
+      connectionId: "connection",
+      providerKey: "test",
+      environment: "sandbox",
+      identityRevision: 1,
+    },
+  };
+  const actor = { ...sellerActor!, sessionProvenance: "auth-session" as const };
+  const request = {
+    expectedListingVersion: 1,
+    idempotencyKey: "target-request",
+    target: accepted.target,
+    priceAmount: accepted.priceAmount,
+    priceCurrencyCode: accepted.priceCurrencyCode,
+    expectedTargetPriceRevision: 0,
+    decision: accepted.decision,
+  };
+  it.each([
+    ["target-price", "initial-read"],
+    ["activate-channel", "initial-read"],
+    ["target-price", "lost-acknowledgement"],
+    ["activate-channel", "lost-acknowledgement"],
+  ])("returns retryable 503 for %s %s and replays the durable result after recovery", async (route, failure) => {
+    const consumer = createInMemoryConfigurationConsumer({ storeId: "marketplace", incarnation: "consumer" });
+    const memory = createInMemoryEventStore({ configurationEpoch: consumer });
+    let unavailable = failure === "initial-read";
+    const append = vi.fn(async (inputs: Parameters<NonNullable<typeof memory.eventStore.appendToStreams>>[0]) => {
+      const result = await memory.eventStore.appendToStreams!(inputs);
+      if (failure === "lost-acknowledgement") {
+        unavailable = true;
+        throw new Error("lost COMMIT acknowledgement");
+      }
+      return result;
+    });
+    const execute = createListingRequestExecutor({
+      ...memory.eventStore,
+      async readStream(input) {
+        if (unavailable) throw new Error("request result unavailable");
+        return memory.eventStore.readStream(input);
+      },
+      appendToStreams: append,
+    });
+    const result = {
+      listingId: "lst_target",
+      version: 2,
+      state: initialMarketplaceListingState,
+      acceptedTargetPrice: accepted,
+    };
+    const prepare = vi.fn(async () => ({
+      result,
+      evidence: [{ owner: "identity", key: "account/account", storeIncarnation: "identity", sealVersion: 1, epoch: 0 }],
+      appends: [
+        {
+          streamId: "marketplace.listing-lst_target",
+          expectedVersion: "no_stream" as const,
+          context: {
+            tenantId: "tnt_identity" as never,
+            audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+          },
+          configurationGrants: [
+            {
+              key: "account/account",
+              sourceIncarnation: "identity",
+              keyCreationEpoch: 0,
+              epoch: 0,
+              consumer: consumer.identity,
+              topologyRevision: 1,
+            },
+          ],
+          events: [{ eventType: "test.listing.changed", payload: {} }],
+        },
+      ],
+    }));
+    async function run(
+      command: Record<string, unknown> & { accountId: string; idempotencyKey: string },
+      context: EventStoreContext,
+      principal: ListingTargetPrincipal,
+    ) {
+      return execute({
+        accountId: command.accountId,
+        idempotencyKey: command.idempotencyKey,
+        command,
+        context,
+        principal,
+        prepare,
+        parseResult(value) {
+          expect(value).toEqual(result);
+          return result;
+        },
+      });
+    }
+    const services = createServices();
+    vi.mocked(services.acceptListingTargetPrice).mockImplementation(run);
+    vi.mocked(services.activateListingForChannel).mockImplementation(run);
+    const app = buildApp({ actor, services });
+    const send = () =>
+      app.request(`/account/listings/lst_target/${route}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: "chase_sets_session=test-token" },
+        body: JSON.stringify(
+          route === "target-price"
+            ? request
+            : {
+                expectedListingVersion: 1,
+                idempotencyKey: "activate-request",
+                connectionId: "connection",
+                expectedTargetPriceRevision: 1,
+                allocationRevision: 1,
+              },
+        ),
+      });
+    const response = await send();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: { code: "request_indeterminate" } });
+    expect(prepare).toHaveBeenCalledTimes(failure === "initial-read" ? 0 : 1);
+    expect(memory.allEvents).toHaveLength(failure === "initial-read" ? 0 : 2);
+    unavailable = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const recovered = await send();
+      expect(recovered.status).toBe(200);
+      expect(await recovered.json()).toEqual(result);
+    }
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(memory.allEvents).toHaveLength(2);
+  });
+  it.each(["target-price", "activate-channel"])(
+    "preserves proven conflicts and deterministic refusals for %s",
+    async (route) => {
+      const services = createServices();
+      const app = buildApp({ actor, services });
+      for (const error of [new ListingRequestConflictError(), new Error("domain refusal")]) {
+        vi.mocked(services.acceptListingTargetPrice).mockRejectedValue(error);
+        vi.mocked(services.activateListingForChannel).mockRejectedValue(error);
+        const response = await app.request(`/account/listings/lst_target/${route}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: "chase_sets_session=test-token" },
+          body: JSON.stringify(
+            route === "target-price"
+              ? request
+              : {
+                  expectedListingVersion: 1,
+                  idempotencyKey: "activate-request",
+                  connectionId: "connection",
+                  expectedTargetPriceRevision: 1,
+                  allocationRevision: 1,
+                },
+          ),
+        });
+        expect(response.status).toBe(409);
+        expect(await response.json()).toEqual({
+          error: {
+            code:
+              error instanceof ListingRequestConflictError
+                ? "request_conflict"
+                : route === "target-price"
+                  ? "target_acceptance_refused"
+                  : "channel_activation_refused",
+          },
+        });
+      }
+    },
+  );
+  it.each(["target-price", "activate-channel"])(
+    "returns the exact committed %s snapshot with a poisoned projection",
+    async (route) => {
+      const services = createServices();
+      const state = {
+        ...initialMarketplaceListingState,
+        listingId: "lst_target" as never,
+        accountId: "acc_seller" as never,
+        acceptedTargetPrices: { "channel-connection:connection": accepted },
+      };
+      const result = { listingId: "lst_target", version: 2, state };
+      vi.mocked(services.acceptListingTargetPrice).mockResolvedValue({ ...result, acceptedTargetPrice: accepted });
+      vi.mocked(services.activateListingForChannel).mockResolvedValue(result);
+      vi.mocked(services.getSellerListing).mockRejectedValue(new Error("poisoned projection"));
+      const app = buildApp({ actor, services });
+      const response = await app.request(`/account/listings/lst_target/${route}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: "chase_sets_session=test-token" },
+        body: JSON.stringify(
+          route === "target-price"
+            ? request
+            : {
+                expectedListingVersion: 1,
+                idempotencyKey: "activate-request",
+                connectionId: "connection",
+                expectedTargetPriceRevision: 1,
+                allocationRevision: 1,
+              },
+        ),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(
+        route === "target-price" ? { ...result, acceptedTargetPrice: accepted } : result,
+      );
+      expect(services.getSellerListing).not.toHaveBeenCalled();
+      const routes = app.routes.map((r) => `${r.method} ${r.path}`);
+      const check = (rows: readonly string[]) => {
+        if (
+          !rows.includes("POST /account/listings/:id/target-price") ||
+          !rows.includes("POST /account/listings/:id/activate-channel")
+        )
+          throw new Error("target route omitted");
+      };
+      check(routes);
+      for (const required of ["POST /account/listings/:id/target-price", "POST /account/listings/:id/activate-channel"])
+        expect(() => check(routes.filter((row) => row !== required))).toThrow("omitted");
+    },
+  );
+  it("rejects an incomplete pair before calling the command and rejects synthetic Sessions", async () => {
+    const services = createServices();
+    const app = buildApp({ actor, services });
+    const response = await app.request("/account/listings/lst_target/target-price", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "chase_sets_session=test-token" },
+      body: JSON.stringify({ ...request, priceCurrencyCode: undefined }),
+    });
+    expect(response.status).toBe(400);
+    expect(services.acceptListingTargetPrice).not.toHaveBeenCalled();
+    const synthetic = buildApp({
+      actor: { ...actor, sessionId: "guest:token", sessionProvenance: "guest-checkout" },
+      services,
+    });
+    expect(
+      (
+        await synthetic.request("/account/listings/lst_target/target-price", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: "chase_sets_session=test-token" },
+          body: JSON.stringify(request),
+        })
+      ).status,
+    ).toBe(401);
+  });
+});
 
 describe("read-only Listing batch recovery API", () => {
   const batchId = "listing_batch_lookup_0000001";

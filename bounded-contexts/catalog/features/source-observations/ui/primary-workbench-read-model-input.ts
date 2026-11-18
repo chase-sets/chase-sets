@@ -1,4 +1,5 @@
 import type { ListResponse } from "@chase-sets/http/responses";
+import type { CatalogAliasReviewCandidateSummary } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../api/admin-control-plane-read-model-contracts";
 import type { CatalogPrimaryWorkbenchLifecycleOperation } from "../api/primary-workbench-admin-contracts";
 import type {
@@ -15,6 +16,7 @@ import type { CatalogPrimaryWorkbenchSourceOptionPageSnapshot } from "./primary-
 import type { SourceObservationPromotionOutcomeRecord } from "../api/runtime";
 
 export type CatalogPrimaryWorkbenchReadModelFailure =
+  | "audit-evidence"
   | "control-plane-overview"
   | "integration-scopes"
   | "merge-candidate-review"
@@ -35,6 +37,7 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
+  auditAliases?: readonly CatalogAliasReviewCandidateSummary[];
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   /** The read-only preview validation for the route's promotion preview token, when one is in play. */
   promotionValidation?: SourceObservationPromotionValidation | null;

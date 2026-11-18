@@ -81,11 +81,6 @@ export type SignedInSellCheckoutFormValues = Readonly<{
   payoutMethod: string;
   labelPreference: string;
   termsAccepted: boolean;
-  payoutState: string;
-  payoutEstimateState: string;
-  riskState: string;
-  labelState: string;
-  sellerReadinessState: string;
 }>;
 
 export type SignedInSellCheckoutFieldErrors = Partial<Record<keyof SignedInSellCheckoutFormValues | "form", string>>;
@@ -132,11 +127,6 @@ export const signedInSellCheckoutDefaultValues: SignedInSellCheckoutFormValues =
   payoutMethod: "saved-payout",
   labelPreference: "prepaid-label",
   termsAccepted: false,
-  payoutState: "ready",
-  payoutEstimateState: "current",
-  riskState: "clear",
-  labelState: "ready",
-  sellerReadinessState: "ready",
 };
 
 function moneyNumber(value: string | null | undefined) {
@@ -292,18 +282,6 @@ function editRowAction(section: SignedInSellCheckoutEditSection, label: string, 
   );
 }
 
-function hiddenCheckoutState(defaultValues: SignedInSellCheckoutFormValues) {
-  return (
-    <>
-      <HiddenInput type="hidden" name="payoutState" value={defaultValues.payoutState} />
-      <HiddenInput type="hidden" name="payoutEstimateState" value={defaultValues.payoutEstimateState} />
-      <HiddenInput type="hidden" name="riskState" value={defaultValues.riskState} />
-      <HiddenInput type="hidden" name="labelState" value={defaultValues.labelState} />
-      <HiddenInput type="hidden" name="sellerReadinessState" value={defaultValues.sellerReadinessState} />
-    </>
-  );
-}
-
 function hiddenContact(values: SignedInSellCheckoutFormValues) {
   return (
     <>
@@ -349,13 +327,15 @@ export function SignedInSellCheckoutPage({
   const formId = "signed-in-sell-checkout-form";
   const contactReady = values.sellerName.trim().length > 0 && values.email.trim().length > 0;
   const shipFromReady = addressIsComplete(values);
-  const payoutReady = values.payoutState === "ready" && payoutSummary?.status === "ready";
-  const sellerReadinessReady = values.sellerReadinessState === "ready";
-  const labelReady = values.labelState === "ready";
+  const payoutReady = payoutSummary?.status === "ready" && !fieldErrors.payoutMethod;
+  const sellerReadinessReady = readiness?.sellerReadiness.status === "ready";
+  const labelSelected =
+    !fieldErrors.labelPreference &&
+    (values.labelPreference === "prepaid-label" || values.labelPreference === "seller-label-later");
   const showContactForm = !contactReady || editingSection === "contact";
   const showShipFromForm = !shipFromReady || editingSection === "ship-from";
   const showPayoutForm = !payoutReady || editingSection === "payout";
-  const showLabelForm = !labelReady || editingSection === "label";
+  const showLabelForm = !labelSelected || editingSection === "label";
   const primaryAction = (
     <Button type="submit" form={formId} leadingIcon="check" disabled={Boolean(activeRecovery)}>
       {t("checkout.features.sellList.ui.signedInSellCheckoutPage.review.sale")}
@@ -425,7 +405,6 @@ export function SignedInSellCheckoutPage({
               <HiddenInput type="hidden" name="sessionId" value={sessionId} />
               <HiddenInput type="hidden" name="readinessSnapshotId" value={readiness?.snapshotId ?? ""} />
               <HiddenInput type="hidden" name="readinessSourceRevision" value={readiness?.sourceRevision ?? ""} />
-              {hiddenCheckoutState(values)}
 
               {fieldErrors.form ? (
                 <CheckoutStateNotice
@@ -497,7 +476,7 @@ export function SignedInSellCheckoutPage({
                   }
                   statusTone={sellerReadinessReady ? "success" : "warning"}
                 />
-                {labelReady ? (
+                {labelSelected ? (
                   <CheckoutSavedInfoRow
                     icon="truck"
                     label={t("checkout.features.sellList.ui.signedInSellCheckoutPage.label.title")}
@@ -507,8 +486,6 @@ export function SignedInSellCheckoutPage({
                         : t("checkout.features.sellList.ui.signedInSellCheckoutPage.label.prepaid")
                     }
                     supportingText={t("checkout.features.sellList.ui.signedInSellCheckoutPage.label.row.supporting")}
-                    status={t("checkout.features.sellList.ui.signedInSellCheckoutPage.ready")}
-                    statusTone="success"
                     action={editRowAction(
                       "label",
                       t("checkout.features.sellList.ui.signedInSellCheckoutPage.edit.label"),

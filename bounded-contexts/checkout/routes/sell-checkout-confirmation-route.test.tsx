@@ -183,11 +183,6 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
       payoutMethod: "saved-payout",
       labelPreference: "prepaid-label",
       termsAccepted: "accepted",
-      payoutState: "ready",
-      payoutEstimateState: "current",
-      riskState: "clear",
-      labelState: "ready",
-      sellerReadinessState: "ready",
     });
   }
   const sessionPath = "/checkout/sell/session/chk_sell_1";
@@ -240,20 +235,29 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
     expect(document.activeElement).toBe(notice.parentElement);
     expect(screen.getAllByRole("group").some((element) => element.hasAttribute("disabled"))).toBe(true);
     expect(mockConfirmSellListCheckout).toHaveBeenCalledOnce();
-    expect(mockAcceptOfferMatch).toHaveBeenCalledOnce();
+    expect(mockCreateMarketplaceRequestApiClient).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
   });
 
-  it("real session router lists a foreign acceptance as partial conflict and never confirms", async () => {
+  it("real session router lists the API's foreign acceptance conflict without web Marketplace writes", async () => {
     const fields = sellerSession();
     await mount(`${sessionPath}?${fields}`);
-    mockAcceptOfferMatch.mockRejectedValue(
-      new MockMarketplaceApiError(409, { error: { code: "offer_already_accepted" } }),
+    mockConfirmSellListCheckout.mockRejectedValue(
+      new MockCheckoutApiError(409, {
+        error: {
+          code: "checkout_handoff_interrupted",
+          message: "Offer already accepted.",
+          lines: [{ lineId: "sll_1", status: "conflict", detail: "Offer already accepted." }],
+        },
+      }),
     );
     await act(async () => {
       await postSession(fields);
     });
     expect(screen.getByText("sll_1: conflict")).toBeTruthy();
-    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledOnce();
+    expect(mockCreateMarketplaceRequestApiClient).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
   });
 
   it("real confirmation router announces pending, converges to the first snapshot, and performs no command", async () => {

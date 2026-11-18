@@ -1,4 +1,9 @@
 import { MarketplaceListingDomainError } from "./listing-error";
+import {
+  listingPriceTargetKey,
+  normalizeAcceptedListingPrice,
+  type AcceptedListingTargetPriceV1,
+} from "./target-price";
 import { activeListingPhotos } from "./active-listing-photos";
 import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
 import {
@@ -347,6 +352,8 @@ export type MarketplaceListingState = Readonly<{
   publicationScope: "native" | "channel-only";
   nativeVisibility: "enabled" | "disabled";
   nativeFeeState: "enrolled" | "not-enrolled";
+  acceptedTargetPrices: Readonly<Record<string, AcceptedListingTargetPriceV1>>;
+  channelActivations: Readonly<Record<string, Readonly<{ revision: number; allocationRevision: number }>>>;
   listingId: ListingId | null;
   accountId: AccountId | null;
   inventoryItemId: string | null;
@@ -394,6 +401,8 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   publicationScope: "native",
   nativeVisibility: "enabled",
   nativeFeeState: "not-enrolled",
+  acceptedTargetPrices: {},
+  channelActivations: {},
   listingId: null,
   accountId: null,
   inventoryItemId: null,
@@ -524,7 +533,7 @@ export type RefreshListingEvidenceRequirementsCommand = Readonly<{
 export type PublishListingCommand = Readonly<{
   type: "PublishListing";
   readiness: ListingEvidenceReadinessResult;
-  csatOutcomeFact?: JsonObject;
+  publishedAt: string;
   allowAlreadyActiveNoOp?: boolean;
 }>;
 export type PauseListingCommand = Readonly<{
@@ -550,8 +559,22 @@ export type OperatorUnlistListingCommand = Readonly<{
 }>;
 export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
+export type AcceptListingTargetPriceCommand = Readonly<{
+  type: "AcceptListingTargetPrice";
+  acceptedTargetPrice: AcceptedListingTargetPriceV1;
+  expectedTargetPriceRevision: number;
+}>;
+export type ActivateListingForChannelCommand = Readonly<{
+  type: "ActivateListingForChannel";
+  connectionId: string;
+  expectedTargetPriceRevision: number;
+  allocationRevision: number;
+}>;
+
 export type MarketplaceListingCommand =
   | CreateListingCommand
+  | AcceptListingTargetPriceCommand
+  | ActivateListingForChannelCommand
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
@@ -569,6 +592,8 @@ export type MarketplaceListingCommand =
 
 export const marketplaceListingCommandTypes = Object.keys({
   CreateListing: true,
+  AcceptListingTargetPrice: true,
+  ActivateListingForChannel: true,
   UpdateListingPrice: true,
   UpdateListingQuantityCap: true,
   UpdateListingPurchaseLimits: true,
@@ -709,7 +734,7 @@ export type ListingEvidenceRequirementsRefreshedEvent = DomainEvent<
 >;
 export type ListingPublishedEvent = DomainEvent<
   "marketplace.listing.published",
-  Readonly<{ csatOutcomeFact?: JsonObject }>
+  Readonly<{ listingId?: string; sellerAccountId?: AccountId; publishedAt?: string; csatOutcomeFact?: JsonObject }>
 >;
 export type ListingPausedEvent = DomainEvent<
   "marketplace.listing.paused",
@@ -736,6 +761,14 @@ export type ListingOfferCommitmentRecordedEvent = DomainEvent<
 
 export type MarketplaceListingEvent =
   | ListingCreatedEvent
+  | DomainEvent<
+      "marketplace.listing.target-price-accepted",
+      Readonly<{ schemaVersion: 1; acceptedTargetPrice: AcceptedListingTargetPriceV1 }>
+    >
+  | DomainEvent<
+      "marketplace.listing.channel-activated",
+      Readonly<{ schemaVersion: 1; connectionId: string; targetPriceRevision: number; allocationRevision: number }>
+    >
   | ListingPriceUpdatedEvent
   | ListingQuantityCapUpdatedEvent
   | ListingPurchaseLimitsUpdatedEvent
@@ -843,6 +876,76 @@ export const decideMarketplaceListing: AggregateDecider<
       };
       parseMarketplaceListingCreatedPayload(event.data);
       return [event];
+    }
+    case "AcceptListingTargetPrice": {
+      assert(state.listingId !== null && state.status !== "withdrawn", "Listing cannot accept a target price.");
+      assert(state.publicationScope === "channel-only", "Channel target acceptance requires a channel-only Listing.");
+      const accepted = command.acceptedTargetPrice;
+      assert(accepted.target.kind === "channel-connection", "Only channel target acceptance is enrolled.");
+      assert(accepted.accountId === state.accountId && accepted.listingId === state.listingId, "Price owner mismatch.");
+      const current = state.acceptedTargetPrices[listingPriceTargetKey(accepted.target)];
+      assert(
+        (current?.targetPriceRevision ?? 0) === command.expectedTargetPriceRevision,
+        "Target price revision changed.",
+      );
+      assert(
+        accepted.targetPriceRevision === command.expectedTargetPriceRevision + 1,
+        "Target price revision must advance.",
+      );
+      const pair = normalizeAcceptedListingPrice(accepted.priceAmount, accepted.priceCurrencyCode);
+      assert(
+        pair.priceAmount === accepted.priceAmount && pair.priceCurrencyCode === accepted.priceCurrencyCode,
+        "Complete normalized price pair is required.",
+      );
+      assert(
+        accepted.connectionAuthority?.connectionId === accepted.target.connectionId,
+        "Connection authority mismatch.",
+      );
+      assert(
+        accepted.acceptedByUserId && accepted.sourceEventId && Number.isFinite(Date.parse(accepted.acceptedAt)),
+        "Price provenance is incomplete.",
+      );
+      assert(accepted.decision.kind === "seller-reference", "Pricing decision authority is unavailable.");
+      return [
+        {
+          type: "marketplace.listing.target-price-accepted",
+          data: { schemaVersion: 1, acceptedTargetPrice: accepted },
+        },
+      ];
+    }
+    case "ActivateListingForChannel": {
+      assert(
+        state.listingId !== null && (state.status === "draft" || state.status === "active"),
+        "Paused or withdrawn Listings cannot activate.",
+      );
+      assert(
+        state.publicationScope === "channel-only" && state.pauseReason === null && !state.listingEnforcement,
+        "Channel activation cannot clear a pause or enforcement.",
+      );
+      const accepted =
+        state.acceptedTargetPrices[
+          listingPriceTargetKey({ kind: "channel-connection", connectionId: command.connectionId })
+        ];
+      assert(
+        accepted && accepted.targetPriceRevision === command.expectedTargetPriceRevision,
+        "Current accepted target price is required.",
+      );
+      normalizeAcceptedListingPrice(accepted.priceAmount, accepted.priceCurrencyCode);
+      assert(
+        Number.isSafeInteger(command.allocationRevision) && command.allocationRevision > 0,
+        "Positive allocation revision is required.",
+      );
+      return [
+        {
+          type: "marketplace.listing.channel-activated",
+          data: {
+            schemaVersion: 1,
+            connectionId: command.connectionId,
+            targetPriceRevision: command.expectedTargetPriceRevision,
+            allocationRevision: command.allocationRevision,
+          },
+        },
+      ];
     }
     case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
@@ -1025,7 +1128,7 @@ export const decideMarketplaceListing: AggregateDecider<
       return [
         {
           type: "marketplace.listing.published",
-          data: command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {},
+          data: { listingId: state.listingId!, sellerAccountId: state.accountId!, publishedAt: command.publishedAt },
         },
       ];
     case "PauseListing": {
@@ -1102,6 +1205,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         publicationScope: event.data.publicationScope ?? "native",
         nativeVisibility: event.data.nativeVisibility ?? "enabled",
         nativeFeeState: event.data.nativeFeeState ?? "enrolled",
+        acceptedTargetPrices: {},
+        channelActivations: {},
         listingId: event.data.listingId,
         accountId: event.data.accountId,
         inventoryItemId: event.data.inventoryItemId,
@@ -1136,6 +1241,26 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         inventoryCapacityRecoveryBlock: null,
         listingEnforcement: null,
         appliedListingEnforcements: [],
+      };
+    case "marketplace.listing.target-price-accepted":
+      return {
+        ...state,
+        acceptedTargetPrices: {
+          ...state.acceptedTargetPrices,
+          [listingPriceTargetKey(event.data.acceptedTargetPrice.target)]: event.data.acceptedTargetPrice,
+        },
+      };
+    case "marketplace.listing.channel-activated":
+      return {
+        ...state,
+        status: "active",
+        channelActivations: {
+          ...state.channelActivations,
+          [event.data.connectionId]: {
+            revision: event.data.targetPriceRevision,
+            allocationRevision: event.data.allocationRevision,
+          },
+        },
       };
     case "marketplace.listing.price-updated":
       return {

@@ -18,6 +18,7 @@ import {
 import { readMarketplaceRecoveryHistory } from "../domain/history";
 import { offerAcceptanceResultSchema } from "../../offers/api/attempt-result";
 import { withMarketplaceAttemptReceipt } from "./receipt";
+import { validateReviewReportOutcome } from "./review-report-outcome";
 
 const acceptanceBindingSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -46,7 +47,7 @@ export function completedMarketplaceAttemptSchema<T>(resultSchema: z.ZodType<T>)
       if (
         completed.recovery.ownerStatus !== "committed" ||
         !receipt ||
-        receipt.id !== (result.offerId ?? result.policyId) ||
+        receipt.id !== (result.offerId ?? result.policyId ?? result.reportId ?? result.reviewId) ||
         receipt.version !== result.version
       )
         ctx.addIssue({ code: "custom", message: t("marketplace.recovery.receiptMismatch") });
@@ -159,6 +160,11 @@ export function createMarketplaceAttempt<T>(
         "attempt_conflict",
         "Marketplace attempt identity was already used for a different command.",
       );
+    try {
+      await validateReviewReportOutcome(eventStore, prior, history.state.result);
+    } catch {
+      throw new MarketplaceAttemptError("history_incomplete", "Marketplace business outcome could not be confirmed.");
+    }
     return history.state.result;
   }
   function append(

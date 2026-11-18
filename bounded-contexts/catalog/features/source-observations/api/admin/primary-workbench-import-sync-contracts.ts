@@ -202,6 +202,7 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
   }> | null;
   jobs: readonly Readonly<{
     jobId: string;
+    syncRunId: string | null;
     action: Extract<CatalogPrimaryWorkbenchCommandKey, "scope.import" | "observation.reapply" | "observation.replay">;
     state: "queued" | "running" | "completed" | "failed" | "cancelled";
     operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "cancelled" | "completed";

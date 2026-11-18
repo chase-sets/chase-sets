@@ -414,6 +414,35 @@ function runnerEnv(patch = {}) {
   };
 }
 
+it.each([
+  [403, "forbidden", { kind: "http", status: 403, code: "forbidden" }],
+  [409, "count-acquisition-refused", { kind: "http", status: 409, code: "count-acquisition-refused" }],
+  [403, token, { kind: "http", status: 403, code: null }],
+  [null, null, { kind: "request-failed" }],
+])("reports a value-free quote failure for status %s", async (status, code, quoteFailure) => {
+  const receiptPath = temporaryReceipt();
+  const paths = [];
+  const result = await runCountPreparation({
+    env: runnerEnv({ CATALOG_COUNT_PREPARATION_MODE: "quote" }),
+    now: () => now,
+    receiptPath,
+    fetch: async (url) => {
+      const { pathname } = new URL(url);
+      paths.push(pathname);
+      if (pathname === "/api/auth/password-sign-in") return Response.json({ sessionToken: token });
+      if (status === null) throw new Error(token);
+      return Response.json({ error: { code, message: token } }, { status });
+    },
+  });
+  expect(paths).toEqual(["/api/auth/password-sign-in", "/api/catalog/scope-sync-batches/counts/quote"]);
+  expect(result).toMatchObject({
+    ok: false,
+    summary: { refusal: "quote-unavailable", continuation: "stop", quote: null, sources: 0, quoteFailure },
+  });
+  expect(JSON.stringify(result)).not.toContain(token);
+  expect(readFileSync(receiptPath, "utf8")).not.toContain(token);
+});
+
 function approvalFor(sets = ["OP01"], headroom = 40) {
   const quote = quoteFor(sets, headroom);
   return JSON.stringify({

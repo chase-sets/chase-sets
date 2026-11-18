@@ -59,6 +59,44 @@ function runLoader(url: string) {
 }
 
 describe("Catalog scope-landing route loader", () => {
+  it("passes evidence demand through one existing surface read and omits it on ordinary home loads", async () => {
+    const auditEvidence = {
+      selection: { reference: "source-observation/obs-1", state: "resolved", deepLinkOpen: true },
+    };
+    const aliases = buildCatalogAliasReviewReadModel({
+      generatedAt: "2026-11-16T00:00:00.000Z",
+      filter: aliasFilter,
+      candidateRows: [],
+      catalogItemAliasRows: [],
+      referenceRecordAliasRows: [],
+    });
+    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue(aliases);
+    const getCatalogPrimaryWorkbenchSurface = vi
+      .fn()
+      .mockResolvedValue({ readModel: { auditEvidence }, aliasReview: aliases });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listCatalogScopeRecords: vi.fn().mockResolvedValue({ items: [scopeRow()], total: 1, count: 1 }),
+      getCatalogPrimaryWorkbenchSurface,
+      getCatalogAliasReviewReadModel,
+    });
+    await runLoader("https://admin.example/catalog/scopes?search=paldean");
+    expect(getCatalogPrimaryWorkbenchSurface).not.toHaveBeenCalled();
+    const result = await runLoader(
+      "https://admin.example/catalog/scopes?search=paldean&evidenceRef=source-observation/obs-1",
+    );
+    expect(getCatalogPrimaryWorkbenchSurface).toHaveBeenCalledExactlyOnceWith(
+      "daily",
+      "/catalog/scopes?search=paldean&evidenceRef=source-observation/obs-1",
+    );
+    expect(result.auditEvidence).toBe(auditEvidence);
+    expect(result.generalAliasReview).toBe(aliases);
+    expect(getCatalogAliasReviewReadModel).toHaveBeenCalledTimes(1);
+    expect(result.error).toBeNull();
+    getCatalogPrimaryWorkbenchSurface.mockRejectedValue(new Error("Synthetic unavailable evidence"));
+    const failed = await runLoader("https://admin.example/catalog/scopes?evidenceRef=source-observation/obs-1");
+    expect(failed.evidenceFailed).toBe(true);
+    expect(failed.readModel.rows).toHaveLength(1);
+  });
   it("keeps Catalog home general alias review unresolved rows non-actionable on reload", async () => {
     const aliases = buildCatalogAliasReviewReadModel({
       generatedAt: "2026-11-16T00:00:00.000Z",

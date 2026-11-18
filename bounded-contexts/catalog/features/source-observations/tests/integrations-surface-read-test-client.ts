@@ -99,6 +99,14 @@ function stubSurfaceSources(stub: StubClient, canManage: boolean): CatalogPrimar
   const call = <R>(name: string, ...args: readonly unknown[]): Promise<R> => callStub<R>(stub, name, ...args);
 
   return {
+    getAliasReview:
+      typeof stub.getCatalogAliasReviewReadModel === "function"
+        ? (input) =>
+            call(
+              "getCatalogAliasReviewReadModel",
+              new URLSearchParams({ limit: String(input.candidateLimit ?? 200) }).toString(),
+            )
+        : undefined,
     listRefreshSchedules: async () =>
       (
         await call<{

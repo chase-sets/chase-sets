@@ -387,6 +387,7 @@ try {
 } catch {
   throw new Error("Identity capability administration authority receipt refused boot.");
 }
+await runtime.initializeListingAuthority();
 const realtimeStores = runtime.mountedContexts
   .filter(
     (entry) =>

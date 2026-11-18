@@ -25,7 +25,8 @@
   },
   "check": {
     "required": "Enter a value.",
-    "attempt": "This form is out of date. Reload the page and try again."
+    "attempt": "This form is out of date. Reload the page and try again.",
+    "zone": "This form did not say which time zone its dates are in. Reload the page and send it again."
   },
   "load": {
     "pending": "Storage locations are still updating. Reload this page in a moment.",
@@ -216,8 +217,7 @@
     "partial": "Partly completed",
     "conflict": "Not applied",
     "unconfirmed": "Not confirmed",
-    "not_sent": "Not sent",
-    "offer_taken": "{title}: this offer was accepted, but not as this sale. Review the Sell List."
+    "not_sent": "Not sent"
   },
   "submitted_offers": {
     "choose": "Check the Offers to change first.",
@@ -226,7 +226,9 @@
     "unknown_action": "That change is not one an Offer takes."
   },
   "imports": {
+    "batches_unavailable": "Recent imports are temporarily unavailable. Reload this page in a moment.",
     "file_or_rows": "A file is read when one is chosen; otherwise the rows pasted above are.",
+    "locations_unavailable": "Storage locations are temporarily unavailable. Reload this page in a moment.",
     "rows": "Rows"
   },
   "inventory": {

@@ -1,4 +1,15 @@
 export const pricingEnglishTranslations = {
+  "pricing.features.repricingPolicies.ui.shared.configuration.accepted-pending":
+    "Request {revision} is pending. Installed policy and halt are unchanged.",
+  "pricing.features.repricingPolicies.ui.shared.configuration.superseded-by-revision":
+    "Request {revision} was replaced by request {replacement}.",
+  "pricing.features.repricingPolicies.ui.shared.configuration.applied": "Request {revision} is installed.",
+  "pricing.features.pricingHealth.goals.pending": "Pricing goal request is pending",
+  "pricing.features.pricingHealth.goals.pending.description":
+    "Request {revision} is recorded. The installed policy is unchanged.",
+  "pricing.features.pricingHealth.goals.superseded": "Pricing goal request was replaced",
+  "pricing.features.pricingHealth.goals.superseded.description":
+    "Request {revision} was replaced by request {replacement}.",
   "pricing.features.pricingHealth.title": "Pricing Health",
   "pricing.features.pricingHealth.description":
     "A stored verdict for one active policy, with disclosed platform-wide Forecast Grades.",

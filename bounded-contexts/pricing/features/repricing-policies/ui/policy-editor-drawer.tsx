@@ -56,7 +56,7 @@ type EditorApi = Pick<
   | "getRepricingDryRun"
   | "listRepricingDryRunTraces"
 >;
-export type PolicyEditorSubmission = Readonly<{ body: PolicyEditorBody; dryRunId?: string }>;
+export type PolicyEditorSubmission = Readonly<{ body: PolicyEditorBody; dryRunId?: string; requestKey: string }>;
 
 export function PolicyEditorDrawer({
   initialBody,
@@ -65,6 +65,7 @@ export function PolicyEditorDrawer({
   api = pricingApi,
   saving = false,
   saveErrors = [],
+  saveStatus,
   onSave,
   onClose,
 }: {
@@ -74,9 +75,11 @@ export function PolicyEditorDrawer({
   api?: EditorApi;
   saving?: boolean;
   saveErrors?: readonly string[];
+  saveStatus?: string;
   onSave: (submission: PolicyEditorSubmission) => void;
   onClose: () => void;
 }) {
+  const requestKeys = useRef(new Map<string, string>());
   const initialIntent = initialBody ? recognizeAuthoringIntent(initialBody) : null;
   const initialPreset = initialIntent?.source.kind === "preset" ? initialIntent.source : null;
   const initialGoal = initialIntent?.source.kind === "goal" ? initialIntent.source : null;
@@ -288,7 +291,13 @@ export function PolicyEditorDrawer({
           </Button>
           <Button
             disabled={saving || !facts || !promptComplete || (!policyId && !canActivate)}
-            onClick={() => onSave({ body: candidate, ...(canActivate ? { dryRunId: binding!.run.dryRunId } : {}) })}
+            onClick={() => {
+              const dryRunId = canActivate ? binding!.run.dryRunId : undefined;
+              const fingerprint = JSON.stringify({ candidate, dryRunId });
+              const requestKey = requestKeys.current.get(fingerprint) ?? crypto.randomUUID();
+              requestKeys.current.set(fingerprint, requestKey);
+              onSave({ body: candidate, dryRunId, requestKey });
+            }}
           >
             {editorCopy(policyId ? "save" : "activate")}
           </Button>
@@ -313,6 +322,7 @@ export function PolicyEditorDrawer({
           title={editorCopy("validationTitle")}
           errors={[...errors, ...saveErrors].map((message) => ({ message }))}
         />
+        {saveStatus ? <Banner tone="info" title={saveStatus} /> : null}
         {unsupportedGoal ? <Banner tone="warning" title={editorCopy("intent.unsupportedGoal")} /> : null}
         {facts ? (
           <Fieldset legend={editorCopy(tier === "preset" ? "presets" : tier)} inert={saving}>

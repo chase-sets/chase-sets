@@ -55,6 +55,7 @@ export type CatalogPrimaryWorkbenchRouteContextKey =
   | "reviewLimit"
   | "jobId"
   | "promotionPreviewId"
+  | "evidenceRef"
   | "returnPath";
 
 export const catalogPrimaryWorkbenchRouteSections = [
@@ -105,6 +106,8 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   promoteAsDraft?: boolean;
   /** Canonical Scope Record identity for scope-first routes. */
   scopeRecordId?: string | null;
+  /** Untrusted entity reference; membership is resolved by the audit composer. */
+  evidenceRef?: string | null;
   returnPath: string | null;
 }>;
 

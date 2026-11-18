@@ -33,6 +33,8 @@ import type { CatalogAliasReviewReadModel } from "../../../../alias-equivalence/
 import { CatalogIntegrationAliasReviewWorkspace } from "../alias-review/alias-review-workspace";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { CatalogCommandFeedbackBanner } from "../../workbench-shell";
+import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import { CatalogControlPlaneEvidenceDrawer } from "../evidence/catalog-control-plane-evidence-drawer";
 
 const ALL_VALUE = "__all__";
 
@@ -85,6 +87,8 @@ export type CatalogScopeLandingPageProps = Readonly<{
   generalAliasReviewFailed?: boolean;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   attentionItemKey?: string;
+  auditEvidence?: CatalogPrimaryWorkbenchReadModel["auditEvidence"] | null;
+  evidenceFailed?: boolean;
 }>;
 
 export function CatalogScopeLandingPage({
@@ -100,9 +104,11 @@ export function CatalogScopeLandingPage({
   generalAliasReviewFailed = false,
   commandFeedback = null,
   attentionItemKey,
+  auditEvidence = null,
+  evidenceFailed = false,
 }: CatalogScopeLandingPageProps) {
   const controls = useCatalogListQueryControls(query);
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   function setProductDomain(value: string) {
     setSearchParams(
@@ -174,8 +180,22 @@ export function CatalogScopeLandingPage({
   ];
 
   const supplementary =
-    attentionQueue || generalAliasReview || generalAliasReviewFailed || commandFeedback ? (
+    attentionQueue ||
+    generalAliasReview ||
+    generalAliasReviewFailed ||
+    commandFeedback ||
+    auditEvidence ||
+    evidenceFailed ? (
       <Stack element="section" data-catalog-scope-home-review="true">
+        {auditEvidence ? (
+          <CatalogControlPlaneEvidenceDrawer key={auditEvidence.selection.reference} auditEvidence={auditEvidence} />
+        ) : null}
+        {evidenceFailed ? (
+          <OperationalStatusBanner
+            tone="warning"
+            title={t("catalog.features.sourceObservations.ui.auditEvidence.banner.unavailable.title")}
+          />
+        ) : null}
         {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
         {attentionItemKey && commandFeedback?.status === "success" ? (
           <WorkbenchForm variant="button" method="post" action={actionHref}>
@@ -203,6 +223,7 @@ export function CatalogScopeLandingPage({
               readModel={generalAliasReview}
               actionHref={actionHref}
               canManageAliases={canManage}
+              evidenceLocation={`${actionHref}?${searchParams.toString()}`}
             />
           </ProgressiveDisclosure>
         ) : generalAliasReviewFailed ? (

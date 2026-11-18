@@ -278,6 +278,8 @@ const safePrimaryWorkbenchSurfacePaths = new Set<string>([
   // The v2 Provider detail page's own bare fallback when no provider is
   // selected (catalogProviderDetailHref(null)).
   "/catalog/providers",
+  "/catalog/scopes",
+  "/catalog/integrations/settings",
 ]);
 
 // The v2 Provider detail page (/catalog/providers/:providerKey) is a
@@ -297,7 +299,8 @@ export function isSafePrimaryWorkbenchReturnPath(path: string): boolean {
     return (
       safePrimaryWorkbenchSurfacePaths.has(parsedUrl.pathname) ||
       (parsedUrl.pathname.startsWith(safePrimaryWorkbenchDynamicSurfacePathPrefix) &&
-        parsedUrl.pathname.length > safePrimaryWorkbenchDynamicSurfacePathPrefix.length)
+        parsedUrl.pathname.length > safePrimaryWorkbenchDynamicSurfacePathPrefix.length) ||
+      /^\/catalog\/scopes\/[^/]+$/.test(parsedUrl.pathname)
     );
   } catch {
     return false;

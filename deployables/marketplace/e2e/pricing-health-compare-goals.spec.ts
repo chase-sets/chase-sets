@@ -128,7 +128,9 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
       data: { dryRunId, name: "Synthetic Pricing Health browser goal comparison" },
     });
     expect(response.status()).toBe(201);
-    const policy = await response.json();
+    const receipt = await response.json();
+    expect(receipt.status).toBe("applied");
+    const policy = receipt.state;
     created = { policyId: policy.policyId, accountId: policy.accountId };
     await projectSyntheticPricingHealthPolicy(pool, created);
     fixture = await seedSyntheticPricingHealthInputs(pool, { accountId: created.accountId, listingId });

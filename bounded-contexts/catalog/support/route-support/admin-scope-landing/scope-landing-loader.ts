@@ -1,5 +1,6 @@
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
+import type { CatalogPrimaryWorkbenchSurfaceRead } from "../../../features/source-observations/api/admin/primary-workbench-surface-read";
 import { CatalogApiError, createCatalogRequestApiClient } from "../../request-support/api-client";
 import type { CatalogScopeRecordListResponse } from "../../../features/scope-registry/ui/contracts";
 import {
@@ -37,6 +38,8 @@ export type CatalogScopeLandingRouteData = Readonly<{
   attentionQueue: CatalogDeferredAttentionQueueResult;
   generalAliasReview: CatalogAliasReviewReadModel | null;
   generalAliasReviewFailed: boolean;
+  auditEvidence: CatalogPrimaryWorkbenchSurfaceRead["readModel"]["auditEvidence"] | null;
+  evidenceFailed: boolean;
 }>;
 
 export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogScopeLandingRouteData> {
@@ -44,12 +47,26 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
   const url = new URL(request.url);
   const productDomain = url.searchParams.get("productDomain")?.trim() ?? "";
   const api = createCatalogRequestApiClient(request);
+  const wantsEvidence = url.searchParams.has("evidenceRef");
+  const evidenceRead = wantsEvidence
+    ? api
+        .getCatalogPrimaryWorkbenchSurface<CatalogPrimaryWorkbenchSurfaceRead>("daily", `${url.pathname}${url.search}`)
+        .then((surface) => ({
+          auditEvidence: surface.readModel.auditEvidence,
+          aliasReview: surface.aliasReview ?? null,
+          failed: false,
+        }))
+        .catch(() => ({ auditEvidence: null, aliasReview: null, failed: true }))
+    : Promise.resolve({ auditEvidence: null, aliasReview: null, failed: false });
 
-  const [result, attentionQueue, generalAliasReview, actor] = await Promise.all([
+  const [result, attentionQueue, generalAliasReview, actor, evidence] = await Promise.all([
     loadScopeRecords(api, query, productDomain),
     loadAttentionQueue(api, url),
-    loadGeneralAliasReview(api),
+    wantsEvidence
+      ? evidenceRead.then((evidence) => ({ readModel: evidence.aliasReview, failed: !evidence.aliasReview }))
+      : loadGeneralAliasReview(api),
     resolveActor(request).catch(() => null),
+    evidenceRead,
   ]);
 
   return {
@@ -71,6 +88,8 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
     attentionQueue,
     generalAliasReview: generalAliasReview.readModel,
     generalAliasReviewFailed: generalAliasReview.failed,
+    auditEvidence: evidence.auditEvidence,
+    evidenceFailed: evidence.failed,
   };
 }
 

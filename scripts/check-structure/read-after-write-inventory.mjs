@@ -750,7 +750,7 @@ export async function collectMutationConsistencySurfaces(options) {
     }
 
     const postFormPattern =
-      /<(?:RouterForm|Form|fetcher\.Form|form)\b[\s\S]{0,800}?\bmethod\s*=\s*(?:"post"|'post'|\{\s*["']post["']\s*\})/g;
+      /<(?:RouterForm|Form|ReviewMutationForm|fetcher\.Form|form)\b[\s\S]{0,800}?\bmethod\s*=\s*(?:"post"|'post'|\{\s*["']post["']\s*\})/g;
     for (const match of content.matchAll(postFormPattern)) {
       const line = lineNumberAt(content, match.index ?? 0);
       const detail = occurrenceDetail(occurrenceCounts, "post-form", stableSnippetId(match[0]));

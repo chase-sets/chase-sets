@@ -1,4 +1,6 @@
 import type { ListResponse } from "@chase-sets/http/responses";
+import type { CatalogAliasServices } from "../../../alias-equivalence/api/runtime";
+import type { CatalogAliasReviewReadModel } from "../../../alias-equivalence/api/alias-review-admin-contracts";
 import {
   boundCatalogImportPreview,
   CatalogImportPreviewTimeoutError,
@@ -113,6 +115,7 @@ export class CatalogSourceOptionQueryRefusedError extends Error {
 // shape its HTTP route returns (the `ui/contracts` records). Query-string inputs
 // are parsed by the same functions the HTTP routes use.
 export type CatalogPrimaryWorkbenchSurfaceSources = Readonly<{
+  getAliasReview?: CatalogAliasServices["getCatalogAliasReviewReadModel"];
   previewIntegrationImport?: (
     scope: SourceObservationIntegrationJobScope,
   ) => Promise<SourceObservationIntegrationImportPreview>;
@@ -153,6 +156,7 @@ export type CatalogPrimaryWorkbenchSurfaceSources = Readonly<{
 }>;
 
 export type CatalogPrimaryWorkbenchSurfaceRead = Readonly<{
+  aliasReview?: CatalogAliasReviewReadModel | null;
   readModel: CatalogPrimaryWorkbenchReadModel;
   /** Every projection the read model was built without. */
   readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
@@ -251,7 +255,13 @@ async function readDailySurface(
   location: URL,
   sources: CatalogPrimaryWorkbenchSurfaceSources,
 ): Promise<CatalogPrimaryWorkbenchSurfaceRead> {
-  const baseline = await loadIntegrationsBaseline(location, sources, "daily");
+  const homeEvidence = location.pathname === "/catalog/scopes" && location.searchParams.has("evidenceRef");
+  const getAliasReview = sources.getAliasReview;
+  const baseline = await loadIntegrationsBaseline(
+    location,
+    sources,
+    location.searchParams.has("evidenceRef") ? "full" : "daily",
+  );
   const routeContext = parseCatalogPrimaryWorkbenchRouteContext(location);
   const normalized = normalizedDailyRouteContext(location, baseline, routeContext);
   const normalizedRouteContext = normalized.routeContext;
@@ -262,14 +272,20 @@ async function readDailySurface(
     reviewPagination,
     normalized.selectedScope,
   );
-  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, currentPromotionPreview] = await Promise.all([
-    reviewQuery
-      ? sourceResult(() => sources.listSourceObservations(reviewQuery), null)
-      : Promise.resolve({ value: null, failed: false } as const),
-    sourceResult(() => sources.listMergeCandidates(buildDailyMergeCandidateQuery(normalizedRouteContext)), null),
-    selectedPromotionOutcome(sources, normalizedRouteContext),
-    selectedPromotionPreview(sources, normalizedRouteContext),
-  ]);
+  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, currentPromotionPreview, aliasResult] =
+    await Promise.all([
+      reviewQuery && !homeEvidence
+        ? sourceResult(() => sources.listSourceObservations(reviewQuery), null)
+        : Promise.resolve({ value: null, failed: false } as const),
+      homeEvidence
+        ? Promise.resolve({ value: null, failed: false })
+        : sourceResult(() => sources.listMergeCandidates(buildDailyMergeCandidateQuery(normalizedRouteContext)), null),
+      selectedPromotionOutcome(sources, normalizedRouteContext),
+      selectedPromotionPreview(sources, normalizedRouteContext),
+      homeEvidence && getAliasReview
+        ? sourceResult(() => getAliasReview({ generatedAt: new Date().toISOString(), candidateLimit: 200 }), null)
+        : Promise.resolve({ value: null, failed: homeEvidence }),
+    ]);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
     readModelFailures.push("source-observation-review");
@@ -277,8 +293,9 @@ async function readDailySurface(
   if (mergeCandidateResult.failed) {
     readModelFailures.push("merge-candidate-review");
   }
+  if (aliasResult.failed) readModelFailures.push("audit-evidence");
 
-  return finalizeSurfaceRead(sources, {
+  const result = await finalizeSurfaceRead(sources, {
     surface: "daily",
     baseline,
     requestUrl: location.toString(),
@@ -287,6 +304,7 @@ async function readDailySurface(
     readModelFailures,
     reviewObservations: reviewObservationResult.value,
     mergeCandidates: mergeCandidateResult.value,
+    auditAliases: aliasResult.value?.candidates ?? [],
     promotionOutcome,
     promotionValidation: currentPromotionPreview?.validation ?? null,
     promotionPreviewFingerprint: currentPromotionPreview?.fingerprint ?? null,
@@ -296,6 +314,7 @@ async function readDailySurface(
     catalogSyncPreview: null,
     canManageCatalog: baseline.canManageCatalog,
   });
+  return homeEvidence ? { ...result, aliasReview: aliasResult.value } : result;
 }
 
 // The populated source-options slice for the daily status panel: the option
@@ -438,7 +457,7 @@ function normalizedDailyRouteContext(
   readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
   selectedScope: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["selectedScope"]["scope"];
 }> {
-  const { readModel } = buildSurfaceReadModelFailSoft({
+  const { readModel, readModelFailures } = buildSurfaceReadModelFailSoft({
     surface: "daily",
     baseline,
     requestUrl: location.toString(),
@@ -455,10 +474,7 @@ function normalizedDailyRouteContext(
   return {
     routeContext: readModel.routeContext,
     selectedScope: readModel.sourceScopeWorkset.selectedScope.scope,
-    readModelFailures:
-      readModel.readiness.freshness === "unavailable"
-        ? [...new Set([...baseline.readModelFailures, "control-plane-overview" as const])]
-        : baseline.readModelFailures,
+    readModelFailures,
   };
 }
 
@@ -595,6 +611,7 @@ async function sourceResult<T>(
 }
 
 type BuildSurfaceReadModelInput = Readonly<{
+  auditAliases?: CatalogPrimaryWorkbenchInput["auditAliases"];
   surface: CatalogPrimaryWorkbenchSurfaceKey;
   baseline: CatalogIntegrationsBaseline;
   requestUrl: string;
@@ -655,6 +672,7 @@ function surfaceReadModelInput(
 
   return {
     requestUrl: input.requestUrl,
+    auditAliases: input.auditAliases,
     scopes: failures.has("integration-scopes")
       ? emptyListResponse<SourceObservationIntegrationScope>()
       : input.baseline.scopes,

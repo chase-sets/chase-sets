@@ -17,6 +17,7 @@ import { module as pricingModule } from "../../../index";
 import { createPricingHealthServices } from "../api/services";
 import { createRepricingDryRunServices } from "../../repricing-engine/api/dry-run";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
+import { createRepricingConfigurationWriter } from "../../repricing-policies/api/configuration";
 import { REPRICING_ENGINE_LAUNCH_POLICY_VALUE } from "../../repricing-engine/domain/policy";
 import { DEMAND_CURVE_LAUNCH_POLICY_VALUE } from "../../market-estimates/domain/demand-curve-policy";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
@@ -80,7 +81,12 @@ describeDb("Pricing Goal comparison whole target scope", () => {
         CASE WHEN listing_id='lst_7910_00000501' THEN 25 ELSE 15 END,
         NULL, NULL, NULL, 4, 30, false, false, 'observed' FROM pricing_market_listing_inputs`);
     const eventStore = createPostgresEventStore({ pool: pools.pricing });
-    const policies = createRepricingPolicyRuntime({ eventStore, db: pools.pricing, goalAdoptions: async () => [] });
+    const policies = createRepricingPolicyRuntime({
+      eventStore,
+      db: pools.pricing,
+      configuration: createRepricingConfigurationWriter({ pool: pools.pricing, eventStore }),
+      goalAdoptions: async () => [],
+    });
     await policies.commandHandler({
       streamId: policies.streamIdForPolicy("rpp_synthetic_comparison"),
       context: dryRunContext,

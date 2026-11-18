@@ -205,6 +205,7 @@ describe("discovery public account review reports", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         intent: "report-review",
+        attemptId: "public_review_report_attempt_0001",
         reviewId: "rev_1",
         reason: "personal-information",
         details: "The review includes a phone number.",
@@ -226,12 +227,18 @@ describe("discovery public account review reports", () => {
 
     const result = await action({ request: reportRequest(), params: { accountSlug: "north-store" } } as never);
 
-    expect(result).toEqual({ reviewId: "rev_1", status: "submitted" });
+    expect(result).toEqual({
+      reviewId: "rev_1",
+      status: "submitted",
+      attemptId: "public_review_report_attempt_0001",
+      mutationPhase: "succeeded",
+    });
     expect(postedBodies).toEqual([
       {
         reason: "personal-information",
         details: "The review includes a phone number.",
         sourceRoutePath: "/accounts/north-store",
+        attemptId: "public_review_report_attempt_0001",
       },
     ]);
   });
@@ -258,6 +265,37 @@ describe("discovery public account review reports", () => {
     expect(thrown).toBeInstanceOf(Response);
     expect((thrown as Response).status).toBe(302);
     expect((thrown as Response).headers.get("Location")).toBe("/sign-in?returnTo=%2Faccounts%2Fnorth-store%23feedback");
+  });
+
+  it("confirms a lost response with one same-reporter replay of the retained report", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        bodies.push(await request.json());
+        if (bodies.length === 1) throw new TypeError("Response lost");
+        return new Response(JSON.stringify({ id: "rpt_first", version: 1 }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const first = await action({ request: reportRequest(), params: { accountSlug: "north-store" } } as never);
+    expect(first).toMatchObject({ mutationPhase: "confirming", attemptId: "public_review_report_attempt_0001" });
+    expect(bodies).toHaveLength(1);
+    const form = await reportRequest().formData();
+    form.set("intent", "confirm:report-review");
+    const confirmed = await action({
+      request: new Request("http://localhost/accounts/north-store", {
+        method: "POST",
+        body: form,
+      }),
+      params: { accountSlug: "north-store" },
+    } as never);
+    expect(confirmed).toMatchObject({ mutationPhase: "succeeded", status: "submitted" });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
   });
 });
 
