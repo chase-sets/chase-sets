@@ -401,6 +401,39 @@ describe("server-unplannable provider units", () => {
 });
 
 describe("Catalog sync scope planner", () => {
+  it("plans a mapped set unit once using its active profile rather than superseded versions", async () => {
+    const active = activeProfile("ygojson", "yugioh-set-reference-data");
+    const deprecated = { ...active, profileVersion: "2026.01.01", active: false, lifecycle: "deprecated" as const };
+    const unitKey = unitKeyForCatalogProviderProfileVersion(active);
+    const scopeRecordId = "scope_synthetic_yugioh_set";
+    const adapter = fakeAdapter("ygojson", fakePlanImport(1));
+
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v2",
+        productDomain: "yugioh",
+        reference: { kind: "set", scopeRecordId },
+        providerParticipation: { selectedUnitKeys: [unitKey] },
+      },
+      acceptedScopeMappings: [
+        acceptedMapping({ scopeRecordId, providerKey: "ygojson", unitKey, setName: "Synthetic Set" }),
+      ],
+      providerProfileVersions: [deprecated, active],
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+    });
+
+    expect(preview).toMatchObject({ status: "ready", startAllowed: true, blockers: [] });
+    expect(preview.units).toEqual([
+      expect.objectContaining({
+        unitKey,
+        profileVersion: active.profileVersion,
+        eligibility: "eligible",
+        selected: true,
+        blockers: [],
+      }),
+    ]);
+  });
+
   describe("inactive participation", () => {
     const inactive = requireProfile("scrydex", "lorcana-sealed-product-source-observation");
     const active = requireProfile("scrydex", "lorcana-card-print-source-observation");
