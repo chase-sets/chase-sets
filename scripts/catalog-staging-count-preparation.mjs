@@ -150,9 +150,18 @@ export async function runCountPreparation({
   const fenced = stagingOriginFetch(fetch);
   const token = await signInStagingAdmin({ email, password, fetch: fenced });
   const admin = createRehearsalCountAdminClient({ origin, cookie: `chase_sets_session=${token}`, fetch: fenced });
+  let quoteFailure;
   const receipt =
     input.mode === "quote"
-      ? await quoteRehearsalCounts({ admin, run, dispatchId: input.dispatchId, pass: input.pass, cap: input.cap, now })
+      ? await quoteRehearsalCounts({
+          admin,
+          run,
+          dispatchId: input.dispatchId,
+          pass: input.pass,
+          cap: input.cap,
+          now,
+          onQuoteFailure: (failure) => (quoteFailure = failure),
+        })
       : await acquireRehearsalCounts({ admin, run, approval: input.approval, now });
   const text = `${JSON.stringify(receipt, null, 2)}\n`;
   const verdict = validateRehearsalCountPreparationReceiptText(text, {
@@ -163,7 +172,10 @@ export async function runCountPreparation({
   mkdirSync(dirname(receiptPath), { recursive: true });
   writeFileSync(receiptPath, text);
   // A quote awaiting approval or a validated handoff ends successfully; every stop fails the run.
-  return { ok: rehearsalCountPreparationContinuation(receipt) !== "stop", summary: summarizeCountPreparation(receipt) };
+  return {
+    ok: rehearsalCountPreparationContinuation(receipt) !== "stop",
+    summary: { ...summarizeCountPreparation(receipt), ...(quoteFailure && { quoteFailure }) },
+  };
 }
 
 /** Pre-upload gate: the exact regular receipt file, bound to this run, free of admitted credential values. */

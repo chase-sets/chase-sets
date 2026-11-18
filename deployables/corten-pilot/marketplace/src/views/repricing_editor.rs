@@ -11,13 +11,19 @@
 //! a choice as it changes. A rule's conditions and anchors are rows in the rule's row
 //! (`rules[i].conditions[j]`). One column on a phone; the controls beside the preview from 64rem,
 //! as the create editor's.
-use corten::prelude::*;
+//!
+//! The form draws a new attempt (`SubmitKey`), which Save policy or Activate sends. When Pricing
+//! does not install that request, the editor is drawn again with marketplace's message and holds
+//! the same attempt, so sending it again is the same request (marketplace keys its request by what
+//! it saves, `requestKeys`).
+use corten::{SubmitKey, prelude::*};
 use serde_json::Value;
 
 use super::repricing_page::{DryRunSlot, PresetFields, PresetNames, ReviseFormId, ScopePreview, goal, handlers, keyed, num};
 use crate::{
     api::RepricingCategory,
     app::url,
+    repricing::configuration_message,
     repricing_body::{self, ANCHORS, CONDITIONS, Op, Tier, condition_number},
     repricing_policy::{Place as PolicyPlace, PolicyForm, ReviseEditor, ReviseScreen},
     text::{Pilot, RepricingMsg},
@@ -124,6 +130,10 @@ pub(super) fn ReviseBody<'a>(t: RepricingMsg, p: Pilot, id: Option<&'a str>, scr
         Tier::Advanced => t.editor_advanced(),
     };
     let body = &screen.body;
+    let attempt = match screen.requested.as_ref().and_then(|requested| requested.attempt.as_ref()) {
+        Some(attempt) => attempt.again(f.attempt),
+        None => SubmitKey::field(f.attempt),
+    };
     html! {
         if !screen.errors.is_empty() {
             <div class={Banner} data-tone="danger" role="alert" data-repricing-errors="true">
@@ -138,6 +148,11 @@ pub(super) fn ReviseBody<'a>(t: RepricingMsg, p: Pilot, id: Option<&'a str>, scr
         if screen.unsupported_goal {
             <div class={Banner} data-tone="warning" role="status" data-repricing-unsupported-goal="true">
                 <p>{t.editor_intent_unsupported_goal()}</p>
+            </div>
+        }
+        if let Some(requested) = &screen.requested {
+            <div class={Banner} data-tone="info" role="status" data-repricing-request={requested.receipt.request_key()}>
+                <p class={Strong}>{configuration_message(t, &requested.receipt)}</p>
             </div>
         }
         <div class={EditorGrid}>
@@ -164,6 +179,7 @@ pub(super) fn ReviseBody<'a>(t: RepricingMsg, p: Pilot, id: Option<&'a str>, scr
                 </button>
                 <input type="hidden" name={f.tier} value={tier.key()}>
                 <input type="hidden" name={f.body} value={body.to_string()}>
+                {attempt}
                 if let Some(run) = &screen.run {
                     <input type="hidden" name={f.dry_run} value={&run.run.dry_run_id}>
                 }

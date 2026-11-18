@@ -16,8 +16,8 @@ use platform::ui::visually_hidden::VisuallyHidden;
 use super::account_home_page::humanized;
 use crate::{
     api::{
-        HealthAdvice, HealthCandidate, HealthCount, HealthCurrency, HealthGoal, HealthGrade, HealthRun, HealthSummary,
-        PricingHealth,
+        ConfigurationReceipt, GoalAnswer, HealthAdvice, HealthCandidate, HealthCount, HealthCurrency, HealthGoal, HealthGrade,
+        HealthRun, HealthSummary, PricingHealth,
     },
     app::url,
     pricing_health::{HealthForm, HealthScreen, Place},
@@ -134,6 +134,23 @@ fn advice(t: RepricingMsg, advice: &HealthAdvice, goals: &[HealthGoal]) -> Strin
     t.by_key(&format!("health.goals.recommendation.{key}"), &args).map_or(key, |m| m.to_string())
 }
 
+/// A goal's request Pricing did not install, as marketplace's banner says it: its title and
+/// description (`goals.pending` or `goals.superseded`).
+fn requested(t: RepricingMsg, receipt: &ConfigurationReceipt) -> (&'static str, String) {
+    let revision = receipt.requested_revision().to_string();
+    match receipt {
+        ConfigurationReceipt::SupersededByRevision { replacing_revision, .. } => (
+            t.health_goals_superseded(),
+            t.health_goals_superseded_description(crate::text::repricing_msg::HealthGoalsSupersededDescription {
+                revision: &revision,
+                replacement: &replacing_revision.to_string(),
+            })
+            .to_string(),
+        ),
+        _ => (t.health_goals_pending(), t.health_goals_pending_description(&revision).to_string()),
+    }
+}
+
 /// A candidate's status (`localizedGoalStatus`).
 fn goal_status(t: RepricingMsg, status: &str) -> &'static str {
     match status {
@@ -173,12 +190,18 @@ pub fn PricingHealthPage<'a>(t: RepricingMsg, screen: &'a HealthScreen) -> impl 
                     <p class={Row}><a class={(Button, Secondary)} href={&screen.here}>{t.health_retry()}</a></p>
                 </div>
             }
-            if let Some(applied) = &screen.applied {
+            if let Some(GoalAnswer::Applied(applied)) = &screen.applied {
                 <div class={Banner} data-tone="success" role="status" data-pricing-health-applied>
                     <p class={Strong}>{t.health_goals_applied()}</p>
                     <p>
                         {t.health_goals_applied_description(crate::text::repricing_msg::HealthGoalsAppliedDescription { revision: &count(t, applied.revision), raised: &count(t, applied.movement.raised), lowered: &count(t, applied.movement.lowered), held: &count(t, applied.movement.held), floor_binding: &count(t, applied.alerts.floor_binding) })}
                     </p>
+                </div>
+            }
+            if let Some(GoalAnswer::Requested(receipt)) = &screen.applied {
+                <div class={Banner} data-tone="info" role="status" data-pricing-health-requested={receipt.request_key()}>
+                    <p class={Strong}>{requested(t, receipt).0}</p>
+                    <p>{requested(t, receipt).1}</p>
                 </div>
             }
             if let Some(data) = data {

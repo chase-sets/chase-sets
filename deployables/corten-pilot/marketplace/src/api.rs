@@ -804,17 +804,18 @@ pub trait SellList {
     ) -> Result<SellListReview, ApiError>;
     /// The guest sell list `guest`'s readiness, and the write's receipt.
     async fn guest_sell_list_readiness(&self, guest: &str) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
-    /// The account's readiness with the seller's `decisions` (the kept review's), the ship-from and
-    /// label `choices` Checkout works seller readiness out from, and the seller confirmation
-    /// evidence seller checkout sends before its handoff, for the confirmation and the snapshot it
-    /// started from (`entry`).
+    /// The account's readiness with the seller's `decisions` (the kept review's) and the ship-from
+    /// and label `choices` Checkout works seller readiness out from, for the confirmation and the
+    /// snapshot it started from (`entry`). Checkout reads payout, risk and fulfillment from their
+    /// owners; one that finds the seller not ready refuses with why
+    /// ([chase-sets/chase-sets#10765 [checkout] Work out seller readiness in the Checkout API from
+    /// owner reads and stop trusting page-posted evidence](https://github.com/chase-sets/chase-sets/issues/10765)).
     async fn seller_readiness(
         &self,
         decisions: &ReadinessDecisions,
         choices: &SellerChoices,
-        evidence: &SellerEvidence,
         entry: &ReadinessEntry<'_>,
-    ) -> Result<SellListSnapshot, ApiError>;
+    ) -> Result<SellListSnapshot, ReadinessError>;
     /// A seller confirmation (`GET /sell-list/confirmations/{id}`); 404 while it is not saved.
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError>;
     /// Confirms seller checkout (`POST /sell-list/confirm`), which runs the Marketplace handoff in
@@ -856,6 +857,21 @@ pub enum ConfirmError {
 impl From<ApiError> for ConfirmError {
     fn from(error: ApiError) -> Self {
         ConfirmError::Api(error)
+    }
+}
+
+/// Why seller checkout's readiness gave no snapshot to confirm from.
+#[derive(Debug)]
+pub enum ReadinessError {
+    /// Checkout found the seller not ready (400 `checkout_seller_not_ready`): its reasons
+    /// (`SellListPreparationRefusalReason`), such as `payout-setup-required` or `risk-hold`.
+    NotReady(Vec<String>),
+    Api(ApiError),
+}
+
+impl From<ApiError> for ReadinessError {
+    fn from(error: ApiError) -> Self {
+        ReadinessError::Api(error)
     }
 }
 
@@ -951,17 +967,14 @@ impl SellList for Caller<'_> {
         &self,
         decisions: &ReadinessDecisions,
         choices: &SellerChoices,
-        evidence: &SellerEvidence,
         entry: &ReadinessEntry<'_>,
-    ) -> Result<SellListSnapshot, ApiError> {
+    ) -> Result<SellListSnapshot, ReadinessError> {
         #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
         struct Sent<'a> {
             #[serde(flatten)]
             decisions: &'a ReadinessDecisions,
             #[serde(flatten)]
             choices: &'a SellerChoices,
-            seller_evidence: &'a SellerEvidence,
             #[serde(flatten)]
             entry: &'a ReadinessEntry<'a>,
         }
@@ -969,13 +982,21 @@ impl SellList for Caller<'_> {
         struct Body {
             readiness: SellListSnapshot,
         }
-        let req = sell_list_request(self, Method::POST, None, "/readiness").json(&Sent {
-            decisions,
-            choices,
-            seller_evidence: evidence,
-            entry,
-        });
-        Ok(self.write::<Body>(req).await?.0.readiness)
+        let sent = Sent { decisions, choices, entry };
+        let res = sell_list_request(self, Method::POST, None, "/readiness").json(&sent).send().await.map_err(ApiError::from)?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        if status.is_success() {
+            return Ok(res.json::<Body>().await.map_err(ApiError::from)?.readiness);
+        }
+        let body: serde_json::Value = res.json().await.unwrap_or_default();
+        let error = &body["error"];
+        let message = error["message"].as_str().unwrap_or_default().to_owned();
+        let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
+        if status == StatusCode::BAD_REQUEST && code.as_deref() == Some("checkout_seller_not_ready") {
+            let reasons = error["reasons"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).map(str::to_owned);
+            return Err(ReadinessError::NotReady(reasons.collect()));
+        }
+        Err(ApiError::Status { status, code, message }.into())
     }
 
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError> {
@@ -1435,51 +1456,6 @@ pub struct LabelChoice {
     pub preference: &'static str,
 }
 
-/// The seller confirmation evidence seller checkout sends (`SellListSellerConfirmationEvidence`), as
-/// marketplace's route builds it (`buildSellerEvidence`): every dimension said to be ready, the
-/// ship-from's place and the payout readiness read
-/// ([chase-sets/chase-sets#10753](https://github.com/chase-sets/chase-sets/issues/10753)).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SellerEvidence {
-    pub ship_from: EvidenceShipFrom,
-    pub payout: EvidencePayout,
-    pub label: EvidenceLabel,
-    pub risk: EvidenceStatus,
-    pub provider: EvidenceStatus,
-    pub freshness: EvidenceStatus,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EvidenceShipFrom {
-    pub status: &'static str,
-    pub address_id: Option<String>,
-    pub country: String,
-    pub region: String,
-    pub postal_code: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EvidencePayout {
-    pub status: &'static str,
-    pub method: &'static str,
-    pub readiness_status: String,
-    pub last_checked_at: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EvidenceLabel {
-    pub status: &'static str,
-    pub preference: &'static str,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EvidenceStatus {
-    pub status: &'static str,
-}
-
 /// The header a guest's Product Alert intent names its owner in (the anonymous alert cookie's
 /// value, `x-discovery-anonymous-product-alert-id`).
 pub const ANONYMOUS_PRODUCT_ALERT_HEADER: &str = "x-discovery-anonymous-product-alert-id";
@@ -1609,19 +1585,24 @@ pub trait Marketplace {
     async fn standard_terms(&self, price: &str) -> Result<StandardTerms, ApiError>;
     /// Report a listing (`POST /listings/{id}/report`): as the account signed in, else as the
     /// visitor `anonymous` (`anon_..`, marketplace's report cookie). A second report from the
-    /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429.
+    /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429. The
+    /// report's `attemptId` makes it one report however often it is sent (a 409
+    /// `attempt_conflict` for the same attempt with other words).
     async fn report_listing(&self, listing: &str, anonymous: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
     /// Report a review (`POST /reviews/{id}/report`), as the account signed in only: a visitor is
-    /// a 401. A second report from the same account is a 409 `report_already_submitted`.
+    /// a 401. A second report from the same account is a 409 `report_already_submitted`. Its
+    /// `attemptId` makes it one report, as a listing's.
     async fn report_review(&self, review: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
     /// A seller's buyer-facing chips (`GET /accounts/{id}/behavioral-metrics-chips`).
     async fn metrics_chips(&self, account: &str) -> Result<MetricsChips, ApiError>;
 }
 
-/// A listing report's body (`ReportListingRequest`).
+/// A listing report's body (`ReportListingRequest`), and a review report's: the attempt (the
+/// form's `SubmitKey`), the reason, the explanation and the page it was sent from.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListingReport<'a> {
+    pub attempt_id: &'a str,
     pub reason: &'a str,
     pub details: Option<&'a str>,
     pub source_route_path: &'a str,
@@ -5283,15 +5264,17 @@ pub trait ReviewCalls {
     /// A review the account wrote or received (`GET /reviews/{id}`).
     async fn review(&self, review: &str) -> Result<ReviewItem, ApiError>;
     /// The account's one public response to a review it received (`POST /reviews/{id}/reply`). The
-    /// answer is the write's receipt.
-    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
+    /// answer is the write's receipt. Sent as `attempt` (`attemptId`), which Marketplace applies
+    /// once.
+    async fn reply_to_review(&self, review: &str, attempt: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
     /// Whether the account may review the other side of `order`
     /// (`GET /reviews/opportunities/orders/{id}`); `None` when it has no such order.
     async fn review_opportunity(&self, order: &str) -> Result<Option<ReviewOpportunity>, ApiError>;
     /// Submit a review of the order's other side (`POST /reviews`): the review's id and the
-    /// write's receipt.
+    /// write's receipt. Sent as `attempt` (`attemptId`), which Marketplace applies once.
     async fn submit_review(
         &self,
+        attempt: &str,
         order: &str,
         subject: &str,
         rating: i64,
@@ -5321,9 +5304,10 @@ impl ReviewCalls for Caller<'_> {
         self.read(&format!("/api/marketplace/reviews/{}", segment(review)), MARKETPLACE).await
     }
 
-    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError> {
+    async fn reply_to_review(&self, review: &str, attempt: &str, feedback: &str) -> Result<Option<Receipt>, ApiError> {
         let path = format!("/api/marketplace/reviews/{}/reply", segment(review));
-        let req = self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "feedback": feedback }));
+        let body = serde_json::json!({ "attemptId": attempt, "feedback": feedback });
+        let req = self.request(Method::POST, &path, MARKETPLACE).json(&body);
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
@@ -5338,6 +5322,7 @@ impl ReviewCalls for Caller<'_> {
 
     async fn submit_review(
         &self,
+        attempt: &str,
         order: &str,
         subject: &str,
         rating: i64,
@@ -5347,7 +5332,9 @@ impl ReviewCalls for Caller<'_> {
         struct Submitted {
             id: String,
         }
-        let body = serde_json::json!({ "orderId": order, "subjectAccountId": subject, "rating": rating, "feedback": feedback });
+        let body = serde_json::json!({
+            "attemptId": attempt, "orderId": order, "subjectAccountId": subject, "rating": rating, "feedback": feedback,
+        });
         let req = self.request(Method::POST, "/api/marketplace/reviews", MARKETPLACE).json(&body);
         let (submitted, receipt) = self.write::<Submitted>(req).await?;
         Ok((submitted.id, receipt))
@@ -7092,6 +7079,80 @@ pub struct RepricingHalt {
     pub engaged: bool,
     pub engaged_at: Option<String>,
     pub released_at: Option<String>,
+    /// The halt's last request, when Pricing says (`configuration`).
+    #[serde(default)]
+    pub configuration: ConfigurationStatus,
+}
+
+/// What came of a repricing configuration write, a policy's or the halt's
+/// (`RepricingConfigurationReceipt`): the request's key and revision, and whether it is installed,
+/// still pending (nothing changed yet), or replaced by a later request before it was installed.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+pub enum ConfigurationReceipt {
+    Applied { request_key: String, requested_revision: u64, installed_revision: u64 },
+    AcceptedPending { request_key: String, requested_revision: u64 },
+    SupersededByRevision { request_key: String, requested_revision: u64, replacing_revision: u64 },
+}
+
+impl ConfigurationReceipt {
+    pub fn request_key(&self) -> &str {
+        match self {
+            Self::Applied { request_key, .. }
+            | Self::AcceptedPending { request_key, .. }
+            | Self::SupersededByRevision { request_key, .. } => request_key,
+        }
+    }
+
+    pub fn requested_revision(&self) -> u64 {
+        match self {
+            Self::Applied { requested_revision, .. }
+            | Self::AcceptedPending { requested_revision, .. }
+            | Self::SupersededByRevision { requested_revision, .. } => *requested_revision,
+        }
+    }
+
+    pub fn applied(&self) -> bool {
+        matches!(self, Self::Applied { .. })
+    }
+
+    /// A receipt as `parseRepricingConfigurationReceipt` takes one: a key of 1 to 200 characters, a
+    /// first revision of 1, an installed revision that is the request's, a later replacing one.
+    fn valid(&self) -> bool {
+        let key = self.request_key();
+        let revision = self.requested_revision();
+        !key.is_empty()
+            && key.chars().count() <= 200
+            && revision > 0
+            && match self {
+                Self::Applied { installed_revision, .. } => *installed_revision == revision,
+                Self::AcceptedPending { .. } => true,
+                Self::SupersededByRevision { replacing_revision, .. } => *replacing_revision > revision,
+            }
+    }
+}
+
+/// A policy's or the halt's configuration as its read carries it (`RepricingConfigurationStatus`):
+/// the pilot reads only its last request.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ConfigurationStatus {
+    pub request: Option<ConfigurationReceipt>,
+}
+
+impl ConfigurationStatus {
+    /// The last request, while it is not installed.
+    pub fn unsettled(&self) -> Option<&ConfigurationReceipt> {
+        self.request.as_ref().filter(|request| !request.applied())
+    }
+}
+
+/// A configuration write's answer: its receipt, and the commit receipt an installed write carries
+/// for the read after it.
+#[derive(Debug)]
+pub struct Configured {
+    pub receipt: ConfigurationReceipt,
+    pub after: Option<Receipt>,
 }
 
 /// A dry run's counts (`RepricingDryRunSummary`).
@@ -7236,6 +7297,9 @@ pub struct RepricingPolicy {
     /// `active`, `paused` or `deleted`.
     pub status: String,
     pub updated_at: Option<String>,
+    /// The policy's last request, when Pricing says (`configuration`).
+    #[serde(default)]
+    pub configuration: ConfigurationStatus,
 }
 
 /// A rule: the conditions a listing must meet, and how it is priced (`RepricingRule`). The first
@@ -7464,6 +7528,11 @@ async fn pricing_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Val
     if status.is_success() {
         return Ok((body, receipt));
     }
+    Err(pricing_refusal(status, &body))
+}
+
+/// What Pricing refused a write for (`status`, and its body's `error`).
+fn pricing_refusal(status: StatusCode, body: &serde_json::Value) -> PricingRefusal {
     let error = &body["error"];
     let details = error["details"]
         .as_array()
@@ -7474,13 +7543,53 @@ async fn pricing_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Val
         code: error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned),
         message: error["message"].as_str().unwrap_or_default().to_owned(),
     };
-    Err(PricingRefusal { error, details })
+    PricingRefusal { error, details }
+}
+
+/// A configuration write's answer, as `parseConfigurationResponse` reads it: 200 or 201 with an
+/// installed request's receipt, 202 with a pending one's, 409 with the receipt of one a later
+/// request replaced. Any other pairing, or a body that is not a receipt, is a 502; a 409 without a
+/// receipt (`concurrency_conflict`, `goal_apply_refused`) and any other error are refusals.
+async fn configuration_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Value, Configured), PricingRefusal> {
+    let res = req.send().await.map_err(ApiError::from)?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let after = Receipt::from_response(res.headers());
+    let body: serde_json::Value = res.json().await.unwrap_or_default();
+    let answered = status.is_success() || (status == StatusCode::CONFLICT && body["status"].is_string());
+    if !answered {
+        return Err(pricing_refusal(status, &body));
+    }
+    let unreadable =
+        |message: String| PricingRefusal::from(ApiError::Status { status: StatusCode::BAD_GATEWAY, code: None, message });
+    let receipt: ConfigurationReceipt = serde_json::from_value(body.clone())
+        .map_err(|error| unreadable(format!("a configuration receipt the page cannot read: {error}")))?;
+    let paired = match &receipt {
+        ConfigurationReceipt::Applied { .. } => matches!(status, StatusCode::OK | StatusCode::CREATED),
+        ConfigurationReceipt::AcceptedPending { .. } => status == StatusCode::ACCEPTED,
+        ConfigurationReceipt::SupersededByRevision { .. } => status == StatusCode::CONFLICT,
+    };
+    if !receipt.valid() || !paired {
+        return Err(unreadable(format!("a configuration receipt the page cannot read ({status})")));
+    }
+    Ok((body, Configured { receipt, after }))
+}
+
+/// `req` sent as `attempt` (Pricing's `Idempotency-Key`), when the form drew one; without it,
+/// Pricing makes one up, as for marketplace's request without a key.
+fn attempted(req: reqwest::RequestBuilder, attempt: Option<&str>) -> reqwest::RequestBuilder {
+    match attempt {
+        Some(attempt) => req.header(IDEMPOTENCY_KEY, attempt),
+        None => req,
+    }
 }
 
 /// The Seller Desk repricing page's calls (Pricing's `repricing-policies` routes).
 pub trait RepricingCalls {
     async fn repricing_policies(&self) -> Result<Vec<RepricingPolicyRow>, ApiError>;
     async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError>;
+    /// The account's requests not installed yet, the policies' and the halt's
+    /// (`configuration-requests`, at most 100).
+    async fn repricing_configuration_requests(&self) -> Result<Vec<ConfigurationReceipt>, ApiError>;
     async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError>;
     async fn repricing_prerequisites(&self) -> Result<RepricingPrerequisites, ApiError>;
     async fn repricing_categories(&self) -> Result<Vec<RepricingCategory>, ApiError>;
@@ -7489,14 +7598,31 @@ pub trait RepricingCalls {
     async fn repricing_dry_run(&self, id: &str) -> Result<RepricingDryRun, ApiError>;
     async fn repricing_dry_run_traces(&self, id: &str, after: Option<&str>) -> Result<Vec<RepricingTrace>, ApiError>;
     async fn start_repricing_dry_run(&self, body: &serde_json::Value) -> Result<RepricingDryRun, PricingRefusal>;
-    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal>;
-    /// `pause` or `resume` a policy.
-    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
-    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
+    /// Each write is sent as the form's `attempt`, when it drew one, and answers its request's
+    /// receipt: the same attempt sent again answers the same request.
+    async fn create_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        dry_run_id: &str,
+        name: &str,
+    ) -> Result<Configured, PricingRefusal>;
+    /// `pause`, `resume` or `delete` a policy.
+    async fn repricing_lifecycle(
+        &self,
+        attempt: Option<&str>,
+        policy_id: &str,
+        change: &str,
+    ) -> Result<Configured, PricingRefusal>;
+    async fn set_repricing_halt(&self, attempt: Option<&str>, engaged: bool) -> Result<Configured, PricingRefusal>;
     /// The policy, and its JSON as Pricing answered it, which a revise edits.
     async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError>;
     /// Replaces the policy's body (`revise`).
-    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal>;
+    async fn revise_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        id: &str,
+        body: &serde_json::Value,
+    ) -> Result<Configured, PricingRefusal>;
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError>;
     /// A page of the policy's activity under `filter`, after the listing `after`.
     async fn repricing_activity(
@@ -7514,6 +7640,10 @@ impl RepricingCalls for Caller<'_> {
 
     async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError> {
         self.read(&format!("{REPRICING}/halt"), PRICING).await
+    }
+
+    async fn repricing_configuration_requests(&self) -> Result<Vec<ConfigurationReceipt>, ApiError> {
+        self.read(&format!("{REPRICING}/configuration-requests"), PRICING).await
     }
 
     async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError> {
@@ -7554,21 +7684,31 @@ impl RepricingCalls for Caller<'_> {
         })
     }
 
-    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal> {
+    async fn create_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        dry_run_id: &str,
+        name: &str,
+    ) -> Result<Configured, PricingRefusal> {
         let body = serde_json::json!({ "dryRunId": dry_run_id, "name": name });
-        let req = self.request(Method::POST, REPRICING, PRICING).json(&body);
-        Ok(pricing_answer(req).await?.1)
+        let req = attempted(self.request(Method::POST, REPRICING, PRICING), attempt).json(&body);
+        Ok(configuration_answer(req).await?.1)
     }
 
-    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal> {
+    async fn repricing_lifecycle(
+        &self,
+        attempt: Option<&str>,
+        policy_id: &str,
+        change: &str,
+    ) -> Result<Configured, PricingRefusal> {
         let req = self.request(Method::POST, &format!("{REPRICING}/{}/{change}", segment(policy_id)), PRICING);
-        Ok(pricing_answer(req).await?.1)
+        Ok(configuration_answer(attempted(req, attempt)).await?.1)
     }
 
-    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal> {
-        let req =
-            self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING).json(&serde_json::json!({ "engaged": engaged }));
-        Ok(pricing_answer(req).await?.1)
+    async fn set_repricing_halt(&self, attempt: Option<&str>, engaged: bool) -> Result<Configured, PricingRefusal> {
+        let req = attempted(self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING), attempt)
+            .json(&serde_json::json!({ "engaged": engaged }));
+        Ok(configuration_answer(req).await?.1)
     }
 
     async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError> {
@@ -7581,9 +7721,14 @@ impl RepricingCalls for Caller<'_> {
         Ok((policy, raw))
     }
 
-    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal> {
-        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING).json(body);
-        Ok(pricing_answer(req).await?.1)
+    async fn revise_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        id: &str,
+        body: &serde_json::Value,
+    ) -> Result<Configured, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING);
+        Ok(configuration_answer(attempted(req, attempt).json(body)).await?.1)
     }
 
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError> {
@@ -9522,13 +9667,21 @@ pub struct AppliedAlerts {
     pub floor_binding: u64,
 }
 
+/// What a goal's apply came to: applied, or a request not installed (pending, or replaced by a later
+/// one), which changed nothing yet.
+#[derive(Clone, Debug)]
+pub enum GoalAnswer {
+    Applied(AppliedGoal),
+    Requested(ConfigurationReceipt),
+}
+
 /// Pricing health's calls.
 pub trait PricingHealthCalls {
     /// The verdict for `policy`, or Pricing's choice of policy without one.
     async fn pricing_health(&self, policy: Option<&str>) -> Result<PricingHealth, ApiError>;
     /// Compute a verdict, or compare the goals, for `policy` (`compute` or `compare`).
     async fn pricing_health_command(&self, policy: &str, command: &str) -> Result<(), ApiError>;
-    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError>;
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<GoalAnswer, ApiError>;
 }
 
 impl PricingHealthCalls for Caller<'_> {
@@ -9544,11 +9697,14 @@ impl PricingHealthCalls for Caller<'_> {
         pricing_answer(req).await.map(|_| ()).map_err(|refusal| refusal.error)
     }
 
-    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError> {
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<GoalAnswer, ApiError> {
         let path = format!("{PRICING_HEALTH}/{}/apply-goal", segment(policy));
-        let (body, _) =
-            pricing_answer(self.request(Method::POST, &path, PRICING).json(goal)).await.map_err(|refusal| refusal.error)?;
-        serde_json::from_value(body).map_err(|error| ApiError::Status {
+        let req = self.request(Method::POST, &path, PRICING).json(goal);
+        let (body, configured) = configuration_answer(req).await.map_err(|refusal| refusal.error)?;
+        if !configured.receipt.applied() {
+            return Ok(GoalAnswer::Requested(configured.receipt));
+        }
+        serde_json::from_value(body).map(GoalAnswer::Applied).map_err(|error| ApiError::Status {
             status: StatusCode::BAD_GATEWAY,
             code: None,
             message: format!("an applied goal the page cannot read: {error}"),

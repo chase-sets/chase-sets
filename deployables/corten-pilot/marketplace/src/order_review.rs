@@ -13,6 +13,11 @@
 //! the form again with what was typed, the closed authoring codes saying how to fix it. A sent
 //! review goes to its page, read after the write.
 //!
+//! The review is sent as its form's attempt (`marketplace_attempt`). One whose answer was lost is
+//! looked up by its attempt: committed is the review's page, not observed keeps the form to send
+//! again, and one that cannot be confirmed, or whose attempt was another review's, keeps what was
+//! typed without Submit until the page is opened again (where a review written is its page).
+//!
 //! With JavaScript, following Open an order issue keeps the form in the tab's session storage and
 //! the form takes it back the next time it opens, as marketplace's does, and the resolution
 //! funnel's events go to window listeners and `dataLayer` (`views/order_review_draft.js`).
@@ -27,11 +32,14 @@ use corten::{
     prelude::*,
 };
 use serde::Serialize;
+use serde_json::json;
 
 use crate::{
     api::{ApiError, Caller as ApiCaller, ReviewCalls as _, ReviewOpportunity},
     app::{Shared, read_failed, sign_in, url},
     auth::{Reviewer, Viewer},
+    marketplace_attempt::{self, Locked, Observed},
+    recovery::attempt_text,
     review::ReviewPlace,
     support_list::Ask,
     text::{Pilot, ReviewsMsg},
@@ -67,19 +75,21 @@ pub struct ReviewAsk {
 #[serde(rename_all = "camelCase", default)]
 pub struct ReviewInput {
     pub intent: String,
+    pub attempt: Option<SubmitKey>,
     pub rating: String,
     pub feedback: String,
     pub problem_categories: Vec<String>,
     pub feedback_only_acknowledged: String,
 }
 
-/// A refused review: what to say, whether the words are at fault (a rate limit is not), and
-/// whether it is one of the closed authoring codes.
+/// A refused review: what to say, whether the words are at fault (a rate limit is not), whether
+/// it is one of the closed authoring codes, and why Submit is off, when it is.
 #[derive(Clone, Debug)]
 pub struct Refused {
     pub message: String,
     pub field: bool,
     pub recovery: bool,
+    pub locked: Option<Locked>,
 }
 
 /// The page: the opportunity, the form as typed, and whether it asks to resolve first.
@@ -104,6 +114,12 @@ impl OrderReviewScreen {
     /// Whether the buyer writes it (the payment protection words and the problems are a buyer's).
     pub fn buyer(&self) -> bool {
         self.opportunity.author_role == "buyer"
+    }
+
+    /// Why Submit is off: a review whose result cannot be confirmed, or whose attempt was another
+    /// review's.
+    pub fn locked(&self) -> Option<Locked> {
+        self.refused.as_ref().and_then(|r| r.locked)
     }
 
     /// The support page for the order (Track order issue).
@@ -313,13 +329,52 @@ async fn submit(
     }
     let order = if screen.opportunity.order_id.is_empty() { id.to_owned() } else { screen.opportunity.order_id.clone() };
     let subject = screen.opportunity.subject_account_id.clone();
-    match caller.submit_review(&order, &subject, rating, &input.feedback).await {
+    let t: ReviewsMsg = req.t();
+    let Some(attempt) = marketplace_attempt::presented(attempt_text(&input.attempt)) else {
+        screen.refused = Some(Refused { message: t.attempt_not_sent().to_owned(), field: false, recovery: false, locked: None });
+        return draw(req, viewer, which, &screen, StatusCode::UNPROCESSABLE_ENTITY);
+    };
+    match caller.submit_review(attempt, &order, &subject, rating, &input.feedback).await {
         Ok((review, receipt)) => {
             let place = ReviewPlace { after_write: receipt.map(|r| r.param()), reported: None };
             req.redirect(&url::Review { id: &review, place })
         }
+        Err(error) if marketplace_attempt::locked_by(&error).is_some() => {
+            locked(req, viewer, which, screen, marketplace_attempt::locked_by(&error).unwrap_or(Locked::Unconfirmed))
+        }
+        Err(error) if marketplace_attempt::lost(&error) => {
+            tracing::warn!("a review had no answer, looking up its attempt: {error}");
+            let request = json!({
+                "orderId": order, "subjectAccountId": subject, "rating": rating,
+                "feedback": marketplace_attempt::review_text(&input.feedback),
+            });
+            match marketplace_attempt::observe(&caller, "review.submit", "order", &order, attempt, &request).await {
+                Observed::Committed { id: review, .. } => {
+                    req.redirect(&url::Review { id: &review, place: ReviewPlace::default() })
+                }
+                Observed::Conflict => locked(req, viewer, which, screen, Locked::Conflict),
+                Observed::Absent => {
+                    let message = t.attempt_not_observed().to_owned();
+                    screen.refused = Some(Refused { message, field: false, recovery: false, locked: None });
+                    draw(req, viewer, which, &screen, StatusCode::BAD_GATEWAY)
+                }
+                Observed::Unsettled => locked(req, viewer, which, screen, Locked::Unconfirmed),
+            }
+        }
         Err(error) => refused(req, viewer, which, screen, error),
     }
+}
+
+/// A review whose result cannot be confirmed, or whose attempt was another review's: the form
+/// again with what was typed, and no Submit.
+fn locked(req: &Req, viewer: &Viewer, which: For, mut screen: OrderReviewScreen, locked: Locked) -> HtmlResult {
+    let t: ReviewsMsg = req.t();
+    let (message, status) = match locked {
+        Locked::Conflict => (t.attempt_changed_request(), StatusCode::CONFLICT),
+        Locked::Unconfirmed => (t.attempt_unconfirmed(), StatusCode::BAD_GATEWAY),
+    };
+    screen.refused = Some(Refused { message: message.to_owned(), field: false, recovery: false, locked: Some(locked) });
+    draw(req, viewer, which, &screen, status)
 }
 
 /// A refused review: the form again with what was typed and why.
@@ -333,14 +388,15 @@ fn refused(req: &Req, viewer: &Viewer, which: For, mut screen: OrderReviewScreen
     let code = error.code().unwrap_or_default();
     let (said, answer) = if let Some(message) = crate::review::recovery(t, code) {
         let status = status.filter(StatusCode::is_client_error).unwrap_or(StatusCode::UNPROCESSABLE_ENTITY);
-        (Refused { message: message.to_owned(), field: code != "rate_limited", recovery: true }, status)
+        (Refused { message: message.to_owned(), field: code != "rate_limited", recovery: true, locked: None }, status)
     } else if status.is_some_and(|s| s.is_client_error()) {
         let message = error.refusal().unwrap_or(p.reviews_submit_failed()).to_owned();
-        (Refused { message, field: false, recovery: false }, StatusCode::UNPROCESSABLE_ENTITY)
+        (Refused { message, field: false, recovery: false, locked: None }, StatusCode::UNPROCESSABLE_ENTITY)
     } else {
         // The API failed: nothing says it was sent, and the words are kept.
         tracing::warn!("a review could not be submitted: {error}");
-        (Refused { message: p.reviews_submit_failed().to_owned(), field: false, recovery: false }, StatusCode::BAD_GATEWAY)
+        let message = p.reviews_submit_failed().to_owned();
+        (Refused { message, field: false, recovery: false, locked: None }, StatusCode::BAD_GATEWAY)
     };
     screen.refused = Some(said);
     draw(req, viewer, which, &screen, answer)

@@ -1360,13 +1360,17 @@ const outputs = [
   ],
   [
     "marketplace/locales/listing.en.json",
-    json(
-      await catalog("discovery.ts", "discoveryEnglishTranslations", [
+    json({
+      ...(await catalog("discovery.ts", "discoveryEnglishTranslations", [
         ["discovery.routes.publicListing.", "page"],
         // A listing without a currency's price (the item page's words, which the listing page uses).
         ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
-      ]),
-    ),
+      ])),
+      // What a report whose answer was lost came to (marketplace's `ReviewMutationForm`).
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/account.en.json",
@@ -1382,6 +1386,9 @@ const outputs = [
         // Report review and how a review counts (marketplace's `features/reviews/ui`).
         ["reputation.features.reviews.ui.reviewReportAction.", "report"],
         ["reputation.features.reviews.ui.reviewScoringContext.", "scoring"],
+      ])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
       ])),
     }),
   ],
@@ -1519,6 +1526,8 @@ const outputs = [
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
         ["marketplace.features.reviews.ui.authoredTextRecovery.", "recovery"],
+        // What a review, a reply or a report whose answer was lost came to (`ReviewMutationForm`).
+        ["marketplace.reviewRecovery.", "attempt"],
       ])),
     }),
   ],

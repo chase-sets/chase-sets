@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import {
   countFingerprint,
   countPreparationViewSchema,
@@ -42,6 +42,15 @@ const acquireTimeoutMs = 8 * 60 * 1000;
 const ageLimitMs = 15 * 60 * 1000;
 
 export type RehearsalCountAdminResponse = Readonly<{ status: number; body: unknown }>;
+const quoteErrorSchema = z.object({
+  error: z.object({
+    code: z.enum(["invalid-count-request", "unauthenticated", "forbidden", "count-acquisition-refused"]),
+  }),
+});
+type QuoteFailure =
+  | { kind: "request-failed" }
+  | { kind: "http"; status: number; code: z.infer<typeof quoteErrorSchema>["error"]["code"] | null };
+
 export type RehearsalCountAdmin = Readonly<{
   quote(input: { selection: unknown; cap?: number }): Promise<RehearsalCountAdminResponse>;
   readPreparation(quoteId: string): Promise<RehearsalCountAdminResponse>;
@@ -99,8 +108,9 @@ export function createRehearsalCountAdminClient(deps: {
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    // A 409 refusal body is read too: it may carry the billing-period decision.
-    if ((response.status < 200 || response.status >= 300) && response.status !== 409) {
+    // Read the count route's structured quote refusals and the acquisition's 409 period decision.
+    const quoteRefusal = path === "/quote" && [400, 401, 403].includes(response.status);
+    if ((response.status < 200 || response.status >= 300) && response.status !== 409 && !quoteRefusal) {
       await response.body?.cancel().catch(() => undefined);
       return { status: response.status, body: null };
     }
@@ -328,6 +338,7 @@ export async function quoteRehearsalCounts(input: {
   pass: RehearsalCountPreparationPass;
   cap?: number;
   now: () => string;
+  onQuoteFailure?: (failure: QuoteFailure) => void;
 }): Promise<RehearsalCountPreparationReceipt> {
   const base: ReceiptBase = { mode: "quote", dispatchId: input.dispatchId, pass: input.pass, approval: null };
   if (input.cap !== undefined && (!Number.isSafeInteger(input.cap) || input.cap < 0 || input.cap > 10_000))
@@ -337,14 +348,24 @@ export async function quoteRehearsalCounts(input: {
     response = await input.admin.quote({ selection: rehearsalCountPreparationSelection(input.pass), cap: input.cap });
   } catch (error) {
     const refusal = error instanceof RehearsalCountResponseOverflow ? "response-overflow" : "quote-unavailable";
+    if (refusal === "quote-unavailable") input.onQuoteFailure?.({ kind: "request-failed" });
     return receipt(input.run, base, input.now(), { outcome: "refused", refusal });
   }
   const quote = parseQuote(response);
-  if (!quote)
+  if (!quote) {
+    if (response.status !== 200 && input.onQuoteFailure) {
+      const error = quoteErrorSchema.safeParse(response.body);
+      input.onQuoteFailure({
+        kind: "http",
+        status: response.status,
+        code: error.success ? error.data.error.code : null,
+      });
+    }
     return receipt(input.run, base, input.now(), {
       outcome: "refused",
       refusal: response.status === 200 ? "quote-invalid" : "quote-unavailable",
     });
+  }
   const at = input.now();
   const inspection = inspect(quote, input.pass, at);
   const unpaid = inspection.unpaid.cards + inspection.unpaid.sealed;
