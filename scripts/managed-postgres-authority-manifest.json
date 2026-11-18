@@ -5297,6 +5297,13 @@
       "file": ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
       "jobId": "create",
       "stepAnchor": "name:Create and verify production Stripe webhook endpoint#3",
+      "secretName": "STRIPE_WEBHOOK_DELIVERY_CAPTURE",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+      "jobId": "create",
+      "stepAnchor": "name:Create and verify production Stripe webhook endpoint#3",
       "secretName": "STRIPE_WEBHOOK_SECRET",
       "purpose": "credential-rotation"
     },
@@ -5810,6 +5817,13 @@
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#36",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#36",
+      "secretName": "STRIPE_WEBHOOK_SECRET_PREVIOUS",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-production.yml",

@@ -416,9 +416,12 @@ export async function replaceStripePaymentsWebhookEndpointVersion(input, depende
         },
         fetchImpl,
       );
-    } catch {
+    } catch (error) {
       await deleteWebhookEndpoint(input, target.id, fetchImpl);
-      throw new Error("Replacement handoff failed; the old endpoint is retained and the new endpoint was rolled back.");
+      const detail = error instanceof GithubWebhookSecretWriteError ? ` ${error.message}` : "";
+      throw new Error(
+        `Replacement handoff failed; the old endpoint is retained and the new endpoint was rolled back.${detail}`,
+      );
     }
     return { changed: true, pendingDelivery: true, endpointId: target.id, previousEndpointId: previous.id };
   }
@@ -488,7 +491,18 @@ export async function replaceStripePaymentsWebhookEndpointVersion(input, depende
     body: rawBody,
   });
   const receipt = await delivery.json().catch(() => null);
-  if (!delivery.ok || receipt?.received !== true || receipt?.failure_class)
+  const accepted =
+    receipt?.received === true &&
+    !Object.hasOwn(receipt, "failure_class") &&
+    (!Object.hasOwn(receipt, "ignored") || typeof receipt.ignored === "boolean");
+  // A fresh signature checked by the canonical route can reach an existing inbox row.
+  const alreadyInboxed =
+    delivery.status === 200 &&
+    receipt?.received === true &&
+    receipt.ignored === true &&
+    receipt.failure_class === "inbox-conflict" &&
+    Object.keys(receipt).length === 3;
+  if (!delivery.ok || (!accepted && !alreadyInboxed))
     throw new Error(`Target-version signed replay failed (${delivery.status}); old endpoint retained.`);
   await deleteWebhookEndpoint(input, previous.id, fetchImpl);
   const verification = evaluateEndpoints(input.environment, config, await listWebhookEndpoints(input, fetchImpl));
@@ -529,6 +543,8 @@ export function parseStripePaymentsWebhookEndpointArgs(argv, env = process.env) 
   };
 }
 
+class GithubWebhookSecretWriteError extends Error {}
+
 function writeGithubEnvironmentSecret(signingSecret, environment, dependencies = {}, name = "STRIPE_WEBHOOK_SECRET") {
   const spawnImpl = dependencies.spawn ?? spawn;
   return new Promise((resolve, reject) => {
@@ -538,7 +554,7 @@ function writeGithubEnvironmentSecret(signingSecret, environment, dependencies =
     child.on("error", reject);
     child.on("close", (code, signal) => {
       if (signal || code !== 0) {
-        reject(new Error("gh secret set STRIPE_WEBHOOK_SECRET failed."));
+        reject(new GithubWebhookSecretWriteError(`gh secret set ${name} failed.`));
         return;
       }
       resolve();

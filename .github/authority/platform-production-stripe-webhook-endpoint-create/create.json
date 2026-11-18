@@ -27,6 +27,13 @@
       "stepAnchor": "name:Create and verify production Stripe webhook endpoint#3",
       "secretName": "STRIPE_WEBHOOK_SECRET_PREVIOUS",
       "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+      "jobId": "create",
+      "stepAnchor": "name:Create and verify production Stripe webhook endpoint#3",
+      "secretName": "STRIPE_WEBHOOK_DELIVERY_CAPTURE",
+      "purpose": "credential-rotation"
     }
   ]
 }

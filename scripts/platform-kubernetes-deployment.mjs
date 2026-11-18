@@ -158,6 +158,18 @@ export function buildHelmUpgradeArgs(options = {}) {
           `components.platform-api.podAnnotations.chase-sets\\.com/staging-runtime-revision=${stagingRuntimeRevision(options.env ?? process.env)}`,
         ]
       : [];
+  // Secret-backed environment variables are read at pod startup, including on a same-image redeploy.
+  const productionRuntimeSecretRevision = (options.env ?? process.env).PRODUCTION_RUNTIME_SECRET_REVISION;
+  const productionRuntimeRevisionArgs = [];
+  if (deploymentEnvironment === "production" && productionRuntimeSecretRevision !== undefined) {
+    if (!/^[1-9][0-9]*-[1-9][0-9]*$/.test(productionRuntimeSecretRevision)) {
+      throw new Error("Production runtime Secret revision must be a GitHub run ID and attempt.");
+    }
+    productionRuntimeRevisionArgs.push(
+      "--set-string",
+      `components.platform-api.podAnnotations.chase-sets\\.com/production-runtime-secret-revision=${productionRuntimeSecretRevision}`,
+    );
+  }
   const managedPostgresCaSha256 =
     deploymentEnvironment === "staging" || deploymentEnvironment === "production"
       ? requiredLowercaseSha256(options.managedPostgresCaSha256, "managed-postgres-ca-sha256")
@@ -269,6 +281,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...waveExposureSetArgs,
     ...previewSchedulingSetArgs,
     ...stagingRuntimeRevisionArgs,
+    ...productionRuntimeRevisionArgs,
     ...cortenAdminSetArgs,
     ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",

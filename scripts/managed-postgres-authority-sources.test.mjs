@@ -49,6 +49,20 @@ const stripeEndpointRotationDelta = [
     secretName: "STRIPE_WEBHOOK_SECRET_PREVIOUS",
     purpose: "credential-rotation",
   },
+  {
+    file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+    jobId: "create",
+    stepAnchor: "name:Create and verify production Stripe webhook endpoint#3",
+    secretName: "STRIPE_WEBHOOK_DELIVERY_CAPTURE",
+    purpose: "credential-rotation",
+  },
+  {
+    file: workflowPath,
+    jobId: "deploy-production",
+    stepAnchor: "name:Apply production Kubernetes runtime secrets#36",
+    secretName: "STRIPE_WEBHOOK_SECRET_PREVIOUS",
+    purpose: "application-runtime",
+  },
 ];
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";

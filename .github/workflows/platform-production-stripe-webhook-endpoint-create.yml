@@ -24,9 +24,13 @@ on:
           - prepare
           - complete
       delivery_event:
-        description: Target-version supported Stripe event id for completion replay
+        description: Supported Stripe event ID for completion replay
         required: false
         type: string
+      use_signed_delivery_capture:
+        description: Read the short-lived signed delivery capture from the production Environment secret
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -61,9 +65,27 @@ jobs:
           OPERATION: ${{ inputs.operation }}
           PHASE: ${{ inputs.phase }}
           DELIVERY_EVENT: ${{ inputs.delivery_event }}
-        run: >-
-          pnpm run ops stripe:webhook-endpoint -- "$OPERATION"
-          --environment production
-          --confirm "$CONFIRMATION"
-          --phase "$PHASE"
-          --delivery-event "$DELIVERY_EVENT"
+          USE_SIGNED_DELIVERY_CAPTURE: ${{ inputs.use_signed_delivery_capture }}
+          STRIPE_WEBHOOK_DELIVERY_CAPTURE: ${{ inputs.operation == 'replace-version' && inputs.phase == 'complete' && inputs.use_signed_delivery_capture && secrets.STRIPE_WEBHOOK_DELIVERY_CAPTURE || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=("$OPERATION" --environment production --confirm "$CONFIRMATION" --phase "$PHASE" --delivery-event "$DELIVERY_EVENT")
+          if [[ "$USE_SIGNED_DELIVERY_CAPTURE" == true ]]; then
+            if [[ "$OPERATION" != replace-version || "$PHASE" != complete ]]; then
+              echo 'A signed delivery capture is only allowed for replace-version completion.' >&2
+              exit 1
+            fi
+            export LC_ALL=C
+            if (( ${#STRIPE_WEBHOOK_DELIVERY_CAPTURE} == 0 || ${#STRIPE_WEBHOOK_DELIVERY_CAPTURE} > 49152 )); then
+              echo 'The production delivery capture secret must contain 1 to 49152 bytes.' >&2
+              exit 1
+            fi
+            umask 077
+            capture_file="$(mktemp "$RUNNER_TEMP/stripe-delivery.XXXXXXXX")"
+            trap 'rm -f -- "$capture_file"' EXIT
+            printf '%s' "$STRIPE_WEBHOOK_DELIVERY_CAPTURE" > "$capture_file"
+            args+=(--delivery-file "$capture_file")
+          fi
+          unset STRIPE_WEBHOOK_DELIVERY_CAPTURE
+          pnpm run ops stripe:webhook-endpoint -- "${args[@]}"
