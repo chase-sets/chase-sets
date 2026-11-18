@@ -566,14 +566,15 @@ fn AccountSections<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen) -> impl
                     <FieldError errors={e} name="payoutMethod" />
                 </div>
             </details>
-            <div class={SavedRow}>
-                <span class={Tight}>
-                    <span class={Hint}>{t.signed_seller_readiness_title()}</span>
-                    <span class={Strong}>{t.signed_seller_readiness_ready()}</span>
-                    <span class={Hint}>{t.signed_seller_readiness_detail()}</span>
-                </span>
-                <span class={Badge} data-tone="success">{t.signed_ready()}</span>
-            </div>
+            if !screen.posted {
+                <div class={SavedRow}>
+                    <span class={Tight}>
+                        <span class={Hint}>{t.signed_seller_readiness_title()}</span>
+                        <span class={Strong}>{t.signed_seller_readiness_not_yet_assessed()}</span>
+                        <span class={Hint}>{t.signed_seller_readiness_detail()}</span>
+                    </span>
+                </div>
+            }
             <details class={Saved} open={label_open}>
                 <summary class={SavedRow}>
                     <span class={Tight}>
@@ -592,14 +593,15 @@ fn AccountSections<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen) -> impl
     }
 }
 
-/// A saved row's status and its Edit cue (the summary itself opens the fields).
+/// A saved row's status and its Edit cue (the summary itself opens the fields). Only a ready row
+/// has a status: one that is not opens on its fields, as checkout's page shows their form.
 #[component(css = SellCheckoutPage)]
 fn SavedStatus(t: SellCheckoutMsg, ready: bool, edit: &'static str) -> impl Render {
     html! {
         <span class={Status}>
-            <span class={Badge} data-tone={if ready { "success" } else { "warning" }}>
-                {if ready { t.signed_ready() } else { t.signed_review_required() }}
-            </span>
+            if ready {
+                <span class={Badge} data-tone="success">{t.signed_ready()}</span>
+            }
             <span class={Edit} aria-hidden="true">{edit}</span>
         </span>
     }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStripePaymentProcessorGateway } from "./index";
+import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { EvidenceWindowProviderWrite } from "@chase-sets/evidence-window-provider-write";
 import {
@@ -285,6 +286,64 @@ function recordingJournal() {
 }
 
 describe("governed provider writes", () => {
+  it.each(["card", "bank-account"] as const)(
+    "admits only the Endive %s eligibility set",
+    async (paymentMethodCategory) => {
+      const journal = recordingJournal();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ id: "cs_SYNTHETIC", status: "open" })),
+      );
+      const gateway = createStripePaymentProcessorGateway({
+        secretKey: "sk_test_SYNTHETIC",
+        publishableKey: "pk_test_SYNTHETIC",
+        webhookSecret: "whsec_SYNTHETIC",
+        evidenceWindowCorrelation: {
+          currentOpenWindow: async () => ({ windowId: "a".repeat(32), expiresAt: "2099-01-01T00:00:00Z" }),
+        },
+        evidenceWindowProviderWrite: journal.port,
+      });
+      await gateway.createPaymentSession({
+        paymentId: "pay_SYNTHETIC",
+        buyerAccountId: "acc_SYNTHETIC",
+        orderIds: [],
+        amount: "12.34",
+        currencyCode: "usd",
+        paymentMethodCategory,
+        description: "Synthetic Endive admission",
+        returnUrl: `${GOVERNED_RETURN_ORIGIN}/checkout/payments/pay_SYNTHETIC`,
+      });
+      const row = journal.current()!;
+      expect(row.envelope!.apiVersion).toBe("2026-10-28.endive");
+      const fields = new URLSearchParams(row.envelope!.bodyText!);
+      expect(fields.get("allowed_payment_method_types[0]")).toBe(
+        paymentMethodCategory === "card" ? "card" : "us_bank_account",
+      );
+      expect(fields.get("allowed_payment_method_types[1]")).toBe(paymentMethodCategory === "card" ? "link" : null);
+      expect(() => validateProviderMaterial(row.binding, row.envelope!)).not.toThrow();
+      for (const mutation of [
+        "removed parameter",
+        "unsupported method",
+        "bank plus Link",
+        "extra index",
+        "missing required type",
+      ]) {
+        const changed = new URLSearchParams(fields);
+        if (mutation === "removed parameter") changed.set("payment_method_types[0]", "card");
+        if (mutation === "unsupported method") changed.set("allowed_payment_method_types[0]", "klarna");
+        if (mutation === "bank plus Link") {
+          changed.set("allowed_payment_method_types[0]", "us_bank_account");
+          changed.set("allowed_payment_method_types[1]", "link");
+        }
+        if (mutation === "extra index") changed.set("allowed_payment_method_types[2]", "link");
+        if (mutation === "missing required type") changed.delete("allowed_payment_method_types[0]");
+        expect(
+          () => validateProviderMaterial(row.binding, { ...row.envelope!, bodyText: changed.toString() }),
+          mutation,
+        ).toThrow("unsafe-material");
+      }
+    },
+  );
   it.each<{ variant: string; options: readonly (readonly [string, string])[]; accepted: boolean }>([
     {
       variant: "top-level",
@@ -511,7 +570,7 @@ describe("governed provider writes", () => {
       target: null,
       accountScope: "platform",
       connectedAccountReference: null,
-      apiVersion: "2026-03-25.dahlia",
+      apiVersion: STRIPE_API_VERSION,
     }) as const;
 
   it("J3 distinguishes body order, absent bodies and empty forms in the closed digest", async () => {

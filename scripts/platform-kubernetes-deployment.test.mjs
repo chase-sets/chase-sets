@@ -184,7 +184,7 @@ describe("release-tuple support deployment instance", () => {
       'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
     );
   });
-  it("renders the evidence-window admission key optional for api and worker and leaves other secrets required", () => {
+  it("renders only the evidence-window admission and Payments overlap keys optional for their consumers", () => {
     const keep = (name) => ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].includes(name);
     for (const component of ["platform-api", "platform-worker"]) {
       const env = render("release-a", "preview-a", [], undefined, component, false).filter((item) => !keep(item.name));
@@ -201,9 +201,15 @@ describe("release-tuple support deployment instance", () => {
           },
         },
       ]);
-      const required = env.filter((item) => item.valueFrom?.secretKeyRef && item.name !== windowKey[0].name);
-      expect(required.map((item) => item.name)).toContain("STRIPE_SECRET_KEY");
-      expect(required.filter((item) => "optional" in item.valueFrom.secretKeyRef)).toEqual([]);
+      const secretRefs = env.filter((item) => item.valueFrom?.secretKeyRef);
+      expect(
+        secretRefs.find((item) => item.name === "STRIPE_SECRET_KEY").valueFrom.secretKeyRef.optional,
+      ).toBeUndefined();
+      expect(secretRefs.filter((item) => "optional" in item.valueFrom.secretKeyRef).map(({ name }) => name)).toEqual(
+        component === "platform-api"
+          ? ["EVIDENCE_WINDOW_ADMISSION_SECRET", "STRIPE_WEBHOOK_SECRET_PREVIOUS"]
+          : ["EVIDENCE_WINDOW_ADMISSION_SECRET"],
+      );
     }
   });
   it("scopes the worker's Support evidence cleanup binding by the same release tuple", () => {
@@ -1248,6 +1254,31 @@ describe("platform Kubernetes deployment", () => {
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-4051" },
     });
     expect(previewArgs).not.toContain("observability.enabled=true");
+  });
+
+  it("refreshes production API pods after Secret apply even when redeploying the same image", () => {
+    const workflow = parseYaml(readFileSync(".github/workflows/platform-production.yml", "utf8"));
+    const steps = workflow.jobs["deploy-production"].steps;
+    const deploy = steps.find((step) => step.id === "production_kubernetes_deploy");
+    expect(steps.findIndex((step) => step.name === "Apply production Kubernetes runtime secrets")).toBeLessThan(
+      steps.indexOf(deploy),
+    );
+    expect(deploy.env.PRODUCTION_RUNTIME_SECRET_REVISION).toBe("${{ github.run_id }}-${{ github.run_attempt }}");
+    const args = (revision, environment = "production") =>
+      buildHelmUpgradeArgs({
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          DEPLOYMENT_ENVIRONMENT: environment,
+          OBSERVABILITY_ENABLED: "false",
+          PREVIEW_IDENTIFIER: "pr-42",
+        },
+        env: { PRODUCTION_RUNTIME_SECRET_REVISION: revision },
+      });
+    const annotation = "components.platform-api.podAnnotations.chase-sets\\.com/production-runtime-secret-revision=";
+    expect(args("1000-1")).toContain(`${annotation}1000-1`);
+    expect(args("1000-2")).toContain(`${annotation}1000-2`);
+    expect(args("1000-2", "preview").some((arg) => arg.startsWith(annotation))).toBe(false);
+    expect(() => args("invalid")).toThrow("Production runtime Secret revision must be a GitHub run ID and attempt.");
   });
 
   it("drives the exact workflow staging argv end-to-end and executes helm with the staging overlay", async () => {

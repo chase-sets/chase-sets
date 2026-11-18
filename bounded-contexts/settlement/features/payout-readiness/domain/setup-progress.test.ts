@@ -34,6 +34,15 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
 }
 
 describe("payout setup progress", () => {
+  it.each(["rejected.platform_fraud", "rejected.platform_terms_of_service", "rejected.platform_other"])(
+    "routes %s to rejected support rather than another onboarding attempt",
+    (disabled_reason) => {
+      expect(derivePayoutSetupDecision(readiness({ status: "restricted", disabled_reason }))).toMatchObject({
+        next_step: "restricted_rejected",
+        support_recommended: true,
+      });
+    },
+  );
   it("keeps blocked display state separate from strict 30-day staleness", () => {
     const base = readiness({ status: "ready", provider_reference: "acct_test" });
     expect(derivePayoutSetupAttention(base, "2026-07-01T15:00:00.000Z")).toEqual({
