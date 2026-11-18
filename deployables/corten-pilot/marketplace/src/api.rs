@@ -7162,7 +7162,7 @@ impl ConfigurationStatus {
 
 /// A configuration write's answer: its receipt, and the commit receipt an installed write carries
 /// for the read after it.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Configured {
     pub receipt: ConfigurationReceipt,
     pub after: Option<Receipt>,
