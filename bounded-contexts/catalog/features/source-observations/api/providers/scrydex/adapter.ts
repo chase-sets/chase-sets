@@ -1883,7 +1883,7 @@ async function getScrydexUsageReadiness(
   }
 
   try {
-    const body = await fetchScrydexJson(scrydexAccountUrl("usage", options), options);
+    const body = await fetchScrydexJson(scrydexAccountUrl("usage", options), options, { redirect: "manual" });
     const usage = sanitizeScrydexUsage(body, (options.now ?? (() => new Date()))());
     const creditState = scrydexCreditState(usage);
     return {
