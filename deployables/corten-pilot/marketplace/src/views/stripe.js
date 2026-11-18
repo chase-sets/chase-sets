@@ -1,18 +1,19 @@
 // @ts-check
 // Stripe.js for the two secure steps, a payment's (payment_entry.js) and a saved payment
 // method's setup (payment_setup.js), and Connect.js's URL for payout setup (connect_surface.js).
-// Stripe.js loads from Stripe (as @stripe/stripe-js 9.9.0's loadStripe loads it), once per page
+// Stripe.js loads from Stripe (as @stripe/stripe-js 10.3.0's loadStripe loads it), once per page
 // load. Stripe's components keep Stripe's own default appearance: no page passes one.
 
-/** Stripe.js for @stripe/stripe-js 9.9.0's release train. */
-const STRIPE_JS = "https://js.stripe.com/dahlia/stripe.js";
+/** Stripe.js for @stripe/stripe-js 10.3.0's release train. */
+const STRIPE_JS = "https://js.stripe.com/endive/stripe.js";
 /** Connect.js for @stripe/connect-js 3.x (its V1_URL). */
 const CONNECT_JS = "https://connect-js.stripe.com/v1.0/connect.js";
 
 /**
  * The SVG filter Stripe.js's Payment Element parses with `DOMParser` and adds to the page as it
- * mounts, exactly as Stripe.js `dahlia` writes it (its loader's shimmer). Compared whole: if Stripe
- * changes it, it is refused, and the mount logs Stripe's TypeError as it did before this policy.
+ * mounts, exactly as Stripe.js `endive` (and `dahlia` before it) writes it (its loader's shimmer).
+ * Compared whole: if Stripe changes it, it is refused, and the mount logs Stripe's TypeError as it
+ * did before this policy.
  */
 const STRIPE_LOADER_SVG = [
   "",
