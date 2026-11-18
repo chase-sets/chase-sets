@@ -4,10 +4,18 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore, createInMemoryConfigurationConsumer } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { MarketplaceApiEnv } from "../../../api";
+import { createMarketplaceCommercialTermsResolver, type MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
-import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
-import { initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
+import { listingAttempt } from "./listing-attempt";
+import { listingBatchStreamId, runListingBatch } from "./listing-batch";
+import { createListingRecovery, listingRecoveryResult } from "./listing-recovery";
+import type { ListingRecoveryReference } from "../ui/contracts";
+import {
+  createMarketplaceListingRuntime,
+  MarketplaceListingEvidenceIncompleteError,
+  type MarketplaceListingServices,
+} from "./runtime";
+import { decideMarketplaceListing, initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
 import type { AcceptedListingTargetPriceV1, ListingTargetPrincipal } from "./target-contracts";
 import { createListingRequestExecutor, ListingRequestConflictError } from "./listing-request";
 
@@ -568,23 +576,40 @@ describe("owner-fenced target routes", () => {
   });
 });
 
-describe("read-only Listing batch recovery API", () => {
-  const batchId = "listing_batch_lookup_0000001";
+describe("Listing batch recovery API", () => {
   const preparation = {
-    batchId,
+    intent: "bulk-pause-listings",
+    idempotencyKey: "listing_batch_lookup_0000001",
+    listingId: null,
+    listingIds: ["lst_one"],
+    fields: {},
+  };
+  const reference = {
+    batchId: `${preparation.idempotencyKey}_bulk-pause-listings`,
     mutationKind: "listing.pause",
     bulk: true,
-    targets: [{ id: "lst_one", requestHash: "1".repeat(64) }],
-  };
-  it("establishes an owner-bound hash-only vector without executing a Listing command", async () => {
-    const services = { ...createServices(), prepareListingBatch: vi.fn(async () => {}), applyListingBatch: vi.fn() };
-    const response = await buildApp({ actor: sellerActor, services }).request("/account/listings/batch/prepare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(preparation),
-    });
+  } as const;
+  const recoverPath = (reference: ListingRecoveryReference) =>
+    `/account/listings/batch/${reference.batchId}?family=${reference.mutationKind}&bulk=${reference.bulk}`;
+  const post = (body: unknown) => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  it("accepts the command and returns only its opaque reference without executing it", async () => {
+    const services = {
+      ...createServices(),
+      prepareListingRecovery: vi.fn(async () => ({ reference })),
+      applyListingBatch: vi.fn(),
+    };
+    const response = await buildApp({ actor: sellerActor, services }).request(
+      "/account/listings/batch/prepare",
+      post(preparation),
+    );
     expect(response.status).toBe(200);
-    expect(services.prepareListingBatch).toHaveBeenCalledWith(
+    expect(await response.json()).toEqual({ reference });
+    expect(services.prepareListingRecovery).toHaveBeenCalledWith(
       "acc_seller",
       preparation,
       expect.objectContaining({ audit: expect.objectContaining({ forAccountId: "acc_seller" }) }),
@@ -592,87 +617,412 @@ describe("read-only Listing batch recovery API", () => {
     expect(services.applyListingBatch).not.toHaveBeenCalled();
   });
 
-  it.each([null, { ...sellerActor!, permissions: ["listings.view"] }])(
-    "requires management authority for preparation",
-    async (actor) => {
-      const services = { ...createServices(), prepareListingBatch: vi.fn() };
-      const response = await buildApp({ actor, services }).request("/account/listings/batch/prepare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(preparation),
+  it("rejects changed commands and families before appending, then commits and recovers the prepared command", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const unused = () => {
+      throw new Error("This in-memory test does not use a database or projection checkpoints.");
+    };
+    const db = { query: unused };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      db,
+      checkpointStore: { loadCheckpoint: unused, saveCheckpoint: unused },
+      commercialTermsResolver: createMarketplaceCommercialTermsResolver(db),
+    });
+    const app = buildApp({ actor: sellerActor, services });
+    const prepared = await app.request(
+      "/account/listings/batch/prepare",
+      post({ ...preparation, intent: "set-order-capacity", listingIds: [], fields: { maxOpenOrders: "7" } }),
+    );
+    expect(prepared.status).toBe(200);
+    const { reference }: { reference: ListingRecoveryReference } = await prepared.json();
+    const idempotencyKey = reference.batchId;
+    const setCapacity = (maxOpenOrders: number) =>
+      app.request("/account/order-capacity", post({ idempotencyKey, maxOpenOrders }));
+    expect(allEvents.map(({ eventType }) => eventType)).toEqual(["marketplace.listing-batch.recorded"]);
+    for (const changed of [
+      await setCapacity(9),
+      await app.request("/account/listing-availability/disable", post({ idempotencyKey, reasonCategory: "travel" })),
+    ]) {
+      expect(changed.status).toBe(409);
+      expect(await changed.json()).toMatchObject({ error: { code: "attempt_conflict" } });
+    }
+    expect(allEvents).toHaveLength(1);
+
+    for (const original of [await setCapacity(7), await setCapacity(7)]) {
+      expect(original.status).toBe(200);
+      expect(await original.json()).toMatchObject({ version: 1, maxOpenOrders: 7 });
+    }
+    const recovered = await app.request(recoverPath(reference));
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      phase: "succeeded",
+      items: [{ targetId: "acc_seller", outcome: "succeeded" }],
+    });
+    expect(allEvents.slice(1)).toMatchObject([
+      { eventType: "marketplace.seller-order-capacity.set", payload: { maxOpenOrders: 7 } },
+    ]);
+
+    const direct = () =>
+      app.request("/account/order-capacity", post({ idempotencyKey: `direct_${idempotencyKey}`, maxOpenOrders: 9 }));
+    for (const original of [await direct(), await direct()]) {
+      expect(original.status).toBe(200);
+      expect(await original.json()).toMatchObject({ version: 2, maxOpenOrders: 9 });
+    }
+    expect(allEvents).toHaveLength(3);
+  });
+
+  it.each(["prepare", "extension"] as const)(
+    "keeps every withdrawal recoverable when %s wins adoption",
+    async (winner) => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      const a = "lst_one";
+      const b = "lst_two";
+      const accountId = "acc_seller";
+      const withdrawal = { ...preparation, intent: "bulk-withdraw-listings" };
+      const retained = {
+        ...reference,
+        batchId: `${withdrawal.idempotencyKey}_bulk-withdraw-listings`,
+        mutationKind: "listing.withdraw",
+      } as const;
+      const batch = { batchId: retained.batchId, family: retained.mutationKind };
+      const vectorStream = listingBatchStreamId({ ...batch, accountId });
+      const ownerStream = (listingId: string) => `marketplace.listing-${listingId}`;
+      const context: EventStoreContext = {
+        tenantId: "tnt_identity" as never,
+        audit: { performedByUserId: "usr_seller" as never, forAccountId: accountId as never },
+      };
+      for (const listingId of [a, b] as const) {
+        const facts = decideMarketplaceListing(initialMarketplaceListingState, {
+          type: "CreateListing",
+          publicationScope: "channel-only",
+          listingId,
+          accountId,
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "cat_synthetic::",
+          selectedOptions: [],
+          itemTitle: "Synthetic item",
+          itemSubtitle: null,
+          productSummary: null,
+          storageLocationName: null,
+          shipFromCode: null,
+          shipFromAddress: {
+            name: "Synthetic seller",
+            company: null,
+            line1: "1 Synthetic Way",
+            line2: null,
+            city: "Austin",
+            state: "TX",
+            postalCode: "78701",
+            country: "US",
+            phone: null,
+            email: null,
+          },
+          priceAmount: "10",
+          priceCurrencyCode: "USD",
+          feeLock: null,
+          quantityCap: 1,
+          evidenceRequirements: null,
+        });
+        await eventStore.appendToStream({
+          streamId: ownerStream(listingId),
+          expectedVersion: "no_stream",
+          context,
+          events: facts.map(({ type, data }) => ({ eventType: type, payload: data })),
+        });
+      }
+
+      let signalArrival!: () => void;
+      let release!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        signalArrival = resolve;
       });
-      expect(response.status).toBe(actor ? 403 : 401);
-      expect(services.prepareListingBatch).not.toHaveBeenCalled();
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let armed = false;
+      const pause = async () => {
+        armed = false;
+        signalArrival();
+        await released;
+      };
+      const store = {
+        ...eventStore,
+        appendToStream: async (input: Parameters<typeof eventStore.appendToStream>[0]) => {
+          if (armed && winner === "prepare" && input.streamId === vectorStream) await pause();
+          return eventStore.appendToStream(input);
+        },
+        readStream: async (input: Parameters<typeof eventStore.readStream>[0]) => {
+          if (armed && winner === "extension" && input.streamId === ownerStream(b)) await pause();
+          return eventStore.readStream(input);
+        },
+      };
+      const unused = () => {
+        throw new Error("This in-memory test does not use a database or projection checkpoints.");
+      };
+      const db = { query: unused };
+      const services = createMarketplaceListingRuntime({
+        eventStore: store,
+        db,
+        checkpointStore: { loadCheckpoint: unused, saveCheckpoint: unused },
+        commercialTermsResolver: createMarketplaceCommercialTermsResolver(db),
+      });
+      const app = buildApp({ actor: sellerActor, services });
+      const send = async (listingIds: string[]) =>
+        app.request("/account/listings/batch", post({ ...batch, listingIds }));
+      const first = await send([a]);
+      expect(first.status).toBe(200);
+      expect(await first.json()).toMatchObject({ items: [{ targetId: a, outcome: "succeeded" }] });
+
+      armed = true;
+      const extension = send([a, b]);
+      let prepared: Response;
+      try {
+        expect(await Promise.race([arrived.then(() => "paused"), extension.then(() => "finished")])).toBe("paused");
+        prepared = await app.request("/account/listings/batch/prepare", post({ ...withdrawal, retained }));
+      } finally {
+        release();
+      }
+      const extended = await extension;
+      const adopted = winner === "prepare";
+      if (adopted) {
+        expect(prepared.status).toBe(200);
+        expect(await prepared.json()).toEqual({ reference: retained });
+      } else {
+        expect(prepared.status).toBe(200);
+        const result = await prepared.json();
+        expect(result).not.toHaveProperty("reference");
+        expect(result).toMatchObject({ recovery: { phase: "failed-safe" } });
+        expect(
+          allEvents.filter(
+            ({ streamId, metadata }) => streamId === vectorStream && metadata.listingBatchOrigin === "prepared",
+          ),
+        ).toHaveLength(0);
+      }
+      expect(extended.status).toBe(200);
+      const terminalA = { targetId: a, outcome: "succeeded" };
+      const terminalB = { targetId: b, outcome: "succeeded" };
+      expect(await extended.json()).toMatchObject({
+        items: [terminalA, adopted ? { targetId: b, outcome: "conflict" } : terminalB],
+      });
+      const withdrawals = (listingId: string) =>
+        allEvents.filter(
+          ({ streamId, eventType }) =>
+            streamId === ownerStream(listingId) && eventType === "marketplace.listing.withdrawn",
+        );
+      expect(withdrawals(a)).toHaveLength(1);
+      expect(withdrawals(b)).toHaveLength(adopted ? 0 : 1);
+      const recovered = await app.request(recoverPath(retained));
+      expect(recovered.status).toBe(200);
+      expect(await recovered.json()).toMatchObject({ items: adopted ? [terminalA] : [terminalA, terminalB] });
+    },
+  );
+
+  it.each([null, { ...sellerActor!, permissions: ["listings.view"] }])(
+    "requires management authority for preparation and retry",
+    async (actor) => {
+      const services = {
+        ...createServices(),
+        prepareListingRecovery: vi.fn(),
+        recoverListingBatch: vi.fn(),
+        applyListingBatch: vi.fn(),
+      };
+      const app = buildApp({ actor, services });
+      expect((await app.request("/account/listings/batch/prepare", post(preparation))).status).toBe(actor ? 403 : 401);
+      expect((await app.request("/account/listings/batch/retry", post(reference))).status).toBe(actor ? 403 : 401);
+      expect(services.prepareListingRecovery).not.toHaveBeenCalled();
+      expect(services.recoverListingBatch).not.toHaveBeenCalled();
+      expect(services.applyListingBatch).not.toHaveBeenCalled();
     },
   );
 
   it.each([
     { ...preparation, accountId: "acc_other" },
-    { ...preparation, request: { reason: "seller" } },
-    { ...preparation, targets: [{ ...preparation.targets[0], csv: "private bytes" }] },
-  ])("refuses request-byte or actor additions before persistence", async (body) => {
-    const services = { ...createServices(), prepareListingBatch: vi.fn() };
-    const response = await buildApp({ actor: sellerActor, services }).request("/account/listings/batch/prepare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    { ...preparation, fields: { csv: "private bytes" } },
+    { ...reference, targets: [{ id: "lst_one", requestHash: "1".repeat(64) }] },
+  ])("refuses client-supplied bindings, actor data or unrelated fields", async (body) => {
+    const services = { ...createServices(), prepareListingRecovery: vi.fn() };
+    const response = await buildApp({ actor: sellerActor, services }).request(
+      "/account/listings/batch/prepare",
+      post(body),
+    );
     expect(response.status).toBe(400);
-    expect(services.prepareListingBatch).not.toHaveBeenCalled();
+    expect(services.prepareListingRecovery).not.toHaveBeenCalled();
   });
-  it("binds vector lookup to the authenticated owner, not supplied account data, without executing a command", async () => {
+
+  it("recovers under the authenticated owner and returns classified outcomes without sending", async () => {
+    const recovery = listingRecoveryResult(reference, [{ targetId: "lst_one", outcome: "unknown" }]);
     const services = {
       ...createServices(),
-      lookupListingBatch: vi.fn(async () => ({
-        batchId,
-        family: "listing.pause" as const,
-        items: [{ targetId: "lst_one", outcome: "unknown" as const, version: 0 }],
-      })),
+      recoverListingBatch: vi.fn(async () => recovery),
       applyListingBatch: vi.fn(),
     };
     const app = buildApp({ actor: sellerActor, services });
-    const response = await app.request(`/account/listings/batch/${batchId}?family=listing.pause&accountId=acc_other`);
+    const response = await app.request(`${recoverPath(reference)}&accountId=acc_other`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ batchId, items: [{ targetId: "lst_one", outcome: "unknown" }] });
-    expect(services.lookupListingBatch).toHaveBeenCalledWith({
-      batchId,
-      family: "listing.pause",
-      accountId: "acc_seller",
-    });
+    expect(await response.json()).toEqual(recovery);
+    expect(services.recoverListingBatch).toHaveBeenCalledExactlyOnceWith("acc_seller", reference);
     expect(services.applyListingBatch).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["bad", "listing.pause"],
-    [batchId, "listing.invalid"],
-  ])("rejects invalid lookup identity %s / %s", async (id, family) => {
-    const services = { ...createServices(), lookupListingBatch: vi.fn() };
-    const response = await buildApp({ actor: sellerActor, services }).request(
-      `/account/listings/batch/${id}?family=${family}`,
-    );
-    expect(response.status).toBe(400);
-    expect(services.lookupListingBatch).not.toHaveBeenCalled();
   });
 
   it.each([null, { ...sellerActor!, permissions: [] }])(
     "requires authenticated Listing view authority",
     async (actor) => {
-      const services = { ...createServices(), lookupListingBatch: vi.fn() };
-      const response = await buildApp({ actor, services }).request(
-        `/account/listings/batch/${batchId}?family=listing.pause`,
-      );
+      const services = { ...createServices(), recoverListingBatch: vi.fn() };
+      const response = await buildApp({ actor, services }).request(recoverPath(reference));
       expect(response.status).toBe(actor ? 403 : 401);
-      expect(services.lookupListingBatch).not.toHaveBeenCalled();
+      expect(services.recoverListingBatch).not.toHaveBeenCalled();
     },
   );
 
-  it("returns an explicitly absent batch instead of manufacturing outcomes", async () => {
-    const services = { ...createServices(), lookupListingBatch: vi.fn(async () => null) };
-    const response = await buildApp({ actor: sellerActor, services }).request(
-      `/account/listings/batch/${batchId}?family=listing.withdraw`,
-    );
+  it("rejects missing or invalid reference fields before reading history", async () => {
+    const services = { ...createServices(), recoverListingBatch: vi.fn() };
+    const app = buildApp({ actor: sellerActor, services });
+    for (const path of [
+      "/account/listings/batch/bad?family=listing.pause&bulk=true",
+      `/account/listings/batch/${reference.batchId}?family=listing.invalid&bulk=true`,
+      `/account/listings/batch/${reference.batchId}?family=listing.pause`,
+    ])
+      expect((await app.request(path)).status).toBe(400);
+    expect(services.recoverListingBatch).not.toHaveBeenCalled();
+  });
+
+  it("selects retry recipients from the recovered vector rather than the POST body", async () => {
+    const recovery = listingRecoveryResult(reference, [
+      { targetId: "lst_one", outcome: "succeeded" },
+      { targetId: "lst_two", outcome: "unknown" },
+    ]);
+    const services = {
+      ...createServices(),
+      recoverListingBatch: vi.fn(async () => recovery),
+      applyListingBatch: vi.fn(async () => ({
+        batchId: reference.batchId,
+        family: reference.mutationKind,
+        items: [{ targetId: "lst_two", outcome: "succeeded" as const, version: 2 }],
+      })),
+    };
+    const app = buildApp({ actor: sellerActor, services });
+    expect(
+      (await app.request("/account/listings/batch/retry", post({ ...reference, listingIds: ["lst_one"] }))).status,
+    ).toBe(400);
+    const response = await app.request("/account/listings/batch/retry", post(reference));
     expect(response.status).toBe(200);
-    expect(await response.json()).toBeNull();
+    expect(await response.json()).toMatchObject({
+      recovery: { phase: "succeeded", retryTargetIds: [] },
+      sent: [{ targetId: "lst_two", outcome: "succeeded" }],
+    });
+    expect(services.applyListingBatch).toHaveBeenCalledExactlyOnceWith(
+      {
+        accountId: "acc_seller",
+        batchId: reference.batchId,
+        family: reference.mutationKind,
+        listingIds: ["lst_two"],
+      },
+      expect.anything(),
+    );
+  });
+
+  it.each(["error", "conflict"] as const)(
+    "keeps a bound %s on owner read failure, but never grants retry when the pending target's history is incomplete",
+    async (terminal) => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      let unavailableStream: string | undefined;
+      const store = {
+        ...eventStore,
+        readStream: async (request: Parameters<typeof eventStore.readStream>[0]) => {
+          if (request.streamId === unavailableStream) throw new Error("Listing owner history unavailable");
+          return eventStore.readStream(request);
+        },
+      };
+      const recovery = createListingRecovery(store);
+      const applyListingBatch = vi.fn(async () => ({
+        batchId: reference.batchId,
+        family: reference.mutationKind,
+        items: [{ targetId: "lst_two", outcome: "succeeded" as const, version: 1 }],
+      }));
+      const app = buildApp({ actor: sellerActor, services: { ...createServices(), ...recovery, applyListingBatch } });
+      const response = await app.request(
+        "/account/listings/batch/prepare",
+        post({ ...preparation, listingIds: ["lst_one", "lst_two"] }),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ reference });
+      const batch = { batchId: reference.batchId, family: reference.mutationKind, accountId: "acc_seller" };
+      const attemptFor = (targetId: string) =>
+        listingAttempt({
+          idempotencyKey: batch.batchId,
+          mutationKind: batch.family,
+          accountId: batch.accountId,
+          targetId,
+          request: { listingId: targetId, reason: "seller" },
+        });
+      const settled = attemptFor("lst_one");
+      await runListingBatch({
+        store,
+        batch,
+        targets: [{ targetId: "lst_one", attempt: settled }],
+        context: {
+          tenantId: "tnt_identity" as never,
+          audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+        },
+        drive: async () => new Map([["lst_one", { outcome: terminal, version: 0 }]]),
+      });
+
+      const reload = async () => {
+        const response = await app.request(recoverPath(reference));
+        expect(response.status).toBe(200);
+        return response.json();
+      };
+      const retry = async () => {
+        const response = await app.request("/account/listings/batch/retry", post(reference));
+        expect(response.status).toBe(200);
+        return response.json();
+      };
+      unavailableStream = attemptFor("lst_two").streamId;
+      expect(await retry()).toMatchObject({
+        recovery: {
+          phase: "ambiguous",
+          items: [
+            { targetId: "lst_one", outcome: terminal },
+            { targetId: "lst_two", outcome: "ambiguous" },
+          ],
+          retryTargetIds: [],
+        },
+        sent: [],
+      });
+      expect(applyListingBatch).not.toHaveBeenCalled();
+      unavailableStream = settled.streamId;
+      expect(await reload()).toMatchObject({
+        phase: "partial",
+        items: [
+          { targetId: "lst_one", outcome: terminal },
+          { targetId: "lst_two", outcome: "unknown" },
+        ],
+        retryTargetIds: ["lst_two"],
+      });
+      expect(applyListingBatch).not.toHaveBeenCalled();
+      expect(allEvents).toHaveLength(2);
+      expect(await retry()).toMatchObject({ sent: [{ targetId: "lst_two", outcome: "succeeded" }] });
+      expect(applyListingBatch).toHaveBeenCalledExactlyOnceWith(
+        { ...batch, listingIds: ["lst_two"] },
+        expect.anything(),
+      );
+    },
+  );
+
+  it("never sends when vector or owner history is unavailable", async () => {
+    const recovery = listingRecoveryResult(null, []);
+    const services = {
+      ...createServices(),
+      recoverListingBatch: vi.fn(async () => recovery),
+      applyListingBatch: vi.fn(),
+    };
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request("/account/listings/batch/retry", post(reference));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ recovery, sent: [] });
+    expect(services.applyListingBatch).not.toHaveBeenCalled();
   });
 });
 

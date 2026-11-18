@@ -13,17 +13,18 @@ import { RouterForm as Form } from "@chase-sets/design-system/react-router";
 import { createMarketplaceApiClient } from "../../../client";
 import { t } from "@chase-sets/localization";
 import {
+  ambiguousListingRecovery,
+  failedListingPreparation,
   LISTING_RECOVERY_PARAM,
-  listingRecoveryForForm,
-  listingRecoveryFormKey,
   listingRecoveryUrl,
-  sameListingRecovery,
-  type ListingRecovery,
+  prepareListingForm,
+  type ListingRecoveryView,
 } from "./listing-batch";
 
 type RecoveryContext = {
-  recovery: ListingRecovery | null;
+  recovery: ListingRecoveryView | null;
   busy: boolean;
+  blocked: boolean;
   submit: (form: FormData, unchanged: () => boolean) => Promise<void>;
 };
 const ListingRecoveryContext = createContext<RecoveryContext | null>(null);
@@ -32,12 +33,10 @@ export const useListingRecovery = () => useContext(ListingRecoveryContext);
 export function ListingRecoveryScope({
   recovery,
   listingId = null,
-  accountId,
   children,
 }: {
-  recovery: ListingRecovery | null;
+  recovery: ListingRecoveryView | null;
   listingId?: string | null;
-  accountId: string;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -56,7 +55,7 @@ export function ListingRecoveryScope({
   const pending = useRef(false);
   const staged = useRef<{ destination: string; form: FormData; unchanged: () => boolean } | null>(null);
   const [preparing, setPreparing] = useState(false);
-  const [failure, setFailure] = useState<ListingRecovery | null>(null);
+  const [failure, setFailure] = useState<ListingRecoveryView | null>(null);
   useEffect(() => {
     generation.current++;
     setFailure(null);
@@ -68,17 +67,14 @@ export function ListingRecoveryScope({
     if (
       `${location.pathname}${location.search}` !== prepared.destination ||
       !prepared.unchanged() ||
-      !recovery?.identity ||
-      recovery.phase !== "confirming"
+      !recovery?.reentry
     ) {
       pending.current = false;
       setPreparing(false);
       return;
     }
     void submit(prepared.form, { method: "post", action: prepared.destination })
-      .catch(() =>
-        setFailure({ identity: recovery?.identity ?? null, items: recovery?.items ?? [], phase: "ambiguous" }),
-      )
+      .catch(() => setFailure({ ...ambiguousListingRecovery, identity: recovery.identity, items: recovery.items }))
       .finally(() => {
         pending.current = false;
         setPreparing(false);
@@ -86,10 +82,9 @@ export function ListingRecoveryScope({
   }, [location.key, recovery, submit]);
   const busy = preparing || navigation.state !== "idle";
   const current = failure ?? recovery;
-  const visible = busy
+  const visible: ListingRecoveryView | null = busy
     ? {
-        identity: current?.identity ?? null,
-        items: current?.items ?? [],
+        ...(current ?? ambiguousListingRecovery),
         phase: navigation.state === "submitting" ? ("confirming" as const) : ("loading" as const),
       }
     : current;
@@ -98,6 +93,7 @@ export function ListingRecoveryScope({
       value={{
         recovery: visible,
         busy,
+        blocked: current?.phase === "ambiguous" || Boolean(current?.identity && !current.reentry),
         submit: async (form, unchanged) => {
           if (pending.current) return;
           const revision = generation.current;
@@ -105,24 +101,27 @@ export function ListingRecoveryScope({
           setPreparing(true);
           let handedOff = false;
           try {
-            if (current?.phase === "ambiguous") return;
-            if (current?.identity) {
-              if (current.items.some((item) => item.outcome !== "unknown")) return;
-              const key = listingRecoveryFormKey(current.identity, String(form.get("intent")));
-              if (!key) return;
-              form.set("idempotencyKey", key);
+            if (current?.identity || current?.phase === "ambiguous") {
+              if (!current.reentry || current.reentry.intent !== form.get("intent")) return;
+              form.set("idempotencyKey", current.reentry.idempotencyKey);
             }
-            const identity = await listingRecoveryForForm(form, listingId, accountId);
-            if (!identity) {
+            if (!mounted.current || !unchanged() || revision !== generation.current) return;
+            const prepared = await prepareListingForm(
+              createMarketplaceApiClient(),
+              form,
+              listingId,
+              current?.identity ?? undefined,
+            );
+            if (!mounted.current || !unchanged() || revision !== generation.current) return;
+            if ("recovery" in prepared) {
+              setFailure(prepared.recovery);
+              return;
+            }
+            if (!prepared.reference) {
               await submit(form, { method: "post" });
               return;
             }
-            if (current?.identity && !sameListingRecovery(current.identity, identity))
-              throw new Error("Changed request");
-            if (!mounted.current || !unchanged() || revision !== generation.current) return;
-            await createMarketplaceApiClient().prepareListingBatch(identity);
-            if (!mounted.current || !unchanged() || revision !== generation.current) return;
-            const destination = listingRecoveryUrl(`${location.pathname}${location.search}`, identity);
+            const destination = listingRecoveryUrl(`${location.pathname}${location.search}`, prepared.reference);
             // Commit the reference before the command can leave the browser. No request bytes enter history state.
             staged.current = { destination, form, unchanged };
             handedOff = true;
@@ -130,7 +129,7 @@ export function ListingRecoveryScope({
           } catch {
             handedOff = false;
             staged.current = null;
-            setFailure({ identity: current?.identity ?? null, items: current?.items ?? [], phase: "failed-safe" });
+            setFailure({ ...(current ?? failedListingPreparation), phase: "failed-safe" });
           } finally {
             if (!handedOff) {
               pending.current = false;
@@ -211,8 +210,7 @@ function ListingRecoveryNoticeContent({ context }: { context: RecoveryContext })
   });
   const clear = new URLSearchParams(location.search);
   clear.delete(LISTING_RECOVERY_PARAM);
-  const canRetry =
-    !context.busy && !ambiguous && recovery.identity?.bulk && recovery.items.some((item) => item.outcome === "unknown");
+  const canRetry = !context.busy && recovery.retryTargetIds.length > 0;
   return (
     <Stack gap={2}>
       <Text ref={feedback} tabIndex={-1} role={ambiguous ? "alert" : "status"}>
@@ -237,7 +235,7 @@ function ListingRecoveryNoticeContent({ context }: { context: RecoveryContext })
                 })}
               </Text>
             ))}
-            {recovery.phase === "confirming" && !context.busy && !recovery.identity?.bulk ? (
+            {recovery.reentry && !context.busy && !recovery.identity?.bulk ? (
               <Text>{t("marketplace.listingRecovery.reenter")}</Text>
             ) : null}
           </Stack>

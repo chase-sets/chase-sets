@@ -1,6 +1,9 @@
 export type {
   MarketplaceBulkListingPriceUpdateInput,
-  ListingRecoveryIdentity,
+  ListingRecovery,
+  ListingRecoveryPreparation,
+  ListingRecoveryPreparationResult,
+  ListingRecoveryReference,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingBatchFamily,
@@ -26,6 +29,7 @@ export type {
   MarketplaceMarketSummary,
   MarketplaceListingEvidenceCoverage,
 } from "../ui/contracts";
+export { ambiguousListingRecovery } from "../ui/contracts";
 export type {
   MarketplaceListingPhoto,
   MarketplaceListingPhotoAssetSet,

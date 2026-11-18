@@ -31,7 +31,7 @@ describe("channels-services-production-ports", () => {
     );
     expect(module).toContain("credentialAuthority: ports.credentialAuthority ?? ebayConnection.credentialAuthority");
     expect(module).toContain("ebaySellerSetup: createEbaySellerSetupRuntime({");
-    expect(module).toContain("storageLocationAuthority: services.storageLocationAuthority");
+    expect(module).toMatch(/const connections = createChannelConnectionRuntime\([\s\S]*?\bstorageLocationAuthority,/);
     const seed = source("bounded-contexts/channels/features/manual-sync/api/seed.ts");
     expect(seed).toContain('eventType: "channels.connection.activated"');
     expect(seed).not.toContain("activateChannelConnection(");
