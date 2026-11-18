@@ -696,12 +696,17 @@ describe("Listing batch recovery API", () => {
         const facts = decideMarketplaceListing(initialMarketplaceListingState, {
           type: "CreateListing",
           publicationScope: "channel-only",
-          listingId: listingId as never,
-          accountId: accountId as never,
-          inventoryItemId: "inv_synthetic" as never,
-          catalogItemId: "cat_synthetic" as never,
-          productId: "cat_synthetic::" as never,
+          listingId,
+          accountId,
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "cat_synthetic::",
           selectedOptions: [],
+          itemTitle: "Synthetic item",
+          itemSubtitle: null,
+          productSummary: null,
+          storageLocationName: null,
+          shipFromCode: null,
           shipFromAddress: {
             name: "Synthetic seller",
             company: null,
@@ -714,7 +719,7 @@ describe("Listing batch recovery API", () => {
             phone: null,
             email: null,
           },
-          priceAmount: "10" as never,
+          priceAmount: "10",
           priceCurrencyCode: "USD",
           feeLock: null,
           quantityCap: 1,
@@ -728,13 +733,19 @@ describe("Listing batch recovery API", () => {
         });
       }
 
-      const arrived = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
+      let signalArrival!: () => void;
+      let release!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        signalArrival = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       let armed = false;
       const pause = async () => {
         armed = false;
-        arrived.resolve();
-        await release.promise;
+        signalArrival();
+        await released;
       };
       const store = {
         ...eventStore,
@@ -758,7 +769,8 @@ describe("Listing batch recovery API", () => {
         commercialTermsResolver: createMarketplaceCommercialTermsResolver(db),
       });
       const app = buildApp({ actor: sellerActor, services });
-      const send = (listingIds: string[]) => app.request("/account/listings/batch", post({ ...batch, listingIds }));
+      const send = async (listingIds: string[]) =>
+        app.request("/account/listings/batch", post({ ...batch, listingIds }));
       const first = await send([a]);
       expect(first.status).toBe(200);
       expect(await first.json()).toMatchObject({ items: [{ targetId: a, outcome: "succeeded" }] });
@@ -767,12 +779,10 @@ describe("Listing batch recovery API", () => {
       const extension = send([a, b]);
       let prepared: Response;
       try {
-        expect(await Promise.race([arrived.promise.then(() => "paused"), extension.then(() => "finished")])).toBe(
-          "paused",
-        );
+        expect(await Promise.race([arrived.then(() => "paused"), extension.then(() => "finished")])).toBe("paused");
         prepared = await app.request("/account/listings/batch/prepare", post({ ...withdrawal, retained }));
       } finally {
-        release.resolve();
+        release();
       }
       const extended = await extension;
       const adopted = winner === "prepare";
