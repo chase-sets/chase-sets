@@ -738,15 +738,15 @@ async fn answer_opened(
     revise: Revise,
     status: StatusCode,
 ) -> HtmlResult {
-    if req.mode != corten::Mode::Action {
+    let Some(script) = req.action() else {
         return render(req, viewer, config, headers, &Place::create(), None, Refused::None, Some(revise), status).await;
-    }
+    };
     let part = match opened_part(config, headers, revise).await {
         Ok(part) => part,
         Err(_) => return sign_in(req),
     };
     let (t, p): (RepricingMsg, Pilot) = (req.t(), req.t());
-    req.patch_with_status(status, html! { <views::RepricingEditorSection t={t} p={p} part={&part} /> })
+    script.patch_with_status(status, html! { <views::RepricingEditorSection t={t} p={p} part={&part} /> })
 }
 
 /// A post of the create editor opened up: its controls over the body it drew, then what it asked.

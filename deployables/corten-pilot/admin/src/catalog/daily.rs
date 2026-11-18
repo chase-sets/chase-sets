@@ -1684,9 +1684,9 @@ pub(crate) async fn evidence(
     let context = context_of(&uri);
     let caller = config.platform.caller(&headers, config.proto, None);
     let shown = read_evidence(&caller, &route.id).await;
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
-        return req.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
+        return script.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
     }
     let opened = Opened::Evidence(Box::new(shown));
     match context_value(&context, HOME).filter(|id| !id.is_empty()) {

@@ -270,9 +270,9 @@ async fn answer(
     sheet: Sheet,
     status: StatusCode,
 ) -> HtmlResult {
-    if req.mode == corten::Mode::Action {
+    if let Some(script) = req.action() {
         let (t, pairs) = (req.t(), asked.pairs());
-        return req.patch_with_status(status, views::BulkCartSheet { t, sheet: Some(&sheet), pairs: &pairs });
+        return script.patch_with_status(status, views::BulkCartSheet { t, sheet: Some(&sheet), pairs: &pairs });
     }
     crate::search::with_sheet(req, session, caller, asked, sheet, status).await
 }

@@ -700,15 +700,15 @@ async fn answer(
     revise: Revise,
     status: StatusCode,
 ) -> HtmlResult {
-    if req.mode != corten::Mode::Action {
+    let Some(script) = req.action() else {
         return render(req, viewer, config, headers, id, &Place::edit(), None, None, Some(revise), status).await;
-    }
+    };
     let part = match revise_part(config, headers, Some(id), &Value::Null, None, Some(revise)).await {
         Ok(part) => part,
         Err(_) => return sign_in(req),
     };
     let (t, p): (RepricingMsg, crate::text::Pilot) = (req.t(), req.t());
-    req.patch_with_status(status, html! { <views::ReviseSection t={t} p={p} id={id} editor={&part} /> })
+    script.patch_with_status(status, html! { <views::ReviseSection t={t} p={p} id={id} editor={&part} /> })
 }
 
 #[cfg(test)]

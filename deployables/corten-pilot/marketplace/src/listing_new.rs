@@ -500,8 +500,10 @@ async fn screen(
 /// The page, or with JavaScript after one of the form's own `GET`s, its parts.
 fn answer(req: &Req, viewer: &Viewer, screen: &NewListingScreen, status: StatusCode) -> HtmlResult {
     let (t, p): (ListingNewMsg, Pilot) = (req.t(), req.t());
-    if req.mode == corten::Mode::Action && (screen.draft.redraw || status != StatusCode::OK) {
-        return req.patch_with_status(status, html! { <views::NewListingParts t={t} p={p} screen={screen} /> });
+    if let Some(script) = req.action()
+        && (screen.draft.redraw || status != StatusCode::OK)
+    {
+        return script.patch_with_status(status, html! { <views::NewListingParts t={t} p={p} screen={screen} /> });
     }
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.route_create_listing()} head={()}>

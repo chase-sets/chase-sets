@@ -1,4 +1,4 @@
-/* corten ui 0.1.0: table 93797fca86a951a6 */
+/* corten ui 0.2.0: table 93797fca86a951a6 */
 /* Positioned, so what a cell places absolutely (an icon button's hidden text) is inside the box that
    scrolls it, not past the page's edge. One column no wider than the box: the table's width never
    becomes the box's least width, so wherever it is placed (an app's grid or flex row, a card in

@@ -425,8 +425,8 @@ async fn opened(
     dialog: impl Patch,
     back: ItemBack,
 ) -> HtmlResult {
-    if req.mode == Mode::Action {
-        return req.patch(dialog);
+    if let Some(script) = req.action() {
+        return script.patch(dialog);
     }
     render(req, viewer, config, headers, id, &url::After::default(), back).await
 }
@@ -468,9 +468,9 @@ async fn publish_form(
 ) -> HtmlResult {
     let id = route.id;
     let draft = Draft::new(input);
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let readiness = readiness_now(&caller(&config, &headers, None), &id).await;
-        return req.patch(views::PublishForm { t: req.t(), id: &id, form: &draft, readiness: &readiness });
+        return script.patch(views::PublishForm { t: req.t(), id: &id, form: &draft, readiness: &readiness });
     }
     render(&req, &staff.viewer, &config, &headers, &id, &url::After::default(), ItemBack::Publish(draft)).await
 }

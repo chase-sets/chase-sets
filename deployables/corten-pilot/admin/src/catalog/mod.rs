@@ -864,8 +864,8 @@ async fn redraw(
     form: impl Patch,
     forms: DimensionForms,
 ) -> HtmlResult {
-    if req.mode == Mode::Action {
-        return req.patch(form);
+    if let Some(script) = req.action() {
+        return script.patch(form);
     }
     let after = url::After::default();
     dimension_page(req, viewer, config, headers, id, &after, forms).await
@@ -1292,8 +1292,8 @@ where
     if !shown.errors.is_empty() {
         return req.invalid(shown.errors, dialog, || page(shown)).await;
     }
-    if req.mode == Mode::Action {
-        return req.patch(dialog);
+    if let Some(script) = req.action() {
+        return script.patch(dialog);
     }
     page(shown).await
 }
