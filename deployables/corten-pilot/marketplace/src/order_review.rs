@@ -353,7 +353,7 @@ async fn submit(
                     req.redirect(&url::Review { id: &review, place: ReviewPlace::default() })
                 }
                 Observed::Conflict => locked(req, viewer, which, screen, Locked::Conflict),
-                Observed::NotObserved => {
+                Observed::Absent => {
                     let message = t.attempt_not_observed().to_owned();
                     screen.refused = Some(Refused { message, field: false, recovery: false, locked: None });
                     draw(req, viewer, which, &screen, StatusCode::BAD_GATEWAY)

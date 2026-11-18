@@ -25,8 +25,8 @@ pub enum Observed {
     Committed { id: String, version: u64 },
     /// The attempt was another request's (`attempt_conflict`).
     Conflict,
-    /// Marketplace holds nothing for it: nothing was applied.
-    NotObserved,
+    /// Marketplace holds nothing for it (`not-observed`): nothing was applied.
+    Absent,
     /// The lookup failed, or answered something that is not this attempt's.
     Unsettled,
 }
@@ -100,7 +100,7 @@ pub fn read(observed: Value, kind: &str, target_kind: &str, target: &str, attemp
     match (recovery.owner_status.as_str(), recovery.owner_receipt) {
         ("conflict", _) => Observed::Conflict,
         ("committed", Some(receipt)) => Observed::Committed { id: receipt.id, version: receipt.version },
-        ("not-observed", _) => Observed::NotObserved,
+        ("not-observed", _) => Observed::Absent,
         _ => Observed::Unsettled,
     }
 }
@@ -218,7 +218,7 @@ mod tests {
         let read = |v: Value| read(v, "review.reply", "review", "rev_1", ATTEMPT, &hash);
         assert_eq!(read(recovery("committed", &hash)), Observed::Committed { id: "rev_1".into(), version: 2 });
         assert_eq!(read(recovery("conflict", &hash)), Observed::Conflict);
-        assert_eq!(read(recovery("not-observed", &hash)), Observed::NotObserved);
+        assert_eq!(read(recovery("not-observed", &hash)), Observed::Absent);
         assert_eq!(read(recovery("ambiguous", &hash)), Observed::Unsettled);
         assert_eq!(read(recovery("committed", "other")), Observed::Unsettled, "another request");
         let mut other = recovery("committed", &hash);

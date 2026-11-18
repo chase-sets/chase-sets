@@ -268,7 +268,7 @@ async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, att
             match marketplace_attempt::observe(caller, "review.reply", "review", id, attempt, &request).await {
                 Observed::Committed { .. } => req.redirect(&url::Review { id, place: ReviewPlace::default() }),
                 Observed::Conflict => locked(Locked::Conflict, feedback).await,
-                Observed::NotObserved => refused(t.attempt_not_observed(), false, false, StatusCode::BAD_GATEWAY, feedback).await,
+                Observed::Absent => refused(t.attempt_not_observed(), false, false, StatusCode::BAD_GATEWAY, feedback).await,
                 Observed::Unsettled => locked(Locked::Unconfirmed, feedback).await,
             }
         }
