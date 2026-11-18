@@ -21,7 +21,7 @@ import type {
 import { runListingAttempt, type ListingAttempt } from "./listing-attempt";
 
 /**
- * The persisted terminal vector of one bulk Listing batch: one batch id per family, one C1 target attempt per
+ * The persisted vector of one bulk Listing batch: one batch id per family, one C1 target attempt per
  * target. Each run records the outcomes it decided; a later fact may only settle a target the vector still holds
  * as `unknown`, so a retry re-drives `unknown` targets and returns every terminal target without sending it again.
  */
@@ -275,20 +275,21 @@ async function persistVector(
       } as JsonObject,
     });
   }
-  await store.appendToStream({
+  const stored = await store.appendToStream({
     streamId: listingBatchStreamId(batch),
     // The vector's read version is the write predicate: a concurrent retry can never overwrite a settled target.
     expectedVersion: prior?.version ?? "no_stream",
     context,
     events: facts,
   });
+  return stored.at(-1)!.streamVersion;
 }
 
 /**
  * Runs one bulk batch against its persisted vector. Terminal targets return their recorded outcome with no owner
- * read or append; `unknown` and unrecorded targets go to `drive` (which consults each C1 target receipt first), and
- * the newly decided outcomes are appended under the vector's read version. An unreadable vector refuses every write
- * and reports each target `unknown`.
+ * read or append. New targets in an adoptable batch are reserved before `drive`, which consults each target's C1
+ * receipt first. Newly decided outcomes are appended under the version used to admit the targets. An unreadable
+ * vector refuses every write and reports each target `unknown`.
  */
 export async function runListingBatch<Target extends ListingBatchTarget>(input: {
   store: EventStore;
@@ -306,16 +307,37 @@ export async function runListingBatch<Target extends ListingBatchTarget>(input: 
   }
 
   const firstByTarget = new Map<string, Target>();
+  for (const target of input.targets) {
+    if (!firstByTarget.has(target.targetId)) firstByTarget.set(target.targetId, target);
+  }
+
+  const command = listingRecoveryCommandForKey(input.batch.batchId);
+  const adoptable = command?.bulk && command.family === input.batch.family;
+  if (adoptable && (!prior || prior.preparation === "none")) {
+    const additions = [...firstByTarget.values()]
+      .filter((target) => !prior?.entries.has(target.targetId))
+      .map((target) => entryFor(target, unknownDecision));
+    if (additions.length > 0) {
+      // Prepare and a direct send compete on this version before any new target can reach its owner stream.
+      try {
+        const version = await persistVector(input.store, input.batch, input.context, prior, additions, "direct");
+        const entries = new Map(prior?.entries);
+        for (const entry of additions) entries.set(entry.targetId, entry);
+        prior = { version, entries, preparation: "none" };
+      } catch {
+        prior = await readListingBatchVector(input.store, input.batch).catch(() => null);
+      }
+    }
+  }
+
   const decided = new Map<string, ListingBatchDecision>();
   const toDrive: Target[] = [];
   const prepared = prior !== null && prior.preparation !== "none";
-  for (const target of input.targets) {
-    if (firstByTarget.has(target.targetId)) continue;
-    firstByTarget.set(target.targetId, target);
+  for (const target of firstByTarget.values()) {
     const recorded = prior?.entries.get(target.targetId);
     if (recorded ? !matchesTarget(recorded, target) : prepared) decided.set(target.targetId, changedTargetDecision);
     else if (recorded && recorded.outcome !== "unknown") decided.set(target.targetId, recordedDecision(recorded));
-    else toDrive.push(target);
+    else if (recorded || !adoptable) toDrive.push(target);
   }
 
   if (toDrive.length > 0) {

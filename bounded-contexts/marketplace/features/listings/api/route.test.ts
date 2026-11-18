@@ -7,7 +7,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createMarketplaceCommercialTermsResolver, type MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import { listingAttempt } from "./listing-attempt";
-import { runListingBatch } from "./listing-batch";
+import { listingBatchStreamId, runListingBatch } from "./listing-batch";
 import { createListingRecovery, listingRecoveryResult } from "./listing-recovery";
 import type { ListingRecoveryReference } from "../ui/contracts";
 import {
@@ -15,7 +15,7 @@ import {
   MarketplaceListingEvidenceIncompleteError,
   type MarketplaceListingServices,
 } from "./runtime";
-import { initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
+import { decideMarketplaceListing, initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
 import type { AcceptedListingTargetPriceV1, ListingTargetPrincipal } from "./target-contracts";
 import { createListingRequestExecutor, ListingRequestConflictError } from "./listing-request";
 
@@ -671,6 +671,143 @@ describe("Listing batch recovery API", () => {
     }
     expect(allEvents).toHaveLength(3);
   });
+
+  it.each(["prepare", "extension"] as const)(
+    "keeps every withdrawal recoverable when %s wins adoption",
+    async (winner) => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      const a = "lst_one";
+      const b = "lst_two";
+      const accountId = "acc_seller";
+      const withdrawal = { ...preparation, intent: "bulk-withdraw-listings" };
+      const retained = {
+        ...reference,
+        batchId: `${withdrawal.idempotencyKey}_bulk-withdraw-listings`,
+        mutationKind: "listing.withdraw",
+      } as const;
+      const batch = { batchId: retained.batchId, family: retained.mutationKind };
+      const vectorStream = listingBatchStreamId({ ...batch, accountId });
+      const ownerStream = (listingId: string) => `marketplace.listing-${listingId}`;
+      const context: EventStoreContext = {
+        tenantId: "tnt_identity" as never,
+        audit: { performedByUserId: "usr_seller" as never, forAccountId: accountId as never },
+      };
+      for (const listingId of [a, b]) {
+        const facts = decideMarketplaceListing(initialMarketplaceListingState, {
+          type: "CreateListing",
+          publicationScope: "channel-only",
+          listingId: listingId as never,
+          accountId: accountId as never,
+          inventoryItemId: "inv_synthetic" as never,
+          catalogItemId: "cat_synthetic" as never,
+          productId: "cat_synthetic::" as never,
+          selectedOptions: [],
+          shipFromAddress: {
+            name: "Synthetic seller",
+            company: null,
+            line1: "1 Synthetic Way",
+            line2: null,
+            city: "Austin",
+            state: "TX",
+            postalCode: "78701",
+            country: "US",
+            phone: null,
+            email: null,
+          },
+          priceAmount: "10" as never,
+          priceCurrencyCode: "USD",
+          feeLock: null,
+          quantityCap: 1,
+          evidenceRequirements: null,
+        });
+        await eventStore.appendToStream({
+          streamId: ownerStream(listingId),
+          expectedVersion: "no_stream",
+          context,
+          events: facts.map(({ type, data }) => ({ eventType: type, payload: data })),
+        });
+      }
+
+      const arrived = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let armed = false;
+      const pause = async () => {
+        armed = false;
+        arrived.resolve();
+        await release.promise;
+      };
+      const store = {
+        ...eventStore,
+        appendToStream: async (input: Parameters<typeof eventStore.appendToStream>[0]) => {
+          if (armed && winner === "prepare" && input.streamId === vectorStream) await pause();
+          return eventStore.appendToStream(input);
+        },
+        readStream: async (input: Parameters<typeof eventStore.readStream>[0]) => {
+          if (armed && winner === "extension" && input.streamId === ownerStream(b)) await pause();
+          return eventStore.readStream(input);
+        },
+      };
+      const unused = () => {
+        throw new Error("This in-memory test does not use a database or projection checkpoints.");
+      };
+      const db = { query: unused };
+      const services = createMarketplaceListingRuntime({
+        eventStore: store,
+        db,
+        checkpointStore: { loadCheckpoint: unused, saveCheckpoint: unused },
+        commercialTermsResolver: createMarketplaceCommercialTermsResolver(db),
+      });
+      const app = buildApp({ actor: sellerActor, services });
+      const send = (listingIds: string[]) => app.request("/account/listings/batch", post({ ...batch, listingIds }));
+      const first = await send([a]);
+      expect(first.status).toBe(200);
+      expect(await first.json()).toMatchObject({ items: [{ targetId: a, outcome: "succeeded" }] });
+
+      armed = true;
+      const extension = send([a, b]);
+      let prepared: Response;
+      try {
+        expect(await Promise.race([arrived.promise.then(() => "paused"), extension.then(() => "finished")])).toBe(
+          "paused",
+        );
+        prepared = await app.request("/account/listings/batch/prepare", post({ ...withdrawal, retained }));
+      } finally {
+        release.resolve();
+      }
+      const extended = await extension;
+      const adopted = winner === "prepare";
+      if (adopted) {
+        expect(prepared.status).toBe(200);
+        expect(await prepared.json()).toEqual({ reference: retained });
+      } else {
+        expect(prepared.status).toBe(200);
+        const result = await prepared.json();
+        expect(result).not.toHaveProperty("reference");
+        expect(result).toMatchObject({ recovery: { phase: "failed-safe" } });
+        expect(
+          allEvents.filter(
+            ({ streamId, metadata }) => streamId === vectorStream && metadata.listingBatchOrigin === "prepared",
+          ),
+        ).toHaveLength(0);
+      }
+      expect(extended.status).toBe(200);
+      const terminalA = { targetId: a, outcome: "succeeded" };
+      const terminalB = { targetId: b, outcome: "succeeded" };
+      expect(await extended.json()).toMatchObject({
+        items: [terminalA, adopted ? { targetId: b, outcome: "conflict" } : terminalB],
+      });
+      const withdrawals = (listingId: string) =>
+        allEvents.filter(
+          ({ streamId, eventType }) =>
+            streamId === ownerStream(listingId) && eventType === "marketplace.listing.withdrawn",
+        );
+      expect(withdrawals(a)).toHaveLength(1);
+      expect(withdrawals(b)).toHaveLength(adopted ? 0 : 1);
+      const recovered = await app.request(recoverPath(retained));
+      expect(recovered.status).toBe(200);
+      expect(await recovered.json()).toMatchObject({ items: adopted ? [terminalA] : [terminalA, terminalB] });
+    },
+  );
 
   it.each([null, { ...sellerActor!, permissions: ["listings.view"] }])(
     "requires management authority for preparation and retry",

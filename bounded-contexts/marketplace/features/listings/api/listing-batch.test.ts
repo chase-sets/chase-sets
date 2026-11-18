@@ -89,21 +89,40 @@ function bulkPause(batchId = pauseKey, legacy = false) {
 }
 
 describe("durable Listing batch decisions", () => {
-  it.each([
-    [pauseKey, false],
-    [batch.batchId, false],
-    [pauseKey, true],
-  ] as const)("extends direct batch %s (legacy=%s) without redriving A", async (batchId, legacy) => {
-    const { a, b, drive, run, store, identity, allEvents } = bulkPause(batchId, legacy);
+  it.each([pauseKey, batch.batchId])("extends direct batch %s without redriving A", async (batchId) => {
+    const { a, b, drive, run, store, identity, allEvents } = bulkPause(batchId);
     expect((await run([a])).map(({ outcome }) => outcome)).toEqual(["succeeded"]);
     expect((await run([a, b])).map(({ outcome }) => outcome)).toEqual(["succeeded", "succeeded"]);
     expect(drive.mock.calls).toEqual([[[a]], [[b]]]);
+    const vectorId = listingBatchStreamId(identity);
+    const reservation = batchId === pauseKey ? [vectorId] : [];
     expect(allEvents.map(({ streamId }) => streamId)).toEqual([
+      ...reservation,
       a.attempt.streamId,
-      listingBatchStreamId(identity),
+      vectorId,
+      ...reservation,
       b.attempt.streamId,
-      listingBatchStreamId(identity),
+      vectorId,
     ]);
+    expect((await lookupListingBatch(store, identity))?.items).toMatchObject([
+      { targetId: a.targetId, outcome: "succeeded" },
+      { targetId: b.targetId, outcome: "succeeded" },
+    ]);
+  });
+
+  it("extends an unmarked direct vector whose first fact already settled A", async () => {
+    const seed = bulkPause();
+    await seed.run([seed.a]);
+    const settled = seed.allEvents.at(-1)!;
+    const { a, b, drive, run, store, identity } = bulkPause();
+    await store.appendToStream({
+      streamId: listingBatchStreamId(identity),
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: settled.eventType, payload: settled.payload }],
+    });
+    expect((await run([a, b])).map(({ outcome }) => outcome)).toEqual(["succeeded", "succeeded"]);
+    expect(drive.mock.calls).toEqual([[[b]]]);
     expect((await lookupListingBatch(store, identity))?.items).toMatchObject([
       { targetId: a.targetId, outcome: "succeeded" },
       { targetId: b.targetId, outcome: "succeeded" },
@@ -134,7 +153,7 @@ describe("durable Listing batch decisions", () => {
       } else await prepare();
       await run([a]);
       const before = allEvents.length;
-      expect(before).toBe(3);
+      expect(before).toBe(kind === "prepared after direct" || kind === "retained direct" ? 4 : 3);
       expect((await run([a, b])).map(({ outcome }) => outcome)).toEqual(["succeeded", "conflict"]);
       await expect(send(b)).rejects.toMatchObject({ code: "attempt_conflict" });
       expect(drive.mock.calls).toEqual([[[a]]]);
