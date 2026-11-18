@@ -236,6 +236,70 @@ describe("Scope Sync Batch routes", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["one-piece", ["single-card", "sealed-product"], null, "OP01", "OP01"],
+    ["lorcana", ["single-card"], null, "D23C24", "D23C24"],
+    ["lorcana", ["single-card"], null, "TFC", "TFC"],
+    ["lorcana", ["single-card"], "synthetic-set-id", "Synthetic Set Name", "synthetic-set-id"],
+  ] as const)(
+    "quotes %s %j with mapping id %s and name %s without sending",
+    async (domain, forms, setId, setName, value) => {
+      const record = {
+        scope_record_id: "scope-synthetic",
+        product_domain: domain,
+        scope_kind: "set",
+        lifecycle_status: "active",
+      };
+      const mappings = forms.map((form) => ({
+        scope_record_id: record.scope_record_id,
+        provider_key: "scrydex",
+        unit_key: `scrydex:${domain}:${form}:source-observation-import`,
+        set_id: setId,
+        set_name: setName,
+      }));
+      const history = periodHistoryPool(periodUsage(0));
+      const pool = {
+        query: async (sql: string) => {
+          if (sql.includes("FROM catalog_scope_records")) return { rows: [record] };
+          if (sql.includes("FROM catalog_provider_scope_mappings")) return { rows: mappings };
+          throw new Error("Unexpected membership read");
+        },
+      };
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        throw new Error("Unexpected synthetic provider call");
+      });
+      const counts = createScopeSyncCountRuntime({
+        pool: pool as never,
+        store: createCountStore(history.pool, "synthetic-slot", () => periodAt),
+        environment: "staging",
+        accountRevision: "synthetic",
+        profiles: {
+          listProfileVersions: async () =>
+            catalogProviderIntegrationProfileVersions.filter((version) => version.providerKey === "scrydex"),
+        } as never,
+        adapterOptions: { fetch },
+        now: () => periodAt,
+      });
+      const response = await app(counts, countActor("platform-admin")).request("/counts/quote", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify({
+          selection: { mode: "matching-scope", query: { productDomain: domain, scopeKind: "set" } },
+        }),
+      });
+      const body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      expect(body).toMatchObject({
+        state: "quoted",
+        targets: forms.map((form) => ({
+          scopeRecordId: record.scope_record_id,
+          query: { productDomain: domain, kind: form === "single-card" ? "cards" : "sealed", parentValue: value },
+        })),
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
   it("a staging acquire whose retained usage goes missing or stale refuses usage-period-cap with zero sends", async () => {
     const quotedAt = "2026-10-13T08:03:00.000Z";
     const record = {

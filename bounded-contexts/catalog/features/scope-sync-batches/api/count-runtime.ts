@@ -2,6 +2,7 @@ import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-c
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogProviderIntegrationProfileVersionReader } from "../../source-observations/api/source-observation-runtime-contracts";
 import { catalogProviderProfileVersionIngestionUnitKey } from "../../source-observations/api/provider-integration-profiles";
+import { catalogSyncAcceptedScopeMappingFromRow } from "../../source-observations/api/providers/catalog-sync-scope-planner";
 import { isActiveProviderOptionQueryProfileVersion } from "../../source-observations/api/governance/catalog-integration-control-plane-readiness";
 import { createCatalogIntegrationRolloutControlPolicyFromEnv } from "../../source-observations/api/governance/catalog-integration-rollout-controls";
 import {
@@ -104,7 +105,9 @@ export function createScopeSyncCountRuntime(deps: {
           )
         )
           throw new CountAcquisitionRefused("profile-option-query-missing");
-        if (!mapping.set_id) throw new CountAcquisitionRefused("provider-set-id-missing");
+        const { setId, setName } = catalogSyncAcceptedScopeMappingFromRow(mapping);
+        const parentValue = setId ?? (version.profile.supportedScopes.includes("set-name") ? setName : null);
+        if (!parentValue) throw new CountAcquisitionRefused("provider-set-id-missing");
         if (!["set", "expansion"].includes(record.scope_kind))
           throw new CountAcquisitionRefused("unsupported-scope-kind");
         for (const capability of ["provider-transport", "provider-option-query", "import"] as const) {
@@ -126,7 +129,7 @@ export function createScopeSyncCountRuntime(deps: {
           kind,
           languageCode:
             (membership.selection.mode === "matching-scope" ? membership.selection.query.languageCode : null) ?? "en",
-          parentValue: mapping.set_id,
+          parentValue,
         });
         const source = await readScrydexCountSource(query, { ...deps.adapterOptions, countReader: deps.store });
         const blocked = !source && (await deps.store.blocked(query));
