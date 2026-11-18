@@ -11,7 +11,12 @@ type CatalogMergeCandidateBulkJob = NonNullable<
 type CatalogMergeCandidateBulkJobResult = NonNullable<CatalogMergeCandidateBulkJob["result"]>;
 type CatalogMergeCandidateBulkUnitResult = CatalogMergeCandidateBulkJobResult["outcomes"][number];
 
-export const wholeGameJourneyScopes = ["full-game-start", "full-game-settle"] as const;
+export const wholeGameJourneyScopes = [
+  "full-game-start",
+  "full-game-preview",
+  "full-game-confirm",
+  "full-game-settle",
+] as const;
 export type WholeGameJourneyScope = (typeof wholeGameJourneyScopes)[number];
 
 export const wholeGameReceiptPath = "artifacts/catalog-whole-game-rehearsal/receipt.json";
@@ -97,6 +102,7 @@ type Env = Readonly<Record<string, string | undefined>>;
 const budgetKeys = Object.keys(defaultWholeGameBudget) as (keyof WholeGameBudget)[];
 const tokenPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const batchIdPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const paidPreviewFingerprintPattern = /^[0-9a-f]{64}$/;
 
 export function parseWholeGameStartInput(env: Env): WholeGameStartInput {
   const productDomain = env.CATALOG_WHOLE_GAME_PRODUCT_DOMAIN?.trim() ?? "";
@@ -106,6 +112,14 @@ export function parseWholeGameStartInput(env: Env): WholeGameStartInput {
     throw new WholeGameRehearsalRefusal("language-code-invalid");
   }
   return { productDomain, languageCode, budget: parseWholeGameBudget(env.CATALOG_WHOLE_GAME_BUDGET ?? "") };
+}
+
+export function parseApprovedWholeGameFingerprint(env: Env): string {
+  const fingerprint = env.CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT?.trim() ?? "";
+  if (!paidPreviewFingerprintPattern.test(fingerprint)) {
+    throw new WholeGameRehearsalRefusal("scrydex-approved-fingerprint-required");
+  }
+  return fingerprint;
 }
 
 /** Budget input is `key=value` pairs separated by commas; omitted keys keep the Admin form defaults. */
@@ -184,6 +198,40 @@ export function startConfirmationRefusal(preview: WholeGamePreviewRecord, budget
   }
   if (!preview.confirmAllowed) return "preview-not-confirmable";
   return null;
+}
+
+export function assertPaidWholeGamePreview(preview: WholeGamePreviewRecord): number {
+  if (!paidPreviewFingerprintPattern.test(preview.planFingerprint)) {
+    throw new WholeGameRehearsalRefusal("preview-fingerprint-unreadable");
+  }
+  if (!Number.isSafeInteger(preview.scopeCount) || preview.scopeCount <= 0) {
+    throw new WholeGameRehearsalRefusal("paid-preview-no-scopes");
+  }
+  const [scrydex, ...duplicates] = preview.providers.filter(({ providerKey }) => providerKey === "scrydex");
+  if (!scrydex || duplicates.length > 0 || !Number.isSafeInteger(scrydex.units) || scrydex.units <= 0) {
+    throw new WholeGameRehearsalRefusal("scrydex-participation-required");
+  }
+  const estimate = scrydex.plannedRequests;
+  if (estimate === null || !Number.isSafeInteger(estimate) || estimate <= 0) {
+    throw new WholeGameRehearsalRefusal("scrydex-estimate-unavailable");
+  }
+  return estimate;
+}
+
+export function assertPaidWholeGameConfirmation(
+  preview: WholeGamePreviewRecord,
+  approvedFingerprint: string,
+  approvedLimit: number,
+): void {
+  const estimate = assertPaidWholeGamePreview(preview);
+  if (preview.planFingerprint !== approvedFingerprint) {
+    throw new WholeGameRehearsalRefusal("scrydex-approved-fingerprint-mismatch");
+  }
+  const requiredLimit = estimate + Math.ceil(estimate / 4);
+  if (!Number.isSafeInteger(requiredLimit) || approvedLimit !== requiredLimit) {
+    throw new WholeGameRehearsalRefusal("scrydex-approved-limit-mismatch");
+  }
+  if (!preview.confirmAllowed) throw new WholeGameRehearsalRefusal("preview-not-confirmable");
 }
 
 // AC2 — one batch per settle, decided from that batch's own snapshot.
@@ -505,13 +553,15 @@ export type WholeGameReceipt = Readonly<{
   sha: string;
   runId: string;
   runAttempt: string;
-  batchId: string;
-  state: "confirmed" | "running" | "cancelled" | "settled" | "failed";
+  batchId: string | null;
+  state: "previewed" | "confirmed" | "running" | "cancelled" | "settled" | "failed";
   promotionFailure?: WholeGamePromotionFailure;
   preview: Readonly<{
     planFingerprint: string;
     scopeCount: number;
     providers: readonly WholeGameProviderParticipation[];
+    confirmAllowed?: boolean;
+    scrydexRequestLimit?: number;
   }> | null;
   settle: Readonly<{
     batchStatus: WholeGameBatchStatus;
@@ -585,7 +635,7 @@ const batchStatuses: readonly WholeGameBatchStatus[] = [
   "partial",
   "failed",
 ];
-const receiptStates = ["confirmed", "running", "cancelled", "settled", "failed"];
+const receiptStates = ["previewed", "confirmed", "running", "cancelled", "settled", "failed"];
 
 /** Returns every schema violation; an empty list is the only publishable receipt. */
 export function validateWholeGameReceipt(value: unknown): readonly string[] {
@@ -600,7 +650,18 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
   if (typeof receipt.runAttempt !== "string" || !/^\d{1,4}$/.test(receipt.runAttempt)) errors.push("runAttempt");
   if (typeof receipt.batchId === "string" && !batchIdPattern.test(receipt.batchId)) errors.push("batchId");
   if (!receiptStates.includes(receipt.state as string)) errors.push("state");
-  if (typeof receipt.batchId !== "string") errors.push("batchId-required");
+  const previewOnly = receipt.journeyScope === "full-game-preview";
+  const paid = previewOnly || receipt.journeyScope === "full-game-confirm";
+  if (previewOnly) {
+    if (receipt.batchId !== null) errors.push("preview-only-batch-id");
+  } else if (typeof receipt.batchId !== "string") errors.push("batchId-required");
+  if (previewOnly !== (receipt.state === "previewed")) errors.push("preview-only-state");
+  if (
+    paid &&
+    (receipt.preview === null || receipt.settle !== null || (!previewOnly && receipt.state !== "confirmed"))
+  ) {
+    errors.push("paid-preview-receipt");
+  }
   if (hasFailure !== (receipt.state === "failed")) errors.push("promotionFailure.state");
   if (hasFailure) {
     if (receipt.journeyScope !== "full-game-settle" || receipt.settle === null) errors.push("promotionFailure.settle");
@@ -631,12 +692,31 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
   }
 
   if (receipt.preview !== null) {
-    const preview = record(receipt.preview, "preview", previewKeys, errors);
+    const preview = record(
+      receipt.preview,
+      "preview",
+      paid ? [...previewKeys, "confirmAllowed", "scrydexRequestLimit"] : previewKeys,
+      errors,
+    );
     if (preview) {
       if (typeof preview.planFingerprint !== "string" || !/^[A-Za-z0-9:_-]{8,200}$/.test(preview.planFingerprint)) {
         errors.push("preview.planFingerprint");
       }
       if (!count(preview.scopeCount)) errors.push("preview.scopeCount");
+      if (paid) {
+        if (
+          typeof preview.planFingerprint !== "string" ||
+          !paidPreviewFingerprintPattern.test(preview.planFingerprint)
+        ) {
+          errors.push("preview.paidFingerprint");
+        }
+        if (typeof preview.confirmAllowed !== "boolean" || (!previewOnly && !preview.confirmAllowed)) {
+          errors.push("preview.confirmAllowed");
+        }
+        if (!Number.isSafeInteger(preview.scrydexRequestLimit) || !count(preview.scrydexRequestLimit)) {
+          errors.push("preview.scrydexRequestLimit");
+        }
+      }
       if (!Array.isArray(preview.providers)) errors.push("preview.providers");
       else {
         preview.providers.forEach((entry, index) => {

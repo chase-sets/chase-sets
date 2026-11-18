@@ -86,8 +86,11 @@ import {
   assertWholeGameOrigin,
   readBeforeWholeGameDeadline,
   wholeGameStagingOrigin,
+  assertPaidWholeGameConfirmation,
+  assertPaidWholeGamePreview,
   assertPublishPreviewGuard,
   assertRequestedBatch,
+  parseApprovedWholeGameFingerprint,
   parseProviderParticipation,
   parseWholeGameSettleInput,
   parseWholeGameStartInput,
@@ -3590,6 +3593,9 @@ test.describe("catalog staging provider sync UAT", () => {
 
     if (isWholeGameJourneyScope(providerUatJourneyScope)) {
       if (testInfo.retry > 0) throw new WholeGameRehearsalRefusal("automatic-retry-refused");
+      if (providerUatJourneyScope === "full-game-confirm" && process.env.GITHUB_RUN_ATTEMPT !== "1") {
+        throw new WholeGameRehearsalRefusal("paid-confirm-rerun-refused");
+      }
       await signInWholeGame(page, process.env.ADMIN_WEB_URL ?? "");
       // Live-run boundary receipts (#9957): emitted only here, never from shared sign-in helpers.
       const boundary = `[catalog-staging-provider-uat] journey=${providerUatJourneyScope} run=${process.env.GITHUB_RUN_ID ?? ""} sha=${process.env.GITHUB_SHA ?? ""}`;
@@ -7323,8 +7329,8 @@ function previewProbeScopeSkipsMutatingJourney(scope: string): boolean {
   return scope === scopeSyncBatchPreviewProbeJourneyScope;
 }
 
-// Whole-game rehearsal (#9220): `full-game-start` previews and confirms one
-// matching-scope Scope Sync Batch; `full-game-settle` advances exactly the
+// Whole-game rehearsal (#9220): start previews and confirms without Scrydex;
+// paid preview and confirm are separate dispatches. Settle advances exactly the
 // requested batch through retry/resume, scope promotion and bulk publish. Every
 // decision lives in ./support/whole-game-rehearsal and progress is read back
 // from the server, so a killed dispatch is rerun with the same batch id.
@@ -7337,6 +7343,9 @@ type WholeGameBatchSnapshot = WholeGameBatchView & Readonly<{ planFingerprint: s
 
 type WholeGameRunIdentity = Pick<WholeGameReceipt, "sha" | "runId" | "runAttempt">;
 type WholeGameReceiptSink = (receipt: WholeGameReceipt) => void;
+type WholeGameStartMode =
+  | Readonly<{ scope: "full-game-start" | "full-game-preview" }>
+  | Readonly<{ scope: "full-game-confirm"; approvedFingerprint: string }>;
 
 type WholeGameSettleCounts = {
   -readonly [Key in Exclude<
@@ -7365,9 +7374,18 @@ async function runWholeGameJourney(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<WholeGameReceipt> {
   const run = wholeGameRunIdentity(env);
-  return scope === "full-game-start"
-    ? wholeGameStart(page, parseWholeGameStartInput(env), run)
-    : wholeGameSettle(page, parseWholeGameSettleInput(env), run, { deadlineAt, pollMs: wholeGamePollMs }, receiptSink);
+  if (scope === "full-game-settle") {
+    return wholeGameSettle(
+      page,
+      parseWholeGameSettleInput(env),
+      run,
+      { deadlineAt, pollMs: wholeGamePollMs },
+      receiptSink,
+    );
+  }
+  const mode: WholeGameStartMode =
+    scope === "full-game-confirm" ? { scope, approvedFingerprint: parseApprovedWholeGameFingerprint(env) } : { scope };
+  return wholeGameStart(page, parseWholeGameStartInput(env), run, mode);
 }
 
 async function signInWholeGame(
@@ -7550,6 +7568,7 @@ async function wholeGameStart(
   page: Page,
   input: WholeGameStartInput,
   run: WholeGameRunIdentity,
+  mode: WholeGameStartMode = { scope: "full-game-start" },
 ): Promise<WholeGameReceipt> {
   await gotoWholeGamePage(page, "/catalog/scopes/sync-batches");
   const form = page.locator("form").filter({ has: page.getByRole("button", { name: "Preview batch", exact: true }) });
@@ -7569,13 +7588,43 @@ async function wholeGameStart(
     ["Circuit-breaker failures", input.budget.providerFailureThreshold],
   ];
   for (const [label, value] of budgetFields) await form.getByLabel(label, { exact: true }).fill(String(value));
-  await form.getByRole("button", { name: "Preview batch", exact: true }).click();
+  await clickWholeGameControl(page, form.getByRole("button", { name: "Preview batch", exact: true }));
 
-  const preview = await readRenderedBatchPreview(page);
-  const refusal = startConfirmationRefusal(preview, input.budget);
-  if (refusal) throw new WholeGameRehearsalRefusal(refusal);
   assertWholeGameOrigin(page.url());
-  await clickWholeGameControl(page, page.getByRole("button", { name: "Confirm and enqueue", exact: true }));
+  const preview = await readRenderedBatchPreview(page);
+  const { planFingerprint, scopeCount, providers, confirmAllowed } = preview;
+  const { scrydexRequestLimit } = input.budget;
+  const receipt = {
+    schemaVersion: wholeGameReceiptSchemaVersion,
+    journeyScope: mode.scope,
+    ...run,
+    preview: { planFingerprint, scopeCount, providers },
+    settle: null,
+  } as const;
+  const paidPreview = { ...receipt.preview, confirmAllowed, scrydexRequestLimit };
+  if (mode.scope === "full-game-preview") {
+    assertPaidWholeGamePreview(preview);
+    return { ...receipt, batchId: null, state: "previewed", preview: paidPreview };
+  }
+
+  let confirm = page.getByRole("button", { name: "Confirm and enqueue", exact: true });
+  if (mode.scope === "full-game-confirm") {
+    assertPaidWholeGameConfirmation(preview, mode.approvedFingerprint, scrydexRequestLimit);
+    const confirmationForm = page.locator("form").filter({ has: confirm });
+    if (
+      (await confirmationForm.count()) !== 1 ||
+      (await confirmationForm.locator('input[name="planFingerprint"]').inputValue()) !== planFingerprint ||
+      (await confirmationForm.locator('input[name="scrydexRequestLimit"]').inputValue()) !== String(scrydexRequestLimit)
+    ) {
+      throw new WholeGameRehearsalRefusal("scrydex-confirm-form-mismatch");
+    }
+    confirm = confirmationForm.getByRole("button", { name: "Confirm and enqueue", exact: true });
+  } else {
+    const refusal = startConfirmationRefusal(preview, input.budget);
+    if (refusal) throw new WholeGameRehearsalRefusal(refusal);
+  }
+  assertWholeGameOrigin(page.url());
+  await clickWholeGameControl(page, confirm);
   await page.waitForURL(/[?&]batchId=/, { timeout: syncTimeoutMs });
   const batchId = new URL(page.url()).searchParams.get("batchId") ?? "";
   const batch = await readWholeGameBatch(page, batchId);
@@ -7583,13 +7632,10 @@ async function wholeGameStart(
     throw new WholeGameRehearsalRefusal("confirmed-fingerprint-mismatch");
   }
   return {
-    schemaVersion: wholeGameReceiptSchemaVersion,
-    journeyScope: "full-game-start",
-    ...run,
+    ...receipt,
     batchId,
     state: "confirmed",
-    preview: { planFingerprint: preview.planFingerprint, scopeCount: preview.scopeCount, providers: preview.providers },
-    settle: null,
+    preview: mode.scope === "full-game-confirm" ? paidPreview : receipt.preview,
   };
 }
 

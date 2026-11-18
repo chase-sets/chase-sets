@@ -594,6 +594,19 @@ describe("AC7 exact staging admission", () => {
     readFileSync(new URL("../.github/workflows/catalog-staging-provider-uat.yml", import.meta.url), "utf8"),
   );
   const step = workflow.jobs["admit-reviewed-sha"].steps[0];
+  it("routes both paid modes through the staging-only whole-game job", () => {
+    const dispatch = workflow.on.workflow_dispatch.inputs;
+    const job = workflow.jobs["staging-provider-uat"];
+    const matrix = workflow.jobs["resolve-provider-uat-plan"].steps[0].run;
+    for (const scope of ["full-game-preview", "full-game-confirm"]) {
+      expect(dispatch.journey_scope.options).toContain(scope);
+      expect(matrix).toContain(`|${scope}|`);
+      expect(rehearsal.wholeGameJourneyScopes).toContain(scope);
+    }
+    expect(job["runs-on"]).toBe("ubuntu-24.04");
+    expect(job.env.CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT).toBe("${{ inputs.approved_preview_fingerprint }}");
+    expect(job.env.CATALOG_WHOLE_GAME_BUDGET).toBe("${{ inputs.budget }}");
+  });
   it("uploads only the whole-game receipt even when the journey fails", () => {
     const upload = Object.values(workflow.jobs)
       .flatMap((job) => job.steps ?? [])
@@ -609,24 +622,29 @@ describe("AC7 exact staging admission", () => {
     "https://admin.staging.chasesets.com/",
     "https://admin.staging.chasesets.com?next=evil",
   ])("refuses %s before the credential job", (target) => {
-    const failures = [];
-    vm.runInNewContext(step.with.script, {
-      process: {
-        env: {
-          EXPECTED_SHA: "a".repeat(40),
-          RUN_SHA: "a".repeat(40),
-          CONFIRMATION: "run catalog staging provider uat",
-          JOURNEY_SCOPE: "full-game-settle",
-          ADMIN_WEB_URL: target,
+    for (const scope of rehearsal.wholeGameJourneyScopes) {
+      const failures = [];
+      vm.runInNewContext(step.with.script, {
+        process: {
+          env: {
+            EXPECTED_SHA: "a".repeat(40),
+            RUN_SHA: "a".repeat(40),
+            RUN_ATTEMPT: "1",
+            CONFIRMATION: "run catalog staging provider uat",
+            JOURNEY_SCOPE: scope,
+            ADMIN_WEB_URL: target,
+          },
         },
-      },
-      core: { setFailed: (message) => failures.push(message) },
-    });
-    expect(failures).toHaveLength(1);
+        core: { setFailed: (message) => failures.push(message) },
+      });
+      expect(failures).toEqual(["Whole-game and capture journeys require the exact staging origin."]);
+    }
   });
   it("admits the exact staging origin and leaves other journeys unchanged", () => {
     for (const [scope, target] of [
       ["full-game-start", "https://admin.staging.chasesets.com"],
+      ["full-game-preview", "https://admin.staging.chasesets.com"],
+      ["full-game-confirm", "https://admin.staging.chasesets.com"],
       ["one-piece-launch", "https://synthetic.invalid"],
     ]) {
       const failures = [];
@@ -635,6 +653,7 @@ describe("AC7 exact staging admission", () => {
           env: {
             EXPECTED_SHA: "a".repeat(40),
             RUN_SHA: "a".repeat(40),
+            RUN_ATTEMPT: "1",
             CONFIRMATION: "run catalog staging provider uat",
             JOURNEY_SCOPE: scope,
             ADMIN_WEB_URL: target,
@@ -644,6 +663,23 @@ describe("AC7 exact staging admission", () => {
       });
       expect(failures).toEqual([]);
     }
+  });
+  it("refuses a GitHub rerun of paid confirm", () => {
+    const setFailed = vi.fn();
+    vm.runInNewContext(step.with.script, {
+      process: {
+        env: {
+          EXPECTED_SHA: "a".repeat(40),
+          RUN_SHA: "a".repeat(40),
+          RUN_ATTEMPT: "2",
+          CONFIRMATION: "run catalog staging provider uat",
+          JOURNEY_SCOPE: "full-game-confirm",
+          ADMIN_WEB_URL: rehearsal.wholeGameStagingOrigin,
+        },
+      },
+      core: { setFailed },
+    });
+    expect(setFailed.mock.calls).toEqual([["Paid whole-game confirmation requires a fresh dispatch, not a rerun."]]);
   });
   it("refuses redirected effective origins without invoking the guarded action", async () => {
     const action = vi.fn();
@@ -1121,6 +1157,152 @@ describe("AC1 whole-game start confirmation", () => {
     expect(startConfirmationRefusal(preview({ planFingerprint: "" }), defaultWholeGameBudget)).toBe(
       "preview-fingerprint-unreadable",
     );
+  });
+});
+
+describe("paid whole-game preview and confirm dispatches", () => {
+  const fingerprint = "a".repeat(64);
+  const scrydex = { providerKey: "scrydex", units: 2, plannedRequests: 41 };
+
+  function startProbe(live = {}, hidden = {}) {
+    const actions = [];
+    const fields = {};
+    const confirmForm = {
+      count: async () => 1,
+      locator: (selector) => ({
+        inputValue: async () => {
+          if (selector === 'input[name="planFingerprint"]') return hidden.fingerprint ?? fingerprint;
+          if (selector === 'input[name="scrydexRequestLimit"]') return hidden.limit ?? "52";
+          throw new Error(`unexpected confirm field ${selector}`);
+        },
+      }),
+      getByRole: (_role, { name }) => ({ name }),
+    };
+    const form = {
+      locator: (selector) => selector,
+      getByLabel: (label) => ({ fill: async (value) => (fields[label] = value) }),
+      getByRole: (_role, { name }) => ({ name }),
+    };
+    const page = {
+      locator: (selector) => {
+        expect(selector).toBe("form");
+        return { filter: ({ has }) => (has.name === "Preview batch" ? form : confirmForm) };
+      },
+      getByRole: (_role, { name }) => ({ name }),
+      url: () => `${rehearsal.wholeGameStagingOrigin}/catalog/scopes/sync-batches?batchId=batch-requested`,
+      waitForURL: async () => {},
+    };
+    const context = vm.createContext({
+      ...rehearsal,
+      URL,
+      expect: () => ({ toHaveCount: async () => {}, toHaveValue: async () => {} }),
+      pageReadyTimeoutMs: 1,
+      syncTimeoutMs: 1,
+      gotoWholeGamePage: async () => {},
+      chooseDesignSystemSelect: async () => {},
+      clickWholeGameControl: async (_page, control) => actions.push(control.name),
+      readRenderedBatchPreview: async () => preview({ planFingerprint: fingerprint, providers: [scrydex], ...live }),
+      readWholeGameBatch: async (_page, batchId) => {
+        actions.push(`Read ${batchId}`);
+        return { planFingerprint: fingerprint };
+      },
+    });
+    const declarations = ["runWholeGameJourney", "wholeGameRunIdentity", "wholeGameStart"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations), context);
+    return {
+      actions,
+      fields,
+      run: (scope, env = {}) =>
+        context.runWholeGameJourney(page, scope, 0, vi.fn(), {
+          GITHUB_SHA: "b".repeat(40),
+          GITHUB_RUN_ID: "456",
+          GITHUB_RUN_ATTEMPT: "1",
+          CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
+          CATALOG_WHOLE_GAME_LANGUAGE_CODE: "en",
+          CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=52",
+          CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: fingerprint,
+          ...env,
+        }),
+    };
+  }
+
+  it.each([false, true])("returns a redacted receipt and never confirms a preview (confirmable=%s)", async (ready) => {
+    const probe = startProbe({ confirmAllowed: ready });
+    const result = await probe.run("full-game-preview", {
+      CATALOG_WHOLE_GAME_BUDGET: ready ? "scrydexRequestLimit=52" : "",
+      CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: "",
+    });
+    expect(probe.actions).toEqual(["Preview batch"]);
+    expect(result).toEqual({
+      schemaVersion: wholeGameReceiptSchemaVersion,
+      journeyScope: "full-game-preview",
+      sha: "b".repeat(40),
+      runId: "456",
+      runAttempt: "1",
+      batchId: null,
+      state: "previewed",
+      preview: {
+        planFingerprint: fingerprint,
+        scopeCount: 3,
+        providers: [scrydex],
+        confirmAllowed: ready,
+        scrydexRequestLimit: ready ? 52 : 0,
+      },
+      settle: null,
+    });
+    expect(validateWholeGameReceipt(result)).toEqual([]);
+    expect(validateWholeGameReceipt({ ...result, batchId: "batch-requested" })).toContain("preview-only-batch-id");
+  });
+
+  it("confirms exactly once after a fresh match and rounds the 25% buffer up", async () => {
+    const probe = startProbe();
+    const result = await probe.run("full-game-confirm");
+    expect(probe.fields).toMatchObject({ Language: "en", "Scrydex credit limit": "52" });
+    expect(probe.actions).toEqual(["Preview batch", "Confirm and enqueue", "Read batch-requested"]);
+    expect(result).toMatchObject({ journeyScope: "full-game-confirm", state: "confirmed", batchId: "batch-requested" });
+    expect(validateWholeGameReceipt(result)).toEqual([]);
+  });
+
+  it("keeps the zero-limit no-Scrydex start and leaves paid units on hold in ordinary start", async () => {
+    const noScrydex = startProbe({ providers: preview().providers });
+    const result = await noScrydex.run("full-game-start", {
+      CATALOG_WHOLE_GAME_BUDGET: "",
+      CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: "",
+    });
+    expect(noScrydex.fields["Scrydex credit limit"]).toBe("0");
+    expect(noScrydex.actions).toEqual(["Preview batch", "Confirm and enqueue", "Read batch-requested"]);
+    expect(result.preview).not.toHaveProperty("scrydexRequestLimit");
+    expect(validateWholeGameReceipt(result)).toEqual([]);
+
+    const paid = startProbe();
+    await expect(paid.run("full-game-start")).rejects.toMatchObject({ code: "scrydex-host-decision-required" });
+    expect(paid.actions).toEqual(["Preview batch"]);
+  });
+
+  it.each([
+    [{ planFingerprint: "c".repeat(64) }, {}, {}, "scrydex-approved-fingerprint-mismatch"],
+    [{}, {}, { CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=51" }, "scrydex-approved-limit-mismatch"],
+    [{}, {}, { CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=53" }, "scrydex-approved-limit-mismatch"],
+    [{}, {}, { CATALOG_WHOLE_GAME_BUDGET: "" }, "scrydex-approved-limit-mismatch"],
+    [{ confirmAllowed: false }, {}, {}, "preview-not-confirmable"],
+    [{ providers: [] }, {}, {}, "scrydex-participation-required"],
+    [{ providers: [{ ...scrydex, plannedRequests: null }] }, {}, {}, "scrydex-estimate-unavailable"],
+    [{}, { fingerprint: "c".repeat(64) }, {}, "scrydex-confirm-form-mismatch"],
+    [{}, { limit: "53" }, {}, "scrydex-confirm-form-mismatch"],
+  ])("refuses after live preview and never confirms (%j, %j, %j: %s)", async (live, hidden, env, code) => {
+    const probe = startProbe(live, hidden);
+    await expect(probe.run("full-game-confirm", env)).rejects.toMatchObject({ code });
+    expect(probe.actions).toEqual(["Preview batch"]);
+  });
+
+  it.each(["", "invalid"])("requires a valid approval fingerprint before preview (%s)", async (approval) => {
+    const probe = startProbe();
+    await expect(
+      probe.run("full-game-confirm", { CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: approval }),
+    ).rejects.toMatchObject({ code: "scrydex-approved-fingerprint-required" });
+    expect(probe.actions).toEqual([]);
   });
 });
 
