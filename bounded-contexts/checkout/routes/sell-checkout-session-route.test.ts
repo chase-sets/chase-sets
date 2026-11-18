@@ -1,4 +1,6 @@
 import type { SellListReviewPlan, SellListReadinessDecisionInput } from "../support/request-support/api-client";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
@@ -105,6 +107,7 @@ import {
 } from "../features/sell-list/api/marketplace-handoff";
 import { reviewedLinesForConfirmation } from "../features/sell-list/api/reviewed-lines";
 import { SellListReviewPlanStaleError } from "../features/sell-list/api/handoff-contracts";
+import { SignedInSellCheckoutPage } from "../features/sell-list/ui/signed-in-sell-checkout-page";
 import type { createCheckoutRequestApiClient } from "../support/request-support/api-client";
 
 // The fake confirm endpoint exercises the relocated API helper; the record spy is its persistence boundary.
@@ -582,6 +585,11 @@ describe("checkout web routes: sell checkout session", () => {
       return loadReview(body);
     });
 
+    const entry = await sellCheckoutSessionLoader({
+      request: new Request(signedInSellCheckoutUrl()),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
     const result = await sellCheckoutSessionAction({
       request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
       params: { sessionId: "chk_sell_1" },
@@ -589,6 +597,10 @@ describe("checkout web routes: sell checkout session", () => {
     } as never);
 
     expect(result).toMatchObject({ status: "error", fieldErrors: { [field]: expect.stringContaining(message) } });
+    if (entry.mode !== "signed-in" || result.status !== "error") throw new Error("Expected a signed-in refusal");
+    const markup = renderToString(createElement(SignedInSellCheckoutPage, { ...entry, actionState: result }));
+    expect(markup).toContain(message);
+    expect(markup).not.toContain("Not yet assessed");
     expectNoSellerCommitSideEffects();
   });
 

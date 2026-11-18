@@ -938,6 +938,10 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           .first()
           .click();
         await expect(seller).toHaveURL(/\/checkout\/sell\/session\//);
+        await expect(seller.getByText("Not yet assessed", { exact: true })).toBeVisible();
+        await expect(
+          seller.getByText(/^(Needs review|Seller account (ready|needs review)|Review required)$/i),
+        ).toHaveCount(0);
         for (const [name, value] of Object.entries({
           sellerName: "Synthetic Seller",
           email: marketplaceBrowserE2eSeedContract.seller.email,

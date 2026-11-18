@@ -328,7 +328,6 @@ export function SignedInSellCheckoutPage({
   const contactReady = values.sellerName.trim().length > 0 && values.email.trim().length > 0;
   const shipFromReady = addressIsComplete(values);
   const payoutReady = payoutSummary?.status === "ready" && !fieldErrors.payoutMethod;
-  const sellerReadinessReady = readiness?.sellerReadiness.status === "ready";
   const labelSelected =
     !fieldErrors.labelPreference &&
     (values.labelPreference === "prepaid-label" || values.labelPreference === "seller-label-later");
@@ -460,22 +459,16 @@ export function SignedInSellCheckoutPage({
                     )}
                   />
                 ) : null}
-                <CheckoutSavedInfoRow
-                  icon="shield"
-                  label={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.title")}
-                  value={
-                    sellerReadinessReady
-                      ? t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.ready")
-                      : t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.needs.review")
-                  }
-                  supportingText={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.detail")}
-                  status={
-                    sellerReadinessReady
-                      ? t("checkout.features.sellList.ui.signedInSellCheckoutPage.ready")
-                      : t("checkout.features.sellList.ui.signedInSellCheckoutPage.review.required")
-                  }
-                  statusTone={sellerReadinessReady ? "success" : "warning"}
-                />
+                {actionState?.status !== "error" ? (
+                  <CheckoutSavedInfoRow
+                    icon="shield"
+                    label={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.title")}
+                    value={t(
+                      "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.not.yet.assessed",
+                    )}
+                    supportingText={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.detail")}
+                  />
+                ) : null}
                 {labelSelected ? (
                   <CheckoutSavedInfoRow
                     icon="truck"
