@@ -24,9 +24,15 @@
 //! script), with the dry run Preview started (its part relayed live, `repricing::live`), or, for
 //! Save policy, Pricing's revise and the page read after it. Save needs no preview, as
 //! marketplace's does not. A refusal keeps what was posted (422).
+//!
+//! Each write is a configuration request (`repricing`'s module doc): one Pricing did not install is
+//! drawn on the page, or in the editor, which stays open and holds the attempt it sent. The page
+//! also says what the policy's and the halt's last requests are while Pricing has not installed
+//! them (their reads' `configuration`, as marketplace's banners).
 use std::{collections::BTreeMap, time::Duration};
 
 use corten::{
+    SubmitKey,
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
@@ -36,12 +42,12 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{
-        ApiError, RepricingActivityPage, RepricingCalls as _, RepricingCategory, RepricingHalt, RepricingPolicy,
-        RepricingPrerequisites, RepricingScopePreview,
+        ApiError, ConfigurationReceipt, Configured, RepricingActivityPage, RepricingCalls as _, RepricingCategory, RepricingHalt,
+        RepricingPolicy, RepricingPrerequisites, RepricingScopePreview,
     },
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
     auth::{PricingManager, Viewer},
-    repricing::{self, DryRunView, Editor, EditorInput, RunEditor, ended, messages},
+    repricing::{self, DryRunView, Editor, EditorInput, RunEditor, Unsettled, ended, messages},
     repricing_body::{self, Op, Posted, RuleFields, Source, Tier},
     text::RepricingMsg,
     views::{self, Layout},
@@ -115,6 +121,8 @@ impl Place {
 #[serde(rename_all = "camelCase", default)]
 pub struct PolicyForm {
     pub intent: String,
+    /// The write's attempt, drawn with the form (Pricing's `Idempotency-Key`).
+    pub attempt: Option<SubmitKey>,
     /// The list's Pause or Resume: the policy it is for.
     pub policy_id: String,
     /// A button that changes the rules' shape (`repricing_body::Op`).
@@ -187,6 +195,8 @@ pub struct Revise {
     pub dry_run: Option<String>,
     pub after: Option<String>,
     pub errors: Vec<String>,
+    /// Save's or Activate's request, when Pricing did not install it.
+    pub requested: Option<Unsettled>,
 }
 
 impl Revise {
@@ -201,7 +211,7 @@ impl Revise {
             "maxChangesPerDay": raw["maxChangesPerDay"],
         });
         let tier = Tier::opened(&body, |goal, version| facts.selectable(goal, version), requested);
-        let mut revise = Revise { tier, body, preset: None, dry_run: None, after: None, errors: Vec::new() };
+        let mut revise = Revise { tier, body, preset: None, dry_run: None, after: None, errors: Vec::new(), requested: None };
         revise.simple(facts);
         revise
     }
@@ -209,8 +219,15 @@ impl Revise {
     /// The create editor's preset, opened up (Open up this preset while creating a policy).
     pub(crate) fn opened(editor: Editor, facts: &RepricingPrerequisites) -> Revise {
         let body = editor.compile();
-        let mut revise =
-            Revise { tier: Tier::Preset, body, preset: Some(editor), dry_run: None, after: None, errors: Vec::new() };
+        let mut revise = Revise {
+            tier: Tier::Preset,
+            body,
+            preset: Some(editor),
+            dry_run: None,
+            after: None,
+            errors: Vec::new(),
+            requested: None,
+        };
         revise.change("open-up", None, facts);
         revise
     }
@@ -229,7 +246,15 @@ impl Revise {
             None
         };
         let text = |value: &Option<String>| value.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
-        Some(Revise { tier, body, preset, dry_run: text(&form.dry_run), after: text(&form.after), errors: Vec::new() })
+        Some(Revise {
+            tier,
+            body,
+            preset,
+            dry_run: text(&form.dry_run),
+            after: text(&form.after),
+            errors: Vec::new(),
+            requested: None,
+        })
     }
 
     /// In a preset's tier, its controls from the body's intent.
@@ -308,6 +333,8 @@ pub struct ReviseScreen {
     pub preview: Option<RepricingScopePreview>,
     pub run: Option<DryRunView>,
     pub errors: Vec<String>,
+    /// Save's or Activate's request, when Pricing did not install it: its form holds its attempt.
+    pub requested: Option<Unsettled>,
 }
 
 /// The editor, or that it could not read what it starts from.
@@ -376,7 +403,7 @@ pub(crate) async fn revise_part(
         }
         None => None,
     };
-    let Revise { tier, preset, errors, .. } = revise;
+    let Revise { tier, preset, errors, requested, .. } = revise;
     let body = candidate;
     Ok(ReviseEditor::Ready(Box::new(ReviseScreen {
         tier,
@@ -389,6 +416,7 @@ pub(crate) async fn revise_part(
         preview,
         run,
         errors,
+        requested,
     })))
 }
 
@@ -405,13 +433,17 @@ pub struct PolicyScreen {
     pub filter: Option<&'static str>,
     /// What a write was refused for.
     pub refusal: Option<Vec<String>>,
+    /// A write's request Pricing did not install.
+    pub requested: Option<ConfigurationReceipt>,
+    /// The policy's and the halt's last requests, while Pricing has not installed them.
+    pub requests: Vec<ConfigurationReceipt>,
     /// The reader may change the policy and the halt (`pricing.manage`).
     pub manage: bool,
     /// The editor, when the address or a post opens it.
     pub editor: Option<ReviseEditor>,
 }
 
-/// The page at `place`, with what a write was refused for.
+/// The page at `place`, with what a write was refused for, or its request Pricing did not install.
 #[allow(clippy::too_many_arguments)]
 async fn render(
     req: &Req,
@@ -421,6 +453,7 @@ async fn render(
     id: &str,
     place: &Place,
     refusal: Option<Vec<String>>,
+    requested: Option<ConfigurationReceipt>,
     revise: Option<Revise>,
     status: StatusCode,
 ) -> HtmlResult {
@@ -466,6 +499,18 @@ async fn render(
         tracing::warn!("the repricing budget could not be read: {error}");
     }
     let activity = activity.map_err(|error| tracing::warn!("a repricing policy's activity could not be read: {error}")).ok();
+    // This post's request is said once, by the post (marketplace's filter on its `requestKey`).
+    let posted = requested
+        .as_ref()
+        .or(revise.as_ref().and_then(|revise| revise.requested.as_ref()).map(|unsettled| &unsettled.receipt))
+        .map(|receipt| receipt.request_key().to_owned());
+    let halt_request = halt.as_ref().ok().and_then(|halt| halt.configuration.unsettled());
+    let requests = [policy.configuration.unsettled(), halt_request]
+        .into_iter()
+        .flatten()
+        .filter(|request| posted.as_deref() != Some(request.request_key()))
+        .cloned()
+        .collect();
     let manage = viewer.actor.can(PRICING_MANAGE);
     let opens = place.opens().filter(|_| manage && policy.status != "deleted");
     let editor = if revise.is_some() || opens.is_some() {
@@ -485,6 +530,8 @@ async fn render(
         activity,
         filter,
         refusal,
+        requested,
+        requests,
         manage,
         editor,
     };
@@ -508,7 +555,7 @@ pub(crate) async fn page(
     headers: HeaderMap,
     Params(route): Params<crate::app::url::repricing::RepricingPolicy<'_>>,
 ) -> HtmlResult {
-    render(&req, &viewer, &config, &headers, &route.id, &route.place, None, None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, &route.id, &route.place, None, None, None, StatusCode::OK).await
 }
 
 /// Pause, Resume, Delete, the halt and the editor's posts (marketplace's action's intents). A
@@ -529,37 +576,45 @@ pub(crate) async fn write(
         return editor(&req, &viewer, &config, &headers, &id, &form).await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
+    let attempt = form.attempt.as_ref().map(SubmitKey::as_str);
     let here = |receipt: Option<&Receipt>| url::RepricingPolicy {
         id: &id,
         place: Place { after_write: receipt.map(Receipt::param), ..Place::default() },
     };
-    let refused = match form.intent.as_str() {
+    let answered = match form.intent.as_str() {
         intent @ ("pause-policy" | "resume-policy" | "delete-policy") => {
             let change = intent.trim_end_matches("-policy");
-            match caller.repricing_lifecycle(&id, change).await {
-                Ok(receipt) if change == "delete" => {
-                    return req.redirect(&url::Repricing { place: crate::repricing::Place::list(receipt.as_ref()) });
+            match caller.repricing_lifecycle(attempt, &id, change).await {
+                Ok(Configured { receipt, after }) if receipt.applied() && change == "delete" => {
+                    return req.redirect(&url::Repricing { place: crate::repricing::Place::list(after.as_ref()) });
                 }
-                Ok(receipt) => return req.redirect(&here(receipt.as_ref())),
-                Err(refusal) => refusal,
+                Ok(Configured { receipt, after }) if receipt.applied() => return req.redirect(&here(after.as_ref())),
+                answered => answered,
             }
         }
-        intent @ ("engage-halt" | "release-halt") => match caller.set_repricing_halt(intent == "engage-halt").await {
-            Ok(_) => return req.redirect(&here(None)),
-            Err(refusal) => refusal,
+        intent @ ("engage-halt" | "release-halt") => match caller.set_repricing_halt(attempt, intent == "engage-halt").await {
+            Ok(Configured { receipt, .. }) if receipt.applied() => return req.redirect(&here(None)),
+            answered => answered,
         },
         _ => {
             let refusal = Some(vec![t.route_unknown_action().to_owned()]);
             let place = Place::default();
-            return render(&req, &viewer, &config, &headers, &id, &place, refusal, None, StatusCode::UNPROCESSABLE_ENTITY).await;
+            return render(&req, &viewer, &config, &headers, &id, &place, refusal, None, None, StatusCode::UNPROCESSABLE_ENTITY)
+                .await;
         }
     };
-    match messages(&req, refused, t.route_action_failed()) {
-        Ok(details) => {
-            let place = Place::default();
-            render(&req, &viewer, &config, &headers, &id, &place, Some(details), None, StatusCode::UNPROCESSABLE_ENTITY).await
+    let place = Place::default();
+    match answered {
+        Ok(Configured { receipt, .. }) => {
+            render(&req, &viewer, &config, &headers, &id, &place, None, Some(receipt), None, StatusCode::OK).await
         }
-        Err(answer) => *answer,
+        Err(refused) => match messages(&req, refused, t.route_action_failed()) {
+            Ok(details) => {
+                render(&req, &viewer, &config, &headers, &id, &place, Some(details), None, None, StatusCode::UNPROCESSABLE_ENTITY)
+                    .await
+            }
+            Err(answer) => *answer,
+        },
     }
 }
 
@@ -578,7 +633,8 @@ async fn editor(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
     let Some(mut revise) = Revise::posted(form, &facts, t) else {
         // A post without a body the editor can read opens the editor at the policy again.
         let refusal = Some(vec![t.editor_validation_failed().to_owned()]);
-        return render(req, viewer, config, headers, id, &Place::edit(), refusal, None, StatusCode::UNPROCESSABLE_ENTITY).await;
+        return render(req, viewer, config, headers, id, &Place::edit(), refusal, None, None, StatusCode::UNPROCESSABLE_ENTITY)
+            .await;
     };
     let again = |revise: Revise, status: StatusCode| answer(req, viewer, config, headers, id, revise, status);
     // Open up a preset only once it has what a preview needs, as marketplace's button is off until
@@ -611,19 +667,25 @@ async fn editor(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
                 },
             }
         }
-        "revise-policy" => match caller.revise_repricing_policy(id, &revise.candidate()).await {
-            Ok(receipt) => req.redirect(&url::RepricingPolicy {
-                id,
-                place: Place { after_write: receipt.as_ref().map(Receipt::param), ..Place::default() },
-            }),
-            Err(refusal) => match messages(req, refusal, t.route_action_failed()) {
-                Ok(errors) => {
-                    revise.errors = errors;
-                    again(revise, StatusCode::UNPROCESSABLE_ENTITY).await
+        "revise-policy" => {
+            match caller.revise_repricing_policy(form.attempt.as_ref().map(SubmitKey::as_str), id, &revise.candidate()).await {
+                Ok(Configured { receipt, after }) if receipt.applied() => req.redirect(&url::RepricingPolicy {
+                    id,
+                    place: Place { after_write: after.as_ref().map(Receipt::param), ..Place::default() },
+                }),
+                Ok(Configured { receipt, .. }) => {
+                    revise.requested = Some(Unsettled { receipt, attempt: form.attempt.clone() });
+                    again(revise, StatusCode::OK).await
                 }
-                Err(answer) => *answer,
-            },
-        },
+                Err(refusal) => match messages(req, refusal, t.route_action_failed()) {
+                    Ok(errors) => {
+                        revise.errors = errors;
+                        again(revise, StatusCode::UNPROCESSABLE_ENTITY).await
+                    }
+                    Err(answer) => *answer,
+                },
+            }
+        }
         _ => again(revise, StatusCode::OK).await,
     }
 }
@@ -639,7 +701,7 @@ async fn answer(
     status: StatusCode,
 ) -> HtmlResult {
     if req.mode != corten::Mode::Action {
-        return render(req, viewer, config, headers, id, &Place::edit(), None, Some(revise), status).await;
+        return render(req, viewer, config, headers, id, &Place::edit(), None, None, Some(revise), status).await;
     }
     let part = match revise_part(config, headers, Some(id), &Value::Null, None, Some(revise)).await {
         Ok(part) => part,

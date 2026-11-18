@@ -13190,12 +13190,45 @@ async fn the_desk_is_for_anyone_signed_in() {
 
 const REPRICING_API: &str = "/api/marketplace/account/repricing-policies";
 const REPRICING_SCREEN: &str = "/account/desk/repricing";
+/// Attempts the stand-in answers a configuration write for as Pricing does when it does not
+/// install the request: recorded and pending (202), replaced by a later request (409), and a
+/// pending receipt answered as 200, which no Pricing sends.
+const PENDING: &str = "7d3f2a10-1c2b-4d5e-8f60-0a1b2c3d4e5f";
+const REPLACED: &str = "7d3f2a10-1c2b-4d5e-8f60-0a1b2c3d4e60";
+const MISPAIRED: &str = "7d3f2a10-1c2b-4d5e-8f60-0a1b2c3d4e61";
+
+/// A repricing configuration write's answer (Pricing's receipt for the attempt in `headers`, or a
+/// key it made up): installed at `position` with `state`, as `status` (200, or 201 for a create),
+/// except for the attempts above.
+fn configured(headers: &HeaderMap, status: StatusCode, position: &str, state: Value) -> Response {
+    let key = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or("made-up-key").to_owned();
+    let pending = json!({ "requestKey": key, "requestedRevision": 7, "status": "accepted-pending" });
+    match key.as_str() {
+        PENDING => (StatusCode::ACCEPTED, Json(pending)).into_response(),
+        MISPAIRED => Json(pending).into_response(),
+        REPLACED => (
+            StatusCode::CONFLICT,
+            Json(
+                json!({ "requestKey": key, "requestedRevision": 7, "status": "superseded-by-revision", "replacingRevision": 8 }),
+            ),
+        )
+            .into_response(),
+        _ => committed(
+            status,
+            "pricing",
+            position,
+            json!({ "requestKey": key, "requestedRevision": 3, "installedRevision": 3, "status": "applied", "state": state }),
+        ),
+    }
+}
 
 /// Pricing's repricing routes, as the stand-in answers them: two policies (one active, one
 /// paused), the halt (engaged for `price_reader`), one finished dry run, USD and a cost basis, two
 /// categories and a scope that matches 12. A dry run is kept as Pricing keeps it (its body without
 /// the name) and is complete when read; one whose floor is `0` is refused with its details. A
 /// policy's pause answers position 42, its resume 43 (a read still catching up).
+/// Each write answers its configuration receipt (`configured`). For `price_reader` Pricing has
+/// not installed a policy's request (revision 5) nor the halt's (revision 2).
 fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = percent_encoding::percent_decode_str(uri.path()).decode_utf8().ok()?;
     let rest = path.strip_prefix(REPRICING_API)?;
@@ -13215,8 +13248,22 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
             { "policyId": "pol_2", "name": "Cards", "scope": { "kind": "catalog-filter", "categoryIds": ["cat-1", "cat-2"] }, "status": "paused", "maxChangesPerDay": null, "changesUsedToday": 0 },
         ]))
         .into_response(),
-        ("GET", "/halt") => Json(json!({ "engaged": session == "price_reader", "engagedAt": "2026-10-27T12:00:00.000Z", "releasedAt": null })).into_response(),
-        ("POST", "/halt") => Json(serde_json::from_str::<Value>(body).unwrap()).into_response(),
+        ("GET", "/halt") => {
+            let request = (session == "price_reader")
+                .then(|| json!({ "requestKey": "req_halt", "requestedRevision": 2, "status": "accepted-pending" }));
+            Json(json!({
+                "engaged": session == "price_reader", "engagedAt": "2026-10-27T12:00:00.000Z", "releasedAt": null,
+                "configuration": { "installedRevision": 1, "requestedRevision": if request.is_some() { 2 } else { 1 }, "request": request },
+            }))
+            .into_response()
+        }
+        ("GET", "/configuration-requests") if session == "price_reader" => Json(json!([
+            { "requestKey": "req_halt", "requestedRevision": 2, "status": "accepted-pending" },
+            { "requestKey": "req_policy", "requestedRevision": 5, "status": "accepted-pending" },
+        ]))
+        .into_response(),
+        ("GET", "/configuration-requests") => Json(json!([])).into_response(),
+        ("POST", "/halt") => configured(headers, StatusCode::OK, "46", serde_json::from_str::<Value>(body).unwrap()),
         ("GET", "/dry-runs") => Json(json!([run("repricing-dry-run:old", json!({}), "completed")])).into_response(),
         ("GET", "/authoring-prerequisites") => Json(json!({ "listingCurrencyCodes": ["USD"], "hasCostBasis": true })).into_response(),
         ("GET", "/categories") => Json(json!([{ "id": "cat-1", "name": "Pokemon" }, { "id": "cat-2", "name": "Magic" }])).into_response(),
@@ -13274,7 +13321,7 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
             if sent["dryRunId"] != json!("repricing-dry-run:new") {
                 return Some(refusal(StatusCode::CONFLICT, "dry_run_mismatch", "That preview cannot be activated."));
             }
-            committed(StatusCode::CREATED, "pricing", "42", json!({ "policyId": "pol_3" }))
+            configured(headers, StatusCode::CREATED, "42", json!({ "policyId": "pol_3" }))
         }
         ("GET", "/budget") => Json(json!({ "day": "2026-10-29", "changesUsed": 3 })).into_response(),
         ("GET", "/pol_1") => Json(repricing_policy_stand()).into_response(),
@@ -13311,16 +13358,16 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
                 page(vec![row("lst_1", "changed", Value::Null, 0), row("lst_2", "skipped", json!("budget-exhausted"), 3)], json!("lst_2"))
             }
         }
-        ("POST", "/pol_1/pause") => committed(StatusCode::OK, "pricing", "42", json!({})),
-        ("POST", "/pol_1/delete") => committed(StatusCode::OK, "pricing", "44", json!({})),
-        ("POST", "/pol_2/resume") => committed(StatusCode::OK, "pricing", "43", json!({})),
+        ("POST", "/pol_1/pause") => configured(headers, StatusCode::OK, "42", json!({ "policyId": "pol_1" })),
+        ("POST", "/pol_1/delete") => configured(headers, StatusCode::OK, "44", json!({ "policyId": "pol_1" })),
+        ("POST", "/pol_2/resume") => configured(headers, StatusCode::OK, "43", json!({ "policyId": "pol_2" })),
         // A revise whose daily cap is 0 is refused with its details.
         ("POST", "/pol_1/revise" | "/pol_4/revise") if serde_json::from_str::<Value>(body).ok()?["maxChangesPerDay"] == json!(0) => {
             let details = json!([{ "path": "maxChangesPerDay", "message": "Allow at least one change a day." }]);
             (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": { "code": "validation_failed", "message": "Invalid policy.", "details": details } })))
                 .into_response()
         }
-        ("POST", "/pol_1/revise" | "/pol_4/revise") => committed(StatusCode::OK, "pricing", "45", json!({})),
+        ("POST", "/pol_1/revise" | "/pol_4/revise") => configured(headers, StatusCode::OK, "45", json!({})),
         ("POST", _) => refusal(StatusCode::CONFLICT, "policy_not_found", "That policy is gone."),
         _ => return None,
     })
@@ -14064,6 +14111,15 @@ async fn a_policys_editor_posts_draw_it_again_and_save_revises_the_policy() {
     assert_eq!(sent["authoringIntent"]["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 3, "ageDays": 45 }));
     assert_eq!(sent["name"], json!("Beat"));
 
+    // A save Pricing records without installing it: the editor again, saying so, holding the
+    // attempt it sent, so sending it again is the same request.
+    let mut fields = preset("revise-policy", "3");
+    fields.extend([("body", body.as_str()), ("attempt", PENDING)]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 is pending. Installed policy and halt are unchanged."), "{html}");
+    assert!(html.contains(&format!(r#"{ATTEMPT_INPUT}{PENDING}""#)) && html.contains("data-repricing-tier"), "{html}");
+
     // Open up this preset: one rule opens in the structured editor, which can go back.
     let mut fields = preset("open-up", "2");
     fields.push(("body", &body));
@@ -14253,6 +14309,55 @@ async fn the_halt_posts_its_change_and_goes_back_to_the_list() {
     assert_eq!(serde_json::from_str::<Value>(body).unwrap(), json!({ "engaged": true }));
     let (status, _, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=nonsense", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_write_pricing_does_not_install_says_so_where_it_was_posted_and_is_sent_as_its_attempt() {
+    let pilot = Pilot::new().await;
+    // Each write's form draws an attempt.
+    let (_, _, html) = pilot.send(get(REPRICING_SCREEN, Some("pricer"))).await;
+    assert_eq!(html.matches(ATTEMPT_INPUT).count(), 3, "the halt's and two policies' forms: {html}");
+    // A pause Pricing records and has not installed: the list again, saying so (marketplace's words).
+    let (status, _, html) = pilot
+        .send(post(REPRICING_SCREEN, "pricer", &format!("intent=pause-policy&policyId=pol_1&attempt={PENDING}"), false))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 is pending. Installed policy and halt are unchanged."), "{html}");
+    assert!(html.contains(&format!(r#"data-repricing-request="{PENDING}""#)), "{html}");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/pol_1/pause")).map(|c| c.headers.clone());
+    assert_eq!(sent.unwrap()["idempotency-key"], PENDING);
+    // A halt a later request replaced.
+    let (status, _, html) =
+        pilot.send(post(REPRICING_SCREEN, "pricer", &format!("intent=engage-halt&attempt={REPLACED}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 was replaced by request 8."), "{html}");
+    // A receipt whose status Pricing would not answer it with is not believed.
+    let (status, _, _) = pilot
+        .send(post(REPRICING_SCREEN, "pricer", &format!("intent=pause-policy&policyId=pol_1&attempt={MISPAIRED}"), false))
+        .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    // On a policy's page too.
+    let page = "/account/desk/repricing/pol_1";
+    let (status, _, html) = pilot.send(post(page, "pricer", &format!("intent=pause-policy&attempt={PENDING}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 is pending. Installed policy and halt are unchanged."), "{html}");
+}
+
+#[tokio::test]
+async fn the_list_and_a_policys_page_say_which_requests_pricing_has_not_installed() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(REPRICING_SCREEN, Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let shown = text(&html);
+    assert!(shown.contains("Request 2 is pending.") && shown.contains("Request 5 is pending."), "{html}");
+    // The policy's page says the halt's (the policy's read has none).
+    let (status, _, html) = pilot.send(get("/account/desk/repricing/pol_1", Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Request 2 is pending.") && !text(&html).contains("Request 5"), "{html}");
+    // Without any, nothing is said.
+    let (_, _, html) = pilot.send(get(REPRICING_SCREEN, Some("pricer"))).await;
+    assert!(!html.contains("data-repricing-request"), "{html}");
 }
 
 #[tokio::test]
@@ -19859,10 +19964,22 @@ fn pricing_health(session: &str, method: &Method, uri: &Uri, body: &str) -> Opti
         ("POST", p) if p.ends_with("/apply-goal") && body.contains("\"targetBodyHash\":\"stale\"") => {
             (StatusCode::CONFLICT, Json(json!({ "error": { "code": "goal_apply_refused", "reason": "policy_changed" } }))).into_response()
         }
+        // A goal's revise Pricing records and has not installed, and one a later request replaced.
+        ("POST", p) if p.ends_with("/apply-goal") && body.contains("\"targetRevision\":9") => (
+            StatusCode::ACCEPTED,
+            Json(json!({ "requestKey": "apply-goal:dry_c1", "requestedRevision": 10, "status": "accepted-pending" })),
+        )
+            .into_response(),
+        ("POST", p) if p.ends_with("/apply-goal") && body.contains("\"targetRevision\":8") => (
+            StatusCode::CONFLICT,
+            Json(json!({ "requestKey": "apply-goal:dry_c1", "requestedRevision": 9, "status": "superseded-by-revision", "replacingRevision": 10 })),
+        )
+            .into_response(),
         ("POST", p) if p.ends_with("/apply-goal") => Json(json!({
             "policyId": "rpp_1", "previousRevision": 4, "revision": 5, "bodyHash": "hash_5", "dryRunId": "dry_c1", "goalId": "fixed-percentile",
             "goalVersion": 1, "parameters": { "percentile": 65 }, "state": {}, "movement": { "raised": 3, "lowered": 2, "held": 5 },
             "alerts": { "floorBinding": 1, "evidenceFloorBinding": 0 },
+            "requestKey": "apply-goal:dry_c1", "requestedRevision": 5, "installedRevision": 5, "status": "applied",
         })).into_response(),
         _ => return None,
     })
@@ -19998,6 +20115,21 @@ async fn pricing_health_computes_compares_and_applies_a_goal_and_says_what_was_r
         html.contains("This goal could not be applied. The policy or preview may have changed; refresh and compare again."),
         "{html}"
     );
+    // A goal Pricing records and has not installed, and one a later request replaced: marketplace's
+    // words, and nothing said applied.
+    let (status, _, html) =
+        pilot.send(post(HEALTH_SCREEN, "pricer", &apply.replace("targetRevision=4", "targetRevision=9"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(
+        shown.contains("Pricing goal request is pending Request 10 is recorded. The installed policy is unchanged.")
+            && !shown.contains("Pricing goal applied"),
+        "{html}"
+    );
+    let (status, _, html) =
+        pilot.send(post(HEALTH_SCREEN, "pricer", &apply.replace("targetRevision=4", "targetRevision=8"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Pricing goal request was replaced Request 9 was replaced by request 10."), "{html}");
     // A form that is not what the page wrote is refused before Pricing sees it.
     let calls = pilot.stand.calls.lock().unwrap().len();
     let (status, _, html) =

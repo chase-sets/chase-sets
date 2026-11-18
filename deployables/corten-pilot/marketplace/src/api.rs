@@ -7092,6 +7092,80 @@ pub struct RepricingHalt {
     pub engaged: bool,
     pub engaged_at: Option<String>,
     pub released_at: Option<String>,
+    /// The halt's last request, when Pricing says (`configuration`).
+    #[serde(default)]
+    pub configuration: ConfigurationStatus,
+}
+
+/// What came of a repricing configuration write, a policy's or the halt's
+/// (`RepricingConfigurationReceipt`): the request's key and revision, and whether it is installed,
+/// still pending (nothing changed yet), or replaced by a later request before it was installed.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+pub enum ConfigurationReceipt {
+    Applied { request_key: String, requested_revision: u64, installed_revision: u64 },
+    AcceptedPending { request_key: String, requested_revision: u64 },
+    SupersededByRevision { request_key: String, requested_revision: u64, replacing_revision: u64 },
+}
+
+impl ConfigurationReceipt {
+    pub fn request_key(&self) -> &str {
+        match self {
+            Self::Applied { request_key, .. }
+            | Self::AcceptedPending { request_key, .. }
+            | Self::SupersededByRevision { request_key, .. } => request_key,
+        }
+    }
+
+    pub fn requested_revision(&self) -> u64 {
+        match self {
+            Self::Applied { requested_revision, .. }
+            | Self::AcceptedPending { requested_revision, .. }
+            | Self::SupersededByRevision { requested_revision, .. } => *requested_revision,
+        }
+    }
+
+    pub fn applied(&self) -> bool {
+        matches!(self, Self::Applied { .. })
+    }
+
+    /// A receipt as `parseRepricingConfigurationReceipt` takes one: a key of 1 to 200 characters, a
+    /// first revision of 1, an installed revision that is the request's, a later replacing one.
+    fn valid(&self) -> bool {
+        let key = self.request_key();
+        let revision = self.requested_revision();
+        !key.is_empty()
+            && key.chars().count() <= 200
+            && revision > 0
+            && match self {
+                Self::Applied { installed_revision, .. } => *installed_revision == revision,
+                Self::AcceptedPending { .. } => true,
+                Self::SupersededByRevision { replacing_revision, .. } => *replacing_revision > revision,
+            }
+    }
+}
+
+/// A policy's or the halt's configuration as its read carries it (`RepricingConfigurationStatus`):
+/// the pilot reads only its last request.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ConfigurationStatus {
+    pub request: Option<ConfigurationReceipt>,
+}
+
+impl ConfigurationStatus {
+    /// The last request, while it is not installed.
+    pub fn unsettled(&self) -> Option<&ConfigurationReceipt> {
+        self.request.as_ref().filter(|request| !request.applied())
+    }
+}
+
+/// A configuration write's answer: its receipt, and the commit receipt an installed write carries
+/// for the read after it.
+#[derive(Debug)]
+pub struct Configured {
+    pub receipt: ConfigurationReceipt,
+    pub after: Option<Receipt>,
 }
 
 /// A dry run's counts (`RepricingDryRunSummary`).
@@ -7236,6 +7310,9 @@ pub struct RepricingPolicy {
     /// `active`, `paused` or `deleted`.
     pub status: String,
     pub updated_at: Option<String>,
+    /// The policy's last request, when Pricing says (`configuration`).
+    #[serde(default)]
+    pub configuration: ConfigurationStatus,
 }
 
 /// A rule: the conditions a listing must meet, and how it is priced (`RepricingRule`). The first
@@ -7464,6 +7541,11 @@ async fn pricing_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Val
     if status.is_success() {
         return Ok((body, receipt));
     }
+    Err(pricing_refusal(status, &body))
+}
+
+/// What Pricing refused a write for (`status`, and its body's `error`).
+fn pricing_refusal(status: StatusCode, body: &serde_json::Value) -> PricingRefusal {
     let error = &body["error"];
     let details = error["details"]
         .as_array()
@@ -7474,13 +7556,53 @@ async fn pricing_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Val
         code: error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned),
         message: error["message"].as_str().unwrap_or_default().to_owned(),
     };
-    Err(PricingRefusal { error, details })
+    PricingRefusal { error, details }
+}
+
+/// A configuration write's answer, as `parseConfigurationResponse` reads it: 200 or 201 with an
+/// installed request's receipt, 202 with a pending one's, 409 with the receipt of one a later
+/// request replaced. Any other pairing, or a body that is not a receipt, is a 502; a 409 without a
+/// receipt (`concurrency_conflict`, `goal_apply_refused`) and any other error are refusals.
+async fn configuration_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Value, Configured), PricingRefusal> {
+    let res = req.send().await.map_err(ApiError::from)?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let after = Receipt::from_response(res.headers());
+    let body: serde_json::Value = res.json().await.unwrap_or_default();
+    let answered = status.is_success() || (status == StatusCode::CONFLICT && body["status"].is_string());
+    if !answered {
+        return Err(pricing_refusal(status, &body));
+    }
+    let unreadable =
+        |message: String| PricingRefusal::from(ApiError::Status { status: StatusCode::BAD_GATEWAY, code: None, message });
+    let receipt: ConfigurationReceipt = serde_json::from_value(body.clone())
+        .map_err(|error| unreadable(format!("a configuration receipt the page cannot read: {error}")))?;
+    let paired = match &receipt {
+        ConfigurationReceipt::Applied { .. } => matches!(status, StatusCode::OK | StatusCode::CREATED),
+        ConfigurationReceipt::AcceptedPending { .. } => status == StatusCode::ACCEPTED,
+        ConfigurationReceipt::SupersededByRevision { .. } => status == StatusCode::CONFLICT,
+    };
+    if !receipt.valid() || !paired {
+        return Err(unreadable(format!("a configuration receipt the page cannot read ({status})")));
+    }
+    Ok((body, Configured { receipt, after }))
+}
+
+/// `req` sent as `attempt` (Pricing's `Idempotency-Key`), when the form drew one; without it,
+/// Pricing makes one up, as for marketplace's request without a key.
+fn attempted(req: reqwest::RequestBuilder, attempt: Option<&str>) -> reqwest::RequestBuilder {
+    match attempt {
+        Some(attempt) => req.header(IDEMPOTENCY_KEY, attempt),
+        None => req,
+    }
 }
 
 /// The Seller Desk repricing page's calls (Pricing's `repricing-policies` routes).
 pub trait RepricingCalls {
     async fn repricing_policies(&self) -> Result<Vec<RepricingPolicyRow>, ApiError>;
     async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError>;
+    /// The account's requests not installed yet, the policies' and the halt's
+    /// (`configuration-requests`, at most 100).
+    async fn repricing_configuration_requests(&self) -> Result<Vec<ConfigurationReceipt>, ApiError>;
     async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError>;
     async fn repricing_prerequisites(&self) -> Result<RepricingPrerequisites, ApiError>;
     async fn repricing_categories(&self) -> Result<Vec<RepricingCategory>, ApiError>;
@@ -7489,14 +7611,31 @@ pub trait RepricingCalls {
     async fn repricing_dry_run(&self, id: &str) -> Result<RepricingDryRun, ApiError>;
     async fn repricing_dry_run_traces(&self, id: &str, after: Option<&str>) -> Result<Vec<RepricingTrace>, ApiError>;
     async fn start_repricing_dry_run(&self, body: &serde_json::Value) -> Result<RepricingDryRun, PricingRefusal>;
-    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal>;
-    /// `pause` or `resume` a policy.
-    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
-    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
+    /// Each write is sent as the form's `attempt`, when it drew one, and answers its request's
+    /// receipt: the same attempt sent again answers the same request.
+    async fn create_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        dry_run_id: &str,
+        name: &str,
+    ) -> Result<Configured, PricingRefusal>;
+    /// `pause`, `resume` or `delete` a policy.
+    async fn repricing_lifecycle(
+        &self,
+        attempt: Option<&str>,
+        policy_id: &str,
+        change: &str,
+    ) -> Result<Configured, PricingRefusal>;
+    async fn set_repricing_halt(&self, attempt: Option<&str>, engaged: bool) -> Result<Configured, PricingRefusal>;
     /// The policy, and its JSON as Pricing answered it, which a revise edits.
     async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError>;
     /// Replaces the policy's body (`revise`).
-    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal>;
+    async fn revise_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        id: &str,
+        body: &serde_json::Value,
+    ) -> Result<Configured, PricingRefusal>;
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError>;
     /// A page of the policy's activity under `filter`, after the listing `after`.
     async fn repricing_activity(
@@ -7514,6 +7653,10 @@ impl RepricingCalls for Caller<'_> {
 
     async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError> {
         self.read(&format!("{REPRICING}/halt"), PRICING).await
+    }
+
+    async fn repricing_configuration_requests(&self) -> Result<Vec<ConfigurationReceipt>, ApiError> {
+        self.read(&format!("{REPRICING}/configuration-requests"), PRICING).await
     }
 
     async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError> {
@@ -7554,21 +7697,31 @@ impl RepricingCalls for Caller<'_> {
         })
     }
 
-    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal> {
+    async fn create_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        dry_run_id: &str,
+        name: &str,
+    ) -> Result<Configured, PricingRefusal> {
         let body = serde_json::json!({ "dryRunId": dry_run_id, "name": name });
-        let req = self.request(Method::POST, REPRICING, PRICING).json(&body);
-        Ok(pricing_answer(req).await?.1)
+        let req = attempted(self.request(Method::POST, REPRICING, PRICING), attempt).json(&body);
+        Ok(configuration_answer(req).await?.1)
     }
 
-    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal> {
+    async fn repricing_lifecycle(
+        &self,
+        attempt: Option<&str>,
+        policy_id: &str,
+        change: &str,
+    ) -> Result<Configured, PricingRefusal> {
         let req = self.request(Method::POST, &format!("{REPRICING}/{}/{change}", segment(policy_id)), PRICING);
-        Ok(pricing_answer(req).await?.1)
+        Ok(configuration_answer(attempted(req, attempt)).await?.1)
     }
 
-    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal> {
-        let req =
-            self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING).json(&serde_json::json!({ "engaged": engaged }));
-        Ok(pricing_answer(req).await?.1)
+    async fn set_repricing_halt(&self, attempt: Option<&str>, engaged: bool) -> Result<Configured, PricingRefusal> {
+        let req = attempted(self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING), attempt)
+            .json(&serde_json::json!({ "engaged": engaged }));
+        Ok(configuration_answer(req).await?.1)
     }
 
     async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError> {
@@ -7581,9 +7734,14 @@ impl RepricingCalls for Caller<'_> {
         Ok((policy, raw))
     }
 
-    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal> {
-        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING).json(body);
-        Ok(pricing_answer(req).await?.1)
+    async fn revise_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        id: &str,
+        body: &serde_json::Value,
+    ) -> Result<Configured, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING);
+        Ok(configuration_answer(attempted(req, attempt).json(body)).await?.1)
     }
 
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError> {
@@ -9522,13 +9680,21 @@ pub struct AppliedAlerts {
     pub floor_binding: u64,
 }
 
+/// What a goal's apply came to: applied, or a request not installed (pending, or replaced by a later
+/// one), which changed nothing yet.
+#[derive(Clone, Debug)]
+pub enum GoalAnswer {
+    Applied(AppliedGoal),
+    Requested(ConfigurationReceipt),
+}
+
 /// Pricing health's calls.
 pub trait PricingHealthCalls {
     /// The verdict for `policy`, or Pricing's choice of policy without one.
     async fn pricing_health(&self, policy: Option<&str>) -> Result<PricingHealth, ApiError>;
     /// Compute a verdict, or compare the goals, for `policy` (`compute` or `compare`).
     async fn pricing_health_command(&self, policy: &str, command: &str) -> Result<(), ApiError>;
-    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError>;
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<GoalAnswer, ApiError>;
 }
 
 impl PricingHealthCalls for Caller<'_> {
@@ -9544,11 +9710,14 @@ impl PricingHealthCalls for Caller<'_> {
         pricing_answer(req).await.map(|_| ()).map_err(|refusal| refusal.error)
     }
 
-    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError> {
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<GoalAnswer, ApiError> {
         let path = format!("{PRICING_HEALTH}/{}/apply-goal", segment(policy));
-        let (body, _) =
-            pricing_answer(self.request(Method::POST, &path, PRICING).json(goal)).await.map_err(|refusal| refusal.error)?;
-        serde_json::from_value(body).map_err(|error| ApiError::Status {
+        let req = self.request(Method::POST, &path, PRICING).json(goal);
+        let (body, configured) = configuration_answer(req).await.map_err(|refusal| refusal.error)?;
+        if !configured.receipt.applied() {
+            return Ok(GoalAnswer::Requested(configured.receipt));
+        }
+        serde_json::from_value(body).map(GoalAnswer::Applied).map_err(|error| ApiError::Status {
             status: StatusCode::BAD_GATEWAY,
             code: None,
             message: format!("an applied goal the page cannot read: {error}"),
