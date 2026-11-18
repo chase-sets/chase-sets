@@ -24,8 +24,10 @@ const workflowSource = readFileSync(resolve(workflowFile), "utf8");
 const workflow = () => parseYaml(workflowSource);
 const receiptFile = "artifacts/catalog-count-preparation/receipt.json";
 const origin = "https://admin.staging.chasesets.com";
+const usagePath = "/api/catalog/source-observations/integration-control-plane/overview?audience=daily";
 const sha = "a".repeat(40);
 const now = "2026-10-14T12:00:00.000Z";
+const olderObservedAt = "2026-10-14T11:40:00.000Z";
 const token = "synthetic-session-token-0123456789";
 const email = "synthetic-admin@example.invalid";
 const password = "synthetic-password-value";
@@ -70,6 +72,8 @@ function assertPreparationIsolated(document) {
   }
   expect(JSON.stringify(document)).not.toMatch(/SCRYDEX_|playwright/i);
   const [checkout, setup, prepare, receipt, upload, ...rest] = job.steps;
+  expect(document.on.workflow_dispatch.inputs.observe_usage).toMatchObject({ type: "boolean", default: false });
+  expect(prepare.env.CATALOG_COUNT_PREPARATION_OBSERVE_USAGE).toBe("${{ inputs.observe_usage }}");
   expect(rest).toEqual([]);
   expect(checkout.with).toEqual({ "persist-credentials": false });
   expect(setup.uses).toBe("./.github/actions/setup-pnpm-workspace");
@@ -163,6 +167,9 @@ describe("catalog staging count preparation workflow (#9591)", () => {
       "never a top-up",
       "Pass 2 needs its own preparation authority",
       "whole-quote admission",
+      "`observe_usage=true`",
+      "one general credit",
+      "a fresh dispatch",
     ])
       expect(paragraph).toContain(phrase);
   });
@@ -349,6 +356,12 @@ function periodDecision(quote, consumed = 0) {
   };
 }
 
+function usageResponse(attemptState, observedAt, providerKey = "scrydex") {
+  return Response.json({
+    readiness: { providerUsage: [{ providerKey, observedAt, attemptState, usedCredits: 1200 }] },
+  });
+}
+
 // Credential-free stand-in for the staging Admin origin; no request leaves the process.
 function fakeStagingAdmin({
   consumed = 0,
@@ -357,6 +370,7 @@ function fakeStagingAdmin({
   headroom = 40,
   scenario = "complete",
   quote = quoteFor(sets, headroom),
+  observeUsage = () => usageResponse("checked", now),
 } = {}) {
   let view = preparationView(quote);
   let acquired = false;
@@ -374,6 +388,7 @@ function fakeStagingAdmin({
       redirect: init.redirect,
     });
     if (url.pathname === "/api/auth/password-sign-in") return signIn();
+    if (`${url.pathname}${url.search}` === usagePath) return observeUsage();
     if (url.pathname.endsWith("/counts/quote")) return Response.json(quote);
     if (url.pathname.endsWith("/counts/acquire")) {
       if (acquired || view.admission.state !== "none") return Response.json({ error: {} }, { status: 409 });
@@ -487,24 +502,107 @@ const uploadedReceipt = (receiptPath, env) => {
 };
 
 describe("catalog staging count preparation runner (credential-free integration)", () => {
-  it("quote mode signs in, quotes once on the staging origin and writes a validated count-only receipt", async () => {
-    const admin = fakeStagingAdmin();
+  it.each([{}, { CATALOG_COUNT_PREPARATION_OBSERVE_USAGE: "false" }])(
+    "quotes once without a usage read when not opted in (%j)",
+    async (optIn) => {
+      const admin = fakeStagingAdmin();
+      const receiptPath = temporaryReceipt();
+      const env = runnerEnv(optIn);
+      const result = await runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath });
+      expect(result).toMatchObject({
+        ok: true,
+        summary: { mode: "quote", outcome: "quoted", continuation: "approval", quote: { plannedCredits: 2 } },
+      });
+      expect(requestLines(admin)).toEqual([
+        "POST /api/auth/password-sign-in",
+        "POST /api/catalog/scope-sync-batches/counts/quote",
+      ]);
+      expect(admin.requests.every((request) => request.origin === origin && request.redirect === "manual")).toBe(true);
+      expect(admin.requests[1]).toMatchObject({ cookie: `chase_sets_session=${token}`, originHeader: origin });
+      const bytes = readFileSync(receiptPath, "utf8");
+      for (const secret of [token, email, password]) expect(bytes).not.toContain(secret);
+      expect(uploadedReceipt(receiptPath, env)).not.toHaveProperty("usageObservation");
+    },
+  );
+
+  it.each([true, false])(
+    "observes usage once with the signed-in session (quote authority allowed: %s)",
+    async (allowed) => {
+      const quote = quoteFor(["OP01"], allowed ? 40 : null);
+      const admin = fakeStagingAdmin({ quote: { ...quote, authority: { ...quote.authority, allowed } } });
+      const receiptPath = temporaryReceipt();
+      const env = runnerEnv({ CATALOG_COUNT_PREPARATION_OBSERVE_USAGE: "true" });
+      const result = await runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath });
+      expect(result).toMatchObject({
+        ok: allowed,
+        summary: { outcome: allowed ? "quoted" : "refused", refusal: allowed ? null : "authority-unavailable" },
+      });
+      expect(requestLines(admin)).toEqual([
+        "POST /api/auth/password-sign-in",
+        `GET ${usagePath}`,
+        "POST /api/catalog/scope-sync-batches/counts/quote",
+      ]);
+      expect(admin.requests[1]).toMatchObject({
+        origin,
+        cookie: `chase_sets_session=${token}`,
+        redirect: "manual",
+        body: null,
+      });
+      const uploaded = uploadedReceipt(receiptPath, env);
+      expect(uploaded.usageObservation).toEqual({
+        requested: true,
+        observedAt: now,
+        attemptState: "checked",
+      });
+      expect(readFileSync(receiptPath, "utf8")).not.toContain("usedCredits");
+      uploaded.usageObservation.usedCredits = 1200;
+      writeFileSync(receiptPath, JSON.stringify(uploaded));
+      expect(validateCountPreparationFile({ file: receiptPath, env })).toMatchObject({
+        ok: false,
+        errors: ["schema:usageObservation:unrecognized_keys"],
+      });
+    },
+  );
+
+  it.each([
+    [
+      "an unavailable observation with an older timestamp",
+      () => usageResponse("unavailable", olderObservedAt),
+      olderObservedAt,
+      "unavailable",
+    ],
+    ["unconfigured credentials", () => usageResponse("not-configured", null), null, "not-configured"],
+    ["missing Scrydex evidence", () => usageResponse("checked", now, "another-provider"), null, "unavailable"],
+    ["a checked response with no timestamp", () => usageResponse("checked", null), null, "unavailable"],
+    ["a redirect", () => new Response(null, { status: 302, headers: { location: "/sign-in" } }), null, "unavailable"],
+    [
+      "a failed request",
+      () => {
+        throw new Error(token);
+      },
+      null,
+      "unavailable",
+    ],
+  ])("refuses before quoting after %s and never retries", async (_scenario, observeUsage, observedAt, attemptState) => {
+    const admin = fakeStagingAdmin({ observeUsage });
     const receiptPath = temporaryReceipt();
-    const env = runnerEnv();
+    const env = runnerEnv({ CATALOG_COUNT_PREPARATION_OBSERVE_USAGE: "true" });
     const result = await runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath });
     expect(result).toMatchObject({
-      ok: true,
-      summary: { mode: "quote", outcome: "quoted", continuation: "approval", quote: { plannedCredits: 2 } },
+      ok: false,
+      summary: { refusal: "usage-observation-not-checked", continuation: "stop", quote: null },
     });
-    expect(requestLines(admin)).toEqual([
-      "POST /api/auth/password-sign-in",
-      "POST /api/catalog/scope-sync-batches/counts/quote",
-    ]);
-    expect(admin.requests.every((request) => request.origin === origin && request.redirect === "manual")).toBe(true);
-    expect(admin.requests[1]).toMatchObject({ cookie: `chase_sets_session=${token}`, originHeader: origin });
-    const bytes = readFileSync(receiptPath, "utf8");
-    for (const secret of [token, email, password]) expect(bytes).not.toContain(secret);
-    expect(validateCountPreparationFile({ file: receiptPath, env })).toMatchObject({ ok: true, errors: [] });
+    expect(requestLines(admin)).toEqual(["POST /api/auth/password-sign-in", `GET ${usagePath}`]);
+    expect(uploadedReceipt(receiptPath, env).usageObservation).toEqual({ requested: true, observedAt, attemptState });
+  });
+
+  it("refuses to reuse the same dispatch's authorization on a GitHub rerun", async () => {
+    const admin = fakeStagingAdmin();
+    const env = runnerEnv({ CATALOG_COUNT_PREPARATION_OBSERVE_USAGE: "true", GITHUB_RUN_ATTEMPT: "2" });
+    await expect(
+      runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath: temporaryReceipt() }),
+    ).rejects.toMatchObject({ code: "usage-observation-requires-fresh-dispatch" });
+    expect(admin.requests).toEqual([]);
   });
 
   it("a no-Scrydex quote is a validated not-required handoff to independent reservation checks", async () => {
@@ -521,10 +619,10 @@ describe("catalog staging count preparation runner (credential-free integration)
     expect(uploadedReceipt(receiptPath, env)).toMatchObject({ outcome: "not-required", accounting: null });
   });
 
-  it("acquire mode pre-reads current authority, submits whole-quote admission once and reads back once", async () => {
+  it("acquire ignores usage opt-in, pre-reads authority, submits once and reads back once", async () => {
     const admin = fakeStagingAdmin();
     const receiptPath = temporaryReceipt();
-    const env = acquireEnv();
+    const env = { ...acquireEnv(), CATALOG_COUNT_PREPARATION_OBSERVE_USAGE: "true" };
     const result = await runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath });
     expect(result).toMatchObject({
       ok: true,
@@ -548,6 +646,7 @@ describe("catalog staging count preparation runner (credential-free integration)
       periodReserve: periodReserve(),
     });
     const uploaded = uploadedReceipt(receiptPath, env);
+    expect(uploaded).not.toHaveProperty("usageObservation");
     expect(uploaded.schemaVersion).toBe("catalog-rehearsal-count-preparation-receipt/v3");
     expect(uploaded.acquisition.periodDecision).toEqual(periodDecision(quoteFor(["OP01"], 40)));
     expect(uploaded.accounting.debits.map((row) => row.debitId)).toEqual([debitId(0), debitId(1)]);
