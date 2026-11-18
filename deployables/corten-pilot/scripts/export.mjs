@@ -1662,6 +1662,16 @@ const outputs = [
     }),
   ],
   [
+    "marketplace/locales/listing-recovery.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        // `continue` is a Rust keyword, so not a message's name.
+        ["marketplace.listingRecovery.continue", "start_another"],
+        ["marketplace.listingRecovery.", ""],
+      ]),
+    ),
+  ],
+  [
     "marketplace/locales/desk.en.json",
     json({
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [

@@ -44,6 +44,7 @@ mod inventory_page;
 mod item_detail;
 mod listing_new_page;
 mod listing_page;
+mod listing_recovery_notice;
 mod location_card;
 mod market_following;
 mod market_nav;
@@ -111,6 +112,7 @@ pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingPart
 pub use listing_page::{
     ListingGone, ListingNotice, ListingPage, fulfillment, grouped, listing_json_ld, listing_live_parts, listing_price, unbuyable,
 };
+pub use listing_recovery_notice::ListingRecoveryNotice;
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_following::MarketFollowing;
 pub use market_nav::{CartBadge, MarketNav};
@@ -274,10 +276,18 @@ pub const SESSIONS: &[Component] = &[SessionsPage];
 /// Create listing's page and its script.
 pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];
 
-/// The seller's listings (`/account/listings`): the list with its script, a listing's page, and
-/// Create listing's stylesheet for its "Account access required" page (`ListingAccessRequired`).
-pub const SELLER_LISTING: &[Component] =
-    &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage, NewListingPage];
+/// The seller's listings (`/account/listings`): the list with its script, a listing's page, what
+/// came of a change to either in the kit's alert and buttons, and Create listing's stylesheet for
+/// its "Account access required" page (`ListingAccessRequired`).
+pub const SELLER_LISTING: &[Component] = &[
+    SellerListingsPage,
+    seller_listings_page::handlers::COMPONENT,
+    SellerListingPage,
+    ListingRecoveryNotice,
+    platform::ui::alert::Alert,
+    platform::ui::button::Button,
+    NewListingPage,
+];
 
 /// The Sell List (`/account/sell-list`) and the Seller Desk's Offers & sell list (`/account/desk/offers`):
 /// its stylesheet. No script: Decline selected's dialog opens with `command="show-modal"`.
