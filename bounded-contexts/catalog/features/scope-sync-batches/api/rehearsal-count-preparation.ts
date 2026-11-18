@@ -43,7 +43,9 @@ const ageLimitMs = 15 * 60 * 1000;
 
 export type RehearsalCountAdminResponse = Readonly<{ status: number; body: unknown }>;
 const quoteErrorSchema = z.object({
-  error: z.object({ code: z.enum(["invalid-count-request", "unauthenticated", "forbidden", "count-acquisition-refused"]) }),
+  error: z.object({
+    code: z.enum(["invalid-count-request", "unauthenticated", "forbidden", "count-acquisition-refused"]),
+  }),
 });
 type QuoteFailure =
   | { kind: "request-failed" }
