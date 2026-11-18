@@ -203,7 +203,7 @@ export function createListingRecovery(store: EventStore) {
         return { recovery: recovery.phase === "ambiguous" ? recovery : { ...recovery, phase: "failed-safe" } };
       }
       if (retained) {
-        const sameCommand =
+        const matchingIdentity =
           identity &&
           retained.batchId === identity.batchId &&
           retained.mutationKind === identity.mutationKind &&
@@ -212,17 +212,19 @@ export function createListingRecovery(store: EventStore) {
           identity.targets.every(({ id, requestHash }, index) => {
             const item = vector?.items[index];
             return item?.targetId === id && item.requestHash === requestHash;
-          });
+          })
+            ? identity
+            : null;
         // The bulk retry endpoint checks owner history again and chooses its own targets.
-        if (sameCommand && retained.bulk) {
-          await prepareListingBatch(store, accountId, identity, context);
+        if (matchingIdentity && retained.bulk) {
+          await prepareListingBatch(store, accountId, matchingIdentity, context);
           return { reference: retained };
         }
         const recovery = await recoverListingBatch(retained, accountId, vector, lookup);
         if (recovery.phase === "ambiguous") return { recovery };
-        if (!sameCommand) return { recovery: { ...recovery, phase: "failed-safe" } };
+        if (!matchingIdentity) return { recovery: { ...recovery, phase: "failed-safe" } };
         if (!recovery.reentry) return { recovery };
-        await prepareListingBatch(store, accountId, identity, context);
+        await prepareListingBatch(store, accountId, matchingIdentity, context);
         return { reference: retained };
       }
       if (!identity) return { reference: null };
