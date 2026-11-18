@@ -95,10 +95,11 @@ export function channelConnectionRoutes(
 
   app.get("/:id", async (c) => {
     try {
-      const item = await services.getConnection({
-        accountId: c.get("actor").accountId,
-        connectionId: c.req.param("id"),
-      });
+      // This detail can be opened immediately after a connection transition.
+      const item = await services.getConnection(
+        { accountId: c.get("actor").accountId, connectionId: c.req.param("id") },
+        "committed",
+      );
       return item ? c.json(closePublicChannelConnection(item)) : c.json(errorBody("connection-not-found"), 404);
     } catch (error) {
       return routeError(error);

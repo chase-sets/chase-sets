@@ -4,11 +4,17 @@ import path from "node:path";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
+import { Hono } from "hono";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AccountChannelsConnectionRoute, { action, loader, readActionError } from "./account-channels-connection";
 import { action as downloadAction } from "./account-channel-connection-manual-sync-download";
 import { ChannelsConnectionsApiError } from "../../support/request-support/api-client";
+import type { ChannelsApiEnv } from "../../api";
+import { channelConnectionRoutes } from "../../features/connections/api/route";
+import { createChannelConnectionRuntime, loadOwned } from "../../features/connections/api/runtime";
+import { createConnectionHarness, testContext } from "../../features/connections/tests/test-support";
+import { channelProviderRegistry } from "../../features/publication-port/api/registry";
 
 describe("Channels account connection route contribution", () => {
   it.each(["live", "dark", "error"] as const)(
@@ -390,7 +396,125 @@ describe("Channels account connection route contribution", () => {
     expect(readActionError(new Response("csv"))).toBeNull();
   });
 
-  it("connector-pairing-surface: generates a validated code through the existing authenticated action", async () => {
+  it.each(["missing", "pending-setup"])(
+    "generates a pairing code on the first fresh paused detail when its projection is %s",
+    async (projectionStatus) => {
+      const seller = { ...actor(), accountId: "acc_owner", permissions: ["channels.view", "channels.manage"] };
+      const { memory, ports } = createConnectionHarness({ setupResolver: channelProviderRegistry.setupResolver });
+      const query = vi.fn().mockResolvedValue({ rows: [] });
+      const services = createChannelConnectionRuntime({ eventStore: memory.eventStore, db: { query } }, ports);
+      const api = new Hono<ChannelsApiEnv>();
+      const base = "/api/channels/connections";
+      api.use("*", async (c, next) => {
+        c.set("actor", seller);
+        c.set("context", testContext);
+        await next();
+      });
+      api.route(base, channelConnectionRoutes(services, { deploymentEnvironment: "test" }));
+      const post = (path: string, body?: object) =>
+        api.request(path, {
+          method: "POST",
+          ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+        });
+      const created = await post(base, { providerKey: "tcgplayer" });
+      expect(created.status).toBe(201);
+      const connection = await created.json();
+      expect(connection.status).toBe("pending-setup");
+      if (projectionStatus === "pending-setup") {
+        query.mockResolvedValue({
+          rows: [
+            {
+              connection_id: connection.connectionId,
+              account_id: seller.accountId,
+              provider_key: connection.providerKey,
+              environment: connection.environment,
+              status: connection.status,
+              created_at: connection.createdAt,
+            },
+          ],
+        });
+      }
+      const id = connection.connectionId;
+      const detail = `${base}/${id}`;
+      const active = await post(`${detail}/activate`, { storageLocationIds: ["location_1"] });
+      expect(active.status).toBe(200);
+      expect(await active.json()).toMatchObject({ status: "active" });
+      const paused = await post(`${detail}/pause`);
+      expect(paused.status).toBe(200);
+      expect(await paused.json()).toMatchObject({ status: "paused" });
+
+      const generated = {
+        pairingId: "pair_test",
+        revision: 1,
+        code: "a".repeat(43),
+        expiresAt: "2026-09-14T12:10:00Z",
+      };
+      const generate = vi.fn(async () => {
+        const { state } = await loadOwned(memory.eventStore, seller.accountId, id);
+        expect(state.status).toBe("paused");
+        return Response.json(generated);
+      });
+      const auxiliary = connectorPairingFetch(generate);
+      expect(await auxiliary(`${detail}/connector-pairing`).then((response) => response.json())).toMatchObject({
+        state: "unpaired",
+      });
+      vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
+        const path = new URL(input).pathname;
+        if (path === "/api/auth/session") return Response.json({ actor: seller });
+        if (path === detail) return api.request(input, init);
+        if (path === `${detail}/connector-pairing` && generate.mock.calls.length) {
+          return Response.json({
+            state: "code",
+            pairingId: generated.pairingId,
+            revision: generated.revision,
+            codeExpiresAt: generated.expiresAt,
+            lastSeenAt: null,
+          });
+        }
+        return auxiliary(input);
+      });
+
+      const router = renderRoute(id);
+      await settleRouter(router);
+      const controls = document.querySelectorAll<HTMLButtonElement>(
+        'form:has(input[name="intent"][value="connector-code"]) button[type="submit"]',
+      );
+      expect(controls).toHaveLength(1);
+      const generateButton = controls[0]!;
+      expect(generateButton.disabled).toBe(false);
+      expect(screen.getByText("Paused")).toBeTruthy();
+      const submitted = waitForActionNavigation(router);
+      fireEvent.click(generateButton);
+      await act(async () => {
+        await submitted;
+      });
+      expect(generate).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByText("Click the connector in your browser toolbar within ten minutes to finish pairing."),
+      ).toBeTruthy();
+      expect(document.body.innerHTML).not.toContain(generated.code);
+    },
+  );
+
+  it.each([
+    ["disconnected", ["channels.view", "channels.manage"]],
+    ["paused", ["channels.view"]],
+  ] as const)("does not offer Generate on a %s connection with permissions %j", async (status, permissions) => {
+    const auxiliary = connectorPairingFetch(() => new Response(null, { status: 500 }));
+    vi.stubGlobal("fetch", async (input: string) => {
+      const path = new URL(input).pathname;
+      if (path === "/api/auth/session") return Response.json({ actor: { ...actor(), permissions } });
+      if (path === "/api/channels/connections/connection-a") {
+        return Response.json({ ...actorConnection(), status, allowedActions: [] });
+      }
+      return auxiliary(input);
+    });
+
+    await settleRouter(renderRoute());
+    expect(screen.queryByRole("button", { name: "Generate pairing code" })).toBeNull();
+  });
+
+  it("connector-pairing-surface: validates the generated code without forwarding it to the page", async () => {
     const generated = { pairingId: "pair_test", revision: 1, code: "a".repeat(43), expiresAt: "2026-09-14T12:10:00Z" };
     const fetch = vi
       .fn()
@@ -401,7 +525,10 @@ describe("Channels account connection route contribution", () => {
       method: "POST",
       body: new URLSearchParams({ intent: "connector-code" }),
     });
-    expect(await action(loaderArgs(request))).toEqual({ kind: "pairing-code", generated });
+    expect(await action(loaderArgs(request))).toEqual({
+      kind: "pairing-code",
+      generated: { pairingId: generated.pairingId, expiresAt: generated.expiresAt },
+    });
     expect(fetch.mock.calls[1]?.[0]).toBe(
       "http://localhost/api/channels/connections/connection-a/connector-pairing/code",
     );
@@ -591,7 +718,7 @@ function connectorPairingFetch(code: () => Response | Promise<Response>) {
   });
 }
 
-function renderRoute() {
+function renderRoute(connectionId = "connection-a") {
   const router = createMemoryRouter(
     [
       {
@@ -601,7 +728,7 @@ function renderRoute() {
         Component: AccountChannelsConnectionRoute,
       },
     ],
-    { initialEntries: ["/account/channels/connection-a"] },
+    { initialEntries: [`/account/channels/${connectionId}`] },
   );
   render(
     <ChaseRoot linkComponent={RouterLinkAdapter}>

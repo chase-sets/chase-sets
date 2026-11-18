@@ -33,7 +33,11 @@ import {
   assertStorageLocationIds,
 } from "../domain/validation";
 import { buildChannelConnectionProjectionHandlers } from "../read-model/projection";
-import { getPublicChannelConnection, listPublicChannelConnections } from "../read-model/queries";
+import {
+  getPublicChannelConnection,
+  listPublicChannelConnections,
+  toPublicChannelConnection,
+} from "../read-model/queries";
 
 export type ChannelConnectionRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -268,7 +272,16 @@ export function createChannelConnectionRuntime(
         context,
       });
     },
-    getConnection: (input) => getPublicChannelConnection(deps.db, input),
+    getConnection: async (input, source = "projection") => {
+      if (source === "projection") return getPublicChannelConnection(deps.db, input);
+      try {
+        const { state } = await loadOwned(deps.eventStore, input.accountId, input.connectionId);
+        return toPublicChannelConnection(state);
+      } catch (error) {
+        if (error instanceof ChannelConnectionError && error.code === "connection-not-found") return null;
+        throw error;
+      }
+    },
     listConnections: (input) => listPublicChannelConnections(deps.db, input),
     projectors,
   };

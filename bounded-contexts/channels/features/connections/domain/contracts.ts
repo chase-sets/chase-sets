@@ -251,7 +251,10 @@ export interface ChannelConnectionServices {
     input: Readonly<{ accountId: string; connectionId: string }>,
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
-  getConnection(input: Readonly<{ accountId: string; connectionId: string }>): Promise<PublicChannelConnection | null>;
+  getConnection(
+    input: Readonly<{ accountId: string; connectionId: string }>,
+    source?: "projection" | "committed",
+  ): Promise<PublicChannelConnection | null>;
   listConnections(
     input: Readonly<{
       accountId: string;
