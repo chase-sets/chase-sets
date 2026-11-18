@@ -2,9 +2,9 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SignedInSellCheckoutPage, signedInSellCheckoutDefaultValues } from "./signed-in-sell-checkout-page";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
-import { createSellListReadinessSnapshot } from "../domain/readiness";
+import { createSellListReadinessSnapshot, type SellListReadinessLine } from "../domain/readiness";
 
-const selectedOfferLine: CheckoutSellListLineRow = {
+const selectedOfferLine: CheckoutSellListLineRow & SellListReadinessLine = {
   seller_account_id: "acc_seller",
   line_id: "sll_1",
   line_type: "selected-offer",

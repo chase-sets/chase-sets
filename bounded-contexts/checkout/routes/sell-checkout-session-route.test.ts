@@ -597,8 +597,12 @@ describe("checkout web routes: sell checkout session", () => {
     } as never);
 
     expect(result).toMatchObject({ status: "error", fieldErrors: { [field]: expect.stringContaining(message) } });
-    if (entry.mode !== "signed-in" || result.status !== "error") throw new Error("Expected a signed-in refusal");
-    const markup = renderToString(createElement(SignedInSellCheckoutPage, { ...entry, actionState: result }));
+    if (entry.mode !== "signed-in" || result.status !== "error" || !("payoutMethod" in result.values)) {
+      throw new Error("Expected a signed-in refusal");
+    }
+    const markup = renderToString(
+      createElement(SignedInSellCheckoutPage, { ...entry, actionState: { ...result, values: result.values } }),
+    );
     expect(markup).toContain(message);
     expect(markup).not.toContain("Not yet assessed");
     expectNoSellerCommitSideEffects();
