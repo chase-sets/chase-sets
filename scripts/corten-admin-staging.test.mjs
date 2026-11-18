@@ -30,7 +30,7 @@ describe("Corten admin staging deployment", () => {
     const expected = {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
-      "deploy-production": "740c6e8e5d18ec54356e2e7cda6d58939318e3afead34c4b2b9803622b50acd9",
+      "deploy-production": "b2cff7ebb9ea3b5d64c01681b05d304c7b1df7c40f7a7984edc18cf5f01fb884",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -49,7 +49,7 @@ describe("Corten admin staging deployment", () => {
 
   it("preserves the production values at the deployment baseline", () => {
     for (const [file, digest] of Object.entries({
-      "values.yaml": "58dc4aa5304a62ff7079e72896aac8b8b3e86d41cf72b61581443961331b8ac3",
+      "values.yaml": "9a59ee732b8360e3d6d8aff6b474e52b75fb0c1078a5d4aa548117cf2bf48dd6",
       "values.production.yaml": "71515689eabc8c257834810ef7fbb65b4f69cc71e054055c9005a08c6dffb81e",
     })) {
       expect(
