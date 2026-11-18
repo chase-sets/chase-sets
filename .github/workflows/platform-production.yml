@@ -1193,7 +1193,7 @@ jobs:
 
   deploy-staging:
     name: Deploy Staging
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:
       actions: write
