@@ -1,12 +1,4 @@
-import type {
-  CheckoutSellListConfirmationRow,
-  SellListConfirmationSummary,
-  SellListSellerConfirmationEvidence,
-} from "../../request-support/api-client";
-import type {
-  SignedInSellCheckoutFormValues,
-  SignedInSellCheckoutPayoutSummary,
-} from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
+import type { CheckoutSellListConfirmationRow, SellListConfirmationSummary } from "../../request-support/api-client";
 import { objectValue } from "./sell-checkout-form";
 function normalizeSideEffectStatus(value: unknown): SellListConfirmationSummary["sideEffects"]["sale"] {
   return value === "not-attempted" ||
@@ -29,33 +21,5 @@ export function confirmationSideEffects(
     settlement: normalizeSideEffectStatus(sideEffects?.settlement),
     notification: normalizeSideEffectStatus(sideEffects?.notification),
     accountHistory: normalizeSideEffectStatus(sideEffects?.accountHistory),
-  };
-}
-
-export function buildSellerEvidence(
-  values: SignedInSellCheckoutFormValues,
-  payoutSummary: SignedInSellCheckoutPayoutSummary | null,
-): SellListSellerConfirmationEvidence {
-  return {
-    shipFrom: {
-      status: "ready",
-      addressId: values.shipFromAddressId === "__manual" ? null : values.shipFromAddressId,
-      country: values.shipFromCountry,
-      region: values.shipFromState,
-      postalCode: values.shipFromPostalCode,
-    },
-    payout: {
-      status: "ready",
-      method: "saved-payout",
-      readinessStatus: payoutSummary?.status ?? values.payoutState,
-      lastCheckedAt: null,
-    },
-    label: {
-      status: "ready",
-      preference: values.labelPreference === "seller-label-later" ? "seller-label-later" : "prepaid-label",
-    },
-    risk: { status: "clear" },
-    provider: { status: "ready" },
-    freshness: { status: "current" },
   };
 }

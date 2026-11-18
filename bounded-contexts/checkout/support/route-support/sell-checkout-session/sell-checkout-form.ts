@@ -1,8 +1,7 @@
 import { t } from "@chase-sets/localization";
-import {
-  guestSellCheckoutDefaultValues,
-  type GuestSellCheckoutFieldErrors,
-  type GuestSellCheckoutFormValues,
+import type {
+  GuestSellCheckoutFieldErrors,
+  GuestSellCheckoutFormValues,
 } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import {
   signedInSellCheckoutDefaultValues,
@@ -34,30 +33,6 @@ export function normalizeQueryText(searchParams: URLSearchParams, name: string) 
   return searchParams.get(name)?.trim() ?? "";
 }
 
-export function guestDefaultValuesFromSearchParams(searchParams: URLSearchParams): GuestSellCheckoutFormValues {
-  return {
-    ...guestSellCheckoutDefaultValues,
-    payoutState: normalizeQueryText(searchParams, "payoutState") || guestSellCheckoutDefaultValues.payoutState,
-    payoutEstimateState:
-      normalizeQueryText(searchParams, "payoutEstimateState") || guestSellCheckoutDefaultValues.payoutEstimateState,
-    riskState: normalizeQueryText(searchParams, "riskState") || guestSellCheckoutDefaultValues.riskState,
-    labelState: normalizeQueryText(searchParams, "labelState") || guestSellCheckoutDefaultValues.labelState,
-  };
-}
-
-export function signedInDefaultStateFromSearchParams(searchParams: URLSearchParams) {
-  return {
-    payoutState: normalizeQueryText(searchParams, "payoutState") || signedInSellCheckoutDefaultValues.payoutState,
-    payoutEstimateState:
-      normalizeQueryText(searchParams, "payoutEstimateState") || signedInSellCheckoutDefaultValues.payoutEstimateState,
-    riskState: normalizeQueryText(searchParams, "riskState") || signedInSellCheckoutDefaultValues.riskState,
-    labelState: normalizeQueryText(searchParams, "labelState") || signedInSellCheckoutDefaultValues.labelState,
-    sellerReadinessState:
-      normalizeQueryText(searchParams, "sellerReadinessState") ||
-      signedInSellCheckoutDefaultValues.sellerReadinessState,
-  };
-}
-
 export function valuesFromFormData(formData: FormData): GuestSellCheckoutFormValues {
   return {
     sellerName: normalizeText(formData.get("sellerName")),
@@ -74,11 +49,6 @@ export function valuesFromFormData(formData: FormData): GuestSellCheckoutFormVal
     payoutHandoff: normalizeText(formData.get("payoutHandoff")),
     labelPreference: normalizeText(formData.get("labelPreference")),
     termsAccepted: formData.get("termsAccepted") === "accepted",
-    payoutState: normalizeText(formData.get("payoutState")) || guestSellCheckoutDefaultValues.payoutState,
-    payoutEstimateState:
-      normalizeText(formData.get("payoutEstimateState")) || guestSellCheckoutDefaultValues.payoutEstimateState,
-    riskState: normalizeText(formData.get("riskState")) || guestSellCheckoutDefaultValues.riskState,
-    labelState: normalizeText(formData.get("labelState")) || guestSellCheckoutDefaultValues.labelState,
   };
 }
 
@@ -99,13 +69,6 @@ export function signedInValuesFromFormData(formData: FormData): SignedInSellChec
     payoutMethod: normalizeText(formData.get("payoutMethod")) || signedInSellCheckoutDefaultValues.payoutMethod,
     labelPreference: normalizeText(formData.get("labelPreference")),
     termsAccepted: formData.get("termsAccepted") === "accepted",
-    payoutState: normalizeText(formData.get("payoutState")) || signedInSellCheckoutDefaultValues.payoutState,
-    payoutEstimateState:
-      normalizeText(formData.get("payoutEstimateState")) || signedInSellCheckoutDefaultValues.payoutEstimateState,
-    riskState: normalizeText(formData.get("riskState")) || signedInSellCheckoutDefaultValues.riskState,
-    labelState: normalizeText(formData.get("labelState")) || signedInSellCheckoutDefaultValues.labelState,
-    sellerReadinessState:
-      normalizeText(formData.get("sellerReadinessState")) || signedInSellCheckoutDefaultValues.sellerReadinessState,
   };
 }
 
@@ -173,23 +136,6 @@ export function validateGuestSellCheckoutValues(values: GuestSellCheckoutFormVal
   if (!values.termsAccepted) {
     errors.termsAccepted = t("checkout.routes.sellCheckoutSession.validation.terms.required");
   }
-  if (values.payoutState === "setup-required") {
-    errors.payoutHandoff = t("checkout.routes.sellCheckoutSession.validation.payout.setup.required");
-  } else if (values.payoutState === "failed") {
-    errors.payoutHandoff = t("checkout.routes.sellCheckoutSession.validation.payout.failed");
-  }
-  if (values.payoutEstimateState === "changed") {
-    errors.form = t("checkout.routes.sellCheckoutSession.validation.payout.changed");
-  }
-  if (values.riskState === "hold") {
-    errors.form = t("checkout.routes.sellCheckoutSession.validation.risk.hold");
-  } else if (values.riskState === "block") {
-    errors.form = t("checkout.routes.sellCheckoutSession.validation.risk.block");
-  }
-  if (values.labelState === "failed") {
-    errors.labelPreference = t("checkout.routes.sellCheckoutSession.validation.label.failed");
-  }
-
   return errors;
 }
 
@@ -233,26 +179,6 @@ export function validateSignedInSellCheckoutValues(
   if (!values.termsAccepted) {
     errors.termsAccepted = t("checkout.routes.sellCheckoutSession.validation.terms.required");
   }
-  if (values.payoutState === "setup-required") {
-    errors.payoutMethod = t("checkout.routes.sellCheckoutSession.validation.payout.setup.required");
-  } else if (values.payoutState === "failed") {
-    errors.payoutMethod = t("checkout.routes.sellCheckoutSession.validation.payout.failed");
-  }
-  if (values.payoutEstimateState === "changed") {
-    errors.form = t("checkout.routes.sellCheckoutSession.validation.payout.changed");
-  }
-  if (values.riskState === "hold") {
-    errors.form = t("checkout.routes.sellCheckoutSession.validation.risk.hold");
-  } else if (values.riskState === "block") {
-    errors.form = t("checkout.routes.sellCheckoutSession.validation.risk.block");
-  }
-  if (values.labelState === "failed") {
-    errors.labelPreference = t("checkout.routes.sellCheckoutSession.validation.label.failed");
-  }
-  if (values.sellerReadinessState !== "ready") {
-    errors.form = t("checkout.routes.sellCheckoutSession.validation.seller.readiness.failed");
-  }
-
   return errors;
 }
 

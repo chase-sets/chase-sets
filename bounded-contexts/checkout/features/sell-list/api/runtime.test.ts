@@ -19,6 +19,7 @@ import { createSellListReadinessSnapshot, parseSellListReadinessDecisionInput } 
 import type { SellListSellerConfirmationEvidence } from "../domain/domain";
 import { listSellListReadinessLines, type CheckoutSellListLineRow } from "../read-model/queries";
 import { createCheckoutSellListRuntime } from "./runtime";
+import { SellListPreparationRefusedError } from "./handoff-contracts";
 import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "../../cart/integrations/marketplace/marketplace-projection";
 import * as checkoutRequest from "../../../support/request-support/api-client";
 import * as marketplaceRequest from "@chase-sets/marketplace/server";
@@ -802,6 +803,45 @@ describe("sell list checkout runtime readiness boundary", () => {
 });
 
 describe("AC4 composed readiness, pre-confirm and merge timing", () => {
+  it.each([
+    [
+      "risk-hold",
+      (f: ReturnType<typeof checkoutOwnerRuntimeFixture>) =>
+        f.ports.readRisk.mockResolvedValue({
+          ...ownedAbsentRisk,
+          rowState: "present",
+          status: "hold",
+          reasonCode: "risk-hold",
+          sourceRevision: 1,
+          sourceTimestamp: stamp as never,
+        }),
+    ],
+    [
+      "risk-block",
+      (f: ReturnType<typeof checkoutOwnerRuntimeFixture>) =>
+        f.ports.readRisk.mockResolvedValue({
+          ...ownedAbsentRisk,
+          rowState: "present",
+          status: "block",
+          reasonCode: "risk-block",
+          sourceRevision: 1,
+          sourceTimestamp: stamp as never,
+        }),
+    ],
+    ["payout-setup-required", (f: ReturnType<typeof checkoutOwnerRuntimeFixture>) => f.setPayout("pending")],
+    ["payout-unavailable", (f: ReturnType<typeof checkoutOwnerRuntimeFixture>) => f.setPayout("ready", null)],
+  ] as const)("refuses preparation with owner reason %s and does not write a preparation", async (reason, block) => {
+    const f = checkoutOwnerRuntimeFixture();
+    await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
+    block(f);
+
+    await expect(prepareSellerConfirmation(f.services, "slc_refused", context)).rejects.toMatchObject({
+      code: "checkout_seller_not_ready",
+      reasons: expect.arrayContaining([reason]),
+    });
+    expect(f.memory.allEvents.map((event) => event.eventType)).toEqual(["checkout.sell-list.review-planned"]);
+  });
+
   it.each(["manual", "saved", "smart-match", "pg-versions", "missing-fulfillment", "evidence-drift"])(
     "runs the fully-ready selected offer through the real seller review action and owner reread: %s",
     async (scenario) => {
@@ -845,31 +885,43 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
         context,
       );
       const initial = issued.readiness;
-      const assess = vi.fn(async (body: Record<string, unknown>) =>
-        body.readinessSnapshotId
-          ? f.services.getReviewReadiness({
-              sellerAccountId: "acc_seller",
-              snapshotId: String(body.readinessSnapshotId),
-              sourceRevision: String(body.readinessSourceRevision),
-              confirmationId: String(body.confirmationId),
-            })
-          : {
-              readiness: await f.services.createReadinessSnapshot(
-                {
-                  sellerAccountId: "acc_seller",
-                  decisions: parseSellListReadinessDecisionInput(body),
-                  ...(body.confirmationId ? { confirmationId: String(body.confirmationId) } : {}),
-                  ...(body.entryReadinessSnapshotId
-                    ? { entryReadinessSnapshotId: String(body.entryReadinessSnapshotId) }
-                    : {}),
-                  ...(body.entryReadinessSourceRevision
-                    ? { entryReadinessSourceRevision: String(body.entryReadinessSourceRevision) }
-                    : {}),
-                  ...parseSellerCheckoutChoices(body),
-                },
-                context,
-              ),
-            },
+      const assess = vi.fn(
+        async (
+          body: Parameters<
+            ReturnType<typeof checkoutRequest.createCheckoutRequestApiClient>["createSellListReadiness"]
+          >[0] = {},
+        ) =>
+          body.readinessSnapshotId
+            ? f.services.getReviewReadiness({
+                sellerAccountId: "acc_seller",
+                snapshotId: String(body.readinessSnapshotId),
+                sourceRevision: String(body.readinessSourceRevision),
+                confirmationId: String(body.confirmationId),
+              })
+            : {
+                readiness: await f.services
+                  .createReadinessSnapshot(
+                    {
+                      sellerAccountId: "acc_seller",
+                      decisions: parseSellListReadinessDecisionInput(body),
+                      ...(body.confirmationId ? { confirmationId: String(body.confirmationId) } : {}),
+                      ...(body.entryReadinessSnapshotId
+                        ? { entryReadinessSnapshotId: String(body.entryReadinessSnapshotId) }
+                        : {}),
+                      ...(body.entryReadinessSourceRevision
+                        ? { entryReadinessSourceRevision: String(body.entryReadinessSourceRevision) }
+                        : {}),
+                      ...parseSellerCheckoutChoices(body),
+                    },
+                    context,
+                  )
+                  .catch((error: unknown) => {
+                    if (!(error instanceof SellListPreparationRefusedError)) throw error;
+                    throw new checkoutRequest.CheckoutApiError(400, {
+                      error: { code: error.code, message: error.message, reasons: error.reasons },
+                    });
+                  }),
+              },
       );
       const confirm = vi.fn(
         async (
@@ -999,11 +1051,6 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
           payoutMethod: "saved-payout",
           labelPreference: "prepaid-label",
           termsAccepted: "accepted",
-          payoutState: "ready",
-          payoutEstimateState: "current",
-          riskState: "clear",
-          labelState: "ready",
-          sellerReadinessState: "ready",
         });
         const result = await sellCheckoutAction({
           request: new Request("http://localhost/checkout/sell/session/chk_selected", {
@@ -1020,18 +1067,11 @@ describe("AC4 composed readiness, pre-confirm and merge timing", () => {
           expect(result).toMatchObject({
             status: "error",
             fieldErrors: {
-              form:
-                scenario === "missing-fulfillment"
-                  ? "Sell List readiness must be resolved before handoff."
-                  : "Sell List readiness snapshot is stale.",
+              form: expect.stringContaining("Seller readiness needs review"),
             },
           });
-          expect(f.memory.allEvents.map((event) => event.eventType)).toEqual(
-            scenario === "missing-fulfillment"
-              ? ["checkout.sell-list.review-planned"]
-              : ["checkout.sell-list.review-planned", "checkout.sell-list.handoff-prepared"],
-          );
-          if (scenario === "missing-fulfillment") expect(confirm).not.toHaveBeenCalled();
+          expect(f.memory.allEvents.map((event) => event.eventType)).toEqual(["checkout.sell-list.review-planned"]);
+          expect(confirm).not.toHaveBeenCalled();
           return;
         }
         expect(result, JSON.stringify("fieldErrors" in result ? result.fieldErrors : null)).toBeInstanceOf(Response);

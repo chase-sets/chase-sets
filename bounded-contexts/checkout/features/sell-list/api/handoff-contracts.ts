@@ -2,7 +2,8 @@ import { t } from "@chase-sets/localization";
 import type { createMarketplaceRequestApiClient } from "../integrations/marketplace/request-support/api-client";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListConfirmationSummary } from "../domain/domain";
-import type { SellListReadinessDecisionInput } from "../domain/readiness";
+import type { SellListReadinessDecisionInput, SellListSellerReadinessReason } from "../domain/readiness";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { SellListReviewPlanLine } from "./review-plan-contracts";
 export type ParsedSellListLineAction = NonNullable<SellListReadinessDecisionInput["lineActions"]>[number];
 
@@ -23,6 +24,19 @@ export type SellListMarketplaceHandoff = Readonly<{
   summary: SellListConfirmationSummary;
   writeResults: readonly unknown[];
 }>;
+
+export type SellListPreparationRefusalReason =
+  | Exclude<SellListSellerReadinessReason, "ready">
+  | "payout-setup-required"
+  | "payout-unavailable"
+  | "risk-hold"
+  | "risk-block";
+
+export class SellListPreparationRefusedError extends CheckoutDomainError {
+  constructor(readonly reasons: readonly SellListPreparationRefusalReason[]) {
+    super("Sell List readiness must be resolved before handoff.", "checkout_seller_not_ready");
+  }
+}
 
 export class SellListReviewPlanStaleError extends Error {
   readonly recovery: Readonly<{ kind: "readiness-stale"; detail: string }>;

@@ -1,6 +1,10 @@
 import { marketplaceSourceReceipts, performMarketplaceHandoff } from "./marketplace-handoff";
 import { reviewedLinesForConfirmation } from "./reviewed-lines";
-import type { MarketplaceRequestApiClient } from "./handoff-contracts";
+import {
+  SellListPreparationRefusedError,
+  type MarketplaceRequestApiClient,
+  type SellListPreparationRefusalReason,
+} from "./handoff-contracts";
 import type { SellListReviewSelections, SellListReviewReadiness } from "./review-plan-contracts";
 import { buildSellListReviewPlan, readinessDecisionsFromReviewPlan } from "./review-plan";
 import { createSellListReviewPlans, staleSellListReview } from "./review-plan-store";
@@ -262,7 +266,6 @@ export type CheckoutSellListServices = Readonly<{
     params: Readonly<{
       sellerAccountId: string;
       decisions?: SellListReadinessDecisionInput | null;
-      sellerEvidence?: SellListSellerConfirmationEvidence | null;
       shipFrom?: SellerCheckoutChoices["shipFrom"];
       label?: SellerCheckoutChoices["label"];
       confirmationId?: string;
@@ -373,7 +376,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       ownerReads,
     };
     const snapshot = { ...createSellListReadinessSnapshot(lines, params.decisions, sellerEvidence), ownerReads };
-    return { lines, sellerEvidence, snapshot, review: currentReview, estimate };
+    return { lines, sellerEvidence, snapshot, review: currentReview, estimate, payout };
   }
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
@@ -966,13 +969,29 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
           await assessSeller({ sellerAccountId: params.sellerAccountId, decisions: params.decisions }, "readiness")
         ).snapshot;
         if (!storedReview || currentEntry.snapshotId !== storedReview.assessedSnapshotId) throw staleSellListReview();
-        if (
-          !context ||
-          assessed.snapshot.status !== "ready" ||
-          assessed.snapshot.sellerReadiness.status !== "ready" ||
-          !assessed.review
-        )
+        if (!context || assessed.snapshot.status !== "ready")
           throw new CheckoutDomainError("Sell List readiness must be resolved before handoff.");
+        const sellerReadiness = assessed.snapshot.sellerReadiness;
+        if (sellerReadiness.status !== "ready") {
+          const reasons = sellerReadiness.outcomes.flatMap(({ reason }): SellListPreparationRefusalReason[] => {
+            if (reason === "ready") return [];
+            if (reason === "payout-not-ready") {
+              if (!assessed.payout || assessed.payout.account_id !== params.sellerAccountId) {
+                return ["payout-unavailable"];
+              }
+              if (assessed.payout.status !== "ready") return ["payout-setup-required"];
+              if (!assessed.sellerEvidence.payout.lastCheckedAt) return ["payout-unavailable"];
+            }
+            if (reason === "risk-not-clear") {
+              const risk = assessed.sellerEvidence.risk.status;
+              if (risk === "hold") return ["risk-hold"];
+              if (risk === "block") return ["risk-block"];
+            }
+            return [reason];
+          });
+          throw new SellListPreparationRefusedError(reasons);
+        }
+        if (!assessed.review) throw new CheckoutDomainError("Sell List readiness must be resolved before handoff.");
         return (
           await preparations.save(
             {
