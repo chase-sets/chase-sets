@@ -1836,7 +1836,7 @@ function scrydexCountRequest(input: Pick<ScrydexCountQuery, "kind" | "productDom
         query: {
           page: "1",
           page_size: String(scrydexCardPageSize),
-          q: `printings:${input.parentValue}`,
+          q: scrydexPrintingsSearchQuery(input.parentValue),
           select: input.productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
         },
       }

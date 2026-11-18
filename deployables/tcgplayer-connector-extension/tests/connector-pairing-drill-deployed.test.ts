@@ -378,6 +378,7 @@ describe("installed deployed response subscription", () => {
       pausedReservation?: boolean;
       postUnpair?: PostUnpairDelivery;
       onUnpairedFire?: () => void;
+      generateFailure?: string;
     }> = {},
   ) {
     const postUnpair = options.postUnpair ?? "settled-then-revoked";
@@ -493,11 +494,13 @@ describe("installed deployed response subscription", () => {
       bringToFront: async () => undefined,
       locator: (selector: string) => ({
         click: async () => {
+          if (selector.includes("connector-code") && options.generateFailure) throw new Error(options.generateFailure);
           if (!selector.includes("connector-unpair")) return;
           unpaired = true;
           // A claim in flight at Unpair: its 401 is paused-phase evidence however late its body lands.
           if (postUnpair === "pre-boundary-late-401") emit(401, held);
         },
+        evaluateAll: (inspect: (controls: Element[]) => unknown) => Promise.resolve(inspect([])),
       }),
       evaluate: async (_fn: unknown, request: { method: string; path: string }) => {
         if (actions === 2 && request.path.endsWith("/connector-pairing")) {
@@ -638,6 +641,26 @@ describe("installed deployed response subscription", () => {
     status: 401,
   };
   const pausedResponse = { phase: "paused", status: 200, body: "settled" };
+  it("retains a value-free Generate click failure before any code read or toolbar action", async () => {
+    const marker = "synthetic-click-error-should-not-be-retained";
+    const run = await syntheticDrill({ generateFailure: marker });
+    expect(codeOf(run.outcome.error)).toBe("connector-drill-pairing-refused");
+    const { evidence } = run.outcome.error as PairingDrillRefusal;
+    expect(evidence.deployed?.generateClickFailure).toBe("missing");
+    expect(JSON.stringify(evidence)).not.toContain(marker);
+    expect(evidence.deployed?.steps.map(({ step }) => step)).toEqual([
+      "list-connections",
+      "storage-locations",
+      "connect",
+      "activate",
+      "pause",
+      "pairing-before-code",
+      "disconnect",
+    ]);
+    expect(run.actions).toBe(0);
+    expect(evidence.deployed?.profile?.deleted).toBe(true);
+    expectReleased(run);
+  });
   it.each([false, true])(
     "keeps the installed producer after the actual marker join until success/refusal (%s)",
     async (refuse) => {
