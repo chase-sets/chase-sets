@@ -281,8 +281,10 @@ export type CountQuoteRefusalReason = z.infer<typeof countQuoteRefusalReasonSche
 
 export class CountAcquisitionRefused extends Error {
   readonly code = "count-acquisition-refused";
-  constructor(readonly quoteReason?: CountQuoteRefusalReason) {
+  readonly quoteReason: CountQuoteRefusalReason | undefined;
+  constructor(quoteReason?: CountQuoteRefusalReason) {
     super("Count acquisition is blocked. Redisplay the quote or review retained usage and uncertain spend.");
+    this.quoteReason = quoteReason;
   }
 }
 /**
