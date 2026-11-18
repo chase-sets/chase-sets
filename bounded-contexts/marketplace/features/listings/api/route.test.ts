@@ -692,7 +692,7 @@ describe("Listing batch recovery API", () => {
         tenantId: "tnt_identity" as never,
         audit: { performedByUserId: "usr_seller" as never, forAccountId: accountId as never },
       };
-      for (const listingId of [a, b]) {
+      for (const listingId of [a, b] as const) {
         const facts = decideMarketplaceListing(initialMarketplaceListingState, {
           type: "CreateListing",
           publicationScope: "channel-only",
