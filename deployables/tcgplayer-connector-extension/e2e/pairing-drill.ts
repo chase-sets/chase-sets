@@ -155,7 +155,11 @@ export type PairingDrillEvidence = Readonly<{
   lifecycle: readonly string[];
   /** Deployed mode only: every row recorded before the refusal, and the profile's fate. */
   deployed?: DeployedDrillRows &
-    Readonly<{ profile: DeployedDrillProfile | null; claimResponses: readonly DeployedClaimResponseRow[] }>;
+    Readonly<{
+      profile: DeployedDrillProfile | null;
+      claimResponses: readonly DeployedClaimResponseRow[];
+      generateClickFailure?: "missing" | "ambiguous" | "disabled" | "hidden" | "other";
+    }>;
   /** The deploy-authority adapter's stop code when it bound no deploy. */
   deployStop?: string;
 }>;
@@ -1639,6 +1643,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
   let profile: DeployedDrillProfile | null = null;
   let signIn: StagingPersonaSignInReceipt | undefined;
   let connectionId: string | null = null;
+  let generateClickFailure: NonNullable<PairingDrillEvidence["deployed"]>["generateClickFailure"];
   let claimPhase: DeployedClaimRow["phase"] = "paused";
   let removeResponses: (() => void) | undefined;
   const sorted = (rows: Map<string, DrillRequestRow>) =>
@@ -1662,6 +1667,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       aborted: sorted(aborted),
       profile,
       claimResponses: [...claimResponses],
+      ...(generateClickFailure ? { generateClickFailure } : {}),
     },
   });
   const fail: (code: PairingDrillRefusalCode) => never = (code) => {
@@ -1911,10 +1917,24 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       if (!(await open(page, connectionPage))) fail("connector-drill-page-status");
       checkIsolation();
       const generatedAt = Date.now();
-      await page
-        .locator(generateButton)
-        .click({ timeout: legMs })
-        .catch(() => fail("connector-drill-pairing-refused"));
+      const generate = page.locator(generateButton);
+      try {
+        await generate.click({ timeout: legMs });
+      } catch {
+        // Snapshot only actionability hints without waiting for a match or retaining the Playwright error.
+        generateClickFailure = await generate
+          .evaluateAll((controls) => {
+            if (controls.length === 0) return "missing";
+            if (controls.length > 1) return "ambiguous";
+            const control = controls[0]!;
+            if (control.matches(":disabled") || control.closest('[aria-disabled="true"]')) return "disabled";
+            const { width, height } = control.getBoundingClientRect();
+            if (!width || !height || getComputedStyle(control).visibility !== "visible") return "hidden";
+            return "other";
+          })
+          .catch(() => "other" as const);
+        fail("connector-drill-pairing-refused");
+      }
       let pairingId = "";
       await waitFor(async () => {
         const read = await call(page, "GET", pairingApi);
