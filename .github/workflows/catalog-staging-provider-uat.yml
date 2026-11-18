@@ -184,7 +184,7 @@ jobs:
   staging-provider-uat:
     name: Staging Provider Sync UAT (${{ matrix.journey_scope }})
     needs: [admit-reviewed-sha, resolve-provider-uat-plan]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 61
     environment: staging
     if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
@@ -305,7 +305,7 @@ jobs:
     name: Scope Sync Count Lifecycle
     needs: admit-reviewed-sha
     if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scope-sync-count-lifecycle'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: staging
     permissions:
@@ -366,7 +366,7 @@ jobs:
     name: Scrydex Coordinate Preview
     needs: admit-reviewed-sha
     if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-coordinate-preview'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
     permissions:
@@ -442,7 +442,7 @@ jobs:
     name: Scrydex Cache Capture
     needs: [admit-reviewed-sha, scrydex-force-refresh-bounded]
     if: ${{ !cancelled() && needs.admit-reviewed-sha.result == 'success' && (inputs.journey_scope == 'scrydex-cache-capture' || (inputs.journey_scope == 'scrydex-force-refresh-bounded' && needs.scrydex-force-refresh-bounded.result == 'success' && needs.scrydex-force-refresh-bounded.outputs.refresh_outcome == 'complete')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
     permissions:
@@ -505,7 +505,7 @@ jobs:
     name: Scrydex Force Refresh (bounded)
     needs: admit-reviewed-sha
     if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-force-refresh-bounded'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
     permissions:
