@@ -941,11 +941,14 @@ describe("live deployed popup browser-response refusals", () => {
       existingTargetIds?: readonly string[];
       beforeAction?: boolean;
       tabWaiting?: boolean;
+      childWaiting?: boolean;
+      attachUrl?: string;
       tabContext?: string;
       parentSession?: string | null;
       responseUrl?: string;
       targetUrl?: string;
       mainUrl?: string;
+      requestId?: string;
       responseRequestId?: string;
       requestFrame?: string;
       responseFrame?: string;
@@ -1022,13 +1025,13 @@ describe("live deployed popup browser-response refusals", () => {
       sessionId: overrides.parentSession === null ? undefined : (overrides.parentSession ?? "synthetic-tab-session"),
       params: {
         sessionId: "synthetic-child-session",
-        waitingForDebugger: false,
+        waitingForDebugger: overrides.childWaiting ?? false,
         targetInfo: {
           targetId: overrides.targetId ?? "synthetic-popup",
           type: overrides.targetType ?? "page",
           openerId: overrides.openerId === undefined ? "synthetic-source" : overrides.openerId,
           ...(overrides.omitContext ? {} : { browserContextId: overrides.browserContextId ?? "synthetic-context" }),
-          url: "",
+          url: overrides.attachUrl ?? "",
         },
       },
     });
@@ -1047,7 +1050,7 @@ describe("live deployed popup browser-response refusals", () => {
         method: "Network.requestWillBeSent",
         sessionId: overrides.requestSession ?? "synthetic-child-session",
         params: {
-          requestId: "synthetic-request",
+          requestId: overrides.requestId ?? "synthetic-request",
           frameId: overrides.requestFrame ?? "synthetic-main-frame",
           loaderId: "synthetic-loader",
           type: "Document",
@@ -1190,6 +1193,61 @@ describe("live deployed popup browser-response refusals", () => {
   });
   it("refuses a response without its request", async () => {
     expect((await scenario({ request: false })).observer.document()).toBeUndefined();
+  });
+  const lateAttach = {
+    attachUrl: url,
+    openerId: null,
+    request: false,
+    responseRequestId: "synthetic-loader",
+  } as const;
+  it("binds the first document response when the request predates an unpaused child attachment", async () => {
+    const { observer } = await scenario(lateAttach);
+    expect(observer.document()).toMatchObject({
+      targetId: "synthetic-popup",
+      sessionId: "synthetic-child-session",
+      tabTargetId: "synthetic-tab",
+      requestId: "synthetic-loader",
+      frameId: "synthetic-main-frame",
+      loaderId: "synthetic-loader",
+      method: null,
+      status: 200,
+      url,
+    });
+    expect(observer.diagnostic()).toMatchObject({
+      targets: [expect.anything(), { rawDocumentRequests: 0, rawDocumentResponses: 1 }],
+      chronology: expect.arrayContaining([expect.objectContaining({ event: "late-attached-response" })]),
+    });
+  });
+  it("still waits for the child Network enable acknowledgement", async () => {
+    const { observer, acknowledgeNetwork } = await scenario({ ...lateAttach, holdNetworkAck: true });
+    expect(observer.document()).toBeUndefined();
+    acknowledgeNetwork();
+    await Promise.resolve();
+    expect(observer.document()).toMatchObject({ url, status: 200 });
+  });
+  const lateAttachRefusals: [string, NonNullable<Parameters<typeof scenario>[0]>][] = [
+    ["no URL at attachment", { attachUrl: "" }],
+    ["a paused child", { childWaiting: true }],
+    ["a pre-action child", { existingTargetIds: ["synthetic-source", "synthetic-popup"] }],
+    ["an unrelated child session", { responseSession: "synthetic-unrelated-session" }],
+    ["an unrelated parent tab", { tabContext: "synthetic-other-context" }],
+    ["a mismatched response request ID", { responseRequestId: "synthetic-other-request" }],
+    ["no committed frame", { mainFrame: null }],
+    ["a different committed loader", { mainLoader: "synthetic-other-loader" }],
+    ["a subframe response", { responseFrame: "synthetic-subframe" }],
+    ["a different document URL", { responseUrl: `${url}?synthetic-other-response` }],
+    ["a shared URL that differs from the stored URL", { navigationUrl: `${url}?extra`, attachUrl: `${url}?extra` }],
+    ["no Playwright page", { bind: false }],
+    ["a different Playwright page", { pageTargetId: "synthetic-unrelated-page" }],
+    ["a different Playwright URL", { pageUrl: `${url}?synthetic-other-page` }],
+    ["a non-success response", { status: 404 }],
+    ["a non-document response", { resourceType: "Stylesheet" }],
+    ["no response", { response: false }],
+    ["an observed mismatched request", { request: true }],
+    ["an observed POST", { request: true, requestId: "synthetic-loader", method: "POST" }],
+  ];
+  it.each(lateAttachRefusals)("refuses late attachment with %s", async (_name, overrides) => {
+    expect((await scenario({ ...lateAttach, ...overrides })).observer.document()).toBeUndefined();
   });
   it("refuses wrong request identity", async () => {
     expect((await scenario({ responseRequestId: "synthetic-other-request" })).observer.document()).toBeUndefined();
