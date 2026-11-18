@@ -18,7 +18,7 @@ import type {
   MarketplaceListingBatchOutcome,
   MarketplaceListingBatchResult,
 } from "../ui/contracts";
-import type { ListingAttempt } from "./listing-attempt";
+import { runListingAttempt, type ListingAttempt } from "./listing-attempt";
 
 /**
  * The persisted terminal vector of one bulk Listing batch: one batch id per family, one C1 target attempt per
@@ -222,6 +222,11 @@ export async function assertPreparedListingAttempt(
       "Marketplace attempt identity was already used for a different command.",
     );
 }
+
+export const runBoundListingAttempt: typeof runListingAttempt = async (store, attempt, replay, run) => {
+  await assertPreparedListingAttempt(store, attempt);
+  return runListingAttempt(store, attempt, replay, run);
+};
 
 const unknownDecision: ListingBatchDecision = {
   outcome: "unknown",

@@ -125,7 +125,6 @@ import {
   listingAttempt,
   listingAttemptMetadata,
   readListingAttemptReceipt,
-  runListingAttempt,
   stampListingAttemptEvents,
   type ListingAttempt,
 } from "./listing-attempt";
@@ -133,6 +132,7 @@ import {
   assertListingBatchId,
   assertPreparedListingAttempt,
   lookupListingBatch as lookupPersistedListingBatch,
+  runBoundListingAttempt as runListingAttempt,
   runListingBatch,
   type ListingBatchDecision,
   type ListingBatchTarget,

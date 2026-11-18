@@ -12,7 +12,6 @@ import {
   type MarketplaceListingMutationKind,
   type MarketplaceMutationRecoveryResult,
 } from "../../mutation-recovery/domain/contracts";
-import { assertPreparedListingAttempt } from "./listing-batch";
 
 /**
  * The Listing attempt carrier: the shipped `idempotencyKey` becomes deterministic event ids
@@ -237,7 +236,6 @@ export async function runListingAttempt<T extends object>(
   replay: (receipt: Readonly<{ id: string; version: number }>) => T | Promise<T>,
   run: () => Promise<T>,
 ): Promise<T> {
-  await assertPreparedListingAttempt(store, attempt);
   const first = await readListingAttemptReceipt(store, attempt);
   if (first) return withMarketplaceAttemptReceipt(await replay(first), first.last);
   try {
