@@ -266,7 +266,7 @@ export type DeployedStepRow = Readonly<{
   bodyCode: string | null;
 }>;
 export type DeployedPageRow = Readonly<{
-  method: string;
+  method: string | null;
   host: string;
   path: string;
   status: number;
@@ -1072,7 +1072,13 @@ export function createDeployedPopupObserver(
 ) {
   type Navigation = { frameId: string; loaderId: string; url: string };
   type Request = Navigation & { method: string };
-  type Document = Request & { requestId: string; status: number; contentType: string | null; at: number };
+  type Document = Navigation & {
+    requestId: string;
+    method: string | null;
+    status: number;
+    contentType: string | null;
+    at: number;
+  };
   type Target = {
     targetId: string;
     type: string;
@@ -1081,6 +1087,7 @@ export function createDeployedPopupObserver(
     sessionId: string;
     parentSessionId?: string;
     waitingForDebugger: boolean;
+    attachedUnpausedAtExpectedUrl: boolean;
     newAfterAction: boolean;
     url: string;
     commands: Map<string, "sent" | "ack" | "error">;
@@ -1093,6 +1100,7 @@ export function createDeployedPopupObserver(
   };
   const targets = new Map<string, Target>();
   const sessions = new Map<string, Target>();
+  const expectedUrl = new URL(expected.path, expected.origin).href;
   const chronology: Record<string, unknown>[] = [];
   let sequence = 0;
   let failure: string | null = null;
@@ -1103,20 +1111,15 @@ export function createDeployedPopupObserver(
   const record = (entry: Record<string, unknown>) => {
     chronology.push({ order: ++sequence, ...entry });
   };
-  const matchesUrl = (value: string) => {
-    try {
-      const url = new URL(value);
-      return url.origin === expected.origin && url.pathname === expected.path;
-    } catch {
-      return false;
-    }
-  };
   const location = (value: string) => {
     try {
       const url = new URL(value);
       return {
         host: url.origin === expected.origin ? url.host : "<other-host>",
-        path: matchesUrl(value) ? "/account/channels/<connectionId>" : "<other-path>",
+        path:
+          url.origin === expected.origin && url.pathname === expected.path
+            ? "/account/channels/<connectionId>"
+            : "<other-path>",
       };
     } catch {
       return { host: null, path: null };
@@ -1173,6 +1176,7 @@ export function createDeployedPopupObserver(
         sessionId: value.sessionId,
         parentSessionId: event.sessionId,
         waitingForDebugger: value.waitingForDebugger === true,
+        attachedUnpausedAtExpectedUrl: value.waitingForDebugger === false && info.url === expectedUrl,
         newAfterAction: preActionTargetIds !== undefined && !preActionTargetIds.has(info.targetId),
         url: typeof info.url === "string" ? info.url : "",
         commands: new Map(),
@@ -1279,7 +1283,15 @@ export function createDeployedPopupObserver(
     } else {
       const response = rawCdpRecord(value.response) ? value.response : undefined;
       const request = target.requests.get(value.requestId);
-      if (!request) return reject("missing-request", target);
+      // Browser-initiated navigation can start before the unpaused page attaches.
+      // Chromium uses the navigation token as both requestId and loaderId for its
+      // Document response. Require that token to match the committing frame below.
+      const lateAttachedResponse =
+        target.attachedUnpausedAtExpectedUrl &&
+        target.rawDocumentRequests === 0 &&
+        value.loaderId !== "" &&
+        value.requestId === value.loaderId;
+      if (!request && !lateAttachedResponse) return reject("missing-request", target);
       if (
         !response ||
         typeof response.url !== "string" ||
@@ -1287,17 +1299,23 @@ export function createDeployedPopupObserver(
         typeof response.mimeType !== "string"
       )
         return reject("malformed-response", target);
-      if (request.frameId !== value.frameId || request.loaderId !== value.loaderId || request.url !== response.url)
+      if (
+        request &&
+        (request.frameId !== value.frameId || request.loaderId !== value.loaderId || request.url !== response.url)
+      )
         return reject("request-response-identity", target);
       target.documents.set(value.requestId, {
-        ...request,
+        url: response.url,
+        frameId: value.frameId,
+        loaderId: value.loaderId,
         requestId: value.requestId,
+        method: request?.method ?? null,
         status: response.status,
         contentType: mediaType(response.mimeType),
         at: Date.now(),
       });
       record({
-        event: "matched-response",
+        event: request ? "matched-response" : "late-attached-response",
         sessionId: target.sessionId,
         requestId: value.requestId,
         frameId: value.frameId,
@@ -1354,9 +1372,9 @@ export function createDeployedPopupObserver(
         return;
       const document = [...target.documents.values()].find(
         (candidate) =>
-          candidate.method === "GET" &&
+          (candidate.method === null ? target.rawDocumentRequests === 0 : candidate.method === "GET") &&
           candidate.status === 200 &&
-          matchesUrl(candidate.url) &&
+          candidate.url === expectedUrl &&
           target.url === candidate.url &&
           page?.url === candidate.url &&
           target.mainFrame?.frameId === candidate.frameId &&
@@ -2073,23 +2091,17 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
             if (popupDocument !== undefined || popupPage === undefined || popupTargetId === undefined) return false;
             popupObserver.bindPage(popupTargetId, popupPage.url());
             const document = popupObserver.document();
-            if (!document) return false;
-            popupDocument = pages.find(
-              (row) =>
-                row.host === new URL(document.url).host && row.path === redact(connectionPage) && row.at >= reopenedAt,
-            );
-            if (!popupDocument) {
-              popupDocument = {
-                method: document.method,
-                host: new URL(document.url).host,
-                path: redact(new URL(document.url).pathname),
-                status: document.status,
-                contentType: document.contentType,
-                locationHost: null,
-                at: document.at,
-              };
-              pages.push(popupDocument);
-            }
+            if (!document || document.at < reopenedAt) return false;
+            popupDocument = {
+              method: document.method,
+              host: new URL(document.url).host,
+              path: redact(new URL(document.url).pathname),
+              status: document.status,
+              contentType: document.contentType,
+              locationHost: null,
+              at: document.at,
+            };
+            pages.push(popupDocument);
             console.log(
               `CONNECTOR_DRILL_POPUP_DOCUMENT ${JSON.stringify({
                 targetId: document.targetId,
@@ -2142,12 +2154,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
             // Playwright's launch-pipe action while raw child-session routing stays armed.
             if (!(await triggerAction(context, page))) fail("connector-drill-pairing-refused");
             reopened = await waitFor(
-              async () =>
-                !popupObserver.failure &&
-                (await bindPopupPage()) &&
-                bindPopupDocument() &&
-                popupDocument?.status === 200 &&
-                popupDocument.at >= reopenedAt,
+              async () => !popupObserver.failure && (await bindPopupPage()) && bindPopupDocument(),
             );
           } finally {
             context.off("response", observePopupResponse);
