@@ -1,14 +1,4 @@
-import { listingFormAttempt } from "../support/request-support/listing-attempt";
-import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
-import {
-  listingRecoveryForForm,
-  listingRecoveryResult,
-  listingRecoveryUrl,
-  loadListingRecovery,
-  recoverListingBatch,
-  sameListingRecovery,
-  type ListingRecoveryIdentity,
-} from "../features/listings/ui/listing-batch";
+import { listingRecoveryUrl, loadListingRecovery, prepareListingAction } from "../features/listings/ui/listing-batch";
 import {
   ListingRecoveryErrorBoundary,
   ListingRecoveryNotice,
@@ -148,7 +138,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
   const api = createMarketplaceRequestApiClient(resolvedRequest);
   const nonFreshApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest));
-  const listingRecovery = await loadListingRecovery(nonFreshApi, request, actor.accountId);
+  const listingRecovery = await loadListingRecovery(nonFreshApi, request);
   const recoveryData = {
     listing: null,
     feeHistory: { items: [], total: 0, count: 0 },
@@ -192,21 +182,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-async function handleAction(intent: string, { request, params, formData, actor }: FormActionContext) {
+async function handleAction(intent: string, { request, params, formData }: FormActionContext, recoverable = false) {
   const api = createMarketplaceRequestApiClient(request);
-  const retained = await loadListingRecovery(api, request, actor!.accountId);
-  let identity: ListingRecoveryIdentity | null;
-  try {
-    identity = await listingRecoveryForForm(formData, params.listingId ?? null, actor!.accountId);
-  } catch {
-    return { listingRecovery: { identity: null, items: [], phase: "failed-safe" as const } };
-  }
-  if (retained) {
-    if (retained.phase === "ambiguous") return { listingRecovery: retained };
-    if (!identity || !retained.identity || !sameListingRecovery(retained.identity, identity))
-      return { listingRecovery: { ...retained, phase: "failed-safe" as const } };
-    if (retained.items.some((item) => item.outcome !== "unknown")) return { listingRecovery: retained };
-  }
+  const preparation = await prepareListingAction(api, request, formData, params.listingId ?? null, recoverable);
+  if ("recovery" in preparation) return { listingRecovery: preparation.recovery };
+  const identity = preparation.reference;
+  const attempt = { idempotencyKey: identity?.batchId ?? "" };
   const navigateToAccountListingAfterWrite = (commandResult: unknown, destinationRoute: string) =>
     navigateToAccountListingWithReceipt(
       commandResult,
@@ -230,7 +211,7 @@ async function handleAction(intent: string, { request, params, formData, actor }
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingPrice(params.listingId!, {
-              ...listingFormAttempt(formData, "updateListingPrice"),
+              ...attempt,
               priceAmount: priceDraftAmount,
               priceCurrencyCode: priceDraftCurrencyCode,
               feeQuoteFingerprint:
@@ -245,7 +226,7 @@ async function handleAction(intent: string, { request, params, formData, actor }
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingQuantityCap(params.listingId!, {
-              ...listingFormAttempt(formData, "updateListingQuantityCap"),
+              ...attempt,
               quantityCap: Number(formData.get("quantityCap") ?? 0),
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
@@ -256,7 +237,7 @@ async function handleAction(intent: string, { request, params, formData, actor }
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingPurchaseLimits(params.listingId!, {
-              ...listingFormAttempt(formData, "updateListingPurchaseLimits"),
+              ...attempt,
               purchaseLimits: {
                 maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
                 maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
@@ -319,7 +300,7 @@ async function handleAction(intent: string, { request, params, formData, actor }
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.publishListing(params.listingId!, {
-              ...listingFormAttempt(formData, "publishListing"),
+              ...attempt,
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
             `${pathname}?evidenceEvent=publication_succeeded`,
@@ -327,17 +308,11 @@ async function handleAction(intent: string, { request, params, formData, actor }
         );
       case "pause":
         return redirect(
-          await navigateToAccountListingAfterWrite(
-            await api.pauseListing(params.listingId!, listingFormAttempt(formData, "pauseListing")),
-            pathname,
-          ),
+          await navigateToAccountListingAfterWrite(await api.pauseListing(params.listingId!, attempt), pathname),
         );
       case "withdraw":
         return redirect(
-          await navigateToAccountListingAfterWrite(
-            await api.withdrawListing(params.listingId!, listingFormAttempt(formData, "withdrawListing")),
-            pathname,
-          ),
+          await navigateToAccountListingAfterWrite(await api.withdrawListing(params.listingId!, attempt), pathname),
         );
       default:
         break;
@@ -345,26 +320,25 @@ async function handleAction(intent: string, { request, params, formData, actor }
 
     return redirect(pathname);
   } catch (error) {
-    if (
-      identity &&
-      (!(error instanceof MarketplaceApiError) ||
-        error.status >= 500 ||
-        marketplaceApiErrorAdapter.getErrorCode(error) === "history_incomplete")
-    )
-      return { listingRecovery: await recoverListingBatch(api, identity, actor!.accountId) };
+    const listingRecovery = await api.recoverInterruptedListingSend(identity, error);
+    if (listingRecovery) return { listingRecovery };
     if (error instanceof MarketplaceApiError) {
       const currentQuote = staleQuoteFromError(error);
       const currentEvidenceReadiness = evidenceReadinessFromError(error);
       const altTextRecovery = intent === "classify-photo" ? authoredTextRecoveryFromApiError(error.body) : null;
       return {
         listingRecovery: identity
-          ? listingRecoveryResult(
+          ? {
               identity,
-              identity.targets.map((target) => ({
-                targetId: target.id,
-                outcome: error.status === 409 ? "conflict" : "error",
-              })),
-            )
+              phase: error.status === 409 ? ("conflict" as const) : ("failed-safe" as const),
+              items: [
+                {
+                  targetId: params.listingId!,
+                  outcome: error.status === 409 ? ("conflict" as const) : ("error" as const),
+                },
+              ],
+              retryTargetIds: [],
+            }
           : null,
         evidenceAltTextRecovery: altTextRecovery
           ? {
@@ -395,17 +369,17 @@ export const action = defineFormAction({
   authorization: { permission: "listings.manage" },
   intents: {
     "preview-price": (context) => handleAction("preview-price", context),
-    "update-price": (context) => handleAction("update-price", context),
-    "update-quantity-cap": (context) => handleAction("update-quantity-cap", context),
-    "update-purchase-limits": (context) => handleAction("update-purchase-limits", context),
+    "update-price": (context) => handleAction("update-price", context, true),
+    "update-quantity-cap": (context) => handleAction("update-quantity-cap", context, true),
+    "update-purchase-limits": (context) => handleAction("update-purchase-limits", context, true),
     "add-photos": (context) => handleAction("add-photos", context),
     "classify-photo": (context) => handleAction("classify-photo", context),
     "replace-photo": (context) => handleAction("replace-photo", context),
     "remove-photo": (context) => handleAction("remove-photo", context),
     "reorder-photos": (context) => handleAction("reorder-photos", context),
-    publish: (context) => handleAction("publish", context),
-    pause: (context) => handleAction("pause", context),
-    withdraw: (context) => handleAction("withdraw", context),
+    publish: (context) => handleAction("publish", context, true),
+    pause: (context) => handleAction("pause", context, true),
+    withdraw: (context) => handleAction("withdraw", context, true),
   },
   onUnknownIntent: (context) => handleAction("", context),
 });
@@ -466,7 +440,7 @@ export default function MarketplaceAccountListingRoute() {
 
   if (!data.listing) {
     return (
-      <ListingRecoveryScope recovery={actionData?.listingRecovery ?? data.listingRecovery} accountId={data.accountId}>
+      <ListingRecoveryScope recovery={actionData?.listingRecovery ?? data.listingRecovery}>
         <ListingRecoveryNotice />
         {!("recoveryOnly" in data && data.recoveryOnly) ? (
           <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />
@@ -482,7 +456,6 @@ export default function MarketplaceAccountListingRoute() {
     <ListingRecoveryScope
       recovery={actionData?.listingRecovery ?? data.listingRecovery}
       listingId={currentListing.listing_id}
-      accountId={data.accountId}
     >
       <ListingRecoveryNotice />
       <MarketplaceListingDetailPage
