@@ -757,7 +757,6 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.review.sale": "Review sale details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.fix.details": "Fix seller checkout details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.ready": "Ready",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.review.required": "Review required",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.standard": "Standard",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.saved.title": "Seller checkout details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.edit.section": "Edit {section}",
@@ -821,10 +820,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.payout.unavailable.description":
     "Payout readiness could not be loaded. Refresh payout setup before seller checkout.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.title": "Seller readiness",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.ready": "Seller account ready",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.needs.review": "Seller account needs review",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.not.yet.assessed": "Not yet assessed",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.detail":
-    "Risk and account status are checked before the final sale step.",
+    "We'll check your account and shipping choices when you review the sale details.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.title": "Label",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.description":
     "Choose how label preparation should be handled after review.",
