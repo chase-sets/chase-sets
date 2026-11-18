@@ -1638,8 +1638,7 @@ fn sell_review(snapshot: &str, decisions: &Value, seller: Option<&str>) -> Value
 /// reads the seller's payout as Checkout does from its owner: one not set up is refused as
 /// `checkout_seller_not_ready` with `payout-setup-required`, and so are the confirmations
 /// `slc_chk_hold`, `slc_chk_block`, `slc_chk_label`, `slc_chk_ship` and `slc_chk_payout_down` with
-/// their reasons; `slc_chk_legacy` answers as Checkout did before it refused, a snapshot whose seller
-/// is blocked. A removal, or a batch of them (`/commands`), applies at 72
+/// their reasons. A removal, or a batch of them (`/commands`), applies at 72
 /// as its attempt, which a lookup answers; `sll_unknown`'s answer is lost with nothing kept, and in a
 /// batch `sll_gone` is no longer on the list (its removal a conflict, the others applied).
 fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
@@ -1778,7 +1777,7 @@ fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
                 _ if seller == "blocked" => &["payout-setup-required"],
                 _ => &[],
             };
-            if seller != "not-evaluated" && confirmation != "slc_chk_legacy" && !reasons.is_empty() {
+            if seller != "not-evaluated" && !reasons.is_empty() {
                 let error = json!({ "code": "checkout_seller_not_ready",
                     "message": "Sell List readiness must be resolved before handoff.", "reasons": reasons });
                 return Some((StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response());
@@ -18743,13 +18742,6 @@ async fn checkouts_reasons_for_a_seller_not_ready_fall_on_their_fields() {
             assert_eq!(marked, field == Some(name), "{session} {name}: {html}");
         }
     }
-    assert!(handoff_calls(&pilot).is_empty(), "nothing was handed off");
-
-    // A Checkout that answers with a snapshot whose seller is blocked (before it refused with
-    // reasons) is payout setup when the page read payouts not set up.
-    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_legacy", "lookout", &sell_form(&[]), false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(text(&html).contains("Payout setup is required before seller checkout can continue."), "{html}");
     assert!(handoff_calls(&pilot).is_empty(), "nothing was handed off");
 }
 

@@ -728,12 +728,6 @@ async fn confirm(
             screen.errors = not_ready(t, &reasons);
             render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
         }
-        // A Checkout that answers a seller not ready with the snapshot rather than its reasons
-        // (before chase-sets/chase-sets#10765): payout setup when the page read it not ready.
-        Ok(now) if now.seller_readiness.status != "ready" && !screen.payout.as_ref().is_some_and(Payout::ready) => {
-            screen.errors.insert("payoutMethod", t.route_validation_payout_setup_required().to_owned());
-            render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
-        }
         Ok(_) => refuse(req, session, screen, t.route_validation_readiness_recovery()),
         Err(ReadinessError::Api(error)) => failed(req, session, screen, error, t),
     }
