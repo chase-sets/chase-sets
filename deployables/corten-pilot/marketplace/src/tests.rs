@@ -19273,6 +19273,13 @@ async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_from_t
     for words in ["Review sale checkout", "Pikachu", "$95.50", "Selected offer", "Product line"] {
         assert!(page.contains(words), "{words}: {page}");
     }
+    // Seller readiness is not assessed on entry: checkout's confirm tells it, so the row has no
+    // verdict and no status.
+    assert!(page.contains("Not yet assessed"), "{page}");
+    assert!(page.contains("check your account and shipping choices when you review the sale details."), "{page}");
+    for verdict in ["Seller account ready", "Seller account needs review", "Review required"] {
+        assert!(!page.contains(verdict), "{verdict}: {page}");
+    }
     assert!(html.contains(r#"method="post""#) && !html.contains(r#"type="submit" disabled"#), "{html}");
     assert!(html.contains(r#"name="readinessSnapshotId" value="srs_1""#), "{html}");
     // The form carries the snapshot only: the plan and decisions stay with Checkout.
@@ -19381,6 +19388,7 @@ async fn checkouts_reasons_for_a_seller_not_ready_fall_on_their_fields() {
         let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[]), false)).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{session}: {html}");
         assert!(text(&html).contains(words), "{session}: {html}");
+        assert!(!text(&html).contains("Not yet assessed"), "the refusal says it, not the row: {session}");
         for name in ["labelPreference", "payoutMethod"] {
             let marked = html.contains(&format!(r#"<select name="{name}" required aria-invalid="true""#));
             assert_eq!(marked, field == Some(name), "{session} {name}: {html}");
