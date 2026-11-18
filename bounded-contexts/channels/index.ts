@@ -551,10 +551,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     {
       mountPath: "/api/channels",
       contextMountOrdinal: 1,
-      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route(
-        "/",
-        buildChannelsApi(services, { storageLocationAuthority: services.storageLocationAuthority }),
-      ),
+      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route("/", buildChannelsApi(services)),
     },
     {
       mountPath: "/channel-connector/oauth",
