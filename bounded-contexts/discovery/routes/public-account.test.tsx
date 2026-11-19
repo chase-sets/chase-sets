@@ -197,10 +197,13 @@ describe("discovery public account loader", () => {
       "fetch",
       vi.fn(
         async () =>
-          new Response(JSON.stringify({ error: { code: status === 404 ? "not_found" : "failed", message: "Failed" } }), {
-            status,
-            headers: { "content-type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify({ error: { code: status === 404 ? "not_found" : "failed", message: "Failed" } }),
+            {
+              status,
+              headers: { "content-type": "application/json" },
+            },
+          ),
       ),
     );
   }
