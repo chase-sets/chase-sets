@@ -18,6 +18,8 @@ import {
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
 import { createConnectionEpochs, type ConnectionEpochs } from "../../connections/api/owner-epochs";
+import { armReadyToShipCanary } from "../../outbound-sync/api/ready-to-ship-canary";
+import { assertCanaryHandoff } from "../../outbound-sync/domain/ready-to-ship-canary";
 import { loadOwned } from "../../connections/api/runtime";
 import type { EbayConnectionServices } from "../../ebay-connection/api/runtime";
 import {
@@ -60,6 +62,7 @@ export function createConnectorFeedRuntime(
     db: PgTransactionalPool;
     eventStore: PostgresEventStore;
     oauth?: ConnectorOAuthService;
+    readyToShipCanaryOwnerUserId?: string;
     now?: () => Date;
     connectionEpochs?: ConnectionEpochs;
     beforeConnectionLock?: (db: PgQueryable, input: ConnectionQuery) => Promise<void>;
@@ -469,6 +472,51 @@ export function createConnectorFeedRuntime(
     });
   }
   return {
+    async startReadyToShipCanary(
+      input: ConnectionQuery,
+      actor: NonNullable<Awaited<ReturnType<ConnectorOAuthService["resolveSeller"]>>>,
+      value: unknown,
+    ): Promise<void> {
+      if (
+        !deps.readyToShipCanaryOwnerUserId ||
+        actor.userId !== deps.readyToShipCanaryOwnerUserId ||
+        actor.roleKey !== "owner" ||
+        actor.agentGrant
+      )
+        throw new ConnectorPairingError("authorization-refused");
+      await sellerAllowed(actor, input);
+      try {
+        assertCanaryHandoff(value);
+      } catch {
+        throw new ConnectorPairingError("invalid-request");
+      }
+      const {
+        target: { connectionId, pairingId },
+      } = value;
+      if (connectionId !== input.connectionId) throw new ConnectorPairingError("authorization-refused");
+      await transact(input, async (db, state) => {
+        const authority = await readAuthorityLocked(db, input, state);
+        if (
+          state.providerKey !== "tcgplayer" ||
+          state.status !== "active" ||
+          authority.inbound !== "live" ||
+          !authority.claimReportAllowed ||
+          authority.pairingId !== pairingId ||
+          authority.grant?.userId !== actor.userId
+        )
+          throw new ConnectorPairingError("authorization-refused");
+        await armReadyToShipCanary(
+          db,
+          {
+            connectionId: input.connectionId,
+            pairingId,
+            grantId: authority.grant.grantId,
+          },
+          value,
+          now().toISOString(),
+        );
+      });
+    },
     readAuthority,
     withAuthority,
     async withGrantAuthority<T>(

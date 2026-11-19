@@ -5,7 +5,7 @@ import {
   type ReviewOpportunityChangedV1,
 } from "@chase-sets/event-core/review-opportunity-facts";
 import { buildOrderingReputationProjectionHandlers, orderingOpportunitySourceEvents } from "./reputation-projection";
-import { orderReviewOutcome } from "./reputation-queries";
+import { getOrderingOrderDeliverySummary, orderReviewOutcome } from "./reputation-queries";
 import manifest from "../../../../context.json";
 
 const fact: ReviewOpportunityChangedV1 = {
@@ -39,6 +39,27 @@ const row = {
 };
 const beforeDeadline = new Date("2026-05-01T00:00:00Z");
 const afterDeadline = new Date("2026-07-01T00:00:00Z");
+
+describe("Ordering order delivery summary", () => {
+  function summaryFrom(latest: Date | null) {
+    const db = {
+      query: vi.fn(async () => ({ rows: [{ shipment_count: 2, delivered_count: 1, latest_delivered_at: latest }] })),
+    };
+    return getOrderingOrderDeliverySummary(db as never, "ord_1");
+  }
+
+  it("answers the latest delivery time in ISO 8601, not Postgres text", async () => {
+    await expect(summaryFrom(new Date("2026-03-22T12:00:00Z"))).resolves.toEqual({
+      shipment_count: 2,
+      delivered_count: 1,
+      latest_delivered_at: "2026-03-22T12:00:00.000Z",
+    });
+  });
+
+  it("answers no delivery time before a shipment is delivered", async () => {
+    await expect(summaryFrom(null)).resolves.toMatchObject({ latest_delivered_at: null });
+  });
+});
 
 describe("canonical Ordering review outcomes", () => {
   it("expires an unsubmitted opportunity without another event, never a revealed or held review", () => {

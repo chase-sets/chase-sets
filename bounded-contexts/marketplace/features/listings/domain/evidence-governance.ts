@@ -24,7 +24,8 @@ export type EvidenceGovernanceCode =
   | "too-many-evidence"
   | "total-bytes-exceeded"
   | "pixel-budget-exceeded"
-  | "invalid-dimensions";
+  | "invalid-dimensions"
+  | "unreadable-image";
 
 /**
  * Default maximum decoded pixels (width * height) accepted for a single source

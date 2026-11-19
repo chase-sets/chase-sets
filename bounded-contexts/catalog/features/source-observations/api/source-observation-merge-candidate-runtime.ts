@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { readCompleteStream, type CompleteStreamReader } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { applyEvents } from "@chase-sets/event-core/domain";
 import { createEventStoreError } from "@chase-sets/event-core/event-store";
@@ -32,6 +33,7 @@ import {
 } from "./promotion/catalog-merge-candidate-matcher";
 import { listAcceptedProviderScopeMappingsForProviders } from "../../provider-scope-mapping/read-model/queries";
 import { planCatalogMergeCandidatePromotionCommands } from "./promotion/catalog-merge-candidate-promotion-planner";
+import { foldPromotionTargetSource } from "./promotion/promotion-target-discovery";
 import { unitKeyForCatalogProviderProfileVersion } from "./governance/catalog-integration-impact-analysis";
 import { catalogProviderProfileVersionLookupKey } from "./source-observation-runtime-contracts";
 import type {
@@ -42,7 +44,11 @@ import type {
   CatalogMergeCandidateServices,
 } from "./source-observation-runtime-contracts";
 import { normalizeOptionalKey, normalizeCandidateGenerationScope } from "./source-observation-job-serialization";
-import { catalogMergeCandidateReviewActor, catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
+import {
+  catalogMergeCandidateReviewActor,
+  catalogMergeCandidateStreamId,
+  sourceObservationStreamId,
+} from "./source-observation-stream-identity";
 import { CatalogMergeCandidateReviewCommandError } from "./source-observation-runtime-contracts";
 import type {
   CatalogMergeCandidateEditInput,
@@ -105,7 +111,10 @@ export function createSourceObservationMergeCandidateRuntime({
   async function persistCatalogMergeCandidatesFromObservations(
     observations: readonly SourceObservationListRow[],
     context: EventStoreContext,
-    options: Readonly<{ preserveUnchangedTerminalCandidates?: boolean }> = {},
+    options: Readonly<{
+      preserveUnchangedTerminalCandidates?: boolean;
+      preserveTerminalProviderReplays?: boolean;
+    }> = {},
   ): Promise<CatalogMergeCandidateMatchBatch> {
     const addedAt = new Date().toISOString();
     const providerKeys = [
@@ -155,6 +164,7 @@ export function createSourceObservationMergeCandidateRuntime({
 
     let completeGenerated: CatalogMergeCandidateMatchBatch = generated;
     let existing: Array<Awaited<ReturnType<typeof catalogMergeCandidateRepository.load>>> = [];
+    let allRows: Map<string, SourceObservationListRow>;
     for (;;) {
       existing = [...loaded.values()].filter(
         ({ state }) =>
@@ -184,7 +194,7 @@ export function createSourceObservationMergeCandidateRuntime({
       const eligiblePriorRows = priorRows.filter((row) =>
         (CATALOG_MERGE_CANDIDATE_MATCHING_STATUSES as readonly string[]).includes(row.status),
       );
-      const allRows = new Map(eligiblePriorRows.map((row) => [row.observation_id, row]));
+      allRows = new Map(eligiblePriorRows.map((row) => [row.observation_id, row]));
       for (const observation of observations) {
         allRows.set(observation.observation_id, observation);
       }
@@ -237,6 +247,26 @@ export function createSourceObservationMergeCandidateRuntime({
       }
     }
 
+    const preservedTerminalIds = new Set<string>();
+    if (options.preserveTerminalProviderReplays) {
+      const candidates = [];
+      for (const candidate of completeGenerated.candidates) {
+        const state = loaded.get(candidate.candidateId)?.state;
+        if (
+          state?.snapshot &&
+          (state.status === "promoted" || state.status === "rejected") &&
+          (await isTerminalProviderReplay(deps.eventStore, state.snapshot, candidate.snapshot, allRows))
+        ) {
+          // Keep all reviewed members in the ownership check, including children this turn did not replay.
+          preservedTerminalIds.add(candidate.candidateId);
+          candidates.push({ ...candidate, snapshot: state.snapshot });
+        } else {
+          candidates.push(candidate);
+        }
+      }
+      completeGenerated = { ...completeGenerated, candidates };
+    }
+
     const completeIds = new Set(completeGenerated.candidates.map((candidate) => candidate.candidateId));
     for (const { state } of existing) {
       if (state.id !== null && !completeIds.has(state.id)) {
@@ -279,6 +309,9 @@ export function createSourceObservationMergeCandidateRuntime({
       const existingEvents = await deps.eventStore.readStream({ streamId, limit: 1 });
       if (existingEvents.length > 0 !== (loadedCandidate.state.id !== null)) {
         throw new Error("Catalog Merge Candidate stream changed during reconciliation; import failed closed.");
+      }
+      if (preservedTerminalIds.has(candidate.candidateId)) {
+        continue;
       }
       // Extension reposts preserve a review decision only when the canonical source membership is unchanged.
       // Issue: https://github.com/chase-sets/chase-sets/issues/10040
@@ -693,6 +726,66 @@ function sameCandidateSourceMembership(
       prior.sourceMappingFingerprint === member.sourceMappingFingerprint
     );
   });
+}
+
+async function isTerminalProviderReplay(
+  eventStore: CompleteStreamReader,
+  reviewed: CatalogMergeCandidateReviewSnapshot,
+  incoming: CatalogMergeCandidateReviewSnapshot,
+  rows: ReadonlyMap<string, SourceObservationListRow>,
+): Promise<boolean> {
+  if (reviewed.identityFingerprint !== incoming.identityFingerprint) {
+    return false;
+  }
+  const reviewedMembers = new Map(reviewed.membership.map((member) => [member.observationId, member]));
+  for (const member of incoming.membership) {
+    const prior = reviewedMembers.get(member.observationId);
+    const row = rows.get(member.observationId);
+    if (
+      !prior ||
+      !row ||
+      prior.providerKey !== member.providerKey ||
+      prior.externalKey !== member.externalKey ||
+      prior.sourceProfileKey !== member.sourceProfileKey ||
+      prior.sourceProfileVersion !== member.sourceProfileVersion ||
+      prior.sourceMappingFingerprint !== member.sourceMappingFingerprint
+    ) {
+      return false;
+    }
+
+    try {
+      const history = await readCompleteStream(eventStore, {
+        streamId: sourceObservationStreamId(prior.observationId),
+      });
+      if (history.length === 0) return false;
+      const { revisions } = foldPromotionTargetSource(prior.observationId, history);
+      const reviewedRevisions = revisions.filter(
+        (revision) =>
+          revision.providerKey === prior.providerKey &&
+          revision.externalKey === prior.externalKey &&
+          revision.sourceRecordHash === prior.sourceRecordHash &&
+          revision.sourceProfileKey === prior.sourceProfileKey &&
+          revision.sourceProfileVersion === prior.sourceProfileVersion &&
+          revision.sourceMappingFingerprint === prior.sourceMappingFingerprint &&
+          revision.syncRunId === prior.syncRunId &&
+          // Projected timestamps can include three trailing zero microsecond digits.
+          revision.observedAt?.replace(/(\.\d{3})000Z$/, "$1Z") === prior.observedAt.replace(/(\.\d{3})000Z$/, "$1Z"),
+      );
+      // The hash can include transport metadata and omit mapped evidence. Compare the normalized input instead.
+      if (
+        reviewedRevisions.length === 0 ||
+        reviewedRevisions.some(
+          (revision) => !revision.normalized || !isDeepStrictEqual(revision.normalized, row.normalized),
+        )
+      ) {
+        return false;
+      }
+    } catch {
+      // An unreadable or invalid history cannot authorize skipping the terminal guard.
+      return false;
+    }
+  }
+  return true;
 }
 
 function uniqueTrimmedIds(values: readonly string[]): readonly string[] {

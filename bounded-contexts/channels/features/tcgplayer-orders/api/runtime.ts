@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { canaryPageClaim } from "../../outbound-sync/domain/ready-to-ship-canary";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ChannelReconciliationRuntimeDependencies } from "../../reconciliation/domain/contracts";
 type RecordExternalChannelSale = ChannelReconciliationRuntimeDependencies["channelSaleRecorder"];
@@ -129,6 +130,15 @@ export function createTcgplayerOrderRuntime(deps: Dependencies) {
               assertTcgplayerOrderRecord(candidate);
               if ((await composeTcgplayerOrderInbound(candidate)).externalReference !== event.externalReference)
                 throw new Error("reference-mismatch");
+              const canary = canaryPageClaim(candidate.pullId);
+              if (canary !== null) {
+                const admitted = await db.query(
+                  `SELECT 1 FROM channel_ready_to_ship_canaries
+                   WHERE page_claim=$1 AND connection_id=$2 AND $3=ANY(admitted)`,
+                  [canary, connectionId, event.externalReference],
+                );
+                if (candidate.kind !== "order" || !admitted.rows.length) throw new Error("canary-membership-missing");
+              }
               record = candidate;
               state = "pending";
             } catch {
@@ -195,7 +205,7 @@ export function createTcgplayerOrderRuntime(deps: Dependencies) {
           );
           if (record.kind === "order")
             await reconcileOrderAttention(db, accountId, connectionId, record.orderNumber, now);
-          await reconcilePull(db, connectionId, record.pullId);
+          if (canaryPageClaim(record.pullId) === null) await reconcilePull(db, connectionId, record.pullId);
         });
       }
       return pending.rows.length;

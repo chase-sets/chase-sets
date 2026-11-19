@@ -22,6 +22,7 @@
   "page.settings.product_alerts.empty.title": "No Product alerts yet",
   "page.settings.product_alerts.heading": "Product alerts",
   "page.settings.product_alerts.pause": "Pause",
+  "page.settings.product_alerts.pending": "Saved. Your Product alerts will show the change in a moment.",
   "page.settings.product_alerts.resume": "Resume",
   "page.settings.product_alerts.status.active": "active",
   "page.settings.product_alerts.status.paused": "paused",

@@ -3,7 +3,7 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, useLocation, type ActionFunctionArgs } from "react-router";
-import { CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountNotificationsRoute, { loader } from "../../../routes/account-notifications";
 import * as requestSupport from "../../../support/request-support/api-client";
@@ -297,6 +297,34 @@ describe("notification center route", () => {
       { intent: "delete", alertId: "pal_1" },
     ]);
     expect(fetchCalls.filter((call) => call.method === "POST")).toEqual([]);
+  });
+
+  it("says an alert write is saved until the Product alerts read catches up, then shows the change", async () => {
+    const alertWrite = {
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: "42",
+        commitEventIds: ["evt_discovery_42"],
+        commitPositions: [{ sourceContextName: "discovery", maxGlobalPosition: "42", eventIds: ["evt_discovery_42"] }],
+      },
+    };
+    respond("GET /api/marketplace/account/product-alerts", () =>
+      json({ error: { code: "projection_freshness_timeout", message: "Projection read model did not catch up" } }, 503),
+    );
+
+    renderRoute(appendFreshWriteToken("/account/notifications?view=settings&section=product-alerts", alertWrite));
+
+    expect(await screen.findByText("Saved. Your Product alerts will show the change in a moment.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.queryByText("No Product alerts yet")).toBeNull();
+
+    respond("GET /api/marketplace/account/product-alerts", () =>
+      json({ items: [{ ...productAlert, status: "paused" }] }),
+    );
+
+    expect(await screen.findByText("paused", undefined, { timeout: 5_000 })).toBeTruthy();
+    expect(screen.queryByText("Saved. Your Product alerts will show the change in a moment.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 
   it("reconciles notification read actions from the committed mutation snapshot", async () => {
