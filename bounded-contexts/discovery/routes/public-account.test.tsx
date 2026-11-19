@@ -29,7 +29,7 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
-import PublicAccountRoute, { action, loader } from "./public-account";
+import PublicAccountRoute, { action, loader, meta } from "./public-account";
 
 function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): DiscoveryPublicAccount {
   return {
@@ -190,6 +190,59 @@ describe("discovery public account loader", () => {
     expect(thrown).toBeInstanceOf(Response);
     expect((thrown as Response).status).toBe(301);
     expect((thrown as Response).headers.get("Location")).toBe("/accounts/north-store");
+  });
+
+  function stubAccountRead(status: number) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: status === 404 ? "not_found" : "failed", message: "Failed" } }), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+  }
+
+  function loadAccount(slug = "no-such-account") {
+    return loader({
+      request: new Request(`http://localhost/accounts/${slug}?role=buyer`),
+      params: { accountSlug: slug },
+      context: undefined,
+    } as never);
+  }
+
+  it("answers an account the API does not have with 404, noindex and no canonical link", async () => {
+    stubAccountRead(404);
+
+    const result = (await loadAccount()) as unknown as {
+      data: { account: null; notFound: boolean; canonicalUrl: null; reviewRole: string | null };
+      init: { status: number };
+    };
+    expect(result.init.status).toBe(404);
+    expect(result.data).toMatchObject({ account: null, notFound: true, canonicalUrl: null, reviewRole: "buyer" });
+    const tags = meta({ data: result.data } as never) ?? [];
+
+    expect(tags).toContainEqual({ name: "robots", content: "noindex" });
+    expect(tags.some((tag) => "rel" in tag && tag.rel === "canonical")).toBe(false);
+  });
+
+  it.each([
+    [500, 502],
+    [503, 503],
+    [400, 502],
+  ])("answers an account read the API fails with %i as %i, not as a missing account", async (status, expected) => {
+    stubAccountRead(status);
+
+    await expect(loadAccount()).rejects.toMatchObject({ init: { status: expected } });
+  });
+
+  it("keeps a found active account indexable", async () => {
+    stubAccountAndChipsFetch();
+
+    const result = await loadAccount("north-store");
+    expect(meta({ data: result } as never)).not.toContainEqual({ name: "robots", content: "noindex" });
   });
 });
 
