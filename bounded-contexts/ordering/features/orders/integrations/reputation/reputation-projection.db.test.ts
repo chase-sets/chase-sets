@@ -145,9 +145,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       const summary = await getOrderingOrderDeliverySummary(pool, "ord_delivery");
       expect(summary.shipment_count).toBe(shipment_count);
       expect(summary.delivered_count).toBe(delivered_count);
-      expect(summary.latest_delivered_at === null ? null : new Date(summary.latest_delivered_at).toISOString()).toBe(
-        latest,
-      );
+      expect(summary.latest_delivered_at).toBe(latest);
       const purchase = await runtime.getPurchase("ord_delivery", "acc_buyer");
       expect(purchase?.delivery_summary).toEqual(summary);
       expect(purchase?.status).toBe("ready-for-fulfillment");
