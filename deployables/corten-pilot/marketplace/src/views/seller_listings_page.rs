@@ -566,7 +566,7 @@ fn Health<'a>(t: SellerListingsMsg, counts: &'a StatusCounts) -> impl Patch {
                 <div>
                     <dt>{t.list_paused_listings()}</dt>
                     <dd class={Big}>{counts.paused}</dd>
-                    // Marketplace shows its message unfilled here (chase-sets/chase-sets#10653).
+                    <dd class={Hint}>{t.list_paused_listings_detail()}</dd>
                 </div>
                 <div>
                     <dt>{t.list_withdrawn_listings()}</dt>

@@ -510,7 +510,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.dispute.rate": "Dispute rate",
   "marketplace.features.listings.ui.listingListPage.dispute.rate.detail": "{count} orders, resolved against you",
   "marketplace.features.listings.ui.listingListPage.open": "Open",
-  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "{count} paused {label}",
+  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "Hidden from buyers until resumed",
   "marketplace.features.listings.ui.listingListPage.photo.count": "{count} photos",
   "marketplace.features.listings.ui.listingListPage.preview.fees.before.publishing": "Preview fees before publishing",
   "marketplace.features.listings.ui.listingListPage.preview.fees": "Preview fees",
