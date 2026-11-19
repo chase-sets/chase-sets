@@ -7633,7 +7633,7 @@ fn ordering(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response>
     };
     if side == "buyer" {
         detail["delivery_summary"] =
-            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22 12:00:00+00" });
+            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22T12:00:00.000Z" });
         detail["reviewOutcome"] = json!({ "status": "ready", "opportunity": {
             "author_role": "buyer", "active_review_id": "rev_1", "active_review_revealed_at": "2026-03-23T10:05:00.000Z",
             "submission_state": "allowed", "window_expired": false, "revealed": true,
