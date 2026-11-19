@@ -8,7 +8,7 @@ import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-
 import type { ProviderAdapter } from "./provider-adapters/provider-adapter";
 import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
 import { buildCatalogMergeCandidatesFromObservations } from "./promotion/catalog-merge-candidate-matcher";
-import { catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
+import { catalogMergeCandidateStreamId, sourceObservationStreamId } from "./source-observation-stream-identity";
 import { SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES } from "../domain/source-observation-payload-chunks";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
@@ -1039,7 +1039,7 @@ describe("source observation runtime: provider integration jobs", () => {
     );
   });
 
-  it.each(["complete", "missing-member", "replay-mtgjson", "replay-scryfall"] as const)(
+  it.each(["complete", "missing-member", "replay-mtgjson", "replay-scryfall", "unknown-member"] as const)(
     "reconciles Time Spiral child imports without candidate projection catch-up: %s",
     async (scenario) => {
       const { eventStore, streams } = createInMemoryEventStore();
@@ -1098,7 +1098,7 @@ describe("source observation runtime: provider integration jobs", () => {
       });
       const snapshots: SourceObservationListRow[] = [];
       const providers = ["scryfall", "mtgjson"];
-      if (scenario === "replay-mtgjson") providers.push("mtgjson");
+      if (scenario === "replay-mtgjson" || scenario === "unknown-member") providers.push("mtgjson");
       if (scenario === "replay-scryfall") providers.push("scryfall");
       let promotedStreamId: string | null = null;
       const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No network permitted by this fixture"));
@@ -1123,20 +1123,22 @@ describe("source observation runtime: provider integration jobs", () => {
                     set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
                     set_name: "Time Spiral",
                     collector_number: "1",
-                    rarity: replaying ? "uncommon" : "common",
+                    rarity: "common",
+                    tcgplayer_id: replaying ? 900002 : 900001,
                     released_at: "2006-10-06",
                   },
                 }
               : {
                   kind: "single-card",
                   sourceUrl: "https://provider.example/mtgjson",
-                  meta: { date: "2026-07-14" },
+                  meta: { date: "2026-07-14", version: replaying ? "5.2.1" : "5.2.0" },
                   set: { code: "TSP", name: "Time Spiral", releaseDate: "2006-10-06" },
                   card: {
-                    uuid: "synthetic-mtgjson-card",
+                    uuid:
+                      replaying && scenario === "unknown-member" ? "synthetic-new-member" : "synthetic-mtgjson-card",
                     name: "Amrou Scout",
                     number: "1",
-                    rarity: replaying ? "uncommon" : "common",
+                    rarity: "common",
                     identifiers: { scryfallId: "synthetic-scryfall-card" },
                   },
                 };
@@ -1188,14 +1190,26 @@ describe("source observation runtime: provider integration jobs", () => {
             observedAtForEnvelope: () => "2026-07-14T12:00:00.000Z",
           });
           if (replaying) {
-            expect(outcome, outcome.reason ?? "import outcome").toMatchObject({ status: "imported", observed: 1 });
-            const oldRow = snapshots.find((row) => row.provider_key === provider)!;
-            const newRow = storedRows.get(oldRow.observation_id)!;
-            expect(newRow.sync_run_id).toBe(syncRunId);
-            expect(newRow.source_record_hash).not.toBe(oldRow.source_record_hash);
+            if (scenario === "unknown-member") {
+              expect(outcome).toMatchObject({
+                status: "failed",
+                reason: "Terminal Catalog Merge Candidates cannot be changed.",
+              });
+            } else {
+              expect(outcome, outcome.reason ?? "import outcome").toMatchObject({ status: "imported", observed: 1 });
+              const oldRow = snapshots.find((row) => row.provider_key === provider)!;
+              const newRow = storedRows.get(oldRow.observation_id)!;
+              expect(newRow.sync_run_id).toBe(syncRunId);
+              expect(newRow.source_record_hash).not.toBe(oldRow.source_record_hash);
+              expect(streams.get(sourceObservationStreamId(newRow.observation_id))?.at(-1)).toMatchObject({
+                eventType: "catalog.source-observation.recorded",
+                payload: { syncRunId, sourceRecordHash: newRow.source_record_hash },
+              });
+            }
             expect(streams.get(promotedStreamId!)).toEqual(terminalHistory);
-            expect([...streams.values()].filter((events) => events[0]?.eventType === "catalog.merge-candidate.created"))
-              .toHaveLength(1);
+            expect(
+              [...streams.values()].filter((events) => events[0]?.eventType === "catalog.merge-candidate.created"),
+            ).toHaveLength(1);
           } else if (scenario === "missing-member" && provider === "mtgjson") {
             expect(outcome).toMatchObject({
               status: "failed",
@@ -1232,7 +1246,7 @@ describe("source observation runtime: provider integration jobs", () => {
             );
             if (turn === 1 && providers.length === 3) {
               const candidateId = oracle.candidates[0]!.candidateId;
-              const promoted = await mergeCandidates.promoteCatalogMergeCandidate({
+              const promoted = await mergeCandidates.services.promoteCatalogMergeCandidate({
                 candidateId,
                 expectedVersion: loaded.version,
                 reason: "Approved both Time Spiral sources",

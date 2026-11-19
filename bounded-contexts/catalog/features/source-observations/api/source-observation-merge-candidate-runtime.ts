@@ -105,7 +105,10 @@ export function createSourceObservationMergeCandidateRuntime({
   async function persistCatalogMergeCandidatesFromObservations(
     observations: readonly SourceObservationListRow[],
     context: EventStoreContext,
-    options: Readonly<{ preserveUnchangedTerminalCandidates?: boolean }> = {},
+    options: Readonly<{
+      preserveUnchangedTerminalCandidates?: boolean;
+      preserveTerminalProviderReplays?: boolean;
+    }> = {},
   ): Promise<CatalogMergeCandidateMatchBatch> {
     const addedAt = new Date().toISOString();
     const providerKeys = [
@@ -237,6 +240,26 @@ export function createSourceObservationMergeCandidateRuntime({
       }
     }
 
+    const preservedTerminalIds = new Set<string>();
+    if (options.preserveTerminalProviderReplays) {
+      completeGenerated = {
+        ...completeGenerated,
+        candidates: completeGenerated.candidates.map((candidate) => {
+          const state = loaded.get(candidate.candidateId)?.state;
+          if (
+            !state?.snapshot ||
+            (state.status !== "promoted" && state.status !== "rejected") ||
+            !isTerminalProviderReplay(state.snapshot, candidate.snapshot)
+          ) {
+            return candidate;
+          }
+          // Keep all reviewed members in the ownership check, including children this turn did not replay.
+          preservedTerminalIds.add(candidate.candidateId);
+          return { ...candidate, snapshot: state.snapshot };
+        }),
+      };
+    }
+
     const completeIds = new Set(completeGenerated.candidates.map((candidate) => candidate.candidateId));
     for (const { state } of existing) {
       if (state.id !== null && !completeIds.has(state.id)) {
@@ -279,6 +302,9 @@ export function createSourceObservationMergeCandidateRuntime({
       const existingEvents = await deps.eventStore.readStream({ streamId, limit: 1 });
       if (existingEvents.length > 0 !== (loadedCandidate.state.id !== null)) {
         throw new Error("Catalog Merge Candidate stream changed during reconciliation; import failed closed.");
+      }
+      if (preservedTerminalIds.has(candidate.candidateId)) {
+        continue;
       }
       // Extension reposts preserve a review decision only when the canonical source membership is unchanged.
       // Issue: https://github.com/chase-sets/chase-sets/issues/10040
@@ -688,6 +714,28 @@ function sameCandidateSourceMembership(
       prior.providerKey === member.providerKey &&
       prior.externalKey === member.externalKey &&
       prior.sourceRecordHash === member.sourceRecordHash &&
+      prior.sourceProfileKey === member.sourceProfileKey &&
+      prior.sourceProfileVersion === member.sourceProfileVersion &&
+      prior.sourceMappingFingerprint === member.sourceMappingFingerprint
+    );
+  });
+}
+
+function isTerminalProviderReplay(
+  reviewed: CatalogMergeCandidateReviewSnapshot,
+  incoming: CatalogMergeCandidateReviewSnapshot,
+): boolean {
+  if (reviewed.identityFingerprint !== incoming.identityFingerprint) {
+    return false;
+  }
+  const reviewedMembers = new Map(reviewed.membership.map((member) => [member.observationId, member]));
+  // Source data and run provenance can change without revising the terminal review snapshot.
+  return incoming.membership.every((member) => {
+    const prior = reviewedMembers.get(member.observationId);
+    return (
+      prior !== undefined &&
+      prior.providerKey === member.providerKey &&
+      prior.externalKey === member.externalKey &&
       prior.sourceProfileKey === member.sourceProfileKey &&
       prior.sourceProfileVersion === member.sourceProfileVersion &&
       prior.sourceMappingFingerprint === member.sourceMappingFingerprint
