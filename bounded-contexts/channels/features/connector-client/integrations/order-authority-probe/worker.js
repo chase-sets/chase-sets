@@ -399,13 +399,17 @@
       requireActive(state);
       return result;
     } catch (error) {
-      const code = state.aborted
-        ? "aborted"
-        : timedOut
-          ? "response_timeout"
-          : FAILURE_CODES.has(error?.message)
-            ? error.message
-            : "transport_failure";
+      const reason = error?.message;
+      const code =
+        reason === "deadline"
+          ? "deadline"
+          : state.aborted
+            ? "aborted"
+            : timedOut
+              ? "response_timeout"
+              : FAILURE_CODES.has(reason)
+                ? reason
+                : "transport_failure";
       observation.failure = code;
       fail(code);
     } finally {

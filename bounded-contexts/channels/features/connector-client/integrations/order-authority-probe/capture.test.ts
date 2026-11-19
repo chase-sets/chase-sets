@@ -566,6 +566,40 @@ describe("fixed first-page canary (offline)", () => {
     },
   );
 
+  it("exports a deadline refusal when lookup completes at expiry with an abort pending", async () => {
+    let abort: Promise<Reply> | undefined;
+    const worker = harness({
+      canary: true,
+      onDispatch: (kind) => {
+        if (kind !== "lookup") return;
+        abort = worker.send({ kind: "abort" });
+        worker.elapseWithoutTimers(10);
+      },
+    });
+    const page = helper(worker, {
+      sendMessage: (message) => {
+        if (message.kind === "lookup") worker.advance(899990);
+        return worker.send(message);
+      },
+    });
+
+    expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    expect(await abort).toEqual({ ok: true, code: "abort_requested" });
+    const observed = exported(page);
+    expect(observed.finishedAt).toBe(observed.deadlineAt);
+    retain(page, canaryOut);
+    expect(packaging.verifyExport(canaryOut).evidence).toBe("synthetic");
+    expect(observed).toMatchObject({
+      requests: [{ kind: "lookup", responseComplete: true, failure: "deadline" }],
+      failures: ["deadline"],
+      counts: { lookup: 1, list: 0, detail: 0 },
+      canary: { matchedDetails: 0, sameSession: false },
+      selector: { searches: [] },
+    });
+    expect(await worker.send({ kind: "begin" })).toEqual({ ok: false, code: "repeat_invocation" });
+    custody([...page.exports]);
+  });
+
   it.each(["failed lookup", "lookup/list overlap", "detail overlap"])(
     "refuses a rehashed qualified two-row export with %s",
     async (defect) => {
