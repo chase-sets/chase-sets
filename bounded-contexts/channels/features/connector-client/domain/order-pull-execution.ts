@@ -66,9 +66,13 @@ export function createOrderPullExecution(ports: Ports) {
     await ports.save(handoff);
   };
   const consume = async (kind: "providerCalls" | "posts") => {
-    const handoff = ports.current().handoff;
+    const member = ports.current();
+    const { handoff } = member;
     if (!handoff) refuse();
-    if (kind === "providerCalls" && ports.now() < Date.parse(handoff.usage.providerNotBefore))
+    if (
+      (kind === "providerCalls" && ports.now() < Date.parse(handoff.usage.providerNotBefore)) ||
+      (kind === "posts" && isCanaryReplay(member) && handoff.usage.posts >= member.payload.bounds.maxObservationPosts)
+    )
       throw new OperationProtocolError("stale-fence");
     await save({
       ...handoff,
