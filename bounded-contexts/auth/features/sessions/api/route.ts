@@ -117,8 +117,10 @@ export function sessionRoutes(services: SessionServices) {
   app.get("/", async (c) => {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
+    // Anyone but a platform admin lists exactly their own sessions; search is staff's.
+    const scoped = actor && actor.roleKey !== "platform-admin";
     const result = await services.listSessions({
-      search: actor && actor.roleKey !== "platform-admin" ? actor.userId : search,
+      ...(scoped ? { userId: actor.userId } : { search }),
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
