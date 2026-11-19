@@ -82,6 +82,7 @@ describe("platform feedback admin UI", () => {
     fireEvent.click(screen.getAllByLabelText("Select row pfb_test")[0]!);
     expect(bulkReview.disabled).toBe(false);
     expect(screen.getByText("4.33")).toBeTruthy();
+    expect(screen.getAllByRole("img", { name: "Rating: 4 out of 5" }).length).toBeGreaterThan(0);
   });
 
   it("renders detail attribution, marketplace related links, and status actions", () => {
@@ -100,6 +101,12 @@ describe("platform feedback admin UI", () => {
     expect(screen.getByLabelText("Operator note")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Record note" })).toBeTruthy();
     expect(screen.getByText("Follow up with checkout team.")).toBeTruthy();
+  });
+
+  it("names the feedback's rating for a screen reader", () => {
+    render(<PlatformFeedbackAdminDetailPage feedback={{ ...feedbackItem, rating: 1 }} />);
+
+    expect(screen.getByRole("img", { name: "Rating: 1 out of 5" })).toBeTruthy();
   });
 
   it("renders related entity text instead of an admin-host account link when no marketplace origin is configured", () => {
