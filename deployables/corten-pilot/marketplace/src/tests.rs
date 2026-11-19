@@ -9620,7 +9620,9 @@ fn session_row(id: &str, user: &str, status: &str, method: &str, available: &[&s
 /// link), `ses_down` (active, one account, whose revoke fails), and `ses_else`, another user's
 /// whose display name mentions `usr_seller`, which Auth's list matches too. A read that waits for 45
 /// is still catching up; `ses_gone` is not found and `ses_else` forbidden. A revoke of `ses_one`
-/// or a switch of it to `acc_two` is done (a receipt at 42); every other write is Auth's 500.
+/// or a switch of it to `acc_two` is done (a receipt at 42), and a revoke of the revoked `ses_old`
+/// is done with nothing written. Auth names a refusal: a switch to the current or an unavailable
+/// account, or of a session no longer active. `ses_down`'s revoke is a 500.
 fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix(SESSIONS_API)?;
     let failed = || refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
@@ -9653,6 +9655,16 @@ fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) ->
         }
         ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_two" => {
             committed(StatusCode::OK, "auth", "42", json!({ "id": "ses_one", "version": 2, "status": "active" }))
+        }
+        ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_seller" => {
+            refusal(StatusCode::CONFLICT, "session_account_current", "This session is already using that account.")
+        }
+        ("POST", "/ses_one/switch-account") => {
+            refusal(StatusCode::BAD_REQUEST, "session_account_unavailable", "This session cannot switch to that account.")
+        }
+        ("POST", "/ses_old/revoke") => Json(json!({ "id": "ses_old", "version": 2, "status": "revoked" })).into_response(),
+        ("POST", "/ses_old/switch-account") => {
+            refusal(StatusCode::CONFLICT, "session_not_active", "This session is no longer active.")
         }
         ("POST", _) => failed(),
         _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
@@ -9763,10 +9775,23 @@ async fn a_revoke_or_switch_is_read_after_its_write_and_a_failed_one_says_what_t
 
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_two", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched");
+    let reads = |pilot: &Pilot| {
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::GET && c.path.starts_with(SESSIONS_API)).count()
+    };
+    let before = reads(&pilot);
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_bogus", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switch-refused", "Auth's 500, and the account unchanged");
+    assert_eq!(
+        query(headers["location"].to_str().unwrap())["said"],
+        "switch-refused",
+        "Auth's refusal of an unavailable account"
+    );
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_seller", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched", "already on that account");
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/switch"), "guard", "account_id=acc_two", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "a switch of a revoked session");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/revoke"), "guard", "", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "Auth's 500 for a revoked session");
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "revoked", "a revoked session's revoke is done");
+    assert_eq!(reads(&pilot), before, "a named refusal is not read again");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_down/revoke"), "guard", "", false)).await;
     let to = headers["location"].to_str().unwrap().to_owned();
     assert_eq!(query(&to)["said"], "failed", "still active after a failed revoke");

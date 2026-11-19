@@ -5645,8 +5645,7 @@ struct ErrorCode {
 }
 
 /// The signed-in user's sessions (Auth's `sessions`) and their two writes. Neither write is an
-/// attempt: Auth takes no `Idempotency-Key` for them, and answers every refusal (already revoked,
-/// already that account) with a 500 (chase-sets/chase-sets#10698).
+/// attempt: Auth takes no `Idempotency-Key` for them, and names a refusal by its error code.
 pub trait SessionCalls {
     /// A page of `user`'s sessions, newest first, and how many there are. Auth filters the list
     /// by `search`, which it matches against names and emails too, so only the sessions whose
