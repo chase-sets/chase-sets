@@ -8284,7 +8284,7 @@ export const englishTranslations = {
   "marketplace.features.listings.ui.listingListPage.pause.selected": "Pause selected",
   "marketplace.features.listings.ui.listingListPage.paused.listings": "Paused listings",
   "marketplace.features.listings.ui.listingListPage.paused.listings.count": "{count} {label}",
-  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "{count} paused {label}",
+  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "Hidden from buyers until resumed",
   "marketplace.features.listings.ui.listingListPage.photo.count": "{count} photos",
   "marketplace.features.listings.ui.listingListPage.preview.fees": "Preview fees",
   "marketplace.features.listings.ui.listingListPage.preview.fees.before.publishing": "Preview fees before publishing",
