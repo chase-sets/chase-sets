@@ -35,7 +35,7 @@ describe("buildOperationsAttentionItem", () => {
     const item = poisonItem();
     expect(item.id).toBe("projection-poison-event:evt-1");
     expect(item.entity).toBe("poison-event");
-    expect(item.deepLink).toEqual({ surface: "projection-operations", href: "/projections?tab=blocked" });
+    expect(item.deepLink).toEqual({ surface: "projection-operations", href: "/platform/projections?tab=blocked" });
     expect(item.dueAt).toBeNull();
   });
 
