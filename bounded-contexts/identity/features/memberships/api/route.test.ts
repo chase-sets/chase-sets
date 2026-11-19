@@ -77,6 +77,21 @@ function createServices(
   return { services, accounts, commandHandler };
 }
 
+describe("membership list", () => {
+  it("lists only the actor's account by equality, whatever search was asked", async () => {
+    const { services, accounts } = createServices();
+    const response = await buildApp(services, accounts).request("/memberships?search=acc_other&limit=5");
+
+    expect(response.status).toBe(200);
+    expect(services.listMemberships).toHaveBeenCalledExactlyOnceWith({
+      accountId: "acc_team",
+      status: undefined,
+      limit: 5,
+      offset: undefined,
+    });
+  });
+});
+
 describe("membership owner invariant", () => {
   it.each([
     ["demote", "/memberships/mbr_owner/role", { method: "PUT", body: JSON.stringify({ roleKey: "manager" }) }],
