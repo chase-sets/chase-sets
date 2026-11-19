@@ -12,6 +12,11 @@ const SUCCESSOR = `${PROBE}#issuecomment-6065311293`;
 const coreFiles = ["capture.html", "helper.js", "manifest.json", "worker.js"];
 const packageFiles = ["capture-config.json", ...coreFiles];
 const exportFiles = ["selector-inventory.json", "selector-receipt.json"];
+const offlineCanaryManifest = {
+  host_permissions: [],
+  content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self'" },
+};
+const canaryDetailLimit = 3;
 const chromeExecutable = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const launchCommand = (profileDirectory) =>
   `& '${chromeExecutable}' '--user-data-dir=${profileDirectory}' '--no-first-run' '--no-default-browser-check'`;
@@ -92,7 +97,8 @@ function same(value, expected, code = "export_schema_refused") {
   check(json(value) === json(expected), code);
 }
 
-export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }) {
+export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false, canary = false }) {
+  check(!canary || synthetic, "canary_operator_disabled");
   check(
     Number.isSafeInteger(cadenceMs) &&
       cadenceMs > 0 &&
@@ -113,7 +119,11 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
   check(synthetic || existsSync(chromeExecutable), "chrome_executable_missing");
   const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const key = publicKey.export({ type: "spki", format: "der" }).toString("base64");
-  const manifest = { ...readJson(path.join(source, "manifest.json")), key };
+  const manifest = {
+    ...readJson(path.join(source, "manifest.json")),
+    key,
+    ...(canary && offlineCanaryManifest),
+  };
   const id = extensionId(key);
   const packageDirectory = path.join(out, "package");
   const receiptDirectory = path.join(out, "receipt");
@@ -133,6 +143,7 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
     extensionId: id,
     evidence: synthetic ? "synthetic" : "operator",
     files: inventory(packageDirectory),
+    ...(canary && { mode: "canary" }),
   };
   writeFileSync(path.join(packageDirectory, "capture-config.json"), json(config), { flag: "wx" });
   const preparation = {
@@ -160,9 +171,24 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
       "receipt/selector-inventory.json",
     ],
     qualification: "PENDING_HOST_VERIFIER",
+    ...(canary && { mode: "canary" }),
   };
   const cli = path.join(source, "package.mjs");
-  const runbook = `# One isolated HUMAN-operated selector capture for ${PROBE}
+  const runbook = canary
+    ? `# Synthetic Ready to Ship canary
+
+Head: ${head}. This package is for offline fixtures only. Do not load it for an operator window.
+It has no sale handoff, separate authorization or claimed connector intake.
+
+One lookup, one LastTwoYears first page, fresh Ready to Ship quick-filter brackets, and at
+most three matching details. No range correction, fallback, pagination or retry.
+The receipt contains aggregate observations and an opaque page claim, not sale authority.
+
+Verify package: node "${cli}" --verify --out "${out}"
+Verify the scrubbed export: node "${cli}" --verify-export --out "${out}"
+Synthetic removal tests do not prove operator UI absence or permit a live run.
+`
+    : `# One isolated HUMAN-operated selector capture for ${PROBE}
 
 Evidence: ${config.evidence}. Head: ${head}. Extension: ${id}.
 Cadence: ${cadenceMs} ms, probe-only authority ${AUTHORITY}, not production cadence.
@@ -242,6 +268,7 @@ or raw network data. The visible Chrome window and native dialogs are HUMAN-only
 export function verifyPackage(out) {
   assertRealDirectory(out);
   const preparation = readJson(path.join(out, "preparation.json"), true);
+  const canary = preparation.mode === "canary";
   closed(
     preparation,
     [
@@ -262,6 +289,7 @@ export function verifyPackage(out) {
       "packageDigests",
       "retainedFiles",
       "qualification",
+      ...(canary ? ["mode"] : []),
     ],
     "package_mismatch",
   );
@@ -277,7 +305,18 @@ export function verifyPackage(out) {
   const config = readJson(path.join(directory, "capture-config.json"), true);
   closed(
     config,
-    ["format", "head", "probe", "t0", "cadenceMs", "cadenceSource", "extensionId", "evidence", "files"],
+    [
+      "format",
+      "head",
+      "probe",
+      "t0",
+      "cadenceMs",
+      "cadenceSource",
+      "extensionId",
+      "evidence",
+      "files",
+      ...(canary ? ["mode"] : []),
+    ],
     "package_mismatch",
   );
   check(
@@ -286,6 +325,7 @@ export function verifyPackage(out) {
       config.probe === PROBE &&
       preparation.probe === PROBE &&
       ["synthetic", "operator"].includes(config.evidence) &&
+      (!canary || (config.evidence === "synthetic" && config.mode === "canary")) &&
       config.evidence === preparation.evidence &&
       config.extensionId === extensionId(manifest.key) &&
       preparation.extensionId === config.extensionId &&
@@ -321,7 +361,15 @@ export function verifyPackage(out) {
         ? execFileSync("git", ["show", `${config.head}:${relative}`], { cwd: repo, stdio: ["ignore", "pipe", "pipe"] })
         : readFileSync(path.join(source, file));
     if (file === "manifest.json")
-      same(manifest, { ...JSON.parse(expected.toString()), key: manifest.key }, "package_mismatch");
+      same(
+        manifest,
+        {
+          ...JSON.parse(expected.toString()),
+          key: manifest.key,
+          ...(canary && offlineCanaryManifest),
+        },
+        "package_mismatch",
+      );
     else check(hash(expected) === actual[file], "digest_mismatch");
   }
   const expected = {
@@ -377,6 +425,7 @@ const failures = new Set([
   "aborted",
   "completeness_unproven",
   "page_ceiling_exceeded",
+  "detail_mismatch",
 ]);
 const reasons = new Set([
   ...failures,
@@ -409,6 +458,7 @@ const fields = {
   ],
 };
 function assertReceipt(receipt, preparation) {
+  const canary = preparation.mode === "canary";
   closed(receipt, [
     "format",
     "evidence",
@@ -429,6 +479,7 @@ function assertReceipt(receipt, preparation) {
     "failures",
     "selector",
     "completeness",
+    ...(canary ? ["canary"] : []),
   ]);
   const start = Date.parse(receipt.startedAt);
   const finish = Date.parse(receipt.finishedAt);
@@ -455,8 +506,8 @@ function assertReceipt(receipt, preparation) {
   closed(receipt.counts, ["lookup", "list", "detail"]);
   check(
     integer(receipt.counts.lookup, 1) &&
-      integer(receipt.counts.list, 2) &&
-      receipt.counts.detail === 0 &&
+      integer(receipt.counts.list, canary ? 1 : 2) &&
+      integer(receipt.counts.detail, canary ? canaryDetailLimit : 0) &&
       integer(receipt.totalBytes, 8388608 + 1048576),
   );
   check(
@@ -464,8 +515,8 @@ function assertReceipt(receipt, preparation) {
       receipt.failures.length <= 3 &&
       receipt.failures.every((code) => failures.has(code)),
   );
-  check(Array.isArray(receipt.requests) && receipt.requests.length <= 3);
-  const counts = { lookup: 0, list: 0 };
+  check(Array.isArray(receipt.requests) && receipt.requests.length <= (canary ? 2 + canaryDetailLimit : 3));
+  const counts = { lookup: 0, list: 0, detail: 0 };
   let previousStart = null;
   let bytes = 0;
   for (const request of receipt.requests) {
@@ -494,16 +545,19 @@ function assertReceipt(receipt, preparation) {
     check(Object.hasOwn(counts, request.kind));
     counts[request.kind] += 1;
     const lookup = request.kind === "lookup";
+    const detail = request.kind === "detail";
+    check(!detail || (canary && counts.list === 1 && request.shape === null));
     const from = Date.parse(request.startedAt);
     const to = Date.parse(request.endedAt);
     check(
-      request.method === (lookup ? "GET" : "POST") &&
+      request.method === (request.kind === "list" ? "POST" : "GET") &&
         request.host === (lookup ? "sp-api.tcgplayer.com" : "order-management-api.tcgplayer.com") &&
         request.version === (lookup ? "1.0" : "2.0") &&
-        request.pathTemplate === (lookup ? "/account/auth-detail" : "/orders/search") &&
+        request.pathTemplate ===
+          (lookup ? "/account/auth-detail" : detail ? "/orders/{encodedOrderNumber}" : "/orders/search") &&
         request.credentials === "include" &&
         request.authorizationPresent === false &&
-        request.ceilingBytes === (lookup ? 65536 : 1048576) &&
+        request.ceilingBytes === (lookup ? 65536 : detail ? 524288 : 1048576) &&
         utc(request.startedAt) &&
         utc(request.endedAt) &&
         from >= start &&
@@ -558,7 +612,12 @@ function assertReceipt(receipt, preparation) {
     previousStart = from;
     bytes += request.requestBytes + request.responseBytes;
   }
-  check(receipt.totalBytes === bytes && receipt.counts.lookup >= counts.lookup && receipt.counts.list >= counts.list);
+  check(
+    receipt.totalBytes === bytes &&
+      receipt.counts.lookup >= counts.lookup &&
+      receipt.counts.list >= counts.list &&
+      receipt.counts.detail >= counts.detail,
+  );
   closed(receipt.selector, ["identity", "searches"]);
   check(
     receipt.selector.identity === "tcgplayer-ready-to-ship-selector/v1" &&
@@ -602,7 +661,7 @@ function assertReceipt(receipt, preparation) {
       check(
         integer(bracket.count, 999999999) &&
           bracket.dateFilter === search.searchRange &&
-          typeof bracket.reprompted === "boolean" &&
+          (canary ? bracket.reprompted === false : typeof bracket.reprompted === "boolean") &&
           bracket.countSurface === "ready-to-ship-quick-filter" &&
           utc(bracket.observedAt) &&
           bracket.settled === true &&
@@ -678,6 +737,43 @@ function assertReceipt(receipt, preparation) {
           receipt.requests.filter((item) => item.kind === "list")[0].failure === first.reason,
       );
     }
+  }
+  if (canary) {
+    closed(receipt.canary, ["pageClaim", "matchedDetails", "sameSession"]);
+    const search = receipt.selector.searches[0];
+    const details = receipt.requests.filter((request) => request.kind === "detail");
+    check(
+      typeof receipt.canary.pageClaim === "string" &&
+        /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(receipt.canary.pageClaim) &&
+        integer(receipt.canary.matchedDetails, details.filter((request) => request.failure === null).length) &&
+        typeof receipt.canary.sameSession === "boolean",
+    );
+    if (details.length)
+      check(
+        search?.after &&
+          search.rowCount <= canaryDetailLimit &&
+          details.length <= search.rowCount &&
+          search.before.count === search.totalOrders &&
+          search.totalOrders === search.rowCount &&
+          search.rowCount === search.distinctCount &&
+          search.rowCount === search.after.count &&
+          search.listStatuses.reduce((sum, item) => sum + item.count, 0) === search.rowCount &&
+          Date.parse(details[0].startedAt) >= Date.parse(search.after.observedAt),
+      );
+    if (search?.qualification === "qualified")
+      check(
+        receipt.canary.sameSession &&
+          receipt.requests[0]?.kind === "lookup" &&
+          receipt.requests[0].failure === null &&
+          receipt.requests.every(
+            (request, index, requests) =>
+              index === 0 || Date.parse(request.startedAt) >= Date.parse(requests[index - 1].endedAt),
+          ) &&
+          receipt.canary.matchedDetails === search.rowCount &&
+          receipt.counts.detail === search.rowCount &&
+          details.length === search.rowCount,
+      );
+    else check(!receipt.canary.sameSession);
   }
   if (start < Date.parse(preparation.t0) || finish >= deadline)
     check(receipt.failures.includes("deadline") || receipt.failures.includes("response_timeout"));

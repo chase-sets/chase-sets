@@ -9,7 +9,6 @@
 // - As the seller, without JavaScript: the seller's list is the pilot's command center, with the
 //   buckets the Fulfillment API's command center has shipments in, in its order, and a card for
 //   each of their shipments (https://github.com/chase-sets/chase-sets/issues/10638).
-// - Marketplace says each empty state twice; the comparison counts it once.
 // - At 1280 px two cards to a row, at 390 px one; nothing scrolls sideways and every control is at
 //   least 40 px tall (the command center's cards fill the row from 48rem); no console errors.
 // It writes nothing.
@@ -72,8 +71,6 @@ const wordsOf = (page) =>
           /Preparing shipment actions\s+You can read shipment details and open links while actions get ready\./,
           " ",
         )
-        // Marketplace says each empty state twice; the pilot once.
-        .replace(/(No shipment exceptions recorded\.|No postage operations recorded\.)\s+\1/g, "$1")
         // Start and Resume packing: smoke-market-packing.mjs compares them.
         .replace(/\n(Start packing|Resume packing)\n/g, "\n")
         .toLowerCase()

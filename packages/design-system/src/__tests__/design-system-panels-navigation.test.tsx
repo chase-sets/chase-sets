@@ -639,6 +639,14 @@ describe("design system panels, navigation, and shells", () => {
     expect(markup).toContain("Total price");
   });
 
+  it("renders a title-only marketplace empty state without an empty description", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<MarketplaceEmptyState title="No shipment exceptions recorded." />);
+    const section = container.querySelector("section");
+    expect(section?.querySelector("h2")?.textContent).toBe("No shipment exceptions recorded.");
+    expect(section?.querySelectorAll("div.text-secondary")).toHaveLength(0);
+    expect(section?.textContent).toBe("No shipment exceptions recorded.");
+  });
   it("renders marketplace recovery, status, messaging, offer, and page templates", () => {
     const markup = renderToString(
       <div>

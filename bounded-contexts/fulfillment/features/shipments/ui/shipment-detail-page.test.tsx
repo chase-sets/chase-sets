@@ -227,6 +227,21 @@ describe("FulfillmentShipmentDetailPage", () => {
     expect(container.textContent).not.toContain("Preparing shipment actions");
   });
 
+  it("says each empty state once, as its title", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(
+      <FulfillmentShipmentDetailPage
+        role="seller"
+        backHref="/account/sales/shipments"
+        shipment={withPlan({ ...shipment, exceptions: [], postage_label_operations: [] })}
+      />,
+    );
+    const text = container.textContent ?? "";
+    for (const sentence of ["No shipment exceptions recorded.", "No postage operations recorded."]) {
+      expect(text.split(sentence)).toHaveLength(2);
+      expect([...container.querySelectorAll("h2")].some((heading) => heading.textContent === sentence)).toBe(true);
+    }
+  });
   const deliveredAt = "2026-04-09T17:42:00.000Z";
   const deliveredShipment = { ...shipment, status: "delivered", delivered_at: deliveredAt };
 
