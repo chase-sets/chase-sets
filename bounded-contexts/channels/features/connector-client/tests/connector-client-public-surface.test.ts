@@ -66,6 +66,7 @@ describe("connector-client-public-surface", () => {
       "ExecutorResult",
       "OperationUnit",
       "createTcgplayerLiveExportExecutor",
+      "createReadyToShipCanaryExecutor",
       "isLiveExportAuthorityRequest",
       "tcgplayerLiveExportAuthority",
       "TcgplayerLiveExportAuthority",

@@ -45,6 +45,9 @@ describe("outbound-bootstrap-and-manifest", () => {
       "channel_live_export_schedules",
       "channel_live_export_operations_one_live_uidx",
       "channel_live_export_schedules_due_idx",
+      "channel_ready_to_ship_canaries",
+      "channel_ready_to_ship_canaries_live_idx",
+      "channel_ready_to_ship_canaries_expiry_idx",
     ]) {
       expect(outboundSyncSchemaSql).toContain(expected);
       expect(migrationSql).toContain(expected);
@@ -57,6 +60,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "20261008_channels_order_pull_producer",
       "20261009_channels_order_pull_progress",
       "20261010_channels_live_export_producer",
+      "20261119_channels_ready_to_ship_canary",
     ]);
     expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
       "channel_outbound_reservation_settlements",

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as stagedImportPolicy from "../../connector-feed/domain/staged-import-dispatch-policy";
 import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
+import * as canary from "../../outbound-sync/domain/ready-to-ship-canary";
 import * as validation from "../../outbound-sync/domain/validation";
 import * as liveExportExecution from "../domain/live-export-execution";
 import { OperationProtocolError } from "../domain/operation-codec";
@@ -249,6 +250,7 @@ describe("tcgplayer-live-export-crash-matrix lease-expiry rebind", () => {
         "./staged-import-dispatch": stagedImport,
         "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
         "../../outbound-sync/domain/order-pull-codec": pullCodec,
+        "../../outbound-sync/domain/ready-to-ship-canary": canary,
         "../integrations/connector-indexeddb": journal,
         "./operation-protocol": protocol,
       }).createConnectorOperationCoordinator as typeof createConnectorOperationCoordinator;

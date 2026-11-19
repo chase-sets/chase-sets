@@ -20,6 +20,7 @@ import * as liveExportExecution from "../domain/live-export-execution";
 import * as stagedImport from "../domain/staged-import-dispatch";
 import * as stagedImportPolicy from "../../connector-feed/domain/staged-import-dispatch-policy";
 import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
+import * as canary from "../../outbound-sync/domain/ready-to-ship-canary";
 import { coordinatorFixture } from "./coordinator-test-support";
 import { evaluate, mutatedCoordinator } from "./coordinator-mutation-support";
 
@@ -105,6 +106,7 @@ describe("connector-coordinator discriminating controls", () => {
           "./staged-import-dispatch": stagedImport,
           "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
           "../../outbound-sync/domain/order-pull-codec": pullCodec,
+          "../../outbound-sync/domain/ready-to-ship-canary": canary,
           "../integrations/connector-indexeddb": {
             ...journal,
             createOperationJournal: () => ({ ...f.journal, change }),

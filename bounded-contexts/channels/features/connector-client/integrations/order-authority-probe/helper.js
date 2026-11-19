@@ -144,6 +144,7 @@
     };
     const terminal = async (response) => {
       finished = true;
+      if (response.handoff) download("ready-to-ship-handoff.json", JSON.stringify(response.handoff, null, 2) + "\n");
       return exportReceipt(response.receipt);
     };
     try {
