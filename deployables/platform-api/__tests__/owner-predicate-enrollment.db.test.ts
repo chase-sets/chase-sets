@@ -246,7 +246,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
         const mount = catalogModule.buildApis!(catalogServices(consumer, db))[0]!;
         return router(mount.router).request(`/items/${catalogItemId}/categories/${categoryId}`, { method });
       },
-      async createListing(
+      async createFixtureListing(
         publicationScope: "channel-only" | "native" = "channel-only",
         db = pools.marketplace,
         listingIdOverride?: ListingId,
@@ -347,7 +347,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
   it("orders the real withdraw route in both terminal races without closing another same-seller Listing", async () => {
     for (const terminalFirst of [false, true]) {
       const f = fixture();
-      const listing = await f.createListing();
+      const listing = await f.createFixtureListing();
       const affected = await prepare(
         pools.marketplace,
         ownerPredicateKey("repricing-listing", listing.listingId),
@@ -408,7 +408,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
 
   it("wins the original ABORT CAS while a competing COMMIT is starting", async () => {
     const f = fixture();
-    const listing = await f.createListing();
+    const listing = await f.createFixtureListing();
     const affected = await prepare(
       pools.marketplace,
       ownerPredicateKey("repricing-listing", listing.listingId),
@@ -501,7 +501,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
 
   it("keeps the Listing expected version independent of a settled terminal", async () => {
     const f = fixture();
-    const listing = await f.createListing("native");
+    const listing = await f.createFixtureListing("native");
     const key = ownerPredicateKey("repricing-listing", listing.listingId);
     const terminal = await prepare(pools.marketplace, key, f.context);
     await terminal.commit();
@@ -552,7 +552,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
       });
     switch (kind) {
       case "Marketplace single": {
-        const { listingId } = await f.createListing();
+        const { listingId } = await f.createFixtureListing();
         return {
           owner: pools.marketplace,
           key: ownerPredicateKey("repricing-listing", listingId),
@@ -574,7 +574,10 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
           key: ownerPredicateKey("repricing-listing", listingId),
           context: f.context,
           write: async (db: PgTransactionalPool) => {
-            expect(await f.createListing("channel-only", db, listingId)).toMatchObject({ listingId, version: 1 });
+            expect(await f.createFixtureListing("channel-only", db, listingId)).toMatchObject({
+              listingId,
+              version: 1,
+            });
           },
         };
       }
@@ -621,7 +624,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
         };
       }
       case "Marketplace independent bulk": {
-        const { listingId } = await f.createListing("native");
+        const { listingId } = await f.createFixtureListing("native");
         return {
           owner: pools.marketplace,
           key: ownerPredicateKey("repricing-listing", listingId),

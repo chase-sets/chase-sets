@@ -84,10 +84,11 @@ export function createInventoryStockReservations(
   async function writerStreams(db: PgQueryable, inputs: readonly AppendToStreamInput[]) {
     const ids = new Set<string>();
     const predicates = new Set<string>();
-    const creationAccounts = new Map<string, unknown>();
+    const creationAccounts = new Map<string, string>();
     for (const input of inputs) {
       const created = input.events.find((event) => event.eventType === "inventory.item.created");
-      if (created) creationAccounts.set(input.streamId, created.payload.accountId);
+      const accountId = created?.payload.accountId;
+      if (typeof accountId === "string" && accountId) creationAccounts.set(input.streamId, accountId);
     }
     const stockAccounts = new Map<string, string>();
     for (const input of inputs) {
@@ -109,7 +110,11 @@ export function createInventoryStockReservations(
       }
       if (itemId) {
         const itemStream = `inventory.item-${itemId}`;
+        const writingAccount = input.events
+          .map((event) => event.payload.accountId)
+          .find((accountId) => typeof accountId === "string" && accountId.length > 0);
         const retained =
+          writingAccount ??
           stockAccounts.get(itemId) ??
           creationAccounts.get(itemStream) ??
           (await store.readStreamInTransaction(db, { streamId: itemStream, limit: 1 }))[0]?.payload.accountId;
