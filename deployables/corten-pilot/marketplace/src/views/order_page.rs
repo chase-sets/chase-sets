@@ -38,26 +38,13 @@ fn usd(t: OrdersMsg, amount: &str) -> String {
     money(t, amount, "USD")
 }
 
-/// A time the API sent (ISO 8601, or Postgres's `2026-03-22 12:00:00+00`, which
-/// `delivery_summary` sends, chase-sets/chase-sets#10634), as `formatDateTime` writes it; as sent
-/// when it is neither.
+/// A time the API sent (ISO 8601), as `formatDateTime` writes it; as sent when it is not one.
 fn date_time(t: OrdersMsg, at: &str) -> String {
-    timestamp(at).map_or_else(|| at.to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string())
+    parse_timestamp(at).map_or_else(|| at.to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string())
 }
 
 fn date(t: OrdersMsg, at: &str) -> String {
-    timestamp(at).map_or_else(|| at.to_owned(), |at| t.date(at, DateStyle::Medium).to_string())
-}
-
-fn timestamp(at: &str) -> Option<std::time::SystemTime> {
-    parse_timestamp(at).or_else(|| {
-        let (day, time) = at.trim().split_once(' ')?;
-        let time = match time.rsplit_once(['+', '-']) {
-            Some((clock, zone)) if zone.len() == 2 => format!("{clock}{}{zone}:00", &time[clock.len()..=clock.len()]),
-            _ => time.to_owned(),
-        };
-        parse_timestamp(&format!("{day}T{time}"))
-    })
+    parse_timestamp(at).map_or_else(|| at.to_owned(), |at| t.date(at, DateStyle::Medium).to_string())
 }
 
 /// A status's badge tone (`statusTone`).
@@ -1066,13 +1053,5 @@ mod tests {
         assert_eq!(shipping_option_words(t, "expedited"), "Expedited");
         assert_eq!(hold_status_words(t, "consumed"), "Used");
         assert_eq!(capitalized("cart-checkout".split('-')), "Cart Checkout");
-    }
-
-    #[test]
-    fn a_postgres_time_is_read_as_an_instant() {
-        let at = timestamp("2026-03-22 12:00:00+00").expect("a time");
-        assert_eq!(Some(at), parse_timestamp("2026-03-22T12:00:00Z"));
-        assert!(timestamp("2026-10-24T03:55:44.970Z").is_some());
-        assert!(timestamp("soon").is_none());
     }
 }
