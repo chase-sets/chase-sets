@@ -75,6 +75,22 @@
       byte.toString(16).padStart(2, "0"),
     ).join("");
   }
+  function hasOfflineCanaryPolicy() {
+    const manifest = chrome.runtime.getManifest();
+    const csp = manifest.content_security_policy;
+    return (
+      Array.isArray(manifest.permissions) &&
+      manifest.permissions.length === 1 &&
+      manifest.permissions[0] === "storage" &&
+      Array.isArray(manifest.host_permissions) &&
+      manifest.host_permissions.length === 0 &&
+      !["optional_permissions", "optional_host_permissions", "content_scripts", "externally_connectable"].some((key) =>
+        Object.hasOwn(manifest, key),
+      ) &&
+      closed(csp, ["extension_pages"]) &&
+      csp.extension_pages === "script-src 'self'; object-src 'self'; connect-src 'self'"
+    );
+  }
   async function configuration() {
     try {
       const response = await fetch(chrome.runtime.getURL("capture-config.json"), {
@@ -102,7 +118,7 @@
         !/^[a-f0-9]{40}$/.test(config.head) ||
         config.extensionId !== chrome.runtime.id ||
         !["synthetic", "operator"].includes(config.evidence) ||
-        (config.mode === "canary" && config.evidence !== "synthetic") ||
+        (config.mode === "canary" && (config.evidence !== "synthetic" || !hasOfflineCanaryPolicy())) ||
         !closed(config.files, FILES)
       )
         fail("package_mismatch");
@@ -217,6 +233,10 @@
       ...(state.canary && { canary: state.canary }),
     };
   }
+  function requireActive(state, now = Date.now()) {
+    if (state.expired || now >= state.latch.deadline) fail("deadline");
+    if (state.aborted || active !== state) fail("aborted");
+  }
   async function waitForCadence(state) {
     const due = state.lastDispatch === null ? Date.now() : state.lastDispatch + state.config.cadenceMs;
     if (due >= state.latch.deadline || Date.now() >= state.latch.deadline) fail("deadline");
@@ -232,8 +252,7 @@
           reject(new Error("aborted"));
         };
       });
-    if (state.aborted) fail("aborted");
-    if (Date.now() >= state.latch.deadline) fail("deadline");
+    requireActive(state);
   }
   async function dispatch(state, kind, searchRange = CANARY_RANGE, before, orderNumber) {
     const controller = new AbortController();
@@ -261,7 +280,7 @@
     state.latch[kind] += 1;
     await chrome.storage.local.set({ [LATCH]: state.latch });
     state.lastDispatch = Date.now();
-    if (state.lastDispatch >= state.latch.deadline) fail("deadline");
+    requireActive(state, state.lastDispatch);
     if (
       before &&
       (Date.parse(before.observedAt) > state.lastDispatch || state.lastDispatch - Date.parse(before.observedAt) > 30000)
@@ -312,7 +331,7 @@
       );
     });
     try {
-      return await Promise.race([
+      const result = await Promise.race([
         timeout,
         (async () => {
           const response = await fetch(url, {
@@ -377,6 +396,8 @@
           }
         })(),
       ]);
+      requireActive(state);
+      return result;
     } catch (error) {
       const code = state.aborted
         ? "aborted"
@@ -594,7 +615,7 @@
         state.failures.push(message.kind === "cancel" ? "canceled" : (message.reason ?? "aborted"));
         return end(state);
       }
-      if (Date.now() >= state.latch.deadline) fail("deadline");
+      requireActive(state);
       if (message.kind === "finish" && state.phase === "finish") {
         if (state.canary) {
           if (message.sameSession !== true) fail("session_missing");
@@ -645,7 +666,10 @@
           current.qualification = current.reason === "qualified" ? "qualified" : "unknown";
         }
         if (current.qualification !== "qualified") return end(state);
-        if (state.canary) await verifyCanaryDetails(state);
+        if (state.canary) {
+          await verifyCanaryDetails(state);
+          requireActive(state);
+        }
         state.phase = "finish";
         return { ok: true, code: "selector_qualified" };
       }

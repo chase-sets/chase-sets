@@ -763,6 +763,12 @@ function assertReceipt(receipt, preparation) {
     if (search?.qualification === "qualified")
       check(
         receipt.canary.sameSession &&
+          receipt.requests[0]?.kind === "lookup" &&
+          receipt.requests[0].failure === null &&
+          receipt.requests.every(
+            (request, index, requests) =>
+              index === 0 || Date.parse(request.startedAt) >= Date.parse(requests[index - 1].endedAt),
+          ) &&
           receipt.canary.matchedDetails === search.rowCount &&
           receipt.counts.detail === search.rowCount &&
           details.length === search.rowCount,

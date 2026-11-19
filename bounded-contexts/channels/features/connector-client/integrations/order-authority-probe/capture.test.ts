@@ -81,6 +81,7 @@ function harness(
     missing?: string;
     workerSource?: string;
     onStorageSet?: (value: Record<string, unknown>) => void;
+    onDispatch?: (kind: Kind) => void;
     configurationReady?: Promise<void>;
     tickPerRead?: boolean;
     canary?: boolean;
@@ -122,12 +123,14 @@ function harness(
   const origin = `chrome-extension://${packaged.extensionId}`;
   const sender = { id: packaged.extensionId, url: `${origin}/capture.html`, origin, frameId: 0 };
   const config = JSON.parse(readFileSync(path.join(packaged.packageDirectory, "capture-config.json"), "utf8"));
+  const manifest = JSON.parse(readFileSync(path.join(packaged.packageDirectory, "manifest.json"), "utf8"));
   if (options.cadenceMs !== undefined) config.cadenceMs = options.cadenceMs;
   Object.assign(config, options.config);
   let timerSequence = 0;
   const chrome = {
     runtime: {
       id: packaged.extensionId,
+      getManifest: () => structuredClone(manifest),
       getURL: (file: string) => `${origin}/${file}`,
       getPlatformInfo: async (...args: unknown[]) => {
         heartbeats.push({ at: now, arguments: args });
@@ -176,7 +179,7 @@ function harness(
     )
       kind = "list";
     else if (
-      options.canary &&
+      (options.canary || options.responses?.detail) &&
       target.startsWith("https://order-management-api.tcgplayer.com/orders/") &&
       target.endsWith("?api-version=2.0") &&
       request.method === "GET"
@@ -184,6 +187,7 @@ function harness(
       kind = "detail";
     else throw new Error("synthetic provider boundary refused");
     observations.push({ kind, url: target, options: request, at: now, persisted: structuredClone(storage) });
+    options.onDispatch?.(kind);
     request.signal?.addEventListener("abort", notify, { once: true });
     notify();
     const configured = options.responses?.[kind];
@@ -299,7 +303,7 @@ function harness(
       const after = await send({ kind: "counts", ...bracket(range, counts.after), sameSession: true });
       if (!after.ok || after.receipt) return after;
       if (after.code !== "fallback_available")
-        return send({ kind: "finish", ...(options.canary && { sameSession: true }) });
+        return send({ kind: "finish", ...(begin.code === "canary" && { sameSession: true }) });
     }
     return send({ kind: "finish" });
   };
@@ -317,6 +321,9 @@ function harness(
     heartbeats,
     intervals,
     advance,
+    elapseWithoutTimers: (milliseconds: number) => {
+      now += milliseconds;
+    },
     bracket,
     Date: SyntheticDate,
     now: () => now,
@@ -514,6 +521,100 @@ async function beginSearch(worker: ReturnType<typeof harness>) {
 }
 
 describe("fixed first-page canary (offline)", () => {
+  it("refuses canary config paired with the host-enabled selector manifest before dispatch", async () => {
+    const worker = harness({
+      config: { mode: "canary" },
+      responses: { list: { body: encode(canaryList) }, detail: { body: encode(detail) } },
+    });
+    const result = await worker.run();
+    expect(worker.observations.map(({ kind }) => kind)).toEqual([]);
+    expect(result).toEqual({ ok: false, code: "package_mismatch" });
+  });
+
+  it.each(["reservation", "response"])(
+    "keeps the spent detail reservation but does not qualify after abort at %s",
+    async (boundary) => {
+      let abort: Promise<Reply> | undefined;
+      const worker = harness({
+        canary: true,
+        onStorageSet: (value) => {
+          if (boundary === "reservation" && (value.orderAuthorityLatch as { detail: number }).detail === 1)
+            abort = worker.send({ kind: "abort" });
+        },
+        onDispatch: (kind) => {
+          if (boundary === "response" && kind === "detail") abort = worker.send({ kind: "abort" });
+        },
+      });
+      expect(await worker.send({ kind: "begin" })).toEqual({ ok: true, code: "canary" });
+      await worker.send({ kind: "lookup" });
+      await worker.send({ kind: "search", ...worker.bracket() });
+      const counts = await worker.send({ kind: "counts", ...worker.bracket(), sameSession: true });
+      const finish = await worker.send({ kind: "finish", sameSession: true });
+
+      expect(await abort).toEqual({ ok: true, code: "abort_requested" });
+      expect(worker.storage.orderAuthorityLatch).toMatchObject({ detail: 1 });
+      expect(worker.observations.map(({ kind }) => kind)).toEqual(
+        boundary === "reservation" ? ["lookup", "list"] : ["lookup", "list", "detail"],
+      );
+      expect(receipt(counts)).toMatchObject({
+        failures: ["aborted"],
+        counts: { detail: 1 },
+        canary: { matchedDetails: 0, sameSession: false },
+        selector: { searches: [{ qualification: "unknown", reason: "aborted" }] },
+      });
+      expect(finish).toEqual({ ok: false, code: "repeat_invocation" });
+    },
+  );
+
+  it.each(["failed lookup", "lookup/list overlap", "detail overlap"])(
+    "refuses a rehashed qualified two-row export with %s",
+    async (defect) => {
+      const orders = [canaryList.orders[0]!, { ...canaryList.orders[0]!, orderNumber: CANARY_ORDER + ":2" }];
+      const worker = harness({
+        canary: true,
+        responses: {
+          list: { body: encode({ totalOrders: 2, orders }) },
+          detail: orders.map(({ orderNumber }) => ({ body: encode({ ...detail, orderNumber }) })),
+        },
+      });
+      const page = helper(worker, {
+        prompts: ["LastTwoYears", "Ready to Ship", "2", "LastTwoYears", "Ready to Ship", "2"],
+        confirms: Array<boolean>(8).fill(true),
+      });
+      expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+      expect(exported(page).selector.searches).toMatchObject([{ qualification: "qualified", rowCount: 2 }]);
+      retain(page, canaryOut);
+      expect(packaging.verifyExport(canaryOut).evidence).toBe("synthetic");
+      replaceExport((value) => {
+        if (defect === "failed lookup") value.requests[0]!.failure = "session_missing";
+        else {
+          const index = defect === "lookup/list overlap" ? 0 : 2;
+          const request = value.requests[index]!;
+          const end = Date.parse(value.requests[index + 1]!.startedAt) + 1;
+          request.endedAt = new Date(end).toISOString();
+          request.elapsedMs = end - Date.parse(request.startedAt);
+          value.finishedAt = new Date(Math.max(Date.parse(value.finishedAt), end)).toISOString();
+        }
+      }, canaryOut);
+      expect(() => packaging.verifyExport(canaryOut)).toThrow("export_schema_refused");
+    },
+  );
+
+  it("refuses counts at absolute T0 expiry before entering the detail phase", async () => {
+    const worker = harness({ canary: true });
+    expect(await worker.send({ kind: "begin" })).toEqual({ ok: true, code: "canary" });
+    await worker.send({ kind: "lookup" });
+    worker.advance(840000);
+    await worker.send({ kind: "search", ...worker.bracket() });
+    // Admit the message at the deadline before the queued residency timer runs.
+    worker.elapseWithoutTimers(Date.parse(T0) + 900000 - worker.now());
+    const observed = receipt(await worker.send({ kind: "counts", ...worker.bracket(), sameSession: true }));
+    expect(observed.failures).toEqual(["deadline"]);
+    expect(observed.finishedAt).toBe(observed.deadlineAt);
+    expect(observed.counts.detail).toBe(0);
+    expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup", "list"]);
+  });
+
   it("brackets the single page, checks each detail, and verifies only scrubbed evidence after removal", async () => {
     const orders = Array.from({ length: 3 }, (_, index) => ({
       ...canaryList.orders[0],
