@@ -60,8 +60,7 @@ fn timestamp(at: &str) -> Option<std::time::SystemTime> {
     })
 }
 
-/// A status's badge tone (`statusTone`). The badge shows the status's code, as marketplace's does
-/// (chase-sets/chase-sets#10633).
+/// A status's badge tone (`statusTone`).
 fn tone(status: &str) -> &'static str {
     match status {
         "cancelled" => "danger",
@@ -92,11 +91,36 @@ fn capitalized<'a>(words: impl Iterator<Item = &'a str>) -> String {
         .join(" ")
 }
 
-/// The outcome panel's status (`orderStatusLabel`): "ready-for-fulfillment" is "Ready for fulfillment".
-fn status_label(status: &str) -> String {
-    let words = status.split('-').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
-    let mut chars = words.chars();
-    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+/// An order's status in words (`orderStatusWords`); a status without words is its code.
+fn status_words(t: OrdersMsg, status: &str) -> String {
+    match status {
+        "pending-reservation" => t.detail_order_status_pending_reservation().to_owned(),
+        "pending-payment" => t.detail_order_status_pending_payment().to_owned(),
+        "ready-for-fulfillment" => t.detail_order_status_ready_for_fulfillment().to_owned(),
+        "cancelled" => t.detail_order_status_cancelled().to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+/// An order's shipping option in words (`shippingOptionWords`), or its code.
+fn shipping_option_words(t: OrdersMsg, option: &str) -> String {
+    match option {
+        "standard" => t.detail_shipping_option_standard().to_owned(),
+        "expedited" => t.detail_shipping_option_expedited().to_owned(),
+        "priority" => t.detail_shipping_option_priority().to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+/// An inventory hold's status in words (`inventoryHoldStatusWords`), or its code.
+fn hold_status_words(t: OrdersMsg, status: &str) -> String {
+    match status {
+        "active" => t.detail_hold_status_active().to_owned(),
+        "released" => t.detail_hold_status_released().to_owned(),
+        "consumed" => t.detail_hold_status_consumed().to_owned(),
+        "expired" => t.detail_hold_status_expired().to_owned(),
+        other => other.to_owned(),
+    }
 }
 
 /// A support request's reference (`deriveDisplayReferenceOrRaw`): `sup_<ULID>` is `SUP-` and the
@@ -209,7 +233,7 @@ fn OrderCardView<'a>(t: OrdersMsg, side: Side, order: &'a OrderCard) -> impl Ren
                 <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <h3 class={Strong}>{&headline(t, &order.item_titles)}</h3>
                     <p class={Muted}>{&caption}</p>
-                    <span class={Badge} data-tone={tone(&order.status)}>{&order.status}</span>
+                    <span class={Badge} data-tone={tone(&order.status)}>{&status_words(t, &order.status)}</span>
                 </div>
             </div>
             <dl class={if side == Side::Seller { (Facts, Three) } else { (Facts, Two) }}>
@@ -487,7 +511,11 @@ fn OrderView<'a>(
                                             </div>
                                             <div>
                                                 <dt class={Muted}>{t.detail_status_2()}</dt>
-                                                <dd><span class={Badge} data-tone="accent">{&hold.status}</span></dd>
+                                                <dd>
+                                                    <span class={Badge} data-tone="accent">
+                                                        {&hold_status_words(t, &hold.status)}
+                                                    </span>
+                                                </dd>
                                             </div>
                                         </dl>
                                     </li>
@@ -664,7 +692,7 @@ fn Outcome<'a>(t: OrdersMsg, facts: &'a Known<'a>) -> impl Render {
             <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Muted}>{t.outcome_order_status()}</p>
                 <span class={Badge} data-tone={if order.status == "cancelled" { "neutral" } else { "success" }}>
-                    {&status_label(&order.status)}
+                    {&status_words(t, &order.status)}
                 </span>
             </div>
             <div class={(StackStart { gap: Gap::App }, gap_1())}>
@@ -938,14 +966,17 @@ fn Summary<'a>(t: OrdersMsg, facts: &'a Known<'a>) -> impl Render {
             lines.push((t.detail_seller_payout(), usd(t, &o.seller_payout_amount)));
         }
     }
-    let (badge, badge_tone) =
-        if facts.fully_delivered { (t.detail_delivered(), "success") } else { (o.status.as_str(), tone(&o.status)) };
+    let (badge, badge_tone) = if facts.fully_delivered {
+        (t.detail_delivered().to_owned(), "success")
+    } else {
+        (status_words(t, &o.status), tone(&o.status))
+    };
     html! {
         <div class={(Card, Tinted)}>
             <dl class={Breakdown}>
                 <div class={Row}>
                     <dt>{t.detail_status()}</dt>
-                    <dd><span class={Badge} data-tone={badge_tone}>{badge}</span></dd>
+                    <dd><span class={Badge} data-tone={badge_tone}>{&badge}</span></dd>
                 </div>
                 if let Some(at) = &delivered_at {
                     <div class={Row}>
@@ -981,7 +1012,7 @@ fn Protection<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
     let terms = if o.terms_schedule_id.is_some() { p.orders_terms_locked() } else { t.detail_no_schedule_snapshot() };
     let payment = match facts.payment_deadline() {
         Some(at) => t.detail_payment_deadline_description(&date_time(t, at)).to_string(),
-        None => o.status.clone(),
+        None => status_words(t, &o.status),
     };
     let help = market_href("/help/buying/order-protection");
     html! {
@@ -1001,7 +1032,7 @@ fn Protection<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
                 </li>
                 <li>
                     <p class={Strong}>{t.detail_shipping_preference()}</p>
-                    <p class={Muted}>{&o.shipping_option}</p>
+                    <p class={Muted}>{&shipping_option_words(t, &o.shipping_option)}</p>
                 </li>
                 <li>
                     <p class={Strong}>{t.detail_payment_state()}</p>
