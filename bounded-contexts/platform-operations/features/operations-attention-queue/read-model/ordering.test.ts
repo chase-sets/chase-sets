@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { matchRoutes } from "react-router";
+import { resolveWebHostRouteRecords } from "@chase-sets/platform-runtime/web";
+import { contextManifest } from "../../../index";
 import {
   compareOperationsAttentionItems,
   OPERATIONS_ATTENTION_SOURCES,
@@ -85,6 +88,47 @@ describe("source registry", () => {
   it("resolves a descriptor by id and builds a deep link", () => {
     const descriptor = operationsAttentionSourceById("support-request-deadline");
     expect(descriptor?.surface).toBe("support-operations");
-    expect(descriptor?.buildHref("req-1")).toBe("/requests?requestId=req-1");
+    expect(descriptor?.buildHref("req-1")).toBe("/support/requests?requestId=req-1");
   });
+});
+
+describe("OPERATIONS_ATTENTION_SOURCES deep links", () => {
+  const adminRoutes = resolveWebHostRouteRecords(
+    [
+      {
+        contextName: "platform-operations",
+        packageName: "@chase-sets/platform-operations",
+        manifest: contextManifest as Parameters<typeof resolveWebHostRouteRecords>[0][number]["manifest"],
+      },
+    ],
+    "admin-web",
+  );
+  const routes = adminRoutes.map((route) => ({ id: route.routeId, path: `/${route.routePath}` }));
+  const sectionOf = new Map(adminRoutes.map((route) => [route.routeId, route.section]));
+  const surfaceSection = {
+    "projection-operations": "platform",
+    "support-operations": "support",
+    "platform-feedback": "support",
+    "reported-content": "support",
+  } as const;
+  const entityIds: Readonly<Record<string, readonly string[]>> = {
+    "reported-content-response": ["listing:lst_1", "incomplete"],
+    "support-request-deadline": ["req_1"],
+    "platform-feedback-unreviewed": ["pfb_1"],
+  };
+
+  it.each(OPERATIONS_ATTENTION_SOURCES.map((source) => [source.id, source] as const))(
+    "opens %s at a path admin-web serves, in its surface's section",
+    (_id, source) => {
+      for (const entityId of entityIds[source.id] ?? ["entity"]) {
+        const href = source.buildHref(entityId);
+        const pathname = new URL(href, "https://admin.example").pathname;
+        const matched = matchRoutes(routes, pathname);
+
+        expect(matched, href).not.toBeNull();
+        const routeId = matched!.at(-1)!.route.id;
+        expect(sectionOf.get(routeId), href).toBe(surfaceSection[source.surface]);
+      }
+    },
+  );
 });

@@ -99,7 +99,7 @@ for (const javaScriptEnabled of [true, false]) {
   }
   for (const href of theirLinks.slice(0, 1)) {
     const res = await ctx.request.get(new URL(href, adminWeb).href, { maxRedirects: 0 });
-    console.log(`note admin-web's own Open ${href} answers ${res.status()} (#10606)`);
+    check(res.status() === 200, `admin-web's own Open ${href} answers ${res.status()}`);
   }
   await ctx.close();
 }
