@@ -141,8 +141,7 @@
     "switched": "The session now acts for the account you chose.",
     "switch_refused": "The session could not switch to that account. It still acts for the account shown.",
     "failed": "The change could not be confirmed. The session is shown as it is now.",
-    "pending": "This session is still updating. This page reads it again in a moment.",
-    "other_accounts": "Switch to"
+    "pending": "This session is still updating. This page reads it again in a moment."
   },
   "security": {
     "pending": "Your security details are still updating. This page reads them again in a moment.",
