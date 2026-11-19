@@ -75,20 +75,27 @@
       byte.toString(16).padStart(2, "0"),
     ).join("");
   }
-  function hasOfflineCanaryPolicy() {
+  function hasCanaryPolicy(synthetic) {
     const manifest = chrome.runtime.getManifest();
     const csp = manifest.content_security_policy;
+    const hostPermissions = synthetic
+      ? []
+      : ["https://sp-api.tcgplayer.com/*", "https://order-management-api.tcgplayer.com/*"];
+    const extensionPages = synthetic
+      ? "script-src 'self'; object-src 'self'; connect-src 'self'"
+      : "default-src 'self'; script-src 'self'; object-src 'none'; connect-src 'self' https://sp-api.tcgplayer.com https://order-management-api.tcgplayer.com";
     return (
       Array.isArray(manifest.permissions) &&
       manifest.permissions.length === 1 &&
       manifest.permissions[0] === "storage" &&
       Array.isArray(manifest.host_permissions) &&
-      manifest.host_permissions.length === 0 &&
+      manifest.host_permissions.length === hostPermissions.length &&
+      hostPermissions.every((host) => manifest.host_permissions.includes(host)) &&
       !["optional_permissions", "optional_host_permissions", "content_scripts", "externally_connectable"].some((key) =>
         Object.hasOwn(manifest, key),
       ) &&
       closed(csp, ["extension_pages"]) &&
-      csp.extension_pages === "script-src 'self'; object-src 'self'; connect-src 'self'"
+      csp.extension_pages === extensionPages
     );
   }
   async function configuration() {
@@ -119,12 +126,15 @@
         config.extensionId !== chrome.runtime.id ||
         !["synthetic", "operator"].includes(config.evidence) ||
         (config.mode === "canary" &&
-          (config.evidence !== "synthetic" ||
-            !hasOfflineCanaryPolicy() ||
+          (!hasCanaryPolicy(config.evidence === "synthetic") ||
             !/^[a-f0-9]{64}$/.test(config.sealKeyDigest) ||
             !closed(config.target, ["connectionId", "pairingId"]) ||
             !Object.values(config.target).every(
-              (id) => typeof id === "string" && /^synthetic-[\w-]{1,96}$/.test(id),
+              (id) =>
+                typeof id === "string" &&
+                (config.evidence === "synthetic"
+                  ? /^synthetic-[\w-]{1,96}$/.test(id)
+                  : /^[A-Za-z0-9][\w-]{0,127}$/.test(id) && !id.startsWith("synthetic-")),
             ))) ||
         !closed(config.files, FILES)
       )

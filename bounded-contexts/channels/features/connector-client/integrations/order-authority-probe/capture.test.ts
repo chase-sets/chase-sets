@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash, webcrypto } from "node:crypto";
 import {
   lstatSync,
@@ -91,6 +92,7 @@ function harness(
     storage?: Record<string, unknown>;
     cadenceMs?: number;
     config?: Record<string, unknown>;
+    useFounderManifest?: boolean;
     responses?: Partial<Record<Kind, Fixture | Fixture[]>>;
     tamper?: string;
     missing?: string;
@@ -141,7 +143,9 @@ function harness(
   const origin = `chrome-extension://${packaged.extensionId}`;
   const sender = { id: packaged.extensionId, url: `${origin}/capture.html`, origin, frameId: 0 };
   const config = JSON.parse(readFileSync(path.join(packaged.packageDirectory, "capture-config.json"), "utf8"));
-  const manifest = JSON.parse(readFileSync(path.join(packaged.packageDirectory, "manifest.json"), "utf8"));
+  const manifest = JSON.parse(
+    readFileSync(path.join(options.useFounderManifest ? source : packaged.packageDirectory, "manifest.json"), "utf8"),
+  );
   if (options.cadenceMs !== undefined) config.cadenceMs = options.cadenceMs;
   Object.assign(config, options.config);
   let timerSequence = 0;
@@ -922,20 +926,69 @@ describe("fixed first-page canary (offline)", () => {
     expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup"]);
   });
 
-  it("refuses malformed search without fallback, and refuses operator package preparation", async () => {
+  it("refuses malformed search without fallback and requires a reviewed head for founder packaging", async () => {
     const worker = harness({ canary: true, responses: { list: { body: SENTINEL } } });
     const observed = receipt(await worker.run());
     expect(observed.failures).toEqual(["invalid_json"]);
     expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup", "list"]);
     custody(observed);
-    expect(() => packaging.prepare({ out: canaryOut, canary: true })).toThrow("canary_operator_disabled");
+    expect(() => packaging.prepare({ out: canaryOut, canary: true })).toThrow("reviewed_head_required");
     const manifest = JSON.parse(readFileSync(path.join(worker.packaged.packageDirectory, "manifest.json"), "utf8"));
     expect(manifest.host_permissions).toEqual([]);
     expect(manifest.content_security_policy.extension_pages).toContain("connect-src 'self'");
   });
+
+  it("separates founder and synthetic host permissions in the packaged worker", async () => {
+    const config = {
+      evidence: "operator",
+      cadenceMs: 30000,
+      target: { connectionId: "fixture-connection", pairingId: "fixture-pairing" },
+    };
+    for (const mismatched of [harness({ canary: true, useFounderManifest: true }), harness({ canary: true, config })]) {
+      expect(await mismatched.send({ kind: "begin" })).toMatchObject({ ok: false, code: "package_mismatch" });
+      expect(mismatched.observations).toEqual([]);
+    }
+    const founder = harness({ canary: true, config, useFounderManifest: true });
+    expect(await founder.send({ kind: "begin" })).toEqual({ ok: true, code: "canary" });
+    expect(founder.observations).toEqual([]);
+  });
 });
 
 describe("synthetic custody scan", () => {
+  it("requires Windows and creates a run accessible only to the current user", () => {
+    const parent = mkdtempSync(path.join(scratch, "windows-custody-"));
+    try {
+      if (process.platform === "win32") {
+        expect(
+          execFileSync(
+            path.join(
+              process.env.SystemRoot ?? "C:\\Windows",
+              "System32",
+              "WindowsPowerShell",
+              "v1.0",
+              "powershell.exe",
+            ),
+            [
+              "-NoProfile",
+              "-NonInteractive",
+              "-File",
+              path.join(source, "windows-run-custody.test.ps1"),
+              "-Parent",
+              parent,
+            ],
+            { encoding: "utf8", windowsHide: true },
+          ).trim(),
+        ).toBe("owner-only custody verified");
+      } else {
+        expect(() => packaging.windowsRunCustody("Create", path.join(parent, "run"))).toThrow(
+          "windows_custody_refused",
+        );
+        expect(readdirSync(parent)).toEqual([]);
+      }
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
   it("does not follow a dangling Chromium SingletonCookie link and still inspects nested regular files", () => {
     const directory = mkdtempSync(path.join(scratch, "synthetic-custody-"));
     const link = path.join(directory, "SingletonCookie");
