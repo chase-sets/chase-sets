@@ -561,6 +561,16 @@ export const platformApiNonBootstrapDbCensus = Object.freeze({
   },
 });
 
+// Additional product proof is selected exactly once but is not measured membership
+// of the retained bootstrap schedule capture.
+export const platformApiProductDbProofCensus = Object.freeze({
+  ...platformApiNonBootstrapDbCensus,
+  entries: {
+    ...platformApiNonBootstrapDbCensus.entries,
+    "__tests__/owner-predicate-enrollment.db.test.ts": "test:db:1",
+  },
+});
+
 const dbPartitionScriptNamePattern = /^test:db:\d+$/;
 /**
  * The selector hosted CI runs this workspace's DB profile under, and the exact
@@ -2026,7 +2036,7 @@ export function checkBootstrapDbEnrollment({
   manifest = bootstrapDbEnrollmentManifest,
   executionUnitBootBearingCaseCeilings = bootstrapDbExecutionUnitBootBearingCaseCeilings,
   scheduleModel = bootstrapDbScheduleModel,
-  nonBootstrapCensus = platformApiNonBootstrapDbCensus,
+  nonBootstrapCensus = platformApiProductDbProofCensus,
   measuredOneFewerUnitFloor = bootstrapDbMeasuredOneFewerUnitFloor,
 } = {}) {
   const root = platformApiRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");

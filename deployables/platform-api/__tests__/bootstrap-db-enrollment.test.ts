@@ -20,6 +20,7 @@ import {
   derivePlatformApiDbTestCensus,
   formatBootstrapDbEnrollmentResult,
   platformApiNonBootstrapDbCensus,
+  platformApiProductDbProofCensus,
   type BootstrapDbEnrollmentPartition,
   type BootstrapDbEnrollmentResult,
   type BootstrapDbMeasuredOneFewerUnitFloor,
@@ -1290,6 +1291,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       manifest: bootstrapDbEnrollmentManifest,
       executionUnitBootBearingCaseCeilings: bootstrapDbExecutionUnitBootBearingCaseCeilings,
       scheduleModel: bootstrapDbScheduleModel,
+      nonBootstrapCensus: platformApiProductDbProofCensus,
     };
     const candidateRepository = checkBootstrapDbEnrollment(repositoryInputs);
     const { candidate: candidateScheduler } = exactScheduleProbes();
@@ -1384,6 +1386,16 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(deriveBootstrapDbCaseIdentities(fileName, readFileSync(join(testDirectory, fileName), "utf8"))).toEqual(
       listingCompositionCases,
     );
+  });
+
+  it("enrolls the owner predicate product proof once outside the frozen bootstrap capture", () => {
+    const entry = "__tests__/owner-predicate-enrollment.db.test.ts";
+    const census = derivePlatformApiDbTestCensus();
+    expect(census.dbEntries).toContain(entry);
+    expect(census.bootstrapEntries).not.toContain(entry);
+    expect(Object.keys(platformApiNonBootstrapDbCensus.entries)).not.toContain(entry);
+    expect(platformApiProductDbProofCensus.entries[entry]).toBe("test:db:1");
+    expect(checkBootstrapDbEnrollment().violations).toEqual([]);
   });
 
   it("preserves the complete frozen seed-command file and both separate case identities", () => {

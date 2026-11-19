@@ -35,6 +35,7 @@ export type ProjectionTransactionControl = Readonly<{
 export function createProjectionAwarePool<TPool extends PgTransactionalPool>(pool: TPool): TPool {
   return new Proxy(pool, {
     get(target, property, receiver) {
+      if (property === "independentConnectionPool") return target.independentConnectionPool ?? target;
       if (property === "query") {
         return <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => {
           const scopedDb = projectionDbContext.getStore();

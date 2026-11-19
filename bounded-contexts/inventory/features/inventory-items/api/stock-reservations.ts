@@ -6,8 +6,11 @@ import {
   applyOwnerStreamInvalidationInTransaction,
   beginOwnerStreamInvalidationInTransaction,
   createPostgresOwnerStreamReservationStore,
+  enrollOwnerPredicateWriteInTransaction,
+  ownerPredicateKey,
   reserveOwnerStreamInTransaction,
   withConfigurationEpochTransaction,
+  withOwnerPredicateWrite,
   type PgQueryable,
   type PgPoolClient,
   type PgTransactionalPool,
@@ -80,6 +83,13 @@ export function createInventoryStockReservations(
 
   async function writerStreams(db: PgQueryable, inputs: readonly AppendToStreamInput[]) {
     const ids = new Set<string>();
+    const predicates = new Set<string>();
+    const creationAccounts = new Map<string, unknown>();
+    for (const input of inputs) {
+      const created = input.events.find((event) => event.eventType === "inventory.item.created");
+      if (created) creationAccounts.set(input.streamId, created.payload.accountId);
+    }
+    const stockAccounts = new Map<string, string>();
     for (const input of inputs) {
       if (!input.events.length) continue;
       let itemId: string | undefined;
@@ -97,19 +107,31 @@ export function createInventoryStockReservations(
           throw new InventoryDomainError("Inventory Hold stock identity unavailable.");
         itemId = first.itemId;
       }
-      if (itemId) for (const stream of stockOwnerStreams(itemId)) ids.add(stream);
+      if (itemId) {
+        const itemStream = `inventory.item-${itemId}`;
+        const retained =
+          stockAccounts.get(itemId) ??
+          creationAccounts.get(itemStream) ??
+          (await store.readStreamInTransaction(db, { streamId: itemStream, limit: 1 }))[0]?.payload.accountId;
+        if (typeof retained !== "string" || !retained)
+          throw new InventoryDomainError("Inventory Item stock account is unavailable.");
+        stockAccounts.set(itemId, retained);
+        for (const stream of stockOwnerStreams(itemId)) ids.add(stream);
+        predicates.add(ownerPredicateKey("repricing-stock", retained, itemId));
+      }
     }
-    return [...ids].sort();
+    return { streams: [...ids].sort(), predicates: [...predicates] };
   }
 
   async function enroll(db: PgQueryable, inputs: readonly AppendToStreamInput[]) {
-    const streams = await writerStreams(db, inputs);
+    const { streams, predicates } = await writerStreams(db, inputs);
+    await enrollOwnerPredicateWriteInTransaction(db, predicates);
     await enrollInventoryStockStreamsInTransaction(db, streams);
   }
 
   async function transaction<T>(work: (db: PgPoolClient) => Promise<T>): Promise<T> {
     async function attempt() {
-      return withConfigurationEpochTransaction(pool, async (db) => {
+      return withOwnerPredicateWrite(pool, consumerPool, async (db) => {
         await db.query("SAVEPOINT inventory_stock_work");
         try {
           return { kind: "applied" as const, value: await work(db) };
