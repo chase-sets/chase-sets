@@ -354,7 +354,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const result = await discoveryApi.createProductAlert(body);
 
       return redirect(
-        appendFreshWriteToken(`/items/${item.slug || item.catalog_item_id}?productAlertCreated=1`, result),
+        appendFreshWriteToken(`/items/${item.slug || item.catalog_item_id}?market=watch&productAlertCreated=1`, result),
       );
     }
 
