@@ -390,6 +390,59 @@ describe("Channels account connection route contribution", () => {
     expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual(Array.from(new TextEncoder().encode(csv)));
   });
 
+  it.each([
+    [409, "manual_sync_revision_stale"],
+    [400, "inbound-clamp-recovery"],
+  ])("sends a %s download refusal back to the connection instead of relaying Channels' JSON", async (status, code) => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }))
+      .mockResolvedValueOnce(Response.json({ error: { code } }, { status }));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request("http://localhost/account/channels/connection-a/manual-sync/download", {
+      method: "POST",
+      headers: { cookie: "session=synthetic-owner" },
+      body: new URLSearchParams({ runId: "run-resource", expectedRevision: "6" }),
+    });
+
+    const response = await downloadAction(loaderArgs(request));
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/account/channels/connection-a?manualSync=failed");
+    expect(await response.text()).not.toContain(code);
+  });
+
+  it("says the manual sync action failed when a refused download sends the seller back", async () => {
+    vi.stubGlobal(
+      "fetch",
+      auxiliaryFetch({
+        operation: () => Response.json(operationLogBody()),
+        manualSync: () => Response.json(manualSyncPanel()),
+      }),
+    );
+
+    await settleRouter(renderRoute("connection-a", "?manualSync=failed"));
+
+    expect(screen.getByText("Manual sync action failed")).toBeTruthy();
+    expect(screen.getByText("Reload the current run state and try the available action again.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Compose Staged batch" })).toBeTruthy();
+  });
+
+  it("shows no manual sync failure on the connection without the refused download's marker", async () => {
+    vi.stubGlobal(
+      "fetch",
+      auxiliaryFetch({
+        operation: () => Response.json(operationLogBody()),
+        manualSync: () => Response.json(manualSyncPanel()),
+      }),
+    );
+
+    await settleRouter(renderRoute("connection-a", "?manualSync=other"));
+
+    expect(screen.queryByText("Manual sync action failed")).toBeNull();
+  });
+
   it("reads only object error results for the account-route banner", () => {
     expect(readActionError({ error: "synthetic failure" })).toBe("synthetic failure");
     expect(readActionError("TCGplayer Id,Add to Quantity,TCG Marketplace Price\n")).toBeNull();
@@ -718,7 +771,7 @@ function connectorPairingFetch(code: () => Response | Promise<Response>) {
   });
 }
 
-function renderRoute(connectionId = "connection-a") {
+function renderRoute(connectionId = "connection-a", search = "") {
   const router = createMemoryRouter(
     [
       {
@@ -728,7 +781,7 @@ function renderRoute(connectionId = "connection-a") {
         Component: AccountChannelsConnectionRoute,
       },
     ],
-    { initialEntries: [`/account/channels/${connectionId}`] },
+    { initialEntries: [`/account/channels/${connectionId}${search}`] },
   );
   render(
     <ChaseRoot linkComponent={RouterLinkAdapter}>
