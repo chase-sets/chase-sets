@@ -456,6 +456,7 @@ export function createSourceObservationProviderImportRuntime({
         await persistCatalogMergeCandidatesFromObservations(
           recordedObservations.map((recorded) => sourceObservationRecordToCandidateRow(recorded.observation)),
           input.context,
+          { preserveTerminalProviderReplays: true },
         );
       }
 
