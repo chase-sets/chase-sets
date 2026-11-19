@@ -494,7 +494,6 @@ export function FulfillmentShipmentDetailPage({
             {shipment.postage_label_operations.length === 0 ? (
               <MarketplaceEmptyState
                 title={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.postage.operations.recorded")}
-                description={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.postage.operations.recorded")}
               />
             ) : (
               shipment.postage_label_operations.map((operation) => (
@@ -647,7 +646,6 @@ export function FulfillmentShipmentDetailPage({
           {shipment.exceptions.length === 0 ? (
             <MarketplaceEmptyState
               title={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.shipment.exceptions.recorded")}
-              description={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.shipment.exceptions.recorded")}
             />
           ) : (
             shipment.exceptions.map((exception) => (
