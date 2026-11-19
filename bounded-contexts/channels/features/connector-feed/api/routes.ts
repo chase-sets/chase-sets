@@ -190,7 +190,9 @@ export function createSellerConnectorRoutes(services: ConnectorFeedServices) {
       if (c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json")
         throw new ConnectorPairingError("invalid-request");
       const origin = c.req.header("origin");
-      if (origin !== undefined && origin !== new URL(c.req.url).origin)
+      const fetchSite = c.req.header("sec-fetch-site");
+      // A same-origin browser request can arrive through a proxy that rewrites Host.
+      if (fetchSite ? fetchSite !== "same-origin" : origin !== undefined && origin !== new URL(c.req.url).origin)
         throw new ConnectorPairingError("authorization-refused");
       const actor = await seller(services, c.req.raw);
       await services.startReadyToShipCanary(

@@ -122,7 +122,9 @@ describeDb("TCGplayer connector sale interpretation", () => {
       expect((await start(exact, { "content-type": "text/plain" })).status).toBe(400);
       expect((await start(exact, { origin: "https://foreign.invalid" })).status).toBe(403);
       expect((await start({ ...exact, target: { ...exact.target, pairingId: "pair_foreign" } })).status).toBe(403);
-      expect((await start(exact)).status).toBe(204);
+      expect(
+        (await start(exact, { origin: "https://same-origin-proxy.invalid", "sec-fetch-site": "same-origin" })).status,
+      ).toBe(204);
       expect((await start(exact)).status).toBe(409);
       expect(await (await transport("claim", {})).json()).toMatchObject({ reservation: null });
       const envelope = await composeTcgplayerOrderInbound(sale);

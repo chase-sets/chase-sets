@@ -94,7 +94,7 @@ test("tcgplayer-live-export-loopback-production-path-chromium @tcgplayer-connect
   await wake(f.worker);
   await expect.poll(async () => (await snapshot(f.worker)).reservations[0]?.phase, { timeout: 60_000 }).toBe("acked");
   const evidence = await snapshot(f.worker);
-  expect(server.claimBodies).toContainEqual({ capabilities: ["tcgplayer-live-export"] });
+  expect(server.claimBodies).toContainEqual({ capabilities: ["tcgplayer-live-export"], readyToShipCanary: true });
   expect(server.provider).toMatchObject({ exports: 1, signins: 0 });
   expect(server.ingests).toHaveLength(1);
   expect(server.report().outcomes[0]?.outcome).toMatchObject({ kind: "live-export-complete", parsedRowCount: 3 });
