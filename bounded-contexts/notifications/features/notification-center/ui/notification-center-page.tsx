@@ -320,7 +320,10 @@ function NotificationSettings({
         description={t("notifications.features.notificationCenter.ui.page.settings.productAlerts.description")}
       >
         {settings.productAlerts === null ? (
-          <Banner tone="info" title={t("notifications.features.notificationCenter.ui.page.settings.productAlerts.pending")} />
+          <Banner
+            tone="info"
+            title={t("notifications.features.notificationCenter.ui.page.settings.productAlerts.pending")}
+          />
         ) : settings.productAlerts.items.length > 0 ? (
           <Stack gap={3}>
             {settings.productAlerts.items.map((alert) => (
