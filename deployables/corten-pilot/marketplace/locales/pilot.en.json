@@ -71,7 +71,6 @@
     "protection": "Protection",
     "completed": "Completed",
     "buy_refused": "This listing could not be bought. Reload the page and try again.",
-    "report_received": "Thanks. We received your report, and we will review this listing.",
     "report_repeat": "You have already reported this listing. We will review it.",
     "report_limited": "You have sent several reports in a short time. Try again in a few minutes.",
     "report_reason_required": "Choose a reason for the report.",
