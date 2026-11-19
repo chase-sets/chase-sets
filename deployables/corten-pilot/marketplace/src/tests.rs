@@ -7754,7 +7754,7 @@ async fn the_purchases_are_cards_with_their_counts_and_pages_as_links() {
     assert!(shown.contains("205 Purchases 7 Items 1 Pending") || shown.contains("Purchases 205 Items 7 Pending 1"), "{shown}");
     assert!(
         shown.contains(
-            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN pending-payment"
+            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN Pending payment"
         ),
         "{shown}"
     );
@@ -7832,7 +7832,7 @@ async fn cancelling_redirects_to_the_order_read_after_it_and_a_late_read_reads_a
     assert!(query(&to)["after_write"].contains(r#""commitPosition":"42""#), "{to}");
     let (status, _, html) = pilot.send(get(&to, Some("shopper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(text(&html).contains("Status cancelled"), "{}", text(&html));
+    assert!(text(&html).contains("Status Cancelled"), "{}", text(&html));
     assert!(!html.contains("/cancel\""), "a cancelled purchase has no Cancel: {html}");
     let sent = order_calls(&pilot);
     assert_eq!(sent[0].path, format!("{PURCHASES_API}/ord_open/cancel"));
@@ -7885,7 +7885,10 @@ async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
         "{shown}"
     );
     assert!(!shown.contains("Tax $"), "a seller sees no buyer tax line: {shown}");
-    assert!(shown.contains("Inventory Holds Reserved item Inventory is reserved for this order while fulfillment is prepared. Quantity 1 Status active"), "{shown}");
+    assert!(shown.contains("Inventory Holds Reserved item Inventory is reserved for this order while fulfillment is prepared. Quantity 1 Status Active"), "{shown}");
+    // Ordering's codes in words: the shipping option and, on a hold, its status.
+    assert!(shown.contains("Shipping Preference Standard"), "{shown}");
+    assert!(!html.contains(">standard<") && !html.contains(">active<"), "{html}");
     assert!(shown.contains("Review window closed The feedback window for this order has closed."), "{shown}");
     // The held case and the refund outcome.
     assert!(
