@@ -423,12 +423,14 @@ export default function PublicAccountRoute() {
   );
 }
 
+type PublicAccountLoaderData = ReturnType<typeof useLoaderData<typeof loader>>;
+
 function PublicAccountRealtimeView({
   data,
   reportResult,
   submittingReportId,
 }: {
-  data: Awaited<ReturnType<typeof loader>>;
+  data: PublicAccountLoaderData;
   reportResult?: ReviewReportResult;
   submittingReportId: string | null;
 }) {
