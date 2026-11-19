@@ -10,7 +10,7 @@ import { AUTHORITY, prepare, verifyPackage, verifyExport } from "../integrations
 const driver = fileURLToPath(import.meta.url);
 const seat = path.resolve(path.dirname(driver), "../../../../..");
 const corePath = "bounded-contexts/channels/features/connector-client/integrations/order-authority-probe";
-export const LANDED_HEAD = "d54fafca165b483c26c9207dc3c77447b860efd4";
+export const LANDED_HEAD = "70e8e10d0cdf9fbe6570d76b51980f19622ebf55";
 // Fixed source digests, not hashes derived from the checkout under test.
 export const LANDED_DIGESTS = Object.freeze({
   "capture.html": "e92e113b376ea4e568d24bd9c51e98622d4897f3784d5c1138fa03a61b0daf03",

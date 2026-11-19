@@ -167,6 +167,100 @@ before relying on cross-channel inventory accuracy, and treat any TCGplayer
 sale as a manual inventory correction until Reconciliation phase 2 lands
 (see #7700).
 
+### Ready to Ship Founder Canary
+
+**Live no-go.** The package for [#11555 Intake a qualified Ready to Ship canary through the claimed connector](https://github.com/chase-sets/chase-sets/issues/11555)
+does not authorize launch or intake. Do not open Chrome or sign in until the
+exact head has passed independent review and the founder window is separately
+admitted. A qualified receipt is not sale authority. Real sale effects require
+Todd to separately authorize that exact opaque page claim for the already-paired
+connection, after teardown and before the handoff expires. Require hosted
+exact-head DB proof for the owner claim before lifting this no-go. Never
+substitute a scheduled pull, generic connector claim, or direct ingest.
+
+1. In a clean Windows checkout of the independently reviewed head, confirm the
+   previous isolated profile is gone. Use the already-paired connection and
+   pairing IDs from its private Chase Sets pairing detail, not a new pairing.
+   Set `$t0` to the UTC start of the admitted window, before launching the
+   profile. Use a new run name. Preparation grants no extension of the 15-minute
+   window and does not start Chrome. Run from the repository root:
+
+   ```powershell
+   $probe = 'bounded-contexts/channels/features/connector-client/integrations/order-authority-probe/package.mjs'
+   $run = Join-Path (Get-Location).Path 'artifacts/9115/<new-run-name>'
+   node $probe --prepare-founder-canary --out $run --t0 $t0 --reviewed-head $reviewedHead `
+     --connection-id $connectionId --pairing-id $pairingId --cadence-ms 30000 `
+     --cadence-source 'https://github.com/chase-sets/chase-sets/issues/8607#issuecomment-5983720229'
+   node $probe --verify --out $run
+   ```
+
+   Stop on any refusal. The packager creates the root with a non-inherited
+   ACL granting full control only to the current Windows user, before creating
+   the key or any child directories. Do not elevate or try to fix a denied run.
+
+2. Only after the no-go is lifted, use the exact `launchCommand` from the
+   private `preparation.json`. Todd signs in privately in that isolated profile;
+   do not copy cookies or use another profile. Set Downloads inside that profile
+   and enable **Ask where to save each file**. In `chrome://extensions`, load
+   only `<run>/package` unpacked, confirm the recorded `extensionId`, and open
+   the recorded `captureUrl`. In that helper console only, invoke
+   `await orderAuthorityCapture.run()` once, with no arguments. Do not open the
+   portal console or capture screenshots, traces, raw responses, or identifiers.
+
+3. Attest the same seller and isolated session throughout. For both brackets,
+   confirm the fixed **Last 2 years** range before reading the count. Transcribe
+   the **Ready to Ship** quick-filter label, then the adjacent count once after
+   the display settles. The after-count must come from a fresh, settled Orders
+   view after the worker responds. Stop on any range change, stale count, label
+   mismatch, missing detail, or refusal. The worker requires one closed first
+   page and requests at most three matching details; there is no range
+   correction, fallback, pagination, or retry.
+
+4. Save `ready-to-ship-handoff.json` only in `<run>/custody` and the two scrubbed
+   files, `selector-receipt.json` and `selector-inventory.json`, only in
+   `<run>/receipt`. A refused run has no handoff. Do not move a download from
+   an unprotected location, export the handoff or key, or copy the whole run.
+   Verify the export with `node $probe --verify-export --out $run`.
+
+5. Remove the extension from that exact profile, confirm absence and record its
+   actual UTC time, close the isolated browser, and dispose of only that
+   profile. Confirm there are no processes for it and the directory is gone.
+   Record the observed removal and verify the two-file export again:
+
+   ```powershell
+   node $probe --record-removal --extension-absent --extension-absent-at $observedUtc --out $run
+   node $probe --verify-export --out $run
+   ```
+
+   The CLI checks directory absence and records the attestation; it cannot
+   verify the operator actually removed the extension or that Chrome exited.
+   Share only the verified receipt pair. Stop on decline, expiry, missed
+   teardown, or absent authorization; do not reopen or retry the page. The
+   earlier of five minutes after capture and the run deadline ends custody.
+
+6. Only in a separately authorized intake window, enable the platform API's
+   `CHANNELS_READY_TO_SHIP_CANARY_OWNER_USER_ID` for Todd's user. Leave it unset
+   otherwise. With the same pairing still active and the connector idle, Todd
+   separately approves the exact `canary.pageClaim` from the verified receipt:
+
+   ```powershell
+   node $probe --release-founder-canary --out $run --page-claim $approvedPageClaim `
+     --connection-id $connectionId --pairing-id $pairingId
+   ```
+
+   In the existing Chase Sets owner session, submit the private
+   `<run>/custody/ready-to-ship-owner-request.json` as the JSON body of one
+   `POST /api/channels/connections/<connectionId>/connector-pairing/ready-to-ship-canary`.
+   Do not put the body, credentials, or key on a command line, in logs, or in
+   evidence. Remove the private request file after submission or refusal.
+   The server checks the digest of the released sale bytes, claim, pairing
+   and expiry. The digest detects changes to this request; the founder session
+   supplies authority. A `204` confirms arming or acknowledges an identical
+   request without arming again. The paired connector's next eligible claim
+   gets one lease capped by the handoff deadline; it does not access TCGplayer.
+   Do not create a second release after a lost reply or expiry. A post or report
+   acknowledgement is transport evidence, not Inventory acceptance.
+
 ### Manual-Sync Round Trip
 
 The Manual Sync Panel

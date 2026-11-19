@@ -21,6 +21,7 @@ import {
   assertOrderPullPayloadStructure,
   type OrderPullPayload,
 } from "../../outbound-sync/domain/order-pull-codec";
+import { canaryReservationPrefix } from "../../outbound-sync/domain/ready-to-ship-canary";
 import {
   assertHandoffOutcome,
   browserCheckpointDigest,
@@ -128,6 +129,7 @@ export type ConnectorExecutor = Readonly<{
   ])[];
   unit: "operation" | "reservation";
   dispatchDeadlineMs: number;
+  readyToShipCanary?: true;
   providerRequests?: "tcgplayer-staged-import";
   prepare(
     unit: OperationUnit,
@@ -246,8 +248,20 @@ export function parseOperationAttempt(value: unknown): OperationAttempt {
   state(row.state);
   digest(row.payloadDigest);
   payload(row.payload, row.operationKind);
+  if (
+    String(row.reservationId).startsWith(canaryReservationPrefix) !==
+    (row.payload.kind === "order-pull" && Boolean(row.payload.canary))
+  )
+    refuse();
   if (row.payload.kind === "order-pull") {
     if (row.payload.connectionId !== row.connectionId) refuse();
+    if (
+      row.payload.canary &&
+      (row.claimGeneration !== 1 ||
+        row.scheduleGeneration !== 1 ||
+        String(row.leaseExpiresAt) > row.payload.canary.expiresAt)
+    )
+      refuse();
     if (Object.hasOwn(row, "handoff")) parseOrderPullHandoff(row.handoff, row.payload);
     if (row.state === "prepared" && row.handoff !== undefined) refuse();
   }
@@ -355,6 +369,11 @@ export async function parseOperationClaim(
   if (row.operations.length > journalLimit) throw new OperationProtocolError("incomplete-authority");
   const ids = new Set<string>();
   for (const member of row.operations) {
+    if (
+      String(row.reservationId).startsWith(canaryReservationPrefix) &&
+      !(member && typeof member === "object" && member.operationKind === "tcgplayer-order-pull")
+    )
+      refuse();
     if (member && typeof member === "object" && member.operationKind === liveExportOperationKind) {
       const operation = record(member, [
         "operationId",
@@ -421,6 +440,15 @@ export async function parseOperationClaim(
       const subject = record(operation.subject, ["kind", "connectionId"]);
       if (subject.kind !== "connection" || subject.connectionId !== connectionId) refuse();
       assertOrderPullPayloadStructure(operation.payload);
+      if (
+        Boolean(operation.payload.canary) !== String(row.reservationId).startsWith(canaryReservationPrefix) ||
+        (operation.payload.canary &&
+          (operation.claimGeneration !== 1 ||
+            operation.scheduleGeneration !== 1 ||
+            claimant.claimantId !== operation.payload.canary.target.pairingId ||
+            String(row.leaseExpiresAt) > operation.payload.canary.expiresAt))
+      )
+        refuse();
       if (
         operation.payload.connectionId !== connectionId ||
         operation.payload.pullId !== operation.pullId ||

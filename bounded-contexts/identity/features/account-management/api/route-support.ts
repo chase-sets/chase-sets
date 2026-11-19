@@ -1,8 +1,9 @@
 import type { Context } from "hono";
 import type { IdentityApiEnv } from "../../../api";
 import { parseAttemptKey, type MutationAction } from "../domain/contract";
-import type { AccountManagementServices } from "./runtime";
+import type { AccountManagementServices, MutationResult } from "./runtime";
 import { SHIPPING_ADDRESS_REQUIRED_MESSAGES } from "../../shipping-addresses/domain/errors";
+import { ACCOUNT_PROFILE_REQUIRED_MESSAGES } from "../../accounts/domain/errors";
 import { t } from "@chase-sets/localization";
 
 export async function submitAccountManagement(
@@ -23,20 +24,10 @@ export async function submitAccountManagement(
   if (!service) return c.json({ outcome: "indeterminate", code: "INDETERMINATE" }, 503);
   try {
     const result = await service.submit({ actor: c.var.actor, context: c.var.context, key, action, target, body });
-    if (
-      (action === "create" || action === "update") &&
-      result.outcome === "not-recorded" &&
-      result.code === "validation-failed" &&
-      typeof result.shippingAddressField === "string" &&
-      Object.hasOwn(SHIPPING_ADDRESS_REQUIRED_MESSAGES, result.shippingAddressField)
-    ) {
-      const field = result.shippingAddressField as keyof typeof SHIPPING_ADDRESS_REQUIRED_MESSAGES;
-      const message = t(SHIPPING_ADDRESS_REQUIRED_MESSAGES[field]);
+    const required = requiredFieldRefusal(action, result);
+    if (required) {
       c.header("Cache-Control", "no-store");
-      return c.json(
-        { error: { code: "validation_failed", message, details: [{ field, code: "required", message }] } },
-        400,
-      );
+      return c.json(required, 400);
     }
     c.header("Cache-Control", "no-store");
     return c.json(
@@ -54,4 +45,31 @@ export async function submitAccountManagement(
       return c.json({ outcome: "not-recorded", code: "authorization_forbidden" }, 403);
     return c.json({ outcome: "indeterminate", code: "INDETERMINATE" }, 503);
   }
+}
+
+// A required field the owner refused, in the `validation_failed` envelope with that field's detail.
+function requiredFieldRefusal(action: MutationAction, result: MutationResult) {
+  if (result.outcome !== "not-recorded" || result.code !== "validation-failed") return null;
+  const refused = (field: string, message: string) => ({
+    error: { code: "validation_failed", message, details: [{ field, code: "required", message }] },
+  });
+  const shippingField = result.shippingAddressField;
+  if (
+    (action === "create" || action === "update") &&
+    typeof shippingField === "string" &&
+    Object.hasOwn(SHIPPING_ADDRESS_REQUIRED_MESSAGES, shippingField)
+  ) {
+    const field = shippingField as keyof typeof SHIPPING_ADDRESS_REQUIRED_MESSAGES;
+    return refused(field, t(SHIPPING_ADDRESS_REQUIRED_MESSAGES[field]));
+  }
+  const profileField = result.accountProfileField;
+  if (
+    action === "update-profile" &&
+    typeof profileField === "string" &&
+    Object.hasOwn(ACCOUNT_PROFILE_REQUIRED_MESSAGES, profileField)
+  ) {
+    const field = profileField as keyof typeof ACCOUNT_PROFILE_REQUIRED_MESSAGES;
+    return refused(field, t(ACCOUNT_PROFILE_REQUIRED_MESSAGES[field]));
+  }
+  return null;
 }

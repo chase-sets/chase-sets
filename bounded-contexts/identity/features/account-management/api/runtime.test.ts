@@ -109,6 +109,19 @@ describe("issue-7168-ac3-atomic-replay", () => {
       expect(recovered).toHaveProperty("destination", expect.stringMatching(/^\/account\?afterWrite=/));
     }
   });
+  it.each([
+    [{ name: "  ", displayName: "New" }, "name"],
+    [{ name: "New", displayName: "  " }, "displayName"],
+  ] as const)("refuses %j for its blank %s without a receipt or event", async (body, field) => {
+    const before = f.memory.allEvents.length;
+    expect(await f.runtime.submit({ ...input, body })).toEqual({
+      outcome: "not-recorded",
+      code: "validation-failed",
+      accountProfileField: field,
+    });
+    expect(f.memory.allEvents).toHaveLength(before);
+    expect(await f.runtime.lookup(input)).not.toMatchObject({ outcome: "committed" });
+  });
   it("rejects the receipt-only bypass mutant", async () => {
     await f.runtime.submit(input);
     f.memory.streams.set(

@@ -7,6 +7,7 @@ import {
   type AccountEnforcementReversalReasonCode,
 } from "@chase-sets/event-core";
 import { decideAccount, evolveAccount, initialAccountState } from "./domain";
+import { AccountProfileFieldError } from "./errors";
 
 const ENFORCEMENT_A = "enf_01ARYZ6S41TSV4RRFFQ69G5FAV" as const;
 const ENFORCEMENT_B = "enf_01ARYZ6S41TSV4RRFFQ69G5FAW" as const;
@@ -55,6 +56,34 @@ describe("account domain", () => {
 
     expect(createdState.displayName).toBe("North Store");
     expect(suspendedState.status).toBe("suspended");
+  });
+
+  it.each([
+    [{ name: "   ", displayName: "North Store" }, "name"],
+    [{ name: "North Store LLC", displayName: " \t " }, "displayName"],
+    [{ name: "" }, "name"],
+  ] as const)("refuses a profile update whose %j leaves %s blank", (names, field) => {
+    const refusal = (() => {
+      try {
+        decideAccount(rawCreatedAccountState(), { type: "UpdateAccountProfile", ...names });
+      } catch (error) {
+        return error;
+      }
+      return null;
+    })();
+    expect(refusal).toBeInstanceOf(AccountProfileFieldError);
+    expect(refusal).toMatchObject({ field, code: "required" });
+  });
+
+  it("trims a profile update's names and defaults the marketplace name to the legal name", () => {
+    expect(
+      decideAccount(rawCreatedAccountState(), { type: "UpdateAccountProfile", name: "  South Store LLC " }),
+    ).toEqual([
+      {
+        type: "identity.account.profile-updated",
+        data: { name: "South Store LLC", displayName: "South Store LLC" },
+      },
+    ]);
   });
 
   it("accepts enterprise accounts", () => {

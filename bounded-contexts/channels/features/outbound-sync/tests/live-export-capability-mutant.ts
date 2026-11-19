@@ -10,6 +10,7 @@ import * as validation from "../domain/validation";
 import * as digest from "../api/payload-digest";
 import * as orderPull from "../api/order-pull";
 import * as liveExport from "../api/live-export";
+import * as canary from "../api/ready-to-ship-canary";
 
 /** In-memory bypass only: the candidate file and database authority are never rewritten. */
 export function capabilityIgnoredStore(): typeof import("../api/store").createOutboundOperationStore {
@@ -26,6 +27,7 @@ export function capabilityIgnoredStore(): typeof import("../api/store").createOu
     "./payload-digest": digest,
     "./order-pull": orderPull,
     "./live-export": liveExport,
+    "./ready-to-ship-canary": canary,
   };
   const exports: Partial<typeof import("../api/store")> = {};
   runInNewContext(

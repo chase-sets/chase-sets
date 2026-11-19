@@ -247,7 +247,7 @@ pub fn AlertsSection<'a>(t: NotificationsMsg, p: Pilot, alerts: &'a Alerts, noti
             }
             match alerts {
                 Alerts::CatchingUp => {
-                    <div class={Banner} role="status"><p>{p.notifications_pending()}</p></div>
+                    <div class={Banner} role="status"><p>{t.page_settings_product_alerts_pending()}</p></div>
                 }
                 Alerts::Unconfirmed => {
                     <div class={Banner} data-tone="warning" role="alert"><p>{p.notifications_unconfirmed()}</p></div>

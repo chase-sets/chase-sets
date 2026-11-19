@@ -1,6 +1,7 @@
 import { hasProcessedProviderWebhookEvent, recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { assertClosedRecord, assertOpaqueId } from "../../connections/domain/validation";
+import { ConnectorPairingError } from "../domain/contracts";
 import {
   ConnectorTransportError,
   connectorInboundKinds,
@@ -66,8 +67,18 @@ export async function admitConnectorInbound(
   // Sequence allocation happens only behind this transaction lock. A horizon cannot overtake a late commit.
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lockKey(connectionId, input.inboundKind)]);
   const providerEventId = JSON.stringify([connectionId, input.inboundKind, input.externalReference]);
-  if (await hasProcessedProviderWebhookEvent(db, { tableName: "channel_connector_inbound_events", providerEventId }))
+  async function assertExactCanaryReplay() {
+    if (!input.canaryReservationId) return;
+    const exact = await db.query(
+      `SELECT 1 FROM channel_connector_inbound_payloads WHERE provider_event_id=$1 AND payload=$2::jsonb`,
+      [providerEventId, JSON.stringify(input.payload)],
+    );
+    if (!exact.rows.length) throw new ConnectorPairingError("authorization-refused");
+  }
+  if (await hasProcessedProviderWebhookEvent(db, { tableName: "channel_connector_inbound_events", providerEventId })) {
+    await assertExactCanaryReplay();
     return;
+  }
   const inserted = await recordProviderWebhookEvent(db, {
     tableName: "channel_connector_inbound_events",
     providerEventId,
@@ -76,7 +87,7 @@ export async function admitConnectorInbound(
     providerObjectReference: input.externalReference,
     receivedAt,
   });
-  if (!inserted) return;
+  if (!inserted) return assertExactCanaryReplay();
   await db.query(
     `INSERT INTO channel_connector_inbound_payloads
     (provider_event_id, inbound_kind, received_at, payload) VALUES ($1,$2,$3,$4::jsonb)`,

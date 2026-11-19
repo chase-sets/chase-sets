@@ -69,7 +69,7 @@ const SEARCHED_CHOICES: usize = 8;
 /// A price filter's value (`readPriceFilter`), which the browser checks before sending it.
 const PRICE_PATTERN: &str = r"(0|[1-9][0-9]*)(\.[0-9]{1,2})?";
 /// Marketplace's saved-search settings (`productAlertSettingsHref`).
-const SAVED_SEARCH: &str = "/search?notifications=settings&notificationSection=product-alerts";
+const SAVED_SEARCH: &str = "/account/notifications?view=settings&section=product-alerts";
 
 /// A failed read's results: none. A page with no read shows the filters, an error banner and a
 /// 502, as marketplace's does since chase-sets/chase-sets#10610.

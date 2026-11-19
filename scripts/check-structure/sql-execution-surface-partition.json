@@ -141,6 +141,7 @@
     "bounded-contexts/channels/features/outbound-sync/api/live-export.ts",
     "bounded-contexts/channels/features/outbound-sync/api/order-pull-progress.ts",
     "bounded-contexts/channels/features/outbound-sync/api/order-pull.ts",
+    "bounded-contexts/channels/features/outbound-sync/api/ready-to-ship-canary.ts",
     "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
     "bounded-contexts/channels/features/outbound-sync/api/store.ts",
     "bounded-contexts/channels/features/outbound-sync/integrations/listing-composition.ts",

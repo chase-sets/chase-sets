@@ -11,25 +11,27 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return redirect(productAlertSettingsHref);
 }
 
-const afterAlertAction = formActionRedirect(null, productAlertSettingsHref);
+// Each write's result carries its commit receipt, so the settings read after the redirect waits
+// for the alert's new status.
+const afterAlertAction = (result: unknown) => formActionRedirect(result, productAlertSettingsHref);
 
 export const action = defineFormAction({
   authorization: { permission: "accounts.view" },
   intents: {
-    pause: async ({ request, formData }) => {
-      await createDiscoveryRequestApiClient(request).pauseProductAlert(String(formData.get("alertId") ?? ""));
-      return afterAlertAction;
-    },
-    resume: async ({ request, formData }) => {
-      await createDiscoveryRequestApiClient(request).resumeProductAlert(String(formData.get("alertId") ?? ""));
-      return afterAlertAction;
-    },
-    delete: async ({ request, formData }) => {
-      await createDiscoveryRequestApiClient(request).deleteProductAlert(String(formData.get("alertId") ?? ""));
-      return afterAlertAction;
-    },
+    pause: async ({ request, formData }) =>
+      afterAlertAction(
+        await createDiscoveryRequestApiClient(request).pauseProductAlert(String(formData.get("alertId") ?? "")),
+      ),
+    resume: async ({ request, formData }) =>
+      afterAlertAction(
+        await createDiscoveryRequestApiClient(request).resumeProductAlert(String(formData.get("alertId") ?? "")),
+      ),
+    delete: async ({ request, formData }) =>
+      afterAlertAction(
+        await createDiscoveryRequestApiClient(request).deleteProductAlert(String(formData.get("alertId") ?? "")),
+      ),
   },
-  onUnknownIntent: () => afterAlertAction,
+  onUnknownIntent: () => afterAlertAction(null),
 });
 
 export const meta: MetaFunction = () => [

@@ -743,13 +743,6 @@ pub(crate) async fn create(
     };
     let (created, created_receipt): (CreatedListing, _) = match created {
         Ok(created) => created,
-        // A photo the API cannot decode is a 500 (chase-sets/chase-sets#10649).
-        Err(error) if !photos.is_empty() && error.status().is_some_and(|s| s.is_server_error()) => {
-            tracing::warn!("a create with photos failed: {error}");
-            let mut errors = Errors::new();
-            errors.add(f.evidence, p.listing_new_photos_unprocessed());
-            return refuse(&req, &viewer, &caller, draft, errors, sent_photos, StatusCode::UNPROCESSABLE_ENTITY).await;
-        }
         Err(error) => {
             return match failed(error) {
                 Failed::SignIn => sign_in(&req),

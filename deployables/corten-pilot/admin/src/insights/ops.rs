@@ -172,7 +172,7 @@ async fn ops_dashboard(
 ) -> HtmlResult {
     let range_days = range_days(route.view.range_days.as_deref());
     let granularity = granularity(route.view.granularity.as_deref());
-    let (from, to) = window(Timestamp::now().to_zoned(TimeZone::UTC).date(), range_days);
+    let (from, to) = window(Timestamp::now().to_zoned_datetime(TimeZone::UTC).date(), range_days);
     let (from, to) = (segment(&from.to_string()), segment(&to.to_string()));
     let caller = config.platform.caller(&headers, config.proto, None);
     let (summary_path, series_path, runs_path) = (

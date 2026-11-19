@@ -19,6 +19,18 @@ export type NotificationCenterProductAlertList = Readonly<{
   items: readonly NotificationCenterProductAlert[];
 }>;
 
+// A failed Product alerts read keeps the API's status and body, so a read after a write can
+// tell a projection that has not caught up yet from a failure.
+export class NotificationCenterProductAlertsReadError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+  ) {
+    super(`Product alerts request failed with ${status}`);
+    this.name = "NotificationCenterProductAlertsReadError";
+  }
+}
+
 export function createNotificationCenterRequestApiClient(request: Request) {
   return createNotificationCenterApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/notifications"),
@@ -34,7 +46,7 @@ export function createNotificationCenterProductAlertsRequestClient(request: Requ
     async listProductAlerts(): Promise<NotificationCenterProductAlertList> {
       const response = await forwardedFetch(`${baseUrl}/account/product-alerts`);
       if (!response.ok) {
-        throw new Error(`Product alerts request failed with ${response.status}`);
+        throw new NotificationCenterProductAlertsReadError(response.status, await response.json().catch(() => null));
       }
 
       return attachResponseMetadata(await response.json(), response) as NotificationCenterProductAlertList;

@@ -7633,7 +7633,7 @@ fn ordering(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response>
     };
     if side == "buyer" {
         detail["delivery_summary"] =
-            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22 12:00:00+00" });
+            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22T12:00:00.000Z" });
         detail["reviewOutcome"] = json!({ "status": "ready", "opportunity": {
             "author_role": "buyer", "active_review_id": "rev_1", "active_review_revealed_at": "2026-03-23T10:05:00.000Z",
             "submission_state": "allowed", "window_expired": false, "revealed": true,
@@ -9061,8 +9061,9 @@ const ACCOUNT_HOME: &str = "/account";
 
 /// The stand-in Identity account `acc_seller` and who is signed in to it. A read that waits for 45
 /// is still catching up. A profile update's attempt decides an answer as an address write's does
-/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict and the
-/// marketplace name `Refused` is refused for its fields.
+/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict, the
+/// marketplace name `Refused` is refused for its fields, and a blank name is refused as Identity
+/// refuses it, naming the field.
 fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     if path == "/api/identity/current-actor-display" {
         return Some(
@@ -9098,6 +9099,16 @@ fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &
             Json(json!({ "outcome": "conflict", "code": "owner-state-conflict", "current": { "id": "acc_seller", "version": 3, "status": "active" } })),
         )
             .into_response(),
+        "PUT" if ["name", "displayName"].iter().any(|f| sent[f].as_str().is_some_and(|v| v.trim().is_empty())) => {
+            let (field, message) = if sent["name"].as_str().is_some_and(|v| v.trim().is_empty()) {
+                ("name", "Legal name is required.")
+            } else {
+                ("displayName", "Marketplace name is required.")
+            };
+            let details = json!([{ "field": field, "code": "required", "message": message }]);
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })))
+                .into_response()
+        }
         "PUT" if sent["displayName"] == "Refused" => {
             (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
         }
@@ -9160,7 +9171,7 @@ async fn the_account_page_shows_the_profile_who_is_signed_in_and_where_to_manage
     );
     assert!(html.contains("<title>Account | Marketplace</title>"), "{html}");
     assert!(html.contains(r#"method="post" action="/account""#), "{html}");
-    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required"#) && !html.contains("pattern="), "{html}");
     assert!(html.contains(r#"name="display_name" value="Synthetic Shop" required"#), "{html}");
     assert_eq!(html.matches(ATTEMPT_INPUT).count(), 1, "the update carries an attempt: {html}");
     for (href, words) in [
@@ -9203,6 +9214,23 @@ async fn an_updated_profile_is_read_after_its_write_and_the_page_says_it_was_sav
     assert!(text(&html).contains("Your change was saved"), "{}", text(&html));
     let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == ACCOUNT_API).cloned().unwrap();
     assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the account waits for the write");
+}
+
+#[tokio::test]
+async fn a_blank_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    for (name, display_name, field, said) in [
+        ("+++", "Shop", "name", "Legal name is required."),
+        ("Synthetic+Legal+LLC", "+", "display_name", "Marketplace name is required."),
+    ] {
+        let body = format!("attempt={ATTEMPT}&name={name}&display_name={display_name}");
+        let (status, _, html) = pilot.send(post(ACCOUNT_HOME, "addresser", &body, true)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+        assert!(text(&html).contains(said), "{}", text(&html));
+        let input = html.split(&format!(r#"name="{field}""#)).nth(1).unwrap().split('>').next().unwrap();
+        assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    }
+    assert_eq!(profile_writes(&pilot).len(), 2, "each blank name is sent for Identity to refuse");
 }
 
 #[tokio::test]
@@ -10428,8 +10456,8 @@ fn multipart_fields(headers: &HeaderMap, body: &str) -> Option<Vec<(String, Opti
 /// The search finds `cat_etb` for "twilight", nothing for "zzz", and fails for "broken";
 /// `cat_card` is a card with options (Inventory's read has no `valueKind`). A guest's draft
 /// `ldi_1` is claimed with an `anon_` owner. The create refuses `purchaseLimits`, as the multipart
-/// create does, answers 500 for a photo named `broken.png`
-/// (chase-sets/chase-sets#10649), and records the rest as the JSON create does.
+/// create does, refuses a photo named `broken.png` as evidence it cannot decode, and records the
+/// rest as the JSON create does.
 fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     let query = uri.query().unwrap_or_default();
@@ -10537,7 +10565,7 @@ fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
                 return Some(refusal(StatusCode::BAD_REQUEST, "listing_request_unknown_field", "Remove unrecognized fields and try again."));
             }
             if photos.iter().any(|p| p["filename"] == "broken.png") {
-                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                return Some(refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again."));
             }
             if sent["inventoryItemId"] == "inv_missing" && sent["inventorySnapshot"].is_null() {
                 return Some(refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item was not found."));
@@ -10716,11 +10744,11 @@ async fn a_photo_the_api_would_not_take_is_refused_with_the_form_and_nothing_is_
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Each photo must be 10 MB or smaller."), "{html}");
     assert_eq!(create_calls(&pilot), 0);
-    // The API's 500 for a photo it cannot decode (chase-sets/chase-sets#10649) is the form again.
+    // A photo the API cannot decode is refused by it, with the form again.
     let (status, _, html) =
         pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[("evidence", "broken.png", "image/png", PNG)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(text(&html).contains("The photos could not be processed, so nothing was created."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     assert!(pilot.stand.listings.lock().unwrap().is_empty());
 }
 
@@ -11166,8 +11194,8 @@ fn settle(stand: &Stand, headers: &HeaderMap, answer: &Response) {
 /// still catching up; `lst_missing` is not found. A price of 1.00 is a stale quote (409 with the
 /// current one) and 0.50 is refused; an image description with a text-direction override is
 /// refused with its code; publishing the draft is refused for its evidence (409 with the
-/// readiness now); photos named `broken.png` are a 500 (chase-sets/chase-sets#10649), and so is a
-/// price of 5.00, whose answer is lost. Every other write applies at 50.
+/// readiness now); photos named `broken.png` are refused as evidence it cannot decode, and a price
+/// of 5.00 is a 500, whose answer is lost. Every other write applies at 50.
 fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(SELLER_LISTINGS)?;
     let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
@@ -11222,7 +11250,9 @@ fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str)
             } })),
         )
             .into_response(),
-        ("POST", _) if body.contains("filename=\"broken.png\"") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        ("POST", _) if body.contains("filename=\"broken.png\"") => {
+            refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again.")
+        }
         ("POST", _) | ("DELETE", _) => applied(),
         _ => return None,
     })
@@ -11662,12 +11692,12 @@ async fn a_drafts_photos_are_added_and_replaced_as_multipart_and_a_bad_file_is_r
     assert!(text(&html).contains("Choose a photo to upload."), "{html}");
     assert_eq!(listing_writes(&pilot, "lst_draft").len(), before);
 
-    // A photo the API cannot process (a 500, chase-sets/chase-sets#10649) says so.
+    // A photo the API cannot decode is refused by it, with its words.
     let (status, _, html) = pilot
         .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "broken.png", "image/png", PNG)]))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(text(&html).contains("The photos could not be processed, so nothing was changed."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     // Someone who may only read cannot post photos.
     let (status, _, _) = pilot
         .send(post_multipart(photos, "lookout", &[("intent", "add-photos")], &[("evidence", "front.png", "image/png", PNG)]))

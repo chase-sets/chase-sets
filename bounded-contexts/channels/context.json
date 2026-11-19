@@ -1054,6 +1054,22 @@
       }
     },
     {
+      "id": "channels.ready-to-ship-canary-arming",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connector-feed/api/routes.ts:POST /:id/connector-pairing/ready-to-ship-canary"
+      ],
+      "visibleDestination": {
+        "description": "The founder receives an arming acknowledgement only; no page payload, optimistic sale acceptance, or follow-up read is exposed."
+      },
+      "proof": {
+        "authoritativeResponse": "204 means the one-use page is committed against the live pairing. The reservation and Inventory sale are separate outcomes; stale, foreign, or repeated requests do not get a successful arming response.",
+        "tests": ["bounded-contexts/channels/features/tcgplayer-orders/tests/tcgplayer-orders.db.test.ts"]
+      }
+    },
+    {
       "id": "channels.connection-command-snapshots",
       "owner": "channels",
       "risk": "important",

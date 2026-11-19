@@ -234,35 +234,25 @@ pub fn AccountHomePage<'a>(t: AccountHomeMsg, p: Pilot, screen: &'a AccountScree
 fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Render {
     let f = ProfileInput::FIELDS;
     let (i, e) = (&draft.input, draft.errors.within(ProfileFormId));
-    // A name must have a letter in it: the API takes a blank one (chase-sets/chase-sets#10688).
-    let named = ".*\\S.*";
     html! {
         <form id={ProfileFormId} class={Form} method="post" action={url::AccountHome::default()}>
             {SubmitKey::field(f.attempt)}
             {draft.errors.form_message()}
             <fieldset class={Row} disabled={held}>
-                <label class={Field}>
-                    <span class={Label}>{t.page_legal_name()}</span>
-                    <input
-                        type="text"
-                        name={f.name}
-                        value={&i.name}
-                        required
-                        pattern={named}
-                        {..e.aria(f.name)}
-                    >
-                </label>
-                <label class={Field}>
-                    <span class={Label}>{t.page_marketplace_name()}</span>
-                    <input
-                        type="text"
-                        name={f.display_name}
-                        value={&i.display_name}
-                        required
-                        pattern={named}
-                        {..e.aria(f.display_name)}
-                    >
-                </label>
+                <div class={Field}>
+                    <label class={Field}>
+                        <span class={Label}>{t.page_legal_name()}</span>
+                        <input type="text" name={f.name} value={&i.name} required {..e.aria(f.name)}>
+                    </label>
+                    {e.message(f.name)}
+                </div>
+                <div class={Field}>
+                    <label class={Field}>
+                        <span class={Label}>{t.page_marketplace_name()}</span>
+                        <input type="text" name={f.display_name} value={&i.display_name} required {..e.aria(f.display_name)}>
+                    </label>
+                    {e.message(f.display_name)}
+                </div>
                 <button type="submit" class={Secondary}>{t.page_update_profile()}</button>
             </fieldset>
         </form>

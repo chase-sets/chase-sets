@@ -11470,7 +11470,7 @@ async fn the_ops_dashboard_reads_the_range_asked_and_draws_the_trend() {
         pilot.send(get("/platform/insights/ops-dashboard?rangeDays=7&granularity=weekly", Some("insights-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls = pilot.calls_to_path("/api/platform/insights/ops/");
-    let today = jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC).date();
+    let today = jiff::Timestamp::now().to_zoned_datetime(jiff::tz::TimeZone::UTC).date();
     let from = today.checked_sub(jiff::ToSpan::days(6)).unwrap();
     assert!(calls.iter().any(|c| c.path == format!("/api/platform/insights/ops/summary?from={from}&to={today}")), "{calls:?}");
     assert!(

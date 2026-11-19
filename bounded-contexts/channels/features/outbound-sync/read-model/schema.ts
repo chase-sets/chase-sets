@@ -1,6 +1,7 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { orderPullProgressSchemaStatements } from "./order-pull-progress-schema";
 import { liveExportSchemaStatements } from "./live-export-schema";
+import { readyToShipCanarySchema } from "./ready-to-ship-canary-schema";
 
 const createOutboundOperationsTable = `CREATE TABLE IF NOT EXISTS channel_outbound_operations (
   operation_id text PRIMARY KEY,
@@ -186,6 +187,7 @@ ${createOrderPullSchedulesTable};
 ${createOrderPullIndexes.map((statement) => `${statement};`).join("\n")}
 ${orderPullProgressSchemaStatements.map((statement) => `${statement};`).join("\n")}
 ${liveExportSchemaStatements.map((statement) => `${statement};`).join("\n")}
+${readyToShipCanarySchema.map((statement) => `${statement};`).join("\n")}
 `;
 
 export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
@@ -256,5 +258,10 @@ export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
     migrationId: "20261010_channels_live_export_producer",
     description: "Create connection-scoped live-export operations and boundary-anchored schedules.",
     statements: liveExportSchemaStatements,
+  },
+  {
+    migrationId: "20261119_channels_ready_to_ship_canary",
+    description: "Retain one-shot sealed-page claim fences and admitted sale membership.",
+    statements: readyToShipCanarySchema,
   },
 ];
