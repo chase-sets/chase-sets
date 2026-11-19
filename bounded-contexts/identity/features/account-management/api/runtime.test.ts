@@ -120,7 +120,7 @@ describe("issue-7168-ac3-atomic-replay", () => {
       accountProfileField: field,
     });
     expect(f.memory.allEvents).toHaveLength(before);
-    expect(await f.runtime.lookup({ ...input, body })).not.toMatchObject({ outcome: "committed" });
+    expect(await f.runtime.lookup(input)).not.toMatchObject({ outcome: "committed" });
   });
   it("rejects the receipt-only bypass mutant", async () => {
     await f.runtime.submit(input);

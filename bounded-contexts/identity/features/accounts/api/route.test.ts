@@ -144,7 +144,11 @@ describe("account API route", () => {
     const app = new Hono<IdentityApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", actor);
-      c.set("context", { tenantId: "tnt_identity" as never, audit: {}, trace: {} } as EventStoreContext);
+      c.set("context", {
+        tenantId: "tnt_identity" as never,
+        audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+        trace: {},
+      } as EventStoreContext);
       await next();
     });
     app.route("/accounts", accountRoutes(buildServices(), accountManagement));
