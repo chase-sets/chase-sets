@@ -181,13 +181,12 @@ async fn render(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
-    let account = viewer.actor.account_id.as_str();
-    let ((memberships, invitations), pending) = match caller.team(account).await {
+    let ((memberships, invitations), pending) = match caller.team().await {
         Ok(team) => (team, false),
         // The write's projection is not readable yet: the team as it was, marked as updating.
         Err(error) if receipt.is_some() && error.catching_up() => {
             let plain = config.platform.caller(headers, config.proto, None);
-            match plain.team(account).await {
+            match plain.team().await {
                 Ok(team) => (team, true),
                 Err(error) => return read_failed(req, Some(viewer), error, None),
             }
