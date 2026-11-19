@@ -406,7 +406,7 @@ pub(crate) async fn set_preference(
 /// from the settings' address with the write's receipt (`ReadAgain::from`), which answers the
 /// section the same way until the read is in; a read after the write that fails says the change
 /// was saved and cannot be shown yet (502, in place). Without a script, the settings at the alerts
-/// with the receipt, which say the same and read themselves again. Carrying the receipt is what marketplace does not do (chase-sets/chase-sets#10627).
+/// with the receipt, which say the same and read themselves again, as marketplace's do.
 pub(crate) async fn change_alert(
     req: Req,
     Caller(Member(viewer)): Caller<Member>,
