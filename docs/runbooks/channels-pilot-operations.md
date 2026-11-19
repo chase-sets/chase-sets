@@ -167,6 +167,37 @@ before relying on cross-channel inventory accuracy, and treat any TCGplayer
 sale as a manual inventory correction until Reconciliation phase 2 lands
 (see #7700).
 
+### Ready to Ship Canary (Offline Only)
+
+The fixed-page canary for [#11555 Intake a qualified Ready to Ship canary through the claimed connector](https://github.com/chase-sets/chase-sets/issues/11555)
+still refuses operator packaging. Do not launch Chrome, sign in, or start a sale
+from this package. The offline manifest has no provider hosts. Its receipt is
+qualification evidence, not Todd's authorization or proof of owner acceptance.
+
+After independent exact-head review and a separately admitted founder window,
+the founder package must be verified with `node <probe>/package.mjs --verify --out <run>`
+before opening its recorded launch command. The run must be owner-protected and
+new. Use only that isolated profile and the hash-bound helper. Stop on a
+different seller or session, stale or unsettled counts, a range or label change,
+missing detail, or any refusal. Use the fixed Last 2 years first page with no
+fallback, pagination or retry. These are preconditions, not launch authority.
+
+The two scrubbed files, `selector-receipt.json` and `selector-inventory.json`,
+belong in `<run>/receipt`; check them with
+`node <probe>/package.mjs --verify-export --out <run>`. Keep the sealed
+`ready-to-ship-handoff.json` in `<run>/custody`, outside both the disposable
+profile and the evidence directory. Do not export the handoff, sealing key, or
+private run directory. Remove the isolated extension and dispose of its
+profile, then record the observed UTC removal with
+`node <probe>/package.mjs --record-removal --extension-absent --extension-absent-at <utc> --out <run>`.
+Verify the export again. This records the removal attestation; it does not
+verify process absence or authorize use of the handoff.
+
+Stop here. The offline control opens the seal once with a synthetic exact page,
+connection and pairing before expiry. The real owner-only claim and its DB proof
+are not available. Do not substitute a scheduled pull, generic connector claim,
+or direct ingest for that operation.
+
 ### Manual-Sync Round Trip
 
 The Manual Sync Panel

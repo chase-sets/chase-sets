@@ -1,6 +1,6 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createDecipheriv, createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,8 @@ export const PROBE = "https://github.com/chase-sets/chase-sets/issues/9115";
 const SUCCESSOR = `${PROBE}#issuecomment-6065311293`;
 const coreFiles = ["capture.html", "helper.js", "manifest.json", "worker.js"];
 const packageFiles = ["capture-config.json", ...coreFiles];
+const sealKeyFile = "canary-seal-key";
+const handoffFile = "ready-to-ship-handoff.json";
 const exportFiles = ["selector-inventory.json", "selector-receipt.json"];
 const offlineCanaryManifest = {
   host_permissions: [],
@@ -30,9 +32,10 @@ const check = (condition, code) => {
 };
 const git = (...args) =>
   execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-function readJson(file, canonical = false) {
+function readJson(file, canonical = false, maxBytes = 65536) {
   try {
-    check(lstatSync(file).size <= 65536, "artifact_refused");
+    const stat = lstatSync(file);
+    check(stat.isFile() && stat.nlink === 1 && stat.size <= maxBytes, "artifact_refused");
     const text = readFileSync(file, "utf8");
     const value = JSON.parse(text);
     // Generated artifacts have one exact JSON encoding. This also rejects
@@ -97,8 +100,17 @@ function same(value, expected, code = "export_schema_refused") {
   check(json(value) === json(expected), code);
 }
 
-export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false, canary = false }) {
+function assertSyntheticTarget(target) {
+  closed(target, ["connectionId", "pairingId"], "custody_refused");
+  check(
+    Object.values(target).every((id) => typeof id === "string" && /^synthetic-[\w-]{1,96}$/.test(id)),
+    "custody_refused",
+  );
+}
+
+export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false, canary = false, target = undefined }) {
   check(!canary || synthetic, "canary_operator_disabled");
+  if (canary) assertSyntheticTarget(target);
   check(
     Number.isSafeInteger(cadenceMs) &&
       cadenceMs > 0 &&
@@ -129,10 +141,22 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false, 
   const receiptDirectory = path.join(out, "receipt");
   const profileDirectory = path.join(out, "profile");
   for (const directory of [packageDirectory, receiptDirectory, profileDirectory])
-    mkdirSync(directory, { recursive: true });
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (canary) mkdirSync(path.join(out, "custody"), { mode: 0o700 });
   writeFileSync(path.join(packageDirectory, "manifest.json"), json(manifest), { flag: "wx" });
   for (const name of ["worker.js", "helper.js", "capture.html"])
     writeFileSync(path.join(packageDirectory, name), readFileSync(path.join(source, name)), { flag: "wx" });
+  const files = inventory(packageDirectory);
+  let sealKeyDigest;
+  if (canary) {
+    const key = randomBytes(32);
+    try {
+      writeFileSync(path.join(packageDirectory, sealKeyFile), key, { flag: "wx", mode: 0o600 });
+      sealKeyDigest = hash(key);
+    } finally {
+      key.fill(0);
+    }
+  }
   const config = {
     format: "order-authority-package/v4",
     head,
@@ -142,8 +166,8 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false, 
     cadenceSource,
     extensionId: id,
     evidence: synthetic ? "synthetic" : "operator",
-    files: inventory(packageDirectory),
-    ...(canary && { mode: "canary" }),
+    files,
+    ...(canary && { mode: "canary", sealKeyDigest, target }),
   };
   writeFileSync(path.join(packageDirectory, "capture-config.json"), json(config), { flag: "wx" });
   const preparation = {
@@ -178,7 +202,9 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false, 
     ? `# Synthetic Ready to Ship canary
 
 Head: ${head}. This package is for offline fixtures only. Do not load it for an operator window.
-It has no sale handoff, separate authorization or claimed connector intake.
+The encrypted handoff is private fixture data. Keep it in custody/, never receipt/.
+The package's canary-seal-key is also private. Never export it.
+There is no live owner authorization or claimed connector intake.
 
 One lookup, one LastTwoYears first page, fresh Ready to Ship quick-filter brackets, and at
 most three matching details. No range correction, fallback, pagination or retry.
@@ -294,12 +320,13 @@ export function verifyPackage(out) {
     "package_mismatch",
   );
   const expectedNames = ["RUNBOOK.md", "preparation-inventory.json", "preparation.json", "package", "receipt"];
+  if (canary) expectedNames.push("custody");
   if (existsSync(path.join(out, "profile"))) expectedNames.push("profile");
   same(readdirSync(out).sort(), expectedNames.sort(), "inventory_mismatch");
   for (const name of expectedNames) check(!lstatSync(path.join(out, name)).isSymbolicLink(), "symlink_refused");
   const directory = path.join(out, "package");
   const actual = inventory(directory);
-  same(Object.keys(actual), packageFiles, "inventory_mismatch");
+  same(Object.keys(actual), [...packageFiles, ...(canary ? [sealKeyFile] : [])].sort(), "inventory_mismatch");
   same(actual, preparation.packageDigests, "digest_mismatch");
   const manifest = readJson(path.join(directory, "manifest.json"), true);
   const config = readJson(path.join(directory, "capture-config.json"), true);
@@ -315,17 +342,21 @@ export function verifyPackage(out) {
       "extensionId",
       "evidence",
       "files",
-      ...(canary ? ["mode"] : []),
+      ...(canary ? ["mode", "sealKeyDigest", "target"] : []),
     ],
     "package_mismatch",
   );
+  if (canary) assertSyntheticTarget(config.target);
   check(
     config.format === "order-authority-package/v4" &&
       preparation.format === "order-authority-preparation/v4" &&
       config.probe === PROBE &&
       preparation.probe === PROBE &&
       ["synthetic", "operator"].includes(config.evidence) &&
-      (!canary || (config.evidence === "synthetic" && config.mode === "canary")) &&
+      (!canary ||
+        (config.evidence === "synthetic" &&
+          config.mode === "canary" &&
+          config.sealKeyDigest === actual[sealKeyFile])) &&
       config.evidence === preparation.evidence &&
       config.extensionId === extensionId(manifest.key) &&
       preparation.extensionId === config.extensionId &&
@@ -349,7 +380,7 @@ export function verifyPackage(out) {
       preparation.qualification === "PENDING_HOST_VERIFIER",
     "package_mismatch",
   );
-  const core = Object.fromEntries(Object.entries(actual).filter(([name]) => name !== "capture-config.json"));
+  const core = Object.fromEntries(coreFiles.map((name) => [name, actual[name]]));
   same(core, config.files, "digest_mismatch");
   for (const file of coreFiles) {
     const relative = path.posix.join(
@@ -499,10 +530,7 @@ function assertReceipt(receipt, preparation) {
       deadline === Math.min(start + 900000, Date.parse(preparation.t0) + 900000) &&
       receipt.completeness === "unknown",
   );
-  same(
-    receipt.digests,
-    Object.fromEntries(Object.entries(preparation.packageDigests).filter(([name]) => name !== "capture-config.json")),
-  );
+  same(receipt.digests, Object.fromEntries(coreFiles.map((name) => [name, preparation.packageDigests[name]])));
   closed(receipt.counts, ["lookup", "list", "detail"]);
   check(
     integer(receipt.counts.lookup, 1) &&
@@ -780,8 +808,11 @@ function assertReceipt(receipt, preparation) {
 }
 
 export function verifyExport(out) {
-  const preparation = verifyPackage(out);
-  const directory = path.join(out, "receipt");
+  return verifyPreparedExport(verifyPackage(out));
+}
+
+function verifyPreparedExport(preparation) {
+  const directory = preparation.receiptDirectory;
   const files = inventory(directory);
   same(Object.keys(files), exportFiles, "inventory_mismatch");
   const receipt = readJson(path.join(directory, "selector-receipt.json"), true);
@@ -838,6 +869,87 @@ export function recordRemoval(out, extensionAbsent, extensionAbsentAt) {
   };
   writeFileSync(path.join(out, "receipt", "selector-inventory.json"), json(index));
   return index;
+}
+
+/** Offline custody control. There is deliberately no operator CLI or connector caller. */
+export function takeSyntheticCanaryHandoff(out, authorization, now) {
+  try {
+    const preparation = verifyPackage(out);
+    check(preparation.mode === "canary" && preparation.evidence === "synthetic", "custody_refused");
+    const directory = path.join(out, "custody");
+    assertRealDirectory(directory);
+    const file = path.join(directory, handoffFile);
+    // Consume before decrypting or returning input. No refusal, replay or concurrent take can release it again.
+    writeFileSync(path.join(directory, "authorization-consumed"), "", { flag: "wx", mode: 0o600 });
+    let seal;
+    try {
+      seal = readJson(file, true, 1048576);
+    } finally {
+      if (existsSync(file)) unlinkSync(file);
+    }
+    const index = verifyPreparedExport(preparation);
+    const receipt = readJson(path.join(out, "receipt", "selector-receipt.json"), true);
+    const config = readJson(path.join(out, "package", "capture-config.json"), true);
+    check(
+      index.removal.profileDisposed &&
+        receipt.failures.length === 0 &&
+        receipt.canary.sameSession &&
+        receipt.selector.searches[0].qualification === "qualified",
+      "custody_refused",
+    );
+    closed(authorization, ["pageClaim", "connectionId", "pairingId"], "custody_refused");
+    check(
+      authorization.pageClaim === receipt.canary.pageClaim &&
+        authorization.connectionId === config.target.connectionId &&
+        authorization.pairingId === config.target.pairingId,
+      "custody_refused",
+    );
+    closed(seal, ["header", "iv", "ciphertext"], "custody_refused");
+    const header = {
+      format: "ready-to-ship-sale-handoff/v1",
+      pageClaim: receipt.canary.pageClaim,
+      head: config.head,
+      extensionId: config.extensionId,
+      range: "LastTwoYears",
+      target: config.target,
+      finishedAt: receipt.finishedAt,
+      expiresAt: new Date(
+        Math.min(Date.parse(receipt.finishedAt) + 300000, Date.parse(receipt.deadlineAt)),
+      ).toISOString(),
+    };
+    same(seal.header, header, "custody_refused");
+    check(
+      utc(now) &&
+        now >= index.removal.extensionAbsentAt &&
+        now < header.expiresAt &&
+        typeof seal.iv === "string" &&
+        /^[a-f0-9]{24}$/.test(seal.iv) &&
+        typeof seal.ciphertext === "string" &&
+        /^(?:[a-f0-9]{2}){16,}$/.test(seal.ciphertext),
+      "custody_refused",
+    );
+    const key = readFileSync(path.join(out, "package", sealKeyFile));
+    try {
+      check(key.length === 32 && hash(key) === config.sealKeyDigest, "custody_refused");
+      const bytes = Buffer.from(seal.ciphertext, "hex");
+      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(seal.iv, "hex"));
+      decipher.setAAD(Buffer.from(JSON.stringify(header)));
+      decipher.setAuthTag(bytes.subarray(-16));
+      const plaintext = decipher.update(bytes.subarray(0, -16));
+      try {
+        check(decipher.final().length === 0, "custody_refused");
+        const orders = JSON.parse(plaintext.toString("utf8"));
+        check(Array.isArray(orders) && orders.length === receipt.canary.matchedDetails, "custody_refused");
+        return orders;
+      } finally {
+        plaintext.fill(0);
+      }
+    } finally {
+      key.fill(0);
+    }
+  } catch {
+    fail("custody_refused");
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
