@@ -39,9 +39,10 @@ import {
 // empty settings.
 export type NotificationCenterRead<T> = Readonly<{ status: "loaded"; value: T }> | Readonly<{ status: "failed" }>;
 
+// productAlerts is null when the read after a Product alert write has not caught up with it yet.
 export type NotificationCenterSettings = Readonly<{
   preferences: readonly NotificationPreference[];
-  productAlerts: NotificationCenterProductAlertList;
+  productAlerts: NotificationCenterProductAlertList | null;
 }>;
 
 export type NotificationCenterPageData =
@@ -56,6 +57,7 @@ export type NotificationCenterPageData =
 // redirects back to the Product alerts settings view after the command commits.
 const productAlertActionPath = "/account/product-alerts";
 const productAlertsSectionId = "product-alerts";
+const productAlertsCatchUpReadMs = 2_000;
 
 const preferenceCopyKeys: Record<NotificationPreference["key"], { labelKey: string; descriptionKey: string }> = {
   web: {
@@ -75,10 +77,22 @@ const preferenceCopyKeys: Record<NotificationPreference["key"], { labelKey: stri
 export function NotificationCenterPage({ data }: Readonly<{ data: NotificationCenterPageData }>) {
   const revalidator = useRevalidator();
   const navigation = useNavigation();
+  const productAlertsCatchingUp =
+    data.view === "settings" && data.settings.status === "loaded" && data.settings.value.productAlerts === null;
+  // While the alerts catch up with a write the page reads itself again in place, keeping the
+  // saved notice rather than drawing the loading state.
   const loading =
-    revalidator.state === "loading" ||
+    (revalidator.state === "loading" && !productAlertsCatchingUp) ||
     (navigation.state === "loading" && navigation.location.pathname === notificationCenterPath);
   const failed = data.view === "feed" ? data.feed.status === "failed" : data.settings.status === "failed";
+
+  useEffect(() => {
+    if (!productAlertsCatchingUp || revalidator.state !== "idle") {
+      return;
+    }
+    const timer = setTimeout(() => void revalidator.revalidate(), productAlertsCatchUpReadMs);
+    return () => clearTimeout(timer);
+  }, [productAlertsCatchingUp, revalidator]);
 
   return (
     <Page width="narrow">
@@ -305,7 +319,9 @@ function NotificationSettings({
         title={t("notifications.features.notificationCenter.ui.page.settings.productAlerts.heading")}
         description={t("notifications.features.notificationCenter.ui.page.settings.productAlerts.description")}
       >
-        {settings.productAlerts.items.length > 0 ? (
+        {settings.productAlerts === null ? (
+          <Banner tone="info" title={t("notifications.features.notificationCenter.ui.page.settings.productAlerts.pending")} />
+        ) : settings.productAlerts.items.length > 0 ? (
           <Stack gap={3}>
             {settings.productAlerts.items.map((alert) => (
               <Card key={alert.alert_id} elevation="outlined">

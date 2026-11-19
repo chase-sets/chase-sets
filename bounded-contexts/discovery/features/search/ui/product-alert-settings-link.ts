@@ -1,10 +1,9 @@
 /**
  * There is no dedicated saved-searches route in Discovery. The working "save this search"
- * surface is the product-alerts settings view of the notification center sheet, opened via
- * query params on the marketplace shell's global route
- * (see deployables/marketplace/app/routes/layout.tsx's `notifications`/`notificationSection`
- * handling). `/account/product-alerts` (bounded-contexts/discovery/routes/account-product-alerts.tsx)
- * redirects here for direct/bookmarked visits; UI affordances should link straight to this URL
- * to avoid the extra redirect hop.
+ * surface is the Product alerts section of the Notifications-owned notification center
+ * settings. `/account/product-alerts` (bounded-contexts/discovery/routes/account-product-alerts.tsx)
+ * and its pause, resume and delete actions redirect here in one hop, so an action's write
+ * receipt reaches the settings read; the retired `?notifications=settings` sheet address
+ * redirects again and drops every other parameter.
  */
-export const productAlertSettingsHref = "/search?notifications=settings&notificationSection=product-alerts";
+export const productAlertSettingsHref = "/account/notifications?view=settings&section=product-alerts";
