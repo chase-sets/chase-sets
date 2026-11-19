@@ -372,6 +372,8 @@ describe("installed deployed response subscription", () => {
     "body-unresolved",
   ];
   const invalidCredential = async (): Promise<unknown> => ({ error: "invalid-credential" });
+  const selectedLocationId = "synthetic-storage-location-5e1e";
+  const otherLocationId = "synthetic-storage-location-0ffe";
   /** Real driver over synthetic browser APIs: installed listeners, consumption and lifetime, not browser proof. */
   async function syntheticDrill(
     options: Readonly<{
@@ -485,6 +487,7 @@ describe("installed deployed response subscription", () => {
       },
     };
     let currentUrl = `${staging}/account/channels`;
+    let activateBody: unknown;
     const page = Object.assign(new EventEmitter(), {
       url: () => currentUrl,
       goto: async (url: string) => {
@@ -502,7 +505,7 @@ describe("installed deployed response subscription", () => {
         },
         evaluateAll: (inspect: (controls: Element[]) => unknown) => Promise.resolve(inspect([])),
       }),
-      evaluate: async (_fn: unknown, request: { method: string; path: string }) => {
+      evaluate: async (_fn: unknown, request: { method: string; path: string; body?: unknown }) => {
         if (actions === 2 && request.path.endsWith("/connector-pairing")) {
           const active = context.listenerCount("response");
           postJoinListeners.push(active);
@@ -512,9 +515,16 @@ describe("installed deployed response subscription", () => {
         if (request.path === "/api/channels/connections")
           body = request.method === "GET" ? { items: [] } : { connectionId: id, status: "pending-setup" };
         else if (request.path === "/api/inventory/storage-locations")
-          body = { items: [{ is_archived: false, storage_location_id: "location" }] };
-        else if (request.path.endsWith("/activate")) body = { status: "active" };
-        else if (request.path.endsWith("/pause")) body = { status: "paused" };
+          body = {
+            items: [
+              { is_archived: true, storage_location_id: otherLocationId },
+              { is_archived: false, storage_location_id: selectedLocationId },
+            ],
+          };
+        else if (request.path.endsWith("/activate")) {
+          activateBody = request.body;
+          body = { status: "active" };
+        } else if (request.path.endsWith("/pause")) body = { status: "paused" };
         else if (request.path.endsWith("/disconnect")) body = { status: "disconnected" };
         else
           body = {
@@ -617,7 +627,18 @@ describe("installed deployed response subscription", () => {
         (result) => ({ receipt: result.receipt, error: undefined }),
         (error: unknown) => ({ receipt: undefined, error }),
       );
-      return { outcome, actions, postJoinListeners, context, page, popup, release: () => release() };
+      const retainedReceipt = outcome.receipt ? readFileSync(join(outputDir, "receipt.json"), "utf8") : undefined;
+      return {
+        outcome,
+        actions,
+        activateBody,
+        retainedReceipt,
+        postJoinListeners,
+        context,
+        page,
+        popup,
+        release: () => release(),
+      };
     } finally {
       clearInterval(ticker);
       vi.useRealTimers();
@@ -641,6 +662,14 @@ describe("installed deployed response subscription", () => {
     status: 401,
   };
   const pausedResponse = { phase: "paused", status: 200, body: "settled" };
+  it("retains only a suffix of the Storage Location used by Activate", async () => {
+    const run = await syntheticDrill();
+    expect(codeOf(run.outcome.error)).toBeUndefined();
+    expect(run.activateBody).toEqual({ storageLocationIds: [selectedLocationId] });
+    expect(JSON.parse(run.retainedReceipt!)).toHaveProperty("storageLocationIdSuffix", "5e1e");
+    expect(run.retainedReceipt).not.toContain(selectedLocationId);
+    expect(run.retainedReceipt).not.toContain(otherLocationId);
+  });
   it("retains a value-free Generate click failure before any code read or toolbar action", async () => {
     const marker = "synthetic-click-error-should-not-be-retained";
     const run = await syntheticDrill({ generateFailure: marker });
@@ -1533,8 +1562,8 @@ async function command(
   };
   try {
     const outcome = await runStagingDrill(argv, ports).then(
-      () => ({ error: undefined }),
-      (error: unknown) => ({ error }),
+      ({ receipt }) => ({ receipt, error: undefined }),
+      (error: unknown) => ({ receipt: undefined, error }),
     );
     return { ...outcome, resolveDeployBinding, launches, fake, rows: fake.rows() };
   } finally {
@@ -1977,6 +2006,7 @@ describe("connector-pairing-drill-deployed safety and cleanup", () => {
       });
       const outcome = await command(smokeArgs(), { browser: context as unknown as BrowserContext });
       expect(codeOf(outcome.error)).toBe(status === 200 ? undefined : "connector-drill-smoke-refused");
+      if (status === 200) expect(outcome.receipt).toHaveProperty("storageLocationIdSuffix", null);
       expect(context.close).toHaveBeenCalledOnce();
       expect(context.listenerCount("response")).toBe(0);
       expect(context.listenerCount("page")).toBe(0);
