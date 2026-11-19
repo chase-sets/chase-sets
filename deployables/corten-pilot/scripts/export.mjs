@@ -1463,6 +1463,7 @@ const outputs = [
     json(
       await catalog("identity.ts", "identityEnglishTranslations", [
         ["identity.features.accounts.ui.accountProfilePage.", "page"],
+        ["identity.features.accounts.errors.", "errors"],
         ["identity.features.accounts.ui.currentActorDisplayCue.", "actor"],
         ["identity.features.accounts.ui.accountBadges.", "badges"],
         ["identity.values.accountType.", "account_type"],

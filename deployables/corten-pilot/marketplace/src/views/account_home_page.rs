@@ -234,8 +234,6 @@ pub fn AccountHomePage<'a>(t: AccountHomeMsg, p: Pilot, screen: &'a AccountScree
 fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Render {
     let f = ProfileInput::FIELDS;
     let (i, e) = (&draft.input, draft.errors.within(ProfileFormId));
-    // A name must have a letter in it: the API takes a blank one (chase-sets/chase-sets#10688).
-    let named = ".*\\S.*";
     html! {
         <form id={ProfileFormId} class={Form} method="post" action={url::AccountHome::default()}>
             {SubmitKey::field(f.attempt)}
@@ -248,7 +246,6 @@ fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Rend
                         name={f.name}
                         value={&i.name}
                         required
-                        pattern={named}
                         {..e.aria(f.name)}
                     >
                 </label>
@@ -259,7 +256,6 @@ fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Rend
                         name={f.display_name}
                         value={&i.display_name}
                         required
-                        pattern={named}
                         {..e.aria(f.display_name)}
                     >
                 </label>

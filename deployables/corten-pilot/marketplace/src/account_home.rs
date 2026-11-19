@@ -202,14 +202,17 @@ pub(crate) async fn update(
 ) -> HtmlResult {
     let (t, p): (AccountHomeMsg, Pilot) = (req.t(), req.t());
     let attempt = attempt_text(&input.attempt).to_owned();
-    let refuse = |message: &'static str| {
-        let mut errors = Errors::new();
-        errors.add_form(message);
+    let refuse = |errors: Errors| {
         let draft = Draft { input: input.clone(), errors };
         render(&req, &viewer, &config, &headers, None, Said::Editing, Some(draft), StatusCode::UNPROCESSABLE_ENTITY)
     };
+    let form = |message: &'static str| {
+        let mut errors = Errors::new();
+        errors.add_form(message);
+        errors
+    };
     if !valid_attempt(&attempt) {
-        return refuse(p.check_attempt()).await;
+        return refuse(form(p.check_attempt())).await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let account = viewer.actor.account_id.as_str();
@@ -237,8 +240,18 @@ pub(crate) async fn update(
         AccountAnswer::Committed(after_write) => {
             req.redirect(&url::AccountHome { place: Place { after_write, saved: Some(attempt), ..Place::default() } })
         }
-        AccountAnswer::NotRecorded { code, .. } if code == "validation-failed" => refuse(t.action_validation()).await,
-        AccountAnswer::NotRecorded { .. } => refuse(t.manage_state_failed_safe()).await,
+        AccountAnswer::NotRecorded { code, field, .. } if code == "validation-failed" => {
+            let f = ProfileInput::FIELDS;
+            let mut errors = Errors::new();
+            // Identity names the blank name it refused.
+            match field.as_deref() {
+                Some("name") => errors.add(f.name, t.errors_name_required()),
+                Some("displayName") => errors.add(f.display_name, t.errors_display_name_required()),
+                _ => errors.add_form(t.action_validation()),
+            }
+            refuse(errors).await
+        }
+        AccountAnswer::NotRecorded { .. } => refuse(form(t.manage_state_failed_safe())).await,
         AccountAnswer::Conflict => {
             render(&req, &viewer, &config, &headers, None, Said::Conflict, None, StatusCode::CONFLICT).await
         }
