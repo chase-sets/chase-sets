@@ -26,28 +26,34 @@ function forbidden() {
   };
 }
 
-const refusals = {
-  "not-active": {
-    status: 409,
-    code: "session_not_active",
-    message: "auth.features.sessions.api.route.refused.notActive",
-  },
-  "account-required": {
-    status: 400,
-    code: "validation_failed",
-    message: "auth.features.sessions.api.route.refused.accountRequired",
-  },
-  "account-unavailable": {
-    status: 400,
-    code: "session_account_unavailable",
-    message: "auth.features.sessions.api.route.refused.accountUnavailable",
-  },
-  "account-current": {
-    status: 409,
-    code: "session_account_current",
-    message: "auth.features.sessions.api.route.refused.accountCurrent",
-  },
-} as const satisfies Record<SessionRefusalCode, { status: 400 | 409; code: string; message: string }>;
+function sessionRefusal(code: SessionRefusalCode) {
+  switch (code) {
+    case "not-active":
+      return {
+        status: 409,
+        code: "session_not_active",
+        message: t("auth.features.sessions.api.route.refused.notActive"),
+      } as const;
+    case "account-required":
+      return {
+        status: 400,
+        code: "validation_failed",
+        message: t("auth.features.sessions.api.route.refused.accountRequired"),
+      } as const;
+    case "account-unavailable":
+      return {
+        status: 400,
+        code: "session_account_unavailable",
+        message: t("auth.features.sessions.api.route.refused.accountUnavailable"),
+      } as const;
+    case "account-current":
+      return {
+        status: 409,
+        code: "session_account_current",
+        message: t("auth.features.sessions.api.route.refused.accountCurrent"),
+      } as const;
+  }
+}
 
 export function sessionRoutes(services: SessionServices) {
   const app = new Hono<AuthApiEnv>();
@@ -77,8 +83,8 @@ export function sessionRoutes(services: SessionServices) {
       return c.json({ id: sessionId, version: result.version, status: result.state.status });
     } catch (error) {
       if (!(error instanceof SessionRefusalError)) throw error;
-      const refusal = refusals[error.code];
-      return c.json({ error: { code: refusal.code, message: t(refusal.message) } }, refusal.status);
+      const refusal = sessionRefusal(error.code);
+      return c.json({ error: { code: refusal.code, message: refusal.message } }, refusal.status);
     }
   });
 
@@ -103,8 +109,8 @@ export function sessionRoutes(services: SessionServices) {
       return c.json({ id: sessionId, version: result.version, status: result.state.status });
     } catch (error) {
       if (!(error instanceof SessionRefusalError)) throw error;
-      const refusal = refusals[error.code];
-      return c.json({ error: { code: refusal.code, message: t(refusal.message) } }, refusal.status);
+      const refusal = sessionRefusal(error.code);
+      return c.json({ error: { code: refusal.code, message: refusal.message } }, refusal.status);
     }
   });
 
