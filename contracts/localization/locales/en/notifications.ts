@@ -35,6 +35,8 @@ export const notificationsEnglishTranslations = {
   "notifications.features.notificationCenter.ui.page.settings.productAlerts.empty.title": "No Product alerts yet",
   "notifications.features.notificationCenter.ui.page.settings.productAlerts.heading": "Product alerts",
   "notifications.features.notificationCenter.ui.page.settings.productAlerts.pause": "Pause",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.pending":
+    "Saved. Your Product alerts will show the change in a moment.",
   "notifications.features.notificationCenter.ui.page.settings.productAlerts.resume": "Resume",
   "notifications.features.notificationCenter.ui.page.settings.productAlerts.status.active": "active",
   "notifications.features.notificationCenter.ui.page.settings.productAlerts.status.paused": "paused",

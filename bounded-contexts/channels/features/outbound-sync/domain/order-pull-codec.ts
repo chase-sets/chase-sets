@@ -1,5 +1,6 @@
 import { OutboundSyncError } from "./contracts";
 import { assertRfc3339Instant } from "../../connections/domain/validation";
+import { assertCanaryHandoff, canaryAuthority, canaryMaxOrders, type CanaryHandoff } from "./ready-to-ship-canary";
 import {
   assertOrderPullCheckpoint,
   assertOrderPullChunk,
@@ -105,6 +106,7 @@ export type OrderPullPayload = Readonly<{
   work: OrderPullWork;
   predecessor: OrderPullPredecessor | null;
   providerNotBefore: string;
+  canary?: CanaryHandoff;
 }>;
 
 export type OrderPullAdmissionCounts = Readonly<{
@@ -129,8 +131,10 @@ export type ClaimedOrderPullOutcome = Readonly<{
         progress: OrderPullProgress;
       }>
     | Readonly<{ kind: "order-pull-unknown"; reason: OrderPullUnknownReason }>
+    | Readonly<{ kind: "canary-posted" }>
     | Readonly<{ kind: "abandoned"; reason: (typeof orderPullAbandonReasons)[number] }>;
 }>;
+export type OrderPullProgressOutcome = Extract<ClaimedOrderPullOutcome["outcome"], { progress: unknown }>;
 
 export type OrderPullBudgetDecision =
   | Readonly<{ kind: "fits"; authority: OrderPullAuthority; bounds: OrderPullBounds; providerCalls: number }>
@@ -174,6 +178,14 @@ export function resolveOrderPullBudget(authority: unknown, plan?: OrderPullPlan)
 }
 
 /** Keep the follow-up reservation while reducing intake until this allocation fits. */
+export function canaryOrderPullBounds(sales: number): OrderPullBounds {
+  const budget = resolveOrderPullBudget(canaryAuthority, { listReads: 0, intakeReads: sales, followUpReads: 0 });
+  if (budget.kind !== "fits") invalid("Canary budget does not fit.");
+  return budget.bounds;
+}
+
+export const canaryDispatchDeadlineMs = canaryOrderPullBounds(canaryMaxOrders).budgetMs;
+
 export function allocateOrderPullBudget(
   authority: unknown,
   listReads: number,
@@ -238,6 +250,7 @@ export function assertOrderPullAuthority(value: unknown): asserts value is Order
 }
 
 export function assertOrderPullPayloadStructure(value: unknown): asserts value is OrderPullPayload {
+  const canary = typeof value === "object" && value !== null && Object.hasOwn(value, "canary");
   const payload = closed(
     value,
     [
@@ -255,6 +268,7 @@ export function assertOrderPullPayloadStructure(value: unknown): asserts value i
       "work",
       "predecessor",
       "providerNotBefore",
+      ...(canary ? ["canary"] : []),
     ],
     "order-pull payload",
     true,
@@ -307,6 +321,22 @@ export function assertOrderPullPayloadStructure(value: unknown): asserts value i
   )
     invalid("Checkpoint binding mismatch.");
   assertOrderPullWork(payload.work, payload.connectionId);
+  if (canary) {
+    assertCanaryHandoff(payload.canary);
+    const work = payload.work;
+    if (
+      bounds.plan.listReads !== 0 ||
+      bounds.plan.followUpReads !== 0 ||
+      payload.canary.target.connectionId !== payload.connectionId ||
+      bounds.plan.intakeReads !== payload.canary.sales.length ||
+      references.length !== 0 ||
+      work.references.length !== payload.canary.sales.length ||
+      !payload.canary.sales.every((sale) => work.references.includes(sale.orderNumber)) ||
+      work.postedReferences.length ||
+      work.acceptedReferences.length
+    )
+      invalid("Canary work must match its sealed page.");
+  }
   assertOrderPullPredecessor(payload.predecessor);
   assertRfc3339Instant(payload.providerNotBefore);
   if (payload.predecessor && payload.predecessor.checkpointDigest !== payload.checkpointDigest)
@@ -339,6 +369,9 @@ export function assertOrderPullOutcomeBody(value: unknown): asserts value is Cla
     "order-pull outcome.outcome",
   );
   switch (outcome.kind) {
+    case "canary-posted":
+      closed(outcome, ["kind"], "canary outcome", true);
+      return;
     case "continuation-required":
     case "order-pull-pending":
     case "order-pull-gaps":
@@ -383,6 +416,11 @@ export function assertOrderPullOutcomeMatchesPayload(
 ): void {
   if (outcome.pullId !== payload.pullId) throw new OutboundSyncError("reservation-membership-mismatch");
   if (outcome.outcome.kind === "order-pull-unknown" || outcome.outcome.kind === "abandoned") return;
+  if (outcome.outcome.kind === "canary-posted") {
+    if (!payload.canary) invalid("Canary outcome requires a canary claim.");
+    return;
+  }
+  if (payload.canary) invalid("Canaries cannot report scheduled progress.");
   const complete = outcome.outcome;
   if (
     complete.lawVersion !== payload.lawVersion ||

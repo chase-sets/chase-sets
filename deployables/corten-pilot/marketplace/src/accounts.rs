@@ -12,10 +12,9 @@
 //! confirmed keeps the dialog open without its send.
 //!
 //! An old slug or the account's id moves to its slug for good, with the address's query, as
-//! marketplace's loader does. An account the API does not have is a 404 and a failed read a 502;
-//! marketplace answers both with a 200 that says the account was not found
-//! (chase-sets/chase-sets#10619). A suspended or closed account shows only that it is
-//! unavailable, and asks not to be indexed. The seller's chips are best-effort: a failed read
+//! marketplace's loader does. An account the API does not have is a 404 and a failed read a 502,
+//! as marketplace's are. A suspended or closed account shows only that it is unavailable, and asks
+//! not to be indexed. The seller's chips are best-effort: a failed read
 //! shows none.
 //!
 //! The account's standing and its listings are drawn again on each change to the account

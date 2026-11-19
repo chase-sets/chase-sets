@@ -154,7 +154,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/connector-client/") &&
-        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector)-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector)-indexeddb\.ts$|integrations\/order-authority-probe\/windows-run-custody(?:\.test)?\.ps1$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
           file,
         ),
     )
@@ -888,6 +888,8 @@ describe("channels-foundation-surface-fence", () => {
     "integrations/order-authority-probe/nested/worker.js",
     "integrations/order-authority-probe/worker.js/extra.js",
     "integrations/order-authority-probe/worker.js.backup",
+    "integrations/order-authority-probe/windows-run-custody.ps1.backup",
+    "integrations/order-detection-pagination-probe/windows-run-custody.ps1",
     "integrations/order-detection-pagination-probe/extra.js",
     "integrations/order-detection-pagination-probe/nested/worker.js",
     "integrations/order-detection-pagination-probe/worker.js/extra.js",

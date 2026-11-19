@@ -796,6 +796,7 @@ export function createPlatformApiHost(
       },
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
+      readyToShipCanaryOwnerUserId: process.env.CHANNELS_READY_TO_SHIP_CANARY_OWNER_USER_ID,
       connectorOAuth: createConnectorOAuthService(
         () => {
           const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;

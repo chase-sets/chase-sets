@@ -305,6 +305,7 @@ export function buildItemDetailCommerce(
         productSelectionDetails={context.selectedProductSelectionDetails}
         renderListingAlert={(formId) => renderProductAlert(formId, "listing", "plain", true)}
         renderOfferAlert={(formId) => renderProductAlert(formId, "offer", "plain", true)}
+        alertSaved={data.productAlertCreated}
       />
     );
     return {

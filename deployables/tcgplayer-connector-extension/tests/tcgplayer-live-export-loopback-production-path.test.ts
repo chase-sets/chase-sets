@@ -63,7 +63,7 @@ describe("tcgplayer-live-export-loopback-production-path", () => {
     const f = await paired(liveExport);
     server!.claims.push(syntheticLiveExportClaim());
     await f.fixture.alarm("connector-work");
-    expect(server!.claimBodies).toContainEqual({ capabilities: ["tcgplayer-live-export"] });
+    expect(server!.claimBodies).toContainEqual({ capabilities: ["tcgplayer-live-export"], readyToShipCanary: true });
     expect(transport(f.fixture.request.mock.calls)).toEqual({ exports: 1, ingests: 1, reports: 1 });
     expect(server!.provider.exports).toBe(1);
     const posted = JSON.parse(server!.ingests[0]!);
@@ -85,7 +85,7 @@ describe("tcgplayer-live-export-loopback-production-path", () => {
     f.fixture.request.mockImplementation(async (...args) => {
       const [input] = args;
       return input instanceof Request && input.url.endsWith("/claim")
-        ? network(new Request(input, { body: "{}" }))
+        ? network(new Request(input, { body: JSON.stringify({ readyToShipCanary: true }) }))
         : network(...args);
     });
     server!.claims.push(syntheticLiveExportClaim());

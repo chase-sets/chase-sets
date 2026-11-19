@@ -1096,6 +1096,73 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(screen.queryByText("Listing alert form")).toBeNull();
   });
 
+  it("says a just-saved Watch alert was saved and links to its settings", () => {
+    const { rerender } = render(
+      <WatchActionCard
+        formIdPrefix="watch-card"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        productSelectionDetails={[]}
+        renderListingAlert={() => <div>Listing alert form</div>}
+        renderOfferAlert={() => <div>Offer alert form</div>}
+        alertSaved
+      />,
+    );
+
+    expect(screen.getByText("Watch alert saved")).toBeTruthy();
+    expect(screen.getByText("We will notify you when this product matches your alert.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Manage alerts" }).getAttribute("href")).toBe(
+      "/account/notifications?view=settings&section=product-alerts",
+    );
+    expect(screen.getByText("Listing alert form")).toBeTruthy();
+
+    rerender(
+      <WatchActionCard
+        formIdPrefix="watch-card"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        productSelectionDetails={[]}
+        renderListingAlert={() => <div>Listing alert form</div>}
+        renderOfferAlert={() => <div>Offer alert form</div>}
+      />,
+    );
+    expect(screen.queryByText("Watch alert saved")).toBeNull();
+  });
+
+  it("opens the Watch tab saying the alert was saved after Set alert", async () => {
+    renderItemDetailRoute({
+      item: createItem({ market_listings: [baseListing], offer_demand_matches: [baseOffer] }),
+      accountOfferMatches: [],
+      sellerInventoryItems: [],
+      sellerAccountId: null,
+      hasListingStockLocation: false,
+      listingSetupLoadState: "not-applicable",
+      viewerAccountId: "acc_buyer",
+      initialMarketIntent: "watch",
+      initialSelectedListingId: null,
+      initialSelectedOfferId: null,
+      initialSelectedOptions: [],
+      hasInitialSelectedOptionFilters: false,
+      showSellerTab: true,
+      canUseSellerFeatures: false,
+      canUseListingFeatures: false,
+      canUseGuestListingDraft: false,
+      canSubmitOffers: true,
+      registerToSellHref: "/register",
+      notFound: false,
+      error: null,
+      canonicalUrl: null,
+      productAlertClaimError: null,
+      productAlertCreated: true,
+      listingSetupLoadError: null,
+    });
+
+    expect((await screen.findAllByText("Watch alert saved")).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Manage alerts" })[0]?.getAttribute("href")).toBe(
+      "/account/notifications?view=settings&section=product-alerts",
+    );
+  });
+
   it("opens Buy, Sell, and Watch directly from the mobile commerce action group", () => {
     render(
       <ItemDetailPage

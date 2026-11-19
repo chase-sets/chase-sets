@@ -170,6 +170,17 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
     }
   }
   const references = new Set([...discovered, ...payload.followUpReferences]);
+  const canary = payload.canary;
+  if (
+    canary &&
+    (usage.providerCalls !== 0 ||
+      handoff.summary !== null ||
+      progress.pages.length ||
+      progress.gaps.length ||
+      progress.followUpTail ||
+      handoff.bundles.length !== canary.sales.length)
+  )
+    refuse();
   const bundled = new Set<string>();
   const postKeys = new Set<string>();
   let posts = 0;
@@ -202,6 +213,7 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
       refuse();
     for (const value of bundle.posts) {
       const post = parsePost(value);
+      if (canary && (post.kind !== "sale" || bundle.posts.length !== 1)) refuse();
       if (postKeys.has(post.externalReference)) refuse();
       postKeys.add(post.externalReference);
       if (post.kind === "sale") {
@@ -209,7 +221,10 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
         if (
           observation.kind !== "order" ||
           observation.orderNumber !== bundle.reference ||
-          observation.pullId !== payload.pullId
+          (canary
+            ? canonicalJson(observation) !==
+              canonicalJson(canary.sales.find((sale) => sale.orderNumber === bundle.reference) ?? null)
+            : observation.pullId !== payload.pullId)
         )
           refuse();
       } else if (
@@ -241,7 +256,12 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
     if (observation.kind !== "summary" || observation.pullId !== payload.pullId) refuse();
   }
   if (posts + (handoff.summary ? 1 : 0) > payload.bounds.maxObservationPosts) refuse();
-  if (!handoff.summary && bundles.some((bundle) => bundle.posts?.some((post) => post.kind === "sale"))) refuse();
+  if (
+    canary
+      ? bundles.some((bundle) => bundle.posts === null)
+      : !handoff.summary && bundles.some((bundle) => bundle.posts?.some((post) => post.kind === "sale"))
+  )
+    refuse();
   if (new TextEncoder().encode(canonicalJson(value)).length > orderPullHandoffByteLimit(payload)) refuse();
   return structuredClone(handoff) as OrderPullHandoff;
 }
@@ -366,6 +386,7 @@ export function orderPullHandoffOutcome(
     handoff.bundles.some((bundle) => bundle.posts === null || bundle.posts.some((post) => post.state !== "captured202"))
   )
     refuse();
+  if (payload.canary) return { kind: "canary-posted" };
   let traversal = payload.checkpoint.traversal;
   for (const page of handoff.progress.pages) traversal = advanceOrderPullTraversal(payload.selector, traversal, page);
   const references = [...payload.work.references, ...handoff.progress.pages.flatMap((page) => page.orderReferences)];

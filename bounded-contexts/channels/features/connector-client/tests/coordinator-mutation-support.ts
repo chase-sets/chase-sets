@@ -13,6 +13,7 @@ import * as stagedImport from "../domain/staged-import-dispatch";
 import * as stagedImportFit from "../domain/staged-import-fit";
 import * as stagedImportPolicy from "../../connector-feed/domain/staged-import-dispatch-policy";
 import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
+import * as canary from "../../outbound-sync/domain/ready-to-ship-canary";
 import * as records from "../domain/extension-records";
 import * as codec from "../domain/operation-codec";
 
@@ -117,6 +118,7 @@ export function mutatedCoordinator(
     "./staged-import-dispatch": stagedImport,
     "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
     "../../outbound-sync/domain/order-pull-codec": pullCodec,
+    "../../outbound-sync/domain/ready-to-ship-canary": canary,
     "../integrations/connector-indexeddb": journalModule,
     "./operation-protocol": protocol,
   });
@@ -170,6 +172,7 @@ export function mutatedStagedImport(
     "./staged-import-dispatch": dispatchModule,
     "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
     "../../outbound-sync/domain/order-pull-codec": pullCodec,
+    "../../outbound-sync/domain/ready-to-ship-canary": canary,
     "../integrations/connector-indexeddb": journalModule,
     "./operation-protocol": protocol,
   }) as unknown as typeof import("../domain/operation-coordinator");

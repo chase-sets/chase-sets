@@ -35,9 +35,6 @@
   },
   "item": {
     "continue_on_marketplace": "Continue on marketplace",
-    "watch_saved": "Watch alert saved",
-    "watch_saved_description": "We will notify you when this product matches your alert.",
-    "manage_alerts": "Manage alerts",
     "listing_published": "Listing published",
     "listing_published_description": "It shows here in a moment, as soon as the marketplace has caught up.",
     "sales_again": "Show sales history",
@@ -91,7 +88,6 @@
     "report_close": "Close"
   },
   "notifications": {
-    "pending": "Saved. Your Product alerts will show the change in a moment.",
     "unconfirmed": "Saved, but your Product alerts could not be read. Reload the page to see the change."
   },
   "orders": {

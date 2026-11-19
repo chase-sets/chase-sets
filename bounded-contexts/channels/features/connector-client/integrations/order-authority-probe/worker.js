@@ -75,20 +75,27 @@
       byte.toString(16).padStart(2, "0"),
     ).join("");
   }
-  function hasOfflineCanaryPolicy() {
+  function hasCanaryPolicy(synthetic) {
     const manifest = chrome.runtime.getManifest();
     const csp = manifest.content_security_policy;
+    const hostPermissions = synthetic
+      ? []
+      : ["https://sp-api.tcgplayer.com/*", "https://order-management-api.tcgplayer.com/*"];
+    const extensionPages = synthetic
+      ? "script-src 'self'; object-src 'self'; connect-src 'self'"
+      : "default-src 'self'; script-src 'self'; object-src 'none'; connect-src 'self' https://sp-api.tcgplayer.com https://order-management-api.tcgplayer.com";
     return (
       Array.isArray(manifest.permissions) &&
       manifest.permissions.length === 1 &&
       manifest.permissions[0] === "storage" &&
       Array.isArray(manifest.host_permissions) &&
-      manifest.host_permissions.length === 0 &&
+      manifest.host_permissions.length === hostPermissions.length &&
+      hostPermissions.every((host) => manifest.host_permissions.includes(host)) &&
       !["optional_permissions", "optional_host_permissions", "content_scripts", "externally_connectable"].some((key) =>
         Object.hasOwn(manifest, key),
       ) &&
       closed(csp, ["extension_pages"]) &&
-      csp.extension_pages === "script-src 'self'; object-src 'self'; connect-src 'self'"
+      csp.extension_pages === extensionPages
     );
   }
   async function configuration() {
@@ -110,7 +117,7 @@
           "extensionId",
           "files",
           "evidence",
-          ...(config?.mode === "canary" ? ["mode"] : []),
+          ...(config?.mode === "canary" ? ["mode", "sealKeyDigest", "target"] : []),
         ]) ||
         config.format !== "order-authority-package/v4" ||
         config.probe !== PROBE ||
@@ -118,7 +125,17 @@
         !/^[a-f0-9]{40}$/.test(config.head) ||
         config.extensionId !== chrome.runtime.id ||
         !["synthetic", "operator"].includes(config.evidence) ||
-        (config.mode === "canary" && (config.evidence !== "synthetic" || !hasOfflineCanaryPolicy())) ||
+        (config.mode === "canary" &&
+          (!hasCanaryPolicy(config.evidence === "synthetic") ||
+            !/^[a-f0-9]{64}$/.test(config.sealKeyDigest) ||
+            !closed(config.target, ["connectionId", "pairingId"]) ||
+            !Object.values(config.target).every(
+              (id) =>
+                typeof id === "string" &&
+                (config.evidence === "synthetic"
+                  ? /^synthetic-[\w-]{1,96}$/.test(id)
+                  : /^[A-Za-z0-9][\w-]{0,127}$/.test(id) && !id.startsWith("synthetic-")),
+            ))) ||
         !closed(config.files, FILES)
       )
         fail("package_mismatch");
@@ -431,6 +448,7 @@
     state.controller?.abort();
     state.sellerKey = null;
     state.orderNumbers = [];
+    state.orders = [];
     active = undefined;
   }
   function keepResident(state) {
@@ -473,9 +491,92 @@
         state.requests.at(-1).failure = "detail_mismatch";
         fail("detail_mismatch");
       }
+      try {
+        state.orders.push(normalizeCanarySale(detail));
+      } catch {
+        state.requests.at(-1).failure = "detail_mismatch";
+        fail("detail_mismatch");
+      }
       state.canary.matchedDetails += 1;
     }
     state.orderNumbers = [];
+  }
+  function normalizeCanarySale(detail) {
+    const numericId = (value) => {
+      const text = String(value);
+      if (!(typeof value === "string" || Number.isSafeInteger(value)) || !/^\d{1,20}$/.test(text) || BigInt(text) < 1n)
+        fail("detail_mismatch");
+      return BigInt(text).toString();
+    };
+    if (
+      !utc(detail.createdAt) ||
+      !Array.isArray(detail.products) ||
+      !detail.products.length ||
+      detail.products.length > 500
+    )
+      fail("detail_mismatch");
+    const identities = new Set();
+    const lines = detail.products.map((product) => {
+      const productId = numericId(product.productId);
+      const skuId = numericId(product.skuId);
+      const identity = `${productId}:${skuId}`;
+      const { quantity, unitPrice } = product;
+      if (
+        identities.has(identity) ||
+        !Number.isSafeInteger(quantity) ||
+        quantity < 1 ||
+        quantity > 1000000 ||
+        typeof unitPrice !== "number" ||
+        !Number.isFinite(unitPrice) ||
+        unitPrice < 0 ||
+        unitPrice >= 1e10 ||
+        Math.abs(unitPrice * 100 - Math.round(unitPrice * 100)) > 0.000001
+      )
+        fail("detail_mismatch");
+      identities.add(identity);
+      return { productId, skuId, quantity, unitPriceAmount: unitPrice.toFixed(2) };
+    });
+    return { orderNumber: detail.orderNumber, soldAt: detail.createdAt, lines };
+  }
+  async function sealCanary(state, output) {
+    const response = await fetch(chrome.runtime.getURL("canary-seal-key"), {
+      credentials: "omit",
+      redirect: "error",
+    });
+    if (!response.ok) fail("custody_failure");
+    const keyBytes = new Uint8Array(await response.arrayBuffer());
+    try {
+      if (keyBytes.length !== 32 || (await digest(keyBytes)) !== state.config.sealKeyDigest) fail("custody_failure");
+      const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt"]);
+      const header = {
+        format: "ready-to-ship-sale-handoff/v1",
+        pageClaim: state.canary.pageClaim,
+        head: output.head,
+        extensionId: output.extensionId,
+        range: CANARY_RANGE,
+        target: state.config.target,
+        finishedAt: output.finishedAt,
+        expiresAt: new Date(Math.min(Date.parse(output.finishedAt) + 300000, state.latch.deadline)).toISOString(),
+      };
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const plaintext = encoder.encode(JSON.stringify(state.orders));
+      try {
+        const ciphertext = await crypto.subtle.encrypt(
+          { name: "AES-GCM", iv, additionalData: encoder.encode(JSON.stringify(header)) },
+          key,
+          plaintext,
+        );
+        requireActive(state);
+        return { header, iv: hex(iv), ciphertext: hex(new Uint8Array(ciphertext)) };
+      } finally {
+        plaintext.fill(0);
+      }
+    } finally {
+      keyBytes.fill(0);
+    }
+  }
+  function hex(bytes) {
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
   function searchSummary(range, before) {
     return {
@@ -602,6 +703,7 @@
         fallback: false,
         aborted: false,
         orderNumbers: [],
+        orders: [],
         canary:
           config.mode === "canary" ? { pageClaim: crypto.randomUUID(), matchedDetails: 0, sameSession: false } : null,
       };
@@ -623,7 +725,11 @@
       if (message.kind === "finish" && state.phase === "finish") {
         if (state.canary) {
           if (message.sameSession !== true) fail("session_missing");
+          const output = receipt(state);
+          const handoff = await sealCanary(state, output);
           state.canary.sameSession = true;
+          clear(state);
+          return { ok: true, receipt: output, handoff };
         } else if (Object.hasOwn(message, "sameSession")) fail("invalid_message");
         return end(state);
       }
