@@ -1039,9 +1039,9 @@ describe("source observation runtime: provider integration jobs", () => {
     );
   });
 
-  it.each([false, true])(
-    "AC2 two child imports share one syncRunId without candidate projection catch-up; missing member=%s",
-    async (missingMember) => {
+  it.each(["complete", "missing-member", "replay-mtgjson", "replay-scryfall"] as const)(
+    "reconciles Time Spiral child imports without candidate projection catch-up: %s",
+    async (scenario) => {
       const { eventStore, streams } = createInMemoryEventStore();
       const storedRows = new Map<string, SourceObservationListRow>();
       const readableRows = new Map<string, SourceObservationListRow>();
@@ -1097,9 +1097,14 @@ describe("source observation runtime: provider integration jobs", () => {
         },
       });
       const snapshots: SourceObservationListRow[] = [];
+      const providers = ["scryfall", "mtgjson"];
+      if (scenario === "replay-mtgjson") providers.push("mtgjson");
+      if (scenario === "replay-scryfall") providers.push("scryfall");
+      let promotedStreamId: string | null = null;
       const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No network permitted by this fixture"));
       try {
-        for (const provider of ["scryfall", "mtgjson"]) {
+        for (const [turn, provider] of providers.entries()) {
+          const replaying = turn === 2;
           const unitKey = `${provider}:mtg:single-card:reference-data`;
           const version = (await profiles.listProfileVersions(provider)).find(
             (item) =>
@@ -1112,14 +1117,13 @@ describe("source observation runtime: provider integration jobs", () => {
                   card: {
                     id: "synthetic-scryfall-card",
                     uri: "https://provider.example/scryfall",
-                    name: "Fury Sliver",
+                    name: "Amrou Scout",
                     lang: "en",
                     set: "tsp",
                     set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
                     set_name: "Time Spiral",
-                    collector_number: "157",
-                    rarity: "rare",
-                    tcgplayer_id: 14240,
+                    collector_number: "1",
+                    rarity: replaying ? "uncommon" : "common",
                     released_at: "2006-10-06",
                   },
                 }
@@ -1130,9 +1134,9 @@ describe("source observation runtime: provider integration jobs", () => {
                   set: { code: "TSP", name: "Time Spiral", releaseDate: "2006-10-06" },
                   card: {
                     uuid: "synthetic-mtgjson-card",
-                    name: "Fury Sliver",
-                    number: "157",
-                    rarity: "uncommon",
+                    name: "Amrou Scout",
+                    number: "1",
+                    rarity: replaying ? "uncommon" : "common",
                     identifiers: { scryfallId: "synthetic-scryfall-card" },
                   },
                 };
@@ -1152,7 +1156,7 @@ describe("source observation runtime: provider integration jobs", () => {
               yield {
                 unitKey: plan.unitKey,
                 providerKey: provider,
-                externalKey: "synthetic-157",
+                externalKey: "synthetic-1",
                 payload,
                 provenance: { fetchedAt: "2026-07-14T12:00:00.000Z" },
               };
@@ -1163,9 +1167,11 @@ describe("source observation runtime: provider integration jobs", () => {
           // Prior units may be queryable, but the current import is never
           // projected. Candidate discovery stays empty across both units.
           readableRows.clear();
-          if (!missingMember) {
+          if (scenario !== "missing-member") {
             for (const [id, row] of storedRows) readableRows.set(id, row);
           }
+          const terminalHistory = promotedStreamId ? [...streams.get(promotedStreamId)!] : null;
+          const syncRunId = replaying ? "job_repeat_time_spiral" : "job_shared_time_spiral";
           const outcome = await importRuntime.importProviderAdapterIntegrationTarget({
             target: {
               targetId: "tsp",
@@ -1176,12 +1182,21 @@ describe("source observation runtime: provider integration jobs", () => {
             },
             providerProfile: version.profile,
             providerProfileVersion: version,
-            syncRunId: "job_shared_time_spiral",
+            syncRunId,
             context,
             adapterOverride: adapter,
             observedAtForEnvelope: () => "2026-07-14T12:00:00.000Z",
           });
-          if (missingMember && provider === "mtgjson") {
+          if (replaying) {
+            expect(outcome, outcome.reason ?? "import outcome").toMatchObject({ status: "imported", observed: 1 });
+            const oldRow = snapshots.find((row) => row.provider_key === provider)!;
+            const newRow = storedRows.get(oldRow.observation_id)!;
+            expect(newRow.sync_run_id).toBe(syncRunId);
+            expect(newRow.source_record_hash).not.toBe(oldRow.source_record_hash);
+            expect(streams.get(promotedStreamId!)).toEqual(terminalHistory);
+            expect([...streams.values()].filter((events) => events[0]?.eventType === "catalog.merge-candidate.created"))
+              .toHaveLength(1);
+          } else if (scenario === "missing-member" && provider === "mtgjson") {
             expect(outcome).toMatchObject({
               status: "failed",
               reason: expect.stringContaining("could not prove every existing member row"),
@@ -1215,6 +1230,18 @@ describe("source observation runtime: provider integration jobs", () => {
                 ? ["catalog.merge-candidate.created"]
                 : ["catalog.merge-candidate.created", "catalog.merge-candidate.refreshed"],
             );
+            if (turn === 1 && providers.length === 3) {
+              const candidateId = oracle.candidates[0]!.candidateId;
+              const promoted = await mergeCandidates.promoteCatalogMergeCandidate({
+                candidateId,
+                expectedVersion: loaded.version,
+                reason: "Approved both Time Spiral sources",
+                conflictResolutions: [],
+                context,
+              });
+              expect(promoted.status).toBe("promoted");
+              promotedStreamId = catalogMergeCandidateStreamId(candidateId);
+            }
           }
         }
         expect(fetch).not.toHaveBeenCalled();
