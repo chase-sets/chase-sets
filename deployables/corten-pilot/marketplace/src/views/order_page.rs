@@ -1058,8 +1058,13 @@ mod tests {
 
     #[test]
     fn statuses_and_sources_are_written_as_marketplace_writes_them() {
-        assert_eq!(status_label("ready-for-fulfillment"), "Ready for fulfillment");
-        assert_eq!(status_label("cancelled"), "Cancelled");
+        use corten::i18n::Messages as _;
+        let t = crate::text::OrdersMsg::for_locale("en");
+        assert_eq!(status_words(t, "ready-for-fulfillment"), "Ready for fulfillment");
+        assert_eq!(status_words(t, "cancelled"), "Cancelled");
+        assert_eq!(status_words(t, "on-hold"), "on-hold", "a status without words is its code");
+        assert_eq!(shipping_option_words(t, "expedited"), "Expedited");
+        assert_eq!(hold_status_words(t, "consumed"), "Used");
         assert_eq!(capitalized("cart-checkout".split('-')), "Cart Checkout");
     }
 
