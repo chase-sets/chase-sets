@@ -1,14 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { Badge, Card, LinkButton, MarketplaceNotice, Stack, Text } from "@chase-sets/design-system";
 import type { OrderingOrderReviewOpportunity } from "./contracts";
+import { orderStatusWords } from "./order-words";
 
 function getCounterpartyRole(authorRole: string) {
   return authorRole === "buyer" ? "seller" : "buyer";
-}
-
-function orderStatusLabel(status: string) {
-  const normalized = status.split("-").filter(Boolean).join(" ");
-  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 }
 
 function ReviewOutcome({
@@ -110,7 +106,7 @@ export function OrderOutcomePanel({
           <Text size="sm" tone="secondary">
             {t("ordering.features.orders.ui.orderOutcome.order.status")}
           </Text>
-          <Badge tone={orderStatus === "cancelled" ? "neutral" : "success"}>{orderStatusLabel(orderStatus)}</Badge>
+          <Badge tone={orderStatus === "cancelled" ? "neutral" : "success"}>{orderStatusWords(orderStatus)}</Badge>
         </Stack>
         <Stack gap={1}>
           <Text size="sm" tone="secondary">
