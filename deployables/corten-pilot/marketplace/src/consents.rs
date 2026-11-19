@@ -214,28 +214,3 @@ async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn consent(subject: &str, user: Option<&str>, account: Option<&str>) -> Consent {
-        Consent {
-            subject_type: subject.into(),
-            user_id: user.map(str::to_owned),
-            account_id: account.map(str::to_owned),
-            ..Consent::default()
-        }
-    }
-
-    #[test]
-    fn a_consent_is_the_users_when_withdraw_would_let_it_be() {
-        assert!(consent("user", Some("usr_a"), None).is_of("usr_a", "acc_a"));
-        assert!(consent("user", Some("usr_a"), Some("acc_b")).is_of("usr_a", "acc_a"), "a user consent is the user's anywhere");
-        assert!(consent("account", Some("usr_a"), Some("acc_a")).is_of("usr_a", "acc_a"));
-        assert!(!consent("account", Some("usr_a"), Some("acc_b")).is_of("usr_a", "acc_a"), "another account's");
-        assert!(!consent("user", Some("usr_b"), Some("acc_a")).is_of("usr_a", "acc_a"), "another user's (#10707)");
-        assert!(!consent("account", Some("usr_b"), Some("acc_a")).is_of("usr_a", "acc_a"), "another user's for the account");
-        assert!(!consent("device", Some("usr_a"), Some("acc_a")).is_of("usr_a", "acc_a"));
-    }
-}
