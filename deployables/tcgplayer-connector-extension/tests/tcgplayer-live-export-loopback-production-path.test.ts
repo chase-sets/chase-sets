@@ -85,7 +85,7 @@ describe("tcgplayer-live-export-loopback-production-path", () => {
     f.fixture.request.mockImplementation(async (...args) => {
       const [input] = args;
       return input instanceof Request && input.url.endsWith("/claim")
-        ? network(new Request(input, { body: "{}" }))
+        ? network(new Request(input, { body: JSON.stringify({ readyToShipCanary: true }) }))
         : network(...args);
     });
     server!.claims.push(syntheticLiveExportClaim());

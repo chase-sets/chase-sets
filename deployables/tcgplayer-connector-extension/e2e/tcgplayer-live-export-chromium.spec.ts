@@ -21,9 +21,9 @@ const capabilityOmitted: Plugin = {
   enforce: "pre",
   transform(source, id) {
     if (!id.replaceAll("\\", "/").endsWith("/connector-client/domain/operation-coordinator.ts")) return null;
-    const anchor = 'request(input, "claim", capabilities.length ? { capabilities } : {})';
+    const anchor = "...(capabilities.length ? { capabilities } : {}),";
     if (source.split(anchor).length !== 2) throw new Error("capability-mutant-anchor-moved");
-    return source.replace(anchor, 'request(input, "claim", {})');
+    return source.replace(anchor, "");
   },
 };
 // Build-time mutant: reconciliation treats readable retained raw as unreadable, so a lost admission is never replayed.
@@ -127,7 +127,8 @@ test("tcgplayer-live-export-capability-omitted-chromium gets no member and no po
     server.claims.push(syntheticLiveExportClaim());
     await wake(f.worker);
     await expect.poll(() => server.withheld(), { timeout: 60_000 }).toBeGreaterThan(0);
-    expect(server.claimBodies.every((body) => JSON.stringify(body) === "{}")).toBe(true);
+    const expected = bundle === "capability-omitted" ? { readyToShipCanary: true } : {};
+    for (const body of server.claimBodies) expect(body).toEqual(expected);
     expect(server.provider.exports).toBe(0);
     expect(server.ingests).toEqual([]);
     expect(server.reports).toEqual([]);
