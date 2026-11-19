@@ -22,14 +22,17 @@ const scratch = path.resolve(source, "../../../../../../artifacts/9114/tests");
 const T0 = "2030-01-01T00:00:00.000Z";
 const SENTINEL = "SYNTHETIC_PRIVATE_SENTINEL_9114";
 const ORDER = `${SENTINEL}/order ?#`;
+const CANARY_ORDER = `${SENTINEL}:order`;
 const lookup = { seller: { sellerKey: `${SENTINEL}_seller` }, [SENTINEL]: { cookie: SENTINEL } };
 const list = {
   totalOrders: 1,
   orders: [{ orderNumber: ORDER, buyerName: SENTINEL, orderStatus: "Ready to Ship", orderDate: "2029-12-31" }],
 };
+const canaryList = { totalOrders: 1, orders: [{ ...list.orders[0]!, orderNumber: CANARY_ORDER }] };
+const detail = { orderNumber: CANARY_ORDER, status: "Ready to Ship", shippingAddress: { recipientName: SENTINEL } };
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const encode = (value: unknown) => JSON.stringify(value);
-type Kind = "lookup" | "list";
+type Kind = "lookup" | "list" | "detail";
 type Reply = { ok: boolean; code?: string; receipt?: Record<string, unknown> };
 type Sender = { id: string; url: string; origin: string; frameId: number };
 type Listener = (message: unknown, sender: Sender, respond: (reply: Reply) => void) => boolean;
@@ -44,6 +47,7 @@ type Fixture = {
   delay?: number;
 };
 let out: string;
+let canaryOut: string;
 let preparation: {
   extensionId: string;
   head: string;
@@ -56,6 +60,15 @@ beforeAll(() => {
   mkdirSync(scratch, { recursive: true });
   out = path.join(mkdtempSync(path.join(scratch, "synthetic-emitted-")), "run");
   preparation = packaging.prepare({ out, cadenceMs: 1, cadenceSource: packaging.AUTHORITY, t0: T0, synthetic: true });
+  canaryOut = path.join(path.dirname(out), "canary");
+  packaging.prepare({
+    out: canaryOut,
+    cadenceMs: 1,
+    cadenceSource: packaging.AUTHORITY,
+    t0: T0,
+    synthetic: true,
+    canary: true,
+  });
 });
 
 function harness(
@@ -70,6 +83,7 @@ function harness(
     onStorageSet?: (value: Record<string, unknown>) => void;
     configurationReady?: Promise<void>;
     tickPerRead?: boolean;
+    canary?: boolean;
   } = {},
 ) {
   let now = Date.parse(T0);
@@ -104,15 +118,16 @@ function harness(
   const timers = new Map<number, { callback: () => void; at: number }>();
   const intervals = new Map<number, { callback: () => void; delay: number; at: number }>();
   const heartbeats: { at: number; arguments: unknown[] }[] = [];
-  const origin = `chrome-extension://${preparation.extensionId}`;
-  const sender = { id: preparation.extensionId, url: `${origin}/capture.html`, origin, frameId: 0 };
-  const config = JSON.parse(readFileSync(path.join(preparation.packageDirectory, "capture-config.json"), "utf8"));
+  const packaged = options.canary ? (packaging.verifyPackage(canaryOut) as typeof preparation) : preparation;
+  const origin = `chrome-extension://${packaged.extensionId}`;
+  const sender = { id: packaged.extensionId, url: `${origin}/capture.html`, origin, frameId: 0 };
+  const config = JSON.parse(readFileSync(path.join(packaged.packageDirectory, "capture-config.json"), "utf8"));
   if (options.cadenceMs !== undefined) config.cadenceMs = options.cadenceMs;
   Object.assign(config, options.config);
   let timerSequence = 0;
   const chrome = {
     runtime: {
-      id: preparation.extensionId,
+      id: packaged.extensionId,
       getURL: (file: string) => `${origin}/${file}`,
       getPlatformInfo: async (...args: unknown[]) => {
         heartbeats.push({ at: now, arguments: args });
@@ -149,9 +164,7 @@ function harness(
       if (!["manifest.json", "worker.js", "helper.js", "capture.html"].includes(file))
         throw new Error("synthetic local path refused");
       return new Response(
-        file === options.tamper
-          ? "SYNTHETIC_TAMPER"
-          : readFileSync(path.join(preparation.packageDirectory, file), "utf8"),
+        file === options.tamper ? "SYNTHETIC_TAMPER" : readFileSync(path.join(packaged.packageDirectory, file), "utf8"),
       );
     }
     let kind: Kind;
@@ -162,6 +175,13 @@ function harness(
       request.method === "POST"
     )
       kind = "list";
+    else if (
+      options.canary &&
+      target.startsWith("https://order-management-api.tcgplayer.com/orders/") &&
+      target.endsWith("?api-version=2.0") &&
+      request.method === "GET"
+    )
+      kind = "detail";
     else throw new Error("synthetic provider boundary refused");
     observations.push({ kind, url: target, options: request, at: now, persisted: structuredClone(storage) });
     request.signal?.addEventListener("abort", notify, { once: true });
@@ -169,7 +189,7 @@ function harness(
     const configured = options.responses?.[kind];
     const fixture = (Array.isArray(configured)
       ? configured[observations.filter((item) => item.kind === kind).length - 1]
-      : configured) ?? { body: encode({ lookup, list }[kind]) };
+      : configured) ?? { body: encode({ lookup, list: options.canary ? canaryList : list, detail }[kind]) };
     if (fixture.delay) now += fixture.delay;
     if (fixture.error) throw new Error(SENTINEL);
     if (fixture.opaque) return { type: "opaqueredirect", status: 0, redirected: false, headers: new Headers() };
@@ -229,7 +249,7 @@ function harness(
   const restart = () => {
     timers.clear();
     intervals.clear();
-    new Script(options.workerSource ?? readFileSync(path.join(preparation.packageDirectory, "worker.js"), "utf8"), {
+    new Script(options.workerSource ?? readFileSync(path.join(packaged.packageDirectory, "worker.js"), "utf8"), {
       filename: "synthetic-packaged-worker.js",
     }).runInContext(context);
   };
@@ -278,7 +298,8 @@ function harness(
       if (!search.ok || search.receipt) return search;
       const after = await send({ kind: "counts", ...bracket(range, counts.after), sameSession: true });
       if (!after.ok || after.receipt) return after;
-      if (after.code !== "fallback_available") return send({ kind: "finish" });
+      if (after.code !== "fallback_available")
+        return send({ kind: "finish", ...(options.canary && { sameSession: true }) });
     }
     return send({ kind: "finish" });
   };
@@ -289,6 +310,7 @@ function harness(
     storage,
     retained,
     observations,
+    packaged,
     config,
     sender,
     context,
@@ -340,8 +362,8 @@ function helper(
     window,
     chrome: {
       runtime: {
-        id: preparation.extensionId,
-        getURL: (file: string) => `chrome-extension://${preparation.extensionId}/${file}`,
+        id: worker.packaged.extensionId,
+        getURL: (file: string) => `chrome-extension://${worker.packaged.extensionId}/${file}`,
         sendMessage: async (message: Record<string, unknown>) => {
           messages.push(structuredClone(message));
           events.push({ kind: String(message.kind) });
@@ -396,7 +418,7 @@ function helper(
     },
     setTimeout: (callback: () => void) => queueMicrotask(callback),
   });
-  new Script(options.source ?? readFileSync(path.join(preparation.packageDirectory, "helper.js"), "utf8"), {
+  new Script(options.source ?? readFileSync(path.join(worker.packaged.packageDirectory, "helper.js"), "utf8"), {
     filename: "synthetic-packaged-helper.js",
   }).runInContext(api);
   const run = async () => {
@@ -430,6 +452,7 @@ function receipt(reply: Reply) {
     }[];
     failures: string[];
     counts: { lookup: number; list: number; detail: number };
+    canary?: { pageClaim: string; matchedDetails: number; sameSession: boolean };
     totalBytes: number;
     selector: {
       searches: {
@@ -449,12 +472,12 @@ function receipt(reply: Reply) {
 function exported(page: ReturnType<typeof helper>) {
   return receipt({ ok: true, receipt: JSON.parse(page.exports.get("selector-receipt.json")!) });
 }
-function retain(page: ReturnType<typeof helper>) {
-  for (const [name, text] of page.exports) writeFileSync(path.join(out, "receipt", name), text);
+function retain(page: ReturnType<typeof helper>, run = out) {
+  for (const [name, text] of page.exports) writeFileSync(path.join(run, "receipt", name), text);
 }
 function custody(value: unknown) {
   const text = encode(value);
-  for (const privateValue of [SENTINEL, ORDER, lookup.seller.sellerKey])
+  for (const privateValue of [SENTINEL, ORDER, CANARY_ORDER, lookup.seller.sellerKey])
     for (const encoding of [
       privateValue,
       encodeURIComponent(privateValue),
@@ -474,13 +497,13 @@ function scan(directory: string) {
     else throw new Error(`Unsupported custody scan entry: ${file}`);
   }
 }
-function replaceExport(mutator: (value: ReturnType<typeof exported>) => void) {
-  const file = path.join(out, "receipt", "selector-receipt.json");
+function replaceExport(mutator: (value: ReturnType<typeof exported>) => void, run = out) {
+  const file = path.join(run, "receipt", "selector-receipt.json");
   const value = JSON.parse(readFileSync(file, "utf8"));
   mutator(value);
   const text = JSON.stringify(value, null, 2) + "\n";
   writeFileSync(file, text);
-  const indexFile = path.join(out, "receipt", "selector-inventory.json");
+  const indexFile = path.join(run, "receipt", "selector-inventory.json");
   const index = JSON.parse(readFileSync(indexFile, "utf8"));
   index.files["selector-receipt.json"] = hash(text);
   writeFileSync(indexFile, JSON.stringify(index, null, 2) + "\n");
@@ -489,6 +512,156 @@ async function beginSearch(worker: ReturnType<typeof harness>) {
   expect(await worker.send({ kind: "begin" })).toEqual({ ok: true });
   expect(await worker.send({ kind: "lookup" })).toEqual({ ok: true });
 }
+
+describe("fixed first-page canary (offline)", () => {
+  it("brackets the single page, checks each detail, and verifies only scrubbed evidence after removal", async () => {
+    const orders = Array.from({ length: 3 }, (_, index) => ({
+      ...canaryList.orders[0],
+      orderNumber: CANARY_ORDER + index,
+    }));
+    const worker = harness({
+      canary: true,
+      responses: {
+        list: { body: encode({ totalOrders: 3, orders }) },
+        detail: orders.map(({ orderNumber }) => ({ body: encode({ ...detail, orderNumber }) })),
+      },
+    });
+    const page = helper(worker, {
+      prompts: ["LastTwoYears", "Ready to Ship", "3", "LastTwoYears", "Ready to Ship", "3"],
+      confirms: Array<boolean>(8).fill(true),
+    });
+    expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    const observed = exported(page);
+    expect(observed.selector.searches).toMatchObject([{ qualification: "qualified", rowCount: 3 }]);
+    expect(observed.counts).toEqual({ lookup: 1, list: 1, detail: 3 });
+    expect(observed.canary).toMatchObject({ matchedDetails: 3, sameSession: true });
+    expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup", "list", "detail", "detail", "detail"]);
+    expect(JSON.parse(String(worker.observations[1]!.options.body))).toMatchObject({
+      searchRange: "LastTwoYears",
+      from: 0,
+      size: 500,
+      sortBy: [],
+    });
+    expect(worker.observations.slice(2).map(({ url }) => url)).toEqual(
+      orders.map(
+        ({ orderNumber }) =>
+          `https://order-management-api.tcgplayer.com/orders/${encodeURIComponent(orderNumber)}?api-version=2.0`,
+      ),
+    );
+    expect(worker.observations[2]!.at).toBeGreaterThanOrEqual(
+      Date.parse(String(observed.selector.searches[0]!.after!.observedAt)),
+    );
+    custody([worker.retained, page.messages, page.replies, page.diagnostics, [...page.exports]]);
+    retain(page, canaryOut);
+    const pending = packaging.verifyExport(canaryOut);
+    expect(pending.removal.extensionAbsent).toBe(false);
+    expect(() => packaging.recordRemoval(canaryOut, true, observed.finishedAt)).toThrow("removal_not_confirmed");
+    rmdirSync(worker.packaged.profileDirectory);
+    expect(() => packaging.recordRemoval(canaryOut, true, "2030-01-01T00:15:00.001Z")).toThrow("removal_not_confirmed");
+    expect(packaging.recordRemoval(canaryOut, true, observed.finishedAt).removal.extensionAbsent).toBe(true);
+    expect(packaging.verifyExport(canaryOut).removal.profileDisposed).toBe(true);
+    replaceExport((receipt) => {
+      receipt.canary!.matchedDetails -= 1;
+    }, canaryOut);
+    expect(() => packaging.verifyExport(canaryOut)).toThrow("export_schema_refused");
+    retain(page, canaryOut);
+  });
+
+  it.each([
+    ["full", 500, 500, 500, 500, "page_not_closed"],
+    ["truncated", 501, 500, 501, 501, "length_mismatch"],
+    ["bracket mismatch", 1, 1, 1, 0, "count_mismatch"],
+    ["detail cap", 4, 4, 4, 4, "request_budget"],
+  ] as const)(
+    "refuses %s without a detail subset or another selector request",
+    async (_, totalOrders, size, before, after, reason) => {
+      const orders = Array.from({ length: size }, (_, index) => ({
+        ...canaryList.orders[0],
+        orderNumber: CANARY_ORDER + index,
+      }));
+      const worker = harness({ canary: true, responses: { list: { body: encode({ totalOrders, orders }) } } });
+      const observed = receipt(await worker.run({ before, after }));
+      expect(observed.selector.searches).toMatchObject([{ qualification: "unknown", reason }]);
+      expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup", "list"]);
+      custody([worker.retained, observed]);
+    },
+  );
+
+  it.each([{ status: "Shipped" }, { orderNumber: `${CANARY_ORDER}-different` }])(
+    "refuses mismatched detail and does not disclose its content",
+    async (change) => {
+      const worker = harness({ canary: true, responses: { detail: { body: encode({ ...detail, ...change }) } } });
+      const observed = receipt(await worker.run());
+      expect(observed.failures).toEqual(["detail_mismatch"]);
+      expect(observed.selector.searches).toMatchObject([{ qualification: "unknown" }]);
+      expect(observed.canary).toMatchObject({ matchedDetails: 0, sameSession: false });
+      expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup", "list", "detail"]);
+      custody([worker.retained, observed]);
+    },
+  );
+
+  it("refuses duplicate rows and will not finish without the final same-session attestation", async () => {
+    const worker = harness({
+      canary: true,
+      responses: { list: { body: encode({ totalOrders: 2, orders: Array(2).fill(canaryList.orders[0]) }) } },
+    });
+    expect(receipt(await worker.run({ before: 2, after: 2 })).selector.searches).toMatchObject([
+      { qualification: "unknown", reason: "duplicate_order" },
+    ]);
+    expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup", "list"]);
+
+    const denied = harness({ canary: true });
+    const page = helper(denied);
+    await page.run();
+    expect(exported(page).selector.searches).toMatchObject([{ qualification: "unknown", reason: "bracket_changed" }]);
+    expect(exported(page).canary).toMatchObject({ matchedDetails: 1, sameSession: false });
+    expect(denied.observations.map(({ kind }) => kind)).toEqual(["lookup", "list", "detail"]);
+  });
+
+  it("refuses a stale before or after bracket, and latch loss cannot authorize another read", async () => {
+    const worker = harness({ canary: true });
+    expect(await worker.send({ kind: "begin" })).toEqual({ ok: true, code: "canary" });
+    await worker.send({ kind: "lookup" });
+    const before = worker.bracket();
+    worker.advance(30001);
+    expect(receipt(await worker.send({ kind: "search", ...before })).failures).toEqual(["bracket_timing"]);
+    worker.restart();
+    expect(await worker.send({ kind: "begin" })).toEqual({ ok: false, code: "repeat_invocation" });
+    expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup"]);
+
+    const late = harness({ canary: true });
+    await late.send({ kind: "begin" });
+    await late.send({ kind: "lookup" });
+    await late.send({ kind: "search", ...late.bracket() });
+    late.advance(120001);
+    const observed = receipt(await late.send({ kind: "counts", ...late.bracket(), sameSession: true }));
+    expect(observed.failures).toEqual(["bracket_timing"]);
+    expect(late.observations.map(({ kind }) => kind)).toEqual(["lookup", "list"]);
+  });
+
+  it.each([
+    ["LastThreeMonths", "Ready to Ship", "date_filter_mismatch"],
+    ["LastTwoYears", "All Orders", "count_surface_mismatch"],
+  ])("refuses the wrong range or count label before search", async (range, label, reason) => {
+    const worker = harness({ canary: true });
+    const page = helper(worker, { prompts: [range, label] });
+    await page.run();
+    expect(exported(page).failures).toEqual([reason]);
+    expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup"]);
+  });
+
+  it("refuses malformed search without fallback, and refuses operator package preparation", async () => {
+    const worker = harness({ canary: true, responses: { list: { body: SENTINEL } } });
+    const observed = receipt(await worker.run());
+    expect(observed.failures).toEqual(["invalid_json"]);
+    expect(worker.observations.map(({ kind }) => kind)).toEqual(["lookup", "list"]);
+    custody(observed);
+    expect(() => packaging.prepare({ out: canaryOut, canary: true })).toThrow("canary_operator_disabled");
+    const manifest = JSON.parse(readFileSync(path.join(worker.packaged.packageDirectory, "manifest.json"), "utf8"));
+    expect(manifest.host_permissions).toEqual([]);
+    expect(manifest.content_security_policy.extension_pages).toContain("connect-src 'self'");
+  });
+});
 
 describe("synthetic custody scan", () => {
   it("does not follow a dangling Chromium SingletonCookie link and still inspects nested regular files", () => {
@@ -1277,14 +1450,13 @@ describe("selector-custody-and-export", () => {
 });
 
 describe("selector-lifecycle-removal", () => {
-  it("one native selector-only helper, unchanged permissions and HUMAN-only runbook; no prospective detail/bucket/v3 path", () => {
+  it("keeps the native selector's permissions, human-only runbook and closed helper protocol", () => {
     expect(packaging.verifyPackage(out).qualification).toBe("PENDING_HOST_VERIFIER");
     const worker = readFileSync(path.join(preparation.packageDirectory, "worker.js"), "utf8");
     const page = readFileSync(path.join(preparation.packageDirectory, "helper.js"), "utf8");
     for (const text of [worker, page]) {
       expect(text).not.toContain("BUCKETS");
       expect(text).not.toContain('kind: "capture"');
-      expect(text).not.toContain('kind === "detail"');
       expect(text).not.toContain("order-authority-receipt/v3");
       expect(text).not.toContain("8838-receipt.json");
     }
