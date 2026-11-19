@@ -2,7 +2,9 @@
   const AUTHORITY = "https://github.com/chase-sets/chase-sets/issues/8607#issuecomment-5983720229";
   const PROBE = "https://github.com/chase-sets/chase-sets/issues/9115";
   const FILES = ["capture.html", "helper.js", "manifest.json", "worker.js"];
-  const LIMITS = { lookup: 65536, list: 1048576, request: 8192, session: 8388608 };
+  const LIMITS = { lookup: 65536, list: 1048576, detail: 524288, request: 8192, session: 8388608 };
+  const CANARY_RANGE = "LastTwoYears";
+  const CANARY_DETAIL_LIMIT = 3;
   const LATCH = "orderAuthorityLatch";
   const encoder = new TextEncoder();
   const origin = `chrome-extension://${chrome.runtime.id}`;
@@ -55,6 +57,7 @@
     "aborted",
     "completeness_unproven",
     "page_ceiling_exceeded",
+    "detail_mismatch",
   ]);
   const REFUSALS = new Set([
     "aborted",
@@ -71,6 +74,22 @@
     return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) =>
       byte.toString(16).padStart(2, "0"),
     ).join("");
+  }
+  function hasOfflineCanaryPolicy() {
+    const manifest = chrome.runtime.getManifest();
+    const csp = manifest.content_security_policy;
+    return (
+      Array.isArray(manifest.permissions) &&
+      manifest.permissions.length === 1 &&
+      manifest.permissions[0] === "storage" &&
+      Array.isArray(manifest.host_permissions) &&
+      manifest.host_permissions.length === 0 &&
+      !["optional_permissions", "optional_host_permissions", "content_scripts", "externally_connectable"].some((key) =>
+        Object.hasOwn(manifest, key),
+      ) &&
+      closed(csp, ["extension_pages"]) &&
+      csp.extension_pages === "script-src 'self'; object-src 'self'; connect-src 'self'"
+    );
   }
   async function configuration() {
     try {
@@ -91,6 +110,7 @@
           "extensionId",
           "files",
           "evidence",
+          ...(config?.mode === "canary" ? ["mode"] : []),
         ]) ||
         config.format !== "order-authority-package/v4" ||
         config.probe !== PROBE ||
@@ -98,6 +118,7 @@
         !/^[a-f0-9]{40}$/.test(config.head) ||
         config.extensionId !== chrome.runtime.id ||
         !["synthetic", "operator"].includes(config.evidence) ||
+        (config.mode === "canary" && (config.evidence !== "synthetic" || !hasOfflineCanaryPolicy())) ||
         !closed(config.files, FILES)
       )
         fail("package_mismatch");
@@ -184,7 +205,7 @@
       startedAt: new Date(state.started).toISOString(),
       finishedAt: new Date(Date.now()).toISOString(),
       deadlineAt: new Date(state.latch.deadline).toISOString(),
-      counts: { lookup: state.latch.lookup, list: state.latch.list, detail: 0 },
+      counts: { lookup: state.latch.lookup, list: state.latch.list, detail: state.latch.detail },
       totalBytes: state.bytes,
       requests: state.requests,
       failures: state.failures,
@@ -209,7 +230,12 @@
         ),
       },
       completeness: "unknown",
+      ...(state.canary && { canary: state.canary }),
     };
+  }
+  function requireActive(state, now = Date.now()) {
+    if (state.expired || now >= state.latch.deadline) fail("deadline");
+    if (state.aborted || active !== state) fail("aborted");
   }
   async function waitForCadence(state) {
     const due = state.lastDispatch === null ? Date.now() : state.lastDispatch + state.config.cadenceMs;
@@ -226,13 +252,13 @@
           reject(new Error("aborted"));
         };
       });
-    if (state.aborted) fail("aborted");
-    if (Date.now() >= state.latch.deadline) fail("deadline");
+    requireActive(state);
   }
-  async function dispatch(state, kind, searchRange = "LastTwoYears", before) {
+  async function dispatch(state, kind, searchRange = CANARY_RANGE, before, orderNumber) {
     const controller = new AbortController();
     await waitForCadence(state);
-    if (state.latch[kind] >= ({ lookup: 1, list: 2 }[kind] ?? 0)) fail("request_budget");
+    const budget = { lookup: 1, list: state.canary ? 1 : 2, detail: state.canary ? CANARY_DETAIL_LIMIT : 0 };
+    if (state.latch[kind] >= (budget[kind] ?? 0)) fail("request_budget");
     let url;
     let body;
     if (kind === "lookup") url = "https://sp-api.tcgplayer.com/account/auth-detail?api-version=1.0";
@@ -246,13 +272,15 @@
         size: 500,
       });
     }
+    if (kind === "detail" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(orderNumber))
+      url = `https://order-management-api.tcgplayer.com/orders/${encodeURIComponent(orderNumber)}?api-version=2.0`;
     if (!url) fail("request_budget");
     const requestBytes = body ? encoder.encode(body).byteLength : encoder.encode(url).byteLength;
     if (requestBytes > LIMITS.request || state.bytes + requestBytes > LIMITS.session) fail("request_ceiling_exceeded");
     state.latch[kind] += 1;
     await chrome.storage.local.set({ [LATCH]: state.latch });
     state.lastDispatch = Date.now();
-    if (state.lastDispatch >= state.latch.deadline) fail("deadline");
+    requireActive(state, state.lastDispatch);
     if (
       before &&
       (Date.parse(before.observedAt) > state.lastDispatch || state.lastDispatch - Date.parse(before.observedAt) > 30000)
@@ -264,7 +292,12 @@
       method: kind === "list" ? "POST" : "GET",
       host: kind === "lookup" ? "sp-api.tcgplayer.com" : "order-management-api.tcgplayer.com",
       version: kind === "lookup" ? "1.0" : "2.0",
-      pathTemplate: kind === "lookup" ? "/account/auth-detail" : "/orders/search",
+      pathTemplate:
+        kind === "lookup"
+          ? "/account/auth-detail"
+          : kind === "list"
+            ? "/orders/search"
+            : "/orders/{encodedOrderNumber}",
       startedAt: new Date(state.lastDispatch).toISOString(),
       endedAt: null,
       elapsedMs: 0,
@@ -298,7 +331,7 @@
       );
     });
     try {
-      return await Promise.race([
+      const result = await Promise.race([
         timeout,
         (async () => {
           const response = await fetch(url, {
@@ -363,14 +396,20 @@
           }
         })(),
       ]);
+      requireActive(state);
+      return result;
     } catch (error) {
-      const code = state.aborted
-        ? "aborted"
-        : timedOut
-          ? "response_timeout"
-          : FAILURE_CODES.has(error?.message)
-            ? error.message
-            : "transport_failure";
+      const reason = error?.message;
+      const code =
+        reason === "deadline"
+          ? "deadline"
+          : state.aborted
+            ? "aborted"
+            : timedOut
+              ? "response_timeout"
+              : FAILURE_CODES.has(reason)
+                ? reason
+                : "transport_failure";
       observation.failure = code;
       fail(code);
     } finally {
@@ -391,6 +430,7 @@
     state.cancelWait?.();
     state.controller?.abort();
     state.sellerKey = null;
+    state.orderNumbers = [];
     active = undefined;
   }
   function keepResident(state) {
@@ -421,6 +461,21 @@
         message[key],
       ]),
     );
+  }
+  async function verifyCanaryDetails(state) {
+    const count = state.orderNumbers.length;
+    const firstStart = Math.max(Date.now(), state.lastDispatch + state.config.cadenceMs);
+    if (count > CANARY_DETAIL_LIMIT || (count && firstStart + count * 30000 >= state.latch.deadline))
+      fail("request_budget");
+    for (const orderNumber of state.orderNumbers) {
+      const detail = await dispatch(state, "detail", CANARY_RANGE, undefined, orderNumber);
+      if (detail?.orderNumber !== orderNumber || detail.status !== "Ready to Ship") {
+        state.requests.at(-1).failure = "detail_mismatch";
+        fail("detail_mismatch");
+      }
+      state.canary.matchedDetails += 1;
+    }
+    state.orderNumbers = [];
   }
   function searchSummary(range, before) {
     return {
@@ -483,7 +538,8 @@
   }
   async function search(state, message) {
     if (state.phase !== "search") fail("invalid_message");
-    const range = state.latch.list === 0 ? "LastTwoYears" : "LastThreeMonths";
+    if (state.canary && message.reprompted) fail("date_filter_mismatch");
+    const range = state.latch.list === 0 ? CANARY_RANGE : "LastThreeMonths";
     const before = bracket(message, range);
     if (
       Date.parse(before.observedAt) < state.started ||
@@ -498,6 +554,11 @@
       const list = await dispatch(state, "list", range, before);
       state.searches.push(current);
       observeList(state, current, list);
+      if (state.canary && current.reason === "counts_pending") {
+        state.orderNumbers = list.orders.map((row) => row.orderNumber);
+        if (state.orderNumbers.some((number) => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(number)))
+          fail("invalid_shape");
+      }
     } catch (error) {
       const code = failureCode(error);
       const request = state.requests.at(-1);
@@ -505,7 +566,8 @@
       if (!state.searches.includes(current)) state.searches.push(current);
       if (request.failure === null) request.failure = code;
       current.reason = code;
-      state.fallback = range === "LastTwoYears" && ["http_status", "invalid_json", "invalid_shape"].includes(code);
+      state.fallback =
+        !state.canary && range === CANARY_RANGE && ["http_status", "invalid_json", "invalid_shape"].includes(code);
       if (!state.fallback) throw error;
     }
     state.phase = "counts";
@@ -539,13 +601,16 @@
         phase: "lookup",
         fallback: false,
         aborted: false,
+        orderNumbers: [],
+        canary:
+          config.mode === "canary" ? { pageClaim: crypto.randomUUID(), matchedDetails: 0, sameSession: false } : null,
       };
       if (started < Date.parse(config.t0) || Date.now() >= latch.deadline) {
         active.failures.push("deadline");
         return end(active);
       }
       keepResident(active);
-      return { ok: true };
+      return active.canary ? { ok: true, code: "canary" } : { ok: true };
     }
     if (!active) fail("repeat_invocation");
     const state = active;
@@ -554,8 +619,14 @@
         state.failures.push(message.kind === "cancel" ? "canceled" : (message.reason ?? "aborted"));
         return end(state);
       }
-      if (Date.now() >= state.latch.deadline) fail("deadline");
-      if (message.kind === "finish" && state.phase === "finish") return end(state);
+      requireActive(state);
+      if (message.kind === "finish" && state.phase === "finish") {
+        if (state.canary) {
+          if (message.sameSession !== true) fail("session_missing");
+          state.canary.sameSession = true;
+        } else if (Object.hasOwn(message, "sameSession")) fail("invalid_message");
+        return end(state);
+      }
       if (message.kind === "lookup" && state.phase === "lookup") {
         let session = await dispatch(state, "lookup");
         state.sellerKey = session?.seller?.sellerKey;
@@ -568,6 +639,7 @@
       }
       if (message.kind === "search") return await search(state, message);
       if (message.kind === "counts" && state.phase === "counts") {
+        if (state.canary && message.reprompted) fail("date_filter_mismatch");
         const current = state.searches.at(-1);
         const after = bracket(message, current.searchRange);
         const ended = Date.parse(state.requests.at(-1).endedAt);
@@ -598,6 +670,10 @@
           current.qualification = current.reason === "qualified" ? "qualified" : "unknown";
         }
         if (current.qualification !== "qualified") return end(state);
+        if (state.canary) {
+          await verifyCanaryDetails(state);
+          requireActive(state);
+        }
         state.phase = "finish";
         return { ok: true, code: "selector_qualified" };
       }
@@ -619,6 +695,8 @@
     }
     const simple = closed(message, ["kind"]) && ["begin", "lookup", "finish", "cancel", "abort"].includes(message.kind);
     const refusal = closed(message, ["kind", "reason"]) && message.kind === "abort" && REFUSALS.has(message.reason);
+    const finish =
+      closed(message, ["kind", "sameSession"]) && message.kind === "finish" && message.sameSession === true;
     const count =
       closed(
         message,
@@ -647,7 +725,7 @@
       typeof message.settled === "boolean" &&
       typeof message.unchanged === "boolean" &&
       (message.kind !== "counts" || typeof message.sameSession === "boolean");
-    if (!simple && !refusal && !count) {
+    if (!simple && !refusal && !count && !finish) {
       if (active && !busy) clear(active);
       respond({ ok: false, code: "invalid_message" });
       return false;
