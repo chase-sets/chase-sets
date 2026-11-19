@@ -1039,9 +1039,21 @@ describe("source observation runtime: provider integration jobs", () => {
     );
   });
 
-  it.each(["complete", "missing-member", "replay-mtgjson", "replay-scryfall", "unknown-member"] as const)(
-    "reconciles Time Spiral child imports without candidate projection catch-up: %s",
-    async (scenario) => {
+  it.each([
+    ["complete", null, null],
+    ["missing-member", null, null],
+    ["metadata-only", "mtgjson", "promoted"],
+    ["identical-payload", "scryfall", "promoted"],
+    ["metadata-only", "mtgjson", "rejected"],
+    ["identical-payload", "scryfall", "rejected"],
+    ["changed-rarity", "mtgjson", "promoted"],
+    ["changed-reference", "scryfall", "promoted"],
+    ["missing-reviewed-revision", "scryfall", "promoted"],
+    ["unknown-member", "mtgjson", "promoted"],
+    ["known-plus-extra-member", "mtgjson", "rejected"],
+  ] as const)(
+    "reconciles Time Spiral child imports without candidate projection catch-up: %s (%s, %s)",
+    async (scenario, replayProvider, terminalStatus) => {
       const { eventStore, streams } = createInMemoryEventStore();
       const storedRows = new Map<string, SourceObservationListRow>();
       const readableRows = new Map<string, SourceObservationListRow>();
@@ -1098,9 +1110,8 @@ describe("source observation runtime: provider integration jobs", () => {
       });
       const snapshots: SourceObservationListRow[] = [];
       const providers = ["scryfall", "mtgjson"];
-      if (scenario === "replay-mtgjson" || scenario === "unknown-member") providers.push("mtgjson");
-      if (scenario === "replay-scryfall") providers.push("scryfall");
-      let promotedStreamId: string | null = null;
+      if (replayProvider) providers.push(replayProvider);
+      let terminalStreamId: string | null = null;
       const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No network permitted by this fixture"));
       try {
         for (const [turn, provider] of providers.entries()) {
@@ -1124,7 +1135,7 @@ describe("source observation runtime: provider integration jobs", () => {
                     set_name: "Time Spiral",
                     collector_number: "1",
                     rarity: "common",
-                    tcgplayer_id: replaying ? 900002 : 900001,
+                    tcgplayer_id: replaying && scenario === "changed-reference" ? 900002 : 900001,
                     released_at: "2006-10-06",
                   },
                 }
@@ -1138,7 +1149,7 @@ describe("source observation runtime: provider integration jobs", () => {
                       replaying && scenario === "unknown-member" ? "synthetic-new-member" : "synthetic-mtgjson-card",
                     name: "Amrou Scout",
                     number: "1",
-                    rarity: "common",
+                    rarity: replaying && scenario === "changed-rarity" ? "rare" : "common",
                     identifiers: { scryfallId: "synthetic-scryfall-card" },
                   },
                 };
@@ -1162,6 +1173,15 @@ describe("source observation runtime: provider integration jobs", () => {
                 payload,
                 provenance: { fetchedAt: "2026-07-14T12:00:00.000Z" },
               };
+              if (replaying && scenario === "known-plus-extra-member" && "meta" in payload) {
+                yield {
+                  unitKey: plan.unitKey,
+                  providerKey: provider,
+                  externalKey: "synthetic-2",
+                  payload: { ...payload, card: { ...payload.card, uuid: "synthetic-new-member" } },
+                  provenance: { fetchedAt: "2026-07-14T12:00:00.000Z" },
+                };
+              }
             },
             getCredentialReadiness: async () => [],
             getTransportDiagnostics: async () => [],
@@ -1170,9 +1190,24 @@ describe("source observation runtime: provider integration jobs", () => {
           // projected. Candidate discovery stays empty across both units.
           readableRows.clear();
           if (scenario !== "missing-member") {
-            for (const [id, row] of storedRows) readableRows.set(id, row);
+            for (const [id, row] of storedRows) {
+              readableRows.set(id, { ...row, observed_at: row.observed_at.replace("Z", "000Z") });
+            }
           }
-          const terminalHistory = promotedStreamId ? [...streams.get(promotedStreamId)!] : null;
+          if (replaying && scenario === "missing-reviewed-revision") {
+            // A stream with the right hash but no revision from the reviewed run cannot prove equality.
+            const sourceId = sourceObservationStreamId(
+              snapshots.find((row) => row.provider_key === provider)!.observation_id,
+            );
+            streams.set(
+              sourceId,
+              streams.get(sourceId)!.map((event) => ({
+                ...event,
+                payload: { ...event.payload, syncRunId: "job_unreviewed_time_spiral" },
+              })),
+            );
+          }
+          const terminalHistory = terminalStreamId ? [...streams.get(terminalStreamId)!] : null;
           const syncRunId = replaying ? "job_repeat_time_spiral" : "job_shared_time_spiral";
           const outcome = await importRuntime.importProviderAdapterIntegrationTarget({
             target: {
@@ -1187,10 +1222,38 @@ describe("source observation runtime: provider integration jobs", () => {
             syncRunId,
             context,
             adapterOverride: adapter,
-            observedAtForEnvelope: () => "2026-07-14T12:00:00.000Z",
+            observedAtForEnvelope: () => (replaying ? "2026-07-15T12:00:00.000Z" : "2026-07-14T12:00:00.000Z"),
           });
           if (replaying) {
-            if (scenario === "unknown-member") {
+            if (scenario === "known-plus-extra-member") {
+              expect([...storedRows.values()].filter((row) => row.sync_run_id === syncRunId)).toHaveLength(2);
+            }
+            if (scenario === "changed-rarity" || scenario === "changed-reference") {
+              const oldRow = snapshots.find((row) => row.provider_key === provider)!;
+              const newRow = storedRows.get(oldRow.observation_id)!;
+              const proposal = (row: SourceObservationListRow) =>
+                buildCatalogMergeCandidatesFromObservations([row], {
+                  addedAt: row.observed_at,
+                  acceptedScopeMappings: mappings,
+                  providerUnitKeyByObservationId: { [row.observation_id]: unitKey },
+                }).candidates[0]!;
+              const before = proposal(oldRow);
+              const after = proposal(newRow);
+              expect(catalogMergeCandidateStreamId(after.candidateId)).toBe(terminalStreamId);
+              expect(after.candidateId).toBe(before.candidateId);
+              if (scenario === "changed-rarity") {
+                expect(before.snapshot.proposedCatalogItemFacts.rarity).toBe("common");
+                expect(after.snapshot.proposedCatalogItemFacts.rarity).toBe("rare");
+              } else {
+                expect(before.snapshot.proposedExternalCatalogItemReferences).toContainEqual(
+                  expect.objectContaining({ providerKey: "tcgplayer", externalKey: "product:900001" }),
+                );
+                expect(after.snapshot.proposedExternalCatalogItemReferences).toContainEqual(
+                  expect.objectContaining({ providerKey: "tcgplayer", externalKey: "product:900002" }),
+                );
+              }
+            }
+            if (scenario !== "metadata-only" && scenario !== "identical-payload") {
               expect(outcome).toMatchObject({
                 status: "failed",
                 reason: "Terminal Catalog Merge Candidates cannot be changed.",
@@ -1200,13 +1263,20 @@ describe("source observation runtime: provider integration jobs", () => {
               const oldRow = snapshots.find((row) => row.provider_key === provider)!;
               const newRow = storedRows.get(oldRow.observation_id)!;
               expect(newRow.sync_run_id).toBe(syncRunId);
-              expect(newRow.source_record_hash).not.toBe(oldRow.source_record_hash);
+              if (scenario === "metadata-only") {
+                expect(newRow.source_record_hash).not.toBe(oldRow.source_record_hash);
+              } else {
+                expect(newRow.source_record_hash).toBe(oldRow.source_record_hash);
+              }
               expect(streams.get(sourceObservationStreamId(newRow.observation_id))?.at(-1)).toMatchObject({
-                eventType: "catalog.source-observation.recorded",
+                eventType:
+                  scenario === "metadata-only"
+                    ? "catalog.source-observation.recorded"
+                    : "catalog.source-observation.refreshed",
                 payload: { syncRunId, sourceRecordHash: newRow.source_record_hash },
               });
             }
-            expect(streams.get(promotedStreamId!)).toEqual(terminalHistory);
+            expect(streams.get(terminalStreamId!)).toEqual(terminalHistory);
             expect(
               [...streams.values()].filter((events) => events[0]?.eventType === "catalog.merge-candidate.created"),
             ).toHaveLength(1);
@@ -1223,13 +1293,16 @@ describe("source observation runtime: provider integration jobs", () => {
           } else {
             expect(outcome, outcome.reason ?? "import outcome").toMatchObject({ status: "imported", observed: 1 });
             snapshots.splice(0, snapshots.length, ...storedRows.values());
-            const oracle = buildCatalogMergeCandidatesFromObservations(snapshots, {
-              addedAt: "2026-07-14T12:00:00.000Z",
-              acceptedScopeMappings: mappings,
-              providerUnitKeyByObservationId: Object.fromEntries(
-                snapshots.map((row) => [row.observation_id, `${row.provider_key}:mtg:single-card:reference-data`]),
-              ),
-            });
+            const oracle = buildCatalogMergeCandidatesFromObservations(
+              snapshots.map((row) => readableRows.get(row.observation_id) ?? row),
+              {
+                addedAt: "2026-07-14T12:00:00.000Z",
+                acceptedScopeMappings: mappings,
+                providerUnitKeyByObservationId: Object.fromEntries(
+                  snapshots.map((row) => [row.observation_id, `${row.provider_key}:mtg:single-card:reference-data`]),
+                ),
+              },
+            );
             expect(oracle.candidates).toHaveLength(1);
             const loaded = await mergeCandidates.loadCatalogMergeCandidateForReview(oracle.candidates[0]!.candidateId);
             const withoutAddedAt = (snapshot: unknown) =>
@@ -1244,17 +1317,23 @@ describe("source observation runtime: provider integration jobs", () => {
                 ? ["catalog.merge-candidate.created"]
                 : ["catalog.merge-candidate.created", "catalog.merge-candidate.refreshed"],
             );
-            if (turn === 1 && providers.length === 3) {
+            if (turn === 1 && terminalStatus) {
               const candidateId = oracle.candidates[0]!.candidateId;
-              const promoted = await mergeCandidates.services.promoteCatalogMergeCandidate({
+              const decision = {
                 candidateId,
                 expectedVersion: loaded.version,
-                reason: "Approved both Time Spiral sources",
-                conflictResolutions: [],
+                reason: "Reviewed both Time Spiral sources",
                 context,
-              });
-              expect(promoted.status).toBe("promoted");
-              promotedStreamId = catalogMergeCandidateStreamId(candidateId);
+              };
+              const reviewed =
+                terminalStatus === "promoted"
+                  ? await mergeCandidates.services.promoteCatalogMergeCandidate({
+                      ...decision,
+                      conflictResolutions: [],
+                    })
+                  : await mergeCandidates.services.ignoreCatalogMergeCandidate(decision);
+              expect(reviewed.status).toBe(terminalStatus);
+              terminalStreamId = catalogMergeCandidateStreamId(candidateId);
             }
           }
         }
