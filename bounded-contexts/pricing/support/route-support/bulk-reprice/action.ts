@@ -2,7 +2,7 @@ import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { t } from "@chase-sets/localization";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createPricingRequestApiClient } from "../../request-support/api-client";
+import { createPricingRequestApiClient, PricingApiError } from "../../request-support/api-client";
 
 export async function action({ request }: ActionFunctionArgs) {
   await requireActorFromAuthApi({
@@ -32,6 +32,11 @@ export async function action({ request }: ActionFunctionArgs) {
       error: t("pricing.routes.marketplace.bulkReprice.unknown.action"),
     };
   } catch (error) {
+    // Pricing answers 404 for the whole tree while bulk reprice is off (a page drawn before it
+    // was switched off can still post).
+    if (error instanceof PricingApiError && error.status === 404 && !(await api.isBulkRepriceAvailable())) {
+      return { error: t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.unavailable") };
+    }
     return {
       error: error instanceof Error ? error.message : t("pricing.routes.marketplace.bulkReprice.action.failed"),
     };

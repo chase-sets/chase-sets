@@ -10089,6 +10089,7 @@ export const englishTranslations = {
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.recommendations": "Recommendations",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.rows.of.total": "of {total} rows",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.seller": "Seller",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.unavailable": "Bulk reprice is not available for your account yet.",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.unchanged": "Unchanged",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload": "Upload CSV",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.a.csv": "Upload a CSV of seller SKUs or listing IDs with new prices. Unchanged rows are skipped automatically.",

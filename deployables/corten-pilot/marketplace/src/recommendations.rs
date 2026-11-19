@@ -22,7 +22,10 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 
 use crate::{
-    api::{ApiError, PRICING_CONTEXT, Recommendation, RecommendationCalls as _, RecommendationJob, recommendation_job_events},
+    api::{
+        ApiError, BulkRepriceCalls as _, PRICING_CONTEXT, Recommendation, RecommendationCalls as _, RecommendationJob,
+        recommendation_job_events,
+    },
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
     auth::{PricingManager, Viewer},
     text::{Pilot, RepricingMsg},
@@ -65,6 +68,8 @@ pub struct RecommendationsScreen {
     pub error: Option<String>,
     /// The reader may Refresh, Apply and Dismiss (`pricing.manage`).
     pub manage: bool,
+    /// Pricing has bulk reprice on, so the page offers it.
+    pub bulk_reprice: bool,
 }
 
 impl RecommendationsScreen {
@@ -92,8 +97,15 @@ async fn screen(
     error: Option<String>,
 ) -> Result<RecommendationsScreen, ApiError> {
     let caller = config.platform.caller(headers, config.proto, None);
-    let (items, job) = tokio::join!(caller.recommendations(), read_job(config, headers, id));
-    Ok(RecommendationsScreen { items: items?.items, job: job?, error, manage: viewer.actor.can(PRICING_MANAGE) })
+    let (items, job, bulk_reprice) =
+        tokio::join!(caller.recommendations(), read_job(config, headers, id), caller.bulk_reprice_available());
+    Ok(RecommendationsScreen {
+        items: items?.items,
+        job: job?,
+        error,
+        manage: viewer.actor.can(PRICING_MANAGE),
+        bulk_reprice: bulk_reprice?,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
