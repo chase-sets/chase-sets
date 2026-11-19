@@ -1562,8 +1562,8 @@ async function command(
   };
   try {
     const outcome = await runStagingDrill(argv, ports).then(
-      () => ({ error: undefined }),
-      (error: unknown) => ({ error }),
+      ({ receipt }) => ({ receipt, error: undefined }),
+      (error: unknown) => ({ receipt: undefined, error }),
     );
     return { ...outcome, resolveDeployBinding, launches, fake, rows: fake.rows() };
   } finally {
