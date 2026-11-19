@@ -42,7 +42,9 @@ const afterDeadline = new Date("2026-07-01T00:00:00Z");
 
 describe("Ordering order delivery summary", () => {
   function summaryFrom(latest: Date | null) {
-    const db = { query: vi.fn(async () => ({ rows: [{ shipment_count: 2, delivered_count: 1, latest_delivered_at: latest }] })) };
+    const db = {
+      query: vi.fn(async () => ({ rows: [{ shipment_count: 2, delivered_count: 1, latest_delivered_at: latest }] })),
+    };
     return getOrderingOrderDeliverySummary(db as never, "ord_1");
   }
 
