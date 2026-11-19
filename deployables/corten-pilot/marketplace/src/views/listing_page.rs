@@ -488,7 +488,7 @@ fn ReportForm<'a>(t: ListingMsg, p: Pilot, action: &'a str, notice: Option<&'a L
             <h2 id="listing-report-heading" class={SectionTitle}>{t.page_report_title()}</h2>
             match notice {
                 Some(ListingNotice::Received) => {
-                    <div class={Banner} data-tone="success" role="status"><p>{p.listing_report_received()}</p></div>
+                    <div class={Banner} data-tone="success" role="status"><p>{t.page_report_received()}</p></div>
                 }
                 Some(ListingNotice::Repeat) => {
                     <div class={Banner} data-tone="info" role="status"><p>{p.listing_report_repeat()}</p></div>

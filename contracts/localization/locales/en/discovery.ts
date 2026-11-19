@@ -1204,6 +1204,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicListing.report.reason.pricingScam": "Pricing scam",
   "discovery.routes.publicListing.report.reason.prohibited": "Prohibited item",
   "discovery.routes.publicListing.report.reason.stolenPhotos": "Stolen photos",
+  "discovery.routes.publicListing.report.received": "Thanks. We received your report, and we will review this listing.",
   "discovery.routes.publicListing.report.submit": "Report listing",
   "discovery.routes.publicListing.report.title": "Report Listing",
   "discovery.features.browse.api.route.set.not.found": "Set not found.",

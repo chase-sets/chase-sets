@@ -275,6 +275,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       canonicalUrl: new URL(`/listings/${listing.listing_slug}`, url.origin).toString(),
       entryAttemptKey: createId("chkentry"),
       anonymousReportId: ensureAnonymousReportId(request),
+      reportReceived: url.searchParams.has("reported"),
     };
   } catch (error) {
     if (error instanceof DiscoveryApiError) {
@@ -501,26 +502,30 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               }
             />
             <PageSection title={t("discovery.routes.publicListing.report.title")}>
-              <ReviewMutationForm spacing="none" method="post">
-                <HiddenInput type="hidden" name="intent" value="report-listing" readOnly />
-                <HiddenInput type="hidden" name="anonymousReportId" value={data.anonymousReportId ?? ""} readOnly />
-                <HiddenInput type="hidden" name="listingId" value={listing.listing_id} readOnly />
-                <NativeSelect
-                  name="reason"
-                  label={t("discovery.routes.publicListing.report.reason")}
-                  items={reportReasonItems}
-                  required
-                />
-                <Textarea
-                  name="details"
-                  label={t("discovery.routes.publicListing.report.details")}
-                  rows={3}
-                  maxLength={1000}
-                />
-                <Button type="submit" tone="secondary" leadingIcon="warning">
-                  {t("discovery.routes.publicListing.report.submit")}
-                </Button>
-              </ReviewMutationForm>
+              {data.reportReceived ? (
+                <Banner tone="success" title={t("discovery.routes.publicListing.report.received")} />
+              ) : (
+                <ReviewMutationForm spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="report-listing" readOnly />
+                  <HiddenInput type="hidden" name="anonymousReportId" value={data.anonymousReportId ?? ""} readOnly />
+                  <HiddenInput type="hidden" name="listingId" value={listing.listing_id} readOnly />
+                  <NativeSelect
+                    name="reason"
+                    label={t("discovery.routes.publicListing.report.reason")}
+                    items={reportReasonItems}
+                    required
+                  />
+                  <Textarea
+                    name="details"
+                    label={t("discovery.routes.publicListing.report.details")}
+                    rows={3}
+                    maxLength={1000}
+                  />
+                  <Button type="submit" tone="secondary" leadingIcon="warning">
+                    {t("discovery.routes.publicListing.report.submit")}
+                  </Button>
+                </ReviewMutationForm>
+              )}
             </PageSection>
           </Stack>
         </Grid>
