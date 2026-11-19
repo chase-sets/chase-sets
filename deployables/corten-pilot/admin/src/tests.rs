@@ -603,8 +603,8 @@ fn identity_api(method: &Method, rest: &str, body: &str) -> Response {
     }
 }
 
-/// Auth's sessions: one of 120 in the list; `ses_1` active with two accounts, `ses_old` revoked,
-/// and a switch to `acc_gone` refused.
+/// Auth's sessions: one of 120 in the list; `ses_1` active with two accounts, `ses_solo` active with
+/// only its own, `ses_old` revoked, and a switch to `acc_gone` refused.
 fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
     let session = |id: &str, status: &str| {
         json!({
@@ -618,6 +618,11 @@ fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
         (Method::GET, "") => Json(json!({ "items": [session("ses_1", "active")], "total": 120, "count": 1 })).into_response(),
         (Method::GET, "/ses_1") => Json(session("ses_1", "active")).into_response(),
         (Method::GET, "/ses_old") => Json(session("ses_old", "revoked")).into_response(),
+        (Method::GET, "/ses_solo") => {
+            let mut solo = session("ses_solo", "active");
+            solo["available_account_ids"] = json!(["acc_1"]);
+            Json(solo).into_response()
+        }
         (Method::POST, "/ses_1/switch-account") if body.contains("acc_gone") => {
             refusal(StatusCode::CONFLICT, "account_unavailable", "That account is not available to this session.")
         }
@@ -5726,7 +5731,11 @@ async fn sessions_list_and_page_read_auth_as_admin_web_does() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("dana@example.test session") && html.contains("acc_1, acc_2"), "{html}");
     assert!(html.contains(r#"value="switch-account""#) && html.contains(r#"value="revoke""#), "{html}");
-    assert!(html.contains(r#"<option value="acc_1" selected>Acme Cards</option>"#), "{html}");
+    assert!(html.contains("Switch to") && html.contains(r#"<option value="acc_2">acc_2</option>"#), "{html}");
+    assert!(!html.contains(r#"<option value="acc_1""#), "the current account is not offered: {html}");
+    let (_, _, html) = pilot.send(get("/access/sessions/ses_solo", Some("access-staff"))).await;
+    assert!(!html.contains(r#"value="switch-account""#), "no other account, no switch: {html}");
+    assert!(html.contains(r#"value="revoke""#), "{html}");
     let (_, _, html) = pilot.send(get("/access/sessions/ses_old", Some("access-staff"))).await;
     assert!(!html.contains(r#"value="revoke""#), "a revoked session has no forms: {html}");
     assert_eq!(pilot.send(get("/access/sessions/ses_none", Some("access-staff"))).await.0, StatusCode::NOT_FOUND);

@@ -7,11 +7,11 @@
 //! The list sends its status filter and page to the API, which marketplace's loader does not
 //! (chase-sets/chase-sets#10699), and has no Search: for a user, Auth replaces it with the user's id.
 //!
-//! Neither write is an attempt (Auth takes no `Idempotency-Key` for them) and Auth answers every
-//! refusal with a 500 (chase-sets/chase-sets#10698). So after a write that did not succeed the page
-//! reads the session again and says what it finds: no longer active, already on that account, or
-//! unchanged. Switch Account offers only the session's other accounts, and is not drawn when there
-//! are none (marketplace's always offers the current one, which Auth refuses).
+//! Neither write is an attempt (Auth takes no `Idempotency-Key` for them). Auth names a refusal
+//! (`session_not_active`, `session_account_current`, `session_account_unavailable`) and answers a
+//! revoke of a revoked session as done, so the page says what Auth said. Only a write with no
+//! answer, or a failure, leaves the page to read the session again and say what it finds. Switch
+//! Account offers only the session's other accounts, and is not drawn when there are none.
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -154,7 +154,7 @@ pub(crate) async fn list(
     let filters = route.filters;
     let caller = config.platform.caller(&headers, config.proto, None);
     let (limit, offset, status) = (filters.limit(), filters.offset(), filters.status());
-    let (sessions, total) = match caller.sessions(&viewer.actor.user_id, status, limit, offset).await {
+    let (sessions, total) = match caller.sessions(status, limit, offset).await {
         Ok(found) => found,
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
@@ -247,10 +247,15 @@ async fn write(
     };
     match caller.session_write(id, write).await {
         Ok(after_write) => return to(after_write, done),
-        Err(error) => match error.status() {
-            Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
-            Some(StatusCode::FORBIDDEN | StatusCode::NOT_FOUND) => return failed_read(req, viewer, error),
-            // A refusal, a failure, or no answer: Auth answers them alike.
+        Err(error) => match (error.status(), error.code()) {
+            (Some(StatusCode::UNAUTHORIZED), _) => return sign_in(req),
+            (Some(StatusCode::FORBIDDEN | StatusCode::NOT_FOUND), _) => return failed_read(req, viewer, error),
+            (Some(StatusCode::CONFLICT), Some("session_not_active")) => return to(None, Said::NotActive),
+            (Some(StatusCode::CONFLICT), Some("session_account_current")) => return to(None, Said::Switched),
+            (Some(StatusCode::BAD_REQUEST), Some("session_account_unavailable" | "validation_failed")) => {
+                return to(None, Said::SwitchRefused);
+            }
+            // A failure or no answer: the write may or may not have happened.
             _ => tracing::warn!("a session write did not succeed: {error}"),
         },
     }

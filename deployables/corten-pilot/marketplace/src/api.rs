@@ -5659,19 +5659,11 @@ struct ErrorCode {
 }
 
 /// The signed-in user's sessions (Auth's `sessions`) and their two writes. Neither write is an
-/// attempt: Auth takes no `Idempotency-Key` for them, and answers every refusal (already revoked,
-/// already that account) with a 500 (chase-sets/chase-sets#10698).
+/// attempt: Auth takes no `Idempotency-Key` for them, and names a refusal by its error code.
 pub trait SessionCalls {
-    /// A page of `user`'s sessions, newest first, and how many there are. Auth filters the list
-    /// by `search`, which it matches against names and emails too, so only the sessions whose
-    /// `user_id` is `user` are kept (chase-sets/chase-sets#10697), and the total counts them out.
-    async fn sessions(
-        &self,
-        user: &str,
-        status: Option<&str>,
-        limit: u32,
-        offset: u32,
-    ) -> Result<(Vec<SessionRecord>, u64), ApiError>;
+    /// A page of the signed-in user's sessions, newest first, and how many there are: Auth lists
+    /// only the caller's own sessions to a user.
+    async fn sessions(&self, status: Option<&str>, limit: u32, offset: u32) -> Result<(Vec<SessionRecord>, u64), ApiError>;
     async fn session(&self, id: &str) -> Result<SessionRecord, ApiError>;
     /// Send `write`; the write's receipt when it is done. A call with no answer is
     /// `Err(ApiError::Transport)`.
@@ -5679,22 +5671,13 @@ pub trait SessionCalls {
 }
 
 impl SessionCalls for Caller<'_> {
-    async fn sessions(
-        &self,
-        user: &str,
-        status: Option<&str>,
-        limit: u32,
-        offset: u32,
-    ) -> Result<(Vec<SessionRecord>, u64), ApiError> {
+    async fn sessions(&self, status: Option<&str>, limit: u32, offset: u32) -> Result<(Vec<SessionRecord>, u64), ApiError> {
         let mut path = format!("/api/auth/sessions?limit={limit}&offset={offset}");
         if let Some(status) = status {
             path.push_str(&format!("&status={}", segment(status)));
         }
         let list: SessionList = self.read(&path, AUTH).await?;
-        let found = list.items.len();
-        let items: Vec<SessionRecord> = list.items.into_iter().filter(|s| s.user_id == user).collect();
-        let total = list.total.saturating_sub((found - items.len()) as u64);
-        Ok((items, total))
+        Ok((list.items, list.total))
     }
 
     async fn session(&self, id: &str) -> Result<SessionRecord, ApiError> {
