@@ -11,7 +11,7 @@
 //! and currency. The pilot reads the item again and takes the product's options and summary from
 //! the page the form was drawn as, not the form (the API checks nothing against the catalog,
 //! chase-sets/chase-sets#10595). An account's alert is created and the page comes back on its Watch
-//! tab, saying so (marketplace says nothing, chase-sets/chase-sets#10597). A guest's alert is saved
+//! tab, saying so, as marketplace's does. A guest's alert is saved
 //! as an intent, its owner in marketplace's own cookie, and the guest goes to marketplace's
 //! registration, whose return claims it on marketplace's item page.
 //!

@@ -1907,7 +1907,6 @@ fn WatchForms<'a>(
     slug: &'a str,
     notice: Option<&'a BuyNotice>,
 ) -> impl Render {
-    let p = Pilot::default();
     let product = screen.product_id.as_deref();
     let refused = match notice {
         Some(BuyNotice::WatchRefused { message, input }) => Some((message.as_str(), input)),
@@ -1947,9 +1946,9 @@ fn WatchForms<'a>(
         <p class={Muted}>{t.route_watch_card_description()}</p>
         if let Some(BuyNotice::Watched(alerts)) = notice {
             <div class={(Banner, Added)} role="status">
-                <p class={Strong}>{p.item_watch_saved()}</p>
-                <p>{p.item_watch_saved_description()}</p>
-                <p><a class={Button} href={alerts}>{p.item_manage_alerts()}</a></p>
+                <p class={Strong}>{t.route_watch_saved()}</p>
+                <p>{t.route_watch_saved_description()}</p>
+                <p><a class={Button} href={alerts}>{t.route_watch_manage_alerts()}</a></p>
             </div>
         }
         if let Some(product) = product {
