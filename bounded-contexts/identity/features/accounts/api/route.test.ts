@@ -4,6 +4,8 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { IdentityApiEnv } from "../../../api";
 import type { AccountServices } from "./runtime";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
+import { AccountProfileFieldError } from "../domain/errors";
 import { accountRoutes } from "./route";
 
 const actor: ResolvedActor = {
@@ -116,6 +118,49 @@ describe.each([null, undefined])("account API without an actor (%s)", (missingAc
 });
 
 describe("account API route", () => {
+  it("refuses a direct profile update's blank name with the field that is blank", async () => {
+    const services = buildServices({
+      commandHandler: vi.fn(async () => {
+        throw new AccountProfileFieldError("displayName");
+      }) as never,
+    });
+    const response = await buildApp(services).request("/accounts/acc_1", {
+      method: "PUT",
+      body: JSON.stringify({ name: "Store", displayName: " " }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const message = "Marketplace name is required.";
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: "validation_failed", message, details: [{ field: "displayName", code: "required", message }] },
+    });
+  });
+
+  it("answers a keyed profile update's blank name as the field that is blank", async () => {
+    const accountManagement = {
+      submit: vi.fn(async () => ({ outcome: "not-recorded", code: "validation-failed", accountProfileField: "name" })),
+      lookup: vi.fn(),
+    } as unknown as AccountManagementServices;
+    const app = new Hono<IdentityApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      c.set("context", { tenantId: "tnt_identity" as never, audit: {}, trace: {} } as EventStoreContext);
+      await next();
+    });
+    app.route("/accounts", accountRoutes(buildServices(), accountManagement));
+    const response = await app.request("/accounts/acc_1", {
+      method: "PUT",
+      body: JSON.stringify({ name: " ", displayName: "Store" }),
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "c626f8c0-f697-4e78-82cf-ef162634f998" },
+    });
+    const message = "Legal name is required.";
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      error: { code: "validation_failed", message, details: [{ field: "name", code: "required", message }] },
+    });
+  });
+
   it.each([
     ["suspend", "SuspendAccount", "/accounts/acc_1/suspend"],
     ["reactivate", "ReactivateAccount", "/accounts/acc_1/reactivate"],

@@ -7,6 +7,7 @@ import { accountEnforcementReasonCodes, accountEnforcementReversalReasonCodes } 
 import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
+import { AccountProfileFieldError } from "../domain/errors";
 import type { AccountServices } from "./runtime";
 import type { AccountEnforcementRequest } from "./contracts";
 import { readAccountEnforcementRequest, submitAccountEnforcement } from "./account-enforcement";
@@ -83,16 +84,25 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
       return c.json(forbidden(), 403);
     }
     const context = c.get("context");
-    const result = await services.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "UpdateAccountProfile",
-        name: body.name,
-        displayName: body.displayName,
-      },
-      context,
-    });
-    return c.json({ id: accountId, version: result.version, status: result.state.status });
+    try {
+      const result = await services.commandHandler({
+        streamId: `identity.account-${accountId}`,
+        command: {
+          type: "UpdateAccountProfile",
+          name: body.name,
+          displayName: body.displayName,
+        },
+        context,
+      });
+      return c.json({ id: accountId, version: result.version, status: result.state.status });
+    } catch (error) {
+      if (!(error instanceof AccountProfileFieldError)) throw error;
+      const message = error.message;
+      return c.json(
+        { error: { code: "validation_failed", message, details: [{ field: error.field, code: error.code, message }] } },
+        400,
+      );
+    }
   });
 
   app.post("/:id/suspend", async (c) => {
