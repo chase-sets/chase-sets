@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 import { createContext, Script } from "node:vm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { composeTcgplayerOrderObservation } from "../../../tcgplayer-orders/domain/detail";
+import { canarySealDigest } from "../../../outbound-sync/api/ready-to-ship-canary";
+import { assertCanaryHandoff, canarySalePullId } from "../../../outbound-sync/domain/ready-to-ship-canary";
 import { pullFixture } from "../../tests/connector-order-pull-test-support";
 
 const source = path.dirname(fileURLToPath(import.meta.url));
@@ -723,12 +725,14 @@ describe("fixed first-page canary (offline)", () => {
     expect(readdirSync(path.join(canaryOut, "receipt"))).toEqual(["selector-inventory.json", "selector-receipt.json"]);
     expect(readdirSync(path.join(canaryOut, "custody"))).toEqual([handoffFile]);
     const authorization = { ...canaryTarget, pageClaim: observed.canary!.pageClaim };
-    expect(packaging.takeSyntheticCanaryHandoff(canaryOut, authorization, observed.finishedAt)).toEqual(
-      orders.map(({ orderNumber }) => {
-        const { soldAt, lines } = composeTcgplayerOrderObservation("synthetic-pull", { ...detail, orderNumber });
-        return { orderNumber, soldAt, lines };
-      }),
+    const handoff: unknown = packaging.takeSyntheticCanaryHandoff(canaryOut, authorization, observed.finishedAt);
+    assertCanaryHandoff(handoff);
+    expect(handoff.sales).toEqual(
+      orders.map(({ orderNumber }) =>
+        composeTcgplayerOrderObservation(canarySalePullId(authorization.pageClaim), { ...detail, orderNumber }),
+      ),
     );
+    expect(handoff.sealDigest).toBe(canarySealDigest(handoff));
     // Copying back the original ciphertext cannot resurrect a consumed claim.
     writeFileSync(path.join(canaryOut, "custody", handoffFile), page.exports.get(handoffFile)!);
     expect(() => packaging.takeSyntheticCanaryHandoff(canaryOut, authorization, observed.finishedAt)).toThrow(
@@ -796,12 +800,16 @@ describe("fixed first-page canary (offline)", () => {
       const observed = exported(page);
       rmdirSync(worker.packaged.profileDirectory);
       packaging.recordRemoval(run, true, observed.finishedAt);
-      const sales = packaging.takeSyntheticCanaryHandoff(
+      const handoff: unknown = packaging.takeSyntheticCanaryHandoff(
         run,
         { ...canaryTarget, pageClaim: observed.canary!.pageClaim },
         observed.finishedAt,
       );
-      const fixture = await pullFixture({ target: { ...canaryTarget, at: Date.parse(observed.finishedAt) }, sales });
+      assertCanaryHandoff(handoff);
+      const fixture = await pullFixture({
+        target: { ...canaryTarget, at: Date.parse(observed.finishedAt) },
+        sales: handoff.sales,
+      });
       fixture.dispatch.mockImplementation(async (_unit, _signal, pull) => {
         await pull!.save(fixture.handoff);
         await pull!.sale(CANARY_ORDER, 0, async (bytes) => {

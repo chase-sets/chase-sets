@@ -253,10 +253,13 @@ substitute a scheduled pull, generic connector claim, or direct ingest.
    `POST /api/channels/connections/<connectionId>/connector-pairing/ready-to-ship-canary`.
    Do not put the body, credentials, or key on a command line, in logs, or in
    evidence. Remove the private request file after submission or refusal.
-   A `204` only arms the page for that pairing. The paired connector's next
-   eligible claim gets one lease capped by the handoff deadline; it does not
-   access TCGplayer. Do not resubmit after a lost reply or expiry. A post or
-   report acknowledgement is transport evidence, not Inventory acceptance.
+   The server checks the digest of the released sale bytes, claim, pairing
+   and expiry. The digest detects changes to this request; the founder session
+   supplies authority. A `204` confirms arming or acknowledges an identical
+   request without arming again. The paired connector's next eligible claim
+   gets one lease capped by the handoff deadline; it does not access TCGplayer.
+   Do not create a second release after a lost reply or expiry. A post or report
+   acknowledgement is transport evidence, not Inventory acceptance.
 
 ### Manual-Sync Round Trip
 

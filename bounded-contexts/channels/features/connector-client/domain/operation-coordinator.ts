@@ -3,7 +3,7 @@ import { RetentionError } from "./raw-export-record";
 import type { ClaimedOperationReservation, ClaimedSubjectOperation } from "../../outbound-sync/domain/contracts";
 import { browserCheckpointDigest } from "./order-pull-handoff";
 import { createOrderPullExecution } from "./order-pull-execution";
-import { canaryReservationPrefix } from "../../outbound-sync/domain/ready-to-ship-canary";
+import { canaryAuthority, canaryReservationPrefix } from "../../outbound-sync/domain/ready-to-ship-canary";
 import { createLiveExportExecution, liveExportOutcome } from "./live-export-execution";
 import {
   assertStagedImportTimingTransition,
@@ -377,14 +377,23 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     reservation: OperationReservation,
   ): Promise<CoordinatorResult> {
     if ((await authority(input)) === "absent") return { outcome: "unknown" };
+    let signal: AbortSignal | undefined;
+    if (reservation.reservationId.startsWith(canaryReservationPrefix)) {
+      const timeout = Math.min(
+        canaryAuthority.reportTimeoutMs,
+        Date.parse(reservation.leaseExpiresAt) - ports.clock.now(),
+      );
+      if (timeout <= 0) return { outcome: "unknown" };
+      signal = AbortSignal.timeout(timeout);
+    }
     let response: Response;
     try {
-      response = await request(input, "report", reservation.reportEnvelope!);
+      response = await request(input, "report", reservation.reportEnvelope!, signal);
     } catch {
       await write(input, state, revise(reservation, { lastRefusal: "transport" }), []);
       return { outcome: "unknown" };
     }
-    if (!response.ok || (await response.text()) !== "{}") {
+    if (!response.ok || (await response.text()) !== "{}" || signal?.aborted) {
       await write(
         input,
         state,

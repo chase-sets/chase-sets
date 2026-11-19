@@ -46,6 +46,34 @@ type ClaimRow = Readonly<{
   payload_digest: string;
 }>;
 
+export function canarySealDigest({
+  pageClaim,
+  target: { connectionId, pairingId },
+  finishedAt,
+  expiresAt,
+  sales,
+}: Omit<CanaryHandoff, "sealDigest">): string {
+  // Reconstruct the worker's sealed plaintext in its original key order. The
+  // handoff validator fixes version, kind, pull ID and cancellation separately.
+  const orders = sales.map(({ orderNumber, soldAt, lines }) => ({
+    orderNumber,
+    soldAt,
+    lines: lines.map(({ productId, skuId, quantity, unitPriceAmount }) => ({
+      productId,
+      skuId,
+      quantity,
+      unitPriceAmount,
+    })),
+  }));
+  return createHash("sha256")
+    .update(
+      JSON.stringify(["ready-to-ship-sale-handoff/v1", pageClaim, connectionId, pairingId, finishedAt, expiresAt]),
+    )
+    .update("\n")
+    .update(JSON.stringify(orders))
+    .digest("hex");
+}
+
 export async function armReadyToShipCanary(
   db: PgQueryable,
   fence: Fences,
@@ -53,6 +81,7 @@ export async function armReadyToShipCanary(
   at: string,
 ): Promise<void> {
   if (at < handoff.finishedAt || at >= handoff.expiresAt) throw new ConnectorPairingError("authorization-refused");
+  if (canarySealDigest(handoff) !== handoff.sealDigest) throw new ConnectorPairingError("invalid-request");
   const members = await Promise.all(
     handoff.sales.map(async (sale) => (await composeTcgplayerOrderInbound(sale)).externalReference),
   );
@@ -76,7 +105,13 @@ export async function armReadyToShipCanary(
       members,
     ],
   );
-  if (!inserted.rows.length) throw new ConnectorPairingError("conflict");
+  if (inserted.rows.length) return;
+  const replay = await db.query(
+    `SELECT page_claim FROM channel_ready_to_ship_canaries
+     WHERE page_claim=$1 AND seal_digest=$2 AND connection_id=$3 AND pairing_id=$4 AND grant_id=$5`,
+    [handoff.pageClaim, handoff.sealDigest, fence.connectionId, fence.pairingId, fence.grantId],
+  );
+  if (!replay.rows.length) throw new ConnectorPairingError("conflict");
 }
 
 export async function reserveReadyToShipCanary(

@@ -51,6 +51,8 @@ import { createConnectorOperationCoordinator } from "../../connector-client/doma
 import { createReadyToShipCanaryExecutor } from "../../connector-client/domain/ready-to-ship-canary-executor";
 import { createConnectorTransportRoutes } from "../../connector-feed/api/transport-routes";
 import { createSellerConnectorRoutes } from "../../connector-feed/api/routes";
+import { connectorPolicyDefaults } from "../../connector-feed/domain/policy";
+import { canarySealDigest } from "../../outbound-sync/api/ready-to-ship-canary";
 import { canarySalePullId, type CanaryHandoff } from "../../outbound-sync/domain/ready-to-ship-canary";
 import { channelProviderRegistry } from "../../publication-port/api/registry";
 import { syntheticAuthority } from "../../outbound-sync/tests/order-pull-fixtures";
@@ -99,14 +101,14 @@ describeDb("TCGplayer connector sale interpretation", () => {
       const first = await pair();
       const pageClaim = "00000000-0000-4000-8000-000000000055";
       const sale = { ...order, pullId: canarySalePullId(pageClaim) };
-      const exact: CanaryHandoff = {
+      const handoff = {
         pageClaim,
-        sealDigest: "a".repeat(64),
         target: { connectionId: "connection-1", pairingId: first.pairingId },
         finishedAt: new Date(startedAt).toISOString(),
         expiresAt: new Date(startedAt + 300_000).toISOString(),
         sales: [sale],
       };
+      const exact = { ...handoff, sealDigest: canarySealDigest(handoff) };
       const routes = createConnectorTransportRoutes(services.connectorFeed, pools.channels);
       const prefix = "/channel-connector/oauth/connections/connection-1";
       const transport = (action: string, value: unknown, token = first.token) =>
@@ -122,10 +124,20 @@ describeDb("TCGplayer connector sale interpretation", () => {
       expect((await start(exact, { "content-type": "text/plain" })).status).toBe(400);
       expect((await start(exact, { origin: "https://foreign.invalid" })).status).toBe(403);
       expect((await start({ ...exact, target: { ...exact.target, pairingId: "pair_foreign" } })).status).toBe(403);
+      const changed = { ...sale, lines: [{ ...sale.lines[0]!, quantity: sale.lines[0]!.quantity + 1 }] };
+      expect((await start({ ...exact, sales: [changed] })).status).toBe(400);
+      expect((await pools.channels.query("SELECT page_claim FROM channel_ready_to_ship_canaries")).rows).toEqual([]);
       expect(
         (await start(exact, { origin: "https://same-origin-proxy.invalid", "sec-fetch-site": "same-origin" })).status,
       ).toBe(204);
-      expect((await start(exact)).status).toBe(409);
+      expect((await start(exact)).status).toBe(204);
+      expect(
+        (await start({ ...exact, sales: [changed], sealDigest: canarySealDigest({ ...exact, sales: [changed] }) }))
+          .status,
+      ).toBe(409);
+      expect((await pools.channels.query("SELECT page_claim FROM channel_ready_to_ship_canaries")).rows).toEqual([
+        { page_claim: pageClaim },
+      ]);
       expect(await (await transport("claim", {})).json()).toMatchObject({ reservation: null });
       const envelope = await composeTcgplayerOrderInbound(sale);
       expect((await transport("ingest", envelope)).status).toBe(403);
@@ -192,12 +204,18 @@ describeDb("TCGplayer connector sale interpretation", () => {
           platformOrigin: "https://canary-loopback.invalid",
           clock: { now: () => Date.now() },
           request,
-        }).coordinate({ connectionId: "connection-1", accessToken: first.token, authority: async () => "paired-idle" });
+        }).coordinate({
+          connectionId: "connection-1",
+          accessToken: first.token,
+          authority: async () => "paired-idle",
+          reason: "work",
+        });
 
       expect(await coordinate()).toMatchObject({ outcome: "unknown" });
       expect(postCount).toBe(1);
       expect(reportCount).toBe(0);
       expect(await services.tcgplayerOrders.interpretConnection("connection-1")).toBe(1);
+      vi.setSystemTime(startedAt + connectorPolicyDefaults.pollWindowSeconds * 1000);
       expect(await coordinate()).toMatchObject({ outcome: "unknown" });
       expect(await coordinate()).toMatchObject({ outcome: "ok" });
       expect({ postCount, reportCount }).toEqual({ postCount: 2, reportCount: 2 });
@@ -234,19 +252,21 @@ describeDb("TCGplayer connector sale interpretation", () => {
         ).rows,
       ).toEqual([]);
       expect((await transport("ingest", { ...envelope, canaryReservationId: reservationId })).status).toBe(403);
+      expect((await start(exact)).status).toBe(204);
+      expect(await (await transport("claim", { readyToShipCanary: true })).json()).toMatchObject({ reservation: null });
 
       const secondPage = "00000000-0000-4000-8000-000000000056";
       const expiring = {
-        ...exact,
+        ...handoff,
         pageClaim: secondPage,
-        sealDigest: "b".repeat(64),
         sales: ["expired-order", "poisoned-order"].map((orderNumber) => ({
           ...sale,
           pullId: canarySalePullId(secondPage),
           orderNumber,
         })),
       };
-      expect((await start(expiring)).status).toBe(204);
+      const expiringRequest = { ...expiring, sealDigest: canarySealDigest(expiring) };
+      expect((await start(expiringRequest)).status).toBe(204);
       const claimed = (await (await transport("claim", { readyToShipCanary: true })).json()).reservation;
       expect(claimed.reservationId).not.toEqual(reservationId);
       expect(await (await transport("claim", { readyToShipCanary: true })).json()).toMatchObject({ reservation: null });
@@ -284,9 +304,9 @@ describeDb("TCGplayer connector sale interpretation", () => {
       expect(await (await transport("claim", { readyToShipCanary: true }, foreign.token)).json()).toMatchObject({
         reservation: null,
       });
-      expect((await start({ ...expiring, target: { ...expiring.target, pairingId: foreign.pairingId } })).status).toBe(
-        403,
-      );
+      expect(
+        (await start({ ...expiringRequest, target: { ...expiring.target, pairingId: foreign.pairingId } })).status,
+      ).toBe(403);
 
       expect(await services.outboundSync.scheduleDueOrderPulls({ registry: channelProviderRegistry })).toBe(1);
       const scheduled = (

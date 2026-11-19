@@ -1015,7 +1015,28 @@ function takeCanaryHandoff(out, authorization, now, evidence) {
         check(decipher.final().length === 0, "custody_refused");
         const orders = JSON.parse(plaintext.toString("utf8"));
         check(Array.isArray(orders) && orders.length === receipt.canary.matchedDetails, "custody_refused");
-        return { header, sealDigest: hash(json(seal)), orders };
+        const { format, pageClaim, target, finishedAt, expiresAt } = header;
+        const sealDigest = createHash("sha256")
+          .update(JSON.stringify([format, pageClaim, target.connectionId, target.pairingId, finishedAt, expiresAt]))
+          .update("\n")
+          .update(plaintext)
+          .digest("hex");
+        return {
+          pageClaim,
+          sealDigest,
+          finishedAt,
+          expiresAt,
+          target,
+          sales: orders.map(({ orderNumber, soldAt, lines }) => ({
+            version: 1,
+            kind: "order",
+            pullId: `ready-to-ship-canary:${pageClaim}`,
+            orderNumber,
+            soldAt,
+            cancelled: false,
+            lines,
+          })),
+        };
       } finally {
         plaintext.fill(0);
       }
@@ -1029,29 +1050,13 @@ function takeCanaryHandoff(out, authorization, now, evidence) {
 
 /** Offline custody control; synthetic data cannot use the founder release path. */
 export function takeSyntheticCanaryHandoff(out, authorization, now) {
-  return takeCanaryHandoff(out, authorization, now, "synthetic").orders;
+  return takeCanaryHandoff(out, authorization, now, "synthetic");
 }
 
 function releaseFounderCanary(out, authorization) {
-  const { header, sealDigest, orders } = takeCanaryHandoff(out, authorization, new Date().toISOString(), "operator");
-  check(orders.length > 0, "custody_refused");
+  const saleInput = takeCanaryHandoff(out, authorization, new Date().toISOString(), "operator");
+  check(saleInput.sales.length > 0, "custody_refused");
   const file = path.join(out, "custody", "ready-to-ship-owner-request.json");
-  const saleInput = {
-    pageClaim: header.pageClaim,
-    sealDigest,
-    finishedAt: header.finishedAt,
-    expiresAt: header.expiresAt,
-    target: header.target,
-    sales: orders.map(({ orderNumber, soldAt, lines }) => ({
-      version: 1,
-      kind: "order",
-      pullId: `ready-to-ship-canary:${header.pageClaim}`,
-      orderNumber,
-      soldAt,
-      cancelled: false,
-      lines,
-    })),
-  };
   writeFileSync(file, JSON.stringify(saleInput), { flag: "wx", mode: 0o600 });
   try {
     windowsRunCustody("Verify", file);
