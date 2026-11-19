@@ -29,6 +29,7 @@ import {
 } from "./owners";
 import { IdentityDomainError } from "../../../support/runtime-support/common";
 import { ShippingAddressFieldError, ShippingAddressUndeliverableError } from "../../shipping-addresses/domain/errors";
+import { AccountProfileFieldError } from "../../accounts/domain/errors";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
 
 const RECEIPT_EVENT = "identity.account-management-mutation-attempt.committed";
@@ -63,6 +64,7 @@ export type MutationResult =
       current?: SafeOwner;
       suggestedAddress?: ShippingAddressSnapshot;
       shippingAddressField?: string;
+      accountProfileField?: string;
     }>;
 export type MutationInput = Readonly<{
   actor: ResolvedActor;
@@ -398,6 +400,8 @@ export function createAccountManagementRuntime(
           code: error instanceof ShippingAddressFieldError ? "validation-failed" : "shipping-address-undeliverable",
           ...(error instanceof ShippingAddressFieldError ? { shippingAddressField: error.field } : {}),
         };
+      if (error instanceof AccountProfileFieldError)
+        return { outcome: "not-recorded", code: "validation-failed", accountProfileField: error.field };
       if (error instanceof IdentityDomainError) return conflictResult("owner-state-conflict");
       return { outcome: "indeterminate", code: "INDETERMINATE" };
     }

@@ -9061,8 +9061,9 @@ const ACCOUNT_HOME: &str = "/account";
 
 /// The stand-in Identity account `acc_seller` and who is signed in to it. A read that waits for 45
 /// is still catching up. A profile update's attempt decides an answer as an address write's does
-/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict and the
-/// marketplace name `Refused` is refused for its fields.
+/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict, the
+/// marketplace name `Refused` is refused for its fields, and a blank name is refused as Identity
+/// refuses it, naming the field.
 fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     if path == "/api/identity/current-actor-display" {
         return Some(
@@ -9098,6 +9099,16 @@ fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &
             Json(json!({ "outcome": "conflict", "code": "owner-state-conflict", "current": { "id": "acc_seller", "version": 3, "status": "active" } })),
         )
             .into_response(),
+        "PUT" if ["name", "displayName"].iter().any(|f| sent[f].as_str().is_some_and(|v| v.trim().is_empty())) => {
+            let (field, message) = if sent["name"].as_str().is_some_and(|v| v.trim().is_empty()) {
+                ("name", "Legal name is required.")
+            } else {
+                ("displayName", "Marketplace name is required.")
+            };
+            let details = json!([{ "field": field, "code": "required", "message": message }]);
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })))
+                .into_response()
+        }
         "PUT" if sent["displayName"] == "Refused" => {
             (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
         }
@@ -9160,7 +9171,7 @@ async fn the_account_page_shows_the_profile_who_is_signed_in_and_where_to_manage
     );
     assert!(html.contains("<title>Account | Marketplace</title>"), "{html}");
     assert!(html.contains(r#"method="post" action="/account""#), "{html}");
-    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required"#) && !html.contains("pattern="), "{html}");
     assert!(html.contains(r#"name="display_name" value="Synthetic Shop" required"#), "{html}");
     assert_eq!(html.matches(ATTEMPT_INPUT).count(), 1, "the update carries an attempt: {html}");
     for (href, words) in [
@@ -9203,6 +9214,23 @@ async fn an_updated_profile_is_read_after_its_write_and_the_page_says_it_was_sav
     assert!(text(&html).contains("Your change was saved"), "{}", text(&html));
     let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == ACCOUNT_API).cloned().unwrap();
     assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the account waits for the write");
+}
+
+#[tokio::test]
+async fn a_blank_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    for (name, display_name, field, said) in [
+        ("+++", "Shop", "name", "Legal name is required."),
+        ("Synthetic+Legal+LLC", "+", "display_name", "Marketplace name is required."),
+    ] {
+        let body = format!("attempt={ATTEMPT}&name={name}&display_name={display_name}");
+        let (status, _, html) = pilot.send(post(ACCOUNT_HOME, "addresser", &body, true)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+        assert!(text(&html).contains(said), "{}", text(&html));
+        let input = html.split(&format!(r#"name="{field}""#)).nth(1).unwrap().split('>').next().unwrap();
+        assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    }
+    assert_eq!(profile_writes(&pilot).len(), 2, "each blank name is sent for Identity to refuse");
 }
 
 #[tokio::test]
