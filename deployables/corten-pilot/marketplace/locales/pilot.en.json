@@ -91,7 +91,6 @@
     "report_close": "Close"
   },
   "notifications": {
-    "pending": "Saved. Your Product alerts will show the change in a moment.",
     "unconfirmed": "Saved, but your Product alerts could not be read. Reload the page to see the change."
   },
   "orders": {
