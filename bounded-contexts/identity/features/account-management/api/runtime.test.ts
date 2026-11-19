@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
+import type { IdentityApiEnv } from "../../../api";
+import { submitAccountManagement } from "./route-support";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
@@ -365,5 +368,79 @@ describe("issue-7168-ac7-address-provider-order", () => {
     expect(await f.runtime.submit(addressInput)).toMatchObject({ outcome: "committed" });
     expect(await f.runtime.submit(addressInput)).toMatchObject({ outcome: "committed", newlyCommitted: false });
     expect(f.provider).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("issue-10793 validation refusals", () => {
+  const invitation = {
+    invitationId: "ivt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    accountId: actor.accountId,
+    email: "invitee@example.test",
+    roleKey: "viewer",
+  };
+  it.each([
+    [
+      "an expiresAt finer than milliseconds",
+      "create-invitation",
+      null,
+      { ...invitation, expiresAt: "2026-11-05T20:16:40.123456789Z" },
+    ],
+    ["an unknown field", "update-profile", actor.accountId, { name: "New", displayName: "New", nickname: "x" }],
+    ["a non-string value", "update-profile", actor.accountId, { name: 7, displayName: "New" }],
+    [
+      "an id with the wrong prefix",
+      "update-profile",
+      "usr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      { name: "New", displayName: "New" },
+    ],
+    ["an unknown action", "rename", null, {}],
+  ])("refuses %s as not recorded, writing nothing", async (_name, action, target, body) => {
+    const f = fixture();
+
+    expect(await f.runtime.submit({ ...input, action, target, body })).toEqual({
+      outcome: "not-recorded",
+      code: "validation-failed",
+    });
+    expect(f.memory.allEvents).toHaveLength(0);
+    expect(await f.runtime.lookup(input)).toEqual({
+      outcome: "not-recorded",
+      code: "not-recorded",
+    });
+  });
+});
+
+describe("issue-10793 the invitation write's HTTP answer", () => {
+  function app(f: ReturnType<typeof fixture>) {
+    const mounted = new Hono<IdentityApiEnv>();
+    mounted.use("*", async (c, next) => {
+      c.set("actor", actor);
+      c.set("context", context);
+      await next();
+    });
+    mounted.post(
+      "/invitations",
+      async (c) =>
+        (await submitAccountManagement(c, f.runtime, "create-invitation", null, await c.req.json())) ?? c.notFound(),
+    );
+    return mounted;
+  }
+
+  it("answers 400 not-recorded, not 503 INDETERMINATE, for an expiresAt finer than milliseconds", async () => {
+    const f = fixture();
+    const response = await app(f).request("/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+      body: JSON.stringify({
+        invitationId: "ivt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        accountId: actor.accountId,
+        email: "invitee@example.test",
+        roleKey: "viewer",
+        expiresAt: "2026-11-05T20:16:40.123456789Z",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ outcome: "not-recorded", code: "validation-failed" });
+    expect(f.memory.allEvents).toHaveLength(0);
   });
 });

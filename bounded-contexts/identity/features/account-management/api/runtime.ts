@@ -231,7 +231,9 @@ export function createAccountManagementRuntime(
     try {
       request = canonicalRequest(input.action, input.target, input.body);
     } catch {
-      return { outcome: "indeterminate", code: "INDETERMINATE" };
+      // A request refused while it is validated wrote nothing, so its outcome is known: it is a
+      // refusal (400), not an unknown outcome for the client to look up.
+      return { outcome: "not-recorded", code: "validation-failed" };
     }
     assertMutationPermission(input.actor, request.action);
     const binding = bindingOf(input);
