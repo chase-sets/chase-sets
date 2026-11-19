@@ -74,9 +74,9 @@ pub async fn read(mut upload: Upload<Raw>, limits: Limits) -> Result<Posted, Upl
     Ok(Posted { fields, files, over })
 }
 
-/// Whether a file's first bytes are the picture type it claims, JPEG, PNG or WebP: the platform
-/// API answers 500 to a file it cannot decode (chase-sets/chase-sets#10649), so the pilot checks
-/// what it can before sending. Remove the check when that issue lands.
+/// Whether a file's first bytes are the picture type it claims, JPEG, PNG or WebP, so a file that
+/// is not one is refused with the form before anything is sent. A picture the API still cannot
+/// decode is refused by the API.
 pub fn is_picture(content_type: &str, bytes: &[u8]) -> bool {
     match content_type {
         "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),

@@ -10431,8 +10431,8 @@ fn multipart_fields(headers: &HeaderMap, body: &str) -> Option<Vec<(String, Opti
 /// The search finds `cat_etb` for "twilight", nothing for "zzz", and fails for "broken";
 /// `cat_card` is a card with options (Inventory's read has no `valueKind`). A guest's draft
 /// `ldi_1` is claimed with an `anon_` owner. The create refuses `purchaseLimits`, as the multipart
-/// create does, answers 500 for a photo named `broken.png`
-/// (chase-sets/chase-sets#10649), and records the rest as the JSON create does.
+/// create does, refuses a photo named `broken.png` as evidence it cannot decode, and records the
+/// rest as the JSON create does.
 fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     let query = uri.query().unwrap_or_default();
@@ -10540,7 +10540,7 @@ fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
                 return Some(refusal(StatusCode::BAD_REQUEST, "listing_request_unknown_field", "Remove unrecognized fields and try again."));
             }
             if photos.iter().any(|p| p["filename"] == "broken.png") {
-                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                return Some(refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again."));
             }
             if sent["inventoryItemId"] == "inv_missing" && sent["inventorySnapshot"].is_null() {
                 return Some(refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item was not found."));
@@ -10719,11 +10719,11 @@ async fn a_photo_the_api_would_not_take_is_refused_with_the_form_and_nothing_is_
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Each photo must be 10 MB or smaller."), "{html}");
     assert_eq!(create_calls(&pilot), 0);
-    // The API's 500 for a photo it cannot decode (chase-sets/chase-sets#10649) is the form again.
+    // A photo the API cannot decode is refused by it, with the form again.
     let (status, _, html) =
         pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[("evidence", "broken.png", "image/png", PNG)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(text(&html).contains("The photos could not be processed, so nothing was created."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     assert!(pilot.stand.listings.lock().unwrap().is_empty());
 }
 
@@ -11169,8 +11169,8 @@ fn settle(stand: &Stand, headers: &HeaderMap, answer: &Response) {
 /// still catching up; `lst_missing` is not found. A price of 1.00 is a stale quote (409 with the
 /// current one) and 0.50 is refused; an image description with a text-direction override is
 /// refused with its code; publishing the draft is refused for its evidence (409 with the
-/// readiness now); photos named `broken.png` are a 500 (chase-sets/chase-sets#10649), and so is a
-/// price of 5.00, whose answer is lost. Every other write applies at 50.
+/// readiness now); photos named `broken.png` are refused as evidence it cannot decode, and a price
+/// of 5.00 is a 500, whose answer is lost. Every other write applies at 50.
 fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(SELLER_LISTINGS)?;
     let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
@@ -11225,7 +11225,9 @@ fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str)
             } })),
         )
             .into_response(),
-        ("POST", _) if body.contains("filename=\"broken.png\"") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        ("POST", _) if body.contains("filename=\"broken.png\"") => {
+            refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again.")
+        }
         ("POST", _) | ("DELETE", _) => applied(),
         _ => return None,
     })
@@ -11665,12 +11667,12 @@ async fn a_drafts_photos_are_added_and_replaced_as_multipart_and_a_bad_file_is_r
     assert!(text(&html).contains("Choose a photo to upload."), "{html}");
     assert_eq!(listing_writes(&pilot, "lst_draft").len(), before);
 
-    // A photo the API cannot process (a 500, chase-sets/chase-sets#10649) says so.
+    // A photo the API cannot decode is refused by it, with its words.
     let (status, _, html) = pilot
         .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "broken.png", "image/png", PNG)]))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(text(&html).contains("The photos could not be processed, so nothing was changed."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     // Someone who may only read cannot post photos.
     let (status, _, _) = pilot
         .send(post_multipart(photos, "lookout", &[("intent", "add-photos")], &[("evidence", "front.png", "image/png", PNG)]))

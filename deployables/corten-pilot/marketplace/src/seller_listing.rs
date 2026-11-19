@@ -469,7 +469,7 @@ async fn refused(
     reference: Option<&ListingReference>,
     photos: bool,
 ) -> HtmlResult {
-    let (t, p): (SellerListingMsg, Pilot) = (req.t(), req.t());
+    let t: SellerListingMsg = req.t();
     let mut edits = kept(form, Errors::new());
     edits.photos_lost = photos;
     let conflict = match &error {
@@ -500,12 +500,6 @@ async fn refused(
             (_, _, Some(message)) => {
                 edits.errors.add_form(message);
                 error.status().filter(|s| *s == StatusCode::CONFLICT).unwrap_or(StatusCode::UNPROCESSABLE_ENTITY)
-            }
-            // A photo the API cannot decode is a 500 (chase-sets/chase-sets#10649).
-            (Some(status), ..) if photos && status.is_server_error() => {
-                tracing::warn!("a listing photo write failed: {error}");
-                edits.errors.add_form(p.seller_listing_photos_unprocessed());
-                StatusCode::UNPROCESSABLE_ENTITY
             }
             // A prepared change refused without words: the notice says it was not applied.
             _ if edits.recovery.is_some() => StatusCode::UNPROCESSABLE_ENTITY,

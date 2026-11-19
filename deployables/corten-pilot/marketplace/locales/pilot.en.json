@@ -159,7 +159,6 @@
     "photo_count": "Choose at most 24 photos.",
     "photos_too_large": "These photos are too large to send together (60 MB at most).",
     "photos_again": "If you had chosen photos, choose them again.",
-    "photos_unprocessed": "The photos could not be processed, so nothing was created. Check each photo and try again.",
     "draft_saved": "The listing was saved as a draft and not published.",
     "open_draft": "Open the draft"
   },
@@ -170,7 +169,6 @@
     "photo_count": "Choose at most 24 photos.",
     "photos_too_large": "These photos are too large to send together (60 MB at most).",
     "photos_again": "If you had chosen photos, choose them again.",
-    "photos_unprocessed": "The photos could not be processed, so nothing was changed. Check each photo and try again.",
     "choose_photo": "Choose a photo to upload.",
     "whole_number": "Enter a whole number of at least 1.",
     "move_earlier_label": "Move photo {index} earlier",
