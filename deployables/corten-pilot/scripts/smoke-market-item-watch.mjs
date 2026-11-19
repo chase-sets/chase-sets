@@ -147,7 +147,7 @@ try {
     const at = new URL(page.url());
     check(at.origin === base && at.searchParams.get("market") === "watch", "the page comes back on its Watch tab");
     const banner = rail(page).getByRole("status");
-    check((await banner.innerText()).includes("Watch alert saved"), "and says the alert was saved (chase-sets#10597)");
+    check((await banner.innerText()).includes("Watch alert saved"), "and says the alert was saved");
     const after = await eventually(alerts, (a) => a.length > before.length);
     const alert = after.find((a) => !before.some((b) => b.alert_id === a.alert_id));
     if (alert) created.push(alert.alert_id);

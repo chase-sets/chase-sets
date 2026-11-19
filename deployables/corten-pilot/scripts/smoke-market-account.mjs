@@ -1,8 +1,7 @@
 // Uses an account's public page in a browser, against the real platform API, beside marketplace's.
 // - Without JavaScript, as a visitor: the account's name, badges, feedback and listings as
-//   marketplace shows them; an unknown account is a 404 kept out of search engines (marketplace
-//   answers 200); the account's id moves to its slug; the role links
-//   read the reviews again.
+//   marketplace shows them; an unknown account is a 404 kept out of search engines, on both; the
+//   account's id moves to its slug; the role links read the reviews again.
 // - A report with no reason is refused by the pilot before anything is sent, with the review's
 //   dialog drawn open (no write).
 // - As the platform admin (neither the review's author nor the account): Report review opens a
@@ -85,11 +84,14 @@ const facts = (page) =>
     `listing links: ${ours.listings} (marketplace ${theirs.listings})`,
   );
   check(ours.reviews.includes(`review-${REVIEW}`), `the review's card is #review-${REVIEW}`);
-  const missing = await page.request.get(`${base}/accounts/no-such-account-${Date.now()}`);
+  const unknown = `/accounts/no-such-account-${Date.now()}`;
+  const missing = await page.request.get(`${base}${unknown}`);
   check(
     missing.status() === 404 && missing.headers()["x-robots-tag"] === "noindex",
     `an unknown account is a 404, noindex (${missing.status()})`,
   );
+  const theirMissing = await page.request.get(`${market}${unknown}`);
+  check(theirMissing.status() === 404, `marketplace answers an unknown account with 404 (${theirMissing.status()})`);
   const moved = await page.request.get(`${base}/accounts/${ID}?role=buyer`, { maxRedirects: 0 });
   check(
     moved.status() === 301 && moved.headers().location === `/accounts/${SLUG}?role=buyer`,

@@ -164,7 +164,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "corten-macros"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=eb6e077b4e5e7fd0526abb4181de50fc21a3ff6e#eb6e077b4e5e7fd0526abb4181de50fc21a3ff6e"
+source = "git+https://github.com/corten-run/corten?rev=0aef5330cc5d036c2ac63235e87a0e1bc56a8f77#0aef5330cc5d036c2ac63235e87a0e1bc56a8f77"
 
 [[package]]
 name = "corten-pilot-admin"
@@ -251,7 +251,7 @@ dependencies = [
 [[package]]
 name = "corten-run"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=eb6e077b4e5e7fd0526abb4181de50fc21a3ff6e#eb6e077b4e5e7fd0526abb4181de50fc21a3ff6e"
+source = "git+https://github.com/corten-run/corten?rev=0aef5330cc5d036c2ac63235e87a0e1bc56a8f77#0aef5330cc5d036c2ac63235e87a0e1bc56a8f77"
 dependencies = [
  "brotli",
  "bytes",
@@ -276,6 +276,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "typeid",
  "zmij",
  "zstd",
 ]
@@ -283,7 +284,7 @@ dependencies = [
 [[package]]
 name = "corten-ui"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=eb6e077b4e5e7fd0526abb4181de50fc21a3ff6e#eb6e077b4e5e7fd0526abb4181de50fc21a3ff6e"
+source = "git+https://github.com/corten-run/corten?rev=0aef5330cc5d036c2ac63235e87a0e1bc56a8f77#0aef5330cc5d036c2ac63235e87a0e1bc56a8f77"
 dependencies = [
  "corten-run",
 ]
@@ -1382,6 +1383,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"

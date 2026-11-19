@@ -782,6 +782,45 @@ describe("item detail buy now validation and watch intents", () => {
     expect(mockCreateProductAlert).not.toHaveBeenCalled();
   });
 
+  it("lands a signed-in Set alert on the Watch tab saying it was saved", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockCreateProductAlert.mockResolvedValueOnce({ id: "pal_1", version: 1 });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+      }),
+      createProductAlert: mockCreateProductAlert,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-product-alert");
+    form.set("marketSide", "listing");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("thresholdAmount", "20");
+
+    const result = (await action({
+      request: new Request("http://localhost/items/cat_charizard?market=watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(result.status).toBe(302);
+    const location = new URL(result.headers.get("Location") ?? "", "http://localhost");
+    expect(location.pathname).toBe("/items/charizard-base-set");
+    expect(location.searchParams.get("market")).toBe("watch");
+    expect(location.searchParams.get("productAlertCreated")).toBe("1");
+  });
+
   it("claims guest Watch intent for signed-in registration return", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
