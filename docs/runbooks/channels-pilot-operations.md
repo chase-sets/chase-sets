@@ -174,8 +174,8 @@ does not authorize launch or intake. Do not open Chrome or sign in until the
 exact head has passed independent review and the founder window is separately
 admitted. A qualified receipt is not sale authority. Real sale effects require
 Todd to separately authorize that exact opaque page claim for the already-paired
-connection, after teardown and before the handoff expires. The owner-only
-claim and its DB proof are not available; do not run a live canary yet. Never
+connection, after teardown and before the handoff expires. Require hosted
+exact-head DB proof for the owner claim before lifting this no-go. Never
 substitute a scheduled pull, generic connector claim, or direct ingest.
 
 1. In a clean Windows checkout of the independently reviewed head, confirm the
@@ -237,6 +237,26 @@ substitute a scheduled pull, generic connector claim, or direct ingest.
    Share only the verified receipt pair. Stop on decline, expiry, missed
    teardown, or absent authorization; do not reopen or retry the page. The
    earlier of five minutes after capture and the run deadline ends custody.
+
+6. Only in a separately authorized intake window, enable the platform API's
+   `CHANNELS_READY_TO_SHIP_CANARY_OWNER_USER_ID` for Todd's user. Leave it unset
+   otherwise. With the same pairing still active and the connector idle, Todd
+   separately approves the exact `canary.pageClaim` from the verified receipt:
+
+   ```powershell
+   node $probe --release-founder-canary --out $run --page-claim $approvedPageClaim `
+     --connection-id $connectionId --pairing-id $pairingId
+   ```
+
+   In the existing Chase Sets owner session, submit the private
+   `<run>/custody/ready-to-ship-owner-request.json` as the JSON body of one
+   `POST /api/channels/connections/<connectionId>/connector-pairing/ready-to-ship-canary`.
+   Do not put the body, credentials, or key on a command line, in logs, or in
+   evidence. Remove the private request file after submission or refusal.
+   A `204` only arms the page for that pairing. The paired connector's next
+   eligible claim gets one lease capped by the handoff deadline; it does not
+   access TCGplayer. Do not resubmit after a lost reply or expiry. A post or
+   report acknowledgement is transport evidence, not Inventory acceptance.
 
 ### Manual-Sync Round Trip
 

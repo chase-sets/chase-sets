@@ -70,13 +70,13 @@ function safeError(error: unknown) {
               : 400;
   return { code, response: Response.json({ error: code }, { status, headers: { "Cache-Control": "no-store" } }) };
 }
-async function body(request: Request): Promise<unknown> {
+async function body(request: Request, maxBytes = 8192): Promise<unknown> {
   if (!request.body) throw new ConnectorPairingError("invalid-request");
   const chunks: Uint8Array[] = [];
   let length = 0;
   for await (const chunk of request.body) {
     length += chunk.byteLength;
-    if (length > 8192) throw new ConnectorPairingError("invalid-request");
+    if (length > maxBytes) throw new ConnectorPairingError("invalid-request");
     chunks.push(chunk);
   }
   try {
@@ -183,6 +183,19 @@ export function createSellerConnectorRoutes(services: ConnectorFeedServices) {
       const refusal = safeError(error);
       c.set("connectorReason", refusal.code);
       return refusal.response;
+    }
+  });
+  app.post("/:id/connector-pairing/ready-to-ship-canary", async (c) => {
+    try {
+      const actor = await seller(services, c.req.raw);
+      await services.startReadyToShipCanary(
+        { accountId: actor.accountId, connectionId: c.req.param("id") },
+        actor,
+        await body(c.req.raw, 1_048_576),
+      );
+      return c.body(null, 204, { "Cache-Control": "no-store" });
+    } catch (error) {
+      return safeError(error).response;
     }
   });
   for (const action of ["code", "unpair"] as const) {

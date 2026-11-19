@@ -14,6 +14,9 @@ import {
 } from "../domain/transport";
 import { admitConnectorInbound, createConnectorInboundReader } from "../read-model/inbound";
 import type { ConnectorFeedServices } from "./runtime";
+import { admitReadyToShipCanaryMember } from "../../outbound-sync/api/ready-to-ship-canary";
+import { canaryPageClaim, isCanarySalePullId } from "../../outbound-sync/domain/ready-to-ship-canary";
+import { assertTcgplayerOrderRecord } from "../../tcgplayer-orders/domain/contracts";
 
 type RequestAuthority = Readonly<{ token: string; connectionId: string }>;
 type Identify = (identity: ConnectorIdentity) => void;
@@ -23,6 +26,7 @@ export function createConnectorTransport(
     authority: ConnectorFeedServices;
     outboundSync: OutboundSyncServices;
     registry: ChannelProviderRegistry;
+    readyToShipCanaryOwnerUserId?: string;
     resolvePolicy: () => Promise<ResolvedPolicy<ConnectorPolicy>>;
     now?: () => Date;
   }>,
@@ -58,7 +62,14 @@ export function createConnectorTransport(
             pollWindowSeconds: resolved.pollWindowSeconds,
             policyIdentity,
           });
-          return { paused: authority.connectionState === "paused", pairingId: authority.pairingId };
+          return {
+            paused: authority.connectionState === "paused",
+            pairingId: authority.pairingId,
+            canaryGrantId:
+              value.readyToShipCanary && authority.grant.userId === deps.readyToShipCanaryOwnerUserId
+                ? authority.grant.grantId
+                : undefined,
+          };
         },
         identify,
       );
@@ -72,6 +83,7 @@ export function createConnectorTransport(
             maxOperations: resolved.maxOperationsPerClaim,
             leaseMs: resolved.leaseMs,
             capabilities: value.capabilities ?? [],
+            ...(admission.canaryGrantId ? { canaryGrantId: admission.canaryGrantId } : {}),
           });
       return { reservation, pollWindowSeconds: resolved.pollWindowSeconds };
     },
@@ -97,7 +109,44 @@ export function createConnectorTransport(
       assertConnectorInbound(value, resolved);
       await deps.authority.withAuthority(
         { ...input, operation: "ingest" },
-        async (_authority, db) => {
+        async (authority, db) => {
+          if (value.canaryReservationId) {
+            if (
+              authority.connectionState !== "active" ||
+              !authority.claimReportAllowed ||
+              !authority.pairingId ||
+              !authority.grant ||
+              value.inboundKind !== "order" ||
+              value.payload.records.length !== 1
+            )
+              throw new ConnectorPairingError("authorization-refused");
+            const sale = value.payload.records[0];
+            assertTcgplayerOrderRecord(sale);
+            const pageClaim = canaryPageClaim(sale.pullId);
+            if (!pageClaim || sale.kind !== "order") throw new ConnectorPairingError("authorization-refused");
+            const { receivedAt, expiresAt } = await admitReadyToShipCanaryMember(
+              db,
+              {
+                connectionId: input.connectionId,
+                pairingId: authority.pairingId,
+                grantId: authority.grant.grantId,
+              },
+              value.canaryReservationId,
+              pageClaim,
+              sale,
+              value,
+              now,
+            );
+            await admitConnectorInbound(db, input.connectionId, value, receivedAt);
+            // The inbox lock can outlast the lease. Both writes roll back together.
+            if (now().toISOString() >= expiresAt) throw new ConnectorPairingError("authorization-refused");
+            return;
+          }
+          if (
+            value.inboundKind === "order" &&
+            value.payload.records.some((record) => isCanarySalePullId(record.pullId))
+          )
+            throw new ConnectorPairingError("authorization-refused");
           await admitConnectorInbound(db, input.connectionId, value, now().toISOString());
         },
         identify,

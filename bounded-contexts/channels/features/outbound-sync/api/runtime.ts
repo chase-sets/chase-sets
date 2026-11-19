@@ -30,6 +30,8 @@ import {
   type OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
 import { isClaimedOrderPullOutcome } from "../domain/order-pull";
+import { canaryReservationPrefix } from "../domain/ready-to-ship-canary";
+import { settleReadyToShipCanary } from "./ready-to-ship-canary";
 import { isClaimedLiveExportOutcome } from "../domain/live-export-codec";
 import {
   assertLiveExportReportFence,
@@ -169,6 +171,26 @@ export function createOutboundSyncRuntime(
         );
         if (receipt.rows[0]) {
           assertSettlementReceiptMatches(receipt.rows[0], input.claimant, input.outcomes, input.runSettlement);
+          return;
+        }
+        if (input.reservationId.startsWith(canaryReservationPrefix)) {
+          if (input.runSettlement) membershipMismatch();
+          const at = await settleReadyToShipCanary(db, input, now);
+          if (!at) {
+            const concurrent = await db.query<{
+              claimant: unknown;
+              outcomes: unknown;
+              run_settlement: unknown;
+            }>(
+              `SELECT claimant,outcomes,run_settlement FROM channel_outbound_reservation_settlements
+                WHERE reservation_id=$1 FOR UPDATE`,
+              [input.reservationId],
+            );
+            if (!concurrent.rows[0]) membershipMismatch();
+            assertSettlementReceiptMatches(concurrent.rows[0], input.claimant, input.outcomes, undefined);
+            return;
+          }
+          await writeSettlementReceipt(db, input.reservationId, input.claimant, input.outcomes, undefined, at);
           return;
         }
         const members = await db.query<OperationRow>(

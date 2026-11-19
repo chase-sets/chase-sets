@@ -972,11 +972,12 @@ function assertCanarySeal(seal, header) {
   );
 }
 
-/** Offline custody control. There is deliberately no operator release CLI or connector caller. */
-export function takeSyntheticCanaryHandoff(out, authorization, now) {
+function takeCanaryHandoff(out, authorization, now, evidence) {
   try {
     const preparation = verifyPackage(out);
-    check(preparation.mode === "canary" && preparation.evidence === "synthetic", "custody_refused");
+    check(preparation.mode === "canary" && preparation.evidence === evidence, "custody_refused");
+    if (evidence === "operator")
+      check(git("rev-parse", "HEAD") === preparation.head && !git("status", "--porcelain"), "custody_refused");
     const directory = path.join(out, "custody");
     assertRealDirectory(directory);
     const file = path.join(directory, handoffFile);
@@ -1014,7 +1015,7 @@ export function takeSyntheticCanaryHandoff(out, authorization, now) {
         check(decipher.final().length === 0, "custody_refused");
         const orders = JSON.parse(plaintext.toString("utf8"));
         check(Array.isArray(orders) && orders.length === receipt.canary.matchedDetails, "custody_refused");
-        return orders;
+        return { header, sealDigest: hash(json(seal)), orders };
       } finally {
         plaintext.fill(0);
       }
@@ -1022,6 +1023,40 @@ export function takeSyntheticCanaryHandoff(out, authorization, now) {
       key.fill(0);
     }
   } catch {
+    fail("custody_refused");
+  }
+}
+
+/** Offline custody control; synthetic data cannot use the founder release path. */
+export function takeSyntheticCanaryHandoff(out, authorization, now) {
+  return takeCanaryHandoff(out, authorization, now, "synthetic").orders;
+}
+
+function releaseFounderCanary(out, authorization) {
+  const { header, sealDigest, orders } = takeCanaryHandoff(out, authorization, new Date().toISOString(), "operator");
+  check(orders.length > 0, "custody_refused");
+  const file = path.join(out, "custody", "ready-to-ship-owner-request.json");
+  const saleInput = {
+    pageClaim: header.pageClaim,
+    sealDigest,
+    finishedAt: header.finishedAt,
+    expiresAt: header.expiresAt,
+    target: header.target,
+    sales: orders.map(({ orderNumber, soldAt, lines }) => ({
+      version: 1,
+      kind: "order",
+      pullId: `ready-to-ship-canary:${header.pageClaim}`,
+      orderNumber,
+      soldAt,
+      cancelled: false,
+      lines,
+    })),
+  };
+  writeFileSync(file, JSON.stringify(saleInput), { flag: "wx", mode: 0o600 });
+  try {
+    windowsRunCustody("Verify", file);
+  } catch {
+    unlinkSync(file);
     fail("custody_refused");
   }
 }
@@ -1039,6 +1074,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       "--reviewed-head",
       "--connection-id",
       "--pairing-id",
+      "--page-claim",
     ];
     for (let index = 0; index < args.length; index += 1) {
       const key = args[index];
@@ -1047,6 +1083,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
           [
             ...values,
             "--prepare-founder-canary",
+            "--release-founder-canary",
             "--verify",
             "--verify-export",
             "--record-removal",
@@ -1058,19 +1095,31 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     }
     const out = flags.get("--out");
     check(
-      ["--prepare-founder-canary", "--verify", "--verify-export", "--record-removal"].filter((key) => flags.has(key))
-        .length <= 1,
+      [
+        "--prepare-founder-canary",
+        "--release-founder-canary",
+        "--verify",
+        "--verify-export",
+        "--record-removal",
+      ].filter((key) => flags.has(key)).length <= 1,
       "invalid_arguments",
     );
     check(
-      flags.has("--prepare-founder-canary") ===
-        ["--reviewed-head", "--connection-id", "--pairing-id"].every((key) => flags.has(key)) &&
-        (flags.has("--prepare-founder-canary") ||
-          !["--reviewed-head", "--connection-id", "--pairing-id"].some((key) => flags.has(key))),
+      flags.has("--prepare-founder-canary") === flags.has("--reviewed-head") &&
+        flags.has("--release-founder-canary") === flags.has("--page-claim") &&
+        ["--connection-id", "--pairing-id"].every(
+          (key) => flags.has(key) === (flags.has("--prepare-founder-canary") || flags.has("--release-founder-canary")),
+        ),
       "invalid_arguments",
     );
     if (flags.has("--record-removal"))
       recordRemoval(out, flags.get("--extension-absent"), flags.get("--extension-absent-at"));
+    else if (flags.has("--release-founder-canary"))
+      releaseFounderCanary(out, {
+        pageClaim: flags.get("--page-claim"),
+        connectionId: flags.get("--connection-id"),
+        pairingId: flags.get("--pairing-id"),
+      });
     else if (flags.has("--verify-export")) verifyExport(out);
     else if (flags.has("--verify")) verifyPackage(out);
     else

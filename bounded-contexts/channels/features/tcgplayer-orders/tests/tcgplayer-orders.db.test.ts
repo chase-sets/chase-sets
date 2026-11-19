@@ -1,4 +1,9 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
+import { module as authModule } from "@chase-sets/auth";
+import { createConnectorOAuthService } from "@chase-sets/auth/server";
+import { CHANNEL_CONNECTOR_SCOPE_FAMILY, type ResolvedActor } from "@chase-sets/auth-context";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   createMultiContextTestDatabaseUrls,
@@ -42,11 +47,18 @@ import { buildFulfillmentObservationReactions } from "../../order-fulfillment-ob
 import { createChannelActionAttentionSourceFromReadModel } from "../../connection-attention/read-model/attention-source";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { executeRetentionSweepBatch } from "@chase-sets/platform-runtime/retention-sweep";
+import { createConnectorOperationCoordinator } from "../../connector-client/domain/operation-coordinator";
+import { createReadyToShipCanaryExecutor } from "../../connector-client/domain/ready-to-ship-canary-executor";
+import { createConnectorTransportRoutes } from "../../connector-feed/api/transport-routes";
+import { createSellerConnectorRoutes } from "../../connector-feed/api/routes";
+import { canarySalePullId, type CanaryHandoff } from "../../outbound-sync/domain/ready-to-ship-canary";
+import { channelProviderRegistry } from "../../publication-port/api/registry";
+import { syntheticAuthority } from "../../outbound-sync/tests/order-pull-fixtures";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
 const describeDb = baseUrl ? describe : describe.skip;
-let pools: Readonly<Record<"channels" | "inventory", PgTransactionalPool>>;
+let pools: Readonly<Record<"channels" | "inventory" | "auth", PgTransactionalPool>>;
 const context: EventStoreContext = {
   tenantId: "tnt_orders_test" as never,
   audit: { performedByUserId: "usr_orders_test" as never, forAccountId: "account-1" as never },
@@ -63,7 +75,11 @@ const order: TcgplayerOrderObservation = {
 
 describeDb("TCGplayer connector sale interpretation", () => {
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(baseUrl!, ["channels", "inventory"], "tcgplayer_orders_7030");
+    const urls = createMultiContextTestDatabaseUrls(
+      baseUrl!,
+      ["channels", "inventory", "auth"],
+      "tcgplayer_orders_7030",
+    );
     await ensureMultiContextTestDatabases(baseUrl!, urls);
     pools = createMultiContextTestPools(urls);
   });
@@ -74,6 +90,195 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await seed();
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+  it("claims one exact founder page, survives lost post/report, and commits one external sale and stock adjustment", async () => {
+    const startedAt = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(startedAt);
+    try {
+      const { services, pair, start, actor } = await canaryConnector();
+      const first = await pair();
+      const pageClaim = "00000000-0000-4000-8000-000000000055";
+      const sale = { ...order, pullId: canarySalePullId(pageClaim) };
+      const exact: CanaryHandoff = {
+        pageClaim,
+        sealDigest: "a".repeat(64),
+        target: { connectionId: "connection-1", pairingId: first.pairingId },
+        finishedAt: new Date(startedAt).toISOString(),
+        expiresAt: new Date(startedAt + 300_000).toISOString(),
+        sales: [sale],
+      };
+      const routes = createConnectorTransportRoutes(services.connectorFeed, pools.channels);
+      const prefix = "/channel-connector/oauth/connections/connection-1";
+      const transport = (action: string, value: unknown, token = first.token) =>
+        routes.request(`/connections/connection-1/${action}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: JSON.stringify(value),
+        });
+      expect(await (await transport("claim", { readyToShipCanary: true })).json()).toMatchObject({ reservation: null });
+      actor.roleKey = "manager";
+      expect((await start(exact)).status).toBe(403);
+      actor.roleKey = "owner";
+      expect((await start({ ...exact, target: { ...exact.target, pairingId: "pair_foreign" } })).status).toBe(403);
+      expect((await start(exact)).status).toBe(204);
+      expect((await start(exact)).status).toBe(409);
+      expect(await (await transport("claim", {})).json()).toMatchObject({ reservation: null });
+      const envelope = await composeTcgplayerOrderInbound(sale);
+      expect((await transport("ingest", envelope)).status).toBe(403);
+      expect(await services.tcgplayerOrders.interpretConnection("connection-1")).toBe(0);
+
+      const indexedDB = new IDBFactory();
+      let lostPost = true;
+      let lostReport = true;
+      let reservationId: string | undefined;
+      let postCount = 0;
+      let reportCount = 0;
+      const request = async (request: Request) => {
+        const url = new URL(request.url);
+        expect(url.origin).toBe("https://canary-loopback.invalid");
+        expect(url.pathname.startsWith(prefix)).toBe(true);
+        const action = url.pathname.slice(prefix.length + 1);
+        const value = await request.json();
+        if (action === "ingest") {
+          postCount++;
+          if (lostPost) {
+            reservationId = value.canaryReservationId;
+            expect(reservationId).toMatch(/^cor_canary_/);
+            const changed = await composeTcgplayerOrderInbound({
+              ...sale,
+              lines: [{ ...sale.lines[0]!, quantity: 9 }],
+            });
+            expect((await transport("ingest", { ...changed, canaryReservationId: reservationId })).status).toBe(403);
+            expect((await transport("ingest", value, "synthetic-foreign-token")).status).toBe(403);
+          }
+        }
+        const response = await transport(action, value);
+        if (action === "claim") {
+          expect(value).toEqual({ readyToShipCanary: true });
+          const body = await response.clone().json();
+          if (body.reservation) {
+            expect(body.reservation.operations).toHaveLength(1);
+            expect(body.reservation.leaseExpiresAt).toBe(exact.expiresAt);
+            expect(body.reservation.operations[0].claimGeneration).toBe(1);
+          }
+        }
+        if (action === "ingest") {
+          expect(response.status).toBe(202);
+          if (lostPost) {
+            lostPost = false;
+            throw new Error("synthetic post response lost after commit");
+          }
+        }
+        if (action === "report") {
+          reportCount++;
+          expect(response.status).toBe(200);
+          expect(value.outcomes[0].outcome).toEqual({ kind: "canary-posted" });
+          if (lostReport) {
+            lostReport = false;
+            throw new Error("synthetic report response lost after commit");
+          }
+        }
+        return response;
+      };
+      const coordinate = () =>
+        createConnectorOperationCoordinator({
+          indexedDB,
+          keyRange: IDBKeyRange,
+          executors: [createReadyToShipCanaryExecutor()],
+          platformOrigin: "https://canary-loopback.invalid",
+          clock: { now: () => Date.now() },
+          request,
+        }).coordinate({ connectionId: "connection-1", accessToken: first.token, authority: async () => "paired-idle" });
+
+      expect(await coordinate()).toMatchObject({ outcome: "unknown" });
+      expect(postCount).toBe(1);
+      expect(reportCount).toBe(0);
+      expect(await services.tcgplayerOrders.interpretConnection("connection-1")).toBe(1);
+      expect(await coordinate()).toMatchObject({ outcome: "unknown" });
+      expect(await coordinate()).toMatchObject({ outcome: "ok" });
+      expect({ postCount, reportCount }).toEqual({ postCount: 2, reportCount: 2 });
+      expect(await services.tcgplayerOrders.interpretConnection("connection-1")).toBe(0);
+      expect(await observations()).toEqual([{ state: "completed" }]);
+      expect(await pulls()).toEqual([]);
+      expect(await sales()).toEqual([
+        {
+          payload: expect.objectContaining({
+            requestedQuantity: 2,
+            unitPriceAmount: "10.00",
+            currencyCode: "USD",
+            soldAt: sale.soldAt,
+            result: expect.objectContaining({ appliedQuantity: 2, refusedQuantity: 0, protectedOrderIds: [] }),
+          }),
+        },
+      ]);
+      const effects = await pools.inventory.query(
+        `SELECT event_type FROM event_store_events WHERE event_type='inventory.item.adjusted' OR event_type LIKE 'checkout.%'`,
+      );
+      expect(effects.rows).toEqual([{ event_type: "inventory.item.adjusted" }]);
+      expect(
+        (await pools.channels.query("SELECT event_type FROM event_store_events WHERE event_type LIKE 'checkout.%'"))
+          .rows,
+      ).toEqual([]);
+      expect((await transport("ingest", { ...envelope, canaryReservationId: reservationId })).status).toBe(403);
+
+      const secondPage = "00000000-0000-4000-8000-000000000056";
+      const expiring = {
+        ...exact,
+        pageClaim: secondPage,
+        sealDigest: "b".repeat(64),
+        sales: [{ ...sale, pullId: canarySalePullId(secondPage), orderNumber: "expired-order" }],
+      };
+      expect((await start(expiring)).status).toBe(204);
+      const claimed = (await (await transport("claim", { readyToShipCanary: true })).json()).reservation;
+      expect(claimed.reservationId).not.toEqual(reservationId);
+      const expiredPost = {
+        ...(await composeTcgplayerOrderInbound(expiring.sales[0]!)),
+        canaryReservationId: claimed.reservationId,
+      };
+      vi.setSystemTime(startedAt + 300_000);
+      expect((await transport("ingest", expiredPost)).status).toBe(403);
+      const foreign = await pair();
+      expect((await transport("ingest", expiredPost, foreign.token)).status).toBe(403);
+      const current = await pools.channels.query(
+        "SELECT state,handoff FROM channel_ready_to_ship_canaries WHERE page_claim=$1",
+        [secondPage],
+      );
+      expect(current.rows).toEqual([{ state: "claimed", handoff: null }]);
+      await services.outboundSync.recoverExpiredClaimedOperations();
+      expect(
+        (
+          await pools.channels.query("SELECT state FROM channel_ready_to_ship_canaries WHERE page_claim=$1", [
+            secondPage,
+          ])
+        ).rows,
+      ).toEqual([{ state: "expired" }]);
+      expect(await (await transport("claim", { readyToShipCanary: true }, foreign.token)).json()).toMatchObject({
+        reservation: null,
+      });
+      expect((await start({ ...expiring, target: { ...expiring.target, pairingId: foreign.pairingId } })).status).toBe(
+        403,
+      );
+
+      expect(await services.outboundSync.scheduleDueOrderPulls({ registry: channelProviderRegistry })).toBe(1);
+      const scheduled = (
+        await (await transport("claim", { capabilities: ["tcgplayer-order-pull"] }, foreign.token)).json()
+      ).reservation;
+      expect(scheduled.operations[0].payload.canary).toBeUndefined();
+      vi.setSystemTime(Date.parse(scheduled.leaseExpiresAt));
+      await services.outboundSync.recoverExpiredClaimedOperations();
+      const recycled = (
+        await (await transport("claim", { capabilities: ["tcgplayer-order-pull"] }, foreign.token)).json()
+      ).reservation;
+      expect(recycled.operations[0]).toMatchObject({
+        operationId: scheduled.operations[0].operationId,
+        claimGeneration: 2,
+      });
+      expect(await services.tcgplayerOrders.interpretConnection("connection-1")).toBe(0);
+      expect(await sales()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("tcgplayer-order-scheduling: interprets due connections sequentially and rotates inert work", async () => {
     await seedScheduledConnection("connection-2");
     await admit(order);
@@ -988,6 +1193,75 @@ async function fulfillmentEffects() {
     (SELECT count(*) FROM event_store_events) AS events`)
   ).rows;
 }
+
+async function canaryConnector() {
+  await bootstrapContextDatabase(authModule, pools.auth);
+  const actor = {
+    userId: context.audit.performedByUserId!,
+    accountId: context.audit.forAccountId!,
+    tenantId: context.tenantId,
+    sessionId: "ses_synthetic_canary",
+    membershipId: "mem_synthetic_canary",
+    roleKey: "owner" as ResolvedActor["roleKey"],
+    permissions: ["channels.view", "channels.manage"],
+  } satisfies ResolvedActor;
+  await pools.auth.query(
+    `INSERT INTO auth_identity_accounts (account_id,name,display_name,account_type,status,updated_at)
+      VALUES ($1,'','Synthetic canary','personal','active',now())`,
+    [actor.accountId],
+  );
+  await pools.auth.query(
+    `INSERT INTO auth_identity_user_memberships (membership_id,user_id,account_id,role_key,role_permissions,status)
+      VALUES ($1,$2,$3,'owner','["channels.manage","channels.view"]','active')`,
+    [actor.membershipId, actor.userId, actor.accountId],
+  );
+  const auth = authModule.createServices(pools.auth, {});
+  const redirectUri = "https://canary-loopback.invalid/callback";
+  const oauth = createConnectorOAuthService(() => auth, { connectorRedirectUris: [redirectUri] });
+  const services = channelsModule.createServices(pools.channels, {
+    connectorOAuth: { ...oauth, resolveSeller: async () => actor },
+    readyToShipCanaryOwnerUserId: actor.userId,
+    readChannelHealthHold: async () => false,
+    channelSaleRecorder: recorder(),
+    resolveTcgplayerOrderPullAuthority: async () => syntheticAuthority,
+  });
+  const start = (handoff: CanaryHandoff) =>
+    createSellerConnectorRoutes(services.connectorFeed).request(
+      "/connection-1/connector-pairing/ready-to-ship-canary",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(handoff) },
+    );
+  async function pair() {
+    const verifier = "synthetic-canary-pkce-verifier-" + "v".repeat(40);
+    const client = await oauth.register({
+      redirect_uri: redirectUri,
+      scope: CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes.join(" "),
+      token_endpoint_auth_method: "none",
+    });
+    const pairing = await services.connectorFeed.createPairingCode(
+      { accountId: actor.accountId, connectionId: "connection-1" },
+      actor,
+    );
+    const authorized = await services.connectorFeed.authorizePairing(
+      {
+        client_id: client.client_id,
+        redirect_uri: redirectUri,
+        code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+        code_challenge_method: "S256",
+      },
+      actor,
+    );
+    const exchanged = await services.connectorFeed.exchange({
+      grant_type: "authorization_code",
+      client_id: client.client_id,
+      redirect_uri: redirectUri,
+      code: authorized.code,
+      code_verifier: verifier,
+    });
+    return { pairingId: pairing.pairingId, token: exchanged.access_token };
+  }
+  return { services, pair, start, actor };
+}
+
 function recorder() {
   return createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context);
 }

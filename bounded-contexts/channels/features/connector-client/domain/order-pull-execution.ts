@@ -23,6 +23,7 @@ type Ports = Readonly<{
   fence(): Promise<boolean>;
   now(): number;
   signal: AbortSignal;
+  postCanary?(bytes: string, signal: AbortSignal): Promise<Response>;
 }>;
 
 /** Admission custody only. Provider traversal and the detail mapper remain injected by the executor owner. */
@@ -134,6 +135,7 @@ export function createOrderPullExecution(ports: Ports) {
     const signal = AbortSignal.any([ports.signal, AbortSignal.timeout(handoff.authority.postTimeoutMs)]);
     const response = await post(bytes, signal);
     if (signal.aborted || response.status !== 202 || (await response.text()) !== "{}") {
+      if (ports.current().payload.canary) throw new OperationProtocolError("incomplete-authority");
       unknown = "admission-ambiguous";
       return;
     }
@@ -161,6 +163,7 @@ export function createOrderPullExecution(ports: Ports) {
     read: <T>(read: (signal: AbortSignal) => Promise<T>) =>
       serial(async () => {
         const member = ports.current();
+        if (member.payload.canary) refuse();
         const handoff = member.handoff;
         if (!handoff) refuse();
         await check(handoff.authority.providerCallTimeoutMs + handoff.authority.reportTimeoutMs);
@@ -171,14 +174,17 @@ export function createOrderPullExecution(ports: Ports) {
         await check(handoff.authority.reportTimeoutMs);
         return result;
       }),
-    sale: (reference: string | null, index: number, post: (bytes: string, signal: AbortSignal) => Promise<Response>) =>
+    sale: (reference: string | null, index: number, post?: (bytes: string, signal: AbortSignal) => Promise<Response>) =>
       serial(async () => {
+        if (ports.current().payload.canary ? post !== undefined : post === undefined) refuse();
+        const send = post ?? ports.postCanary;
+        if (!send) refuse();
         const selectedPost = selected(reference, index).post;
         if (selectedPost.state === "captured202") return;
         if (selectedPost.kind !== "sale") refuse();
         claimAttempt(reference, index);
         await assertSalePostIdentity(selectedPost);
-        await postBytes(reference, index, selectedPost.bytes, post);
+        await postBytes(reference, index, selectedPost.bytes, send);
       }),
     fulfillment: (
       reference: string,
