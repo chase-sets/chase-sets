@@ -13379,7 +13379,7 @@ async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_scree
     ] {
         assert!(page.contains(shown), "{shown}: {page}");
     }
-    assert!(!page.contains("offline-sale"), "no raw kind (chase-sets/chase-sets#10673): {page}");
+    assert!(!page.contains("offline-sale"), "no raw kind: {page}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_manual/release""#), "{html}");
     assert!(!html.contains("hld_order/release") && !html.contains("hld_old/release"), "only an active manual hold is released");
     // Adjust Quantity posts to the page itself.
