@@ -1470,9 +1470,9 @@ pub struct AlertIntent {
 /// The Discovery API's Product Alert calls (`/account/product-alerts`,
 /// `/guest/product-alert-intents`).
 pub trait ProductAlerts {
-    /// Creates the account's alert (`CreateProductAlertRequest`). The API checks nothing against
-    /// the catalog (chase-sets/chase-sets#10595) and creates a new alert for each call
-    /// (chase-sets/chase-sets#10596). The answer is the write's receipt.
+    /// Creates the account's alert (`CreateProductAlertRequest`), once per `attemptId` and
+    /// request. The API checks nothing against the catalog (chase-sets/chase-sets#10595). The
+    /// answer is the write's receipt.
     async fn create_product_alert(&self, alert: &impl Serialize) -> Result<Option<Receipt>, ApiError>;
     /// Saves a guest's alert as an intent owned by `guest` (the same fields and `sourcePath`).
     async fn product_alert_intent(&self, guest: &str, alert: &impl Serialize) -> Result<AlertIntent, ApiError>;
