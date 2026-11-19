@@ -239,26 +239,20 @@ fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Rend
             {SubmitKey::field(f.attempt)}
             {draft.errors.form_message()}
             <fieldset class={Row} disabled={held}>
-                <label class={Field}>
-                    <span class={Label}>{t.page_legal_name()}</span>
-                    <input
-                        type="text"
-                        name={f.name}
-                        value={&i.name}
-                        required
-                        {..e.aria(f.name)}
-                    >
-                </label>
-                <label class={Field}>
-                    <span class={Label}>{t.page_marketplace_name()}</span>
-                    <input
-                        type="text"
-                        name={f.display_name}
-                        value={&i.display_name}
-                        required
-                        {..e.aria(f.display_name)}
-                    >
-                </label>
+                <div class={Field}>
+                    <label class={Field}>
+                        <span class={Label}>{t.page_legal_name()}</span>
+                        <input type="text" name={f.name} value={&i.name} required {..e.aria(f.name)}>
+                    </label>
+                    {e.message(f.name)}
+                </div>
+                <div class={Field}>
+                    <label class={Field}>
+                        <span class={Label}>{t.page_marketplace_name()}</span>
+                        <input type="text" name={f.display_name} value={&i.display_name} required {..e.aria(f.display_name)}>
+                    </label>
+                    {e.message(f.display_name)}
+                </div>
                 <button type="submit" class={Secondary}>{t.page_update_profile()}</button>
             </fieldset>
         </form>
