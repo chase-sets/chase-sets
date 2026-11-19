@@ -38,7 +38,6 @@ import {
 } from "../domain/order-pull-progress";
 import { commitOrderPullProgress, readOrderPullWork } from "./order-pull-progress";
 import { canonicalJson } from "../../listing-composition/domain/canonical-json";
-import { expireReadyToShipCanaries } from "./ready-to-ship-canary";
 
 type OrderPullRow = Readonly<{
   operation_id: string;
@@ -649,7 +648,7 @@ export async function recoverExpiredOrderPulls(db: PgQueryable, currentInstant: 
      WHERE operation.operation_id = expired.operation_id AND operation.status = 'in-flight'`,
     [currentInstant],
   );
-  return Number(result.rowCount ?? 0) + (await expireReadyToShipCanaries(db, currentInstant));
+  return Number(result.rowCount ?? 0);
 }
 
 export async function readOrderPullOperations(

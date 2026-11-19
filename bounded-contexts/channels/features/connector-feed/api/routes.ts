@@ -187,6 +187,11 @@ export function createSellerConnectorRoutes(services: ConnectorFeedServices) {
   });
   app.post("/:id/connector-pairing/ready-to-ship-canary", async (c) => {
     try {
+      if (c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json")
+        throw new ConnectorPairingError("invalid-request");
+      const origin = c.req.header("origin");
+      if (origin !== undefined && origin !== new URL(c.req.url).origin)
+        throw new ConnectorPairingError("authorization-refused");
       const actor = await seller(services, c.req.raw);
       await services.startReadyToShipCanary(
         { accountId: actor.accountId, connectionId: c.req.param("id") },

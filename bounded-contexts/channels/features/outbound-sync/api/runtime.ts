@@ -31,7 +31,7 @@ import {
 } from "../domain/contracts";
 import { isClaimedOrderPullOutcome } from "../domain/order-pull";
 import { canaryReservationPrefix } from "../domain/ready-to-ship-canary";
-import { settleReadyToShipCanary } from "./ready-to-ship-canary";
+import { expireReadyToShipCanaries, settleReadyToShipCanary } from "./ready-to-ship-canary";
 import { isClaimedLiveExportOutcome } from "../domain/live-export-codec";
 import {
   assertLiveExportReportFence,
@@ -349,6 +349,7 @@ export function createOutboundSyncRuntime(
       const recoveredExports = await withPgTransaction(dependencies.db, (db) =>
         recoverExpiredLiveExports(db, currentInstant),
       );
+      const expiredCanaries = await expireReadyToShipCanaries(dependencies.db, currentInstant);
       const recoveredInline = dependencies.recordOutcome
         ? await recoverExpiredInlineAttempts(dependencies, currentInstant)
         : 0;
@@ -359,6 +360,7 @@ export function createOutboundSyncRuntime(
         return (
           recoveredPulls +
           recoveredExports +
+          expiredCanaries +
           recoveredInline +
           (await recoverExpiredReservationsWithBoundRuns(dependencies, currentInstant))
         );
@@ -366,6 +368,7 @@ export function createOutboundSyncRuntime(
       return (
         recoveredPulls +
         recoveredExports +
+        expiredCanaries +
         recoveredInline +
         (await withPgTransaction(dependencies.db, async (db) => {
           const table = await db.query<{ run_table: string | null }>(

@@ -90,7 +90,7 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await seed();
   });
   afterAll(async () => closeMultiContextTestPools(pools));
-  it("claims one exact founder page, survives lost post/report, and commits one external sale and stock adjustment", async () => {
+  it("claims one exact founder page, survives lost post/report, and commits stock and sale economics exactly once", async () => {
     const startedAt = Date.now();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(startedAt);
@@ -119,6 +119,8 @@ describeDb("TCGplayer connector sale interpretation", () => {
       actor.roleKey = "manager";
       expect((await start(exact)).status).toBe(403);
       actor.roleKey = "owner";
+      expect((await start(exact, { "content-type": "text/plain" })).status).toBe(400);
+      expect((await start(exact, { origin: "https://foreign.invalid" })).status).toBe(403);
       expect((await start({ ...exact, target: { ...exact.target, pairingId: "pair_foreign" } })).status).toBe(403);
       expect((await start(exact)).status).toBe(204);
       expect((await start(exact)).status).toBe(409);
@@ -212,12 +214,22 @@ describeDb("TCGplayer connector sale interpretation", () => {
         },
       ]);
       const effects = await pools.inventory.query(
-        `SELECT event_type FROM event_store_events WHERE event_type='inventory.item.adjusted' OR event_type LIKE 'checkout.%'`,
+        `SELECT event_type,payload->>'quantityDelta' AS delta FROM event_store_events
+         WHERE event_type='inventory.item.adjusted' OR event_type LIKE 'checkout.%' OR event_type LIKE 'ordering.%'`,
       );
-      expect(effects.rows).toEqual([{ event_type: "inventory.item.adjusted" }]);
+      expect(effects.rows).toEqual([{ event_type: "inventory.item.adjusted", delta: "-2" }]);
       expect(
-        (await pools.channels.query("SELECT event_type FROM event_store_events WHERE event_type LIKE 'checkout.%'"))
-          .rows,
+        (
+          await pools.inventory.query(`SELECT SUM((payload->>'requestedQuantity')::numeric *
+          (payload->>'unitPriceAmount')::numeric)::text AS gross
+          FROM event_store_events WHERE event_type='inventory.external-channel-sale.recorded'`)
+        ).rows,
+      ).toEqual([{ gross: "20.00" }]);
+      expect(
+        (
+          await pools.channels.query(`SELECT event_type FROM event_store_events
+          WHERE event_type LIKE 'checkout.%' OR event_type LIKE 'ordering.%'`)
+        ).rows,
       ).toEqual([]);
       expect((await transport("ingest", { ...envelope, canaryReservationId: reservationId })).status).toBe(403);
 
@@ -226,15 +238,30 @@ describeDb("TCGplayer connector sale interpretation", () => {
         ...exact,
         pageClaim: secondPage,
         sealDigest: "b".repeat(64),
-        sales: [{ ...sale, pullId: canarySalePullId(secondPage), orderNumber: "expired-order" }],
+        sales: ["expired-order", "poisoned-order"].map((orderNumber) => ({
+          ...sale,
+          pullId: canarySalePullId(secondPage),
+          orderNumber,
+        })),
       };
       expect((await start(expiring)).status).toBe(204);
       const claimed = (await (await transport("claim", { readyToShipCanary: true })).json()).reservation;
       expect(claimed.reservationId).not.toEqual(reservationId);
+      expect(await (await transport("claim", { readyToShipCanary: true })).json()).toMatchObject({ reservation: null });
       const expiredPost = {
         ...(await composeTcgplayerOrderInbound(expiring.sales[0]!)),
         canaryReservationId: claimed.reservationId,
       };
+      const poisoned = await composeTcgplayerOrderInbound(expiring.sales[1]!);
+      expect((await transport("ingest", { ...poisoned, payload: { version: 1, records: [order] } })).status).toBe(202);
+      expect((await transport("ingest", { ...poisoned, canaryReservationId: claimed.reservationId })).status).toBe(403);
+      expect(
+        (
+          await pools.channels.query("SELECT admitted FROM channel_ready_to_ship_canaries WHERE page_claim=$1", [
+            secondPage,
+          ])
+        ).rows,
+      ).toEqual([{ admitted: [] }]);
       vi.setSystemTime(startedAt + 300_000);
       expect((await transport("ingest", expiredPost)).status).toBe(403);
       const foreign = await pair();
@@ -1225,10 +1252,10 @@ async function canaryConnector() {
     channelSaleRecorder: recorder(),
     resolveTcgplayerOrderPullAuthority: async () => syntheticAuthority,
   });
-  const start = (handoff: CanaryHandoff) =>
+  const start = (handoff: CanaryHandoff, headers?: Record<string, string>) =>
     createSellerConnectorRoutes(services.connectorFeed).request(
       "/connection-1/connector-pairing/ready-to-ship-canary",
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(handoff) },
+      { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(handoff) },
     );
   async function pair() {
     const verifier = "synthetic-canary-pkce-verifier-" + "v".repeat(40);

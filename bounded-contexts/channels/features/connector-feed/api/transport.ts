@@ -116,12 +116,17 @@ export function createConnectorTransport(
               !authority.claimReportAllowed ||
               !authority.pairingId ||
               !authority.grant ||
+              authority.grant.userId !== deps.readyToShipCanaryOwnerUserId ||
               value.inboundKind !== "order" ||
               value.payload.records.length !== 1
             )
               throw new ConnectorPairingError("authorization-refused");
             const sale = value.payload.records[0];
-            assertTcgplayerOrderRecord(sale);
+            try {
+              assertTcgplayerOrderRecord(sale);
+            } catch {
+              throw new ConnectorPairingError("invalid-request");
+            }
             const pageClaim = canaryPageClaim(sale.pullId);
             if (!pageClaim || sale.kind !== "order") throw new ConnectorPairingError("authorization-refused");
             const { receivedAt, expiresAt } = await admitReadyToShipCanaryMember(
