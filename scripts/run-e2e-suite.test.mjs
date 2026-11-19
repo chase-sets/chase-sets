@@ -464,6 +464,7 @@ describe("run e2e suite", () => {
       "createConnectorBackground",
       "createConnectorOperationCoordinator",
       "createConnectorRetentionStore",
+      "createReadyToShipCanaryExecutor",
       "createTcgplayerLiveExportExecutor",
       "createTcgplayerStagedImportReleaseGate",
       "decodeTcgplayerStagedImportFieldClassification",
