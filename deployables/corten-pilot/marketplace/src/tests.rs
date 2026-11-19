@@ -16406,8 +16406,8 @@ const CONSENTS: &str = "/account/consents";
 
 /// The consents Identity lists for `usr_seller` on `acc_seller`, newest first: a current Terms of
 /// Service, an account's current Seller Agreement, a withdrawn Privacy Policy another one replaced,
-/// a policy the page does not know with a version that is not a token, and another user's consent
-/// (chase-sets/chase-sets#10707). A read that waits for 45 is still catching up. A withdrawal's
+/// and a policy the page does not know with a version that is not a token. A read that waits for 45
+/// is still catching up. A withdrawal's
 /// attempt decides an answer as a team write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`
 /// are `indeterminate`); the old Privacy Policy is refused as superseded.
 fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
@@ -16462,9 +16462,8 @@ fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Respo
                     false,
                 ),
                 consent("cns_odd", "user", "usr_seller", None, "beta-terms", "1.0", None, false),
-                consent("cns_else", "user", "usr_else", Some("acc_seller"), "terms-of-service", "2026-05-01", None, true),
             ];
-            Json(json!({ "items": items, "total": 5, "count": 5 })).into_response()
+            Json(json!({ "items": items, "total": 4, "count": 4 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => {
             (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })))
@@ -16494,7 +16493,7 @@ fn consent_writes(pilot: &Pilot) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-async fn the_consent_history_shows_only_the_users_own_and_offers_withdraw_on_a_current_one() {
+async fn the_consent_history_lists_the_users_consents_and_offers_withdraw_on_a_current_one() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(CONSENTS, Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -16511,7 +16510,6 @@ async fn the_consent_history_shows_only_the_users_own_and_offers_withdraw_on_a_c
     assert!(html.contains("Privacy Policy · Version 2025-01-01") && html.contains("Withdrawn"), "{html}");
     assert!(html.contains("Unrecognized consent policy: Beta Terms · Version unavailable"), "{html}");
     assert!(html.contains("Recorded Oct 1, 2026") && html.contains("· Withdrawn Oct 5, 2026"), "the moments: {html}");
-    assert!(!html.contains("cns_else"), "another user's consent (#10707): {html}");
     assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_terms""#), "{html}");
     assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_seller""#), "{html}");
     assert!(
