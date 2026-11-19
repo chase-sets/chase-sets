@@ -5148,7 +5148,10 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
     let calls = alert_calls(&pilot);
     assert_eq!(calls.len(), 1, "{calls:?}");
     assert_eq!(calls[0].path, ACCOUNT_ALERTS);
-    let sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    let mut sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    // A post without the form's attempt is still one (the API applies an attempt once).
+    let attempt = sent.as_object_mut().unwrap().remove("attemptId").expect("an attempt");
+    assert_eq!(attempt.as_str().map(str::len), Some(36), "{attempt}");
     assert_eq!(
         sent,
         json!({
@@ -5178,6 +5181,29 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
         (&sent["marketSide"], &sent["thresholdAmount"], &sent["thresholdCurrencyCode"]),
         (&json!("listing"), &Value::Null, &Value::Null)
     );
+}
+
+#[tokio::test]
+async fn each_watch_form_sends_the_attempt_it_was_drawn_with_so_a_resend_is_the_same_alert() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(WATCH_PAGE, Some("watcher"))).await;
+    let attempts: Vec<_> = html.split(ATTEMPT_INPUT).skip(1).map(|rest| rest.split('"').next().unwrap().to_owned()).collect();
+    assert_eq!(attempts.len(), 2, "one attempt per Watch form: {html}");
+    assert_ne!(attempts[0], attempts[1], "{attempts:?}");
+    let body = format!("{}&attempt={}", watch_body("listing", "300", "USD"), attempts[0]);
+    for _ in 0..2 {
+        let (status, _, html) = pilot.send(post(WATCH, "watcher", &body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    }
+    let sent: Vec<Value> = alert_calls(&pilot).iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent.iter().all(|s| s["attemptId"] == json!(attempts[0])), "the same attempt both times: {sent:?}");
+
+    // A guest's intent has no attempt; it dedupes by product and threshold.
+    let (status, _, _) = pilot.send(post_signed_out(WATCH, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let intent: Value = serde_json::from_str(&alert_calls(&pilot)[2].body).unwrap();
+    assert!(intent.get("attemptId").is_none(), "{intent}");
 }
 
 #[tokio::test]

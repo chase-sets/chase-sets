@@ -138,11 +138,12 @@ export function createProductAlertRoutes(services: ProductAlertServices) {
             body.thresholdCurrencyCode === null || body.thresholdCurrencyCode === undefined
               ? null
               : String(body.thresholdCurrencyCode),
+          attemptId: body.attemptId === null || body.attemptId === undefined ? null : String(body.attemptId),
         },
         context,
       );
 
-      return c.json({ id: result.alertId, version: result.version, status: "active" }, 201);
+      return c.json({ id: result.alertId, version: result.version, status: result.status }, 201);
     } catch (error) {
       return c.json(
         {
