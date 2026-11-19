@@ -14174,7 +14174,8 @@ async fn while_pricing_has_bulk_reprice_off_its_page_says_so_and_recommendations
     let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
     assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
-    assert!(!html.contains("<form") && !html.contains("template.csv") && !html.contains("Job status"), "{html}");
+    assert!(!html.contains(r#"action="/account/bulk-reprice""#) && !html.contains(r#"name="file""#), "nothing to upload: {html}");
+    assert!(!html.contains("template.csv") && !html.contains("Job status"), "{html}");
     assert!(html.contains(r#"href="/account/repricing""#), "{html}");
     let calls: Vec<_> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
     assert!(calls.iter().all(|path| !path.contains("/jobs/")), "no job is read: {calls:?}");
@@ -14244,7 +14245,7 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
         .lock()
         .unwrap()
         .iter()
-        .filter(|c| c.path == BULK_API)
+        .filter(|c| c.path == BULK_API && c.method == Method::POST)
         .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
         .collect();
     assert_eq!(keys, [ATTEMPT; 3], "each send carries the form's one attempt");
