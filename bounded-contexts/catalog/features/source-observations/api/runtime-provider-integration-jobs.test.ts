@@ -1298,6 +1298,7 @@ describe("source observation runtime: provider integration jobs", () => {
       globalThis.fetch = originalFetch;
     }
 
+    expect(harness.job.result?.outcomes).toMatchObject([{ status: "imported", reason: null }]);
     expect(harness.job.status).toBe("completed");
     expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
     expect(harness.appendedSourceEvents[0]).toMatchObject({
@@ -2131,7 +2132,7 @@ function ygojsonBeginnerEditionTwoFetch(): typeof globalThis.fetch {
     ),
   ) as { set: Record<string, unknown> };
   const url =
-    "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/individual/sets/000f0093-1847-4db7-a315-5bd07f055c7a.json";
+    "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/refs/heads/v1/individual/sets/000f0093-1847-4db7-a315-5bd07f055c7a.json";
 
   return (async (input: RequestInfo | URL) => {
     if (String(input) !== url) {

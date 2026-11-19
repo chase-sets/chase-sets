@@ -11724,7 +11724,7 @@ async fn the_sellers_listings_show_the_settings_counts_reliability_rows_and_fee_
         "Before you turn off listings 2 active listings will be hidden from buyers",
         "Schedule away window",
         "Current cap: 5 open orders Open orders right now: 3 of 5 Counted live from your orders.",
-        "Active listings 2 Visible to buyers Draft listings 1 Not visible yet Paused listings 1 Withdrawn listings 0",
+        "Active listings 2 Visible to buyers Draft listings 1 Not visible yet Paused listings 1 Hidden from buyers until resumed Withdrawn listings 0",
         "Seller reliability Objective, event-derived signals from the last 90 days",
         "On-time shipment rate 94.7% 38 shipments dispatched Cancellation rate 2.5% 40 orders, seller-caused only",
         "Dispute rate Not enough orders yet",
@@ -13379,7 +13379,7 @@ async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_scree
     ] {
         assert!(page.contains(shown), "{shown}: {page}");
     }
-    assert!(!page.contains("offline-sale"), "no raw kind (chase-sets/chase-sets#10673): {page}");
+    assert!(!page.contains("offline-sale"), "no raw kind: {page}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_manual/release""#), "{html}");
     assert!(!html.contains("hld_order/release") && !html.contains("hld_old/release"), "only an active manual hold is released");
     // Adjust Quantity posts to the page itself.

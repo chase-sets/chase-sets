@@ -190,6 +190,25 @@ describe("public listing checkout start", () => {
   });
 });
 
+describe("public listing report", () => {
+  it("says a received report was received in place of the form, without JavaScript", async () => {
+    const served = await open(`${LISTING_PATH}?reported=1`);
+    const document = new DOMParser().parseFromString(served.html, "text/html");
+
+    const status = document.querySelector('[role="status"]');
+    expect(status?.textContent).toContain("Thanks. We received your report, and we will review this listing.");
+    expect(document.querySelector('input[name="intent"][value="report-listing"]')).toBeNull();
+    expect(document.querySelector(BUY_FORM)).not.toBeNull();
+  });
+
+  it("offers the form and says nothing before a report is sent", async () => {
+    const served = await open();
+    const document = new DOMParser().parseFromString(served.html, "text/html");
+
+    expect(document.querySelector('input[name="intent"][value="report-listing"]')).not.toBeNull();
+    expect(served.html).not.toContain("We received your report");
+  });
+});
 function publicListing(overrides: Partial<DiscoveryPublicListing> = {}): DiscoveryPublicListing {
   return {
     listing_id: "lst_1",
