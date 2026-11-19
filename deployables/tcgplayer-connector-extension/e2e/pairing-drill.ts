@@ -324,6 +324,7 @@ export type DeployedPairingDrillReceipt = DeployedDrillRows &
     artifactDigest: string | null;
     extensionId: string | null;
     connectionIdSuffix: string | null;
+    storageLocationIdSuffix: string | null;
     pairingIdSuffix: string | null;
     generateToClickMs: number | null;
     lifecycle: readonly string[];
@@ -923,6 +924,7 @@ export function deployedInputRefusal(input: DeployedPairingDrillInput): PairingD
 
 type LegOutcome = Readonly<{
   connectionIdSuffix: string | null;
+  storageLocationIdSuffix: string | null;
   pairingIdSuffix: string | null;
   generateToClickMs: number | null;
   cookies: readonly Readonly<{ domain: string; count: number }>[];
@@ -1823,6 +1825,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     const cookies = await inspectCookies(context);
     return {
       connectionIdSuffix: null,
+      storageLocationIdSuffix: null,
       pairingIdSuffix: null,
       generateToClickMs: null,
       cookies: cookieRows(cookies),
@@ -1894,14 +1897,14 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     )
       fail("connector-drill-persona-refused");
     const locations = await step(page, "storage-locations", "GET", "/api/inventory/storage-locations");
-    const location =
+    const storageLocationId =
       isRecord(locations.body) && Array.isArray(locations.body.items)
         ? locations.body.items.find(
-            (item): item is Record<string, unknown> =>
+            (item): item is { storage_location_id: string } =>
               isRecord(item) && item.is_archived === false && typeof item.storage_location_id === "string",
-          )
+          )?.storage_location_id
         : undefined;
-    if (locations.status !== 200 || !location) fail("connector-drill-persona-refused");
+    if (locations.status !== 200 || storageLocationId === undefined) fail("connector-drill-persona-refused");
 
     const connected = await step(page, "connect", "POST", "/api/channels/connections", { providerKey: "tcgplayer" });
     if (
@@ -1925,7 +1928,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     let paired: Omit<LegOutcome, "cookies" | "heldValues"> | undefined;
     try {
       await transition("activate", `${connectionApi}/activate`, "active", {
-        storageLocationIds: [location!.storage_location_id],
+        storageLocationIds: [storageLocationId],
       });
       await transition("pause", `${connectionApi}/pause`, "paused");
       const beforeCode = await step(page, "pairing-before-code", "GET", pairingApi);
@@ -2230,6 +2233,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
         fail("connector-drill-display-refused");
       paired = {
         connectionIdSuffix: id.slice(-4),
+        storageLocationIdSuffix: storageLocationId.slice(-4),
         pairingIdSuffix: pairingId.slice(-4),
         generateToClickMs: clickedAt - generatedAt,
       };

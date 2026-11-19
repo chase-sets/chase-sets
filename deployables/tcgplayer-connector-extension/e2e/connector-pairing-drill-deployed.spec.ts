@@ -287,6 +287,7 @@ test("connector-pairing-drill-deployed composed staging command against the fake
     status: "disconnected",
     storageLocationIds: [stagingSynthetic.storageLocationId],
   });
+  expect(receipt.storageLocationIdSuffix).toBe(connection.storageLocationIds[0]!.slice(-4));
   const paused = receipt.claims.filter((claim) => claim.phase === "paused");
   expect(paused.length).toBeGreaterThanOrEqual(2);
   for (const claim of paused)
@@ -383,7 +384,13 @@ test("connector-pairing-drill-deployed composed staging command against the fake
   expect(existsSync(receipt.profile.path)).toBe(false);
   expect(receipt.cookies).toEqual([{ domain: new URL(staging).hostname, count: 1 }]);
   expect(readdirSync(outcome.outputDir)).toEqual(["receipt.json"]);
-  expect(scanRetainedArtifacts(outcome.outputDir, [...outcome.forbidden, ...retainedSecretMarkers])).toBe(1);
+  expect(
+    scanRetainedArtifacts(outcome.outputDir, [
+      ...outcome.forbidden,
+      ...retainedSecretMarkers,
+      stagingSynthetic.storageLocationId,
+    ]),
+  ).toBe(1);
   console.log(`CONNECTOR_DRILL_BROWSER_PAUSED_CLAIMS ${JSON.stringify(paused)}`);
   console.log(
     `CONNECTOR_DRILL_BROWSER_POST_UNPAIR ${JSON.stringify(receipt.claims.filter((claim) => claim.phase === "unpaired"))}`,
@@ -405,6 +412,7 @@ test("connector-pairing-drill-deployed composed staging smoke against the fake s
     preflight: [],
     personaAlias: null,
     connectionIdSuffix: null,
+    storageLocationIdSuffix: null,
     steps: [],
     claims: [],
     lifecycle: [],
