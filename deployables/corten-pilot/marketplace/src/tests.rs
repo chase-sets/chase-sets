@@ -7754,7 +7754,7 @@ async fn the_purchases_are_cards_with_their_counts_and_pages_as_links() {
     assert!(shown.contains("205 Purchases 7 Items 1 Pending") || shown.contains("Purchases 205 Items 7 Pending 1"), "{shown}");
     assert!(
         shown.contains(
-            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN pending-payment"
+            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN Pending payment"
         ),
         "{shown}"
     );
