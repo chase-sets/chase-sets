@@ -131,6 +131,7 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
   const isFormHydrated = useFormHydrated();
   const isAvailable = availability.status === "available";
   const offersAway = availability.offers_status === "unavailable";
+  const offersAwayReason = availabilityReasonLabel(availability.offers_reason_category ?? null);
   const eitherAway = !isAvailable || offersAway;
   const [scope, setScope] = useState("both");
   const offersOnly = scope === "offers";
@@ -159,10 +160,12 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
           </Badge>
           {offersAway ? (
             <Text tone="secondary">
-              {availabilityReasonLabel(availability.offers_reason_category ?? null)}
               {availability.offers_available_again_at
-                ? ` · ${formatDateTime(availability.offers_available_again_at)}`
-                : null}
+                ? t("marketplace.features.listings.ui.listingListPage.away.offers.reason.with.return.date", {
+                    reason: offersAwayReason,
+                    date: formatDateTime(availability.offers_available_again_at),
+                  })
+                : offersAwayReason}
             </Text>
           ) : null}
         </Inline>

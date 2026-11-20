@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { formatDateTime } from "@chase-sets/localization";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TimeAwayCapacityCard, type TimeAwayCapacitySnapshot } from "./time-away-capacity-card";
@@ -70,6 +71,7 @@ describe("TimeAwayCapacityCard states", () => {
           availability: availability({
             status: "unavailable",
             offers_status: "unavailable",
+            offers_reason_category: "travel",
             available_again_on: "2030-02-01",
             available_again_at: resume,
             offers_available_again_at: resume,
@@ -77,6 +79,7 @@ describe("TimeAwayCapacityCard states", () => {
         })}
       />,
     );
+    expect(screen.getByText(`Travel · ${formatDateTime(resume)}`)).toBeTruthy();
     const choice = screen.getByRole("radiogroup", { name: "What does Away cover?" });
     const form = choice.closest("form")!;
     fireEvent.submit(form);

@@ -8220,6 +8220,7 @@ export const englishTranslations = {
   "marketplace.features.listings.ui.listingListPage.away.offers.available": "Offers visible",
   "marketplace.features.listings.ui.listingListPage.away.offers.keep.date": "Leave blank to keep your Offers' current return date.",
   "marketplace.features.listings.ui.listingListPage.away.offers.preview": "Your submitted Offers will be hidden from sellers. Your Listings stay visible.",
+  "marketplace.features.listings.ui.listingListPage.away.offers.reason.with.return.date": "{reason} · {date}",
   "marketplace.features.listings.ui.listingListPage.away.offers.unavailable": "Offers away",
   "marketplace.features.listings.ui.listingListPage.away.scope.both": "Listings and Offers",
   "marketplace.features.listings.ui.listingListPage.away.scope.label": "What does Away cover?",
