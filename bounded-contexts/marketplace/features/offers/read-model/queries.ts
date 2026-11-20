@@ -414,11 +414,14 @@ export async function getSubmittedOffer(
   const result = await db.query<MarketplaceOfferPageRow>(
     `SELECT
        offer.*,
+       COALESCE(availability.offers_status = 'unavailable', FALSE) AS offers_away,
        seller.average_rating_as_seller::text AS accepted_seller_average_rating,
        COALESCE(seller.rating_count_as_seller, 0)::integer AS accepted_seller_review_count
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS seller
        ON seller.account_id = offer.accepted_seller_account_id
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = offer.buyer_account_id
      WHERE offer.offer_id = $1
        AND offer.buyer_account_id = $2`,
     [offerId, buyerAccountId],

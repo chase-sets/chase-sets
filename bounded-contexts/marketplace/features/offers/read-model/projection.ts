@@ -3,7 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch, recordRealtimeProjectionPatches } from "@chase-sets/platform-runtime/realtime";
 import {
   createMarketplaceOfferMatchPatch,
-  createMarketplaceOfferPatch,
+  createMarketplaceSubmittedOfferPatch,
 } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
 import { listOfferMatchesForSellers } from "./queries";
@@ -70,15 +70,15 @@ async function emitOfferPatch(
     return;
   }
 
-  const buyerTopics = [marketplaceRealtimeTopics.accountOffers(offer.buyer_account_id)];
+  const buyerPatch = createMarketplaceSubmittedOfferPatch(offer.buyer_account_id, offer);
 
   await recordRealtimeProjectionPatch(db, {
     sourceGlobalPosition: event.globalPosition,
     projectionName: "marketplace-offer-projection",
     patchKey: `offer${suffix}:${offerId}`,
-    topics: buyerTopics,
+    topics: buyerPatch.topics,
     recordedAt: event.timing.recordedAt,
-    patch: createMarketplaceOfferPatch(buyerTopics, offer),
+    patch: buyerPatch,
   });
 
   const sellerAccountIds = new Set(await loadInterestedSellerAccountIds(db, offer.product_id));

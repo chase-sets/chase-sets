@@ -156,10 +156,17 @@ describeDb("Offer account visibility on Postgres", () => {
     expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });
     expect((await listSubmittedOffers(pool, { buyerAccountId: "acc_buyer" })).items[0]?.offers_away).toBe(false);
     expect(await getOfferMatch(pool, "off_one", "acc_seller")).toMatchObject({ offer_id: "off_one" });
-    expect((await patchRows()).at(-1)?.changes).toEqual([
-      expect.objectContaining({ op: "upsert", entity: "marketplace.offerMatch" }),
-    ]);
     const resumedPatches = await patchRows();
+    expect(resumedPatches.slice(awayPatches.length).flatMap((row) => row.changes)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ op: "upsert", entity: "marketplace.offerMatch", id: "off_one" }),
+        expect.objectContaining({
+          op: "upsert",
+          entity: "marketplace.offer",
+          value: expect.objectContaining({ offers_away: false }),
+        }),
+      ]),
+    );
     await apply("offers-disabled", 3, data);
     await apply("offers-enabled", 4, { accountId: data.accountId, enabledAt: date });
     expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });

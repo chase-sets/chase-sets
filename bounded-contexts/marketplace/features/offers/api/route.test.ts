@@ -94,6 +94,7 @@ function createServices(): MarketplaceOfferServices {
 const submittedOfferWithPrivateDestination = {
   offer_id: "off_1",
   buyer_account_id: "acc_buyer",
+  offers_away: true,
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::",
   item_title: "Charizard",
@@ -264,7 +265,7 @@ describe("marketplace offer routes", () => {
     });
   });
 
-  it("omits private shipping destination snapshots from submitted offer responses", async () => {
+  it("keeps owner standing but omits private shipping destinations from submitted Offer responses", async () => {
     const services = createServices();
     vi.mocked(services.listSubmittedOffers).mockResolvedValue({
       items: [submittedOfferWithPrivateDestination],
@@ -293,6 +294,8 @@ describe("marketplace offer routes", () => {
     expect(detailResponse.status).toBe(200);
     expect(listBody.items[0]).not.toHaveProperty("shipping_destination_snapshot");
     expect(detailBody).not.toHaveProperty("shipping_destination_snapshot");
+    expect(listBody.items[0]).toHaveProperty("offers_away", true);
+    expect(detailBody).toHaveProperty("offers_away", true);
     expect(JSON.stringify({ listBody, detailBody })).not.toContain("alternate-contact@example.test");
   });
 
@@ -341,6 +344,7 @@ describe("marketplace offer routes", () => {
       price_amount: "24.96",
     });
     expect(body).not.toHaveProperty("shipping_destination_snapshot");
+    expect(body).not.toHaveProperty("offers_away");
     for (const [key, value] of Object.entries(privatePolicyFields)) {
       expect(body).not.toHaveProperty(key);
       if (typeof value !== "object") expect(JSON.stringify(body)).not.toContain(String(value));

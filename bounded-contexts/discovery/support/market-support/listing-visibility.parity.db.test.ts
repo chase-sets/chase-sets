@@ -13,7 +13,7 @@ import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { module as discoveryModule } from "../../index";
 import { createDiscoveryServices } from "../runtime-support/services";
 import { buildDiscoveryMarketProjectionHandlers } from "./projection";
-import { getDiscoveryPublicListingBySlug } from "./queries";
+import { getDiscoveryPublicListingById, getDiscoveryPublicListingBySlug } from "./queries";
 import {
   getDiscoveryItemDetail,
   getDiscoveryItemDetailSellerOverlay,
@@ -95,7 +95,10 @@ describeDb("Discovery Listing and Offer visibility parity on Postgres", () => {
         );
       }
       expect((await pool.query("SELECT * FROM discovery_buyer_offer_standing")).rows).toEqual([]);
-      expect(Boolean(await getDiscoveryPublicListingBySlug(pool, "active"))).toBe(suffix !== "disabled");
+      expect(await getDiscoveryPublicListingBySlug(pool, "active")).toMatchObject({
+        seller_listing_availability_status: suffix === "disabled" ? "unavailable" : "available",
+      });
+      expect(Boolean(await getDiscoveryPublicListingById(pool, "lst_active"))).toBe(suffix !== "disabled");
     }
   });
 
