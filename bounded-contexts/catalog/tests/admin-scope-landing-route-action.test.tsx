@@ -300,7 +300,11 @@ describe("Catalog scope-landing route action", () => {
         }),
       ),
     );
-    expect(result.feedback).toMatchObject({ status: "success", intent, result: "job-queued" });
+    expect(result.feedback).toMatchObject({
+      status: "success",
+      intent,
+      result: intent === "alias.accept" ? "alias-accepted" : "alias-rejected",
+    });
     expect(dispatch).toHaveBeenCalledWith({
       intent: intent === "alias.accept" ? "accept" : "reject",
       aliasHashes: ["alias-1", "alias-2"],
@@ -332,7 +336,7 @@ describe("Catalog scope-landing route action", () => {
         }),
       ),
     );
-    expect(result.feedback).toMatchObject({ status: "success", intent: "alias.revoke", result: "job-queued" });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "alias.revoke", result: "alias-revoked" });
     expect(dispatch).toHaveBeenCalledWith({ intent: "revoke", aliasHashes: ["alias-accepted"], reason: "reviewed" });
 
     const after = await loader(loaderArgs(new Request("https://admin.example/catalog/scopes")));

@@ -4186,7 +4186,10 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post("/catalog/scopes/attention/alias/accept", "alias_hashes=h1", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(headers["corten-location"].to_str().unwrap().contains("done=queued"));
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias_accepted"), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Alias accepted") && html.contains("The selected alias candidates were accepted."), "{html}");
     pilot.send(post("/catalog/scopes/attention/alias/reject", "alias_hashes=h1&reason=Reject", true)).await;
     let writes = pilot.catalog_writes();
     assert_eq!(writes[0].path, "/api/catalog/alias-review/commands");
@@ -4279,8 +4282,10 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=queued"), "{to}");
-    pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=alias_accepted"), "{to}");
+    let (_, headers, _) =
+        pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_revoked"), "{headers:?}");
     let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
     assert_eq!(
         bodies,
@@ -4292,7 +4297,9 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
 
     // Defer writes nothing; a revoke with no reason and an unknown intent are the failed banner.
     let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", "intent=alias.defer&alias_hashes=ah_glurak", false)).await;
-    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=queued");
+    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=alias_deferred");
+    let (_, _, html) = pilot.send(get("/catalog/scopes?done=alias_deferred", Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
     for body in
         ["intent=alias.revoke&alias_hashes=ah_pika&reason=+", "intent=alias.forget&alias_hashes=ah_pika", "intent=alias.accept"]
     {
@@ -4339,9 +4346,10 @@ async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accept
     let at = "/catalog/scopes/aliases?status=active";
     let (status, headers, _) = pilot.send(post(at, "intent=alias.accept&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=queued"), "{headers:?}");
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_accepted"), "{headers:?}");
     pilot.send(post(at, "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
-    pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    let (_, headers, _) = pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_rejected"), "{headers:?}");
     let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
     assert_eq!(
         bodies,
@@ -4956,9 +4964,9 @@ async fn an_editions_alias_commands_post_the_alias_review_and_defer_writes_nothi
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
     assert_eq!(to, "/catalog/scopes/scp_paf?done=alias_deferred");
-    assert!(pilot.catalog_writes().is_empty(), "chase-sets/chase-sets#10702: defer has no command");
+    assert!(pilot.catalog_writes().is_empty(), "defer has no command");
     let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
-    assert!(html.contains("stays pending"), "{html}");
+    assert!(html.contains("Left for later"), "admin-web's words for a defer: {html}");
 
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.accept&alias_hashes=ah_ja", true)).await;
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.reject&alias_hashes=ah_ja&reason=Not+this+set", true)).await;
@@ -10387,7 +10395,10 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=queued"), "{to}");
+    assert!(
+        to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=alias-accepted"),
+        "{to}"
+    );
     let sent = |pilot: &Pilot| -> Vec<Value> {
         pilot
             .catalog_writes()
@@ -10407,8 +10418,11 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
         .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias-deferred"), "{to}");
     assert_eq!(sent(&pilot).len(), 2, "a defer writes nothing");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
 
     // A reject without its reason sends nothing and draws the page with the form's message.
     let (status, _, html) = pilot
