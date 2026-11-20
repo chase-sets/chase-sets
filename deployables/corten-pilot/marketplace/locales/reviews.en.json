@@ -192,6 +192,7 @@
   "attempt.changed_request": "This attempt was used for a different request.",
   "attempt.report_not_sent": "The report was not sent. Reload the form before submitting.",
   "attempt.report_failed": "The report could not be submitted.",
+  "attempt.report_limited": "You have sent several reports in a short time. Try again in a few minutes.",
   "recovery.control_character": "Remove hidden control characters from your text, then try again.",
   "recovery.direction_override": "Remove hidden text-direction characters from your text, then try again.",
   "recovery.unsafe_link": "Links must start with https://. Remove other kinds of links, then try again.",

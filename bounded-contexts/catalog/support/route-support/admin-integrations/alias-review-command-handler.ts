@@ -57,9 +57,9 @@ export async function handleAliasReviewCommand(input: {
   }
 
   // Deferring keeps a candidate pending; there is no aggregate transition, so the
-  // surface just acknowledges and the next loader re-reads the still-pending row.
+  // surface says nothing was recorded and the next loader re-reads the still-pending row.
   if (intent === "alias.defer") {
-    return aliasResult(intent, "success", "job-queued", context);
+    return aliasResult(intent, "success", "alias-deferred", context);
   }
 
   const reason = String(formData.get("reason") ?? "").trim();
@@ -73,7 +73,22 @@ export async function handleAliasReviewCommand(input: {
     ...(reason ? { reason } : {}),
   });
 
-  return aliasResult(intent, "success", "job-queued", context);
+  return aliasResult(intent, "success", aliasAppliedResult(intent), context);
+}
+
+// Accept, reject and revoke are synchronous aggregate commands, applied when the
+// endpoint answers; each says what it did rather than that a job was queued.
+function aliasAppliedResult(
+  intent: Exclude<AliasReviewCommandIntent, "alias.defer">,
+): "alias-accepted" | "alias-rejected" | "alias-revoked" {
+  switch (intent) {
+    case "alias.accept":
+      return "alias-accepted";
+    case "alias.reject":
+      return "alias-rejected";
+    case "alias.revoke":
+      return "alias-revoked";
+  }
 }
 
 // The alias-review HTTP command endpoint's own aggregate-command vocabulary
