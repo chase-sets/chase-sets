@@ -12,6 +12,7 @@ import {
   type BcContextManifest,
 } from "@chase-sets/bounded-context-module";
 import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
+import { createTransientProjectionError, isTransientProjectionError } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json" with { type: "json" };
@@ -26,6 +27,7 @@ import { buildOrderingApi } from "./api";
 import { createOrderingOrderMcpHandlers } from "./features/orders/api/mcp";
 import { createOrderingPostagePolicyMcpHandlers } from "./features/postage-policies/api/mcp";
 import { hasOrderForSource } from "./features/orders/read-model/queries";
+import { OrderingDomainError } from "./features/orders/domain/common";
 import {
   buildOrderingInventorySupplyProjectionHandlers,
   buildOrderingMarketplaceSupplyProjectionHandlers,
@@ -34,7 +36,10 @@ import { buildOrderingFulfillmentCancellationProjectionHandlers } from "./featur
 import { buildOrderingReputationProjectionHandlers } from "./features/orders/integrations/reputation/reputation-projection";
 import { buildOrderingSupportCancellationReactionHandlers } from "./features/orders/integrations/support-cancellation/support-cancellation-reaction";
 import { buildOrderingMoneyTimelineProjectionHandlers } from "./features/orders/integrations/money-timeline/money-timeline-projection";
-import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
+import {
+  hasAcceptedOfferSupplyInputs,
+  listAcceptedOfferBatchInputs,
+} from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaMigrations, orderingSchemaSql } from "./support/runtime-support/schema";
 import { orderingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -42,6 +47,31 @@ import { inspectOrderingSeedState, seedOrderingDatabase } from "./support/runtim
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 const orderingContextManifest = contextManifest as BcContextManifest;
+const acceptedOfferInputWaitMs = 15 * 60 * 1000;
+
+async function requireAcceptedOfferSupplyInputs(
+  db: PgQueryable,
+  {
+    listingId,
+    inventoryItemId,
+    inventoryItemVersion,
+  }: Readonly<{
+    listingId: string;
+    inventoryItemId: string;
+    inventoryItemVersion?: number | undefined;
+  }>,
+  recordedAtMs: number,
+): Promise<void> {
+  if (await hasAcceptedOfferSupplyInputs(db, listingId, inventoryItemId, inventoryItemVersion)) {
+    return;
+  }
+
+  if (Date.now() - recordedAtMs <= acceptedOfferInputWaitMs) {
+    throw createTransientProjectionError(`Waiting for supply inputs for committed Listing ${listingId}.`);
+  }
+
+  throw new OrderingDomainError(`Committed Listing ${listingId} is not available in Ordering.`);
+}
 
 function createPaymentCaptureDispatchError(
   failures: readonly Readonly<{ orderId: string; reason: unknown }>[],
@@ -202,16 +232,35 @@ const baseModule = defineBoundedContextModule<OrderingServices, PgTransactionalP
             buildOrderingSupportCancellationReactionHandlers(services.orders.commandHandler),
           "marketplace.ordering-marketplace-offer-acceptance": () =>
             buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
-              onOfferAccepted: async (params) => {
+              onOfferAccepted: async (params, db) => {
                 if (params.acceptanceBatchId) {
-                  const batchRows = await listAcceptedOfferBatchInputs(services.db, params.acceptanceBatchId);
+                  const batchRows = await listAcceptedOfferBatchInputs(db, params.acceptanceBatchId);
                   const expectedSize = params.acceptanceBatchSize ?? batchRows.length;
                   if (batchRows.length < expectedSize) {
                     return;
                   }
-                  if (await hasOrderForSource(services.db, "offer-acceptance", params.acceptanceBatchId)) {
+                  if (await hasOrderForSource(db, "offer-acceptance", params.acceptanceBatchId)) {
                     return;
                   }
+                  let retryableMiss: unknown;
+                  for (const row of batchRows) {
+                    try {
+                      await requireAcceptedOfferSupplyInputs(
+                        db,
+                        {
+                          listingId: row.listing_id,
+                          inventoryItemId: row.inventory_item_id,
+                          inventoryItemVersion:
+                            row.inventory_item_version === null ? undefined : Number(row.inventory_item_version),
+                        },
+                        row.recorded_at.getTime(),
+                      );
+                    } catch (error) {
+                      if (!isTransientProjectionError(error)) throw error;
+                      retryableMiss ??= error;
+                    }
+                  }
+                  if (retryableMiss) throw retryableMiss;
 
                   await services.orders.createOrdersFromAcceptedOfferBatch(
                     {
@@ -253,9 +302,10 @@ const baseModule = defineBoundedContextModule<OrderingServices, PgTransactionalP
                   return;
                 }
 
-                if (await hasOrderForSource(services.db, "offer-acceptance", params.offerId)) {
+                if (await hasOrderForSource(db, "offer-acceptance", params.offerId)) {
                   return;
                 }
+                await requireAcceptedOfferSupplyInputs(db, params, Date.parse(params.recordedAt));
 
                 await services.orders.createOrdersFromAcceptedOffer(
                   {

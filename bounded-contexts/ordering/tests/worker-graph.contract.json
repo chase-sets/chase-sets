@@ -103,6 +103,8 @@
       "handlers": {
         "inventory.item.created": "<function>",
         "inventory.item.adjusted": "<function>",
+        "inventory.item.stock-authority-claimed": "<function>",
+        "inventory.item.offline-sale-recorded": "<function>",
         "inventory.hold.placed": "<function>",
         "inventory.hold.converted": "<function>",
         "inventory.hold.extended": "<function>",
@@ -118,6 +120,8 @@
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
+        "inventory.item.stock-authority-claimed",
+        "inventory.item.offline-sale-recorded",
         "inventory.hold.placed",
         "inventory.hold.converted",
         "inventory.hold.extended",
@@ -643,6 +647,8 @@
       "handlers": {
         "inventory.item.created": "<function>",
         "inventory.item.adjusted": "<function>",
+        "inventory.item.stock-authority-claimed": "<function>",
+        "inventory.item.offline-sale-recorded": "<function>",
         "inventory.hold.placed": "<function>",
         "inventory.hold.converted": "<function>",
         "inventory.hold.extended": "<function>",
@@ -652,6 +658,8 @@
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
+        "inventory.item.stock-authority-claimed",
+        "inventory.item.offline-sale-recorded",
         "inventory.hold.placed",
         "inventory.hold.converted",
         "inventory.hold.extended",
