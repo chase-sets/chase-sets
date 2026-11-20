@@ -27,6 +27,7 @@ import {
   type ReportedContentQueueItem,
   type ReportedContentQueueMetrics,
 } from "../api/contracts";
+import { reportedContentQueuePath, reportedContentTargetPath } from "./admin-paths";
 
 type ListResponse<T> = Readonly<{
   items: readonly T[];
@@ -297,7 +298,7 @@ export function ReportedContentAdminListPage({
               key: "action",
               header: t("platformOperations.reportedContent.action"),
               cell: (item) => (
-                <LinkButton href={`/reported-content/${item.target_type}/${item.target_id}`} size="sm">
+                <LinkButton href={reportedContentTargetPath(item.target_type, item.target_id)} size="sm">
                   {t("platformOperations.reportedContent.open")}
                 </LinkButton>
               ),
@@ -336,7 +337,7 @@ export function ReportedContentAdminDetailPage({
         description={t("platformOperations.reportedContent.detailDescription")}
       />
       <Stack gap={3}>
-        <LinkButton href="/reported-content" tone="secondary">
+        <LinkButton href={reportedContentQueuePath} tone="secondary">
           {t("platformOperations.reportedContent.back")}
         </LinkButton>
         {href ? (
