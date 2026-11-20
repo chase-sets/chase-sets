@@ -771,7 +771,7 @@ export function readStagingChart(root = process.cwd()) {
   const ingress = planClusterAddons({ environment: "staging" }).find((step) =>
     step.name.startsWith("install ingress-nginx"),
   );
-  // Qualify staging's effective values, not the disabled production default.
+  // Qualify the effective staging values, including the planner's override.
   if (document?.defaultBackend?.enabled === false && ingress.command.includes("defaultBackend.enabled=true")) {
     document.defaultBackend.enabled = true;
   }
