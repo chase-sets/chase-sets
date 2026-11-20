@@ -14,7 +14,7 @@ use platform::ui::{
 use serde_json::Value;
 
 use crate::{
-    support::csat::{CONSENTS, CsatScreen, OUTCOMES, RATINGS, ROLES, STATES, SURVEY, Slice, url},
+    support::csat::{CONSENTS, CsatScreen, EXPORT_REASONS, ExportForm, OUTCOMES, RATINGS, ROLES, STATES, SURVEY, Slice, url},
     text::{Pilot, Sup},
 };
 
@@ -79,6 +79,10 @@ fn outcome(t: Sup, value: &str) -> String {
         other => return other.to_owned(),
     }
     .to_owned()
+}
+
+fn export_reason(t: Sup, reason: &str) -> &'static str {
+    if reason == "quality-review" { t.csat_quality_review() } else { t.csat_case_review() }
 }
 
 /// Why the API refused the filters, in admin-web's words.
@@ -242,6 +246,23 @@ pub fn CsatPage<'a>(t: Sup, p: Pilot, screen: &'a CsatScreen) -> impl Render {
                 </div>
                 <button type="submit" class={Button}>{t.csat_apply()}</button>
             </form>
+            if screen.can_export && screen.dashboard.is_some() {
+                let e = ExportForm::FIELDS;
+                <form class={Filters} method="post" action={url::Export { filters: chosen.at(None).filters }}>
+                    <div class={Fields}>
+                        <label class={Field}>
+                            <span>{t.csat_export_reason()}</span>
+                            <select name={e.reason} required>
+                                <option value="">{t.csat_choose_export_reason()}</option>
+                                for reason in EXPORT_REASONS {
+                                    <option value={reason}>{export_reason(t, reason)}</option>
+                                }
+                            </select>
+                        </label>
+                    </div>
+                    <button type="submit" class={(Button, Secondary)}>{t.csat_export()}</button>
+                </form>
+            }
         </section>
         if let Some(data) = &screen.dashboard {
             <section class={Part}>

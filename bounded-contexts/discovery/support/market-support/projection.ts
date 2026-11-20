@@ -316,6 +316,7 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     quantity_requested: number;
     status: string;
     buyer_account_status: string | null;
+    buyer_offers_away: boolean;
     accepted_seller_account_id: string | null;
     accepted_at: string | null;
     created_at: string;
@@ -325,12 +326,15 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
        offer.*,
        account.seller_slug AS buyer_slug,
        account.status AS buyer_account_status,
+       COALESCE(standing.offers_away, FALSE) AS buyer_offers_away,
        account.seller_display_name AS buyer_display_name,
        account.average_rating_as_buyer::text AS buyer_average_rating,
        account.review_count_as_buyer AS buyer_review_count
      FROM discovery_offer_demand_matches AS offer
      INNER JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
+     LEFT JOIN discovery_buyer_offer_standing AS standing
+       ON standing.account_id = offer.buyer_account_id
      WHERE offer.offer_id = $1`,
     [offerId],
   );
@@ -492,7 +496,12 @@ async function emitSellerListingPatches(
   });
 }
 
-async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
+async function emitOfferPatch(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  offerId: string,
+  patchKey = `offer:${offerId}`,
+) {
   const offer = await loadRealtimeOffer(db, offerId);
   if (!offer) {
     return;
@@ -501,7 +510,7 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   await emitRealtimeChanges(
     db,
     event,
-    `offer:${offerId}`,
+    patchKey,
     createDiscoveryOfferPatch(
       [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.item(offer.catalog_catalog_item_id)],
       offer,
@@ -1937,6 +1946,15 @@ async function emitAccountMarketPatches(
     if (listings.rows.length < 100) break;
   }
 
+  await emitBuyerOfferPatches(db, event, accountId);
+}
+
+export async function emitBuyerOfferPatches(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  accountId: string,
+  patchKeyPrefix = "offer",
+) {
   let offerCursor = "";
   for (;;) {
     const offers = await db.query<{ offer_id: string }>(
@@ -1950,7 +1968,7 @@ async function emitAccountMarketPatches(
       [accountId, offerCursor],
     );
     if (offers.rows.length === 0) break;
-    for (const row of offers.rows) await emitOfferPatch(db, event, row.offer_id);
+    for (const row of offers.rows) await emitOfferPatch(db, event, row.offer_id, `${patchKeyPrefix}:${row.offer_id}`);
     offerCursor = offers.rows[offers.rows.length - 1]!.offer_id;
     if (offers.rows.length < 100) break;
   }

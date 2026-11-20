@@ -33,6 +33,7 @@ describe("marketplace settlement negative-balance projection", () => {
         reasonCategory: "operations",
         availableAgainOn: null,
         availableAgainAt: null,
+        preserveOtherSide: true,
       },
       expect.objectContaining({
         tenantId: "tnt_marketplace_system",

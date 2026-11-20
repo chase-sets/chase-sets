@@ -76,6 +76,15 @@ export class MarketplaceOfferFeeQuoteStaleError extends Error {
 
 export { MarketplaceOfferAbuseControlError };
 
+export class MarketplaceOfferSubmissionAwayError extends Error {
+  readonly code = "offer_not_open";
+
+  constructor() {
+    super("Offers are unavailable while you are Away from Offers.");
+    this.name = "MarketplaceOfferSubmissionAwayError";
+  }
+}
+
 export class MarketplaceOfferAcceptanceReadinessError extends Error {
   public constructor(
     public readonly code:
@@ -560,6 +569,13 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         throw new Error("Accounts cannot offer on their own listings.");
       }
       await loadSubmissionGuard(params.buyerAccountId);
+      const availabilityStreamId = `marketplace.seller-listing-availability-${params.buyerAccountId}`;
+      let availability = await sellerAvailabilityRepository.load(availabilityStreamId);
+      if (availability.state.offers.status === "unavailable") {
+        const completed = await attempt.read();
+        if (completed) return completed;
+        throw new MarketplaceOfferSubmissionAwayError();
+      }
 
       const offerId = params.offerId ?? (createId("off") as OfferId);
       const current = await repository.load(`marketplace.offer-${offerId}`);
@@ -580,19 +596,46 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         quantityRequested: params.quantityRequested,
       });
       const result = { offerId, version: current.version + events.length };
-      return attempt.commit(
-        [
-          {
-            streamId: `marketplace.offer-${offerId}`,
-            expectedVersion: current.version,
-            events: events.map(offerCodec.encode),
-            context,
-          },
-        ],
-        result,
-        { id: offerId, version: result.version },
+      const offerAppend = {
+        streamId: `marketplace.offer-${offerId}`,
+        expectedVersion: current.version,
+        events: events.map(offerCodec.encode),
         context,
-      );
+      };
+      for (let retries = 0; ; retries += 1) {
+        try {
+          return await attempt.commit(
+            [
+              offerAppend,
+              {
+                streamId: availabilityStreamId,
+                expectedVersion: availability.version === 0 ? "no_stream" : availability.version,
+                events: [],
+                context,
+              },
+            ],
+            result,
+            { id: offerId, version: result.version },
+            context,
+          );
+        } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            !("code" in error) ||
+            error.code !== "concurrency_conflict" ||
+            !("details" in error) ||
+            typeof error.details !== "object" ||
+            error.details === null ||
+            !("streamId" in error.details) ||
+            error.details.streamId !== availabilityStreamId
+          ) {
+            throw error;
+          }
+          availability = await sellerAvailabilityRepository.load(availabilityStreamId);
+          if (availability.state.offers.status === "unavailable") throw new MarketplaceOfferSubmissionAwayError();
+          if (retries === 1) throw error;
+        }
+      }
     },
     updateOfferPrice: async (params, context) => {
       const { attemptId, requestHash, ...request } = params;
@@ -813,6 +856,14 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           status: current.state.status,
         });
       }
+      if (current.state.buyerAccountId === params.sellerAccountId) {
+        throw new Error("Accounts cannot accept their own offers.");
+      }
+      const buyerAvailabilityStreamId = `marketplace.seller-listing-availability-${current.state.buyerAccountId}`;
+      const buyerAvailability = await sellerAvailabilityRepository.load(buyerAvailabilityStreamId);
+      if (buyerAvailability.state.offers.status === "unavailable") {
+        throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: current.state.status });
+      }
 
       const listingStreamId = `marketplace.listing-${params.listingId}`;
       const managedAcceptance = current.state.buyerOfferPolicyId
@@ -820,16 +871,15 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         : null;
       const availabilityStreamId = `marketplace.seller-listing-availability-${params.sellerAccountId}`;
       const [offer, listing, sellerAvailability] = await Promise.all([
-        getOfferMatchForListing(deps.db, params.offerId, params.sellerAccountId, params.listingId),
+        getOfferMatchForListing(deps.db, params.offerId, params.sellerAccountId, params.listingId, {
+          checkProjectedOffersAway: false,
+        }),
         listingRepository.load(listingStreamId),
         sellerAvailabilityRepository.load(availabilityStreamId),
       ]);
 
       if (!offer) {
         throw new MarketplaceOfferAcceptanceReadinessError("listing_not_eligible", { listingId: params.listingId });
-      }
-      if (current.state.buyerAccountId === params.sellerAccountId) {
-        throw new Error("Accounts cannot accept their own offers.");
       }
       if (sellerAvailability.state.status === "unavailable") {
         throw new Error("Seller listing availability is off.");
@@ -956,6 +1006,21 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       if (!appendToStreams) {
         throw new Error("Offer acceptance requires atomic multi-stream append support.");
       }
+      // A reciprocal acceptance locks the same two streams with the roles reversed.
+      const availabilityAppends = [
+        {
+          streamId: availabilityStreamId,
+          expectedVersion: sellerAvailability.version === 0 ? ("no_stream" as const) : sellerAvailability.version,
+          events: [sellerAvailabilityCodec.encode(availabilityCheckEvent)],
+          context,
+        },
+        {
+          streamId: buyerAvailabilityStreamId,
+          expectedVersion: buyerAvailability.version === 0 ? ("no_stream" as const) : buyerAvailability.version,
+          events: [],
+          context,
+        },
+      ].sort((a, b) => (a.streamId < b.streamId ? -1 : 1));
 
       try {
         return await attempt.commit(
@@ -973,12 +1038,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
               events: [...requirementEvents, listingCommitmentEvent].map((event) => listingCodec.encode(event)),
               context,
             },
-            {
-              streamId: availabilityStreamId,
-              expectedVersion: sellerAvailability.version === 0 ? "no_stream" : sellerAvailability.version,
-              events: [sellerAvailabilityCodec.encode(availabilityCheckEvent)],
-              context,
-            },
+            ...availabilityAppends,
           ],
           {
             offerId: params.offerId,
@@ -1008,6 +1068,12 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
             };
           }
           if (latest.state.status !== "submitted" && latest.state.status !== "accepted") {
+            throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: latest.state.status });
+          }
+          if (
+            latest.state.status === "submitted" &&
+            (await sellerAvailabilityRepository.load(buyerAvailabilityStreamId)).state.offers.status === "unavailable"
+          ) {
             throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: latest.state.status });
           }
           if (managedAcceptance) throw new ManagedOfferConflictError("managed_offer_conflict");
