@@ -327,13 +327,15 @@ export function createPricingApiClient({
         }),
       );
     },
+    /** With an attempt key, an identical resend returns the first job and changed rows are refused (409). */
     async createBulkRepriceJob(
       body: Readonly<{ csvText?: string; sourceFilename?: string | null }>,
+      idempotencyKey?: string,
     ): Promise<BulkRepriceJobStatus> {
       return parseJsonResponse(
         await client.account["bulk-reprice"].$post({
           json: body,
-          header: headers,
+          header: idempotencyKey ? writeHeaders(idempotencyKey) : headers,
         }),
       );
     },

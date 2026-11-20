@@ -66,6 +66,40 @@ function jobPhaseTone(job: BulkRepriceJobStatus | null): "success" | "danger" | 
   return "info";
 }
 
+/**
+ * One upload attempt per mounted form: a resent upload carries the same key and lands on its first job.
+ * Choosing another file draws a new key, and the form is remounted for each job it starts.
+ */
+function BulkRepriceUploadForm({ disabled }: Readonly<{ disabled: boolean }>) {
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+
+  return (
+    <Form
+      spacing="none"
+      method="post"
+      encType="multipart/form-data"
+      onChange={() => setIdempotencyKey(crypto.randomUUID())}
+    >
+      <HiddenInput name="idempotencyKey" value={idempotencyKey} />
+      <Stack data-testid="bulk-reprice-upload-furniture" gap={4}>
+        <Text>{t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.description")}</Text>
+        <TextInput
+          label={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.csv.file")}
+          name="file"
+          type="file"
+          required
+          disabled={disabled}
+        />
+        <Inline>
+          <Button type="submit" name="intent" value="upload-bulk-reprice" tone="primary" disabled={disabled}>
+            {t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}
+          </Button>
+        </Inline>
+      </Stack>
+    </Form>
+  );
+}
+
 export function PricingBulkRepricePage({
   activeJobId,
   initialActiveJob,
@@ -116,23 +150,7 @@ export function PricingBulkRepricePage({
       ) : null}
 
       <PageSection title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}>
-        <Form spacing="none" method="post" encType="multipart/form-data">
-          <Stack data-testid="bulk-reprice-upload-furniture" gap={4}>
-            <Text>{t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.description")}</Text>
-            <TextInput
-              label={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.csv.file")}
-              name="file"
-              type="file"
-              required
-              disabled={hasActiveJob}
-            />
-            <Inline>
-              <Button type="submit" name="intent" value="upload-bulk-reprice" tone="primary" disabled={hasActiveJob}>
-                {t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}
-              </Button>
-            </Inline>
-          </Stack>
-        </Form>
+        <BulkRepriceUploadForm key={activeJobId ?? ""} disabled={hasActiveJob} />
       </PageSection>
 
       {activeJob ? (
