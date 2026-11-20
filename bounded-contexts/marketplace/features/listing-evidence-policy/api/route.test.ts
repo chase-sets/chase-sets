@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
+import { ListingEvidencePolicyError } from "../domain/policy";
 import type { ListingEvidencePolicyRuntime } from "./runtime";
 import { createListingEvidencePolicyRoutes } from "./route";
 
@@ -79,6 +80,37 @@ describe("Listing Evidence Policy API", () => {
 
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toMatchObject({ valid: false, policyHash: "sha256:policy" });
+  });
+
+  it("answers a refused validation as 400 and an unexpected failure as a server error", async () => {
+    const refused = createApp(
+      {
+        validateDraft: vi.fn(async () => {
+          throw new ListingEvidencePolicyError("Only an inactive Listing Evidence Policy draft can be validated.");
+        }),
+      },
+      ["listing-evidence-policy.validate"],
+    );
+    const refusal = await refused.request("/drafts/pol_draft/validate", { method: "POST" });
+    expect(refusal.status).toBe(400);
+    await expect(refusal.json()).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Only an inactive Listing Evidence Policy draft can be validated.",
+      },
+    });
+
+    const broken = createApp(
+      {
+        validateDraft: vi.fn(async () => {
+          throw new Error("column listing.catalog_item_id does not exist");
+        }),
+      },
+      ["listing-evidence-policy.validate"],
+    );
+    const failure = await broken.request("/drafts/pol_draft/validate", { method: "POST" });
+    expect(failure.status).toBe(500);
+    expect(await failure.text()).not.toContain("catalog_item_id");
   });
 
   it("requires an explicit effective time and current impact acknowledgment to activate", async () => {
