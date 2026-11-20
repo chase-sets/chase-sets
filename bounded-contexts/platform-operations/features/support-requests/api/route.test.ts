@@ -17,6 +17,7 @@ import type {
 } from "../read-model/queries";
 import type { SupportRequesterRole } from "../domain/common";
 import type { SupportRequestServices } from "./runtime";
+import type { SupportRemedyOffer } from "../domain/remedy-offer";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
@@ -1493,6 +1494,22 @@ function supportOperationsListRow(
   return { ...listRow, support_request_id: supportRequestId, operatorPolicy: { deadlineAt } };
 }
 
+const remedyOffer: SupportRemedyOffer = {
+  policyVersion: "platform-operations.platform-remedies:pol_published:2026-07-01T00:00:00.000Z",
+  choices: {
+    refundTriggers: ["delivered"],
+    eligibleReasonCodes: ["published-goodwill"],
+    returnExceptionReasonCodes: ["published-exception"],
+    escalationReasonCodes: ["published-escalation"],
+    splitFundingAllowed: false,
+  },
+  currencyCode: "usd",
+  propose: null,
+  approve: null,
+  correct: null,
+  effects: [],
+};
+
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
   return {
     stageParticipantIntakeAttachments: vi.fn(),
@@ -1535,6 +1552,7 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     listSellerSupportRequests: vi.fn(),
     getAccountSupportRequest: vi.fn(),
     getSupportOperationsRequest: vi.fn(async () => supportRequestDetail()),
+    describeSupportRemedyOffer: vi.fn(async (_request, _actor) => remedyOffer),
     projectors: [],
     ...overrides,
   };
@@ -2041,6 +2059,23 @@ describe("support request routes", () => {
       operatorPolicy: supportRequestDetail().operatorPolicy,
     });
     expect(services.getSupportOperationsRequest).toHaveBeenCalledWith("sup_1");
+  });
+
+  it("answers the operations detail read with the remedy offer for the reading operator", async () => {
+    const services = createServices();
+    const response = await buildApp(services, ["support.manage", "support.remedies.propose"]).request(
+      "/support-requests/ops/sup_1",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ support_request_id: "sup_1", remedy_offer: remedyOffer });
+    expect(services.describeSupportRemedyOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ support_request_id: "sup_1" }),
+      expect.objectContaining({
+        accountId: "acc_operator",
+        permissions: ["support.manage", "support.remedies.propose"],
+      }),
+    );
   });
 
   it("keeps operations detail reads behind support manage permission", async () => {
