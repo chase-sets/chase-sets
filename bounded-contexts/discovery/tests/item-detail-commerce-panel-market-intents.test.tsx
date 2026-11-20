@@ -18,7 +18,8 @@ import {
   variantSchema,
 } from "./item-detail-commerce-panel-test-harness";
 
-vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
+vi.mock(import("@chase-sets/platform-runtime/realtime-web"), async (importOriginal) => ({
+  ...(await importOriginal()),
   subscribeRealtimePatches: () => ({ close() {} }),
 }));
 

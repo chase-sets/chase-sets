@@ -122,13 +122,16 @@ it.each(reloadScenarios)("reconciles the seller rail after %s", async (scenario)
   } as const;
   if (scenario !== "ordinary reload") {
     const staleResponse = routeData();
-    const reload = Promise.withResolvers<typeof staleResponse>();
-    loader.mockReturnValueOnce(reload.promise);
+    let finishReload!: (response: typeof staleResponse) => void;
+    const reload = new Promise<typeof staleResponse>((resolve) => {
+      finishReload = resolve;
+    });
+    loader.mockReturnValueOnce(reload);
     send(upsert);
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
     send({ entity: "discovery.buyerOffer", op: "remove", id: baseOffer.offer_id });
     expect(getQuote()).toBeNull();
-    await act(async () => reload.resolve(staleResponse));
+    await act(async () => finishReload(staleResponse));
     expect(router.state.revalidation).toBe("idle");
     expect(getQuote()).toBeNull();
     expect(screen.getByText("0 matching offers")).toBeTruthy();
