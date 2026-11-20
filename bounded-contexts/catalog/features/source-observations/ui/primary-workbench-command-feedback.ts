@@ -24,6 +24,11 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "profile-deprecated"
     | "profile-retired"
     | "section-saved"
+    | "refresh-paused"
+    | "refresh-resumed"
+    | "refresh-ran"
+    | "refresh-skipped"
+    | "refresh-run-failed"
     | "section-conflict"
     | "section-invalid"
     | "lifecycle-conflict"
@@ -63,6 +68,18 @@ export function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedba
   if (result === "section-saved") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title");
   }
+  if (result === "refresh-paused") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.title");
+  }
+  if (result === "refresh-resumed") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.title");
+  }
+  if (result === "refresh-ran") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.title");
+  }
+  if (result === "refresh-skipped") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.title");
+  }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
 }
@@ -93,6 +110,18 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
     if (feedback.result === "section-saved") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.description");
     }
+    if (feedback.result === "refresh-paused") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.description");
+    }
+    if (feedback.result === "refresh-resumed") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.description");
+    }
+    if (feedback.result === "refresh-ran") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.description");
+    }
+    if (feedback.result === "refresh-skipped") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.description");
+    }
 
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");
   }
@@ -120,6 +149,8 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported");
     case "invalid-intent":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent");
+    case "refresh-run-failed":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed");
     case "command-failed":
     default:
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed");
@@ -129,6 +160,9 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
 export function commandErrorTitle(result: CatalogPrimaryWorkbenchCommandFeedback["result"]): string {
   if (result === "catalog-sync-blocked") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked.title");
+  }
+  if (result === "refresh-run-failed") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed.title");
   }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title");
