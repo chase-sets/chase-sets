@@ -107,6 +107,14 @@ export function createConfigurationPoolFixture(
         if (invalidations.has(key)) result = [invalidations.get(key)];
       } else if (sql.startsWith("UPDATE event_owner_stream_invalidations SET status = 'APPLIED'")) {
         invalidations.get(key)!.status = "APPLIED";
+      } else if (
+        sql.startsWith("SELECT reservation_id FROM event_owner_stream_reservations WHERE owner_stream_id = $1") ||
+        sql.startsWith(
+          "SELECT reservation_id FROM event_owner_stream_reservations WHERE reservation_id = ANY($1::text[])",
+        )
+      ) {
+        // This fixture has no consumer reservations, open or released.
+        result = [];
       } else if (sql.startsWith("INSERT INTO pricing_repricing_configuration_heads")) {
         if (!heads.has(key))
           heads.set(key, {
