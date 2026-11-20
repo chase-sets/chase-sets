@@ -1471,8 +1471,8 @@ pub struct AlertIntent {
 /// `/guest/product-alert-intents`).
 pub trait ProductAlerts {
     /// Creates the account's alert (`CreateProductAlertRequest`), once per `attemptId` and
-    /// request. The API checks nothing against the catalog (chase-sets/chase-sets#10595). The
-    /// answer is the write's receipt.
+    /// request. The API refuses an item that is not active or a product that is not one of its
+    /// products, and takes the summary from the catalog. The answer is the write's receipt.
     async fn create_product_alert(&self, alert: &impl Serialize) -> Result<Option<Receipt>, ApiError>;
     /// Saves a guest's alert as an intent owned by `guest` (the same fields and `sourcePath`).
     async fn product_alert_intent(&self, guest: &str, alert: &impl Serialize) -> Result<AlertIntent, ApiError>;
