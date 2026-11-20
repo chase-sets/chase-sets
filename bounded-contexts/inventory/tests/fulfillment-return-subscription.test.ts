@@ -92,7 +92,9 @@ describe("inventory fulfillment return subscription", () => {
     // recording it answered Restock decision not found.
     await handle(returned("tnt_seed_development"));
 
-    const tenants = markShipmentReturned.mock.calls.map((call) => (call as unknown as [unknown, { tenantId: string }])[1].tenantId);
+    const tenants = markShipmentReturned.mock.calls.map(
+      (call) => (call as unknown as [unknown, { tenantId: string }])[1].tenantId,
+    );
     expect(tenants).toEqual([seedContext.tenantId, "tnt_seed_development"]);
     expect(tenants[1]).not.toBe(seedContext.tenantId);
     expect(markShipmentReturned).toHaveBeenCalledWith(

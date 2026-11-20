@@ -23,9 +23,8 @@ vi.mock("./services", () => ({
 }));
 
 const { seedFulfillmentDatabase } = await import("./seed");
-const { decideFulfillmentShipment, evolveFulfillmentShipment, initialFulfillmentShipmentState } = await import(
-  "../../features/shipments/domain/domain"
-);
+const { decideFulfillmentShipment, evolveFulfillmentShipment, initialFulfillmentShipmentState } =
+  await import("../../features/shipments/domain/domain");
 
 /** The events a stream's seed commands produce, stored under `tenantId`. */
 function storedUnder(tenantId: string, commands: readonly SentCommand["command"][]) {
@@ -44,7 +43,14 @@ function storedUnder(tenantId: string, commands: readonly SentCommand["command"]
 const demoSellerTenantId = "tnt_identity";
 const returnedStream = `fulfillment.shipment-${fulfillmentReservedSeedIds.shipments.returnedShipment}`;
 
-const address = { name: "Synthetic Seller", line1: "1 Synthetic Way", city: "Testville", state: "TX", postalCode: "75001", country: "US" };
+const address = {
+  name: "Synthetic Seller",
+  line1: "1 Synthetic Way",
+  city: "Testville",
+  state: "TX",
+  postalCode: "75001",
+  country: "US",
+};
 function order(orderId: string) {
   return {
     order_id: orderId,
