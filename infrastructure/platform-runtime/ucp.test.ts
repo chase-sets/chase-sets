@@ -2477,6 +2477,55 @@ describe("UCP MCP routes", () => {
     await expect(retired.json()).resolves.toMatchObject({ error: { code: -32602 } });
   });
 
+  it("keeps checkout widget HTML and tool bindings without inheriting product asset origins", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes(widgets));
+    const call = async (method: string, params?: { uri: string }) => {
+      const response = await app.request("https://marketplace.example/ucp/mcp", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      });
+      expect(response.status).toBe(200);
+      return (await response.json()).result;
+    };
+    const uris = [UCP_MCP_CART_REVIEW_RESOURCE_URI, UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI];
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "");
+    vi.stubEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL", "");
+    const before = await Promise.all(uris.map((uri) => call("resources/read", { uri })));
+
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.example/catalog");
+    vi.stubEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL", "https://photos.example/listings");
+    for (const [index, uri] of uris.entries()) {
+      const { contents } = await call("resources/read", { uri });
+      expect(contents).toEqual([
+        {
+          uri,
+          mimeType: "text/html;profile=mcp-app",
+          text: before[index].contents[0].text,
+          _meta: {
+            ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: true },
+            "openai/widgetDescription": expect.any(String),
+          },
+        },
+      ]);
+    }
+
+    const { tools } = await call("tools/list");
+    for (const [name, uri] of Object.entries({
+      create_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      get_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      update_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      cancel_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      complete_checkout: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+    })) {
+      expect(tools).toContainEqual(
+        expect.objectContaining({
+          name,
+          _meta: expect.objectContaining({ ui: { resourceUri: uri }, "openai/outputTemplate": uri }),
+        }),
+      );
+    }
+  });
+
   it("checkout handoff action.url-only payload renders the empty state", async () => {
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
     const response = await app.request("https://marketplace.example/ucp/mcp", {

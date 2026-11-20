@@ -10,6 +10,8 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
   const widget = "https://widget.example.test/product-cards.html";
   const marketplace = new URL(captured.capture.endpoint).origin;
   const admittedImage = `${marketplace}/test-cards/admitted.svg`;
+  const admittedScript = `${marketplace}/test-cards/admitted.js`;
+  const admittedStyle = `${marketplace}/test-cards/admitted.css`;
   const foreignImage = "https://foreign.example.test/test-cards/blocked.svg";
   const widgetHtml = await readFile(new URL("../build/product-cards.html", import.meta.url), "utf8");
   const resource = mcpWidgetResourceContent(
@@ -18,12 +20,15 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
     widgetHtml,
     "Product Cards",
   );
-  const csp = [
+  // Hosts admit these resource domains for scripts and styles too. Only the document narrows them.
+  expect(resource._meta.ui.csp.resourceDomains).toContain(marketplace);
+  const domains = resource._meta.ui.csp.resourceDomains.join(" ");
+  const hostCsp = [
     "default-src 'none'",
-    "script-src 'unsafe-inline'",
-    "style-src 'unsafe-inline'",
+    `script-src 'unsafe-inline' ${domains}`,
+    `style-src 'unsafe-inline' ${domains}`,
     "font-src data:",
-    `img-src ${resource._meta.ui.csp.resourceDomains.join(" ")}`,
+    `img-src ${domains}`,
   ].join("; ");
 
   const requests: { type: string; url: string }[] = [];
@@ -35,7 +40,7 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
       case widget:
         return route.fulfill({
           contentType: "text/html",
-          headers: { "content-security-policy": csp },
+          headers: { "content-security-policy": hostCsp },
           body: resource.text,
         });
       case admittedImage:
@@ -43,6 +48,10 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
           contentType: "image/svg+xml",
           body: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="12" height="12"/></svg>',
         });
+      case admittedScript:
+        return route.fulfill({ contentType: "text/javascript", body: 'document.title = "External script loaded";' });
+      case admittedStyle:
+        return route.fulfill({ contentType: "text/css", body: "body { outline: 1px solid red; }" });
       default:
         return route.abort();
     }
@@ -107,6 +116,7 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
   const [pikachu, booster] = captured.toolResult.structuredContent.products;
   await expect(frame.getByText(pikachu.title, { exact: true })).toBeVisible();
   await expect(frame.getByText(booster.title, { exact: true })).toBeVisible();
+  await expect(frame.locator("main .grid").first()).toHaveCSS("display", "grid");
   await expect(frame.getByRole("button", { name: "View on Chase Sets" })).toHaveCount(0);
 
   // The pre-fix staging capture has neither HTTPS product URLs nor media. These are separate test controls.
@@ -132,6 +142,25 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
   await open.click();
   await expect.poll(() => messages.find(({ method }) => method === "ui/open-link")?.params).toEqual({ url: safeUrl });
   expect(messages.map(({ method }) => method)).not.toContain("tools/call");
+
+  const resourceEvents = await frame.locator("html").evaluate(
+    async (_, { admittedScript, admittedStyle }) => {
+      const script = Object.assign(document.createElement("script"), { src: admittedScript });
+      const style = Object.assign(document.createElement("link"), { rel: "stylesheet", href: admittedStyle });
+      return Promise.all(
+        [script, style].map(
+          (element) =>
+            new Promise<string>((resolve) => {
+              element.onload = () => resolve("load");
+              element.onerror = () => resolve("error");
+              document.head.append(element);
+            }),
+        ),
+      );
+    },
+    { admittedScript, admittedStyle },
+  );
+  expect(resourceEvents).toEqual(["error", "error"]);
   expect(requests.filter(({ type }) => type === "script" || type === "stylesheet")).toEqual([]);
   expect(requests.filter(({ type }) => type === "image")).toEqual([{ type: "image", url: admittedImage }]);
 });
