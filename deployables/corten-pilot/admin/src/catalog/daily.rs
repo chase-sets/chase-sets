@@ -86,6 +86,7 @@ use std::collections::BTreeMap;
 use super::{
     Sent,
     api::{Catalog as _, Kind, under},
+    attention::AliasDone,
     command,
     import_context::{ProviderScope, ScopeContext, SourceOptions},
     manages, receipt,
@@ -159,6 +160,8 @@ pub enum Ran {
     /// candidate's ignore or defer (admin-web says `job-queued` for each).
     Queued,
     Cancelled,
+    /// An alias review command: what it did, as admin-web's banner says it.
+    Alias(AliasDone),
 }
 
 impl Ran {
@@ -166,6 +169,10 @@ impl Ran {
         match self {
             Ran::Queued => "queued",
             Ran::Cancelled => "cancelled",
+            Ran::Alias(AliasDone::Accepted) => "alias-accepted",
+            Ran::Alias(AliasDone::Rejected) => "alias-rejected",
+            Ran::Alias(AliasDone::Revoked) => "alias-revoked",
+            Ran::Alias(AliasDone::Deferred) => "alias-deferred",
         }
     }
 
@@ -173,6 +180,10 @@ impl Ran {
         match word {
             "queued" => Some(Ran::Queued),
             "cancelled" => Some(Ran::Cancelled),
+            "alias-accepted" => Some(Ran::Alias(AliasDone::Accepted)),
+            "alias-rejected" => Some(Ran::Alias(AliasDone::Rejected)),
+            "alias-revoked" => Some(Ran::Alias(AliasDone::Revoked)),
+            "alias-deferred" => Some(Ran::Alias(AliasDone::Deferred)),
             _ => None,
         }
     }
@@ -190,6 +201,10 @@ pub struct DailyRead {
     /// the one whose durable sync state the page reads. Passed back to the API as it is.
     #[serde(default)]
     pub catalog_sync_scope: Option<Value>,
+    /// The all-scopes alias review, which the API reads in for the scopes list's address when it
+    /// names an `evidenceRef` (none for any other location, or when it could not be read).
+    #[serde(default)]
+    pub alias_review: Option<super::api::AliasReview>,
 }
 
 /// `CatalogPrimaryWorkbenchReadModel`, the slices the daily workbench draws.
@@ -213,6 +228,13 @@ pub struct Daily {
     pub flow: Flow,
     /// The governance and health banners the daily route shows.
     pub daily_status: DailyStatus,
+    /// The audit timeline the API composed for the address, which resolves a scope page's evidence
+    /// links (`evidenceRef`). None from an API that does not compose it.
+    pub audit_evidence: Option<super::integrations::AuditEvidence>,
+    /// The health triage the API composed for the address: on a scope page's own surface, its
+    /// member units' and jobs' health (scope-member health, not a full-source signal). None from
+    /// an API that does not compose it.
+    pub health_triage: Option<super::integrations::HealthTriage>,
 }
 
 /// `CatalogPrimaryWorkbenchFlowReadModel`: the stage the route opens on (its section's, else the
@@ -241,7 +263,7 @@ pub struct DailyStatus {
 }
 
 /// The route context the API parsed from the location: the section, for the open stage, and the
-/// import context the bar draws.
+/// import context the bar draws, and the alias review's narrowing.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RouteContext {
@@ -251,6 +273,16 @@ pub struct RouteContext {
     pub scope: Option<ScopeContext>,
     pub import_scope: Option<String>,
     pub profile_version: Option<String>,
+    /// The alias review's narrowing the address carries (`aliasType`, `reviewStatuses`, and
+    /// `targetKind` with `targetId`).
+    pub alias_type: Option<String>,
+    pub review_statuses: Vec<String>,
+    pub target_kind: Option<String>,
+    pub target_id: Option<String>,
+    /// The import or sync job the address names (`jobId`).
+    pub job_id: Option<String>,
+    /// The Scope Record the address is the page of (`scopeRecordId`), on a scope's own surface.
+    pub scope_record_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
@@ -344,6 +376,8 @@ pub struct Workset {
 pub struct WorksetScope {
     pub label: String,
     pub import_scope: Option<String>,
+    /// Whether the workset names a concrete scope, so its units are that scope's members.
+    pub has_concrete_scope: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -363,6 +397,7 @@ pub struct WorksetUnit {
     pub display_name: String,
     pub unit_key: Option<String>,
     pub profile_version: Option<String>,
+    pub import_scope: Option<String>,
     pub state: String,
     pub counts: WorksetCounts,
     pub current_workbench_href: String,
@@ -1444,7 +1479,8 @@ async fn read(
     read_with(&config.platform.caller(headers, config.proto, receipt), location).await
 }
 
-async fn read_with(caller: &Caller<'_>, location: &str) -> Result<DailyRead, crate::api::ApiError> {
+/// The daily surface the API composes for `location`, an admin-web address.
+pub(crate) async fn read_with(caller: &Caller<'_>, location: &str) -> Result<DailyRead, crate::api::ApiError> {
     let rest = format!("/workbench-surfaces/daily?location={}", segment(location));
     caller.read_at::<DailyRead>(Kind::SourceObservations, &rest).await
 }
@@ -1544,10 +1580,32 @@ fn alias_query(provider_key: Option<&str>, profile_version: Option<&str>) -> Str
     if pairs.is_empty() { String::new() } else { format!("?{}", pairs.join("&")) }
 }
 
+/// The review stage's alias review query (admin-web's `selectedScopeAliasReview`): the provider and
+/// profile version the surface names, narrowed by the type, statuses and target the address
+/// carries. A target narrows only with both its kind and its id.
+fn review_query(route: &RouteContext) -> String {
+    let given = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
+    let statuses: Vec<&str> = route.review_statuses.iter().map(String::as_str).filter(|s| !s.is_empty()).collect();
+    let mut pairs: Vec<(&str, String)> = Vec::new();
+    pairs.extend(given(&route.alias_type).map(|t| ("aliasType", t)));
+    if !statuses.is_empty() {
+        pairs.push(("reviewStatuses", statuses.join(",")));
+    }
+    if let (Some(kind), Some(id)) = (given(&route.target_kind), given(&route.target_id)) {
+        pairs.extend([("targetKind", kind), ("targetId", id)]);
+    }
+    let mut query = alias_query(route.provider_key.as_deref(), route.profile_version.as_deref());
+    for (key, value) in pairs {
+        query.push(if query.is_empty() { '?' } else { '&' });
+        query.push_str(&format!("{key}={}", segment(&value)));
+    }
+    query
+}
+
 /// The alias review beside the surface: none when it does not read, as admin-web's slot draws
 /// nothing then.
 async fn alias_review(caller: &Caller<'_>, route: &RouteContext) -> Option<super::api::AliasReview> {
-    let query = alias_query(route.provider_key.as_deref(), route.profile_version.as_deref());
+    let query = review_query(route);
     match caller.read_at::<super::api::AliasReview>(Kind::AliasReview, &query).await {
         Ok(review) => Some(review),
         Err(error) => {
@@ -1637,9 +1695,9 @@ pub(crate) async fn evidence(
     let context = context_of(&uri);
     let caller = config.platform.caller(&headers, config.proto, None);
     let shown = read_evidence(&caller, &route.id).await;
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
-        return req.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
+        return script.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
     }
     let opened = Opened::Evidence(Box::new(shown));
     match context_value(&context, HOME).filter(|id| !id.is_empty()) {
@@ -2371,10 +2429,13 @@ pub(crate) async fn aliases(
     let caller = config.platform.caller(&headers, config.proto, None);
     let query =
         alias_query(context_value(&context, "providerKey").as_deref(), context_value(&context, "profileVersion").as_deref());
+    let Some(done) = AliasDone::of(&input.intent).map(Ran::Alias) else {
+        return answer(&req, &staff, &config, &headers, &context, Sent::Refused(super::not_offered(req.t())), Ran::Queued).await;
+    };
     let sent = match crate::catalog::attention::alias_command_body(&caller, &input, &query).await {
         Ok(Some(body)) => command(&caller, Method::POST, Kind::AliasReview, "/commands", Some(&body)).await,
         Ok(None) => {
-            let to = at(&home(&context), &with_query(&context, &[("done", Some(Ran::Queued.word()))]));
+            let to = at(&home(&context), &with_query(&context, &[("done", Some(done.word()))]));
             return match Local::parse(&to) {
                 Some(local) => req.redirect(&local),
                 None => req.redirect(&url::Daily),
@@ -2382,7 +2443,7 @@ pub(crate) async fn aliases(
         }
         Err(()) => Sent::Refused(super::not_offered(req.t())),
     };
-    answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
+    answer(&req, &staff, &config, &headers, &context, sent, done).await
 }
 
 #[cfg(test)]
@@ -2471,5 +2532,36 @@ mod tests {
         let (path, body) = input("reject", " dupe ").command(t).unwrap();
         assert_eq!((path, body["reason"].as_str()), ("/bulk-reject/jobs", Some("dupe")));
         assert!(input("promote", "").command(t).is_none(), "a promote without the version read");
+    }
+
+    #[test]
+    fn the_alias_review_is_narrowed_as_the_address_narrows_it() {
+        let route = |filters: Value| -> RouteContext {
+            let mut context = json!({ "providerKey": "tcgdex", "profileVersion": "2026.06.04" });
+            context.as_object_mut().unwrap().extend(filters.as_object().unwrap().clone());
+            serde_json::from_value(context).unwrap()
+        };
+        let base = "?providerKey=tcgdex&sourceProfileVersion=2026.06.04";
+        assert_eq!(review_query(&route(json!({}))), base);
+        assert_eq!(
+            review_query(&route(json!({ "aliasType": "language-edition" }))),
+            format!("{base}&aliasType=language-edition")
+        );
+        assert_eq!(
+            review_query(&route(json!({ "reviewStatuses": ["rejected", "pending"] }))),
+            format!("{base}&reviewStatuses=rejected%2Cpending")
+        );
+        let blank = json!({ "aliasType": "", "reviewStatuses": [], "targetKind": "", "targetId": "" });
+        assert_eq!(review_query(&route(blank)), base, "blank filters are left out");
+        assert_eq!(review_query(&route(json!({ "targetKind": "reference-record" }))), base, "a kind without its id");
+        assert_eq!(review_query(&route(json!({ "targetId": "ref_1" }))), base, "an id without its kind");
+        assert_eq!(
+            review_query(&route(json!({ "aliasType": "language-edition", "reviewStatuses": ["rejected", "pending"],
+                "targetKind": "catalog-item", "targetId": "synthetic item" }))),
+            format!(
+                "{base}&aliasType=language-edition&reviewStatuses=rejected%2Cpending&targetKind=catalog-item&targetId=synthetic%20item"
+            )
+        );
+        assert_eq!(review_query(&RouteContext { alias_type: Some("x".into()), ..RouteContext::default() }), "?aliasType=x");
     }
 }

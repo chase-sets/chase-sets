@@ -83,6 +83,7 @@ function failedJob(
 ): CatalogIntegrationUnitActivity["recentJobs"][number] {
   return {
     jobId,
+    syncRunId: null,
     action: "import",
     operatorStatus: "failed",
     phase: "failed",

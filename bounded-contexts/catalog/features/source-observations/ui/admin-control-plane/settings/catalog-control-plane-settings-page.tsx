@@ -24,9 +24,12 @@ import type {
 } from "../../../api/primary-workbench-admin-contracts";
 import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-copy";
 import { CatalogControlPlaneEvidenceDrawer } from "../evidence/catalog-control-plane-evidence-drawer";
+import { HealthSourceProvenance } from "../validation/health-source-provenance";
 
 type GovernanceControls = CatalogPrimaryWorkbenchReadModel["governanceControls"];
-type GovernanceControl = GovernanceControls["controls"][number];
+type GovernanceControl = GovernanceControls["controls"][number] & {
+  health?: CatalogPrimaryWorkbenchReadModel["healthTriage"]["rolloutControls"][number];
+};
 type GovernanceRbacRow = GovernanceControls["rbacMatrix"][number];
 type GovernanceSignal = GovernanceControls["observability"]["signals"][number];
 type GovernanceRemovalEvidence = GovernanceControls["legacyRemovalEvidence"]["evidence"][number];
@@ -48,6 +51,7 @@ export function CatalogControlPlaneSettingsPage({
   readModel: CatalogPrimaryWorkbenchReadModel;
 }>) {
   const governance = readModel.governanceControls;
+  const healthControls = new Map(readModel.healthTriage.rolloutControls.map((row) => [row.controlId, row]));
 
   return (
     <WorkbenchStack
@@ -74,6 +78,7 @@ export function CatalogControlPlaneSettingsPage({
             </WorkbenchText>
             <CatalogControlPlaneEvidenceDrawer auditEvidence={readModel.auditEvidence} />
           </WorkbenchActionRow>
+          <HealthSourceProvenance health={readModel.healthTriage} queryKeys={[]} />
           <MetricStrip
             items={[
               {
@@ -132,7 +137,7 @@ export function CatalogControlPlaneSettingsPage({
         density="compact"
       >
         <DataTable
-          rows={[...governance.controls]}
+          rows={governance.controls.map((row) => ({ ...row, health: healthControls.get(row.controlId) }))}
           columns={controlColumns}
           caption={t("catalog.features.sourceObservations.ui.governanceControls.controls.title")}
           getRowId={(row) => row.controlId}
@@ -230,7 +235,12 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
     key: "control",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.control"),
     sortable: true,
-    cell: (row) => <WorkbenchDataCell title={row.label} description={row.controlId} detail={row.message} />,
+    cell: (row) => (
+      <WorkbenchStack gap="sm">
+        <WorkbenchDataCell title={row.label} description={row.controlId} detail={row.message} />
+        {row.health ? <WorkbenchText>{row.health.nextAction}</WorkbenchText> : null}
+      </WorkbenchStack>
+    ),
   },
   {
     key: "status",
@@ -239,6 +249,7 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
     cell: (row) => (
       <WorkbenchStack gap="sm">
         <Badge tone={controlTone(row.status)}>{stateLabel(row.status)}</Badge>
+        {row.health ? <Badge tone="neutral">{row.health.severity}</Badge> : null}
         <BlockerBadges blockers={row.blockers} />
       </WorkbenchStack>
     ),

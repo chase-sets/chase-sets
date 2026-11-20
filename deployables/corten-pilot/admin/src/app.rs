@@ -141,7 +141,7 @@ pub fn app(config: Config) -> App {
         .assets(Static)
         .pwa(crate::site::pwa())
         .policy(if shared.proto == "https" { policy.hsts() } else { policy })
-        .layer(platform::access_log::AccessLog::new())
+        .access_log(true)
         .messages::<Msg>()
         // Return Intake reads a receipt time in the operator's zone.
         .client_zone()
@@ -471,8 +471,10 @@ async fn preview(
         Ok((payload, numbers)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
             match caller.preview(&input.preview(&payload, &numbers)).await {
-                Ok(plan) if req.mode == Mode::Action => return req.patch(views::PreviewResult { t: req.t(), plan: Some(&plan) }),
                 Ok(plan) => {
+                    if let Some(script) = req.action() {
+                        return script.patch(views::PreviewResult { t: req.t(), plan: Some(&plan) });
+                    }
                     let query = url::Policies { policy: Some(id), ..Default::default() };
                     let forms =
                         Forms { revise: Some(Draft { input, errors: Errors::new() }), preview: Some(plan), ..Forms::default() };

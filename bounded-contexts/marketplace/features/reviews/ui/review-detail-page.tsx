@@ -3,7 +3,6 @@ import {
   Badge,
   Button,
   Card,
-  Form,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
@@ -21,6 +20,7 @@ import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "./authored-te
 import type { AuthoredTextRecovery } from "./authored-text-recovery";
 import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
 import { ReviewScoringContext } from "./review-scoring-context";
+import { ReviewMutationForm } from "./review-mutation-form";
 
 const REPLY_FEEDBACK_FIELD_ID = "review-response-feedback";
 
@@ -204,7 +204,7 @@ export function ReviewDetailPage({
                   description={replyErrorMessage}
                 />
               ) : null}
-              <Form spacing="none" method="post" errorAnnouncement="summary">
+              <ReviewMutationForm spacing="none" method="post" errorAnnouncement="summary">
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="intent" value="reply" readOnly />
                   <Textarea
@@ -225,7 +225,7 @@ export function ReviewDetailPage({
                       : t("reputation.features.reviews.ui.reviewDetailPage.reply.submit")}
                   </Button>
                 </Stack>
-              </Form>
+              </ReviewMutationForm>
             </Stack>
           </Card>
         </PageSection>

@@ -38,6 +38,7 @@ export const EMPTY_ITEM_DETAIL_RESULT = {
   listingSetupLoadError: null,
   canonicalUrl: null,
   productAlertClaimError: null,
+  productAlertCreated: false,
   savedListClaim: { preparation: null, error: null },
 } as const;
 

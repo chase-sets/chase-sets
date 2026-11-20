@@ -274,6 +274,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
     channelSaleRecorder: RecordExternalChannelSale;
     readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
     connectorOAuth?: ConnectorOAuthService;
+    readyToShipCanaryOwnerUserId?: string;
     connectionConsumers?: ConnectionConsumerTopology;
     /** Governed TCGplayer order-pull authority; absent until bound, which denies scheduling. */
     resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
@@ -346,6 +347,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
       db: pool,
       eventStore,
       oauth: ports?.connectorOAuth,
+      readyToShipCanaryOwnerUserId: ports.readyToShipCanaryOwnerUserId,
       connectionEpochs,
       beforeConnectionLock: ebayConnection.beforeConnectionLock,
       disconnectEffect: ebayConnection.disconnectEffect,
@@ -535,6 +537,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
           authority: connectorFeed,
           outboundSync,
           registry: channelProviderRegistry,
+          readyToShipCanaryOwnerUserId: ports.readyToShipCanaryOwnerUserId,
           resolvePolicy: () => policies.resolvePolicy(connectorTransportPolicy),
         }),
       },
@@ -551,10 +554,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     {
       mountPath: "/api/channels",
       contextMountOrdinal: 1,
-      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route(
-        "/",
-        buildChannelsApi(services, { storageLocationAuthority: services.storageLocationAuthority }),
-      ),
+      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route("/", buildChannelsApi(services)),
     },
     {
       mountPath: "/channel-connector/oauth",

@@ -202,6 +202,8 @@ describe("marketplace listings workbench", () => {
     expect(screen.getByText("2")).toBeTruthy();
     expect(screen.getByText("Paused listings")).toBeTruthy();
     expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.getByText("Hidden from buyers until resumed")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("{count}");
     expect(screen.getByText("Withdrawn listings")).toBeTruthy();
     expect(screen.getByText("4")).toBeTruthy();
   });

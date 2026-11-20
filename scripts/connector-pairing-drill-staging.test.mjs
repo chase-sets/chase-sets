@@ -4,7 +4,7 @@ import {
   createStagingPersonaSignIn,
   STAGING_PERSONA_MAGIC_LINK_SECRET_ENV,
 } from "../deployables/tcgplayer-connector-extension/e2e/pairing-drill-staging.ts";
-import { readConnectorDrillDeployBinding } from "./connector-pairing-drill-deploy-binding.mjs";
+import { ghApi, readConnectorDrillDeployBinding } from "./connector-pairing-drill-deploy-binding.mjs";
 import { runStagingDrillCommand } from "./connector-pairing-drill-staging-command.mjs";
 
 vi.mock("node:https", () => ({ request: vi.fn() }));
@@ -191,6 +191,26 @@ const refused = (stop) => ({
 });
 
 describe("staging pairing command with its real deploy adapter and receipt-floor reader", () => {
+  it("surfaces the safe GitHub read refusal before edge, browser or sign-in", async () => {
+    const gh = syntheticGh();
+    await expect(
+      invoke((args) =>
+        args.at(-1).includes("/attempts/")
+          ? ghApi(args, {
+              run: (_file, _args, _options, done) =>
+                done(
+                  Object.assign(new Error("private-error"), { code: 1 }),
+                  Buffer.from("private-body"),
+                  Buffer.from("gh: private-stderr (HTTP 404)"),
+                ),
+            })
+          : gh(args),
+      ),
+    ).rejects.toMatchObject(refused("github-request-failed:attempt-jobs:http-404"));
+    expect(edgeRequest).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+  });
+
   it("reaches the edge-preflight boundary with independently selected sign-in deploy authority", async () => {
     const gh = syntheticGh();
     await expect(invoke(gh)).rejects.toBe(edgeBoundary);

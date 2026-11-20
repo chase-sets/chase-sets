@@ -231,12 +231,12 @@ export interface ChannelConnectionServices {
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
   activateChannelConnection(
-    input: Readonly<{
-      accountId: string;
-      connectionId: string;
-      credentialReference?: string | null;
-      bindings: readonly ChannelConnectionBinding[];
-    }>,
+    input: Readonly<
+      { accountId: string; connectionId: string } & (
+        | { storageLocationIds: readonly string[] }
+        | { credentialReference?: string | null; bindings: readonly ChannelConnectionBinding[] }
+      )
+    >,
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
   pauseChannelConnection(
@@ -251,7 +251,10 @@ export interface ChannelConnectionServices {
     input: Readonly<{ accountId: string; connectionId: string }>,
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
-  getConnection(input: Readonly<{ accountId: string; connectionId: string }>): Promise<PublicChannelConnection | null>;
+  getConnection(
+    input: Readonly<{ accountId: string; connectionId: string }>,
+    source?: "projection" | "committed",
+  ): Promise<PublicChannelConnection | null>;
   listConnections(
     input: Readonly<{
       accountId: string;

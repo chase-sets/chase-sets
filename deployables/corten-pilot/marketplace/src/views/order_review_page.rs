@@ -19,6 +19,7 @@ use platform::{
 
 use super::on_marketplace;
 use crate::{
+    marketplace_attempt::Locked,
     order_review::{OrderReviewScreen, PROBLEMS, ReviewInput},
     text::{Pilot, ReviewsMsg},
 };
@@ -120,11 +121,17 @@ pub fn OrderReviewPage<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScree
     }
 }
 
-/// Your review's form.
+/// Your review's form, with its attempt. Submit is off while a review's result cannot be confirmed.
 #[component(css = OrderReviewPage)]
 fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> impl Render {
     let f = ReviewInput::FIELDS;
     let invalid = screen.refused.as_ref().is_some_and(|r| r.field).then_some("true");
+    let locked = screen.locked();
+    let title = match locked {
+        Some(Locked::Conflict) => t.attempt_conflict(),
+        Some(Locked::Unconfirmed) => t.attempt_ambiguous(),
+        None => t.write_your_review(),
+    };
     html! {
         <div class={Card}>
             if let Some(refused) = &screen.refused {
@@ -137,7 +144,7 @@ fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> imp
                             <p><a href={ReviewFeedbackId.fragment()}>{t.write_feedback()}</a></p>
                         }
                     } else {
-                        <p class={Strong}>{t.write_your_review()}</p>
+                        <p class={Strong}>{title}</p>
                         <p>{&refused.message}</p>
                     }
                 </div>
@@ -149,6 +156,7 @@ fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> imp
                 on:connect={draft::resume(target, &screen.opportunity.order_id)}
                 on:submit={draft::submitted(event)}
             >
+                {SubmitKey::field(f.attempt)}
                 <fieldset class={Stars}>
                     <legend class={Strong}>{t.write_rating()}</legend>
                     for n in 1..=5_i64 {
@@ -208,7 +216,9 @@ fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> imp
                     <Resolve t={t} screen={screen} />
                 } else {
                     <div class={Actions}>
-                        <button type="submit" class={Primary}>{t.write_submit_account_review()}</button>
+                        <button type="submit" class={Primary} disabled={locked.is_some()}>
+                            {t.write_submit_account_review()}
+                        </button>
                         <button type="submit" class={Secondary} name={f.intent} value="resolve" formnovalidate>
                             {t.write_problem_action()}
                         </button>
@@ -272,7 +282,13 @@ fn Resolve<'a>(t: ReviewsMsg, screen: &'a OrderReviewScreen) -> impl Render {
                         <span>{t.write_resolution_secondary_acknowledge()}</span>
                     </label>
                     <p>
-                        <button type="submit" class={Secondary} name={f.intent} value="feedback-only">
+                        <button
+                            type="submit"
+                            class={Secondary}
+                            name={f.intent}
+                            value="feedback-only"
+                            disabled={screen.locked().is_some()}
+                        >
                             {t.write_resolution_secondary_action()}
                         </button>
                     </p>

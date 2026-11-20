@@ -117,7 +117,7 @@ async function readJournal(
     [role, key],
   );
   const rows = await client.query<JournalEntry>(
-    "SELECT sequence::text, record, digest FROM event_configuration_guard_history WHERE role = $1 AND key = $2 ORDER BY sequence",
+    "SELECT sequence::text, record, digest FROM event_configuration_guard_history WHERE role = $1 AND key = $2 ORDER BY event_configuration_guard_history.sequence",
     [role, key],
   );
   return decodeJournal(heads.rows, rows.rows);

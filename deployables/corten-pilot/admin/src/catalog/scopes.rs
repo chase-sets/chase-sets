@@ -5,12 +5,17 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/scopes?search&status&product_domain&language&page` | the list, with the attention queue above it ([`attention`](super::attention)) |
+//! | `GET /catalog/scopes?search&status&product_domain&language&page&evidenceRef` | the list, with the attention queue above it ([`attention`](super::attention)) |
 //!
 //! Each row's View opens the scope's page ([`scope`](super::scope)). Above the list, after the
 //! queue, is the all-scopes alias review (`alias-review?limit=200`, folded as admin-web's is), whose
 //! commands post to the attention routes ([`attention`](super::attention)): each candidate's own,
 //! and the bulk bar's for the checked candidates (`views::AliasReviewPart`).
+//!
+//! Each alias candidate links to its evidence: this list with an `evidenceRef`. With one, the page
+//! reads the daily surface for its address instead of the alias review, as admin-web's loader does:
+//! the API resolves the reference into the audit timeline the page opens above the queue, and reads
+//! the alias review in with it (`read_reviews`).
 use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
@@ -24,6 +29,7 @@ pub use super::api::{Promotion, Sync};
 use super::{
     api::{AliasReview, AttentionQueue, Catalog as _, Kind, List, ScopeFacets, ScopePage, ScopeRecord},
     attention::Parked,
+    integrations::AuditEvidence,
     list_query, screen,
     views::{self, ListScreen},
 };
@@ -55,13 +61,22 @@ pub mod url {
         pub page: Option<u32>,
         pub attention_kind: Option<String>,
         pub attention_offset: Option<String>,
+        /// The entity whose audit timeline the page opens (admin-web's `evidenceRef`), for the API
+        /// to resolve.
+        #[serde(rename = "evidenceRef")]
+        pub evidence_ref: Option<String>,
     }
 
-    /// What an attention queue command did: admin-web's banner (queued, or the command failed).
+    /// What an attention queue command did: admin-web's banner (queued, what an alias command
+    /// did, or the command failed).
     #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum AttentionDone {
         Queued,
+        AliasAccepted,
+        AliasRejected,
+        AliasRevoked,
+        AliasDeferred,
         Failed,
     }
 
@@ -129,6 +144,30 @@ pub mod url {
                 ..self.clone()
             }
         }
+
+        /// The same list with the audit timeline of `reference` open (`catalogEntityEvidenceHref`).
+        pub fn with_evidence(&self, reference: String) -> ScopeQuery {
+            ScopeQuery { evidence_ref: Some(reference), ..self.clone() }
+        }
+
+        /// The list's address as admin-web names its query (`productDomain`, `languageEdition`,
+        /// `attentionKind` and the rest): the daily surface's location, from which the API resolves
+        /// the `evidenceRef`.
+        pub fn location(&self) -> String {
+            use crate::catalog::daily::{at, with_query};
+            let page = self.page.map(|page| page.to_string());
+            let pairs = [
+                ("search", self.search.as_deref()),
+                ("status", self.status.as_deref()),
+                ("productDomain", self.product_domain.as_deref()),
+                ("languageEdition", self.language.as_deref()),
+                ("page", page.as_deref()),
+                ("attentionKind", self.attention_kind.as_deref()),
+                ("attentionOffset", self.attention_offset.as_deref()),
+                ("evidenceRef", self.evidence_ref.as_deref()),
+            ];
+            at(Scopes::default().href().as_str(), &with_query("", &pairs))
+        }
     }
 }
 
@@ -155,6 +194,10 @@ pub struct ScopeScreen {
     /// The all-scopes alias review, or none when it could not be read (`alias_review_failed`).
     pub alias_review: Option<AliasReview>,
     pub alias_review_failed: bool,
+    /// The audit timeline the API resolved for the address's `evidenceRef`; none without one.
+    pub audit: Option<AuditEvidence>,
+    /// The address named an `evidenceRef`, but the surface that resolves it could not be read.
+    pub evidence_failed: bool,
 }
 
 /// What the page draws besides the list: an item's sheet, open, with a park form that came back.
@@ -180,6 +223,8 @@ fn scope_screen(list: ScopePage, page: u32, language: Option<&str>) -> ScopeScre
         attention: None,
         alias_review: None,
         alias_review_failed: false,
+        audit: None,
+        evidence_failed: false,
     }
 }
 
@@ -202,6 +247,39 @@ pub async fn read_queue(caller: &Caller<'_>, query: &url::ScopeQuery) -> Result<
         tracing::warn!("attention queue read failed: {error}");
     }
     read
+}
+
+/// The alias review the list draws and, for an address with an `evidenceRef`, the audit timeline
+/// the API resolved for it.
+#[derive(Default)]
+struct Reviews {
+    alias_review: Option<AliasReview>,
+    audit: Option<AuditEvidence>,
+    evidence_failed: bool,
+}
+
+/// The reviews as admin-web's landing loader reads them: without an `evidenceRef`, the all-scopes
+/// alias review; with one, the daily surface for the list's address, which resolves the reference
+/// and carries the alias review (the API reads it in place of the review queue and merge candidates,
+/// which it skips for this address). An unreadable review is its section's banner and an unreadable
+/// surface the timeline's, never an empty review or timeline.
+async fn read_reviews(caller: &Caller<'_>, query: &url::ScopeQuery) -> Reviews {
+    if query.evidence_ref.is_none() {
+        return match caller.read_at::<AliasReview>(Kind::AliasReview, "?limit=200").await {
+            Ok(review) => Reviews { alias_review: Some(review), ..Reviews::default() },
+            Err(error) => {
+                tracing::warn!("the all-scopes alias review could not be read: {error}");
+                Reviews::default()
+            }
+        };
+    }
+    match super::daily::read_with(caller, &query.location()).await {
+        Ok(read) => Reviews { alias_review: read.alias_review, audit: read.read_model.audit_evidence, evidence_failed: false },
+        Err(error) => {
+            tracing::warn!("the scopes list's evidence could not be read: {error}");
+            Reviews { evidence_failed: true, ..Reviews::default() }
+        }
+    }
 }
 
 async fn scopes(
@@ -235,10 +313,10 @@ pub async fn render(
         ("productDomain", &query.product_domain),
         ("languageEdition", &query.language),
     ];
-    let (list, queue, review) = join3(
+    let (list, queue, reviews) = join3(
         caller.read_at::<ScopePage>(Kind::ScopeRecords, &format!("?{}", list_query(&filters, page))),
         read_queue(&caller, query),
-        caller.read_at::<AliasReview>(Kind::AliasReview, "?limit=200"),
+        read_reviews(&caller, query),
     )
     .await;
     let mut view = match list {
@@ -263,14 +341,10 @@ pub async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => return read_failed(req, error, true),
         Err(_) => None,
     };
-    // As admin-web's loader: an unreadable review is its section's banner, never an empty review.
-    match review {
-        Ok(review) => view.alias_review = Some(review),
-        Err(error) => {
-            tracing::warn!("the all-scopes alias review could not be read: {error}");
-            view.alias_review_failed = true;
-        }
-    }
+    view.alias_review_failed = reviews.alias_review.is_none();
+    view.alias_review = reviews.alias_review;
+    view.audit = reviews.audit;
+    view.evidence_failed = reviews.evidence_failed;
     let t: Cat = req.t();
     let manage = super::manages(viewer);
     let page_view = views::scope_list(req, query, &view, notice, back, manage);
@@ -318,5 +392,38 @@ mod tests {
         );
         let fr = scope_screen(list, 1, Some(" fr "));
         assert_eq!(fr.languages, ["en", "fr", "ja"], "the active edition stays a choice");
+    }
+
+    #[test]
+    fn an_alias_candidates_evidence_is_its_observation_else_its_catalog_item_else_the_alias() {
+        let candidate = |observation: Option<&str>, kind: &str, target: Option<&str>| crate::catalog::api::AliasCandidate {
+            alias_hash: "ah_1".into(),
+            target_kind: kind.into(),
+            target_id: target.map(Into::into),
+            observation_id: observation.map(Into::into),
+            ..Default::default()
+        };
+        assert_eq!(candidate(Some("obs_1"), "catalog-item", Some("cat_1")).evidence_target(), ("source-observation", "obs_1"));
+        assert_eq!(candidate(Some(""), "catalog-item", Some("cat_1")).evidence_target(), ("catalog-item", "cat_1"));
+        assert_eq!(candidate(None, "reference-record", Some("ref_1")).evidence_target(), ("alias", "ah_1"));
+        assert_eq!(candidate(None, "catalog-item", None).evidence_target(), ("alias", "ah_1"));
+    }
+
+    #[test]
+    fn the_surfaces_location_is_the_list_as_admin_web_names_its_query() {
+        let query = url::ScopeQuery {
+            search: Some("pal fates".into()),
+            product_domain: Some("pokemon".into()),
+            language: Some("ja".into()),
+            page: Some(2),
+            attention_kind: Some("alias-candidate".into()),
+            ..Default::default()
+        }
+        .with_evidence("catalog-item/cat_1".into());
+        assert_eq!(
+            query.location(),
+            "/catalog/scopes?search=pal%20fates&productDomain=pokemon&languageEdition=ja&page=2\
+             &attentionKind=alias-candidate&evidenceRef=catalog-item%2Fcat_1"
+        );
     }
 }

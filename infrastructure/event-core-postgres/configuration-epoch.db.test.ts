@@ -150,6 +150,17 @@ describeDb("A-S separate owner and consumer database protocol", () => {
     await expect(source.registerConsumer("owner/new", identity)).rejects.toThrow("CLOSING");
   });
 
+  it("replays multi-digit source and consumer journals through repeated cutovers", async () => {
+    const source = owner();
+    for (let epoch = 3; epoch < 15; epoch++) {
+      expect(await source.captureGrant(key, identity)).toMatchObject({ epoch });
+      await source.beginClosure(key);
+      expect(await source.driveClosure(key)).toMatchObject({ pendingConsumers: [] });
+      await source.installClosure(key);
+      expect(await owner().status(key)).toMatchObject({ status: "OPEN", epoch: epoch + 1 });
+    }
+  });
+
   async function orderingScenario(mutant: "none" | "REMOVE_SHARED_LOCK" | "REMOVE_CLOSED_THROUGH_WAIT") {
     const source = owner();
     const grant = await source.captureGrant(key, identity);

@@ -7,6 +7,7 @@ import {
   type PricingHealthServices,
 } from "./services";
 import { GoalComparisonValidationError, type GoalParameterRequest } from "./goal-comparison";
+import { RepricingConfigurationConflict } from "../../repricing-policies/api/configuration";
 
 export function createPricingHealthRoutes(services: PricingHealthServices) {
   const app = new Hono<PricingApiEnv>();
@@ -113,9 +114,19 @@ export function createPricingHealthRoutes(services: PricingHealthServices) {
     }
     if (!validApplyGoalRequest(body)) return c.json({ error: { code: "validation_failed" } }, 400);
     try {
-      const result = await services.applyGoal(c.get("actor")!.accountId, c.req.param("policyId"), body, context);
-      return result ? c.json(result) : c.json({ error: { code: "not_found" } }, 404);
+      const result = await services.applyGoal(
+        c.get("actor")!.accountId,
+        c.req.param("policyId"),
+        body,
+        context,
+        c.req.header("Idempotency-Key"),
+      );
+      return result
+        ? c.json(result, result.status === "accepted-pending" ? 202 : result.status === "applied" ? 200 : 409)
+        : c.json({ error: { code: "not_found" } }, 404);
     } catch (error) {
+      if (error instanceof RepricingConfigurationConflict)
+        return c.json({ error: { code: "concurrency_conflict" } }, 409);
       if (error instanceof PricingHealthApplyRefusedError)
         return c.json({ error: { code: "goal_apply_refused", reason: error.code } }, 409);
       throw error;

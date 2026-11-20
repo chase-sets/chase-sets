@@ -10,6 +10,8 @@ export interface RatingProps extends Omit<HTMLAttributes<HTMLDivElement>, "class
   interactive?: boolean;
   onValueChange?: (value: number) => void;
   label?: string;
+  /** What a read-only rating says it is, localized by the caller; defaults to "{label}: {value} out of {max}". */
+  valueText?: string;
 }
 
 export function Rating({
@@ -19,6 +21,7 @@ export function Rating({
   interactive = false,
   onValueChange,
   label = "Rating",
+  valueText,
   ...rest
 }: RatingProps) {
   const stars = Array.from({ length: max }, (_, i) => {
@@ -49,8 +52,9 @@ export function Rating({
   return (
     <div
       {...rest}
-      role={interactive ? "radiogroup" : undefined}
-      aria-label={label}
+      // A read-only rating is one image whose name is its value; its stars are hidden.
+      role={interactive ? "radiogroup" : "img"}
+      aria-label={interactive ? label : (valueText ?? `${label}: ${value} out of ${max}`)}
       className="inline-flex items-center gap-0.5"
     >
       {stars}

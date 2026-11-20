@@ -102,6 +102,8 @@ export const identityEnglishTranslations = {
   "identity.features.accounts.api.route.account.not.found": "Account not found.",
   "identity.features.accounts.api.route.account.badge.not.supported": "Account badge is not supported.",
   "identity.features.accounts.api.route.forbidden": "Forbidden.",
+  "identity.features.accounts.errors.name.required": "Legal name is required.",
+  "identity.features.accounts.errors.displayName.required": "Marketplace name is required.",
   "identity.api.display.name.already.taken": "Display name is already taken.",
   "identity.features.accounts.readModel.schema.create.table.if.not.exists.identity":
     "CREATE TABLE IF NOT EXISTS identity_accounts (\n  account_id text PRIMARY KEY,\n  name text NOT NULL,\n  display_name text NOT NULL,\n  account_type text NOT NULL,\n  status text NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",

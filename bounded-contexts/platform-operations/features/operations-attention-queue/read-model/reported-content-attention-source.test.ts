@@ -51,7 +51,7 @@ describe("reported-content-attention-source", () => {
     ]);
     expect(items[2]).toMatchObject({
       dueAt: item.acknowledge_due_at,
-      deepLink: { href: "/reported-content/listing/lst_1" },
+      deepLink: { href: "/support/reported-content/listing/lst_1" },
       summary: { params: { severity: "high", role: "Founder" } },
     });
     expect(JSON.stringify(items)).not.toMatch(/PRIVATE|reporter|details/);

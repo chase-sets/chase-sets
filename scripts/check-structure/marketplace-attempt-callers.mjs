@@ -23,7 +23,7 @@ export function readTrackedMarketplaceCallerSources(root) {
       "-l",
       "-z",
       "-E",
-      "submitOffer|updateOfferPrice|acceptOffer|declineOfferMatch|createSubmittedOffer|updateSubmittedOfferPrice|acceptOfferMatch|commandBuyerOfferPolicy|BuyerOfferPolicyServices|createBuyerOfferPolicyRuntime|SubmitOffer|AcceptOffer|DeclineOfferMatch|marketplace\\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)|decline-offer|offers/submitted|offers/matches/|offer-policies/|[Ll]isting|SellerAwayWindow|ScheduledAwayWindow|SellerOrderCapacity",
+      "submitOffer|updateOfferPrice|acceptOffer|declineOfferMatch|createSubmittedOffer|updateSubmittedOfferPrice|acceptOfferMatch|commandBuyerOfferPolicy|BuyerOfferPolicyServices|createBuyerOfferPolicyRuntime|SubmitOffer|AcceptOffer|DeclineOfferMatch|marketplace\\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)|decline-offer|offers/submitted|offers/matches/|offer-policies/|[Ll]isting|SellerAwayWindow|ScheduledAwayWindow|SellerOrderCapacity|[Rr]eview|[Rr]eport",
       "--",
       "*.ts",
       "*.tsx",
@@ -75,8 +75,8 @@ function literalUrl(node, bindings = new Map(), seen = new Set()) {
   return null;
 }
 
-export function enumerateMarketplaceAttemptCallers(sources, listing = false) {
-  const activeMethods = listing ? listingMethods : methods;
+export function enumerateMarketplaceAttemptCallers(sources, listing = false, reviewReport = false) {
+  const activeMethods = reviewReport ? reviewReportMethods : listing ? listingMethods : methods;
   const callers = [];
   for (const file of sources) {
     const ast = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
@@ -127,7 +127,7 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false) {
         method,
         line,
         call,
-        ...(listing ? { identityEvidence: expandIdentity(node) + "\n" + imports.join("\n") } : {}),
+        ...(listing || reviewReport ? { identityEvidence: expandIdentity(node) + "\n" + imports.join("\n") } : {}),
       });
     };
     function visit(node) {
@@ -139,6 +139,7 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false) {
           const tool = property("name")?.initializer;
           const args = property("arguments")?.initializer;
           if (
+            !reviewReport &&
             tool &&
             ts.isStringLiteral(tool) &&
             (listing
@@ -164,9 +165,25 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false) {
           name === "commandHandler" &&
           /type:\s*["'](?:SubmitOffer|AcceptOffer|UpdateOfferPrice|DeclineOfferMatch)["']/.test(node.getText(ast));
         const policyCommand = name === "execute" && policy;
+        const reviewReportCommand =
+          reviewReport &&
+          name === "commandHandler" &&
+          /type:\s*["'](?:SubmitReview|SubmitReviewReply|SubmitMarketplaceReport)["']/.test(node.getText(ast));
         // Handler fixtures deliberately exercise invalid commands; transport callers are never exempt.
-        if ((listing || !isTest) && (activeMethods.has(name) || (!listing && (offerCommand || policyCommand))))
+        if (
+          (listing || !isTest) &&
+          (activeMethods.has(name) ||
+            (reviewReport ? reviewReportCommand : !listing && (offerCommand || policyCommand)))
+        )
           add(node, name);
+        if (
+          reviewReport &&
+          name === "$post" &&
+          /client\.(?:reviews|listings)/.test(expression.getText(ast)) &&
+          (/\.report\./.test(expression.getText(ast)) ||
+            /^client\.reviews(?:\[.*\]\.reply)?\.\$post$/.test(expression.getText(ast)))
+        )
+          add(node, "typed-http-review-report");
         // HTTP transport producers (e.g. Playwright `request.post(url, { data })`). Route registrations
         // pass a handler, not an options object, so they never match.
         const [target, options] = node.arguments;
@@ -178,15 +195,29 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false) {
           ts.isPropertyAccessExpression(expression) &&
           /^(post|patch|put)$/.test(expression.name.text)
         ) {
-          const command = (listing ? httpListingCommands : httpOfferCommands).find(([pattern]) =>
-            pattern.test(url.split("?")[0]),
-          );
+          const command = (
+            reviewReport ? httpReviewReportCommands : listing ? httpListingCommands : httpOfferCommands
+          ).find(([pattern]) => pattern.test(url.split("?")[0]));
           if (command) add(node, command[1], options.getText(ast));
         }
       }
-      if (ts.isJsxElement(node) && /^(Form|RouterForm)$/.test(node.openingElement.tagName.getText(ast))) {
+      if (
+        ts.isJsxElement(node) &&
+        /^(Form|RouterForm|ReviewMutationForm)$/.test(node.openingElement.tagName.getText(ast))
+      ) {
         const call = node.getText(ast);
-        if (!listing && /name=["']intent["']\s+value=["'](?:decline-offer|accept-offer)["']/.test(call)) {
+        if (
+          reviewReport &&
+          !isTest &&
+          /name=["'](?:intent|rating)["']/.test(call) &&
+          (/value=["'](?:report-listing|report-review|reply)["']/.test(call) || /name=["']rating["']/.test(call))
+        )
+          add(node, "review-report-form");
+        if (
+          !reviewReport &&
+          !listing &&
+          /name=["']intent["']\s+value=["'](?:decline-offer|accept-offer)["']/.test(call)
+        ) {
           add(node, "offer-command-form");
         }
         if (
@@ -203,6 +234,51 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false) {
     visit(ast);
   }
   return callers.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+}
+
+const reviewReportMethods = new Set(["submitReview", "submitReviewReply", "reportListing", "reportReview"]);
+const httpReviewReportCommands = [
+  [/\/reviews$/, "http-review-submit"],
+  [/\/reviews\/[^/]+\/(?:reply|report)$/, "http-review-action"],
+  [/\/listings\/[^/]+\/report$/, "http-listing-report"],
+];
+export function enumerateReviewReportAttemptCallers(sources) {
+  return enumerateMarketplaceAttemptCallers(sources, false, true);
+}
+
+export const marketplaceReviewReportCallerPartition = new Map([
+  ["bounded-contexts/marketplace/features/reviews/api/route.ts", "attempt-input"],
+  ["bounded-contexts/marketplace/features/reports/api/route.ts", "attempt-input"],
+  ["bounded-contexts/marketplace/support/route-support/review-submission-route.tsx", "attempt-input"],
+  ["bounded-contexts/marketplace/support/route-support/review-report-action.ts", "attempt-input"],
+  ["bounded-contexts/marketplace/support/route-support/listing-report-action.ts", "attempt-input"],
+  ["bounded-contexts/marketplace/routes/marketplace/account-review.tsx", "attempt-input"],
+  ["bounded-contexts/marketplace/support/request-support/reputation-client.ts", "typed-forwarding"],
+  ["bounded-contexts/marketplace/client.ts", "typed-forwarding"],
+  ["bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx", "attempt-form"],
+  ["bounded-contexts/marketplace/features/reviews/ui/review-detail-page.tsx", "attempt-form"],
+  ["bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx", "attempt-form"],
+  ["bounded-contexts/discovery/routes/public-listing.tsx", "attempt-form"],
+  ["bounded-contexts/marketplace/support/runtime-support/seed.ts", "fixed-review-stream-history"],
+  ["deployables/corten-pilot/scripts/smoke-market-account.mjs", "invalid-report-probe"],
+]);
+
+export function unpartitionedReviewReportAttemptCallers(callers) {
+  return callers.filter((caller) => {
+    const proof = marketplaceReviewReportCallerPartition.get(caller.path);
+    if (!proof) return true;
+    const evidence = caller.identityEvidence ?? caller.call;
+    if (proof === "attempt-form") return !/^<ReviewMutationForm\b/.test(caller.call);
+    if (proof === "attempt-input") return !/\battemptId\b/.test(evidence);
+    if (proof === "typed-forwarding") return !/json:\s*body/.test(caller.call);
+    if (proof === "invalid-report-probe")
+      return caller.method !== "http-review-action" || !/form:\s*\{\s*reason:\s*""\s*,/.test(caller.call);
+    return (
+      proof !== "fixed-review-stream-history" ||
+      caller.method !== "commandHandler" ||
+      !/streamId:\s*(buyer|seller)ReviewStreamId/.test(caller.call)
+    );
+  });
 }
 
 const listingMethods = new Set([
@@ -250,7 +326,7 @@ export const marketplaceOfferCallerPartition = new Map([
   ["bounded-contexts/checkout/routes/account-sell-list.tsx::declineOfferMatch", "attemptId"],
   ["bounded-contexts/checkout/support/request-support/checkout-confirmation.ts::createSubmittedOffer", "attemptId"],
   [
-    "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts::acceptOfferMatch",
+    "bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts::acceptOfferMatch",
     "Checkout selected/match sourceActionKey forwarded through the imported client interface",
   ],
   [
@@ -312,6 +388,8 @@ export const marketplaceListingCallerPartition = new Map([
   ["bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/features/listings/api/listing-caller-client.test.ts", "typed-owner-fixture"],
+  ["deployables/platform-api/__tests__/listing-channel-activation-composition.db.test.ts", "typed-owner-fixture"],
+  ["deployables/platform-api/__tests__/owner-predicate-enrollment.db.test.ts", "typed-owner-fixture"],
   [
     "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
     "Channels publication port, not Marketplace Listing commands",
@@ -328,7 +406,7 @@ export const marketplaceListingCallerPartition = new Map([
     "bounded-contexts/channels/features/publication-port/tests/channel-publication-invocation-boundary.test.ts",
     "Channels publication port, not Marketplace Listing commands",
   ],
-  ["bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts", "caller-identity"],
+  ["bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts", "caller-identity"],
   ["bounded-contexts/discovery/support/route-support/item-detail/action.ts", "form-attempt"],
   ["bounded-contexts/marketplace/features/channel-inbound-clamp/api/runtime.ts", "authoritative-stream"],
   [

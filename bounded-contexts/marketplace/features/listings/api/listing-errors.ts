@@ -67,6 +67,7 @@ function classifyListingError(error: unknown): ListingErrorCode | null {
       case "total-bytes-exceeded":
       case "pixel-budget-exceeded":
       case "invalid-dimensions":
+      case "unreadable-image":
         return "evidence-invalid";
       default:
         return null;

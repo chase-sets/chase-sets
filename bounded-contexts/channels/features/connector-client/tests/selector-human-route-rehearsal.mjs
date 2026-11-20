@@ -10,15 +10,15 @@ import { AUTHORITY, prepare, verifyPackage, verifyExport } from "../integrations
 const driver = fileURLToPath(import.meta.url);
 const seat = path.resolve(path.dirname(driver), "../../../../..");
 const corePath = "bounded-contexts/channels/features/connector-client/integrations/order-authority-probe";
-export const LANDED_HEAD = "d54fafca165b483c26c9207dc3c77447b860efd4";
-// Immutable #9121 oracle, not hashes derived from the candidate checkout.
+export const LANDED_HEAD = "70e8e10d0cdf9fbe6570d76b51980f19622ebf55";
+// Fixed source digests, not hashes derived from the checkout under test.
 export const LANDED_DIGESTS = Object.freeze({
   "capture.html": "e92e113b376ea4e568d24bd9c51e98622d4897f3784d5c1138fa03a61b0daf03",
-  "capture.test.ts": "45b14d4c9ccdf4fdab50022061220a91a819309b5e0ded8a42ab044af2f603ae",
-  "helper.js": "5b2fd477efd24c6706f388031f0c84c32168e8c3ea820349ae3b16a24f5ef75a",
+  "capture.test.ts": "7fc2ba0fe929a61f660cac2285f86794fef792daf611f0582a4cbc88e2c7de29",
+  "helper.js": "617b14df818d1d3cc5a4c5d5f5ca07481a9e7145e3e0a4d81306bb47de454e2e",
   "manifest.json": "7e4d6ca9b8e34087eb9d36375d4ed0848bc806a8531748a831ab9d92888050b4",
-  "package.mjs": "d0b765ab19f3accb56fbdeb6d9694acb1ac6d864e64018b36a62681a8beb00f6",
-  "worker.js": "3530d525a67b8534b7697ceac7d16de547c5203ad2861831f6cee69199905856",
+  "package.mjs": "1d9f016041b2b76654b6be4891a926adec73e45ce94362298eea236c574802d0",
+  "worker.js": "93bcaecaea6a8e522bcbae4eb6c513ece1b94911a2320bce53122cc6f6d21df9",
 });
 export const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 export const PRIVATE_TOKEN = "SYNTHETIC_PRIVATE_SENTINEL_9155";

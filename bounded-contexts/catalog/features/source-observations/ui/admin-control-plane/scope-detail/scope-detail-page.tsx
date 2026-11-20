@@ -1,4 +1,6 @@
-import { Badge, Page, PageHeader, PageSection } from "@chase-sets/design-system";
+import { Badge, Page, PageHeader, PageSection, WorkbenchLinkList } from "@chase-sets/design-system";
+import { CatalogControlPlaneEvidenceDrawer } from "../evidence/catalog-control-plane-evidence-drawer";
+import { CatalogEntityEvidenceLink } from "../evidence/catalog-entity-evidence-link";
 import { t } from "@chase-sets/localization";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
 import { CatalogIntegrationLanguageEditionsPanel } from "./language-editions/language-editions-panel";
@@ -7,6 +9,7 @@ import {
   catalogScopeHasLanguageEditionsToReview,
 } from "./language-editions/language-edition-review";
 import { CatalogScopeJourneyOverviewPanel } from "./scope-journey-overview-panel";
+import { ScopeHealth } from "./scope-health";
 import { buildCatalogScopeJourneyOverviewReadModel } from "./scope-journey-overview";
 import type { CatalogAliasReviewReadModel } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import type { ScopeCoverageMatrix } from "../../../../provider-scope-mapping/ui/contracts";
@@ -100,6 +103,59 @@ export function CatalogScopeDetailPage({
 
       {journey ? (
         <PageSection>
+          <ScopeHealth
+            readModel={journey.readModel}
+            scopeRecordId={scope.scopeRecordId}
+            requestUrl={journey.requestUrl}
+            actionHref={actionHref}
+            loading={loading}
+          />
+          <WorkbenchLinkList>
+            <CatalogEntityEvidenceLink
+              location={journey.requestUrl}
+              reference={{ kind: "scope", id: scope.scopeRecordId }}
+            />
+            {journey.readModel.mergeCandidateReview.rows.map((row) => (
+              <CatalogEntityEvidenceLink
+                key={row.candidateId}
+                location={journey.requestUrl}
+                reference={{ kind: "candidate", id: row.candidateId }}
+              />
+            ))}
+            {[
+              ...new Set(
+                journey.readModel.mergeCandidateReview.rows.flatMap((row) =>
+                  row.proposedMapping.catalogItemId ? [row.proposedMapping.catalogItemId] : [],
+                ),
+              ),
+            ].map((id) => (
+              <CatalogEntityEvidenceLink
+                key={id}
+                location={journey.requestUrl}
+                reference={{ kind: "catalog-item", id }}
+              />
+            ))}
+            {journey.readModel.sourceObservationReview.rows.map((row) => (
+              <CatalogEntityEvidenceLink
+                key={row.observationId}
+                location={journey.requestUrl}
+                reference={{ kind: "source-observation", id: row.observationId }}
+              />
+            ))}
+            {journey.readModel.importJobs.jobs.map((row) => (
+              <CatalogEntityEvidenceLink
+                key={row.jobId}
+                location={journey.requestUrl}
+                reference={{ kind: "import-job", id: row.jobId }}
+              />
+            ))}
+          </WorkbenchLinkList>
+          {journey.readModel.routeContext.evidenceRef ? (
+            <CatalogControlPlaneEvidenceDrawer
+              key={journey.readModel.routeContext.evidenceRef}
+              auditEvidence={journey.readModel.auditEvidence}
+            />
+          ) : null}
           {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
           <CatalogIntegrationImportToPromotionWorkspace
             readModel={journey.readModel}

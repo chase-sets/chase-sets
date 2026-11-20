@@ -51,7 +51,7 @@ const reviewedSites = {
   "scripts/catalog-staging-count-lifecycle.mjs": 1,
   "scripts/catalog-staging-count-preparation.mjs": 1,
   "scripts/catalog-staging-scrydex-coordinate-preview.mjs": 1,
-  "scripts/connector-pairing-drill-deploy-binding.mjs": 3,
+  "scripts/connector-pairing-drill-deploy-binding.mjs": 4,
   "scripts/dispatch-unlock-count.mjs": 2,
   "scripts/easypost-refund-event-replay.mjs": 1,
   "scripts/guest-buy-now-freshness-probe.mjs": 4,
@@ -82,7 +82,7 @@ const reviewedSites = {
   "scripts/staging-refresh-preflight.mjs": 1,
   "scripts/staging-wake-drills.mjs": 1,
   "scripts/stripe-money-smoke-test.mjs": 13,
-  "scripts/stripe-webhook-endpoint.mjs": 2,
+  "scripts/stripe-webhook-endpoint.mjs": 5,
 };
 const reviewedSiteContexts = {
   ".github/actions/report-scheduled-workflow-alert/action.yml":
@@ -112,7 +112,7 @@ const reviewedSiteContexts = {
   "scripts/catalog-staging-scrydex-coordinate-preview.mjs":
     "9074c190b4a94e3e32314b3e4e4322075ffa9440cc637dd196c6c6242b7945b2",
   "scripts/connector-pairing-drill-deploy-binding.mjs":
-    "d54c3079ace98306c96401fd274ba411128026ae9a40b0e4ad2c5a7ad6195719",
+    "6d3785ad8bc20505e7c58f78b51be268755920eef80a3ba888a7a54c72acaa60",
   "scripts/dispatch-unlock-count.mjs": "cdc5e770ee4b7f91eac40f91118bfad992a4a01dd15d85bd5dba574910d30872",
   "scripts/easypost-refund-event-replay.mjs": "0a1980a7006e3c58b1df5f799bb0092c322c9a41659314ebbd50679de83a6cfd",
   "scripts/guest-buy-now-freshness-probe.mjs": "2faa364ba0e4b78dee01b4002df76145288c0ff4441d70bdf8a5c4ce4733ea38",
@@ -146,7 +146,7 @@ const reviewedSiteContexts = {
   "scripts/staging-refresh-preflight.mjs": "8327da03d2d0ea8d486d3f456f9daf2fd5301ba15068a034ddf30f28b41267e3",
   "scripts/staging-wake-drills.mjs": "3c5544f6031c2473f2e69b9bf20f4c2c64f55afb08bb0be1e93a481a51c50937",
   "scripts/stripe-money-smoke-test.mjs": "b7dd30be0469e9226d03894debd4aaadb468d40657c6f2e7ce58508d7ad4672d",
-  "scripts/stripe-webhook-endpoint.mjs": "525b0a34268baf31eb5ce0695ea834c08ca56dca71e4683ccbe57f753ce0c052",
+  "scripts/stripe-webhook-endpoint.mjs": "d6e3f6d474afd012e8062e469b5253477dd04fa481a67ad011abd728c94a20cd",
 };
 const sharedCallers = [
   "catalog-provider-refresh-watch.yml",

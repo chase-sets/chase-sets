@@ -235,6 +235,7 @@ export const catalogPrimaryWorkbenchSections = [
     freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
     pagination: "cursor",
     routeContextKeys: [
+      "evidenceRef",
       "section",
       "providerKey",
       "unitKey",

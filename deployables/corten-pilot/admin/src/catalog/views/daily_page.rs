@@ -141,6 +141,7 @@ pub fn DailyPage<'a>(
                     let (title, description) = match ran {
                         Ran::Queued => (t.feedback_queued_title(), t.feedback_queued_description()),
                         Ran::Cancelled => (t.feedback_cancelled_title(), t.feedback_cancelled_description()),
+                        Ran::Alias(alias) => (alias.title(t), alias.description(t)),
                     };
                     <div class={Notice} id={DailyRefusalId} role="status">
                         <Banner tone="success" title={title} description={description} />
@@ -1851,7 +1852,7 @@ fn ReviewModule<'a>(
                     }
                 }
             </nav>
-            <AliasReviewPart t={t} p={p} action={&alias_action} review={aliases} failed={false} manage={manage} />
+            <AliasReviewPart t={t} p={p} action={&alias_action} review={aliases} failed={false} manage={manage} evidence={None} />
             <form id={EVIDENCE_OPEN} method="get" action={&daily_path} data-patch>
                 for (name, value) in &kept {
                     <input type="hidden" name={name.as_str()} value={value.as_str()}>

@@ -82,28 +82,35 @@ export function createScopeSyncCountRuntime(deps: {
             : null;
         if (!kind) continue;
         if (record.product_domain !== "one-piece" && record.product_domain !== "lorcana")
-          throw new CountAcquisitionRefused();
-        if (kind === "sealed" && record.product_domain === "lorcana") throw new CountAcquisitionRefused();
+          throw new CountAcquisitionRefused("unsupported-product-domain");
+        if (kind === "sealed" && record.product_domain === "lorcana")
+          throw new CountAcquisitionRefused("unsupported-product-form");
         if (
           mapping.unit_key !==
           `scrydex:${record.product_domain}:${kind === "cards" ? "single-card" : "sealed-product"}:source-observation-import`
         )
-          throw new CountAcquisitionRefused();
+          throw new CountAcquisitionRefused("unexpected-unit-key");
         const matches = versions.filter(
           (version) =>
             isActiveProviderOptionQueryProfileVersion(version) &&
             catalogProviderProfileVersionIngestionUnitKey(version) === mapping.unit_key,
         );
-        const version = matches.length === 1 ? matches[0] : null;
+        const [version, duplicate] = matches;
+        if (!version) throw new CountAcquisitionRefused("active-option-query-profile-missing");
+        if (duplicate) throw new CountAcquisitionRefused("active-option-query-profile-ambiguous");
         if (
-          !version ||
           !version.profile.optionQueries.some(
             (entry) => entry.queryKind === (kind === "sealed" ? "sealed-products" : "cards"),
-          ) ||
-          !mapping.set_id ||
-          !["set", "expansion"].includes(record.scope_kind)
+          )
         )
-          throw new CountAcquisitionRefused();
+          throw new CountAcquisitionRefused("profile-option-query-missing");
+        const setId = mapping.set_id?.trim();
+        const setName = version.profile.supportedScopes.includes("set-name") ? mapping.set_name?.trim() : null;
+        const parentValue = setId || setName;
+        if (!parentValue || parentValue === "." || parentValue === ".." || (!setId && /[\\"]/.test(parentValue)))
+          throw new CountAcquisitionRefused("provider-set-id-missing");
+        if (!["set", "expansion"].includes(record.scope_kind))
+          throw new CountAcquisitionRefused("unsupported-scope-kind");
         for (const capability of ["provider-transport", "provider-option-query", "import"] as const) {
           policy.assertAllowed({
             capability,
@@ -123,7 +130,7 @@ export function createScopeSyncCountRuntime(deps: {
           kind,
           languageCode:
             (membership.selection.mode === "matching-scope" ? membership.selection.query.languageCode : null) ?? "en",
-          parentValue: mapping.set_id,
+          parentValue,
         });
         const source = await readScrydexCountSource(query, { ...deps.adapterOptions, countReader: deps.store });
         const blocked = !source && (await deps.store.blocked(query));

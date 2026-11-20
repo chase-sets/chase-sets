@@ -23,6 +23,7 @@ export default function MarketplaceBulkRepriceRoute() {
 
   return (
     <PricingBulkRepricePage
+      available={data.available}
       activeJobId={data.activeJobId}
       initialActiveJob={data.activeJob}
       message={actionData && "message" in actionData ? String(actionData.message ?? "") : null}

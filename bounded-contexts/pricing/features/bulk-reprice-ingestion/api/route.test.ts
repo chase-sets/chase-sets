@@ -78,10 +78,10 @@ function services(
   };
 }
 
-function buildApp(featureServices: BulkRepriceIngestionServices) {
+function buildApp(featureServices: BulkRepriceIngestionServices, signedIn = true) {
   const app = new Hono<PricingApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor());
+    c.set("actor", signedIn ? actor() : null);
     c.set("context", eventContext());
     await next();
   });
@@ -104,6 +104,15 @@ describe("bulk reprice ingestion API route", () => {
 
     expect(response.status).toBe(404);
     expect(featureServices.enqueueJob).not.toHaveBeenCalled();
+  });
+
+  it("answers whether bulk reprice is on only while it is, and only to a signed-in actor", async () => {
+    const on = await buildApp(services({ enabled: true })).request("/account/bulk-reprice");
+    expect(on.status).toBe(200);
+    await expect(on.json()).resolves.toEqual({ enabled: true });
+
+    expect((await buildApp(services({ enabled: false })).request("/account/bulk-reprice")).status).toBe(404);
+    expect((await buildApp(services({ enabled: true }), false).request("/account/bulk-reprice")).status).toBe(401);
   });
 
   it("enforces the effective m110 create-job rate-limit policy", async () => {

@@ -11,6 +11,7 @@ import { createSupportRequestRuntime } from "./runtime";
 import { buildSupportApi, type SupportApiEnv } from "./http";
 import type { SupportEvidenceAttachmentStorage } from "./attachments";
 import type { SupportResponseType } from "../domain/common";
+import type { ParticipantReceipt } from "../domain/participant-attempt";
 
 export const buyer = evidenceActor("viewer", ["support.view", "support.manage"], true);
 export const responseSeller = evidenceActor("viewer", ["support.view", "support.manage"], false, "acc_seller");
@@ -49,6 +50,92 @@ export async function operationsResponseFixture(responseType: SupportResponseTyp
   fixture.setActor(operator);
   fixture.db.query.mockResolvedValue({ rows: [{ support_request_id: fixture.id, resolution: null }] } as never);
   return { ...fixture, operator };
+}
+
+export async function legacyCsatResolutionFixture() {
+  const current = await responseFixture("confirm-cancellation", "Seller confirms cancellation.");
+  const result = await current.executeParticipant(
+    "record-response",
+    current.body,
+    current.id,
+    attemptId,
+    responseSeller,
+  );
+  const resolved = current.allEvents.find((event) => event.eventType === "support.support-request.resolved")!;
+  const receiptEvent = current.allEvents.at(-1)!;
+  const receipt = receiptEvent.payload as ParticipantReceipt;
+  const sibling = {
+    ...resolved,
+    eventId: "evt_synthetic_legacy_csat" as never,
+    eventType: "platform-operations.csat-outcome-fact.v1",
+    payload: {
+      factSchemaVersion: 1,
+      outcomeCode: "support.request-resolved",
+      sourceContext: "platform-operations",
+      subjectAccountId: buyer.accountId,
+      subjectKind: "buyer",
+      subject: { entityType: "support-request", entityId: current.id },
+      outcomeOccurredAt: (resolved.payload.resolution as { resolvedAt: string }).resolvedAt,
+      idempotencyKey: `support-request:${current.id}:resolved`,
+      correlationId: null,
+    },
+  };
+  function stable(value: unknown): string {
+    if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+    if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object)
+      .filter((key) => object[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stable(object[key])}`)
+      .join(",")}}`;
+  }
+  const facts = [...current.allEvents.slice(receipt.firstVersion - 1, -1), sibling];
+  const historicalResult = { ...result, version: result.version + 1 };
+  const history = [
+    ...current.allEvents.slice(0, -1),
+    sibling,
+    {
+      ...receiptEvent,
+      payload: {
+        ...receipt,
+        result: historicalResult,
+        factsHash: createHash("sha256")
+          .update(stable(facts.map(({ eventType, payload }) => ({ eventType, payload }))))
+          .digest("hex"),
+      },
+    },
+  ];
+  const memory = createInMemoryEventStore();
+  for (const [index, event] of history.entries()) {
+    await memory.eventStore.appendToStream({
+      streamId: event.streamId,
+      expectedVersion: index === 0 ? "no_stream" : index,
+      context: {
+        tenantId: event.tenantId,
+        audit: { performedByUserId: event.performedByUserId, forAccountId: event.forAccountId },
+      },
+      events: [
+        { eventId: event.eventId, eventType: event.eventType, payload: event.payload, metadata: event.metadata },
+      ],
+    });
+  }
+  const fixture = participantFixture(memory.eventStore);
+  fixture.db.query.mockResolvedValue({
+    rows: [
+      {
+        support_request_id: current.id,
+        flow_type: "buyer-cancel-request",
+        status: "resolved",
+        responses: current.allEvents
+          .filter((event) => event.eventType === "support.support-request.response-recorded")
+          .map((event) => event.payload.response),
+        offers: [],
+        resolution: resolved.payload.resolution,
+      },
+    ],
+  } as never);
+  return { ...fixture, allEvents: memory.allEvents, id: current.id, body: current.body, result: historicalResult };
 }
 export const attemptId = "7163_attempt_0123456789abcdef";
 export const openBody = { orderId: "ord_attempt", flowType: "product-not-received" };

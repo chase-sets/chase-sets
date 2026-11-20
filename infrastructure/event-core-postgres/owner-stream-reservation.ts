@@ -113,11 +113,11 @@ export function createPostgresOwnerStreamReservationStore(
         )
           conflict("Request preparation is incomplete.");
       }
-      return withPgTransaction(consumerPool, (client) => openTerminal(client, binding));
+      return withPgTransaction(consumerPool, (client) => openRequestTerminalInTransaction(client, binding));
     },
     abortRequestTerminal: (binding) =>
       withPgTransaction(consumerPool, async (client) => {
-        await openTerminal(client, binding);
+        await openRequestTerminalInTransaction(client, binding);
         return transitionTerminal(client, binding, "ABORTED");
       }),
     abortPreparationDeadline: (binding) =>
@@ -127,7 +127,7 @@ export function createPostgresOwnerStreamReservationStore(
           [binding.preparationDeadline],
         );
         if (clock.rows[0]?.expired) {
-          await openTerminal(client, binding);
+          await openRequestTerminalInTransaction(client, binding);
           return transitionTerminal(client, binding, "ABORTED");
         }
         return readLockedTerminal(client, binding);
@@ -160,6 +160,7 @@ export async function reserveOwnerStreamInTransaction(
   client: PgQueryable,
   input: ReserveOwnerStreamInput,
   now = nowIsoUtcTimestamp,
+  readSeal = readOwnerStreamSealInTransaction,
 ): Promise<OwnerStreamReservation> {
   assertOwnerStreamReservationInput(input);
   await boundStep(client);
@@ -177,16 +178,8 @@ export async function reserveOwnerStreamInTransaction(
       conflict("Reservation identity was reused.");
     return prior;
   }
-  const seal = await client.query<{ incarnation: string; current_version: string }>(
-    `SELECT identity.incarnation, streams.current_version::text FROM event_configuration_store_identity identity
-     JOIN event_store_streams streams ON streams.stream_id = $1 WHERE identity.singleton = true FOR UPDATE OF streams`,
-    [input.ownerStreamId],
-  );
-  if (
-    seal.rows.length !== 1 ||
-    seal.rows[0]!.incarnation !== input.seal.storeIncarnation ||
-    Number(seal.rows[0]!.current_version) !== input.seal.version
-  )
+  const seal = await readSeal(client, input.ownerStreamId);
+  if (seal?.storeIncarnation !== input.seal.storeIncarnation || seal.version !== input.seal.version)
     conflict("Owner-stream seal is not current.");
   const pending = await client.query(
     `SELECT 1 FROM event_owner_stream_invalidations WHERE owner_stream_id = $1 AND status <> 'APPLIED'
@@ -231,6 +224,21 @@ export async function reserveOwnerStreamInTransaction(
   return { ...input, status: "OPEN" };
 }
 
+async function readOwnerStreamSealInTransaction(client: PgQueryable, streamId: string) {
+  const result = await client.query<{ incarnation: string; current_version: string }>(
+    `SELECT identity.incarnation, streams.current_version::text FROM event_configuration_store_identity identity
+     JOIN event_store_streams streams ON streams.stream_id = $1 WHERE identity.singleton = true FOR UPDATE OF streams`,
+    [streamId],
+  );
+  const row = result.rows[0];
+  return row && { storeIncarnation: row.incarnation, version: Number(row.current_version) };
+}
+
+export async function lockOwnerStreamInvalidationsInTransaction(client: PgQueryable, keys: readonly string[]) {
+  await boundStep(client);
+  for (const key of [...new Set(keys)].sort()) await client.query(OWNER_LOCK_SQL, [key]);
+}
+
 /** Persists the closed generation inside the writer's own transaction. */
 export async function beginOwnerStreamInvalidationInTransaction(
   client: PgQueryable,
@@ -265,7 +273,18 @@ async function driveInvalidation(
   config: PostgresOwnerStreamReservationStoreConfig,
   id: string,
 ): Promise<InvalidationIntent> {
-  const { ownerPool, consumerPool } = config;
+  const intent = await settleOriginalTerminals(config.ownerPool, config.consumerPool, id);
+  return withPgTransaction(config.ownerPool, (client) =>
+    applyOwnerStreamInvalidationInTransaction(client, intent, config.applyInvalidation),
+  );
+}
+
+/** Settle the recorded membership without applying or reopening the owner's writer generation. */
+export async function settleOriginalTerminals(
+  ownerPool: PgTransactionalPool,
+  consumerPool: PgTransactionalPool | undefined,
+  id: string,
+): Promise<InvalidationIntent> {
   const intent = await withPgTransaction(ownerPool, async (client) => {
     await client.query(OWNER_LOCK_SQL, [id]);
     const current = await readIntent(client, id);
@@ -277,7 +296,7 @@ async function driveInvalidation(
       );
     return current;
   });
-  if (intent.status === "APPLIED") return intent;
+  if (intent.status === "APPLIED" || !consumerPool) return intent;
   // All consumer I/O, including the abort CAS, happens outside owner transactions/locks.
   const rows = await participationQuery<DbReservation>(
     ownerPool,
@@ -311,9 +330,7 @@ async function driveInvalidation(
         [reservation.reservationId, terminal.status],
       );
   }
-  return withPgTransaction(ownerPool, (client) =>
-    applyOwnerStreamInvalidationInTransaction(client, intent, config.applyInvalidation),
-  );
+  return intent;
 }
 
 /** Generation-fenced final application. The callback must write only through this owner transaction. */
@@ -357,7 +374,10 @@ async function assertConsumerIdentity(client: PgQueryable, binding: RequestTermi
   )
     conflict("Request terminal consumer incarnation does not match.");
 }
-async function openTerminal(client: PgQueryable, binding: RequestTerminalBinding): Promise<RequestTerminal> {
+export async function openRequestTerminalInTransaction(
+  client: PgQueryable,
+  binding: RequestTerminalBinding,
+): Promise<RequestTerminal> {
   await assertConsumerIdentity(client, binding);
   await client.query(TERMINAL_LOCK_SQL, [binding.consumerStoreId, binding.requestId]);
   const result = await client.query<DbTerminal>(
@@ -391,10 +411,11 @@ async function transitionTerminal(
     if (status === "ABORTED") return prior;
     return conflict("Request terminal is already final.");
   }
-  await client.query(
+  const updated = await client.query(
     "UPDATE event_request_terminals SET status = $3, updated_at = now() WHERE consumer_store_id = $1 AND request_id = $2 AND status = 'OPEN'",
     [binding.consumerStoreId, binding.requestId, status],
   );
+  if (updated.rowCount !== 1) conflict("Request terminal transition is uncertain.");
   return { ...prior, status };
 }
 /** EventStore adapter internal: COMMITTED is never a standalone store operation. */

@@ -37,6 +37,55 @@ function setup(permissions: string[] | null = ["pricing.view", "pricing.manage"]
 }
 
 describe("Pricing Health route", () => {
+  it.each(["accepted-pending", "superseded-by-revision"] as const)(
+    "keeps %s typed through HTTP and the mounted apply action",
+    async (status) => {
+      const { app, services } = setup();
+      const receipt = {
+        requestKey: "synthetic-goal-key",
+        requestedRevision: 2,
+        ...(status === "superseded-by-revision" ? { status, replacingRevision: 3 } : { status }),
+      };
+      services.applyGoal.mockResolvedValue(receipt);
+      const body = {
+        dryRunId: "run",
+        targetRevision: 1,
+        targetBodyHash: "target",
+        candidateBodyHash: "candidate",
+        goalId: "fixed-percentile",
+        goalVersion: 1,
+        parameters: { percentile: 65 },
+      };
+      const response = await app.request("/health/rpp_owned/apply-goal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(status === "accepted-pending" ? 202 : 409);
+      expect(await response.json()).toEqual(receipt);
+      vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        if (new URL(request.url).pathname === "/api/auth/session")
+          return Response.json({ actor: { accountId: "acc_owned", permissions: ["pricing.manage"] } });
+        return Response.json(receipt, { status: response.status });
+      });
+      const form = new FormData();
+      for (const [key, value] of Object.entries({
+        ...body,
+        intent: "apply",
+        policyId: "rpp_owned",
+        parameters: JSON.stringify(body.parameters),
+      }))
+        form.set(key, String(value));
+      expect(
+        await action({
+          request: new Request("http://localhost/account/desk/pricing-health", { method: "POST", body: form }),
+          params: {},
+          context: {},
+        } as never),
+      ).toEqual({ applyResult: receipt });
+    },
+  );
   it("reports candidate refusal explicitly instead of accepting an incomplete compare", async () => {
     const { app, services } = setup();
     services.compare.mockRejectedValue(new PricingHealthCandidateRefusedError());

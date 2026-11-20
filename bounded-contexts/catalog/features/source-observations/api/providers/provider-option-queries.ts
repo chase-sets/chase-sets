@@ -61,6 +61,7 @@ import {
 import {
   createScrydexOnePieceProviderAdapter,
   scrydexCardOptionRecords,
+  scrydexLorcanaCardOptionFingerprint,
   SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -405,10 +406,11 @@ export async function queryProviderIntegrationOptions(
                 )}`,
             )
             .join("|")}`,
-        ingestionUnitKey: profileVersion ? catalogProviderProfileVersionIngestionUnitKey(profileVersion) : "catalog",
+        ingestionUnitKey: selectedOptionUnitKey ?? "catalog",
         queryKind,
         languageCode: input.languageCode,
         parentValue: input.parentValue,
+        requestFingerprint: scrydexLorcanaCardOptionFingerprint(selectedOptionUnitKey, queryKind, input.parentValue),
         cursor: input.cursor,
         limit: input.limit,
         forceRefresh: input.forceRefresh,

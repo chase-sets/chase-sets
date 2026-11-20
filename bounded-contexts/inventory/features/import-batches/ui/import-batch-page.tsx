@@ -1,5 +1,5 @@
 import { formatDateTime, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
-import { useEffect, useReducer, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { navigateAfterWrite } from "@chase-sets/http/responses";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
@@ -497,15 +497,21 @@ const importSourceOptions = listInventoryImportSources()
 function ImportRowResolutionForm({
   row,
   storageLocations,
+  disabled,
 }: {
   row: InventoryImportBatchRow;
   storageLocations: readonly InventoryStorageLocation[];
+  disabled: boolean;
 }) {
   const [picker, dispatchPicker] = useCatalogItemPicker(row);
+  const [storageLocationId, setStorageLocationId] = useState(row.storage_location_id ?? "");
   const { catalogItem } = picker;
   const catalogItemEntries = catalogItemPickerEntries(picker);
   const pickerStatusMessage = catalogItemPickerStatusMessage(picker.status);
-  const canApplyRowFix = catalogItem !== null && hasCompleteSelectedOptions(catalogItem, picker.selectedOptions);
+  const canApplyRowFix =
+    catalogItem !== null &&
+    hasCompleteSelectedOptions(catalogItem, picker.selectedOptions) &&
+    storageLocations.some((location) => location.storage_location_id === storageLocationId && !location.is_archived);
   const productSelectionFields = toInventoryProductSelectionFields(
     catalogItem?.product_schema ?? null,
     picker.selectedOptions,
@@ -515,7 +521,13 @@ function ImportRowResolutionForm({
     : [];
 
   return (
-    <InventoryMutationForm family="import-resolve-row" targetId={row.row_id} spacing="none" method="post">
+    <InventoryMutationForm
+      family="import-resolve-row"
+      targetId={row.row_id}
+      spacing="none"
+      method="post"
+      disabled={disabled}
+    >
       <Stack gap={2}>
         <HiddenInput type="hidden" name="intent" value="resolve-row" />
         <HiddenInput type="hidden" name="batchId" value={row.batch_id} />
@@ -564,7 +576,8 @@ function ImportRowResolutionForm({
           label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
           name="storageLocationId"
           required
-          defaultValue={row.storage_location_id ?? ""}
+          value={storageLocationId}
+          onChange={(event) => setStorageLocationId(event.target.value)}
           placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location")}
           items={storageLocations.map((location) => ({
             value: location.storage_location_id,
@@ -587,6 +600,8 @@ export function InventoryImportBatchPage({
   currentPath,
   errorMessage,
   detailLoadMessage,
+  batchesLoadMessage,
+  storageLocationsLoadMessage,
 }: {
   batches: readonly InventoryImportBatch[];
   storageLocations: readonly InventoryStorageLocation[];
@@ -595,10 +610,17 @@ export function InventoryImportBatchPage({
   currentPath?: string | null;
   errorMessage?: string | null;
   detailLoadMessage?: string | null;
+  batchesLoadMessage?: string | null;
+  storageLocationsLoadMessage?: string | null;
 }) {
   const canCommit = detail?.can_commit === true;
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
-  const activeJob = useInventoryImportBatchJob(activeJobId);
+  const { job: activeJob, connection } = useInventoryImportBatchJob(activeJobId);
+  const writesDisabled = Boolean(activeJobId || detailLoadMessage);
+  const jobStatus = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (connection === "disconnected" || activeJob?.status === "failed") jobStatus.current?.focus();
+  }, [connection, activeJob?.status]);
   const unresolvedRowIds = detail ? detail.rows.filter((row) => row.needs_seller).map((row) => row.row_id) : [];
   const selectedRowId = selectedResolveRowId(currentPath);
   const resolveRow = detail?.rows.find((row) => row.row_id === selectedRowId && row.needs_seller) ?? null;
@@ -643,16 +665,63 @@ export function InventoryImportBatchPage({
         />
       ) : null}
 
-      {activeJob ? (
-        <MarketplaceNotice
-          tone={activeJob.status === "failed" ? "danger" : "info"}
-          title={t("inventory.features.importBatches.ui.importBatchPage.import.job.running")}
-          description={
-            activeJob.errorMessage ??
-            activeJob.progress.message ??
-            t("inventory.features.importBatches.ui.importBatchPage.import.job.waiting")
-          }
-        />
+      {activeJobId ? (
+        <Stack ref={jobStatus} role="status" aria-live="polite" tabIndex={-1}>
+          <MarketplaceNotice
+            tone={activeJob?.status === "failed" ? "danger" : connection === "disconnected" ? "warning" : "info"}
+            title={
+              connection === "disconnected"
+                ? t("inventory.features.importBatches.ui.importBatchPage.import.still.updating")
+                : t(
+                    activeJob?.status === "failed"
+                      ? "inventory.features.importBatches.ui.importBatchPage.import.failed"
+                      : "inventory.features.importBatches.ui.importBatchPage.import.job.running",
+                  )
+            }
+            description={
+              connection === "disconnected"
+                ? t("inventory.recovery.ambiguous")
+                : (activeJob?.errorMessage ??
+                  activeJob?.progress.message ??
+                  t("inventory.features.importBatches.ui.importBatchPage.import.job.waiting"))
+            }
+            action={
+              <LinkButton href={currentPath ?? "/account/inventory/imports"} tone="secondary">
+                {t("inventory.recovery.check")}
+              </LinkButton>
+            }
+          />
+        </Stack>
+      ) : null}
+
+      {storageLocationsLoadMessage ? (
+        <Stack role="status" aria-live="polite">
+          <MarketplaceNotice
+            tone="warning"
+            title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
+            description={storageLocationsLoadMessage}
+            action={
+              <LinkButton href={currentPath ?? "/account/inventory/imports"} tone="secondary">
+                {t("inventory.recovery.check")}
+              </LinkButton>
+            }
+          />
+        </Stack>
+      ) : null}
+
+      {batchesLoadMessage ? (
+        <Stack role="status" aria-live="polite">
+          <MarketplaceNotice
+            tone="warning"
+            title={t("inventory.features.importBatches.ui.importBatchPage.recent.imports")}
+            description={batchesLoadMessage}
+            action={
+              <LinkButton href={currentPath ?? "/account/inventory/imports"} tone="secondary">
+                {t("inventory.recovery.check")}
+              </LinkButton>
+            }
+          />
+        </Stack>
       ) : null}
 
       <MarketplaceNotice
@@ -725,6 +794,7 @@ export function InventoryImportBatchPage({
             spacing="none"
             method="post"
             encType="multipart/form-data"
+            disabled={writesDisabled || Boolean(storageLocationsLoadMessage)}
           >
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-batch" />
@@ -812,7 +882,7 @@ export function InventoryImportBatchPage({
             ) : null}
             {canCommit ? (
               <Card elevation="tinted" data-elevation-role="furniture">
-                <Form spacing="none" method="post">
+                <Form spacing="none" method="post" disabled={writesDisabled}>
                   <HiddenInput type="hidden" name="intent" value="commit-batch" />
                   <HiddenInput type="hidden" name="batchId" value={detail.batch_id} />
                   <Inline>
@@ -960,7 +1030,7 @@ export function InventoryImportBatchPage({
             </Inline>
           </Stack>
         </PageSection>
-      ) : (
+      ) : detailLoadMessage || batchesLoadMessage ? null : (
         <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.recent.imports")}>
           <DataTable
             rows={[...batches]}
@@ -1014,6 +1084,7 @@ export function InventoryImportBatchPage({
       {resolveRow ? (
         <SideSheet
           open
+          modal={false}
           onOpenChange={(next) => {
             if (!next && typeof window !== "undefined") {
               window.location.assign(closeResolveRowHref(currentPath));
@@ -1044,7 +1115,12 @@ export function InventoryImportBatchPage({
                 ))}
               </Stack>
             ) : null}
-            <ImportRowResolutionForm key={resolveRow.row_id} row={resolveRow} storageLocations={storageLocations} />
+            <ImportRowResolutionForm
+              key={resolveRow.row_id}
+              row={resolveRow}
+              storageLocations={storageLocations}
+              disabled={writesDisabled || Boolean(storageLocationsLoadMessage)}
+            />
           </Stack>
         </SideSheet>
       ) : null}
@@ -1053,18 +1129,36 @@ export function InventoryImportBatchPage({
 }
 
 function useInventoryImportBatchJob(jobId?: string | null) {
-  const [job, setJob] = useState<InventoryImportBatchJobStatus | null>(null);
+  type Observation = {
+    jobId: string | null;
+    job: InventoryImportBatchJobStatus | null;
+    connection: "loading" | "connected" | "disconnected";
+  };
+  const empty: Observation = { jobId: jobId ?? null, job: null, connection: "loading" };
+  const [observation, setObservation] = useState<Observation>(empty);
 
-  useEffect(() => {
+  // Retire the old observer at commit so it cannot navigate before passive cleanup.
+  useLayoutEffect(() => {
+    setObservation({ jobId: jobId ?? null, job: null, connection: "loading" });
     if (!jobId) {
-      setJob(null);
       return undefined;
     }
 
+    let active = true;
     const subscription = subscribeDurableJobStatus<InventoryImportBatchJobStatus>({
       url: `/api/inventory/import-batches/jobs/${encodeURIComponent(jobId)}/events`,
-      onStatus: setJob,
+      onStatus: (job) => {
+        if (active) setObservation((current) => ({ ...current, job }));
+      },
+      onConnectionStateChange: (connected) => {
+        if (active) setObservation((current) => ({ ...current, connection: connected ? "connected" : "disconnected" }));
+      },
+      onError: () => {
+        if (active) setObservation((current) => ({ ...current, connection: "disconnected" }));
+      },
       onTerminal: (nextJob) => {
+        if (!active) return;
+        active = false;
         if (nextJob.status === "completed") {
           const batchId = nextJob.result?.batch?.batch_id;
           const destination = batchId
@@ -1075,9 +1169,10 @@ function useInventoryImportBatchJob(jobId?: string | null) {
       },
     });
     return () => {
+      active = false;
       subscription.close();
     };
   }, [jobId]);
 
-  return job;
+  return observation.jobId === (jobId ?? null) ? observation : empty;
 }

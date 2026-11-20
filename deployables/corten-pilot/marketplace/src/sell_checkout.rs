@@ -6,30 +6,24 @@
 //! and the review Checkout kept with the snapshot in its address (its readiness, review plan and
 //! decisions, `POST /sell-list/readiness` with the snapshot): a list changed since, or one that is
 //! not ready, is a recovery that sends the seller back to the Sell List. Confirming (one form)
-//! checks the fields, then does what marketplace's route does: the kept plan checked against the
-//! snapshot, the seller's ship-from and label choices with the seller confirmation
-//! evidence sent for readiness (Checkout reads risk, fulfillment and the payout estimate from
-//! their owners with the choices, and checks them again before it confirms), the Marketplace
-//! handoff (each selected offer and Smart Match target accepted, each fallback listing created and
-//! published, with keys derived from the confirmation, so a resent form replays), and
-//! `POST /sell-list/confirm` with what it did and the same choices. The confirmation page is read
-//! after that write.
+//! checks the fields, then does what marketplace's route does: the seller's ship-from and label
+//! choices sent for readiness (Checkout reads payout, risk, fulfillment and the payout estimate
+//! from their owners with the choices, refuses a seller it finds not ready with why, and checks
+//! them again before it confirms), and `POST /sell-list/confirm` with the same choices. Checkout's confirm
+//! checks the kept plan against the snapshot and runs the Marketplace handoff (each selected offer
+//! and Smart Match target accepted, each fallback listing created and published, with keys derived
+//! from the confirmation, so a resent form replays). The confirmation page is read after the
+//! confirm's write and the handoff's.
 //!
 //! A confirm converges as marketplace's does (chase-sets/chase-sets#9995): a confirmation saved
 //! already is looked for first; readiness names the confirmation and the snapshot the page started
-//! from; each acceptance is checked against the attempt Marketplace kept for it (this
-//! seller's, this offer's, this request's), so an offer accepted another way stops the handoff;
-//! a handoff that stops part way draws the page with each line's result, its form held and the
-//! same form to send again (409); and a confirm whose answer was lost is looked up, the page held
-//! the same way when it is not found.
+//! from; a handoff Checkout reports stopped part way (`checkout_handoff_interrupted`) draws the
+//! page with each line's result, its form held and the same form to send again (409); and a
+//! confirm whose answer was lost is looked up, the page held the same way when it is not found.
 //!
 //! A guest's page is the same review of the guest sell list; confirming checks the fields and goes
 //! to marketplace's registration, back to the Sell List.
 //!
-//! Two of the steps are marketplace's web layer's, copied here until the API has them: the seller
-//! evidence ([chase-sets/chase-sets#10753](https://github.com/chase-sets/chase-sets/issues/10753))
-//! and the handoff with its check of the kept plan
-//! ([chase-sets/chase-sets#10754](https://github.com/chase-sets/chase-sets/issues/10754)).
 //! Not ported: marketplace's preview hooks (`recovery`, `payoutState`, `riskState` and the other
 //! `*State` query parameters and hidden fields), which only force a state.
 use std::collections::BTreeMap;
@@ -39,14 +33,13 @@ use corten::{
     prelude::*,
 };
 use platform::{money, receipt::Receipt};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::{
     api::{
-        ApiError, CheckoutSessions as _, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus, LabelChoice,
-        Listings as _, OfferMatchCalls as _, OfferPolicyCalls as _, PlanLine, ReadinessDecisions, ReadinessEntry, ReviewPlan,
+        ApiError, CheckoutSessions as _, ConfirmError, LabelChoice, ReadinessDecisions, ReadinessEntry, ReadinessError,
         SavedAddress, SellList as _, SellListConfirmation, SellListReview, SellListRow, SellListSnapshot, SellPayoutReadiness,
-        SellerChoices, SellerEvidence, ShipFromChoice,
+        SellerChoices, ShipFromChoice,
     },
     app::{Shared, read_failed, sign_in_back_to, url},
     auth::Session,
@@ -55,7 +48,7 @@ use crate::{
     listing_new::first,
     sell_list::{self, guest_id},
     selling::account_sell_list,
-    text::{Pilot, SellCheckoutMsg, SellListMsg},
+    text::SellCheckoutMsg,
     views::{self, Layout},
 };
 
@@ -115,14 +108,6 @@ impl Payout {
 
     pub fn ready(&self) -> bool {
         *self == Payout::Ready
-    }
-
-    fn status(&self) -> &str {
-        match self {
-            Payout::Ready => "ready",
-            Payout::NeedsSetup { status, .. } => status,
-            Payout::Unavailable => "unavailable",
-        }
     }
 }
 
@@ -322,11 +307,14 @@ pub struct Screen {
     pub errors: Errors,
     pub addresses: Vec<SavedAddress>,
     pub payout: Option<Payout>,
-    /// The review plan and the readiness decisions Checkout kept with an account's snapshot.
-    pub plan: Option<ReviewPlan>,
+    /// The readiness decisions Checkout kept with an account's snapshot (with its review plan,
+    /// which Checkout's confirm runs).
     pub decisions: Option<ReadinessDecisions>,
     /// The last confirm, when it is not known to have finished or finished in part.
     pub attempt: Option<Attempt>,
+    /// The page answers a form the seller sent, which Checkout refused or did not finish: seller
+    /// readiness is then said by the refusal, not by the readiness row.
+    pub posted: bool,
 }
 
 /// A confirm not known to have finished, or finished only in part (marketplace's
@@ -351,6 +339,20 @@ pub enum LineResult {
     Unconfirmed,
     /// Not sent: an earlier line stopped the handoff.
     NotSent,
+}
+
+impl LineResult {
+    /// A line's result as Checkout reports it: `ambiguous`, or any other it does not name here,
+    /// is not known.
+    fn of(status: &str) -> Self {
+        match status {
+            "completed" => LineResult::Completed,
+            "partial" => LineResult::Partial,
+            "conflict" => LineResult::Conflict,
+            "not-attempted" | "skipped" => LineResult::NotSent,
+            _ => LineResult::Unconfirmed,
+        }
+    }
 }
 
 impl Screen {
@@ -396,64 +398,6 @@ pub fn confirmation_id(session: &str) -> String {
     format!("slc_{}", stable(session))
 }
 
-/// The listing a reviewed fallback listing is created as, so a resent confirm is the same one
-/// (`reviewedListingId`).
-pub fn listing_id(confirmation: &str, line: &str) -> String {
-    format!("lst_{}_{}", stable(confirmation), stable(line))
-}
-
-/// A line seller checkout takes, with its plan and the action readiness decided.
-#[derive(Clone, Debug)]
-pub struct Reviewed {
-    pub line: SellListRow,
-    pub plan: PlanLine,
-    pub action: String,
-}
-
-/// The plan checked against the snapshot (`reviewedLinesForConfirmation`): every included line has
-/// its plan line, of its type and product, unskipped, doing what readiness decided, and taking at
-/// most its quantity. Any other plan is refused.
-pub fn reviewed(lines: &[SellListRow], readiness: &SellListSnapshot, plan: Option<&ReviewPlan>) -> Option<Vec<Reviewed>> {
-    let plan = plan?;
-    let mut out = Vec::new();
-    for id in &readiness.included_line_ids {
-        let line = lines.iter().find(|l| &l.line_id == id)?;
-        let review = plan.lines.iter().find(|p| &p.line_id == id)?;
-        let action = readiness.action(id)?;
-        if !review.skipped_reasons.is_empty()
-            || review.line_type != line.line_type
-            || review.product_id.as_deref() != Some(line.product_id.as_str())
-        {
-            return None;
-        }
-        let quantity = match action {
-            "selected-offer" => {
-                let offer = review.selected_offer.as_ref()?;
-                let fits = line.is_offer()
-                    && line.offer_id.as_deref() == Some(offer.offer_id.as_str())
-                    && review.product_offer_targets.is_empty()
-                    && review.fallback_listing.is_none();
-                fits.then_some(line.quantity)?
-            }
-            "smart-match" => {
-                let fits = !line.is_offer() && review.selected_offer.is_none() && !review.product_offer_targets.is_empty();
-                let targets: u64 = review.product_offer_targets.iter().map(|t| t.quantity).sum();
-                fits.then(|| targets + review.fallback_listing.as_ref().map_or(0, |f| f.quantity_cap))?
-            }
-            "fallback-listing" => {
-                let fits = !line.is_offer() && review.selected_offer.is_none() && review.product_offer_targets.is_empty();
-                fits.then_some(review.fallback_listing.as_ref()?.quantity_cap)?
-            }
-            _ => return None,
-        };
-        if quantity > line.quantity {
-            return None;
-        }
-        out.push(Reviewed { line: line.clone(), plan: review.clone(), action: action.to_owned() });
-    }
-    Some(out)
-}
-
 /// What the seller chose, as marketplace's action sends it for readiness and confirm: a saved
 /// address by its id, else the address typed (an empty line 2 as none), and the label preference.
 pub fn choices(values: &Values) -> SellerChoices {
@@ -474,286 +418,56 @@ pub fn choices(values: &Values) -> SellerChoices {
     SellerChoices { ship_from, label: LabelChoice { preference } }
 }
 
-/// The seller confirmation evidence marketplace's route builds (`buildSellerEvidence`): every
-/// dimension ready, the ship-from's place and the payout readiness read.
-pub fn evidence(values: &Values, payout: &Payout) -> SellerEvidence {
-    SellerEvidence {
-        ship_from: EvidenceShipFrom {
-            status: "ready",
-            address_id: (values.ship_from_address_id != MANUAL).then(|| values.ship_from_address_id.clone()),
-            country: values.country.clone(),
-            region: values.state.clone(),
-            postal_code: values.postal_code.clone(),
-        },
-        payout: EvidencePayout {
-            status: "ready",
-            method: "saved-payout",
-            readiness_status: payout.status().to_owned(),
-            last_checked_at: None,
-        },
-        label: EvidenceLabel {
-            status: "ready",
-            preference: if values.label_preference == "seller-label-later" { "seller-label-later" } else { "prepaid-label" },
-        },
-        risk: EvidenceStatus { status: "clear" },
-        provider: EvidenceStatus { status: "ready" },
-        freshness: EvidenceStatus { status: "current" },
+/// Where Checkout's reasons for a seller it found not ready fall (marketplace's
+/// `sellerReadinessFieldErrors`): payout setup on the payout method, a label not ready (from a
+/// ship-from that is) on the label, risk on the whole form, and anything else as seller readiness
+/// to review there.
+fn not_ready(t: SellCheckoutMsg, reasons: &[String]) -> Errors {
+    let has = |reason: &str| reasons.iter().any(|r| r == reason);
+    let mut e = Errors::new();
+    if has("payout-setup-required") {
+        e.insert("payoutMethod", t.route_validation_payout_setup_required().to_owned());
+    } else if has("payout-unavailable") {
+        e.insert("payoutMethod", t.route_validation_payout_failed().to_owned());
     }
-}
-
-/// Marketplace's refusals that mean what the seller reviewed changed (`OFFER_ACCEPTANCE_STALE_CODES`).
-const STALE: &[&str] = &[
-    "fee_quote_stale",
-    "offer_not_open",
-    "listing_evidence_incomplete",
-    "listing_seller_trust_incomplete",
-    "listing_not_eligible",
-    "managed_offer_held",
-    "managed_offer_refresh_required",
-    "managed_offer_conflict",
-];
-
-/// Why the handoff stopped.
-#[derive(Debug)]
-pub enum Stopped {
-    /// What the seller reviewed changed: back to the Sell List, with why.
-    Stale(String),
-    /// An offer accepted already, but not as this sale's acceptance (`offer_already_accepted`).
-    Taken(String),
-    Failed(ApiError),
-}
-
-/// A handoff that stopped part way: why, and each line's result (`SellListHandoffInterruptedError`).
-#[derive(Debug)]
-pub struct Interrupted {
-    pub stop: Stopped,
-    pub lines: Vec<(String, LineResult)>,
-}
-
-/// What the handoff did: the confirm's body parts and every write's receipt.
-#[derive(Debug, Default)]
-pub struct Handoff {
-    pub completed: Vec<String>,
-    pub remaining: Vec<(String, u64)>,
-    pub summary: Value,
-    pub receipts: Vec<Receipt>,
-}
-
-/// The calls the handoff makes, so tests can stand in for Marketplace.
-pub trait Market {
-    async fn accept(&self, offer: &str, body: &Value) -> Result<Option<Receipt>, ApiError>;
-    /// The attempt Marketplace kept for an acceptance (`getOfferAcceptanceAttempt`), unparsed.
-    async fn acceptance(&self, offer: &str, key: &str, hash: &str) -> Result<Value, ApiError>;
-    async fn create(&self, body: &Value) -> Result<(String, Option<String>, Option<Receipt>), ApiError>;
-    async fn publish(&self, listing: &str, fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError>;
-}
-
-impl Market for platform::api::Caller<'_> {
-    async fn accept(&self, offer: &str, body: &Value) -> Result<Option<Receipt>, ApiError> {
-        self.accept_offer_match(offer, body).await
+    if has("label-not-ready") && !has("ship-from-not-ready") {
+        e.insert("labelPreference", t.route_validation_label_failed().to_owned());
     }
-
-    async fn acceptance(&self, offer: &str, key: &str, hash: &str) -> Result<Value, ApiError> {
-        self.marketplace_attempt(key, "offer.accept", offer, hash).await
+    if has("risk-block") {
+        e.insert("form", t.route_validation_risk_block().to_owned());
+    } else if has("risk-hold") {
+        e.insert("form", t.route_validation_risk_hold().to_owned());
+    } else if e.is_empty() {
+        e.insert("form", t.route_validation_seller_readiness_failed().to_owned());
     }
-
-    async fn create(&self, body: &Value) -> Result<(String, Option<String>, Option<Receipt>), ApiError> {
-        let (created, receipt) = self.create_listing(body).await?;
-        Ok((created.id, created.fee_quote_fingerprint, receipt))
-    }
-
-    async fn publish(&self, listing: &str, fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError> {
-        self.publish_listing(listing, fingerprint).await
-    }
+    e
 }
 
-/// The canonical request an acceptance's attempt is kept with (`marketplaceOfferCanonicalRequest`),
-/// hashed (`hashMarketplaceRequest`).
-pub fn acceptance_hash(offer: &str, body: &Value) -> String {
-    let field = |name: &str| body.get(name).cloned().unwrap_or(Value::Null);
-    crate::market_following::request_hash(&json!({
-        "offerId": offer, "listingId": field("listingId"), "feeQuoteFingerprint": field("feeQuoteFingerprint"),
-        "acceptanceBatchId": field("acceptanceBatchId"), "acceptanceBatchSize": field("acceptanceBatchSize"),
-    }))
-}
-
-/// SHA-256, in hex, of an acceptance's key, as Marketplace keeps it (`attemptKeyFingerprint`).
-pub fn key_fingerprint(key: &str) -> String {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(key.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Whether the attempt Marketplace kept is this acceptance: committed, `offer.accept`, by
-/// `seller`, of `offer`, with this key and request.
-fn accepted_as(observed: &Value, seller: &str, offer: &str, key: &str, hash: &str) -> bool {
-    let at = |pointer: &str| observed.pointer(pointer).and_then(Value::as_str);
-    at("/ownerStatus") == Some("committed")
-        && at("/mutationKind") == Some("offer.accept")
-        && at("/actorBinding/accountId") == Some(seller)
-        && at("/target/kind") == Some("offer")
-        && at("/target/id") == Some(offer)
-        && at("/attemptKeyFingerprint") == Some(key_fingerprint(key).as_str())
-        && at("/canonicalRequestHash") == Some(hash)
-        && at("/ownerReceipt/id") == Some(offer)
-}
-
-/// One acceptance (`acceptOfferMatchWithRecovery`): applied, it must be the attempt Marketplace
-/// kept for this seller, offer and request, or the offer was taken another way; an offer accepted
-/// already is taken, not counted; a stale one stops the handoff for review.
-async fn accept(
-    m: &impl Market,
-    t: SellListMsg,
-    p: Pilot,
-    seller: &str,
-    offer: &str,
-    title: &str,
-    body: Value,
-) -> Result<Option<Receipt>, Stopped> {
-    let error = match m.accept(offer, &body).await {
-        Ok(receipt) => {
-            let key = body["sourceActionKey"].as_str().unwrap_or_default();
-            let hash = acceptance_hash(offer, &body);
-            return match m.acceptance(offer, key, &hash).await {
-                Ok(observed) if accepted_as(&observed, seller, offer, key, &hash) => Ok(receipt),
-                Ok(_) => Err(Stopped::Taken(p.sell_list_offer_taken(title).to_string())),
-                Err(error) => Err(Stopped::Failed(error)),
-            };
-        }
-        Err(error) => error,
-    };
-    let code = error.code().unwrap_or_default().to_owned();
-    if code == "offer_already_accepted" {
-        Err(Stopped::Taken(error.refusal().map_or_else(|| p.sell_list_offer_taken(title).to_string(), str::to_owned)))
-    } else if STALE.contains(&code.as_str()) && code.starts_with("managed_offer_") {
-        Err(Stopped::Stale(t.route_managed_offer_refresh_detail(title).to_string()))
-    } else if STALE.contains(&code.as_str()) {
-        Err(Stopped::Stale(t.route_offer_terms_need_refresh_detail(title).to_string()))
-    } else {
-        Err(Stopped::Failed(error))
-    }
-}
-
-/// Marketplace's handoff (`performMarketplaceHandoff`), line by line in the snapshot's order, for
-/// `seller`. A line that stops stops the handoff: the lines before it say what they came to, it is
-/// a conflict (its offer taken) or not known, and the rest were not sent.
-#[allow(clippy::too_many_arguments)]
-pub async fn handoff(
-    m: &impl Market,
-    t: SellListMsg,
-    c: SellCheckoutMsg,
-    p: Pilot,
-    seller: &str,
-    confirmation: &str,
-    lines: &[Reviewed],
-) -> Result<Handoff, Interrupted> {
-    let mut done = Handoff::default();
-    let (mut accepted_count, mut published_count) = (0u64, 0u64);
-    let mut outcomes: Vec<Value> = Vec::new();
-    let mut results: Vec<(String, LineResult)> = Vec::new();
-    for (at, Reviewed { line, plan, action }) in lines.iter().enumerate() {
-        let id = &line.line_id;
-        let title = &line.item_title;
-        let stopped = |stop: Stopped, results: &[(String, LineResult)]| {
-            let here = if matches!(stop, Stopped::Taken(_)) { LineResult::Conflict } else { LineResult::Unconfirmed };
-            let mut lines_now = results.to_vec();
-            lines_now.push((id.clone(), here));
-            lines_now.extend(lines[at + 1..].iter().map(|r| (r.line.line_id.clone(), LineResult::NotSent)));
-            Interrupted { stop, lines: lines_now }
-        };
-        let mut accepted: Vec<&str> = Vec::new();
-        let mut listing = None;
-        let mut completed = 0u64;
-        if action == "selected-offer"
-            && let Some(o) = &plan.selected_offer
-        {
-            let body = json!({
-                "listingId": o.listing_id, "feeQuoteFingerprint": o.fee_quote_fingerprint,
-                "sourceActionKey": format!("sell-confirm:{confirmation}:{id}:selected:{}", o.offer_id),
-            });
-            let receipt = accept(m, t, p, seller, &o.offer_id, title, body).await.map_err(|s| stopped(s, &results))?;
-            done.receipts.extend(receipt);
-            accepted.push(&o.offer_id);
-            completed += line.quantity;
-            accepted_count += 1;
-        }
-        if action == "smart-match" {
-            let batch = format!("offer-acceptance:{confirmation}:{id}");
-            for target in &plan.product_offer_targets {
-                let body = json!({
-                    "listingId": target.listing_id, "feeQuoteFingerprint": target.fee_quote_fingerprint,
-                    "sourceActionKey": format!("sell-confirm:{confirmation}:{id}:match:{}", target.offer_id),
-                    "acceptanceBatchId": batch, "acceptanceBatchSize": plan.product_offer_targets.len(),
-                });
-                let receipt = accept(m, t, p, seller, &target.offer_id, title, body).await.map_err(|s| stopped(s, &results))?;
-                done.receipts.extend(receipt);
-                accepted.push(&target.offer_id);
-                completed += target.quantity;
-                accepted_count += 1;
-            }
-        }
-        if let Some(f) = &plan.fallback_listing {
-            let over = listing_id(confirmation, id);
-            let body = json!({
-                "inventoryItemId": f.inventory_item_id, "priceAmount": f.price_amount,
-                "priceCurrencyCode": f.price_currency_code, "quantityCap": f.quantity_cap, "listingIdOverride": over,
-            });
-            let (created, fingerprint, receipt) = m.create(&body).await.map_err(|e| stopped(Stopped::Failed(e), &results))?;
-            done.receipts.extend(receipt);
-            let created = if created.is_empty() { over } else { created };
-            match m.publish(&created, fingerprint.as_deref()).await {
-                Ok(receipt) => done.receipts.extend(receipt),
-                // Published already: a resent confirm.
-                Err(error) if error.refusal().is_some_and(|m| m.contains("already active")) => {}
-                Err(error) => return Err(stopped(Stopped::Failed(error), &results)),
-            }
-            listing = Some(created);
-            completed += f.quantity_cap;
-            published_count += 1;
-        }
-        let remaining = line.quantity.saturating_sub(completed);
-        if remaining > 0 {
-            done.remaining.push((id.clone(), remaining));
-        } else {
-            done.completed.push(id.clone());
-        }
-        let kind = match (accepted.is_empty(), &listing) {
-            (false, Some(_)) => "mixed",
-            (false, None) if action == "selected-offer" => "accepted-offer",
-            (false, None) => "accepted-smart-match",
-            (true, _) => "published-listing",
-        };
-        let mut references = serde_json::Map::new();
-        if !accepted.is_empty() {
-            references.insert("offerIds".into(), json!(accepted));
-        }
-        if let Some(listing) = &listing {
-            references.insert("listingId".into(), json!(listing));
-        }
-        let detail = if remaining > 0 {
-            c.route_confirmation_line_partial(title).to_string()
-        } else {
-            c.route_confirmation_line_completed(title).to_string()
-        };
-        results.push((id.clone(), if remaining > 0 { LineResult::Partial } else { LineResult::Completed }));
-        outcomes.push(json!({
-            "lineId": id, "itemTitle": title, "status": if remaining > 0 { "partial" } else { "completed" },
-            "action": kind, "quantity": line.quantity, "remainingQuantity": remaining, "detail": detail,
-            "references": references,
-        }));
-    }
-    let offers = accepted_count > 0;
-    let any = offers || published_count > 0;
-    let effect = |on: bool, status: &str| if on { status.to_owned() } else { "not-applicable".to_owned() };
-    done.summary = json!({
-        "acceptedOfferCount": accepted_count, "publishedListingCount": published_count, "skippedLineCount": 0,
-        "skippedReasons": [], "lineOutcomes": outcomes,
-        "sideEffects": {
-            "sale": effect(offers, "handoff-recorded"), "label": effect(offers, "pending-downstream"),
-            "payout": effect(offers, "pending-downstream"), "settlement": effect(offers, "pending-downstream"),
-            "notification": effect(any, "pending-downstream"), "accountHistory": effect(any, "pending-downstream"),
-        },
-    });
-    Ok(done)
+/// The form's fields as posted, which a page waiting for the same form again holds (marketplace's
+/// retained fields): only the ones the form has.
+fn retained(raw: &Raw) -> Vec<(String, String)> {
+    const FIELDS: [&str; 19] = [
+        "sessionId",
+        "readinessSnapshotId",
+        "readinessSourceRevision",
+        "sellerName",
+        "email",
+        "phone",
+        "shipFromAddressId",
+        "shipFromName",
+        "company",
+        "shipFromLine1",
+        "shipFromLine2",
+        "shipFromCity",
+        "shipFromState",
+        "shipFromPostalCode",
+        "shipFromCountry",
+        "payoutMethod",
+        "payoutHandoff",
+        "labelPreference",
+        "termsAccepted",
+    ];
+    cart_attempt::posted(raw).into_iter().filter(|(name, _)| FIELDS.contains(&name.as_str())).collect()
 }
 
 /// The state the page and its form start from: the lines, whether the snapshot still holds, and
@@ -777,9 +491,9 @@ async fn load(
         errors: Errors::new(),
         addresses: Vec::new(),
         payout: None,
-        plan: None,
         decisions: None,
         attempt: None,
+        posted: false,
     };
     let guest = guest_id(headers);
     if account {
@@ -809,19 +523,19 @@ async fn load(
     // An account's review is the one Checkout kept with the snapshot; a guest's is its readiness now.
     let read = match owner {
         None => match caller.stored_sell_list_review(&started.snapshot_id, &started.revision, &confirmation_id(id)).await {
-            Ok(SellListReview { readiness, review_plan: Some(plan), decisions: Some(decisions) }) => {
-                Ok((readiness, Some(plan), Some(decisions)))
+            Ok(SellListReview { readiness, review_plan: Some(_), decisions: Some(decisions) }) => {
+                Ok((readiness, Some(decisions)))
             }
             Ok(_) => Err("the kept review has no plan or decisions".to_owned()),
             Err(error) => Err(error.to_string()),
         },
         Some(guest) => {
-            caller.guest_sell_list_readiness(guest).await.map(|(readiness, _)| (readiness, None, None)).map_err(|e| e.to_string())
+            caller.guest_sell_list_readiness(guest).await.map(|(readiness, _)| (readiness, None)).map_err(|e| e.to_string())
         }
     };
     let readiness = match read {
-        Ok((readiness, plan, decisions)) => {
-            (screen.plan, screen.decisions) = (plan, decisions);
+        Ok((readiness, decisions)) => {
+            screen.decisions = decisions;
             readiness
         }
         Err(error) => {
@@ -919,17 +633,15 @@ pub(crate) async fn write(
         Err(error) => return read_failed(&req, session.and_then(Session::viewer), error, None),
     };
     screen.values = Values::read(&raw).with_saved(&screen.addresses);
+    screen.posted = true;
     if unknown {
-        screen.attempt = Some(Attempt { state: Attempted::Ambiguous, lines: Vec::new(), resend: cart_attempt::posted(&raw) });
+        screen.attempt = Some(Attempt { state: Attempted::Ambiguous, lines: Vec::new(), resend: retained(&raw) });
         return render(&req, session, screen, StatusCode::CONFLICT);
     }
     if screen.recovery.is_some() {
         return refuse(&req, session, screen, t.route_validation_readiness_recovery());
     }
     screen.errors = validate(t, &screen.values, screen.account);
-    if screen.account && !screen.payout.as_ref().is_some_and(Payout::ready) {
-        screen.errors.insert("payoutMethod", t.route_validation_payout_setup_required().to_owned());
-    }
     if !screen.errors.is_empty() {
         return render(&req, session, screen, StatusCode::UNPROCESSABLE_ENTITY);
     }
@@ -937,7 +649,7 @@ pub(crate) async fn write(
         let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
         return req.redirect(&url::Register { join: crate::register::Join::back_to(&back) });
     }
-    confirm(&req, session, &caller, screen, cart_attempt::posted(&raw)).await
+    confirm(&req, session, &caller, screen, retained(&raw)).await
 }
 
 /// The saved confirmation's page, as a resent form finds it.
@@ -951,8 +663,8 @@ fn refuse(req: &Req, session: Option<&Session>, mut screen: Screen, message: &st
     render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
 }
 
-/// An account's confirm: once per session, after the kept plan's check, readiness with the
-/// seller's evidence and the handoff; then the confirmation, read after it. `resend` is the form
+/// An account's confirm: once per session, readiness with the seller's choices, then Checkout's
+/// confirm, which runs the handoff; then the confirmation, read after both. `resend` is the form
 /// as posted, which a confirm that is not known to have finished offers to send again.
 async fn confirm(
     req: &Req,
@@ -962,63 +674,45 @@ async fn confirm(
     resend: Vec<(String, String)>,
 ) -> HtmlResult {
     let t: SellCheckoutMsg = req.t();
-    let list: SellListMsg = req.t();
-    let p: Pilot = req.t();
     let Some(readiness) = screen.readiness.clone() else {
-        return refuse(req, session, screen, t.route_validation_readiness_recovery());
-    };
-    let Some(seller) = session.and_then(Session::viewer).map(|v| v.actor.account_id.clone()) else {
         return refuse(req, session, screen, t.route_validation_readiness_recovery());
     };
     let confirmation = confirmation_id(&screen.session_id);
     let key = stable(&screen.session_id);
-    let (Some(decisions), Some(lines)) = (screen.decisions.clone(), reviewed(&screen.lines, &readiness, screen.plan.as_ref()))
-    else {
+    let Some(decisions) = screen.decisions.clone() else {
         return refuse(req, session, screen, t.route_validation_review_plan_required());
     };
-    let payout = screen.payout.clone().unwrap_or(Payout::Unavailable);
-    let evidence = evidence(&screen.values, &payout);
     let choices = choices(&screen.values);
     let entry = ReadinessEntry {
         confirmation_id: &confirmation,
         entry_readiness_snapshot_id: &readiness.snapshot_id,
         entry_readiness_source_revision: &readiness.source_revision,
     };
-    match caller.seller_readiness(&decisions, &choices, &evidence, &entry).await {
+    match caller.seller_readiness(&decisions, &choices, &entry).await {
         Ok(now) if now.status == "ready" && now.unresolved_line_ids.is_empty() && now.seller_readiness.status == "ready" => {
-            let handed = match handoff(caller, list, t, p, &seller, &confirmation, &lines).await {
-                Ok(handed) => handed,
-                // A session that ended is a sign-in, as before anything was written.
-                Err(Interrupted { stop: Stopped::Failed(error), .. }) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
-                    return failed(req, session, screen, error, t);
-                }
-                Err(Interrupted { stop, lines }) => {
-                    let message = match stop {
-                        Stopped::Stale(detail) => {
-                            screen.recovery = Some(Recovery::ReadinessStale(Some(detail.clone())));
-                            detail
-                        }
-                        Stopped::Taken(message) => message,
-                        Stopped::Failed(error) => error.refusal().unwrap_or(t.route_validation_review_plan_required()).to_owned(),
-                    };
-                    screen.errors.insert("form", message);
-                    screen.attempt = Some(Attempt { state: Attempted::Partial, lines, resend });
-                    return render(req, session, screen, StatusCode::CONFLICT);
-                }
-            };
-            let remaining: Vec<Value> =
-                handed.remaining.iter().map(|(line, quantity)| json!({ "lineId": line, "quantity": quantity })).collect();
             let body = json!({
                 "confirmationId": confirmation, "readinessSnapshotId": now.snapshot_id,
                 "readinessSourceRevision": now.source_revision, "readinessDecisions": decisions,
-                "completedLineIds": handed.completed, "remainingLineQuantities": remaining,
-                "sellerEvidence": evidence, "handoffSummary": handed.summary,
                 "shipFrom": choices.ship_from, "label": choices.label,
             });
             let receipt = match caller.confirm_sell_list(&body).await {
                 Ok(receipt) => receipt,
+                // The handoff stopped part way: what each line came to, the form held and offered
+                // again; and the way back to the Sell List when what the seller reviewed changed.
+                Err(ConfirmError::Interrupted { message, lines, stale }) => {
+                    if stale.is_some() {
+                        screen.recovery = Some(Recovery::ReadinessStale(stale));
+                    }
+                    let message = if message.is_empty() { t.route_validation_review_plan_required().to_owned() } else { message };
+                    screen.errors.insert("form", message);
+                    let lines = lines.into_iter().map(|line| (line.line_id, LineResult::of(&line.status))).collect();
+                    screen.attempt = Some(Attempt { state: Attempted::Partial, lines, resend });
+                    return render(req, session, screen, StatusCode::CONFLICT);
+                }
                 // An answer that may have been lost: the confirmation is looked for once.
-                Err(error) if error.status().is_none_or(|s| s == StatusCode::REQUEST_TIMEOUT || s.is_server_error()) => {
+                Err(ConfirmError::Api(error))
+                    if error.status().is_none_or(|s| s == StatusCode::REQUEST_TIMEOUT || s.is_server_error()) =>
+                {
                     tracing::warn!("seller checkout's confirm: {error}");
                     return match caller.sell_list_confirmation(&confirmation).await {
                         Ok(_) => req.redirect(&confirmed(&screen.session_id).parse::<Uri>().map_err(corten::Error::new)?),
@@ -1028,15 +722,19 @@ async fn confirm(
                         }
                     };
                 }
-                Err(error) => return failed(req, session, screen, error, t),
+                Err(ConfirmError::Api(error)) => return failed(req, session, screen, error, t),
             };
-            let latest = handed.receipts.into_iter().chain(receipt).reduce(Receipt::later);
-            let place = ConfirmationPlace { after_write: latest.as_ref().map(Receipt::param) };
+            let place = ConfirmationPlace { after_write: receipt.as_ref().map(Receipt::param) };
             let to = url::SellConfirmation { id: &key, place };
             req.redirect(&to.href().parse::<Uri>().map_err(corten::Error::new)?)
         }
+        // Checkout found the seller not ready: on the fields its reasons fall on (422).
+        Err(ReadinessError::NotReady(reasons)) => {
+            screen.errors = not_ready(t, &reasons);
+            render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
+        }
         Ok(_) => refuse(req, session, screen, t.route_validation_readiness_recovery()),
-        Err(error) => failed(req, session, screen, error, t),
+        Err(ReadinessError::Api(error)) => failed(req, session, screen, error, t),
     }
 }
 
@@ -1129,64 +827,15 @@ fn render_confirmation(req: &Req, session: Option<&Session>, saved: &SellListCon
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::SnapshotLine;
-
-    fn row(id: &str, kind: &str, quantity: u64, offer: Option<&str>) -> SellListRow {
-        SellListRow {
-            line_id: id.into(),
-            line_type: kind.into(),
-            product_id: "cat_pika::form:raw".into(),
-            item_title: "Pikachu".into(),
-            offer_id: offer.map(str::to_owned),
-            quantity,
-            ..SellListRow::default()
-        }
-    }
-
-    fn snapshot(actions: &[(&str, &str)]) -> SellListSnapshot {
-        SellListSnapshot {
-            status: "ready".into(),
-            included_line_ids: actions.iter().map(|(id, _)| (*id).to_owned()).collect(),
-            line_outcomes: actions
-                .iter()
-                .map(|(id, action)| SnapshotLine {
-                    line_id: (*id).into(),
-                    outcome: "checkout".into(),
-                    action: Some((*action).into()),
-                })
-                .collect(),
-            ..SellListSnapshot::default()
-        }
-    }
-
-    /// A plan as Checkout keeps it: the offer line's offer, and 2 of the product line by Smart Match
-    /// with a listing for the third.
-    const PLAN: &str = r#"{"version":1,"lines":[
-        {"lineId":"sll_offer","lineType":"selected-offer","itemTitle":"Pikachu","productId":"cat_pika::form:raw","quantity":2,
-         "selectedOffer":{"offerId":"off_ready","listingId":"lst_pika","feeQuoteFingerprint":"fq"},"productOfferTargets":[],
-         "fallbackListing":null,"skippedReasons":[]},
-        {"lineId":"sll_product","lineType":"product","itemTitle":"Pikachu","productId":"cat_pika::form:raw","quantity":3,
-         "selectedOffer":null,"productOfferTargets":[{"offerId":"off_short","listingId":"lst_pika","feeQuoteFingerprint":"fq","quantity":2}],
-         "fallbackListing":{"inventoryItemId":"inv_pika","priceAmount":"21.00","priceCurrencyCode":"USD","quantityCap":1},
-         "skippedReasons":[]}
-    ]}"#;
 
     #[test]
-    fn the_plan_must_do_what_readiness_decided_for_every_included_line() {
-        let lines = [row("sll_offer", "selected-offer", 2, Some("off_ready")), row("sll_product", "product", 3, None)];
-        let plan: ReviewPlan = serde_json::from_str(PLAN).unwrap();
-        let both = snapshot(&[("sll_offer", "selected-offer"), ("sll_product", "smart-match")]);
-        let reviewed = reviewed(&lines, &both, Some(&plan)).unwrap();
-        assert_eq!(reviewed.iter().map(|r| r.action.as_str()).collect::<Vec<_>>(), ["selected-offer", "smart-match"]);
-        // A different action, a line with no plan, more than the line has, no plan at all.
-        assert!(super::reviewed(&lines, &snapshot(&[("sll_product", "fallback-listing")]), Some(&plan)).is_none());
-        assert!(super::reviewed(&lines, &snapshot(&[("sll_missing", "fallback-listing")]), Some(&plan)).is_none());
-        let short = [row("sll_product", "product", 2, None)];
-        assert!(super::reviewed(&short, &snapshot(&[("sll_product", "smart-match")]), Some(&plan)).is_none());
-        assert!(super::reviewed(&lines, &both, None).is_none());
-        // A line readiness keeps in the list is not the plan's to take.
-        let one = snapshot(&[("sll_offer", "selected-offer")]);
-        assert_eq!(super::reviewed(&lines, &one, Some(&plan)).unwrap().len(), 1);
+    fn a_lines_result_is_what_checkout_reports_and_anything_else_is_not_known() {
+        let results: Vec<_> = ["completed", "partial", "conflict", "not-attempted", "skipped", "ambiguous", "other"]
+            .iter()
+            .map(|status| LineResult::of(status))
+            .collect();
+        use LineResult::*;
+        assert_eq!(results, [Completed, Partial, Conflict, NotSent, NotSent, Unconfirmed, Unconfirmed]);
     }
 
     #[test]
@@ -1195,7 +844,6 @@ mod tests {
         assert_eq!(confirmation_id("chk 1/2"), "slc_chk_1_2");
         assert_eq!(confirmation_id(""), "slc_unknown");
         assert_eq!(confirmation_id(&"x".repeat(100)).len(), 84);
-        assert_eq!(listing_id("slc_chk", "sll_product"), "lst_slc_chk_sll_product");
     }
 
     #[test]
@@ -1209,15 +857,21 @@ mod tests {
     }
 
     #[test]
-    fn the_evidence_names_a_saved_address_only_when_one_was_chosen() {
-        let mut values = Values { state: "IL".into(), postal_code: "60201".into(), ..Values::default() };
-        assert_eq!(evidence(&values, &Payout::Ready).ship_from.address_id, None);
-        values.ship_from_address_id = "adr_home".into();
-        values.label_preference = "anything".into();
-        let sent = evidence(&values, &Payout::Unavailable);
-        assert_eq!(sent.ship_from.address_id.as_deref(), Some("adr_home"));
-        assert_eq!(sent.label.preference, "prepaid-label");
-        assert_eq!(sent.payout.readiness_status, "unavailable");
+    fn the_form_held_again_is_only_the_forms_fields() {
+        let mut raw = Raw::new();
+        for (k, v) in [
+            ("sessionId", "chk_1"),
+            ("sellerName", "Demo"),
+            ("riskState", "clear"),
+            ("sellerEvidence", "{}"),
+            ("termsAccepted", "accepted"),
+        ] {
+            crate::items::put(&mut raw, k.to_owned(), v.to_owned());
+        }
+        let held = retained(&raw);
+        let names: Vec<&str> = held.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(names.contains(&"sessionId") && names.contains(&"sellerName") && names.contains(&"termsAccepted"), "{names:?}");
+        assert!(!names.contains(&"riskState") && !names.contains(&"sellerEvidence"), "{names:?}");
     }
 
     #[test]

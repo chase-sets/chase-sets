@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { action as listingsAction, loader as listingsLoader } from "../routes/account-listings";
+import { listingPreparationResponse } from "../features/listings/tests/listing-attempt-test-support";
+import { listingRecoveryResult } from "../features/listings/api/listing-recovery";
+import type { ListingRecoveryReference } from "../features/listings/ui/contracts";
 import {
   appendCompactPostWriteToken,
   appendFreshWriteToken,
@@ -119,8 +122,10 @@ describe("marketplace listings workbench route", () => {
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
@@ -309,6 +314,7 @@ describe("marketplace listings workbench route", () => {
 
   it("pauses selected listings in bulk as one batch and reports per-row outcomes", async () => {
     const batchBodies: unknown[] = [];
+    const preparedTargets: string[][] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -318,18 +324,18 @@ describe("marketplace listings workbench route", () => {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
         }
 
-        if (url.includes("/account/listings/batch")) {
-          batchBodies.push(JSON.parse(String(init?.body)));
-          return Promise.resolve(
-            jsonResponse({
-              batchId: "listing_batch_0000000000000001",
-              family: "listing.pause",
-              items: [
-                { targetId: "lst_1", outcome: "succeeded", version: 2 },
-                { targetId: "lst_2", outcome: "error", version: 0, message: "Listing is withdrawn." },
-              ],
-            }),
-          );
+        if (url.endsWith("/listings/batch/prepare")) {
+          preparedTargets.push(JSON.parse(String(init?.body)).listingIds);
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
+        }
+        if (url.endsWith("/listings/batch/retry")) {
+          const reference: ListingRecoveryReference = JSON.parse(String(init?.body));
+          batchBodies.push(reference);
+          const sent = [
+            { targetId: "lst_1", outcome: "succeeded" },
+            { targetId: "lst_2", outcome: "error" },
+          ] as const;
+          return Promise.resolve(jsonResponse({ recovery: listingRecoveryResult(reference, [...sent]), sent }));
         }
 
         if (url.includes("/pause")) throw new Error("bulk pause must not send per-Listing commands");
@@ -367,11 +373,12 @@ describe("marketplace listings workbench route", () => {
       outcome: "error",
     });
     // The mounted form's attempt plus intent identifies every retry of this submission.
+    expect(preparedTargets).toEqual([["lst_1", "lst_2"]]);
     expect(batchBodies).toEqual([
       {
         batchId: "test_form_attempt_10923_bulk-pause-listings",
-        family: "listing.pause",
-        listingIds: ["lst_1", "lst_2"],
+        mutationKind: "listing.pause",
+        bulk: true,
       },
     ]);
   });
@@ -414,18 +421,16 @@ describe("marketplace listings workbench route", () => {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
         }
 
-        if (url.includes("/account/listings/batch")) {
-          const body = JSON.parse(String(init?.body)) as { batchId: string; family: string; listingIds: string[] };
-          expect(body.family).toBe("listing.withdraw");
-          batchIds.push(body.batchId);
-          withdrawnIds.push(...body.listingIds);
-          return Promise.resolve(
-            jsonResponse({
-              batchId: body.batchId,
-              family: body.family,
-              items: body.listingIds.map((targetId) => ({ targetId, outcome: "succeeded", version: 2 })),
-            }),
-          );
+        if (url.endsWith("/listings/batch/prepare")) {
+          withdrawnIds.push(...JSON.parse(String(init?.body)).listingIds);
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
+        }
+        if (url.endsWith("/listings/batch/retry")) {
+          const reference: ListingRecoveryReference = JSON.parse(String(init?.body));
+          expect(reference).toEqual({ batchId: expect.any(String), mutationKind: "listing.withdraw", bulk: true });
+          batchIds.push(reference.batchId);
+          const sent = withdrawnIds.map((targetId) => ({ targetId, outcome: "succeeded" as const }));
+          return Promise.resolve(jsonResponse({ recovery: listingRecoveryResult(reference, sent), sent }));
         }
 
         return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));

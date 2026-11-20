@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createRepricingPolicyRuntime, PolicyControlValidationError } from "./runtime";
 import { RepricingPolicyValidationError, type ReviseRepricingPolicyCommand } from "../domain/domain";
+import {
+  createMemoryRepricingConfigurationWriter,
+  createConfigurationPoolFixture,
+  withMemoryConfigurationTransactions,
+} from "../tests/configuration-fixture";
+import { createRepricingConfigurationWriter } from "./configuration";
 
 const context: EventStoreContext = {
   tenantId: "ten_1" as never,
@@ -45,7 +51,7 @@ function createMemoryEventStore() {
     readAll: async () => allEvents,
   };
 
-  return { store, allEvents };
+  return { store: withMemoryConfigurationTransactions(store), allEvents };
 }
 
 function queryStub(rows: readonly Record<string, unknown>[] = []): PgQueryable {
@@ -55,7 +61,12 @@ function queryStub(rows: readonly Record<string, unknown>[] = []): PgQueryable {
 function createRuntime(db: PgQueryable = queryStub()) {
   const eventStore = createMemoryEventStore();
   return {
-    services: createRepricingPolicyRuntime({ eventStore: eventStore.store, db, goalAdoptions: async () => [] }),
+    services: createRepricingPolicyRuntime({
+      eventStore: eventStore.store,
+      db,
+      configuration: createMemoryRepricingConfigurationWriter(eventStore.store),
+      goalAdoptions: async () => [],
+    }),
     events: eventStore.allEvents,
   };
 }
@@ -76,6 +87,389 @@ const rule = {
 };
 
 describe("createRepricingPolicyRuntime", () => {
+  it("accepts and installs halt and lifecycle writes with only the owner connection available", async () => {
+    let leased = false;
+    const oneSlotPool: PgTransactionalPool = {
+      async query() {
+        if (leased) throw new Error("The only owner connection is leased.");
+        return { rows: [] };
+      },
+      async connect() {
+        if (leased) throw new Error("The only owner connection is leased.");
+        leased = true;
+        return {
+          ...queryStub(),
+          release: () => {
+            leased = false;
+          },
+        };
+      },
+    };
+    const memory = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture(oneSlotPool);
+    const runtime = createRepricingPolicyRuntime({
+      eventStore: {
+        ...memory.store,
+        async readStream(input) {
+          await fixture.pool.query("SELECT synthetic_event_stream");
+          return memory.store.readStream(input);
+        },
+        async readStreamInTransaction(client, input) {
+          expect(leased).toBe(true);
+          await client.query("SELECT synthetic_event_stream");
+          return memory.store.readStream(input);
+        },
+      },
+      configuration: createRepricingConfigurationWriter({ ...fixture, eventStore: memory.store }),
+      db: fixture.pool,
+      goalAdoptions: async () => [],
+    });
+    const accountId = "acc_seller";
+    const policyId = "rpp_one_slot";
+    await runtime.commandHandler({
+      streamId: runtime.streamIdForPolicy(policyId),
+      context,
+      command: {
+        type: "CreateRepricingPolicy",
+        policyId,
+        accountId,
+        name: "Synthetic",
+        scope: { kind: "all-listings" },
+        rules: [rule],
+        maxChangesPerDay: 25,
+        createdAt: "2026-11-17T00:00:00Z",
+      },
+    });
+    expect(await runtime.setHalt(accountId, true, context, "synthetic-one-slot-halt")).toMatchObject({
+      status: "applied",
+      installedRevision: 1,
+      state: { engaged: true },
+    });
+    expect(
+      await runtime.executeOwnedRepricingPolicy({
+        policyId,
+        accountId,
+        context,
+        requestKey: "synthetic-one-slot-pause",
+        command: { type: "PauseRepricingPolicy", pausedAt: "2026-11-17T00:01:00Z" },
+      }),
+    ).toMatchObject({ status: "applied", installedRevision: 2, state: { status: "paused" } });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual([
+      "pricing.repricing-policy.created",
+      "pricing.repricing-halt.engaged",
+      "pricing.repricing-policy.paused",
+    ]);
+    expect(leased).toBe(false);
+  });
+
+  it("blocks a pending Apply Goal under the installed halt but replays the terminal receipt without a halt read", async () => {
+    const { store, allEvents } = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture();
+    let transactionalReads = 0;
+    const runtime = createRepricingPolicyRuntime({
+      eventStore: {
+        ...store,
+        readStreamInTransaction(client, input) {
+          transactionalReads++;
+          return store.readStreamInTransaction(client, input);
+        },
+      },
+      configuration: createRepricingConfigurationWriter({ ...fixture, eventStore: store }),
+      db: fixture.pool,
+      goalAdoptions: async () => [],
+    });
+    const accountId = "acc_seller";
+    const policyId = "rpp_guarded";
+    const body = { scope: { kind: "all-listings" as const }, rules: [rule], maxChangesPerDay: 25 };
+    await runtime.commandHandler({
+      streamId: runtime.streamIdForPolicy(policyId),
+      context,
+      command: {
+        ...body,
+        type: "CreateRepricingPolicy",
+        policyId,
+        accountId,
+        name: "Installed",
+        createdAt: "2026-11-17T00:00:00Z",
+      },
+    });
+    const requestKey = "synthetic-guarded-goal";
+    const fingerprint = "synthetic-apply-goal-fingerprint";
+    const retry = () => runtime.retryPolicyConfiguration(accountId, policyId, requestKey, fingerprint);
+    fixture.control.pending = true;
+    const pending = await runtime.executeOwnedRepricingPolicy({
+      policyId,
+      accountId,
+      context,
+      requestKey,
+      requestFingerprint: fingerprint,
+      requireReleasedHalt: true,
+      command: { ...body, type: "ReviseRepricingPolicy", name: "Revised", revisedAt: "2026-11-17T00:01:00Z" },
+    });
+    expect(pending).toEqual({ status: "accepted-pending", requestKey, requestedRevision: 2 });
+    fixture.control.pending = false;
+    await runtime.setHalt(accountId, true, context, "synthetic-engage");
+    expect(await retry()).toEqual(pending);
+    expect(await runtime.getPolicyConfigurationStatus(accountId, policyId)).toMatchObject({
+      installedRevision: 1,
+      requestedRevision: 2,
+      installedState: { name: "Installed" },
+      request: pending,
+    });
+    const reviseEvents = () => allEvents.filter((event) => event.eventType === "pricing.repricing-policy.revised");
+    expect(reviseEvents()).toHaveLength(0);
+    await runtime.setHalt(accountId, false, context, "synthetic-release");
+    const applied = await retry();
+    expect(applied).toMatchObject({ status: "applied", requestKey, installedRevision: 2, state: { name: "Revised" } });
+    await runtime.setHalt(accountId, true, context, "synthetic-engage-again");
+    const readsBeforeReplay = transactionalReads;
+    expect(await retry()).toEqual(applied);
+    expect(transactionalReads).toBe(readsBeforeReplay);
+    expect(reviseEvents()).toHaveLength(1);
+  });
+
+  it("keeps pending lifecycle and revision requests out of installed policy and replays only their own outcome", async () => {
+    const memory = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture();
+    const runtime = () =>
+      createRepricingPolicyRuntime({
+        eventStore: memory.store,
+        db: queryStub(),
+        goalAdoptions: async () => [],
+        configuration: createRepricingConfigurationWriter({
+          ...fixture,
+          eventStore: {
+            appendToStreamInTransaction: async (_: unknown, input: AppendToStreamInput) =>
+              memory.store.appendToStream(input),
+          },
+        }),
+      });
+    await runtime().commandHandler({
+      streamId: runtime().streamIdForPolicy("rpp_pending"),
+      context,
+      command: {
+        type: "CreateRepricingPolicy",
+        policyId: "rpp_pending",
+        accountId: "acc_seller",
+        name: "Installed",
+        scope: { kind: "all-listings" },
+        rules: [rule],
+        maxChangesPerDay: 25,
+        createdAt: "2026-11-17T00:00:00Z",
+      },
+    });
+    fixture.control.pending = true;
+    const pause = () =>
+      runtime().executeOwnedRepricingPolicy({
+        policyId: "rpp_pending",
+        accountId: "acc_seller",
+        context,
+        requestKey: "synthetic-pause",
+        command: { type: "PauseRepricingPolicy", pausedAt: "2026-11-17T00:01:00Z" },
+      });
+    expect(await pause()).toMatchObject({ status: "accepted-pending", requestedRevision: 2 });
+    expect((await runtime().loadOwnedRepricingPolicy("rpp_pending", "acc_seller"))!.state).toMatchObject({
+      name: "Installed",
+      status: "active",
+    });
+    const revise = () =>
+      runtime().executeOwnedRepricingPolicy({
+        policyId: "rpp_pending",
+        accountId: "acc_seller",
+        context,
+        requestKey: "synthetic-revise",
+        command: {
+          type: "ReviseRepricingPolicy",
+          name: "Replacement",
+          scope: { kind: "all-listings" },
+          rules: [rule],
+          maxChangesPerDay: 25,
+          revisedAt: "2026-11-17T00:02:00Z",
+        },
+      });
+    expect(await revise()).toMatchObject({ status: "accepted-pending", requestedRevision: 3 });
+    expect(await pause()).toMatchObject({
+      status: "superseded-by-revision",
+      requestedRevision: 2,
+      replacingRevision: 3,
+    });
+    expect(await runtime().listConfigurationRequests("acc_seller")).toEqual([
+      { status: "accepted-pending", requestKey: "synthetic-revise", requestedRevision: 3 },
+    ]);
+    fixture.control.pending = false;
+    const applied = await revise();
+    expect(applied).toMatchObject({
+      status: "applied",
+      installedRevision: 3,
+      state: { name: "Replacement", status: "active" },
+    });
+    expect(await revise()).toEqual(applied);
+    expect((await runtime().loadOwnedRepricingPolicy("rpp_pending", "acc_seller"))!.state).toMatchObject({
+      name: "Replacement",
+      status: "active",
+    });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual([
+      "pricing.repricing-policy.created",
+      "pricing.repricing-policy.revised",
+    ]);
+  });
+  it("keeps an installed halt engaged through pending release, restart, supersession and original-key replay", async () => {
+    const memory = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture();
+    const store = {
+      appendToStreamInTransaction: async (_: unknown, input: AppendToStreamInput) => memory.store.appendToStream(input),
+    };
+    const runtime = () =>
+      createRepricingPolicyRuntime({
+        eventStore: memory.store,
+        db: queryStub(),
+        goalAdoptions: async () => [],
+        configuration: createRepricingConfigurationWriter({ ...fixture, eventStore: store }),
+      });
+    const engaged = await runtime().setHalt("acc_seller", true, context, "engage");
+    expect(engaged).toMatchObject({ status: "applied", installedRevision: 1, state: { engaged: true } });
+    fixture.control.pending = true;
+    const released = await runtime().setHalt("acc_seller", false, context, "release");
+    expect(released).toEqual({ status: "accepted-pending", requestedRevision: 2, requestKey: "release" });
+    expect(await runtime().getHalt("acc_seller")).toMatchObject({ engaged: true });
+    expect(await runtime().getHaltConfigurationStatus("acc_seller")).toEqual({
+      installedRevision: 1,
+      installedState: expect.objectContaining({ engaged: true }),
+      requestedRevision: 2,
+      request: released,
+    });
+    expect(await runtime().setHalt("acc_seller", false, context, "release")).toEqual(released);
+    await expect(runtime().setHalt("acc_seller", true, context, "release")).rejects.toMatchObject({
+      code: "concurrency_conflict",
+    });
+    const replacement = await runtime().setHalt("acc_seller", true, context, "replacement");
+    expect(replacement).toMatchObject({ status: "accepted-pending", requestedRevision: 3 });
+    const superseded = await runtime().setHalt("acc_seller", false, context, "release");
+    expect(superseded).toEqual({
+      status: "superseded-by-revision",
+      requestKey: "release",
+      requestedRevision: 2,
+      replacingRevision: 3,
+    });
+    fixture.control.pending = false;
+    expect(await runtime().setHalt("acc_seller", true, context, "replacement")).toMatchObject({
+      status: "applied",
+      installedRevision: 3,
+      state: { engaged: true },
+    });
+    expect(await runtime().setHalt("acc_seller", true, context, "engage")).toEqual(engaged);
+    expect(await runtime().setHalt("acc_seller", false, context, "release")).toEqual(superseded);
+    expect(await runtime().getHalt("acc_seller")).toMatchObject({ engaged: true });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual(["pricing.repricing-halt.engaged"]);
+    const releaseRow = [...fixture.rows.values()].find((row) => row.request_key === "release")!;
+    releaseRow.receipt = { ...superseded, replacingRevision: 200 };
+    await expect(runtime().setHalt("acc_seller", false, context, "release")).rejects.toThrow(
+      "Corrupt Pricing configuration supersession",
+    );
+    expect(await runtime().getHaltConfigurationStatus("acc_seller")).toMatchObject({
+      installedRevision: 3,
+      requestedRevision: 3,
+      installedState: { engaged: true },
+    });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual(["pricing.repricing-halt.engaged"]);
+  });
+  it("rejects a supersession receipt pointing anywhere but its direct successor in the verified history", async () => {
+    const memory = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture();
+    const services = createRepricingPolicyRuntime({
+      eventStore: memory.store,
+      db: fixture.pool,
+      goalAdoptions: async () => [],
+      configuration: createRepricingConfigurationWriter({ ...fixture, eventStore: memory.store }),
+    });
+    const first = () => services.setHalt("acc_seller", true, context, "synthetic-first");
+    const second = () => services.setHalt("acc_seller", false, context, "synthetic-second");
+    const third = () => services.setHalt("acc_seller", true, context, "synthetic-third");
+
+    fixture.control.pending = true;
+    expect(await first()).toMatchObject({ status: "accepted-pending", requestedRevision: 1 });
+    expect(await second()).toMatchObject({ status: "accepted-pending", requestedRevision: 2 });
+    fixture.control.pending = false;
+    const installed = await third();
+    expect(installed).toMatchObject({ status: "applied", installedRevision: 3, state: { engaged: true } });
+    expect(await third()).toEqual(installed);
+
+    const firstReceipt = await first();
+    expect(firstReceipt).toEqual({
+      status: "superseded-by-revision",
+      requestKey: "synthetic-first",
+      requestedRevision: 1,
+      replacingRevision: 2,
+    });
+    expect(await second()).toEqual({
+      status: "superseded-by-revision",
+      requestKey: "synthetic-second",
+      requestedRevision: 2,
+      replacingRevision: 3,
+    });
+
+    const status = await services.getHaltConfigurationStatus("acc_seller");
+    expect(status).toMatchObject({ installedRevision: 3, requestedRevision: 3, installedState: { engaged: true } });
+    expect(memory.allEvents.map((event) => event.eventType)).toEqual(["pricing.repricing-halt.engaged"]);
+    const events = [...memory.allEvents];
+    const firstRow = [...fixture.rows.values()].find((row) => row.request_key === "synthetic-first")!;
+    for (const replacingRevision of [200, 3]) {
+      firstRow.receipt = { ...firstReceipt, replacingRevision };
+      await expect(first()).rejects.toThrow("Corrupt Pricing configuration supersession");
+      expect(await services.getHaltConfigurationStatus("acc_seller")).toEqual(status);
+      expect(memory.allEvents).toEqual(events);
+    }
+  });
+  it("rejects partial or corrupt durable receipts rather than reporting installation", async () => {
+    const memory = createMemoryEventStore();
+    const fixture = createConfigurationPoolFixture();
+    const configuration = createRepricingConfigurationWriter({
+      ...fixture,
+      eventStore: {
+        appendToStreamInTransaction: async (_: unknown, input: AppendToStreamInput) =>
+          memory.store.appendToStream(input),
+      },
+    });
+    const services = createRepricingPolicyRuntime({
+      eventStore: memory.store,
+      db: queryStub(),
+      goalAdoptions: async () => [],
+      configuration,
+    });
+    await services.setHalt("acc_seller", true, context, "synthetic-corrupt");
+    const row = [...fixture.rows.values()][0]!;
+    const original = row.receipt;
+    for (const receipt of [
+      { requestKey: "synthetic-corrupt", requestedRevision: Number.MAX_SAFE_INTEGER, status: "accepted-pending" },
+      {
+        requestKey: "synthetic-corrupt",
+        requestedRevision: 1,
+        installedRevision: 1,
+        status: "applied",
+        state: { engaged: "false" },
+      },
+      {
+        requestKey: "synthetic-corrupt",
+        requestedRevision: 1,
+        installedRevision: 1,
+        status: "applied",
+        state: { engaged: false, engagedAt: null, releasedAt: null },
+      },
+    ]) {
+      row.receipt = receipt;
+      await expect(services.setHalt("acc_seller", true, context, "synthetic-corrupt")).rejects.toThrow();
+      expect(await services.getHalt("acc_seller")).toMatchObject({ engaged: true });
+    }
+    row.receipt = original;
+    row.prepared += " ";
+    await expect(services.setHalt("acc_seller", true, context, "synthetic-corrupt")).rejects.toThrow(
+      "Corrupt Pricing configuration request",
+    );
+    fixture.rows.clear();
+    await expect(services.getHaltConfigurationStatus("acc_seller")).rejects.toThrow(
+      "Partial Pricing configuration history",
+    );
+  });
   it("domain validation details keep the intentional tag as cause without rewrapping raw messages", async () => {
     const { services } = createRuntime();
     await services.commandHandler({

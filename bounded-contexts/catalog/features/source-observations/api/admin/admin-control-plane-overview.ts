@@ -41,6 +41,7 @@ export type CatalogIntegrationUnitActivity = Readonly<{
 
 export type CatalogIntegrationRecentJobSummary = Readonly<{
   jobId: string;
+  syncRunId: string | null;
   action: SourceObservationIntegrationJob["action"];
   operatorStatus: SourceObservationIntegrationJob["operatorStatus"];
   phase: SourceObservationIntegrationJob["progress"]["phase"];
@@ -196,7 +197,10 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
       }
     : input.activeJobs;
   const recentJobs = input.recentJobs ?? (!("items" in input.activeJobs) ? input.activeJobs : []);
-  const units = buildUnitActivity(input.readiness.units, recentJobs);
+  const units =
+    audience === "daily"
+      ? buildUnitActivity(input.readiness.units, recentJobs)
+      : buildCatalogIntegrationUnitActivity(input.readiness.units, recentJobs);
 
   return {
     generatedAt,
@@ -440,9 +444,7 @@ function buildAuditLifecycleEntries(
   return [
     ...profiles.flatMap((profile) => profileAuditEntries(profile, units, generatedAt)),
     ...jobs.map((job) => jobAuditEntry(job, units)),
-  ]
-    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
-    .slice(0, 12);
+  ].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
 }
 
 function profileAuditEntries(
@@ -550,6 +552,7 @@ function jobSummary(
 ): CatalogIntegrationRecentJobSummary {
   return {
     jobId: job.jobId,
+    syncRunId: job.syncRunId,
     action: job.action,
     operatorStatus: job.operatorStatus,
     phase: job.progress.phase,

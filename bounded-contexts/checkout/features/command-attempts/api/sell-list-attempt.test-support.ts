@@ -1,3 +1,4 @@
+import { marketplaceHandoffFixture, prepareSellerConfirmation } from "../../sell-list/api/owner-read.fixture";
 import { expect, it, vi } from "vitest";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -275,65 +276,46 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
     const f = checkoutOwnerRuntimeFixture();
     const services = createCheckoutSellListRuntime({ ...f.deps, eventStore: real });
     await seedSelectedLine(services);
-    const readiness = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller", ...choices });
+    const readiness = await prepareSellerConfirmation(services, "slc_synthetic_attempt", context);
     expect(readiness.status).toBe("ready");
     const request = {
       sellerAccountId: "acc_seller" as never,
       confirmationId: "slc_synthetic_attempt",
       readinessSnapshotId: readiness.snapshotId,
       readinessSourceRevision: readiness.sourceRevision,
+      readinessDecisions: readiness.decisions,
       ...choices,
-      sellerEvidence: {
-        shipFrom: { status: "ready" as const, addressId: null, country: "US", region: "KS", postalCode: "67202" },
-        payout: {
-          status: "ready" as const,
-          method: "saved-payout" as const,
-          readinessStatus: "ready",
-          lastCheckedAt: stamp,
-        },
-        label: { status: "ready" as const, preference: "prepaid-label" as const },
-        risk: { status: "clear" as const },
-        provider: { status: "ready" as const },
-        freshness: { status: "current" as const },
-      },
-      handoffSummary: {
-        acceptedOfferCount: 1,
-        publishedListingCount: 0,
-        skippedLineCount: 0,
-        skippedReasons: [],
-        sideEffects: {
-          sale: "handoff-recorded" as const,
-          label: "pending-downstream" as const,
-          payout: "pending-downstream" as const,
-          settlement: "pending-downstream" as const,
-          notification: "pending-downstream" as const,
-          accountHistory: "pending-downstream" as const,
-        },
-      },
     };
+    const marketplace = marketplaceHandoffFixture();
     const [first, concurrent] = await Promise.all([
-      services.confirmSellListCheckout(request, context),
-      services.confirmSellListCheckout(request, context),
+      services.confirmSellListCheckout(request, context, marketplace),
+      services.confirmSellListCheckout(request, context, marketplace),
     ]);
     expect(concurrent).toEqual(first);
-    expect(await services.confirmSellListCheckout(request, context)).toEqual(first);
+    expect(await services.confirmSellListCheckout(request, context, marketplace)).toEqual(first);
+    const writeCount = marketplace.acceptOfferMatch.mock.calls.length;
+    const injected = {
+      ...request,
+      completedLineIds: ["sll_attacker"],
+      remainingLineQuantities: [{ lineId: fixtureLine.line_id, quantity: 999 }],
+      handoffSummary: { acceptedOfferCount: 999 },
+    };
+    expect(await services.confirmSellListCheckout(injected, context, marketplace)).toEqual(first);
+    expect(marketplace.acceptOfferMatch).toHaveBeenCalledTimes(writeCount);
     f.setLines([]);
     f.setPayout("restricted");
-    expect(await services.confirmSellListCheckout(request, context)).toEqual(first);
+    expect(await services.confirmSellListCheckout(request, context, marketplace)).toEqual(first);
+    expect(marketplace.acceptOfferMatch).toHaveBeenCalledTimes(writeCount);
     expect(await services.getConfirmation("acc_seller", request.confirmationId)).toEqual(first.confirmation);
     for (const changed of [
       { readinessSnapshotId: "changed" },
       { readinessSourceRevision: "changed" },
-      { completedLineIds: ["sll_other" as never] },
-      { remainingLineQuantities: [{ lineId: fixtureLine.line_id as never, quantity: 2 }] },
-      {
-        sellerEvidence: {
-          ...request.sellerEvidence,
-          shipFrom: { ...request.sellerEvidence.shipFrom, postalCode: "00000" },
-        },
-      },
+      { readinessDecisions: { lineActions: [] } },
+      { label: { preference: "seller-label-later" as const } },
     ]) {
-      await expect(services.confirmSellListCheckout({ ...request, ...changed }, context)).rejects.toMatchObject({
+      await expect(
+        services.confirmSellListCheckout({ ...request, ...changed }, context, marketplace),
+      ).rejects.toMatchObject({
         code: "checkout_confirmation_changed",
       });
     }
@@ -354,7 +336,7 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
       },
     };
     const poisoned = createCheckoutSellListRuntime({ ...f.deps, eventStore: poisonedStore });
-    await expect(poisoned.confirmSellListCheckout(request, context)).rejects.toMatchObject({
+    await expect(poisoned.confirmSellListCheckout(request, context, marketplace)).rejects.toMatchObject({
       code: "checkout_confirmation_changed",
     });
     expect(await readCompleteStream(real, { streamId: "checkout.sell-list-acc_seller" })).toHaveLength(events.length);
@@ -439,23 +421,9 @@ export function sellListAttemptCases(store: () => EventStore, db: () => PgQuerya
         readinessSnapshotId: ready.snapshotId,
         readinessSourceRevision: ready.sourceRevision,
         ...choices,
-        sellerEvidence: {} as never,
-        handoffSummary: {
-          acceptedOfferCount: 1,
-          publishedListingCount: 0,
-          skippedLineCount: 0,
-          skippedReasons: [],
-          sideEffects: {
-            sale: "handoff-recorded",
-            label: "pending-downstream",
-            payout: "pending-downstream",
-            settlement: "pending-downstream",
-            notification: "pending-downstream",
-            accountHistory: "pending-downstream",
-          },
-        },
       },
       context,
+      marketplaceHandoffFixture(),
     );
     expect(confirmed.status).toBe("confirmed");
   });

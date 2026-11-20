@@ -7,7 +7,7 @@ export type {
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
-import type { MutationResult } from "@chase-sets/http/responses";
+import type { CommandReceiptMetadata, MutationResult } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine, CheckoutCartRead } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
@@ -21,12 +21,7 @@ import type {
 } from "./features/sell-list/read-model/queries";
 import type { CheckoutShipFromAddressRow } from "./features/cart/integrations/identity/identity-queries";
 import type { SellerCheckoutChoices } from "./features/sell-list/domain/owner-reads";
-import type {
-  SellListConfirmationSummary,
-  SellListReadinessDecisionInput,
-  SellListReadinessSnapshot,
-  SellListSellerConfirmationEvidence,
-} from "./features/sell-list/api/contracts";
+import type { SellListReadinessDecisionInput, SellListReadinessSnapshot } from "./features/sell-list/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 import type { CheckoutSavedPaymentInstrumentRow } from "./features/sessions/integrations/payments/payment-affordance-queries";
 import type { CheckoutPaymentSummaryRow } from "./features/sessions/integrations/payments/payment-summary-queries";
@@ -637,7 +632,6 @@ export function createCheckoutApiClient({
     async createSellListReadiness(
       body: SellListReadinessDecisionInput &
         SellerCheckoutChoices & {
-          sellerEvidence?: SellListSellerConfirmationEvidence | null;
           confirmationId?: string;
           entryReadinessSnapshotId?: string;
           entryReadinessSourceRevision?: string;
@@ -656,7 +650,7 @@ export function createCheckoutApiClient({
     },
     async createGuestSellListReadiness(
       anonymousSellListId: string,
-      body: SellListReadinessDecisionInput & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
+      body: SellListReadinessDecisionInput = {},
     ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(
         await client.guest["sell-list"].readiness.$post({
@@ -707,12 +701,13 @@ export function createCheckoutApiClient({
           readinessSnapshotId: string;
           readinessSourceRevision: string;
           readinessDecisions?: SellListReadinessDecisionInput | null;
-          completedLineIds?: readonly string[];
-          remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
-          sellerEvidence: SellListSellerConfirmationEvidence;
-          handoffSummary: SellListConfirmationSummary;
         }>,
-    ): Promise<CheckoutMutationResult<{ confirmation: CheckoutSellListConfirmationRow }>> {
+    ): Promise<
+      CheckoutMutationResult<{
+        confirmation: CheckoutSellListConfirmationRow;
+        sourceReceipts: readonly { commandReceipt: CommandReceiptMetadata }[];
+      }>
+    > {
       return parseJsonResponse(await client.account["sell-list"].confirm.$post({ json: body, header: headers }));
     },
     async removeGuestSellListLine(

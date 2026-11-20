@@ -36,6 +36,7 @@ export const rehearsalCountPreparationRefusalCodes = [
   "approval-stale",
   "authority-stale",
   "nothing-to-acquire",
+  "usage-observation-not-checked",
   "quote-unavailable",
   "quote-invalid",
   "quote-readback-failed",
@@ -72,6 +73,14 @@ export class RehearsalCountPreparationRefusal extends Error {
 const integer = z.number().int().min(0).max(2147483647);
 const credits = integer.max(rehearsalCountPreparationMaxTargets);
 const instant = z.iso.datetime({ offset: true });
+export const rehearsalCountUsageObservationSchema = z
+  .object({
+    requested: z.literal(true),
+    observedAt: instant.nullable(),
+    attemptState: z.enum(["checked", "unavailable", "not-configured"]),
+  })
+  .strict()
+  .refine(({ attemptState, observedAt }) => attemptState !== "checked" || observedAt !== null);
 const hex64 = z.string().regex(/^[a-f0-9]{64}$/);
 const token = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
 const kind = z.enum(["cards", "sealed"]);
@@ -239,6 +248,7 @@ const receiptSchema = z
           .strict(),
       })
       .strict(),
+    usageObservation: rehearsalCountUsageObservationSchema.optional(),
     approval: z
       .object({
         approvalId: token,
@@ -402,6 +412,13 @@ function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] 
   const expectedSelection = rehearsalCountPreparationSelection(receipt.pass);
   if (countFingerprint(receipt.selection) !== countFingerprint(expectedSelection)) errors.push("selection-not-pass");
   if ((receipt.outcome === "refused") !== (receipt.refusal !== null)) errors.push("refusal-code-mismatch");
+  const observationFailed = !!receipt.usageObservation && receipt.usageObservation.attemptState !== "checked";
+  if (
+    (receipt.usageObservation && receipt.mode !== "quote") ||
+    observationFailed !== (receipt.refusal === "usage-observation-not-checked") ||
+    (observationFailed && receipt.quote !== null)
+  )
+    errors.push("usage-observation-mismatch");
   if (
     (receipt.mode === "quote" &&
       (receipt.approval !== null ||

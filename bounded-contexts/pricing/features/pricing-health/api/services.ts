@@ -2,9 +2,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { RepricingEngineServices } from "../../repricing-engine/api/runtime";
 import type { RepricingPolicyServices } from "../../repricing-policies/api/runtime";
-import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import { hashRepricingDryRunBody, canonicalJson } from "../../repricing-engine/api/dry-run";
 import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { RepricingPolicyState } from "../../repricing-policies/domain/domain";
+import type { RepricingPolicyReceipt } from "../../repricing-policies/domain/configuration-receipt";
 import { bindGoalAuthoringIntent } from "../../repricing-policies/domain/authoring-intent";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { listAccountRepricingPolicies } from "../../repricing-policies/read-model/queries";
@@ -70,19 +71,22 @@ export type ApplyGoalRequest = Readonly<{
   parameters: Readonly<Record<string, number>>;
 }>;
 
-export type ApplyGoalResult = Readonly<{
-  policyId: string;
-  previousRevision: number;
-  revision: number;
-  bodyHash: string;
-  dryRunId: string;
-  goalId: string;
-  goalVersion: number;
-  parameters: Readonly<Record<string, number>>;
-  state: RepricingPolicyState;
-  movement: Readonly<{ raised: number; lowered: number; held: number }>;
-  alerts: Readonly<{ floorBinding: number; evidenceFloorBinding: number }>;
-}>;
+export type ApplyGoalResult =
+  | Exclude<RepricingPolicyReceipt, { status: "applied" }>
+  | (Extract<RepricingPolicyReceipt, { status: "applied" }> &
+      Readonly<{
+        policyId: string;
+        previousRevision: number;
+        revision: number;
+        bodyHash: string;
+        dryRunId: string;
+        goalId: string;
+        goalVersion: number;
+        parameters: Readonly<Record<string, number>>;
+        state: RepricingPolicyState;
+        movement: Readonly<{ raised: number; lowered: number; held: number }>;
+        alerts: Readonly<{ floorBinding: number; evidenceFloorBinding: number }>;
+      }>);
 
 export function createPricingHealthServices({
   db,
@@ -97,7 +101,7 @@ export function createPricingHealthServices({
   repricingEngine: Pick<RepricingEngineServices, "enqueueDryRun" | "getDryRun">;
   repricingPolicies: Pick<
     RepricingPolicyServices,
-    "loadOwnedRepricingPolicy" | "executeOwnedRepricingPolicy" | "getHalt"
+    "loadOwnedRepricingPolicy" | "executeOwnedRepricingPolicy" | "getHalt" | "retryPolicyConfiguration"
   >;
   forecastLedger: Pick<ForecastLedgerServices, "listGoalAdoptions">;
   economics: Pick<EconomicsServices, "resolve">;
@@ -382,60 +386,45 @@ export function createPricingHealthServices({
       policyId: string,
       input: ApplyGoalRequest,
       context: EventStoreContext,
+      requestKey = `apply-goal:${input.dryRunId}`,
     ): Promise<ApplyGoalResult | null> => {
+      const fingerprint = canonicalJson(input);
+      const original = await repricingPolicies.retryPolicyConfiguration(accountId, policyId, requestKey, fingerprint);
+      if (original) {
+        if (original.status !== "applied") return original;
+        const run = await repricingEngine.getDryRun(accountId, input.dryRunId);
+        if (!run?.summary) throw new Error("Missing applied goal request evidence.");
+        const facts = await readComparisonFacts(db, {
+          accountId,
+          dryRunId: run.dryRunId,
+          now: new Date().toISOString(),
+        });
+        return {
+          ...original,
+          policyId,
+          previousRevision: input.targetRevision,
+          revision: input.targetRevision + 1,
+          bodyHash: input.candidateBodyHash,
+          dryRunId: input.dryRunId,
+          goalId: input.goalId,
+          goalVersion: input.goalVersion,
+          parameters: input.parameters,
+          movement: {
+            raised: facts.raised,
+            lowered: facts.lowered,
+            held: run.summary.listingsEvaluated - facts.raised - facts.lowered,
+          },
+          alerts: {
+            floorBinding: run.summary.flags["floor-binding"] ?? 0,
+            evidenceFloorBinding: run.summary.flags["evidence-floor-binding"] ?? 0,
+          },
+        };
+      }
       const target = await currentTarget(accountId, policyId);
       if (!target) return null;
       if ((await repricingPolicies.getHalt(accountId)).engaged)
         throw new PricingHealthApplyRefusedError("halt_engaged");
       if (input.targetRevision !== target.version || input.targetBodyHash !== target.bodyHash) {
-        if (input.targetRevision + 1 === target.version && input.candidateBodyHash === target.bodyHash) {
-          const [run, loaded, goalChoices] = await Promise.all([
-            repricingEngine.getDryRun(accountId, input.dryRunId),
-            repricingPolicies.loadOwnedRepricingPolicy(policyId, accountId),
-            choices(),
-          ]);
-          const selected = goalChoices.find(
-            (goal) =>
-              goal.goalId === input.goalId &&
-              goal.goalVersion === input.goalVersion &&
-              JSON.stringify(goal.parameters) === JSON.stringify(input.parameters),
-          );
-          if (
-            run?.status === "completed" &&
-            run.completedAt !== null &&
-            run.summary !== null &&
-            run.replacingPolicyId === policyId &&
-            run.bodyHash === target.bodyHash &&
-            hashRepricingDryRunBody(run.body) === run.bodyHash &&
-            selected
-          ) {
-            const facts = await readComparisonFacts(db, {
-              accountId,
-              dryRunId: run.dryRunId,
-              now: new Date().toISOString(),
-            });
-            return {
-              policyId,
-              previousRevision: input.targetRevision,
-              revision: target.version,
-              bodyHash: target.bodyHash,
-              dryRunId: run.dryRunId,
-              goalId: selected.goalId,
-              goalVersion: selected.goalVersion,
-              parameters: selected.parameters,
-              state: loaded!.state,
-              movement: {
-                raised: facts.raised,
-                lowered: facts.lowered,
-                held: run.summary.listingsEvaluated - facts.raised - facts.lowered,
-              },
-              alerts: {
-                floorBinding: run.summary?.flags["floor-binding"] ?? 0,
-                evidenceFloorBinding: run.summary?.flags["evidence-floor-binding"] ?? 0,
-              },
-            };
-          }
-        }
         throw new PricingHealthApplyRefusedError("policy_changed");
       }
       if (!isOneRuleUnconditional(target.rules)) throw new PricingHealthApplyRefusedError("candidate_stale");
@@ -467,25 +456,31 @@ export function createPricingHealthServices({
 
       if (hashRepricingDryRunBody(expectedBody) === target.bodyHash)
         throw new PricingHealthApplyRefusedError("no_change");
-      let state: RepricingPolicyState;
+      let receipt: RepricingPolicyReceipt | null;
       try {
-        state = (await repricingPolicies.executeOwnedRepricingPolicy({
+        receipt = await repricingPolicies.executeOwnedRepricingPolicy({
           policyId,
           accountId,
           context,
+          requestKey,
+          requestFingerprint: fingerprint,
+          expectedPolicyVersion: target.version,
+          requireReleasedHalt: true,
           command: {
             type: "ReviseRepricingPolicy",
             name: target.name,
             ...bindGoalAuthoringIntent(expectedBody, resolvePricingGoal),
             revisedAt: new Date().toISOString(),
           },
-        })) as RepricingPolicyState;
+        });
       } catch (error) {
         const latest = await currentTarget(accountId, policyId);
         if (latest && latest.version !== target.version) throw new PricingHealthApplyRefusedError("policy_changed");
         throw error;
       }
+      if (!receipt || receipt.status !== "applied") return receipt;
       return {
+        ...receipt,
         policyId,
         previousRevision: target.version,
         revision: target.version + 1,
@@ -494,7 +489,6 @@ export function createPricingHealthServices({
         goalId: selected.goalId,
         goalVersion: selected.goalVersion,
         parameters: selected.parameters,
-        state,
         movement: {
           raised: facts.raised,
           lowered: facts.lowered,

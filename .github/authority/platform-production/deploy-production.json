@@ -242,6 +242,13 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#36",
+      "secretName": "STRIPE_WEBHOOK_SECRET_PREVIOUS",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#36",
       "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
       "purpose": "application-runtime"
     },

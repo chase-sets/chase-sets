@@ -53,6 +53,11 @@ const boundedSites = [
     pointer: "bounded-contexts/identity/tests/registration-operation-recovery.db.test.ts",
     consumption: "presence",
   },
+  {
+    id: "bounded-contexts/marketplace/features/reports/api/runtime.ts#readStream#1",
+    pointer: "bounded-contexts/marketplace/features/reports/api/runtime.test.ts",
+    consumption: "presence",
+  },
 ];
 
 const expectedInventory = [
@@ -127,7 +132,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-five-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact tracked-call corpus and six production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });
@@ -198,6 +203,17 @@ describe("bounded-stream-contracts-acceptance-control", () => {
     expect(
       errorCodes(mutatedInventory(file, readSource(file).replace("limit: EVENT_STORE_READ_PAGE_SIZE_MAX", "limit: 1"))),
     ).toContain("inventory-mismatch");
+  });
+
+  it("keeps the Marketplace legacy report read presence-only", () => {
+    const file = "bounded-contexts/marketplace/features/reports/api/runtime.ts";
+    const source = readSource(file);
+    expect(errorCodes(mutatedInventory(file, source.replace("limit: 1,", "limit: 2,")))).toContain(
+      "bounded-limit-not-one",
+    );
+    expect(errorCodes(mutatedInventory(file, source.replace("legacy.length > 0", "legacy.some(Boolean)")))).toContain(
+      "presence-consumption-changed",
+    );
   });
 
   it("keeps the Marketplace lookup reader's complete history request unchanged", () => {

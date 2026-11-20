@@ -63,7 +63,9 @@ export type OperationsAttentionSourceDescriptor = Readonly<{
   // enforced by omitting a source the operator cannot view, so a viewer never
   // sees work they lack authority to reach.
   requiredPermission: string;
-  // Builds the one-click deep link into the owning surface for an entity.
+  // Builds the one-click deep link into the owning surface for an entity: the
+  // admin-web path, with its section (`/platform`, `/support`), as admin-web
+  // serves it.
   buildHref: (entityId: string) => string;
 }>;
 
@@ -77,8 +79,8 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     requiredPermission: "reported-content.view",
     buildHref: (entityId) =>
       entityId === "incomplete"
-        ? "/reported-content"
-        : `/reported-content/${entityId.split(":").map(encodeURIComponent).join("/")}`,
+        ? "/support/reported-content"
+        : `/support/reported-content/${entityId.split(":").map(encodeURIComponent).join("/")}`,
   },
   {
     id: "projection-poison-event",
@@ -87,7 +89,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "projection-operations",
     peakSeverity: "critical",
     requiredPermission: "projection-operations.view",
-    buildHref: () => "/projections?tab=blocked",
+    buildHref: () => "/platform/projections?tab=blocked",
   },
   {
     id: "projection-blocked-stream",
@@ -96,7 +98,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "projection-operations",
     peakSeverity: "warning",
     requiredPermission: "projection-operations.view",
-    buildHref: () => "/projections?tab=blocked",
+    buildHref: () => "/platform/projections?tab=blocked",
   },
   {
     id: "wake-stalled-job",
@@ -105,7 +107,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "projection-operations",
     peakSeverity: "critical",
     requiredPermission: "projection-operations.view",
-    buildHref: () => "/projections?tab=wake",
+    buildHref: () => "/platform/projections?tab=wake",
   },
   {
     id: "support-request-deadline",
@@ -114,7 +116,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "support-operations",
     peakSeverity: "critical",
     requiredPermission: "support.manage",
-    buildHref: (entityId) => `/requests?requestId=${encodeURIComponent(entityId)}`,
+    buildHref: (entityId) => `/support/requests?requestId=${encodeURIComponent(entityId)}`,
   },
   {
     id: "platform-feedback-unreviewed",
@@ -123,7 +125,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "platform-feedback",
     peakSeverity: "info",
     requiredPermission: "platform-feedback.view",
-    buildHref: (entityId) => `/platform-feedback/${encodeURIComponent(entityId)}`,
+    buildHref: (entityId) => `/support/platform-feedback/${encodeURIComponent(entityId)}`,
   },
 ] as const;
 

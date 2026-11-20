@@ -28,6 +28,7 @@
     "json_object": "Enter a JSON object, such as {{}}.",
     "relationship": "Enter both the relationship and the reference record, or neither.",
     "received_at": "Enter the date and time the package was received.",
+    "zone": "This form did not say which time zone its times are in. Reload the page and send it again.",
     "evidence_too_large": "The photos are too large together. Send up to 10 photos of 10 MB each."
   },
   "error": {
@@ -77,10 +78,6 @@
   "scope": {
     "refused": "The Catalog API refused the change.",
     "propose_needs": "Enter the provider, the unit, and a set id or set name.",
-    "alias_accepted": "The alias was accepted.",
-    "alias_rejected": "The alias was rejected.",
-    "alias_revoked": "The alias was revoked.",
-    "alias_deferred": "The candidate stays pending for a later review.",
     "workspace_title": "Import to promotion",
     "workspace_unread": "The import-to-promotion workspace could not be read. Try again in a moment.",
     "workspace_open": "Read the workspace again",

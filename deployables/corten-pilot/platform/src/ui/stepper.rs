@@ -1,4 +1,4 @@
-// corten ui 0.1.0: stepper 5081a518982ad71f
+// corten ui 0.2.0: stepper 5081a518982ad71f
 //! The look of corten-ui's `NumberField` written inside it: its input and its two buttons in a
 //! row, each drawn as the kit's fields and outline buttons are, at `--control-height`. A
 //! `StepperUnit` before the field (a unit: "oz", "%") sits between the decrease button and the

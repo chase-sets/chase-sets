@@ -34,6 +34,36 @@ const cortenAdminImageDelta = [
     purpose: "terraform-infra",
   },
 ];
+const stripeEndpointRotationDelta = [
+  {
+    file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+    jobId: "create",
+    stepAnchor: "name:Create and verify production Stripe webhook endpoint#3",
+    secretName: "STRIPE_WEBHOOK_SECRET",
+    purpose: "credential-rotation",
+  },
+  {
+    file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+    jobId: "create",
+    stepAnchor: "name:Create and verify production Stripe webhook endpoint#3",
+    secretName: "STRIPE_WEBHOOK_SECRET_PREVIOUS",
+    purpose: "credential-rotation",
+  },
+  {
+    file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
+    jobId: "create",
+    stepAnchor: "name:Create and verify production Stripe webhook endpoint#3",
+    secretName: "STRIPE_WEBHOOK_DELIVERY_CAPTURE",
+    purpose: "credential-rotation",
+  },
+  {
+    file: workflowPath,
+    jobId: "deploy-production",
+    stepAnchor: "name:Apply production Kubernetes runtime secrets#36",
+    secretName: "STRIPE_WEBHOOK_SECRET_PREVIOUS",
+    purpose: "application-runtime",
+  },
+];
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1086,7 +1116,8 @@ describe("managed Postgres authority source generator", () => {
         .concat(productionMarkerAppKeyDelta)
         .concat(cortenAdminImageDelta)
         .map(applyTerraformProviderCacheStepInsertions)
-        .concat(ebaySandboxOAuthDelta),
+        .concat(ebaySandboxOAuthDelta)
+        .concat(stripeEndpointRotationDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

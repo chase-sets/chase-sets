@@ -152,12 +152,12 @@ async fn review(
 ) -> HtmlResult {
     let (query, item) = (route.query, route.item);
     let key = item.item.unwrap_or_default();
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let caller = config.platform.caller(&headers, config.proto, None);
         let queue = scopes::read_queue(&caller, &query).await;
         let found = queue.as_ref().ok().and_then(|q| q.items.iter().find(|i| i.item_key == key));
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
-        return req.patch(views::AttentionSheet {
+        return script.patch(views::AttentionSheet {
             t,
             p,
             req: &req,
@@ -271,7 +271,7 @@ async fn restore(
 ) -> HtmlResult {
     let query = route.query;
     let body = json!({ "intent": "restore", "itemKey": input.item_key.trim() });
-    queued(&req, &config, &headers, query, Kind::AttentionQueue, &body).await
+    queued(&req, &config, &headers, query, Kind::AttentionQueue, &body, scopes::url::AttentionDone::Queued).await
 }
 
 async fn alias_accept(
@@ -309,7 +309,8 @@ async fn alias(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, 
     if !reason.is_empty() {
         body["reason"] = json!(reason);
     }
-    queued(&req, &config, &headers, query, Kind::AliasReview, &body).await
+    let done = if intent == "accept" { AliasDone::Accepted } else { AliasDone::Rejected };
+    queued(&req, &config, &headers, query, Kind::AliasReview, &body, done.attention()).await
 }
 
 /// A candidate's command in the all-scopes alias review (`handleAliasReviewCommand`): accept,
@@ -328,10 +329,13 @@ async fn alias_review(
 ) -> HtmlResult {
     let query = route.query;
     let caller = config.platform.caller(&headers, config.proto, None);
+    let Some(done) = AliasDone::of(&input.intent) else {
+        return failed(&req, query);
+    };
     match alias_command_body(&caller, &input, "?limit=200").await {
-        Ok(Some(body)) => queued(&req, &config, &headers, query, Kind::AliasReview, &body).await,
+        Ok(Some(body)) => queued(&req, &config, &headers, query, Kind::AliasReview, &body, done.attention()).await,
         Ok(None) => {
-            let notice = scopes::url::ScopeNotice { done: Some(scopes::url::AttentionDone::Queued), ..Default::default() };
+            let notice = scopes::url::ScopeNotice { done: Some(done.attention()), ..Default::default() };
             req.redirect(&scopes::url::Scopes { query, notice })
         }
         Err(()) => failed(&req, query),
@@ -390,16 +394,70 @@ pub(crate) async fn alias_command_body(
     Ok(Some(body))
 }
 
-/// A one-click command: the list after it, with admin-web's banner (queued, or the command failed).
-async fn queued(req: &Req, config: &Shared, headers: &HeaderMap, query: ScopeQuery, kind: Kind, body: &Value) -> HtmlResult {
+/// What an alias review command did, as admin-web's banner says it (`handleAliasReviewCommand`):
+/// accept, reject and revoke are applied when the API answers; a defer records nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AliasDone {
+    Accepted,
+    Rejected,
+    Revoked,
+    Deferred,
+}
+
+impl AliasDone {
+    /// The outcome of an alias review form's intent, Auto-accept eligible's included.
+    pub fn of(intent: &str) -> Option<AliasDone> {
+        match intent {
+            "alias.accept" | ACCEPT_ELIGIBLE => Some(AliasDone::Accepted),
+            "alias.reject" => Some(AliasDone::Rejected),
+            "alias.revoke" => Some(AliasDone::Revoked),
+            "alias.defer" => Some(AliasDone::Deferred),
+            _ => None,
+        }
+    }
+
+    pub fn attention(self) -> scopes::url::AttentionDone {
+        match self {
+            AliasDone::Accepted => scopes::url::AttentionDone::AliasAccepted,
+            AliasDone::Rejected => scopes::url::AttentionDone::AliasRejected,
+            AliasDone::Revoked => scopes::url::AttentionDone::AliasRevoked,
+            AliasDone::Deferred => scopes::url::AttentionDone::AliasDeferred,
+        }
+    }
+
+    pub fn title(self, t: Cat) -> &'static str {
+        match self {
+            AliasDone::Accepted => t.feedback_alias_accepted_title(),
+            AliasDone::Rejected => t.feedback_alias_rejected_title(),
+            AliasDone::Revoked => t.feedback_alias_revoked_title(),
+            AliasDone::Deferred => t.feedback_alias_deferred_title(),
+        }
+    }
+
+    pub fn description(self, t: Cat) -> &'static str {
+        match self {
+            AliasDone::Accepted => t.feedback_alias_accepted_description(),
+            AliasDone::Rejected => t.feedback_alias_rejected_description(),
+            AliasDone::Revoked => t.feedback_alias_revoked_description(),
+            AliasDone::Deferred => t.feedback_alias_deferred_description(),
+        }
+    }
+}
+
+/// A one-click command: the list after it, with admin-web's banner (`done`, or the command failed).
+async fn queued(
+    req: &Req,
+    config: &Shared,
+    headers: &HeaderMap,
+    query: ScopeQuery,
+    kind: Kind,
+    body: &Value,
+    done: scopes::url::AttentionDone,
+) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     match command(&caller, Method::POST, kind, "/commands", Some(body)).await {
         Sent::Written(written) => {
-            let notice = scopes::url::ScopeNotice {
-                after_write: receipt(&written),
-                done: Some(scopes::url::AttentionDone::Queued),
-                parked: None,
-            };
+            let notice = scopes::url::ScopeNotice { after_write: receipt(&written), done: Some(done), parked: None };
             req.redirect(&scopes::url::Scopes { query, notice })
         }
         // As admin-web's dispatcher: the banner says the command failed, without the API's words.

@@ -4,6 +4,9 @@ import { t } from "@chase-sets/localization";
 import { action as listingsAction } from "../routes/account-listings";
 import { action as listingsNewAction } from "../routes/account-listings-new";
 import { createMarketplaceApiClient, MarketplaceApiError } from "../client";
+import { listingPreparationResponse } from "../features/listings/tests/listing-attempt-test-support";
+import { listingRecoveryResult } from "../features/listings/api/listing-recovery";
+import { listingRecoveryReferenceSchema, type ListingRecoveryOutcome } from "../features/listings/ui/contracts";
 
 const actor = {
   sessionId: "ses_1",
@@ -16,6 +19,21 @@ const actor = {
 };
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+function recoveryResponse(
+  input: string | URL | Request,
+  init?: RequestInit,
+  outcome: ListingRecoveryOutcome = "ambiguous",
+) {
+  const url = new URL(String(input), "http://localhost");
+  if (url.pathname.endsWith("/listings/batch/prepare")) return listingPreparationResponse(init, actor.accountId);
+  if (!url.pathname.includes("/listings/batch/") || init?.method === "POST") return null;
+  const reference = listingRecoveryReferenceSchema.parse({
+    batchId: url.pathname.split("/").at(-1),
+    mutationKind: url.searchParams.get("family"),
+    bulk: url.searchParams.get("bulk") === "true",
+  });
+  return json(listingRecoveryResult(reference, [{ targetId: reference.bulk ? "lst_1" : actor.accountId, outcome }]));
 }
 function actionArgs(intent: string) {
   return {
@@ -45,11 +63,14 @@ describe("presents only allowlisted Listing feedback", () => {
     new Error("postgres password=secret"),
     { body: { nested: "nested-secret-body" } },
     json({ secret: "nested-secret-body" }, 500),
+    new MarketplaceApiError(409, { error: { code: "history_incomplete", message: "nested-secret-body" } }),
   ])("redacts unknown action rejections while recovering possible-send loss: %s", async (failure) => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) => {
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         if (String(input).includes("/api/auth/session")) return json({ actor });
+        const recovery = recoveryResponse(input, init);
+        if (recovery) return recovery;
         throw failure;
       }),
     );
@@ -63,10 +84,10 @@ describe("presents only allowlisted Listing feedback", () => {
   ] as const)("presents only allowlisted Listing feedback for %s %s", async (action, intent, code, copy) => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) =>
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
         String(input).includes("/api/auth/session")
           ? json({ actor })
-          : json({ error: { code, message: "untrusted-copy-secret" } }, 400),
+          : (recoveryResponse(input, init) ?? json({ error: { code, message: "untrusted-copy-secret" } }, 400)),
       ),
     );
     const result = await action(actionArgs(intent));
@@ -85,10 +106,11 @@ describe("presents only allowlisted Listing feedback", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) =>
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
         String(input).includes("/api/auth/session")
           ? json({ actor })
-          : json(
+          : (recoveryResponse(input, init) ??
+            json(
               {
                 error: {
                   code: "internal_error",
@@ -97,7 +119,7 @@ describe("presents only allowlisted Listing feedback", () => {
                 },
               },
               500,
-            ),
+            )),
       ),
     );
     let failure: unknown;
@@ -126,10 +148,11 @@ describe("presents only allowlisted Listing feedback", () => {
   it("keeps a non-admitted bulk 4xx as a redacted per-row outcome", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) =>
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
         String(input).includes("/api/auth/session")
           ? json({ actor })
-          : json({ error: { code: "validation_failed", message: "postgres password=secret" } }, 400),
+          : (recoveryResponse(input, init, "unknown") ??
+            json({ error: { code: "validation_failed", message: "postgres password=secret" } }, 400)),
       ),
     );
     const result = await listingsAction(actionArgs("bulk-pause-listings"));

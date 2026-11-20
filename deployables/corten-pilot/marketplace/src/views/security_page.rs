@@ -235,7 +235,7 @@ fn SecretReveal<'a>(t: SecurityMsg, secret: &'a str, rotated: bool) -> impl Rend
 fn ProfileForm<'a>(t: SecurityMsg, draft: &'a Draft, held: bool) -> impl Render {
     let f = SecurityInput::FIELDS;
     let (i, e) = (&draft.input, draft.errors.within(UserFormId));
-    // A display name must have a letter in it, as the account page's names (chase-sets/chase-sets#10688).
+    // A display name must have a letter in it: the API takes a blank one (chase-sets/chase-sets#11578).
     let named = ".*\\S.*";
     html! {
         <form id={UserFormId} class={Form} method="post" action={url::Security::default()}>

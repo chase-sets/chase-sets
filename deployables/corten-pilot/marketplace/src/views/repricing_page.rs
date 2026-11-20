@@ -5,11 +5,14 @@
 //!
 //! Every action is a form and works without JavaScript; the editor's controls are a GET form, so
 //! its address holds the policy (`repricing`). The page's script applies a choice as it changes.
+//! A write's request Pricing did not install, and the account's others, are info banners with
+//! marketplace's words (`repricingConfigurationMessage`).
 //! A dry run that has not finished is relayed live (`<corten-live>`), and its part says the preview
 //! is running with a link to read the page again for a reader without a script. One column on a
 //! phone, where the tables are a card per row; the editor's controls beside its preview from
 //! 64rem.
 use corten::{
+    SubmitKey,
     i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
@@ -20,13 +23,15 @@ use platform::ui::{
 
 use crate::{
     api::{
-        RepricingActivityRow, RepricingAnchor, RepricingCategory, RepricingCeiling, RepricingCondition, RepricingDryRun,
-        RepricingFloor, RepricingHalt, RepricingOffset, RepricingPolicyRow, RepricingPrerequisites, RepricingRounding,
-        RepricingRule, RepricingScope, RepricingScopePreview, RepricingTerminal, RepricingTolerance, RepricingTrace,
+        ConfigurationReceipt, RepricingActivityRow, RepricingAnchor, RepricingCategory, RepricingCeiling, RepricingCondition,
+        RepricingDryRun, RepricingFloor, RepricingHalt, RepricingOffset, RepricingPolicyRow, RepricingPrerequisites,
+        RepricingRounding, RepricingRule, RepricingScope, RepricingScopePreview, RepricingTerminal, RepricingTolerance,
+        RepricingTrace,
     },
     app::url,
     repricing::{
         DryRunView, EditorPart, EditorScreen, Floor, Place, Policies, Preset, RepricingScreen, RunEditor, Traces, WriteForm,
+        configuration_message,
     },
     repricing_policy::{ALWAYS_COUNTED, FILTERS, Place as PolicyPlace, PolicyForm, PolicyScreen},
     text::{Pilot, RepricingMsg},
@@ -213,6 +218,7 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
                 }
             </div>
         }
+        <ConfigurationNotes t={t} requested={screen.requested.as_ref()} requests={&screen.requests} />
         <HaltPart
             t={t}
             halt={&screen.halt}
@@ -220,6 +226,7 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
             manage={screen.manage}
             action={url::Repricing::default().href()}
             intent={WriteForm::FIELDS.intent}
+            attempt={WriteForm::FIELDS.attempt}
         />
         if let Some(editor) = &screen.editor {
             <RepricingEditorSection t={t} p={p} part={editor} />
@@ -229,8 +236,26 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
     }
 }
 
+/// What a write's request Pricing did not install is, then the other requests it has not
+/// installed (marketplace's info banners, each its `repricingConfigurationMessage`).
+#[component(css = RepricingPage)]
+pub fn ConfigurationNotes<'a>(
+    t: RepricingMsg,
+    requested: Option<&'a ConfigurationReceipt>,
+    requests: &'a [ConfigurationReceipt],
+) -> impl Render {
+    html! {
+        for request in requested.into_iter().chain(requests) {
+            <div class={Banner} data-tone="info" role="status" data-repricing-request={request.request_key()}>
+                <p class={Strong}>{configuration_message(t, request)}</p>
+            </div>
+        }
+    }
+}
+
 /// The halt: a warning while engaged, and its switch, which asks first (`RepricingHaltControl`).
-/// Its confirmation posts `intent` to `action`. A halt that could not be read has its switch off.
+/// Its confirmation posts `intent` to `action` as a new `attempt`. A halt that could not be read has
+/// its switch off.
 #[component(css = RepricingPage)]
 fn HaltPart<'a>(
     t: RepricingMsg,
@@ -239,6 +264,7 @@ fn HaltPart<'a>(
     manage: bool,
     action: String,
     intent: FieldName<String>,
+    attempt: FieldName<SubmitKey>,
 ) -> impl Render {
     let engaged = halt.engaged;
     let since = halt.engaged_at.as_deref().map(|at| when(t, at)).unwrap_or_default();
@@ -284,6 +310,7 @@ fn HaltPart<'a>(
                     <h2 id="repricing-halt-ask" class={PartTitle}>{ask}</h2>
                     <p id="repricing-halt-asked" class={Muted}>{asked}</p>
                     <form class={Actions} method="post" action={&action}>
+                        {SubmitKey::field(attempt)}
                         <button type="button" class={(Button, Secondary)} command="close" commandfor={HaltDialogId}>
                             {t.shared_cancel()}
                         </button>
@@ -346,6 +373,7 @@ fn PoliciesPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render
                                 manage={screen.manage}
                                 intent={f.intent}
                                 id_field={f.policy_id}
+                                attempt={f.attempt}
                             />
                         }
                     </tbody>
@@ -363,6 +391,7 @@ fn PolicyRow<'a>(
     manage: bool,
     intent: FieldName<String>,
     id_field: FieldName<String>,
+    attempt: FieldName<SubmitKey>,
 ) -> impl Render {
     let id = policy.policy_id.as_deref().unwrap_or_default();
     let (label, tone) = status(t, &policy.status, halted);
@@ -382,6 +411,7 @@ fn PolicyRow<'a>(
                 <td class={Act}>
                     if let Some((value, words)) = change {
                         <form method="post" action={url::Repricing::default()}>
+                            {SubmitKey::field(attempt)}
                             <input type="hidden" name={id_field} value={id}>
                             <button
                                 type="submit"
@@ -486,6 +516,11 @@ fn EditorBody<'a>(t: RepricingMsg, p: Pilot, screen: &'a EditorScreen) -> impl R
                         <li>{error}</li>
                     }
                 </ul>
+            </div>
+        }
+        if let Some(requested) = &screen.requested {
+            <div class={Banner} data-tone="info" role="status" data-repricing-request={requested.receipt.request_key()}>
+                <p class={Strong}>{configuration_message(t, &requested.receipt)}</p>
             </div>
         }
         <div class={EditorGrid}>
@@ -1335,6 +1370,7 @@ pub fn RepricingPolicyPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a PolicyScre
                     <a class={(Button, Secondary)} href={&edit}>{t.editor_revise()}</a>
                     if let Some((value, words)) = change {
                         <form class={Inline} method="post" action={&here}>
+                            {SubmitKey::field(f.attempt)}
                             <button type="submit" class={(Button, Secondary)} name={f.intent} value={value}>{words}</button>
                         </form>
                     }
@@ -1353,6 +1389,7 @@ pub fn RepricingPolicyPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a PolicyScre
                     <h2 id="repricing-delete-ask" class={PartTitle}>{t.detail_delete_title()}</h2>
                     <p id="repricing-delete-asked" class={Muted}>{t.detail_delete_description()}</p>
                     <form class={Actions} method="post" action={&here}>
+                        {SubmitKey::field(f.attempt)}
                         <button type="button" class={(Button, Secondary)} command="close" commandfor={DeleteDialogId}>
                             {t.shared_cancel()}
                         </button>
@@ -1373,6 +1410,7 @@ pub fn RepricingPolicyPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a PolicyScre
                 </ul>
             </div>
         }
+        <ConfigurationNotes t={t} requested={screen.requested.as_ref()} requests={&screen.requests} />
         <HaltPart
             t={t}
             halt={&screen.halt}
@@ -1380,6 +1418,7 @@ pub fn RepricingPolicyPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a PolicyScre
             manage={screen.manage}
             action={here.clone()}
             intent={f.intent}
+            attempt={f.attempt}
         />
         if let Some(editor) = &screen.editor {
             <super::repricing_editor::ReviseSection t={t} p={p} id={&screen.id} editor={editor} />

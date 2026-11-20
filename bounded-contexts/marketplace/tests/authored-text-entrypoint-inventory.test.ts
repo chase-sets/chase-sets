@@ -23,6 +23,7 @@ const shapes = {
   composition:
     /\b(?:buildReviewApi|buildMarketplaceApi|createReviewRuntime|createMarketplaceListingRuntime|createMarketplaceReportRuntime|createMarketplaceServices)\s*\(/,
   moderationDispatch: /\.(?:operatorWithdrawReview|operatorRedactReviewFeedback|operatorWithdrawReviewReply)\s*\(/,
+  reportDelegation: /\b(?:submitReviewReport|submitListingReport)\s*\(/,
 } as const;
 
 const mcpToolShape = /\bMcpToolHandler\b/;
@@ -117,6 +118,21 @@ const inventory: Readonly<Record<string, InventoryEntry>> = {
     classification: "Review Response action through Review HTTP; closed recovery keeps the draft",
     evidence: ["authoredTextRecoveryFromApiError(error.body)"],
   },
+  "bounded-contexts/marketplace/routes/marketplace/account-received-reviews.tsx": {
+    surface: "browser",
+    classification: "Received Review report delegates to the shared Report HTTP action; report details unchanged",
+    evidence: ["submitReviewReport("],
+  },
+  "bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx": {
+    surface: "browser",
+    classification: "Review summary report delegates to the shared Report HTTP action; report details unchanged",
+    evidence: ["submitReviewReport("],
+  },
+  "bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx": {
+    surface: "browser",
+    classification: "Written Review report delegates to the shared Report HTTP action; report details unchanged",
+    evidence: ["submitReviewReport("],
+  },
   "bounded-contexts/marketplace/routes/account-listing.tsx": {
     surface: "browser",
     classification: "Listing detail classify action through Listing HTTP; closed recovery keeps the description",
@@ -136,11 +152,16 @@ const inventory: Readonly<Record<string, InventoryEntry>> = {
   "bounded-contexts/discovery/routes/public-account.tsx": {
     surface: "browser",
     classification: "Discovery public profile Review report through Report HTTP; report details unchanged",
-    evidence: [".reportReview("],
+    evidence: ["submitReviewReport(", "@chase-sets/marketplace/server"],
   },
   "bounded-contexts/discovery/routes/public-listing.tsx": {
     surface: "browser",
     classification: "Discovery public Listing report through Report HTTP; report details unchanged",
+    evidence: ["submitListingReport(", "@chase-sets/marketplace/server"],
+  },
+  "bounded-contexts/marketplace/support/route-support/listing-report-action.ts": {
+    surface: "browser",
+    classification: "Listing report action through Report HTTP; report details unchanged",
     evidence: [".reportListing("],
   },
   "bounded-contexts/checkout/routes/account-sell-list.tsx": {

@@ -48,7 +48,7 @@ describe("settlement payout domain", () => {
     ).toEqual([]);
   });
 
-  it("carries requested, fee, and net amounts through every lifecycle event", () => {
+  it("emits only native facts and carries requested, fee, and net amounts through every lifecycle event", () => {
     const requestedEvents = decidePayout(initialPayoutState, {
       type: "RequestPayout",
       payoutId: "pyo_amounts" as never,
@@ -73,6 +73,9 @@ describe("settlement payout domain", () => {
       type: "FailPayout",
       failedAt: "2026-04-02T02:00:00.000Z",
     });
+
+    expect(completedEvents).toHaveLength(1);
+    expect(completedEvents[0]!.data).not.toHaveProperty("csatOutcomeFact");
 
     for (const event of [...requestedEvents, ...inTransitEvents, ...completedEvents, ...failedEvents]) {
       expect(event.data).toMatchObject({

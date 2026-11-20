@@ -12,12 +12,12 @@ import type {
   CheckoutSellListLineRow,
   CheckoutSellListTermsPreview,
 } from "../features/sell-list/read-model/queries";
-import { performMarketplaceHandoff } from "../support/route-support/sell-checkout-session/sell-checkout-handoff";
+import { performMarketplaceHandoff } from "../features/sell-list/api/marketplace-handoff";
 import {
   SellListReviewPlanStaleError,
   type MarketplaceRequestApiClient,
-} from "../support/route-support/sell-checkout-session/sell-checkout-types";
-import type { SellListReviewedLine } from "../support/route-support/sell-checkout-session/sell-checkout-types";
+} from "../features/sell-list/api/handoff-contracts";
+import type { SellListReviewedLine } from "../features/sell-list/api/handoff-contracts";
 import { createMarketplaceApiClient } from "@chase-sets/marketplace/server";
 
 const plainFingerprint = "135.00|6.75|128.25|500|sch_standard|";

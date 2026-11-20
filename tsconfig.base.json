@@ -39,6 +39,9 @@
       "@chase-sets/auth/server": [
         "./bounded-contexts/auth/server.ts"
       ],
+      "@chase-sets/auth/test-support": [
+        "./bounded-contexts/auth/features/sessions/tests/listing-activation-test-support.ts"
+      ],
       "@chase-sets/auth/web": [
         "./bounded-contexts/auth/web.ts"
       ],
@@ -89,6 +92,9 @@
       ],
       "@chase-sets/catalog/server": [
         "./bounded-contexts/catalog/server.ts"
+      ],
+      "@chase-sets/catalog/test-support": [
+        "./bounded-contexts/catalog/features/source-observations/tests/owner-predicate-test-support.ts"
       ],
       "@chase-sets/catalog/web": [
         "./bounded-contexts/catalog/web.ts"
@@ -534,6 +540,9 @@
       "@chase-sets/identity/server": [
         "./bounded-contexts/identity/server.ts"
       ],
+      "@chase-sets/identity/test-support": [
+        "./bounded-contexts/identity/features/accounts/tests/listing-activation-test-support.ts"
+      ],
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
       ],
@@ -557,6 +566,9 @@
       ],
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
+      ],
+      "@chase-sets/inventory/test-support": [
+        "./bounded-contexts/inventory/features/inventory-items/tests/listing-activation-test-support.ts"
       ],
       "@chase-sets/inventory/web": [
         "./bounded-contexts/inventory/web.ts"
@@ -965,6 +977,9 @@
       ],
       "@chase-sets/pricing/server": [
         "./bounded-contexts/pricing/server.ts"
+      ],
+      "@chase-sets/pricing/test-support": [
+        "./bounded-contexts/pricing/features/repricing-engine/tests/owner-predicate-test-support.ts"
       ],
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"

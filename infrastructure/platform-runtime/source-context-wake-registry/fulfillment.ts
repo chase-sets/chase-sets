@@ -10,6 +10,7 @@ export const fulfillmentWakeRegistryEntry = registryEntry({
   expectedEventVolume: "medium",
   wakeStoreLoadEstimate: "medium",
   affectedProjectionNames: [
+    "customer-feedback:customer-feedback-csat-outcome-fact-projection",
     "auth:auth-agent-order-webhook-projection",
     "fulfillment:fulfillment-shipment-projection",
     "fulfillment:fulfillment-return-shipment-projection",

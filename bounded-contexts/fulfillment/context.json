@@ -85,7 +85,7 @@
   "slices": ["shipments", "return-shipments", "seller-checkout-readiness"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
+  "allowedContextDependencies": [],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
     {
@@ -242,6 +242,11 @@
       "portName": "postageWebhookGateway",
       "providedBy": "platform-api",
       "purpose": "Verifies and normalizes postage provider webhook payloads before fulfillment records provider events and advances shipment state."
+    },
+    {
+      "portName": "returnIntakeEvidenceStorage",
+      "providedBy": "platform-api",
+      "purpose": "Stores and verifies the private photos a facility records with a Return Intake, so fulfillment holds only their references."
     },
     {
       "portName": "notificationOutbox",

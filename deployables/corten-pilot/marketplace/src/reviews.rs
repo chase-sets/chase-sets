@@ -8,6 +8,9 @@
 //! A sent report redirects to the page at the review, saying it was received (`?reported={id}`),
 //! where marketplace draws the page again from its action. A refused one is the page again with
 //! the dialog open and what was sent; a second report of the same review says it was sent before.
+//! A report is sent as its form's attempt: an answer lost on the way is settled as
+//! `marketplace_attempt` says, and one that cannot be confirmed keeps the dialog open without its
+//! send until the page is opened again.
 //! Open review goes to the review's own page (`review`).
 //!
 //! | Route | Answers |
@@ -26,6 +29,8 @@ use crate::{
     api::{ApiError, Caller as ApiCaller, ListingReport, Marketplace as _, ReviewCalls as _, ReviewItem, ReviewSummary},
     app::{Shared, read_failed, sign_in, url},
     auth::{ReviewMember, Viewer},
+    marketplace_attempt,
+    recovery::attempt_text,
     text::{Pilot, ReviewsMsg},
     views::{self, Layout, ReviewAnchorId},
 };
@@ -58,11 +63,13 @@ pub struct Place {
 }
 
 /// Report review's fields: what the form is for (the review's own page also posts its reply), the
-/// review (marketplace's `reviewId`), the reason and the explanation; and the reply's words.
+/// attempt (the form's `SubmitKey`), the review (marketplace's `reviewId`), the reason and the
+/// explanation; and the reply's words.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReportInput {
     pub intent: String,
+    pub attempt: Option<SubmitKey>,
     pub review_id: String,
     pub reason: String,
     pub details: String,
@@ -226,7 +233,7 @@ async fn report(
     let caller = config.platform.caller(headers, config.proto, None);
     let role = role(which, &place);
     let review = input.review_id.trim().to_owned();
-    match send_report(req.t(), &caller, &review, &input, which.path()).await {
+    match send_report(req.t(), req.t(), &caller, &review, &input, which.path()).await {
         Reported::Sent => {
             let place = Place { role: role.map(|r| r.as_str().to_owned()), reported: Some(review.clone()) };
             let anchor = ReviewAnchorId(&review);
@@ -259,8 +266,16 @@ pub(crate) enum Reported {
 
 /// Report review's checks and its send, from the page at `from`: the reason must be one of the
 /// form's, the explanation at most 1,000 characters (as the form's `maxLength` counts them), and the
-/// API decides the rest. A refusal keeps what was sent.
-pub(crate) async fn send_report(p: Pilot, caller: &ApiCaller<'_>, review: &str, input: &ReportInput, from: &str) -> Reported {
+/// API decides the rest. A refusal keeps what was sent. The report is its form's attempt, sent once
+/// more when the answer was lost (`marketplace_attempt::report`).
+pub(crate) async fn send_report(
+    p: Pilot,
+    t: ReviewsMsg,
+    caller: &ApiCaller<'_>,
+    review: &str,
+    input: &ReportInput,
+    from: &str,
+) -> Reported {
     let (reason, details) = (input.reason.trim(), input.details.trim());
     let refused = |message: &str| ReviewNotice::Refused {
         message: message.to_owned(),
@@ -273,10 +288,18 @@ pub(crate) async fn send_report(p: Pilot, caller: &ApiCaller<'_>, review: &str, 
     if details.encode_utf16().count() > MOST_DETAILS {
         return Reported::Again(refused(p.account_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: from };
-    match caller.report_review(review, &body).await {
-        Ok(()) => Reported::Sent,
-        Err(error) => match (error.status(), error.code()) {
+    let Some(attempt) = marketplace_attempt::presented(attempt_text(&input.attempt)) else {
+        return Reported::Again(refused(t.attempt_report_not_sent()), StatusCode::UNPROCESSABLE_ENTITY);
+    };
+    let body =
+        ListingReport { attempt_id: attempt, reason, details: (!details.is_empty()).then_some(details), source_route_path: from };
+    match marketplace_attempt::report(|| caller.report_review(review, &body)).await {
+        marketplace_attempt::Reported::Sent => Reported::Sent,
+        marketplace_attempt::Reported::Locked(locked) => {
+            let notice = ReviewNotice::Locked { locked, reason: reason.to_owned(), details: details.to_owned() };
+            Reported::Again(notice, ReviewNotice::locked_status(locked))
+        }
+        marketplace_attempt::Reported::Refused(error) => match (error.status(), error.code()) {
             (_, Some("report_already_submitted")) => Reported::Again(ReviewNotice::Already, StatusCode::CONFLICT),
             (Some(StatusCode::UNAUTHORIZED), _) => Reported::SignIn,
             (Some(StatusCode::TOO_MANY_REQUESTS), _) => {

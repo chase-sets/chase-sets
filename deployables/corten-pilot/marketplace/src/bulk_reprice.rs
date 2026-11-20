@@ -12,13 +12,18 @@
 //! part rather than reading itself whole). The CSVs
 //! are Pricing's, passed on with their type and file name.
 //!
-//! While Pricing has bulk reprice switched off, every one of its routes answers 404 and marketplace
-//! still draws the page (chase-sets/chase-sets#10772). The pilot draws it too, and says bulk reprice
-//! is not available when an upload is refused for that, rather than "API error 404".
+//! An upload is one attempt (the form's `SubmitKey`, sent as Pricing's `Idempotency-Key`): the same
+//! form sent again (a double click, a resend after a lost answer) lands on the job it started, and
+//! a different file under the same form is refused with Pricing's words. Marketplace's action sends
+//! no key, so each resend starts another job (chase-sets/chase-sets#11491).
+//!
+//! While Pricing has bulk reprice switched off, every one of its routes answers 404: the page then
+//! says bulk reprice is not available (404), with nothing to upload or download, as marketplace's
+//! does, and an upload refused because it was switched off after the page was drawn says the same.
 use std::time::Duration;
 
 use corten::{
-    LiveResponse, Relay,
+    LiveResponse, Relay, SubmitKey,
     http::{Body, HeaderMap, StatusCode, header},
     prelude::*,
 };
@@ -31,6 +36,7 @@ use crate::{
     auth::{BulkRepricer, Viewer},
     items::Raw,
     listing_new::first,
+    recovery::valid_attempt,
     text::{Pilot, RepricingMsg},
     uploads::{self, Limits, Over},
     views::{self, Layout},
@@ -66,10 +72,14 @@ impl Place {
 pub struct UploadForm {
     pub file: String,
     pub csv_text: String,
+    /// The upload's attempt, drawn with the form: the same form sent again is the same job.
+    pub attempt: Option<SubmitKey>,
 }
 
 /// What the page shows.
 pub struct BulkScreen {
+    /// Pricing has bulk reprice on; off, the page says it is not available.
+    pub available: bool,
     /// The job the address follows, if Pricing has it for this account.
     pub job: Option<BulkRepriceJob>,
     /// What an upload or Cancel was refused for.
@@ -105,11 +115,20 @@ async fn render(
     status: StatusCode,
 ) -> HtmlResult {
     let t: RepricingMsg = req.t();
-    let job = match read_job(config, headers, place).await {
-        Ok(job) => job,
+    let caller = config.platform.caller(headers, config.proto, None);
+    let available = match caller.bulk_reprice_available().await {
+        Ok(available) => available,
         Err(error) => return read_failed(req, Some(viewer), error, None),
     };
-    let screen = BulkScreen { job, error };
+    let (job, status) = if !available {
+        (None, StatusCode::NOT_FOUND)
+    } else {
+        match read_job(config, headers, place).await {
+            Ok(job) => (job, status),
+            Err(error) => return read_failed(req, Some(viewer), error, None),
+        }
+    };
+    let screen = BulkScreen { available, job, error: error.filter(|_| available) };
     let active = screen.active();
     let head = html! {
         <meta name="description" content={t.bulk_route_upload_a_csv_to_reprice()}>
@@ -141,10 +160,10 @@ pub(crate) async fn page(
 /// What a refused upload or Cancel says: signed out goes to sign in, Pricing failing is a 502, and
 /// a refusal is Pricing's words (a 404 is that bulk reprice is not available).
 fn refused(req: &Req, error: ApiError) -> Result<String, Box<HtmlResult>> {
-    let (t, p): (RepricingMsg, Pilot) = (req.t(), req.t());
+    let t: RepricingMsg = req.t();
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => Err(Box::new(sign_in(req))),
-        Some(StatusCode::NOT_FOUND) => Ok(p.bulk_reprice_unavailable().to_owned()),
+        Some(StatusCode::NOT_FOUND) => Ok(t.bulk_unavailable().to_owned()),
         Some(status) if status.is_client_error() => {
             Ok(error.refusal().map_or_else(|| t.bulk_route_action_failed().to_owned(), str::to_owned))
         }
@@ -152,8 +171,9 @@ fn refused(req: &Req, error: ApiError) -> Result<String, Box<HtmlResult>> {
     }
 }
 
-/// Upload: the file's text (or pasted rows) as a new job, then the page following it. A file that
-/// is not UTF-8 text or over the limit is refused here, not sent.
+/// Upload: the file's text (or pasted rows) as the form's attempt's job, then the page following
+/// it. A file that is not UTF-8 text or over the limit, or a form without its attempt (not drawn by
+/// this page), is refused here, not sent.
 pub(crate) async fn upload(
     req: Req,
     Caller(BulkRepricer(viewer)): Caller<BulkRepricer>,
@@ -185,8 +205,13 @@ pub(crate) async fn upload(
         let error = Some(p.bulk_reprice_not_text().to_owned());
         return render(&req, &viewer, &config, &headers, &place, error, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
+    let attempt = first(&posted.fields, f.attempt.as_str());
+    if !valid_attempt(&attempt) {
+        let error = Some(p.check_attempt().to_owned());
+        return render(&req, &viewer, &config, &headers, &place, error, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
     let caller = config.platform.caller(&headers, config.proto, None);
-    match caller.start_bulk_reprice(&text, filename.as_deref()).await {
+    match caller.start_bulk_reprice(&attempt, &text, filename.as_deref()).await {
         Ok(job) => req.redirect(&url::BulkReprice { place: Place::following(&job.job_id) }),
         Err(error) => match refused(&req, error) {
             Ok(message) => {
@@ -305,7 +330,7 @@ pub(crate) async fn live(
                     }
                 };
                 let finished = job.finished();
-                let screen = BulkScreen { job: Some(job), error: None };
+                let screen = BulkScreen { available: true, job: Some(job), error: None };
                 let html = views::bulk_reprice_part(t, p, &screen).to_html();
                 Some((corten::Fragment::new(html), finished))
             }

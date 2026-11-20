@@ -10,6 +10,7 @@ use crate::{
     api::PublicListing,
     app::url,
     items::{Address, available},
+    marketplace_attempt::Locked,
     public_listing::{ListingFields, MOST_DETAILS, REASONS, can_purchase},
     text::{ListingMsg, Pilot},
 };
@@ -25,6 +26,9 @@ pub enum ListingNotice {
     Limited,
     /// The report was refused, with what was sent.
     ReportRefused { message: String, reason: String, details: String },
+    /// Whether the report was received cannot be confirmed, or its attempt was another report's:
+    /// what was sent, and no send until the page is opened again.
+    ReportLocked { locked: crate::marketplace_attempt::Locked, reason: String, details: String },
     /// Buy this listing was refused.
     BuyRefused(String),
 }
@@ -232,7 +236,7 @@ pub fn ListingPage<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing, noti
                 <Buy t={t} p={p} listing={listing} />
                 <div class={Column}>
                     <Seller t={t} p={p} listing={listing} />
-                    <ReportForm t={t} p={p} action={&report} notice={notice} />
+                    <ReportForm t={t} action={&report} notice={notice} />
                 </div>
             </div>
         </div>
@@ -452,9 +456,10 @@ fn Rating<'a>(name: &'a str, href: Option<&'a str>, rating: Option<&'a str>, rev
     }
 }
 
-/// Report Listing: the reason and details, or, once sent, that it was received.
+/// Report Listing: the reason and details with the form's attempt, or, once sent, that it was
+/// received. A report whose result cannot be confirmed keeps what was sent without its send.
 #[component(css = ListingPage)]
-fn ReportForm<'a>(t: ListingMsg, p: Pilot, action: &'a str, notice: Option<&'a ListingNotice>) -> impl Render {
+fn ReportForm<'a>(t: ListingMsg, action: &'a str, notice: Option<&'a ListingNotice>) -> impl Render {
     let labels = [
         t.page_report_reason_counterfeit(),
         t.page_report_reason_stolen_photos(),
@@ -463,8 +468,19 @@ fn ReportForm<'a>(t: ListingMsg, p: Pilot, action: &'a str, notice: Option<&'a L
         t.page_report_reason_other(),
     ];
     let (reason, details) = match notice {
-        Some(ListingNotice::ReportRefused { reason, details, .. }) => (reason.as_str(), details.as_str()),
+        Some(ListingNotice::ReportRefused { reason, details, .. } | ListingNotice::ReportLocked { reason, details, .. }) => {
+            (reason.as_str(), details.as_str())
+        }
         _ => ("", ""),
+    };
+    let locked = match notice {
+        Some(ListingNotice::ReportLocked { locked: Locked::Conflict, .. }) => {
+            Some((t.attempt_conflict(), t.attempt_changed_request()))
+        }
+        Some(ListingNotice::ReportLocked { locked: Locked::Unconfirmed, .. }) => {
+            Some((t.attempt_ambiguous(), t.attempt_unconfirmed()))
+        }
+        _ => None,
     };
     let max = MOST_DETAILS.to_string();
     html! {
@@ -472,19 +488,26 @@ fn ReportForm<'a>(t: ListingMsg, p: Pilot, action: &'a str, notice: Option<&'a L
             <h2 id="listing-report-heading" class={SectionTitle}>{t.page_report_title()}</h2>
             match notice {
                 Some(ListingNotice::Received) => {
-                    <div class={Banner} data-tone="success" role="status"><p>{p.listing_report_received()}</p></div>
+                    <div class={Banner} data-tone="success" role="status"><p>{t.page_report_received()}</p></div>
                 }
                 Some(ListingNotice::Repeat) => {
-                    <div class={Banner} data-tone="info" role="status"><p>{p.listing_report_repeat()}</p></div>
+                    <div class={Banner} data-tone="info" role="status"><p>{t.page_report_repeat()}</p></div>
                 }
                 _ => {
                     if let Some(ListingNotice::Limited) = notice {
-                        <div class={Banner} data-tone="warning" role="alert"><p>{p.listing_report_limited()}</p></div>
+                        <div class={Banner} data-tone="warning" role="alert"><p>{t.attempt_report_limited()}</p></div>
                     }
                     if let Some(ListingNotice::ReportRefused { message, .. }) = notice {
                         <div class={Banner} data-tone="danger" role="alert"><p>{message}</p></div>
                     }
+                    if let Some((title, description)) = locked {
+                        <div class={Banner} data-tone="danger" role="alert">
+                            <p class={Strong}>{title}</p>
+                            <p>{description}</p>
+                        </div>
+                    }
                     <form class={Form} method="post" action={action}>
+                        {SubmitKey::field(ListingFields::FIELDS.attempt)}
                         <label class={Field}>
                             <span>{t.page_report_reason()}<span class={Required} aria-hidden="true">" *"</span></span>
                             <select name={ListingFields::FIELDS.reason} required>
@@ -497,7 +520,11 @@ fn ReportForm<'a>(t: ListingMsg, p: Pilot, action: &'a str, notice: Option<&'a L
                             <span>{t.page_report_details()}</span>
                             <textarea name={ListingFields::FIELDS.details} rows="3" maxlength={&max}>{details}</textarea>
                         </label>
-                        <p><button type="submit" class={Secondary}>{t.page_report_submit()}</button></p>
+                        <p>
+                            <button type="submit" class={Secondary} disabled={locked.is_some()}>
+                                {t.page_report_submit()}
+                            </button>
+                        </p>
                     </form>
                 }
             }

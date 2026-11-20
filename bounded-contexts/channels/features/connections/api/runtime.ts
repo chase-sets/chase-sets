@@ -1,6 +1,6 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -31,9 +31,14 @@ import {
   assertRfc3339Instant,
   assertSafeInteger,
   assertSetupDeclaration,
+  assertStorageLocationIds,
 } from "../domain/validation";
 import { buildChannelConnectionProjectionHandlers } from "../read-model/projection";
-import { getPublicChannelConnection, listPublicChannelConnections } from "../read-model/queries";
+import {
+  getPublicChannelConnection,
+  listPublicChannelConnections,
+  toPublicChannelConnection,
+} from "../read-model/queries";
 
 export type ChannelConnectionRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -46,12 +51,6 @@ const absentCredentialAuthority: ChannelCredentialAuthorityResolver = { resolve:
 const absentStorageLocationAuthority: ChannelStorageLocationAuthorityResolver = { resolve: async () => null };
 const absentPolicyAuthority: ChannelPolicyAuthorityResolver = { resolve: async () => null };
 const serverClock: ChannelConnectionClock = { now: () => new Date().toISOString() };
-
-type StorageAuthoritySnapshot = Map<
-  ChannelStorageLocationAuthorityResolver,
-  Map<string, ReturnType<ChannelStorageLocationAuthorityResolver["resolve"]>>
->;
-const storageAuthoritySnapshots = new AsyncLocalStorage<StorageAuthoritySnapshot>();
 
 // The capture port and commands load the same canonical owned aggregate.
 export async function loadOwned(store: Pick<EventStore, "readStream">, accountId: string, connectionId: string) {
@@ -72,30 +71,6 @@ export async function loadOwned(store: Pick<EventStore, "readStream">, accountId
   if (state.connectionId !== connectionId || state.accountId !== accountId)
     throw new ChannelConnectionError("connection-not-found");
   return { state, version: storedEvents.at(-1)?.streamVersion ?? 0, events, storedEvents };
-}
-
-export function withConnectionAuthoritySnapshot<Value>(operation: () => Promise<Value>): Promise<Value> {
-  return storageAuthoritySnapshots.run(new Map(), operation);
-}
-
-export function resolveConnectionStorageLocation(
-  authority: ChannelStorageLocationAuthorityResolver,
-  input: Parameters<ChannelStorageLocationAuthorityResolver["resolve"]>[0],
-) {
-  const snapshot = storageAuthoritySnapshots.getStore();
-  if (!snapshot) return authority.resolve(input);
-  let resolutions = snapshot.get(authority);
-  if (!resolutions) {
-    resolutions = new Map();
-    snapshot.set(authority, resolutions);
-  }
-  const key = JSON.stringify([input.accountId, input.storageLocationId]);
-  let resolution = resolutions.get(key);
-  if (!resolution) {
-    resolution = authority.resolve(input);
-    resolutions.set(key, resolution);
-  }
-  return resolution;
 }
 
 export function mapDeploymentEnvironment(environment: DeploymentEnvironment): ChannelEnvironment {
@@ -149,10 +124,14 @@ export function createChannelConnectionRuntime(
       providerKey: string;
       environment: ChannelEnvironment;
       credentialReference: string | null;
-      bindings: readonly ChannelConnectionBinding[];
-    }>,
+    }> &
+      (
+        | Readonly<{ bindings: readonly ChannelConnectionBinding[] }>
+        | Readonly<{ storageLocationIds: readonly string[] }>
+      ),
   ) {
-    assertBindingsShape(input.bindings);
+    const byLocationId = "storageLocationIds" in input;
+    if (!byLocationId) assertBindingsShape(input.bindings);
     if (input.credentialReference !== null) assertCredentialReference(input.credentialReference);
 
     if (declaration.requirements.credential === "required" || input.credentialReference !== null) {
@@ -170,16 +149,20 @@ export function createChannelConnectionRuntime(
       if (!policyIsComplete(policy, policyKey)) throw new ChannelConnectionError("required-policy-incomplete");
     }
 
-    if (input.bindings.length === 0) throw new ChannelConnectionError("binding-required");
-    for (const binding of input.bindings) {
-      const current = await resolveConnectionStorageLocation(storageLocationAuthority, {
-        accountId: input.accountId,
-        storageLocationId: binding.storageLocationId,
-      });
-      if (!storageLocationIsCurrent(current, input.accountId, binding)) {
+    const selections = byLocationId ? input.storageLocationIds : input.bindings;
+    if (selections.length === 0) throw new ChannelConnectionError("binding-required");
+    const bindings: ChannelConnectionBinding[] = [];
+    for (const selection of selections) {
+      const storageLocationId = typeof selection === "string" ? selection : selection.storageLocationId;
+      const revision = typeof selection === "string" ? undefined : selection.revision;
+      const resolution = storageLocationAuthority.resolve({ accountId: input.accountId, storageLocationId });
+      const current = await (byLocationId ? resolution.catch(() => null) : resolution);
+      if (!current || !storageLocationIsCurrent(current, input.accountId, storageLocationId, revision)) {
         throw new ChannelConnectionError("binding-not-current");
       }
+      bindings.push({ storageLocationId, revision: current.revision });
     }
+    return bindings;
   }
 
   const projectors = [
@@ -213,7 +196,15 @@ export function createChannelConnectionRuntime(
       });
     },
     activateChannelConnection: async (input, context) => {
-      assertClosedRecord(input, ["accountId", "connectionId", "credentialReference", "bindings"], "activate input");
+      const byLocationId = input !== null && typeof input === "object" && "storageLocationIds" in input;
+      assertClosedRecord(
+        input,
+        byLocationId
+          ? ["accountId", "connectionId", "storageLocationIds"]
+          : ["accountId", "connectionId", "credentialReference", "bindings"],
+        "activate input",
+      );
+      if (byLocationId) assertStorageLocationIds(input.storageLocationIds);
       const loaded = await loadOwned(deps.eventStore, input.accountId, input.connectionId);
       if (loaded.state.status === "disconnected") throw new ChannelConnectionError("connection-disconnected");
       if (
@@ -226,19 +217,17 @@ export function createChannelConnectionRuntime(
       )
         throw new ChannelConnectionError("invalid-transition");
       const declaration = await resolveSetup(loaded.state.providerKey!, loaded.state.environment!);
-      const credentialReference = input.credentialReference ?? null;
-      await guardSetup(declaration, {
-        accountId: input.accountId,
-        connectionId: input.connectionId,
+      const credentialReference = (byLocationId ? null : input.credentialReference) ?? null;
+      const bindings = await guardSetup(declaration, {
+        ...input,
         providerKey: loaded.state.providerKey!,
         environment: loaded.state.environment!,
         credentialReference,
-        bindings: input.bindings,
       });
       return commandHandler({
         streamId: streamId(input.connectionId),
         expectedVersion: loaded.version,
-        command: { type: "ActivateChannelConnection", credentialReference, bindings: input.bindings },
+        command: { type: "ActivateChannelConnection", credentialReference, bindings },
         context,
       });
     },
@@ -275,7 +264,14 @@ export function createChannelConnectionRuntime(
     },
     disconnectChannelConnection: async (input, context) => {
       assertClosedRecord(input, ["accountId", "connectionId"], "disconnect input");
-      if (deps.disconnectChannelConnection) return deps.disconnectChannelConnection(input, context);
+      if (deps.disconnectChannelConnection) {
+        // The installed disconnect appends in its own transaction, outside the command handler that
+        // records Pause's and Resume's events. Record them once it has committed, so Disconnect
+        // answers the same commit receipt and a read after it waits for the disconnect.
+        const result = await deps.disconnectChannelConnection(input, context);
+        recordCommittedEvents(result.storedEvents, "channels");
+        return result;
+      }
       const loaded = await loadOwned(deps.eventStore, input.accountId, input.connectionId);
       return commandHandler({
         streamId: streamId(input.connectionId),
@@ -284,7 +280,16 @@ export function createChannelConnectionRuntime(
         context,
       });
     },
-    getConnection: (input) => getPublicChannelConnection(deps.db, input),
+    getConnection: async (input, source = "projection") => {
+      if (source === "projection") return getPublicChannelConnection(deps.db, input);
+      try {
+        const { state } = await loadOwned(deps.eventStore, input.accountId, input.connectionId);
+        return toPublicChannelConnection(state);
+      } catch (error) {
+        if (error instanceof ChannelConnectionError && error.code === "connection-not-found") return null;
+        throw error;
+      }
+    },
     listConnections: (input) => listPublicChannelConnections(deps.db, input),
     projectors,
   };
@@ -331,11 +336,11 @@ function policyIsComplete(
 }
 
 function storageLocationIsCurrent(
-  value: Awaited<ReturnType<ChannelStorageLocationAuthorityResolver["resolve"]>>,
+  value: NonNullable<Awaited<ReturnType<ChannelStorageLocationAuthorityResolver["resolve"]>>>,
   accountId: string,
-  binding: ChannelConnectionBinding,
+  storageLocationId: string,
+  revision: number | undefined,
 ): boolean {
-  if (!value) return false;
   assertClosedRecord(value, ["accountId", "storageLocationId", "revision", "status"], "storage authority");
   assertOpaqueId(value.accountId, "storage accountId");
   assertOpaqueId(value.storageLocationId, "storageLocationId");
@@ -345,8 +350,8 @@ function storageLocationIsCurrent(
   }
   return (
     value.accountId === accountId &&
-    value.storageLocationId === binding.storageLocationId &&
-    value.revision === binding.revision &&
+    value.storageLocationId === storageLocationId &&
+    (revision === undefined || value.revision === revision) &&
     value.status === "active"
   );
 }

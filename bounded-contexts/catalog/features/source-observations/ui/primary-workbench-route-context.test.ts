@@ -10,6 +10,38 @@ import {
 import { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
 
 describe("Catalog primary workbench route context", () => {
+  it.each([
+    "source-observation/obs_001",
+    "provider-profile/2026.06.04/tcgdex",
+    "malformed",
+    "",
+    "raw json",
+    "x".repeat(1300),
+  ])("preserves untrusted evidenceRef %j for fail-closed membership resolution", (reference) => {
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      `https://admin.example/catalog/scopes/scope-base?reviewOffset=25&evidenceRef=${encodeURIComponent(reference)}`,
+    );
+    const expected = reference.includes("/") ? reference : "invalid";
+    expect(context.evidenceRef).toBe(expected);
+    expect(serializeCatalogPrimaryWorkbenchRouteContext(context).get("evidenceRef")).toBe(expected);
+    expect(
+      catalogPrimaryWorkbenchContextKeysFromUrl("https://admin.example/catalog/scopes/scope-base?evidenceRef=bad"),
+    ).toContain("evidenceRef");
+    expect(context.reviewOffset).toBe(25);
+  });
+
+  it("keeps provider path identity authoritative and maps Settings to its existing surface", () => {
+    expect(
+      parseCatalogPrimaryWorkbenchRouteContext(
+        "https://admin.example/catalog/providers/tcgdex?providerKey=other&evidenceRef=provider/other",
+      ).providerKey,
+    ).toBe("tcgdex");
+    expect(
+      parseCatalogPrimaryWorkbenchRouteContext(
+        "https://admin.example/catalog/integrations/settings?evidenceRef=control-plane/settings",
+      ).section,
+    ).toBe("governance-controls");
+  });
   it.each(["pending", "rejected,pending", ""])("round-trips alias-review narrowing with statuses %j", (statuses) => {
     const filters = {
       aliasType: "language-edition",
@@ -48,14 +80,14 @@ describe("Catalog primary workbench route context", () => {
     ["/catalog/providers/tcgdex", "tcgdex"],
     ["/catalog/providers/tcgdex/?providerKey=", "tcgdex"],
     ["/catalog/providers/%74cgdex", "tcgdex"],
-    ["/catalog/providers/tcgdex?providerKey=scryfall", "scryfall"],
-    ["/catalog/providers/tcgdex?providerKey=%20", null],
+    ["/catalog/providers/tcgdex?providerKey=scryfall", "tcgdex"],
+    ["/catalog/providers/tcgdex?providerKey=%20", "tcgdex"],
     ["/catalog/providers/%E0", null],
     ["/catalog/providers/%20", null],
     ["/catalog/providers/tcgdex/extra", null],
     ["/catalog/providers/tcgdex//", null],
     ["/catalog/integrations/health", null],
-  ])("resolves provider path fallback without replacing query intent: %s", (path, providerKey) => {
+  ])("resolves authoritative provider path identity: %s", (path, providerKey) => {
     expect(parseCatalogPrimaryWorkbenchRouteContext(`https://admin.example${path}`).providerKey).toBe(providerKey);
   });
 

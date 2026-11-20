@@ -545,7 +545,7 @@ async fn opened(
     product: &str,
     input: SaveInput,
 ) -> HtmlResult {
-    if req.mode == corten::Mode::Action {
+    if let Some(script) = req.action() {
         let t: ItemMsg = req.t();
         let (label, page) = (product_label(screen), address.pairs());
         let slug = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
@@ -560,7 +560,7 @@ async fn opened(
             input: Some(&input),
             message: None,
         };
-        return req.patch(dialog);
+        return script.patch(dialog);
     }
     let reads = PageReads { save, ..Default::default() };
     items::render(req, session, item, address, Some(&BuyNotice::SaveOpen { input }), StatusCode::OK, reads)

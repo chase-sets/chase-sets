@@ -102,7 +102,8 @@
 //   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
 // - marketplace/locales/imports.en.json: the inventory import page's English catalog
 //   (inventory.features.importBatches.ui.importBatchPage.* as page.*, .api.route.* as api.*,
-//   inventory.routes.marketplace.accountInventoryImports.* as route.*, and inventory.import.* as import.*).
+//   inventory.routes.marketplace.accountInventoryImports.* as route.*, inventory.import.* as import.*,
+//   and Check original result, inventory.recovery.check, as recovery.check).
 // - marketplace/locales/shipments.en.json: the shipment pages' English catalog
 //   (fulfillment.features.shipments.ui.shipmentListPage.* and .shipmentDetailPage.*, and
 //   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*;
@@ -923,6 +924,7 @@ const outputs = [
         ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable", "alias_review.unavailable"],
         ["catalog.features.attentionQueue.", "attention"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.", "feedback"],
+        ["catalog.features.sourceObservations.ui.healthFacts.", "health_facts"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.health.", "wb_health"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.metric.", "wb_metric"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.", "wb_copy"],
@@ -1220,6 +1222,7 @@ const outputs = [
         ["inventory.import.", "import"],
         ["inventory.features.importBatches.api.route.", "api"],
         ["inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing", "list.create.listing"],
+        ["inventory.recovery.check", "recovery.check"],
       ]),
     ),
   ],
@@ -1357,13 +1360,17 @@ const outputs = [
   ],
   [
     "marketplace/locales/listing.en.json",
-    json(
-      await catalog("discovery.ts", "discoveryEnglishTranslations", [
+    json({
+      ...(await catalog("discovery.ts", "discoveryEnglishTranslations", [
         ["discovery.routes.publicListing.", "page"],
         // A listing without a currency's price (the item page's words, which the listing page uses).
         ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
-      ]),
-    ),
+      ])),
+      // What a report whose answer was lost came to (marketplace's `ReviewMutationForm`).
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/account.en.json",
@@ -1379,6 +1386,9 @@ const outputs = [
         // Report review and how a review counts (marketplace's `features/reviews/ui`).
         ["reputation.features.reviews.ui.reviewReportAction.", "report"],
         ["reputation.features.reviews.ui.reviewScoringContext.", "scoring"],
+      ])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
       ])),
     }),
   ],
@@ -1453,6 +1463,7 @@ const outputs = [
     json(
       await catalog("identity.ts", "identityEnglishTranslations", [
         ["identity.features.accounts.ui.accountProfilePage.", "page"],
+        ["identity.features.accounts.errors.", "errors"],
         ["identity.features.accounts.ui.currentActorDisplayCue.", "actor"],
         ["identity.features.accounts.ui.accountBadges.", "badges"],
         ["identity.values.accountType.", "account_type"],
@@ -1516,6 +1527,8 @@ const outputs = [
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
         ["marketplace.features.reviews.ui.authoredTextRecovery.", "recovery"],
+        // What a review, a reply or a report whose answer was lost came to (`ReviewMutationForm`).
+        ["marketplace.reviewRecovery.", "attempt"],
       ])),
     }),
   ],
@@ -1638,12 +1651,26 @@ const outputs = [
         ["marketplace.features.listings.ui.listingListPage.", "list"],
         ["marketplace.routes.accountListings.", "route"],
         ["marketplace.features.listings.api.route.error.", "error"],
+        // The Listing attempt refusals' words (listingErrorContract's attempt entries).
+        ["marketplace.listingRecovery.ambiguous", "error.history_incomplete"],
+        ["marketplace.listingRecovery.attemptInvalid", "error.attempt_invalid"],
+        ["marketplace.listingRecovery.attemptConflict", "error.attempt_conflict"],
         ["marketplace.features.sellerDesk.degraded.title", "degraded"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [
         ["localization.languageCode.", "language"],
       ])),
     }),
+  ],
+  [
+    "marketplace/locales/listing-recovery.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        // `continue` is a Rust keyword, so not a message's name.
+        ["marketplace.listingRecovery.continue", "start_another"],
+        ["marketplace.listingRecovery.", ""],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/desk.en.json",

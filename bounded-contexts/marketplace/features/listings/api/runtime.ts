@@ -1,4 +1,6 @@
 import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { createListingTargetRuntime } from "./target-runtime";
+import type { ListingTargetServices } from "./target-contracts";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -41,7 +43,6 @@ import {
   requoteMarketplaceListingFeeLock,
 } from "../../../support/runtime-support/fee-quotes";
 import type {
-  ListingRecoveryIdentity,
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
@@ -78,7 +79,6 @@ import {
   selectEvidenceGarbageCollectionTargets,
   type EvidenceGarbageCollectionEntry,
 } from "../domain/evidence-garbage-collection";
-import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
 import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
@@ -125,18 +125,19 @@ import {
   listingAttempt,
   listingAttemptMetadata,
   readListingAttemptReceipt,
-  runListingAttempt,
   stampListingAttemptEvents,
   type ListingAttempt,
 } from "./listing-attempt";
 import {
   assertListingBatchId,
+  assertPreparedListingAttempt,
   lookupListingBatch as lookupPersistedListingBatch,
+  runBoundListingAttempt as runListingAttempt,
   runListingBatch,
-  prepareListingBatch,
   type ListingBatchDecision,
   type ListingBatchTarget,
 } from "./listing-batch";
+import { createListingRecovery } from "./listing-recovery";
 import { MarketplaceListingRequestError } from "./listing-request-error";
 import { TypedIdBoundaryDomainError } from "@chase-sets/http/typed-id";
 import {
@@ -315,7 +316,11 @@ type MarketplaceCreateListing = {
   (params: MarketplaceCreateListingParams, context: EventStoreContext): Promise<MarketplaceCreateListingResult>;
 };
 
-export type MarketplaceListingServices = Readonly<{
+export type MarketplaceListingServices = MarketplaceListingCoreServices &
+  ListingTargetServices &
+  ReturnType<typeof createListingRecovery>;
+
+type MarketplaceListingCoreServices = Readonly<{
   operatorUnlistListing: (
     params: Readonly<{
       listingId: ListingId;
@@ -565,11 +570,6 @@ export type MarketplaceListingServices = Readonly<{
   lookupListingBatch: (
     params: Readonly<{ accountId: string; family: MarketplaceListingBatchFamily; batchId: string }>,
   ) => Promise<MarketplaceListingBatchResult | null>;
-  prepareListingBatch: (
-    accountId: string,
-    identity: ListingRecoveryIdentity,
-    context: EventStoreContext,
-  ) => Promise<void>;
   /**
    * A Listing's complete authoritative stream for seed and clamp decisions that must never trust a projection.
    * An empty stream is `absent`; a history that does not open with this Listing's creation for this owner, or
@@ -866,7 +866,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     codec: listingCodec,
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
-    decide: decideMarketplaceListing,
+    decide: decideUnfencedMarketplaceListing,
     snapshots: {
       store: createPostgresAggregateSnapshotStore<MarketplaceListingState>({ db: deps.db }),
       schemaVersion: MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION,
@@ -1302,6 +1302,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         ...decideMarketplaceListing(applyEvents(listing, evolveMarketplaceListing, refreshed), {
           type: "PublishListing",
           readiness,
+          publishedAt: now,
         }),
       ];
     } catch {
@@ -2014,6 +2015,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const laneItems: BulkAppendLaneItem<MarketplaceListingCommand>[] = [];
       for (const { update, attempt } of waves[waveIndex]!) {
         try {
+          await assertPreparedListingAttempt(deps.eventStore, attempt);
           const first = await readListingAttemptReceipt(deps.eventStore, attempt);
           if (first) {
             decided.set(update.listingId, { outcome: "succeeded", version: first.version });
@@ -2647,8 +2649,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         }),
       };
     },
-    prepareListingBatch: (accountId, identity, context) =>
-      prepareListingBatch(deps.eventStore, accountId, identity, context),
+    ...createListingRecovery(deps.eventStore),
     lookupListingBatch: (params) =>
       lookupPersistedListingBatch(deps.eventStore, {
         accountId: params.accountId,
@@ -2770,11 +2771,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             {
               type: "PublishListing",
               readiness,
+              publishedAt: evaluatedAt,
               allowAlreadyActiveNoOp: repricing,
-              csatOutcomeFact: createListingPublishedCsatOutcomeFact({
-                accountId: params.accountId,
-                listingId: params.listingId,
-              }),
             },
             context,
             attempt,
@@ -3176,6 +3174,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryItemSupply: (itemId, accountId) => getInventoryItemSupply(deps.db, itemId, accountId),
+    ...createListingTargetRuntime({ eventStore: deps.eventStore, authority: deps.listingTargetAuthority }),
     loadListingState: async (listingId) => (await repository.load(`marketplace.listing-${listingId}`)).state,
     reconcileInventoryCapacity,
     projectors: [
@@ -3187,3 +3186,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   };
   return services;
 }
+
+const decideUnfencedMarketplaceListing: typeof decideMarketplaceListing = (state, command) => {
+  assert(
+    command.type !== "AcceptListingTargetPrice" && command.type !== "ActivateListingForChannel",
+    "Target commands require owner-fenced Listing services.",
+  );
+  return decideMarketplaceListing(state, command);
+};

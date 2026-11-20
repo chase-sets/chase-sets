@@ -6,10 +6,23 @@ import { buildIdentityOutcomeFactProjectionHandlers } from "../features/csat/int
 import { buildDiscoveryOutcomeFactProjectionHandlers } from "../features/csat/integrations/discovery/outcome-fact-projection";
 import type { OutcomeFact } from "../features/csat/read-model/outcome-fact-projection";
 
+import { buildFulfillmentOutcomeFactProjectionHandlers } from "../features/csat/integrations/fulfillment/outcome-fact-projection";
+import { buildPaymentsOutcomeFactProjectionHandlers } from "../features/csat/integrations/payments/outcome-fact-projection";
+import { buildSettlementOutcomeFactProjectionHandlers } from "../features/csat/integrations/settlement/outcome-fact-projection";
+import { buildSupportOutcomeFactProjectionHandlers } from "../features/csat/integrations/platform-operations/outcome-fact-projection";
+import { buildMarketplaceOutcomeFactProjectionHandlers } from "../features/csat/integrations/marketplace/outcome-fact-projection";
+import { buildInventoryOutcomeFactProjectionHandlers } from "../features/csat/integrations/inventory/outcome-fact-projection";
+
 export const outcomeHandlers = {
   ...buildAuthOutcomeFactProjectionHandlers(),
   ...buildIdentityOutcomeFactProjectionHandlers(),
   ...buildDiscoveryOutcomeFactProjectionHandlers(),
+  ...buildFulfillmentOutcomeFactProjectionHandlers(),
+  ...buildPaymentsOutcomeFactProjectionHandlers(),
+  ...buildSettlementOutcomeFactProjectionHandlers(),
+  ...buildSupportOutcomeFactProjectionHandlers(),
+  ...buildMarketplaceOutcomeFactProjectionHandlers(),
+  ...buildInventoryOutcomeFactProjectionHandlers(),
 };
 
 export function outcomeRows() {

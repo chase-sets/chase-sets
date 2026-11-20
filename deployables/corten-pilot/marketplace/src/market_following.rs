@@ -19,7 +19,6 @@
 //! confirmed, and the section offers no step until the page is opened again.
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -378,59 +377,13 @@ fn definite(error: &ApiError) -> bool {
     error.status().is_some_and(|s| s.as_u16() < 500) && error.code() != Some("history_incomplete")
 }
 
-/// What `GET /mutation-attempts/{id}` answers (`marketplaceMutationRecoveryResultSchema`).
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct Recovery {
-    schema_version: u8,
-    mutation_kind: String,
-    attempt_key_fingerprint: String,
-    actor_binding: ActorBinding,
-    target: Target,
-    canonical_request_hash: String,
-    owner_status: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    reason: Option<String>,
-    owner_receipt: Option<OwnerReceipt>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct ActorBinding {
-    account_id: String,
-}
-
-#[derive(Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-struct Target {
-    kind: String,
-    id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OwnerReceipt {
-    #[allow(dead_code)]
-    id: String,
-    version: u64,
-}
-
 /// The version a looked-up attempt committed, when it is this attempt's, for this policy and this
 /// request, and committed.
 fn committed(observed: Value, attempt: &str, policy_id: &str, hash: &str) -> Option<u64> {
-    let recovery: Recovery = serde_json::from_value(observed).ok()?;
-    let target = serde_json::to_value(&recovery.target).ok()?;
-    let fingerprint = request_hash(&json!([recovery.actor_binding.account_id, KIND, target, attempt]));
-    let receipt = recovery.owner_receipt?;
-    (recovery.schema_version == 1
-        && recovery.owner_status == "committed"
-        && recovery.mutation_kind == KIND
-        && recovery.attempt_key_fingerprint == fingerprint
-        && recovery.target.id == policy_id
-        && recovery.target.kind == "offer-policy"
-        && recovery.canonical_request_hash == hash)
-        .then_some(receipt.version)
+    match crate::marketplace_attempt::read(observed, KIND, "offer-policy", policy_id, attempt, hash) {
+        crate::marketplace_attempt::Observed::Committed { version, .. } => Some(version),
+        _ => None,
+    }
 }
 
 /// SHA-256, in hex, of the value as JSON with every object's keys sorted

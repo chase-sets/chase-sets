@@ -121,7 +121,7 @@
     "shell-support",
     "test-support"
   ],
-  "publicExports": [".", "./client", "./context", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./client", "./context", "./routes/*", "./server", "./test-support", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [

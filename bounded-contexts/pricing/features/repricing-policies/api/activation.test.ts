@@ -8,6 +8,8 @@ import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-se
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 import { createRepricingPolicyActivationServices, DryRunRequiredError } from "./activation";
+import { createRepricingConfigurationWriter } from "./configuration";
+import { createConfigurationPoolFixture } from "../tests/configuration-fixture";
 
 const emptyMetadata = { eventIds: [], sources: [], committedEvents: [], maxGlobalPosition: undefined };
 const input = { accountId: "acc_7910", dryRunId: "synthetic_receipt_run", name: "Synthetic receipt test" };
@@ -43,10 +45,11 @@ async function exercise(options: { failure?: Failure; existing?: boolean; premat
                   },
                 ];
         else if (sql.includes("UPDATE pricing_repricing_dry_runs")) rows = [{ dry_run_id: input.dryRunId }];
-        else if (sql === "COMMIT") {
+        else if (sql === "COMMIT" && appended.length) {
           beforeCommit = getEventCommitMetadata();
           if (options.failure === "commit") throw failure;
-        } else if (sql !== "BEGIN" && sql !== "ROLLBACK") throw new Error(`unexpected query: ${sql}`);
+        } else if (sql !== "BEGIN" && sql !== "ROLLBACK" && sql !== "COMMIT")
+          throw new Error(`unexpected query: ${sql}`);
         return { rows: rows as Row[] };
       },
     }),
@@ -54,7 +57,7 @@ async function exercise(options: { failure?: Failure; existing?: boolean; premat
   const eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction"> = {
     appendToStreamInTransaction: async (_client, request) => {
       expect(request.expectedVersion).toBe("no_stream");
-      expect(request.context).toBe(dryRunContext);
+      expect(request.context).toStrictEqual(dryRunContext);
       expect(request.wakeSourceContextName).toBe("pricing");
       if (options.failure === "append") throw failure;
       appended = request.events.map((event, index) => ({
@@ -75,7 +78,12 @@ async function exercise(options: { failure?: Failure; existing?: boolean; premat
       return appended;
     },
   };
-  const services = createRepricingPolicyActivationServices({ pool, eventStore });
+  const fixture = createConfigurationPoolFixture(pool);
+  const services = createRepricingPolicyActivationServices({
+    pool: fixture.pool,
+    eventStore,
+    configuration: createRepricingConfigurationWriter({ pool: fixture.pool, eventStore, epochs: fixture.epochs }),
+  });
   const app = new Hono();
   attachWriteConsistencyMiddleware(app, [{ mountPath: "/activation" }], [], { enabled: false });
   let baseline = getEventCommitMetadata();
@@ -141,10 +149,8 @@ describe("activation transaction receipt boundary", () => {
       expect(result.error).toBeUndefined();
       expect(result.response.status).toBe(201);
       expect(await result.response.json()).toMatchObject({
-        ...dryRunBody,
-        status: "active",
-        name: input.name,
-        accountId: input.accountId,
+        status: "applied",
+        state: { ...dryRunBody, status: "active", name: input.name, accountId: input.accountId },
       });
       expect(result.beforeCommit).toEqual(result.baseline);
       expect(result.statements.at(-1)).toBe("COMMIT");

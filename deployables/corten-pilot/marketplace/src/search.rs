@@ -728,7 +728,7 @@ async fn show(
     let caller = config.platform.caller(&headers, config.proto, None);
     // Load more with JavaScript: only the next page, after the rows the page has. The form is on
     // a page whose category is already its slug's path, so nothing is resolved or moved.
-    if req.mode == corten::Mode::Action
+    if let Some(script) = req.action()
         && let Some(cursor) = raw.get(CURSOR).and_then(|v| v.all().first()).filter(|c| !c.is_empty())
     {
         let category = slug.unwrap_or_default();
@@ -739,7 +739,7 @@ async fn show(
         } else {
             Place::Search
         };
-        return more(&req, &caller, place, &terms, cursor).await;
+        return more(&req, script, &caller, place, &terms, cursor).await;
     }
     let asked = slug.clone().unwrap_or_else(|| terms.category.clone());
     let (by_slug, all) = tokio::join!(
@@ -859,7 +859,14 @@ pub(crate) async fn with_sheet(
 /// and Load more for the page after it. When the API restarts the cursor (the results changed),
 /// its first page replaces the rows instead. A failed read leaves the rows and offers Load more
 /// again, saying it failed.
-async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, cursor: &str) -> HtmlResult {
+async fn more(
+    req: &Req,
+    script: corten::Action<'_>,
+    caller: &impl Search,
+    place: Place<'_>,
+    terms: &Terms,
+    cursor: &str,
+) -> HtmlResult {
     let (t, i): (SearchMsg, ItemMsg) = (req.t(), req.t());
     let from = place.href(terms);
     let category = match place {
@@ -868,7 +875,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
     };
     let shown = terms.more;
     match caller.search(&terms.api_query_from(category, PAGE_SIZE, Some(cursor))).await {
-        Ok(page) if page.cursor_restarted => req.patch(html! {
+        Ok(page) if page.cursor_restarted => script.patch(html! {
             <views::ResultRows t={t} i={i} items={&page.items} terms={terms} first={0} keys={page.keys()} from={&from} />
             <views::LoadMore
                 t={t}
@@ -882,7 +889,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
         Ok(page) => {
             let keys = page.keys();
             let (items, next) = (&page.items, page.next_cursor.as_deref());
-            req.patch(html! {
+            script.patch(html! {
                 {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} i={i} item={item} terms={terms} index={shown + n} keys={keys} from={&from} /> } })}
                 <views::LoadMore
                     t={t}
@@ -896,7 +903,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
         }
         Err(error) => {
             tracing::warn!("the next page's read failed: {error}");
-            req.patch(html! {
+            script.patch(html! {
                 <views::LoadMore t={t} place={place} terms={terms} shown={shown} cursor={Some(cursor)} failed={true} />
             })
         }

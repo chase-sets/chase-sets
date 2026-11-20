@@ -38,7 +38,7 @@ import type { ChannelDriftDecision, ChannelDriftDetail } from "../../reconciliat
 import { ChannelDriftPanel, type DriftActionResult, type DriftSubmission } from "../../reconciliation/ui/drift-panel";
 import {
   ConnectorPairingPanel,
-  type GeneratedPairingCode,
+  type PairingCodeNotice,
   type PairingPanelState,
 } from "../../connector-feed/ui/pairing-panel";
 import { decodeConnectorPairingDetail, decodeGeneratedPairingCode } from "../../connector-feed/domain/codecs";
@@ -53,7 +53,9 @@ type LoadedData = Readonly<{
   connection: PublicChannelConnection;
   setupLocations: ConnectionSetupLocations;
   drift: ChannelDriftDetail;
-  canManageDrift: boolean;
+  canManageConnection: boolean;
+  /** A Clamp and download Channels refused sent the seller back here (`?manualSync=failed`). */
+  manualSyncDownloadFailed: boolean;
   loadIdentity: string;
   manualSync: AuxiliaryRead<ManualSyncPanel>;
   attention: AuxiliaryRead<ChannelConnectionAttention>;
@@ -161,7 +163,8 @@ export async function loader({ request, params }: Pick<LoaderFunctionArgs, "requ
     pairing,
     operationLog,
     drift: drift.kind === "loaded" ? drift.data : { kind: "unavailable" },
-    canManageDrift: actor.permissions.includes("channels.manage"),
+    canManageConnection: actor.permissions.includes("channels.manage"),
+    manualSyncDownloadFailed: new URL(request.url).searchParams.get("manualSync") === "failed",
     loadIdentity: crypto.randomUUID(),
   };
 }
@@ -267,7 +270,7 @@ export async function action(
   | AttentionActionError
   | DriftActionResult
   | Readonly<{ kind: "pairing-error"; error: string }>
-  | Readonly<{ kind: "pairing-code"; generated: GeneratedPairingCode }>
+  | Readonly<{ kind: "pairing-code"; generated: PairingCodeNotice }>
   | Response
 > {
   const form = await args.request.clone().formData();
@@ -339,8 +342,8 @@ export async function action(
       );
       if (!response.ok) return { kind: "pairing-error", error: t("channels.connector.retry") };
       if (endpoint === "unpair") return redirect(new URL(args.request.url).pathname);
-      const generated = decodeGeneratedPairingCode(await response.json());
-      return { kind: "pairing-code", generated };
+      const { pairingId, expiresAt } = decodeGeneratedPairingCode(await response.json());
+      return { kind: "pairing-code", generated: { pairingId, expiresAt } };
     } catch {
       return { kind: "pairing-error", error: t("channels.connector.retry") };
     }
@@ -412,10 +415,15 @@ export async function downloadAction({ request, params }: ActionFunctionArgs): P
   const runId = encodeURIComponent(String(form.get("runId") ?? ""));
   const revision = encodeURIComponent(String(form.get("expectedRevision") ?? ""));
   const apiBaseUrl = resolveRequestApiBaseUrl(request, "/api/channels", { requireInternalApiOrigin: true });
-  return fetch(
+  const response = await fetch(
     `${apiBaseUrl}/connections/${connectionId}/manual-sync/runs/${runId}/download?expectedRevision=${revision}`,
     { method: "POST", headers: createForwardedAuthHeaders(request) },
   );
+  if (response.ok) return response;
+  // The download is a native form post, so a refusal would replace the page with Channels' JSON
+  // error. Send the seller back to the connection, which says the action failed.
+  await response.body?.cancel();
+  return redirect(`/account/channels/${connectionId}?manualSync=failed`);
 }
 
 const stagedBasisRefusals = new Set(["staged-basis-stale", "staged-basis-unavailable"]);
@@ -454,7 +462,11 @@ export default function AccountChannelsConnectionRoute() {
   if (data.kind === "not-found") return <ChannelConnectionDetailPage state={{ kind: "not-found" }} />;
   if (data.kind === "loading") return <ChannelConnectionListPage state={{ kind: "loading" }} />;
   const connection = isAppliedConnectionAction(actionData) ? actionData.connection : data.connection;
-  const actionError = readActionError(actionData);
+  const actionError =
+    readActionError(actionData) ??
+    (actionData === undefined && data.manualSyncDownloadFailed
+      ? t("channels.manualSync.action.failed.description")
+      : null);
   return (
     <ChannelConnectionDetailPage
       state={
@@ -464,7 +476,7 @@ export default function AccountChannelsConnectionRoute() {
       }
       pendingIntent={pendingIntent}
     >
-      {connection.status === "pending-setup" && data.canManageDrift ? (
+      {connection.status === "pending-setup" && data.canManageConnection ? (
         <ChannelConnectionSetupSection
           key={connection.connectionId}
           locations={data.setupLocations}
@@ -476,7 +488,7 @@ export default function AccountChannelsConnectionRoute() {
           key={connection.connectionId}
           connectionId={connection.connectionId}
           detail={data.drift}
-          canManage={data.canManageDrift}
+          canManage={data.canManageConnection}
           loadIdentity={data.loadIdentity}
           loading={navigation.state !== "idle"}
         />
@@ -490,7 +502,7 @@ export default function AccountChannelsConnectionRoute() {
             actionData && "kind" in actionData && actionData.kind === "pairing-code" ? actionData.generated : undefined
           }
           pending={navigation.state !== "idle"}
-          available={connection.status === "active" || connection.status === "paused"}
+          available={data.canManageConnection && (connection.status === "active" || connection.status === "paused")}
         />
         {actionError ? (
           <OperationalStatusBanner

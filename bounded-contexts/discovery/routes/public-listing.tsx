@@ -1,6 +1,6 @@
 import { formatBpsPercent, formatDate, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   AccountReputationSummary,
   Badge,
@@ -22,11 +22,8 @@ import {
   Textarea,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import {
-  appendAnonymousReportCookie,
-  createMarketplaceRequestApiClient,
-  ensureAnonymousReportId,
-} from "@chase-sets/marketplace/server";
+import { submitListingReport, ensureAnonymousReportId } from "@chase-sets/marketplace/server";
+import { ReviewMutationForm } from "@chase-sets/marketplace/web";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
@@ -277,6 +274,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       notFound: false,
       canonicalUrl: new URL(`/listings/${listing.listing_slug}`, url.origin).toString(),
       entryAttemptKey: createId("chkentry"),
+      anonymousReportId: ensureAnonymousReportId(request),
+      reportReceived: url.searchParams.has("reported"),
     };
   } catch (error) {
     if (error instanceof DiscoveryApiError) {
@@ -293,16 +292,10 @@ export const action = defineFormAction({
       const listingId = String(formData.get("listingId") ?? "");
       const slug = params.listingSlug ?? "";
       if (!listingId || !slug) return formActionRedirect(null, `/listings/${slug}`);
-      const anonymousReportId = ensureAnonymousReportId(request);
-      await createMarketplaceRequestApiClient(request).reportListing(listingId, anonymousReportId, {
-        reason: String(formData.get("reason") ?? "") as never,
-        details: String(formData.get("details") ?? "") || null,
-        sourceRoutePath: `/listings/${slug}`,
-      });
-      const headers = new Headers();
-      appendAnonymousReportCookie(headers, anonymousReportId, request);
-      return formActionRedirect(null, `/listings/${slug}?reported=1`, { headers });
+      return submitListingReport(request, formData, `/listings/${slug}`);
     },
+    "confirm:report-listing": ({ request, params, formData }) =>
+      submitListingReport(request, formData, `/listings/${params.listingSlug ?? ""}`),
   },
   onUnknownIntent: ({ params }) => formActionRedirect(null, `/listings/${params.listingSlug ?? ""}`),
 });
@@ -341,6 +334,9 @@ export default function PublicListingRoute() {
 }
 
 function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof loader>> }) {
+  const report = useActionData<typeof action>() as
+    | { alreadyReported?: true; values?: { reason: string; details: string } }
+    | undefined;
   const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const listing = useRealtimePatchedSnapshot({
     initialSnapshot: data.listing,
@@ -509,25 +505,34 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               }
             />
             <PageSection title={t("discovery.routes.publicListing.report.title")}>
-              <Form spacing="none" method="post">
-                <HiddenInput type="hidden" name="intent" value="report-listing" readOnly />
-                <HiddenInput type="hidden" name="listingId" value={listing.listing_id} readOnly />
-                <NativeSelect
-                  name="reason"
-                  label={t("discovery.routes.publicListing.report.reason")}
-                  items={reportReasonItems}
-                  required
-                />
-                <Textarea
-                  name="details"
-                  label={t("discovery.routes.publicListing.report.details")}
-                  rows={3}
-                  maxLength={1000}
-                />
-                <Button type="submit" tone="secondary" leadingIcon="warning">
-                  {t("discovery.routes.publicListing.report.submit")}
-                </Button>
-              </Form>
+              {data.reportReceived ? (
+                <Banner tone="success" title={t("discovery.routes.publicListing.report.received")} />
+              ) : report?.alreadyReported ? (
+                <Banner tone="info" title={t("discovery.routes.publicListing.report.repeat")} />
+              ) : (
+                <ReviewMutationForm spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="report-listing" readOnly />
+                  <HiddenInput type="hidden" name="anonymousReportId" value={data.anonymousReportId ?? ""} readOnly />
+                  <HiddenInput type="hidden" name="listingId" value={listing.listing_id} readOnly />
+                  <NativeSelect
+                    name="reason"
+                    label={t("discovery.routes.publicListing.report.reason")}
+                    items={reportReasonItems}
+                    defaultValue={report?.values?.reason}
+                    required
+                  />
+                  <Textarea
+                    name="details"
+                    label={t("discovery.routes.publicListing.report.details")}
+                    rows={3}
+                    maxLength={1000}
+                    defaultValue={report?.values?.details}
+                  />
+                  <Button type="submit" tone="secondary" leadingIcon="warning">
+                    {t("discovery.routes.publicListing.report.submit")}
+                  </Button>
+                </ReviewMutationForm>
+              )}
             </PageSection>
           </Stack>
         </Grid>

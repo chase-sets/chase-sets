@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createPlatformListingTargetAuthority } from "./listing-target-authority";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
@@ -340,7 +341,7 @@ export function createPlatformApiHost(
       workSignalStore?: ProjectionWakeStatusWorkSignalStore;
       catalogMarketObservationRequests?: TcgplayerMarketObservationRequestSource;
     }>,
-): ApiHostRuntime {
+): ApiHostRuntime & Readonly<{ initializeListingAuthority: () => Promise<void> }> {
   let runtime: ApiHostRuntime | null = null;
   const inventoryDraftListingConsumer = createPlatformApiInventoryDraftListingConsumer(
     () => runtime?.services.marketplace as MarketplaceServices | undefined,
@@ -360,6 +361,30 @@ export function createPlatformApiHost(
   const pricingPool = getPlatformApiPool(options.pools.pricing);
   const publicPresencePool = getPlatformApiPool(options.pools["public-presence"]);
   const channelsPool = getPlatformApiPool(options.pools.channels);
+  const listingTargets =
+    runtimeProfile !== "landing" &&
+    marketplacePool &&
+    inventoryPool &&
+    identityPool &&
+    channelsPool &&
+    options.pools.auth
+      ? createPlatformListingTargetAuthority({
+          marketplace: marketplacePool,
+          inventory: inventoryPool,
+          auth: () => {
+            if (!runtime) throw new Error("Auth runtime is unavailable.");
+            return runtime.services.auth as ReturnType<typeof authModule.createServices>;
+          },
+          identity: () => {
+            if (!runtime) throw new Error("Identity runtime is unavailable.");
+            return runtime.services.identity as ReturnType<typeof identityModule.createServices>;
+          },
+          channels: () => {
+            if (!runtime) throw new Error("Channels runtime is unavailable.");
+            return runtime.services.channels as import("@chase-sets/channels/server").ChannelsServices;
+          },
+        })
+      : undefined;
   const sellerAttentionSources = [
     ...(fulfillmentPool ? [createShipByAttentionSourceFromReadModel(fulfillmentPool)] : []),
     ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
@@ -661,7 +686,9 @@ export function createPlatformApiHost(
   const inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability = inventoryPool
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
-  const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const channelSaleRecorder = inventoryPool
+    ? createPlatformApiChannelSaleRecorder(inventoryPool, marketplacePool)
+    : undefined;
   const admissionAuthority = (): ShipmentGroupAdmissionAuthority => {
     const services = runtime?.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices> | undefined;
     if (!services) throw new Error("Shipment Group admission authority is unavailable.");
@@ -705,6 +732,16 @@ export function createPlatformApiHost(
       inventoryDraftListingConsumer,
       draftListingDelivery: inventoryDraftListingConsumer,
       ...options.hostPorts,
+      ...(marketplacePool ? { pricingPredicateConsumerPool: marketplacePool } : {}),
+      ...(listingTargets
+        ? {
+            listingTargetAuthority: listingTargets.authority,
+            identitySourceTopology: listingTargets.consumer.topology,
+            sessionConsumers: listingTargets.consumer.topology,
+            connectionConsumers: listingTargets.consumer.topology,
+            stockReservationConsumerPool: marketplacePool,
+          }
+        : {}),
       operationsAttentionRuntimeReads: {
         loadBlockedProjections: async () => {
           if (!runtime) {
@@ -760,6 +797,7 @@ export function createPlatformApiHost(
       },
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
+      readyToShipCanaryOwnerUserId: process.env.CHANNELS_READY_TO_SHIP_CANARY_OWNER_USER_ID,
       connectorOAuth: createConnectorOAuthService(
         () => {
           const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;
@@ -771,7 +809,11 @@ export function createPlatformApiHost(
       ...(pricingHostPorts ?? {}),
     },
   });
-  return runtime;
+  return Object.assign(runtime, {
+    initializeListingAuthority: async () => {
+      await listingTargets?.consumer.initialize();
+    },
+  });
 }
 
 function createPublicPolicySource<Value>(
@@ -813,7 +855,10 @@ function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
 }
 
-function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): RecordExternalChannelSale {
+function createPlatformApiChannelSaleRecorder(
+  pool: PgTransactionalPool,
+  consumerPool?: PgTransactionalPool,
+): RecordExternalChannelSale {
   return async (command) => {
     const context: EventStoreContext = {
       tenantId: "tnt_channels_api" as never,
@@ -822,7 +867,7 @@ function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): Record
         forAccountId: command.accountId as never,
       },
     };
-    return createInventoryExternalChannelSaleRecorderForPool(pool, context)(command);
+    return createInventoryExternalChannelSaleRecorderForPool(pool, context, consumerPool)(command);
   };
 }
 

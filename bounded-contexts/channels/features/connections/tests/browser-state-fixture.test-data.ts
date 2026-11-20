@@ -67,7 +67,7 @@ export async function mountChannelConnectionBrowserState(input: ReturnType<typeo
   const readyDetail: Awaited<ReturnType<typeof detailLoader>> = {
     ...baseline,
     connection: input.connection,
-    canManageDrift: true,
+    canManageConnection: true,
     setupLocations: { kind: "loaded", items: input.state === "empty" ? [] : input.locations },
   };
   let release: (() => void) | undefined;

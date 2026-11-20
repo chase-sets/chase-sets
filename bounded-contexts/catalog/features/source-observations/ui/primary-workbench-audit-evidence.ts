@@ -1,4 +1,6 @@
 import { t } from "@chase-sets/localization";
+import { catalogScopeRecordIdFromPath } from "../api/admin/scope-detail-workbench-location";
+import { isSafePrimaryWorkbenchReturnPath } from "../api/admin/primary-workbench-shared-contracts";
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
 import type {
   CatalogPrimaryWorkbenchHealthTriageReadModel,
@@ -6,11 +8,19 @@ import type {
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
 } from "../api/primary-workbench-admin-contracts";
-import type { CatalogIntegrationControlPlaneOverview } from "./contracts";
+import type {
+  CatalogIntegrationControlPlaneOverview,
+  CatalogMergeCandidateListItem,
+  CatalogProviderProfileVersionReview,
+  SourceObservationListItem,
+} from "./contracts";
+import type { CatalogAliasReviewCandidateSummary } from "../../alias-equivalence/api/alias-review-admin-contracts";
+import { resolveCatalogAuditSelection } from "./primary-workbench-audit-selection";
 import {
-  catalogPrimaryWorkbenchReturnPath,
-  catalogPrimaryWorkbenchSupportingHref,
-} from "./primary-workbench-route-context";
+  catalogEntityEvidenceHref,
+  parseCatalogEvidenceReference,
+  type CatalogEvidenceReference,
+} from "./primary-workbench-evidence-reference";
 import type { ConflictResolution } from "./primary-workbench-conflict-resolution";
 import type { ValidationReadiness } from "./primary-workbench-validation-readiness";
 
@@ -19,6 +29,12 @@ export type AuditEvidenceLink = AuditEvidence["evidenceLinks"][number];
 export type AuditTimelineRow = AuditEvidence["timeline"][number];
 
 export function auditEvidenceFor(input: {
+  requestUrl: string | URL;
+  observations: readonly SourceObservationListItem[];
+  candidates: readonly CatalogMergeCandidateListItem[];
+  providerKeys: readonly string[];
+  profiles: readonly CatalogProviderProfileVersionReview[];
+  aliases: readonly CatalogAliasReviewCandidateSummary[];
   conflictResolution: ConflictResolution;
   controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
   generatedAt: string;
@@ -34,7 +50,29 @@ export function auditEvidenceFor(input: {
   reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
   validationReadiness: ValidationReadiness;
 }): AuditEvidence {
-  const auditTimelineHref = catalogPrimaryWorkbenchSupportingHref(input.routeContext, "audit-evidence");
+  const owner = new URL(input.requestUrl);
+  const scopePageVerified = Boolean(
+    input.routeContext.scopeRecordId &&
+    catalogScopeRecordIdFromPath(owner.pathname) === input.routeContext.scopeRecordId,
+  );
+  if (input.routeContext.scopeRecordId)
+    owner.pathname = `/catalog/scopes/${encodeURIComponent(input.routeContext.scopeRecordId)}`;
+  if (!isSafePrimaryWorkbenchReturnPath(owner.pathname)) {
+    owner.pathname = input.routeContext.providerKey
+      ? `/catalog/providers/${encodeURIComponent(input.routeContext.providerKey)}`
+      : "/catalog/integrations";
+  }
+  const auditTimelineHref = `${owner.pathname}${owner.search}`;
+  const { selection, matches } = resolveCatalogAuditSelection({
+    routeContext: input.routeContext,
+    scopePageVerified,
+    jobs: input.importJobs,
+    observations: input.observations,
+    candidates: input.candidates,
+    providerKeys: input.providerKeys,
+    profiles: input.profiles,
+    aliases: input.aliases,
+  });
   const projection = input.controlPlaneOverview?.auditLifecycle ?? null;
   const projectionState: AuditEvidence["projectionState"] = {
     queryKey: "audit-evidence-timeline",
@@ -46,36 +84,76 @@ export function auditEvidenceFor(input: {
     missingProjection: !projection || projection.projectionStatus === "unavailable",
     partialProjection: Boolean(projection && projection.projectionStatus === "partial"),
   };
-  const timeline = dedupeAuditTimelineRows([
-    ...auditProjectionRowsFor({
-      auditTimelineHref,
-      entries: projection?.entries ?? [],
-      routeContext: input.routeContext,
-    }),
-    ...auditJobRowsFor({ auditTimelineHref, jobs: input.importJobs }),
-    ...auditSourceObservationRowsFor({
-      auditTimelineHref,
-      routeContext: input.routeContext,
-      rows: input.sourceObservationReview.rows,
-      reviewEvidenceByObservationId: input.reviewEvidenceByObservationId,
-    }),
-    ...auditDryRunRowsFor({
-      auditTimelineHref,
-      routeContext: input.routeContext,
-      rows: input.validationReadiness.dryRunEvidence,
-    }),
-    ...auditPromotionRowsFor({
-      auditTimelineHref,
-      promotionPreview: input.promotionPreview,
-      routeContext: input.routeContext,
-    }),
-    ...auditConflictRowsFor({
-      auditTimelineHref,
-      events: input.conflictResolution.recentAuditEvents,
-    }),
-  ])
-    .filter((row) => auditTimelineRowMatchesContext(row, input.routeContext))
-    .slice(0, 50);
+  const timeline = dedupeAuditTimelineRows(
+    [
+      ...auditProjectionRowsFor({
+        auditTimelineHref,
+        entries: projection?.entries ?? [],
+        routeContext: input.routeContext,
+      }),
+      ...auditJobRowsFor({ auditTimelineHref, jobs: input.importJobs }).filter(matches).slice(0, 12),
+      ...[
+        ...auditSourceObservationRowsFor({
+          auditTimelineHref,
+          routeContext: input.routeContext,
+          rows: input.sourceObservationReview.rows,
+          reviewEvidenceByObservationId: input.reviewEvidenceByObservationId,
+          observations: input.observations,
+        }),
+        ...auditAssociationRowsFor(input, auditTimelineHref),
+      ]
+        .filter(matches)
+        .slice(0, 16),
+      ...auditDryRunRowsFor({
+        auditTimelineHref,
+        routeContext: input.routeContext,
+        rows: input.validationReadiness.dryRunEvidence,
+      })
+        .filter(matches)
+        .slice(0, 8),
+      ...auditPromotionRowsFor({
+        auditTimelineHref,
+        promotionPreview: input.promotionPreview,
+        routeContext: input.routeContext,
+      }),
+      ...auditConflictRowsFor({
+        auditTimelineHref,
+        events: input.conflictResolution.recentAuditEvents,
+      }),
+    ].filter(matches),
+  )
+    .slice(0, 50)
+    .map((row) => {
+      const reference: CatalogEvidenceReference =
+        parseCatalogEvidenceReference(selection.reference) ??
+        (row.targetType === "provider-profile" && row.providerKey
+          ? { kind: "provider-profile", id: row.profileVersion ?? row.targetId, providerKey: row.providerKey }
+          : { kind: row.targetType, id: row.targetType === "control-plane" ? "settings" : row.targetId });
+      const location = new URL(auditTimelineHref, owner);
+      if (reference.kind === "control-plane") {
+        location.pathname = "/catalog/integrations/settings";
+      } else if (reference.kind === "provider-profile" && reference.providerKey) {
+        location.pathname = `/catalog/providers/${encodeURIComponent(reference.providerKey)}`;
+        location.searchParams.set("profileVersion", reference.id);
+      } else if (
+        location.pathname !== "/catalog/scopes" &&
+        location.pathname !== "/catalog/integrations/settings" &&
+        !/^\/catalog\/scopes\/[^/]+$/.test(location.pathname) &&
+        !/^\/catalog\/providers\/[^/]+$/.test(location.pathname)
+      ) {
+        const providerKey = row.providerKey ?? input.routeContext.providerKey;
+        location.pathname = providerKey ? `/catalog/providers/${encodeURIComponent(providerKey)}` : "/catalog/scopes";
+      }
+      if (input.routeContext.providerKey) location.searchParams.set("providerKey", input.routeContext.providerKey);
+      location.searchParams.sort();
+      return {
+        ...row,
+        evidenceLinks: row.evidenceLinks.map((link) => ({
+          ...link,
+          href: catalogEntityEvidenceHref(location, reference),
+        })),
+      };
+    });
   const evidenceLinks = dedupeAuditEvidenceLinks(timeline.flatMap((row) => row.evidenceLinks));
   const partialProjectionCount =
     (projectionState.partialProjection ? 1 : 0) +
@@ -88,10 +166,15 @@ export function auditEvidenceFor(input: {
       : "ready";
 
   return {
+    selection,
     status,
     freshness: projectionState.freshness,
     generatedAt: input.generatedAt,
-    returnToPrimaryHref: catalogPrimaryWorkbenchReturnPath(input.routeContext),
+    returnToPrimaryHref: (() => {
+      const url = new URL(owner);
+      url.searchParams.delete("evidenceRef");
+      return `${url.pathname}${url.search}`;
+    })(),
     summary: {
       timelineEvents: timeline.length,
       redactedEvidenceLinks: evidenceLinks.length,
@@ -117,19 +200,89 @@ export function auditEvidenceFor(input: {
   };
 }
 
+function auditAssociationRowsFor(
+  input: Parameters<typeof auditEvidenceFor>[0],
+  href: string,
+): readonly AuditTimelineRow[] {
+  const members = input.candidates.flatMap((candidate) =>
+    candidate.membership_json.map((member) => ({
+      eventId: `candidate-observation:${candidate.candidate_id}:${member.observationId}`,
+      occurredAt: member.observedAt,
+      eventName: "source-observation-recorded" as const,
+      category: "source-observation" as const,
+      actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.providerAdapter"),
+      targetType: "source-observation" as const,
+      targetId: member.observationId,
+      providerKey: member.providerKey,
+      unitKey: null,
+      profileVersion: member.sourceProfileVersion,
+      jobId: null,
+      observationId: member.observationId,
+      catalogItemId: candidate.matched_catalog_item_id,
+      summary: member.externalKey,
+      diagnosticCodes: [],
+      redactionState: "redacted" as const,
+      evidenceLinks: [
+        auditEvidenceLink({
+          href,
+          key: `candidate-observation:${member.observationId}`,
+          kind: "audit-event",
+          label: member.observationId,
+          summary: member.externalKey,
+        }),
+      ],
+    })),
+  );
+  const aliases = input.aliases.flatMap((alias): readonly AuditTimelineRow[] => {
+    const targetType = alias.observationId
+      ? "source-observation"
+      : alias.targetKind === "catalog-item"
+        ? "catalog-item"
+        : null;
+    const targetId = alias.observationId ?? alias.targetId;
+    if (!targetType || !targetId) return [];
+    return [
+      {
+        eventId: `alias:${alias.aliasHash}`,
+        occurredAt: alias.updatedAt,
+        eventName: "diagnostics-present",
+        category: "diagnostic",
+        actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.providerAdapter"),
+        targetType,
+        targetId,
+        providerKey: alias.providerKey,
+        unitKey: null,
+        profileVersion: alias.sourceProfileVersion,
+        jobId: null,
+        observationId: alias.observationId,
+        catalogItemId: alias.targetKind === "catalog-item" ? alias.targetId : null,
+        summary: alias.evidence.map((line) => `${line.label}: ${line.value}`).join("; ") || alias.proposedAlias,
+        diagnosticCodes: [...alias.warnings],
+        redactionState: "redacted",
+        evidenceLinks: [
+          auditEvidenceLink({
+            href,
+            key: `alias:${alias.aliasHash}`,
+            kind: "diagnostic",
+            label: alias.proposedAlias,
+            summary: alias.reviewStatus,
+          }),
+        ],
+      },
+    ];
+  });
+  return [...members, ...aliases];
+}
+
 function auditProjectionRowsFor(input: {
   auditTimelineHref: string;
   entries: readonly CatalogIntegrationControlPlaneOverview["auditLifecycle"]["entries"][number][];
   routeContext: CatalogPrimaryWorkbenchRouteContext;
 }): readonly AuditTimelineRow[] {
-  return input.entries.map((entry) => {
+  return input.entries.flatMap((entry) => {
     const targetType = auditTargetTypeForCategory(entry.category);
-    const targetId =
-      entry.relatedJobId ??
-      entry.profileVersion ??
-      entry.unitKey ??
-      entry.providerKey ??
-      t("catalog.features.sourceObservations.ui.auditEvidence.readModel.target.controlPlane");
+    const targetId = targetType === "import-job" ? entry.relatedJobId : entry.profileVersion;
+    if (!targetId) return [];
 
     return {
       eventId: entry.eventId,
@@ -169,7 +322,7 @@ function auditJobRowsFor(input: {
   auditTimelineHref: string;
   jobs: CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"];
 }): readonly AuditTimelineRow[] {
-  return input.jobs.slice(0, 12).map((job) => {
+  return input.jobs.map((job) => {
     const eventName =
       job.action === "scope.import" && job.state === "failed"
         ? "import-job-failed"
@@ -218,8 +371,9 @@ function auditSourceObservationRowsFor(input: {
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   rows: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"];
   reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
+  observations: readonly SourceObservationListItem[];
 }): readonly AuditTimelineRow[] {
-  return input.rows.slice(0, 16).map((row) => {
+  return input.rows.map((row) => {
     // The slim review row omits the source profile version and the deep
     // duplicate/conflict evidence; read them from the in-process evidence
     // index, defaulting empty so the audit timeline stays total even if absent.
@@ -235,9 +389,11 @@ function auditSourceObservationRowsFor(input: {
       providerKey: row.providerKey,
       unitKey: input.routeContext.unitKey,
       profileVersion: evidence?.sourceProfileVersion ?? null,
-      jobId: input.routeContext.jobId,
+      jobId: null,
       observationId: row.observationId,
-      catalogItemId: null,
+      catalogItemId:
+        input.observations.find((observation) => observation.observation_id === row.observationId)
+          ?.promoted_catalog_item_id ?? null,
       summary: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.sourceObservation.summary", {
         name: row.displayName,
         summary: row.redactionSummary,
@@ -268,45 +424,51 @@ function auditDryRunRowsFor(input: {
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   rows: ValidationReadiness["dryRunEvidence"];
 }): readonly AuditTimelineRow[] {
-  return input.rows.slice(0, 8).map((row) => ({
-    eventId: `dry-run:${row.externalKey}`,
-    occurredAt: new Date(0).toISOString(),
-    eventName: "dry-run-executed",
-    category: "dry-run",
-    actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.system"),
-    targetType: "provider-profile",
-    targetId: input.routeContext.profileVersion ?? row.externalKey,
-    providerKey: input.routeContext.providerKey,
-    unitKey: input.routeContext.unitKey,
-    profileVersion: input.routeContext.profileVersion,
-    jobId: null,
-    observationId: null,
-    catalogItemId: null,
-    summary: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.dryRun.summary", {
-      evidence: row.auditEvidence.join("; "),
-      externalKey: row.externalKey,
-      status: row.status,
-    }),
-    diagnosticCodes: row.diagnostics.map((diagnostic) => diagnostic.code),
-    redactionState: "redacted",
-    evidenceLinks: [
-      auditEvidenceLink({
-        href: input.auditTimelineHref,
-        key: `dry-run:${row.externalKey}`,
-        kind: "proof",
-        label: row.externalKey,
-        summary:
-          row.redactionSummary
-            .map((entry) =>
-              t("catalog.features.sourceObservations.ui.auditEvidence.readModel.redaction.entry", {
-                label: entry.label,
-                value: entry.value,
+  return input.rows.flatMap((row): readonly AuditTimelineRow[] =>
+    !row.profileVersion || !row.providerKey
+      ? []
+      : [
+          {
+            eventId: `dry-run:${row.providerKey}:${row.profileVersion}:${row.externalKey}`,
+            occurredAt: new Date(0).toISOString(),
+            eventName: "dry-run-executed",
+            category: "dry-run",
+            actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.system"),
+            targetType: "provider-profile",
+            targetId: row.profileVersion,
+            providerKey: row.providerKey,
+            unitKey: input.routeContext.unitKey,
+            profileVersion: row.profileVersion,
+            jobId: null,
+            observationId: null,
+            catalogItemId: null,
+            summary: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.dryRun.summary", {
+              evidence: row.auditEvidence.join("; "),
+              externalKey: row.externalKey,
+              status: row.status,
+            }),
+            diagnosticCodes: row.diagnostics.map((diagnostic) => diagnostic.code),
+            redactionState: "redacted",
+            evidenceLinks: [
+              auditEvidenceLink({
+                href: input.auditTimelineHref,
+                key: `dry-run:${row.externalKey}`,
+                kind: "proof",
+                label: row.externalKey,
+                summary:
+                  row.redactionSummary
+                    .map((entry) =>
+                      t("catalog.features.sourceObservations.ui.auditEvidence.readModel.redaction.entry", {
+                        label: entry.label,
+                        value: entry.value,
+                      }),
+                    )
+                    .join("; ") || row.status,
               }),
-            )
-            .join("; ") || row.status,
-      }),
-    ],
-  }));
+            ],
+          },
+        ],
+  );
 }
 
 function auditPromotionRowsFor(input: {
@@ -314,7 +476,8 @@ function auditPromotionRowsFor(input: {
   promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
   routeContext: CatalogPrimaryWorkbenchRouteContext;
 }): readonly AuditTimelineRow[] {
-  if (!input.promotionPreview.previewId && !input.promotionPreview.commandPlanHash) {
+  const observationId = input.promotionPreview.scope.selectedObservationIds.at(0);
+  if ((!input.promotionPreview.previewId && !input.promotionPreview.commandPlanHash) || !observationId) {
     return [];
   }
 
@@ -325,8 +488,8 @@ function auditPromotionRowsFor(input: {
       eventName: "promotion-plan-generated",
       category: "promotion",
       actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.operatorScope"),
-      targetType: "catalog-item",
-      targetId: input.promotionPreview.commandPlanHash ?? input.promotionPreview.previewId ?? "promotion-preview",
+      targetType: "source-observation",
+      targetId: observationId,
       providerKey: input.routeContext.providerKey,
       unitKey: input.routeContext.unitKey,
       profileVersion: input.routeContext.profileVersion,
@@ -479,33 +642,6 @@ export function auditEvidenceLink(input: {
     sourcePayloadAccess: "not-required",
     profileSnapshotAccess: "not-required",
   };
-}
-
-function auditTimelineRowMatchesContext(
-  row: AuditTimelineRow,
-  routeContext: CatalogPrimaryWorkbenchRouteContext,
-): boolean {
-  if (routeContext.providerKey && row.providerKey && row.providerKey !== routeContext.providerKey) {
-    return false;
-  }
-  if (routeContext.unitKey && row.unitKey && row.unitKey !== routeContext.unitKey) {
-    return false;
-  }
-  if (routeContext.profileVersion && row.profileVersion && row.profileVersion !== routeContext.profileVersion) {
-    return false;
-  }
-  if (routeContext.jobId && row.jobId && row.jobId !== routeContext.jobId) {
-    return false;
-  }
-  if (
-    routeContext.selectedObservationIds.length > 0 &&
-    row.observationId &&
-    !routeContext.selectedObservationIds.includes(row.observationId)
-  ) {
-    return false;
-  }
-
-  return true;
 }
 
 function dedupeAuditTimelineRows(rows: readonly AuditTimelineRow[]): readonly AuditTimelineRow[] {

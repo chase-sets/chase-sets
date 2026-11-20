@@ -1002,6 +1002,9 @@ pub mod url {
         #[route("/account/listings/{id}/photos", post = crate::seller_listing::photos)]
         pub struct SellerListingPhotos<'a> {
             pub id: &'a str,
+            /// The change the page names (`Place::listing_recovery`).
+            #[route(query)]
+            pub place: crate::seller_listing::Place,
         }
     }
 
@@ -1865,13 +1868,16 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
 /// Where Stripe.js loads from, and the origin of the payment fields' frames.
 pub const STRIPE_JS: &str = "https://js.stripe.com";
 
-/// What Stripe.js and its fields need: its script, its frames and the APIs they call. A script
-/// source on another host has `<Corten />` make the `default` Trusted Types policy, which lets
-/// `views/stripe.js` and Stripe.js itself load Stripe's scripts. The Payment Element's wallets
-/// (Apple Pay and Google Pay, `wallets: auto`) run the Payment Request API in Stripe's frames,
-/// which ask for `allow="payment *"`, so these pages allow the feature Corten denies elsewhere.
+/// What Stripe.js and its fields need: its script, its frames and the APIs they call. These
+/// pages make their own `default` Trusted Types policy (`views/stripe.js`), so `<Corten />` makes
+/// none: like Corten's, it lets `views/stripe.js` and Stripe.js itself load Stripe's scripts, and
+/// it also passes the one SVG filter the Payment Element parses as it mounts, which Corten leaves
+/// to the app (corten-run/corten#1488). The Payment Element's wallets (Apple Pay and Google Pay,
+/// `wallets: auto`) run the Payment Request API in Stripe's frames, which ask for
+/// `allow="payment *"`, so these pages allow the feature Corten denies elsewhere.
 fn stripe(p: corten::security::Sources) -> corten::security::Sources {
     p.script_src(STRIPE_JS)
+        .trusted_types_policy("default")
         .allow_feature(corten::security::Feature::Payment)
         .frame_src(STRIPE_JS)
         .frame_src("https://hooks.stripe.com")
@@ -1954,7 +1960,7 @@ pub fn app(config: Config) -> App {
         .assets(Static)
         .pwa(pwa())
         .policy(if shared.proto == "https" { policy.hsts() } else { policy })
-        .layer(platform::access_log::AccessLog::new())
+        .access_log(true)
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
         .client_zone()

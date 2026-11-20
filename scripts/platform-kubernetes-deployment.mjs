@@ -158,6 +158,18 @@ export function buildHelmUpgradeArgs(options = {}) {
           `components.platform-api.podAnnotations.chase-sets\\.com/staging-runtime-revision=${stagingRuntimeRevision(options.env ?? process.env)}`,
         ]
       : [];
+  // Secret-backed environment variables are read at pod startup, including on a same-image redeploy.
+  const productionRuntimeSecretRevision = (options.env ?? process.env).PRODUCTION_RUNTIME_SECRET_REVISION;
+  const productionRuntimeRevisionArgs = [];
+  if (deploymentEnvironment === "production" && productionRuntimeSecretRevision !== undefined) {
+    if (!/^[1-9][0-9]*-[1-9][0-9]*$/.test(productionRuntimeSecretRevision)) {
+      throw new Error("Production runtime Secret revision must be a GitHub run ID and attempt.");
+    }
+    productionRuntimeRevisionArgs.push(
+      "--set-string",
+      `components.platform-api.podAnnotations.chase-sets\\.com/production-runtime-secret-revision=${productionRuntimeSecretRevision}`,
+    );
+  }
   const managedPostgresCaSha256 =
     deploymentEnvironment === "staging" || deploymentEnvironment === "production"
       ? requiredLowercaseSha256(options.managedPostgresCaSha256, "managed-postgres-ca-sha256")
@@ -269,6 +281,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...waveExposureSetArgs,
     ...previewSchedulingSetArgs,
     ...stagingRuntimeRevisionArgs,
+    ...productionRuntimeRevisionArgs,
     ...cortenAdminSetArgs,
     ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",
@@ -1277,6 +1290,7 @@ const censusRunIdentity = (run) => ({
 });
 
 const censusReadSignature = (read) => [read.totalCounts, [...read.runIds].sort((left, right) => left - right)];
+const hasMovedCensusTotal = ({ totalCounts }) => totalCounts.at(-1) !== totalCounts[0];
 
 // Same per-status total_count sequence and run-ID set in every pass means GitHub
 // repeated one inconsistent answer; any difference means runs moved.
@@ -1288,6 +1302,47 @@ const censusPassSignature = (pass) =>
     }),
   );
 const isStableCensusDrift = (passes) => new Set(passes.map(censusPassSignature)).size === 1;
+// Repeating the same counts and IDs does not prove identities across moved totals.
+const needsNonWriterCensusProof = (passes, status) =>
+  hasMovedCensusTotal(passes.at(-1).statuses[status]) || !isStableCensusDrift(passes);
+
+const isProvenNonWriter = (run) =>
+  typeof run.path === "string" && run.path.length > 0 && !isProductionWriterCandidate(run);
+
+// Removing identified non-writers must leave the same writer identities and
+// unexplained count in every status. Identity changes are not run movement.
+function hasOnlyNonWriterCensusMovement(passes) {
+  const identities = new Map();
+  for (const pass of passes) {
+    // readRunStatus stops before collecting identities from a changed-total page.
+    if (Object.values(pass.statuses).some((read) => hasMovedCensusTotal(read) && read.pageLengths.at(-1) > 0)) {
+      return false;
+    }
+    for (const [id, run] of pass.runs) {
+      const identity = partitionRunIdentity({ ...run, status: null });
+      if (identities.has(id) && identities.get(id) !== identity) return false;
+      identities.set(id, identity);
+    }
+  }
+  const signatures = passes.map((pass) =>
+    JSON.stringify(
+      activeActionsRunStatuses.map((status) => {
+        const read = pass.statuses[status];
+        if (!read) return null;
+        const runs = read.runIds.map((id) => pass.runs.get(String(id)));
+        const nonWriters = runs.filter(isProvenNonWriter);
+        return [
+          read.totalCounts.map((count) => count - nonWriters.length),
+          runs
+            .filter((run) => !isProvenNonWriter(run))
+            .map(partitionRunIdentity)
+            .sort(),
+        ];
+      }),
+    ),
+  );
+  return new Set(signatures).size === 1;
+}
 
 // Classified reasons are this module's own text. Any other error (transport, YAML)
 // may quote a response or file, so only its name and system code are kept.
@@ -1442,7 +1497,11 @@ async function readRunStatus(readApi, status, read, runsById) {
     read.pageLengths.push(body.workflow_runs.length);
     totalCount ??= body.total_count;
     if (body.total_count !== totalCount) {
-      throw new MovingRunCensusError(`GitHub Actions ${label} total moved during pagination.`);
+      const error = new MovingRunCensusError(`GitHub Actions ${label} total moved during pagination.`);
+      // An empty page that drops to the collected count still leaves a shortfall against the first total.
+      throw body.workflow_runs.length === 0 && body.total_count === collected
+        ? Object.assign(error, { shortfallStatus: status })
+        : error;
     }
     for (const run of body.workflow_runs) {
       if (!Number.isSafeInteger(run?.id) || run.id <= 0 || typeof run.name !== "string" || !run.name) {
@@ -1478,7 +1537,8 @@ async function readActiveRunCensusPass(readApi, pass) {
 }
 
 // Re-reads every status from scratch; only a whole pass with stable pagination is
-// trusted, unless five passes repeat one shortfall that a partition reconciles.
+// trusted, unless a partition reconciles five shortfalls whose differences are
+// fully identified non-writers. A counted but unlisted run is still unknown.
 async function readStableActiveRunCensus(readApi, sleep, passes, partitions) {
   for (let pass = 1; ; pass += 1) {
     const evidence = { pass, reason: null, statuses: {}, runs: new Map() };
@@ -1489,8 +1549,12 @@ async function readStableActiveRunCensus(readApi, sleep, passes, partitions) {
       evidence.reason = censusErrorReason(error);
       if (!(error instanceof MovingRunCensusError)) throw error;
       if (pass >= productionWriterCensusPassLimit) {
-        if (error.shortfallStatus && isStableCensusDrift(passes)) {
-          return await readReconciledStatusPartition(readApi, passes, error.shortfallStatus, partitions);
+        const { shortfallStatus } = error;
+        if (
+          shortfallStatus &&
+          (!needsNonWriterCensusProof(passes, shortfallStatus) || hasOnlyNonWriterCensusMovement(passes))
+        ) {
+          return await readReconciledStatusPartition(readApi, passes, shortfallStatus, partitions);
         }
         throw error;
       }
@@ -1515,14 +1579,15 @@ function censusPartitionSplit(listed, readAt) {
 const partitionRunIdentity = (run) =>
   JSON.stringify({ ...censusRunIdentity(run), updatedAt: null, workflowId: run.workflowId ?? null });
 
-// Stable drift repeats one counted-but-unlisted gap in every pass. The drifted status
-// is admitted only when complementary created windows, each completely paginated, list
+// Repeated shortfalls keep one counted-but-unlisted gap after known non-writer
+// movement. The status is admitted only when complementary, completely paginated windows list
 // exactly its global total: every listed run unchanged, and every unlisted counted run
 // identified so the writer projection judges it. A final global re-read must repeat
 // the drift, so movement during the fallback refuses. Later statuses are then read
 // once. At most 20 reads are added; 5xx and transport re-reads share readApi's budget.
 async function readReconciledStatusPartition(readApi, passes, status, partitions) {
   const finalPass = passes.at(-1);
+  const requireNonWriterProof = needsNonWriterCensusProof(passes, status);
   const global = finalPass.statuses[status];
   const totalCount = global.totalCounts[0];
   const listedIds = new Set(global.runIds.map(String));
@@ -1563,6 +1628,9 @@ async function readReconciledStatusPartition(readApi, passes, status, partitions
       await readRunStatus(boundedReadApi, status, read, windowRuns);
       for (const id of read.runIds) {
         const run = windowRuns.get(String(id));
+        if (requireNonWriterProof && !isProductionWriterCandidate(run) && !isProvenNonWriter(run)) {
+          throw unreconciled(`window run ${id} has an unknown writer identity`);
+        }
         if (run.status !== status) {
           throw unreconciled(`window created${created} listed run ${id} with status ${JSON.stringify(run.status)}`);
         }
@@ -1590,7 +1658,7 @@ async function readReconciledStatusPartition(readApi, passes, status, partitions
     try {
       await readRunStatus(boundedReadApi, status, partition.reread, new Map());
     } catch (error) {
-      if (!(error instanceof MovingRunCensusError)) throw error;
+      if (error?.shortfallStatus !== status) throw error;
     }
     if (JSON.stringify(censusReadSignature(partition.reread)) !== JSON.stringify(censusReadSignature(global))) {
       throw unreconciled("the final global re-read did not repeat the drift signature");
@@ -1599,6 +1667,12 @@ async function readReconciledStatusPartition(readApi, passes, status, partitions
     for (const next of activeActionsRunStatuses.slice(activeActionsRunStatuses.indexOf(status) + 1)) {
       partition.statuses[next] = censusRead();
       await readRunStatus(boundedReadApi, next, partition.statuses[next], runsById);
+    }
+    if (requireNonWriterProof) {
+      const unknown = [...runsById.values()].find(
+        (run) => !isProductionWriterCandidate(run) && !isProvenNonWriter(run),
+      );
+      if (unknown) throw unreconciled(`run ${unknown.id} has an unknown writer identity`);
     }
     return sortedCensusRuns(runsById);
   } catch (error) {
