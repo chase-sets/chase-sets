@@ -56,10 +56,10 @@ describe("guest payment claim through a real data router", () => {
     await routerReady(router);
     expect(await screen.findByRole("button", { name: "Email me a claim link" })).toBeTruthy();
 
-    await router.navigate(path, {
-      formMethod: "post",
-      formData: new URLSearchParams({ intent: "claim-link-request", displayName: "Test Buyer" }),
-    });
+    const formData = new FormData();
+    formData.set("intent", "claim-link-request");
+    formData.set("displayName", "Test Buyer");
+    await router.navigate(path, { formMethod: "post", formData });
     await routerReady(router);
 
     expect(reads).toBe(2);
