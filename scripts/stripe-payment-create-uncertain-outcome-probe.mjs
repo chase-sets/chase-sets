@@ -411,8 +411,8 @@ export async function captureProbe({
             : {}),
         };
         run.attempted = true;
-      const create = await scoped("create", run, () => gateway.createPaymentSession(run.input));
-      if (!run.original || create.succeeded) run.failure = "original-response";
+        const create = await scoped("create", run, () => gateway.createPaymentSession(run.input));
+        if (!run.original || create.succeeded) run.failure = "original-response";
       }),
     );
     for (const [bucket, targetElapsedMs] of buckets) {
