@@ -821,6 +821,40 @@ describe("item detail buy now validation and watch intents", () => {
     expect(location.searchParams.get("productAlertCreated")).toBe("1");
   });
 
+  it.each([
+    ["the form's attempt", "chkentry_01JZ0000000000000000000000", "chkentry_01JZ0000000000000000000000"],
+    ["no attempt for one the API would not take", "short", null],
+    ["no attempt for a post without one", undefined, null],
+  ])("sends a signed-in Set alert as %s", async (_case, presented, sent) => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockCreateProductAlert.mockResolvedValueOnce({ id: "pal_1", version: 1 });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({ catalog_item_id: "cat_charizard", slug: "charizard-base-set" }),
+      createProductAlert: mockCreateProductAlert,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-product-alert");
+    form.set("marketSide", "listing");
+    form.set("productId", "cat_charizard::form:raw");
+    if (presented !== undefined) form.set("attemptId", presented);
+
+    await action({
+      request: new Request("http://localhost/items/cat_charizard?market=watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never);
+
+    expect(mockCreateProductAlert).toHaveBeenLastCalledWith(expect.objectContaining({ attemptId: sent }));
+  });
+
   it("claims guest Watch intent for signed-in registration return", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",

@@ -1965,6 +1965,7 @@ fn WatchForms<'a>(
                         on:submit={analytics::submitted(event, "watch", [labels(side).0, "", labels(side).1, ""], ONE_WAY, "")}
                     >
                         <Hidden pairs={page} />
+                        {SubmitKey::field(watching::WatchFields::FIELDS.attempt)}
                         <input type="hidden" name={watching::field::PRODUCT} value={product}>
                         <input type="hidden" name={watching::field::SIDE} value={side.as_str()}>
                         if screen.viewer_account_id.is_none() {

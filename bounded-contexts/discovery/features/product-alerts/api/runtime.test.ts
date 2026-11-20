@@ -43,6 +43,40 @@ type AnonymousProductAlertIntentRow = {
   updated_at: string;
 };
 
+const watchOption = (optionId: string, label: string, displayOrder: number) => ({
+  optionId,
+  code: optionId,
+  label,
+  displayOrder,
+  numericValue: null,
+});
+
+/** Every Catalog Item in these tests but cat_plain (no options) is a card sold raw, graded or not. */
+const watchProductSchema = {
+  canonicalDimensionOrder: [
+    { dimensionId: "form", dimensionName: "Form" },
+    { dimensionId: "grade", dimensionName: "Grade" },
+  ],
+  dimensions: [
+    {
+      dimensionId: "form",
+      dimensionName: "Form",
+      valueKind: "unordered",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [watchOption("raw", "Raw", 1)],
+    },
+    {
+      dimensionId: "grade",
+      dimensionName: "Grade",
+      valueKind: "ordered",
+      required: false,
+      appliesWhen: [],
+      allowedOptions: [watchOption("ungraded", "Ungraded", 1)],
+    },
+  ],
+};
+
 function createAnonymousProductAlertIntentDb() {
   const rows: AnonymousProductAlertIntentRow[] = [];
   const now = () => new Date().toISOString();
@@ -174,6 +208,22 @@ function createAnonymousProductAlertIntentDb() {
         };
       }
 
+      if (sql.includes("FROM discovery_item_detail_pages")) {
+        const catalogItemId = String(params[0] ?? "");
+        if (catalogItemId === "cat_missing") {
+          return { rows: [] };
+        }
+        return {
+          rows: [
+            {
+              catalog_item_id: catalogItemId,
+              status: catalogItemId === "cat_draft" ? "draft" : "active",
+              product_schema: catalogItemId === "cat_plain" ? null : watchProductSchema,
+            },
+          ],
+        };
+      }
+
       throw new Error(`Unexpected query in test: ${sql}`);
     }),
   };
@@ -209,8 +259,8 @@ describe("product alert runtime anonymous intents", () => {
       anonymousOwnerId: "anon_watch_1",
       sourcePath: "/items/charizard",
       marketSide: "listing",
-      catalogItemId: "cat_1",
-      productId: "cat_1::",
+      catalogItemId: "cat_plain",
+      productId: "cat_plain::",
       selectedOptions: [],
       thresholdCurrencyCode: "USD",
       thresholdAmount,
@@ -239,7 +289,7 @@ describe("product alert runtime anonymous intents", () => {
         sourcePath: "/items/charizard-base-set?market=watch",
         marketSide: "listing",
         catalogItemId: "cat_charizard",
-        productId: "cat_charizard::form:raw",
+        productId: "cat_charizard::form:raw|grade:ungraded",
         selectedOptions: [
           { dimensionId: "grade", optionId: "ungraded" },
           { dimensionId: "form", optionId: "raw" },
@@ -255,7 +305,7 @@ describe("product alert runtime anonymous intents", () => {
         sourcePath: "/items/charizard?market=watch",
         marketSide: "listing",
         catalogItemId: "cat_charizard",
-        productId: "cat_charizard::form:raw",
+        productId: "cat_charizard::form:raw|grade:ungraded",
         selectedOptions: [
           { dimensionId: "form", optionId: "raw" },
           { dimensionId: "grade", optionId: "ungraded" },
@@ -272,7 +322,7 @@ describe("product alert runtime anonymous intents", () => {
           { dimensionId: "form", optionId: "raw" },
           { dimensionId: "grade", optionId: "ungraded" },
         ],
-        product_summary: "Raw updated",
+        product_summary: "Raw / Ungraded",
         threshold_amount: "20.00",
         status: "active",
         expires_at: "2026-07-10T13:00:00.000Z",
@@ -341,7 +391,7 @@ describe("product alert runtime anonymous intents", () => {
           sourcePath: `/items/card-${index}?market=watch`,
           marketSide: "listing",
           catalogItemId: `cat_${index}`,
-          productId: `cat_${index}::form:raw`,
+          productId: `cat_${index}::form:raw|grade:-`,
           selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
           productSummary: "Raw",
           thresholdAmount: null,
@@ -354,7 +404,7 @@ describe("product alert runtime anonymous intents", () => {
           sourcePath: "/items/card-overflow?market=watch",
           marketSide: "listing",
           catalogItemId: "cat_overflow",
-          productId: "cat_overflow::form:raw",
+          productId: "cat_overflow::form:raw|grade:-",
           selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
           productSummary: "Raw",
           thresholdAmount: null,
@@ -383,7 +433,7 @@ describe("product alert runtime anonymous intents", () => {
         sourcePath: "/items/charizard-base-set?market=watch",
         marketSide: "offer",
         catalogItemId: "cat_charizard",
-        productId: "cat_charizard::form:raw",
+        productId: "cat_charizard::form:raw|grade:-",
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Raw",
         thresholdAmount: "350.00",
@@ -431,7 +481,7 @@ describe("product alert runtime anonymous intents", () => {
         sourcePath: "/items/charizard-base-set?market=watch",
         marketSide: "listing",
         catalogItemId: "cat_charizard",
-        productId: "cat_charizard::form:raw",
+        productId: "cat_charizard::form:raw|grade:-",
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Raw",
         thresholdAmount: null,
@@ -457,5 +507,150 @@ describe("product alert runtime anonymous intents", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("product alert runtime catalog check", () => {
+  const account = {
+    accountId: "acc_buyer",
+    marketSide: "listing" as const,
+    catalogItemId: "cat_charizard",
+    productId: "cat_charizard::form:raw|grade:ungraded",
+    selectedOptions: [
+      { dimensionId: "grade", optionId: "ungraded" },
+      { dimensionId: "form", optionId: "raw" },
+    ],
+    productSummary: "PROBE spoofed summary",
+    thresholdAmount: "1.00",
+    thresholdCurrencyCode: "USD",
+  };
+  const guest = { ...account, anonymousOwnerId: "anon_watch_1", sourcePath: "/items/charizard?market=watch" };
+
+  function setUp() {
+    const { eventStore } = createInMemoryEventStore();
+    const { db, rows } = createAnonymousProductAlertIntentDb();
+    const services = createProductAlertRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    return { services, rows, eventStore };
+  }
+
+  it("takes an account alert's summary from the catalog, not the request", async () => {
+    const { services, eventStore } = setUp();
+
+    await services.createProductAlert(account, context);
+
+    const [event] = await eventStore.readAll();
+    expect(event?.payload).toMatchObject({
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw|grade:ungraded",
+      selectedOptions: [
+        { dimensionId: "form", optionId: "raw" },
+        { dimensionId: "grade", optionId: "ungraded" },
+      ],
+      productSummary: "Raw / Ungraded",
+    });
+  });
+
+  it("gives an alert on an item without options no summary", async () => {
+    const { services, eventStore } = setUp();
+
+    await services.createProductAlert(
+      { ...account, catalogItemId: "cat_plain", productId: "cat_plain::", selectedOptions: [] },
+      context,
+    );
+
+    const [event] = await eventStore.readAll();
+    expect(event?.payload).toMatchObject({ productId: "cat_plain::", selectedOptions: [], productSummary: null });
+  });
+
+  it.each([
+    ["an item the catalog does not have", { catalogItemId: "cat_missing", productId: "cat_missing::form:raw|grade:-" }],
+    ["an item that is not active", { catalogItemId: "cat_draft", productId: "cat_draft::form:raw|grade:-" }],
+  ])("refuses an account alert or a guest's on %s and records nothing", async (_, item) => {
+    const { services, rows, eventStore } = setUp();
+    const named = { ...item, selectedOptions: [{ dimensionId: "form", optionId: "raw" }] };
+
+    await expect(services.createProductAlert({ ...account, ...named }, context)).rejects.toThrow(
+      "Product Alert requires an active Catalog Item.",
+    );
+    await expect(services.createAnonymousProductAlertIntent({ ...guest, ...named })).rejects.toThrow(
+      "Product Alert requires an active Catalog Item.",
+    );
+    expect(await eventStore.readAll()).toEqual([]);
+    expect(rows).toEqual([]);
+  });
+
+  it.each([
+    ["a product id that is not the selected options' product", { productId: "prd_made_up" }],
+    [
+      "an option the item does not offer",
+      {
+        productId: "cat_charizard::form:raw|grade:-",
+        selectedOptions: [
+          { dimensionId: "form", optionId: "raw" },
+          { dimensionId: "edition", optionId: "first" },
+        ],
+      },
+    ],
+  ])("refuses an account alert or a guest's naming %s and records nothing", async (_, product) => {
+    const { services, rows, eventStore } = setUp();
+    const message = "Product Alert product is not one of the Catalog Item's products for the selected options.";
+
+    await expect(services.createProductAlert({ ...account, ...product }, context)).rejects.toThrow(message);
+    await expect(services.createAnonymousProductAlertIntent({ ...guest, ...product })).rejects.toThrow(message);
+    expect(await eventStore.readAll()).toEqual([]);
+    expect(rows).toEqual([]);
+  });
+
+  it("refuses a selection that leaves out a required option", async () => {
+    const { services, eventStore } = setUp();
+
+    await expect(
+      services.createProductAlert(
+        {
+          ...account,
+          productId: "cat_charizard::form:-|grade:ungraded",
+          selectedOptions: [{ dimensionId: "grade", optionId: "ungraded" }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("Selection must include Form.");
+    expect(await eventStore.readAll()).toEqual([]);
+  });
+
+  it("saves a guest's alert with the catalog's summary and claims it with the catalog's", async () => {
+    const { services, eventStore } = setUp();
+
+    const intent = await services.createAnonymousProductAlertIntent(guest);
+    expect(intent).toMatchObject({
+      product_id: "cat_charizard::form:raw|grade:ungraded",
+      product_summary: "Raw / Ungraded",
+    });
+
+    await services.claimAnonymousProductAlertIntent(
+      { anonymousOwnerId: guest.anonymousOwnerId, intentId: intent.intent_id, accountId: "acc_buyer" },
+      context,
+    );
+    const [event] = await eventStore.readAll();
+    expect(event?.payload).toMatchObject({ productSummary: "Raw / Ungraded" });
+  });
+
+  it("refuses to claim a guest's alert saved on an item that is no longer active, and keeps it", async () => {
+    const { services, rows, eventStore } = setUp();
+    const intent = await services.createAnonymousProductAlertIntent(guest);
+    rows[0]!.catalog_catalog_item_id = "cat_draft";
+    rows[0]!.product_id = "cat_draft::form:raw|grade:ungraded";
+
+    await expect(
+      services.claimAnonymousProductAlertIntent(
+        { anonymousOwnerId: guest.anonymousOwnerId, intentId: intent.intent_id, accountId: "acc_buyer" },
+        context,
+      ),
+    ).rejects.toThrow("Product Alert requires an active Catalog Item.");
+    expect(rows[0]).toMatchObject({ status: "active", claimed_alert_id: null });
+    expect(await eventStore.readAll()).toEqual([]);
   });
 });
