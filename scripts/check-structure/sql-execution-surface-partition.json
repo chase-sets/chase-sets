@@ -523,6 +523,7 @@
     "infrastructure/event-core-postgres/list-query.ts",
     "infrastructure/event-core-postgres/measure-publication-staging.ts",
     "infrastructure/event-core-postgres/measure-publication-test-support.ts",
+    "infrastructure/event-core-postgres/owner-predicate-enrollment.ts",
     "infrastructure/event-core-postgres/owner-stream-reservation.ts",
     "infrastructure/event-core-postgres/postgres-db-test-support.ts",
     "infrastructure/event-core-postgres/projection-helpers.ts",
@@ -556,7 +557,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 285,
+    "count": 284,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -584,7 +585,6 @@
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/source-observation-review-routes.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route.ts": 2,
-      "bounded-contexts/catalog/support/authoring-support/seed.ts": 1,
       "bounded-contexts/channels/features/connection-attention/api/route.ts": 2,
       "bounded-contexts/channels/features/listing-composition/api/route.ts": 2,
       "bounded-contexts/channels/features/manual-sync/api/route.ts": 1,

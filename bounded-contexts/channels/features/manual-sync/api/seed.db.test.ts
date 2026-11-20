@@ -6,7 +6,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { composeModuleSchemaSql, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  composeModuleSchemaSql,
+  drainLocalProjectionHandlerSets,
+} from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
@@ -370,7 +374,7 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await pools.channels.query(composeModuleSchemaSql(channelsModule));
-    await pools.marketplace.query(composeModuleSchemaSql(marketplaceModule));
+    await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 
