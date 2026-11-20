@@ -10,7 +10,7 @@ import {
 } from "../../features/account-management/api/marketplace-action";
 import type { MutationResult } from "../../features/account-management/api/runtime";
 import { AccountMutationBoundary } from "../../features/account-management/ui/controller";
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromIdentityApi } from "../../support/route-support/identity-request";
 import type { Invitation, Membership } from "../../support/request-support/api-client";
@@ -23,6 +23,41 @@ import {
 } from "../../support/route-support/account-action-errors";
 
 const actionErrors = createAccountActionErrorHandling();
+
+const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Asks Auth to email an invitation this write newly recorded. A link that cannot be asked for leaves
+ * the invitation saved, and the page it returns to says so, so the owner can send it again. A
+ * replayed write already had its one chance and is never emailed again.
+ */
+async function teamDestination(request: Request, result: MutationResult): Promise<string> {
+  if (result.outcome !== "committed" || !result.newlyCommitted) return "/account/team";
+  const invitationId = result.receipt.result.id;
+  const emailed = await requestInvitationAcceptanceLink(request, invitationId, result).then(
+    () => true,
+    () => false,
+  );
+  return emailed ? "/account/team" : `/account/team?${new URLSearchParams({ unsent: invitationId })}`;
+}
+
+function invitationResponse(result: MutationResult, destination: string) {
+  return accountMutationResponse(
+    result.outcome === "committed" ? { ...result, delivery: "unknown" } : result,
+    destination,
+    navigateAfterWrite(result, destination),
+  );
+}
+
+function unsentInvitationId(request: Request): string | null {
+  const unsent = new URL(request.url).searchParams.get("unsent");
+  if (!unsent || unsent.length > 100) return null;
+  try {
+    return parseTypedId(unsent, "ivt");
+  } catch {
+    return null;
+  }
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({
@@ -38,6 +73,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     invitations: invitations.items,
     memberships: memberships.items,
+    unsentInvitationId: unsentInvitationId(request),
     mutationActor: { tenantId: actor.tenantId, userId: actor.userId, accountId: actor.accountId },
   };
 }
@@ -55,17 +91,19 @@ export const action = requireInterruptionSafeClient(
           accountId: actor!.accountId,
           email: String(formData.get("email") ?? ""),
           roleKey: String(formData.get("roleKey") ?? "viewer"),
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS).toISOString(),
         });
-        if (result.outcome === "committed" && result.newlyCommitted) {
-          actionErrors.markCommitted(context);
-          await requestInvitationAcceptanceLink(request, result.receipt.result.id, result).catch(() => undefined);
-        }
-        return accountMutationResponse(
-          result.outcome === "committed" ? { ...result, delivery: "unknown" } : result,
-          "/account/team",
-          navigateAfterWrite(result, "/account/team"),
+        if (result.outcome === "committed" && result.newlyCommitted) actionErrors.markCommitted(context);
+        return invitationResponse(result, await teamDestination(request, result));
+      },
+      "resend-invitation": async (context) => {
+        const { request, formData } = context;
+        const result = await createIdentityRequestApiClient(request).resendInvitation<MutationResult>(
+          String(formData.get("invitationId") ?? ""),
+          new Date(Date.now() + INVITATION_LIFETIME_MS).toISOString(),
         );
+        if (result.outcome === "committed" && result.newlyCommitted) actionErrors.markCommitted(context);
+        return invitationResponse(result, await teamDestination(request, result));
       },
       "change-role": async ({ request, formData }) => {
         const result = await createIdentityRequestApiClient(request).changeMembershipRole<MutationResult>(
@@ -112,6 +150,7 @@ export default function MarketplaceAccountTeamRoute() {
         invitations={data.invitations}
         memberships={data.memberships}
         errorMessage={actionData?.failure?.message}
+        unsentInvitationId={data.unsentInvitationId}
       />
     </AccountMutationBoundary>
   );

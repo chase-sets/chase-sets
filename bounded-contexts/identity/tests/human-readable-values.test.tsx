@@ -26,7 +26,7 @@ const expectedHitsByFile = {
   "features/consents/ui/consent-history-page.tsx": 10,
   "features/invitations/ui/invitation-detail-page.tsx": 5,
   "features/invitations/ui/invitation-list-page.tsx": 10,
-  "features/memberships/ui/account-team-page.tsx": 7,
+  "features/memberships/ui/account-team-page.tsx": 8,
   "features/memberships/ui/membership-detail-page.tsx": 5,
   "features/memberships/ui/membership-list-page.tsx": 10,
   "features/users/ui/user-detail-page.tsx": 5,
@@ -153,7 +153,7 @@ describe("Identity human-readable values", () => {
     );
     const partition = hits.map((hit) => ({ ...hit, disposition: classify(hit) }));
 
-    expect(hits).toHaveLength(148);
+    expect(hits).toHaveLength(149);
     expect(counts).toEqual(expectedHitsByFile);
     expect(partition).toHaveLength(hits.length);
     expect(

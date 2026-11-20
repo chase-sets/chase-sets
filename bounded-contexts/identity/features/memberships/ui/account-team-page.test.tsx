@@ -328,3 +328,59 @@ describe("account team page heading hierarchy", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Alex Seller" })).toBeTruthy();
   });
 });
+
+describe("account team page invitation delivery", () => {
+  it("offers Resend on a pending invitation only, posting it as an account-management write", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    renderHeldAccountManagementRoute(
+      "/account/team",
+      {
+        memberships: [membership("mem_1", "Alex")],
+        invitations: [
+          invitation("ivt_1", "invitee@example.test"),
+          invitation("ivt_2", "gone@example.test", "cancelled"),
+        ],
+      },
+      ({ memberships, invitations }) => <TeamPage invitations={invitations} memberships={memberships} />,
+    );
+    const resend = screen.getByRole("button", { name: "Resend" });
+    expect(screen.getAllByRole("button", { name: "Resend" })).toHaveLength(1);
+    await waitFor(() => expect(resend.matches(":disabled")).toBe(false));
+    fireEvent.click(resend);
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    expect(transport.posts()[0].body?.get("intent")).toBe("resend-invitation");
+    expect(transport.posts()[0].body?.get("invitationId")).toBe("ivt_1");
+  });
+
+  it("says a saved invitation was not emailed while it is pending, and nothing once it is not", () => {
+    render(
+      <TeamPage
+        invitations={[invitation("ivt_1", "invitee@example.test")]}
+        memberships={[]}
+        unsentInvitationId="ivt_1"
+      />,
+      "/account/team",
+    );
+    expect(screen.getByText("Invitation saved but not emailed")).toBeTruthy();
+    expect(
+      screen.getByText("The invitation to invitee@example.test could not be emailed. Use Resend to email it."),
+    ).toBeTruthy();
+    cleanup();
+
+    render(<TeamPage invitations={[]} memberships={[]} unsentInvitationId="ivt_1" />, "/account/team");
+    expect(
+      screen.getByText("The invitation could not be emailed. Use Resend on it once it appears below."),
+    ).toBeTruthy();
+    cleanup();
+
+    render(
+      <TeamPage
+        invitations={[invitation("ivt_1", "invitee@example.test", "cancelled")]}
+        memberships={[]}
+        unsentInvitationId="ivt_1"
+      />,
+      "/account/team",
+    );
+    expect(screen.queryByText("Invitation saved but not emailed")).toBeNull();
+  });
+});

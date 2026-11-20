@@ -23,15 +23,27 @@ function invitationAccountLabel(invitation: Invitation) {
   return invitation.account_display_name ?? invitation.account_name ?? invitation.account_id;
 }
 
+function unsentDescription(invitations: readonly Invitation[], unsentInvitationId: string) {
+  const unsent = invitations.find((invitation) => invitation.invitation_id === unsentInvitationId);
+  if (!unsent) return t("identity.features.memberships.ui.accountTeamPage.invitation.unsent.unlisted");
+  // A notice about an invitation no longer pending has nothing left to send.
+  if (unsent.status !== "pending") return null;
+  return t("identity.features.memberships.ui.accountTeamPage.invitation.unsent.description", { email: unsent.email });
+}
+
 export function TeamPage({
   invitations,
   memberships,
   errorMessage,
+  unsentInvitationId,
 }: {
   invitations: readonly Invitation[];
   memberships: readonly Membership[];
   errorMessage?: string;
+  /** An invitation the last write saved but could not email. */
+  unsentInvitationId?: string | null;
 }) {
+  const unsent = unsentInvitationId ? unsentDescription(invitations, unsentInvitationId) : null;
   return (
     <CustomerSummaryPage
       title={t("identity.features.memberships.ui.accountTeamPage.team")}
@@ -39,6 +51,13 @@ export function TeamPage({
       controls={
         <>
           {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
+          {unsent ? (
+            <Banner
+              tone="warning"
+              title={t("identity.features.memberships.ui.accountTeamPage.invitation.unsent")}
+              description={unsent}
+            />
+          ) : null}
           <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
               <HiddenInput type="hidden" name="intent" value="create-invitation" readOnly />
@@ -126,28 +145,37 @@ export function TeamPage({
           }),
           action:
             invitation.status === "pending" ? (
-              <ModalDialog
-                title={t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.title", {
-                  email: invitation.email,
-                })}
-                description={t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.description", {
-                  email: invitation.email,
-                  account: invitationAccountLabel(invitation),
-                })}
-                trigger={
-                  <Button type="button" tone="danger">
-                    {t("identity.features.memberships.ui.accountTeamPage.cancel")}
-                  </Button>
-                }
-              >
+              <Stack direction="row" gap={2}>
                 <Form spacing="none" method="post">
-                  <HiddenInput type="hidden" name="intent" value="cancel-invitation" readOnly />
+                  <HiddenInput type="hidden" name="intent" value="resend-invitation" readOnly />
                   <HiddenInput type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
-                  <Button type="submit" tone="danger">
-                    {t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.action")}
+                  <Button type="submit" tone="secondary">
+                    {t("identity.features.memberships.ui.accountTeamPage.resend")}
                   </Button>
                 </Form>
-              </ModalDialog>
+                <ModalDialog
+                  title={t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.title", {
+                    email: invitation.email,
+                  })}
+                  description={t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.description", {
+                    email: invitation.email,
+                    account: invitationAccountLabel(invitation),
+                  })}
+                  trigger={
+                    <Button type="button" tone="danger">
+                      {t("identity.features.memberships.ui.accountTeamPage.cancel")}
+                    </Button>
+                  }
+                >
+                  <Form spacing="none" method="post">
+                    <HiddenInput type="hidden" name="intent" value="cancel-invitation" readOnly />
+                    <HiddenInput type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
+                    <Button type="submit" tone="danger">
+                      {t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.action")}
+                    </Button>
+                  </Form>
+                </ModalDialog>
+              </Stack>
             ) : null,
         })),
       ]}
