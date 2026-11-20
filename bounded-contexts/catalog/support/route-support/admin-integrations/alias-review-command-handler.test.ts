@@ -8,6 +8,10 @@ import {
   initialCatalogAliasState,
 } from "../../../features/alias-equivalence/domain/domain";
 import { planPromotionAliases } from "../../../features/source-observations/api/promotion/provider-promotion-alias-planner";
+import {
+  commandFeedbackDescription,
+  commandSuccessTitle,
+} from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { handleAliasReviewCommand } from "./alias-review-command-handler";
 
 const context = parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations");
@@ -55,6 +59,12 @@ describe("integrations alias review command handler", () => {
         formData,
       });
       expect(result.feedback.status).toBe("success");
+      expect(result.feedback.result).toBe(
+        { accept: "alias-accepted", reject: "alias-rejected", revoke: "alias-revoked" }[intent],
+      );
+      expect(commandSuccessTitle(result.feedback.result)).toBe(
+        { accept: "Alias accepted", reject: "Alias rejected", revoke: "Alias revoked" }[intent],
+      );
       expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledExactlyOnceWith({
         intent,
         aliasHashes: [candidate.aliasHash],
@@ -82,7 +92,11 @@ describe("integrations alias review command handler", () => {
         context,
         formData,
       });
-      expect(result.feedback.status).toBe("success");
+      expect(result.feedback).toMatchObject({ status: "success", result: "alias-deferred" });
+      expect(commandSuccessTitle(result.feedback.result)).toBe("Left for later");
+      expect(commandFeedbackDescription(result.feedback)).toBe(
+        "The selected candidates stay pending for a later review. Nothing was recorded.",
+      );
       expect(reload()).toMatchObject({
         aliasHash: candidate.aliasHash,
         target: candidate.target,

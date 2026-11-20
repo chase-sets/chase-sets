@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 use super::{
     Sent,
     api::{AliasCandidate, AliasReview, Catalog as _, Coverage, Kind, ReviewJob, ReviewJobs, ScopeRecord, Written, under},
+    attention::AliasDone,
     command,
     daily::Opened,
     manages, receipt,
@@ -184,9 +185,8 @@ pub mod url {
 use url::{AliasCommand, MappingInput, ProposeInput, ScopeAt, ScopeDone, Via};
 
 impl ScopeDone {
-    /// The toast: admin-web's words for the coverage, the pilot's for an alias (admin-web says
-    /// "Command queued" for each, chase-sets/chase-sets#10702).
-    pub fn notice(self, t: Cat, p: Pilot, count: u32) -> String {
+    /// The toast: admin-web's words for what the command did.
+    pub fn notice(self, t: Cat, count: u32) -> String {
         match self {
             ScopeDone::MappingAccepted => t.coverage_mapping_accepted().into(),
             ScopeDone::AvailableAccepted => t.coverage_all_available_accepted(count).to_string(),
@@ -195,10 +195,10 @@ impl ScopeDone {
             ScopeDone::MappingProposed => t.coverage_mapping_proposed().into(),
             ScopeDone::MappingProposedAccepted => t.coverage_mapping_proposed_and_accepted().into(),
             ScopeDone::CanonicalConfirmed => t.coverage_canonical_record_confirmed().into(),
-            ScopeDone::AliasAccepted => p.scope_alias_accepted().into(),
-            ScopeDone::AliasRejected => p.scope_alias_rejected().into(),
-            ScopeDone::AliasRevoked => p.scope_alias_revoked().into(),
-            ScopeDone::AliasDeferred => p.scope_alias_deferred().into(),
+            ScopeDone::AliasAccepted => AliasDone::Accepted.title(t).into(),
+            ScopeDone::AliasRejected => AliasDone::Rejected.title(t).into(),
+            ScopeDone::AliasRevoked => AliasDone::Revoked.title(t).into(),
+            ScopeDone::AliasDeferred => AliasDone::Deferred.title(t).into(),
             ScopeDone::Queued => t.feedback_queued_title().into(),
             ScopeDone::Cancelled => t.feedback_cancelled_title().into(),
         }
@@ -551,8 +551,8 @@ async fn render(
     if let Some(workspace) = view.workspace.as_mut() {
         workspace.open(opened);
     }
-    let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let notice = at.done.map(|done| done.notice(t, p, at.count.unwrap_or(0)));
+    let t: Cat = req.t();
+    let notice = at.done.map(|done| done.notice(t, at.count.unwrap_or(0)));
     let status = if matches!(back, ScopeBack::Nothing) { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
     let page = views::scope_page(req, &view, at.jobs.as_deref(), notice, back, manages(viewer));
     let html = html! {
