@@ -92,6 +92,7 @@ import { createSourceObservationPromotionReapplyRuntime } from "./source-observa
 import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
 import {
   createCatalogScopeSyncStateRuntime,
+  recordCatalogScopeSyncFailureForLinkedJob,
   createCatalogSyncRunFanoutRuntime,
 } from "./source-observation-catalog-sync-run-runtime";
 import { createSourceObservationIntegrationJobRuntime } from "./source-observation-integration-job-runtime";
@@ -359,6 +360,11 @@ export function createSourceObservationRuntime(
     },
     {
       eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
+      onClaimExhausted: async (queryable, job, reason) => {
+        if (job.jobKind === "import") {
+          await recordCatalogScopeSyncFailureForLinkedJob(queryable, job, reason, job.updatedAt);
+        }
+      },
       notificationWaiterPool: deps.notificationWaiterPool,
     },
   );

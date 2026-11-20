@@ -396,6 +396,7 @@
   "bulk.recommendations": "Recommendations",
   "bulk.rows.of.total": "of {total} rows",
   "bulk.seller": "Seller",
+  "bulk.unavailable": "Bulk reprice is not available for your account yet.",
   "bulk.unchanged": "Unchanged",
   "bulk.upload": "Upload CSV",
   "bulk.upload.a.csv": "Upload a CSV of seller SKUs or listing IDs with new prices. Unchanged rows are skipped automatically.",

@@ -17,13 +17,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
   const api = createPricingRequestApiClient(request);
   const activeJobId = new URL(request.url).searchParams.get("jobId") ?? "";
-  const activeJob = activeJobId ? await loadActiveRecommendationJob(api, activeJobId) : null;
+  const [activeJob, recommendations, bulkRepriceAvailable] = await Promise.all([
+    activeJobId ? loadActiveRecommendationJob(api, activeJobId) : null,
+    api.listAccountRecommendations(DEFAULT_RECOMMENDATION_QUERY),
+    api.isBulkRepriceAvailable(),
+  ]);
 
-  return {
-    recommendations: await api.listAccountRecommendations(DEFAULT_RECOMMENDATION_QUERY),
-    activeJobId,
-    activeJob,
-  };
+  return { recommendations, activeJobId, activeJob, bulkRepriceAvailable };
 }
 
 async function loadActiveRecommendationJob(
@@ -89,6 +89,7 @@ export default function MarketplaceRepricingRoute() {
   return (
     <PricingRecommendationListPage
       recommendations={data.recommendations.items}
+      bulkRepriceAvailable={data.bulkRepriceAvailable}
       activeJobId={data.activeJobId}
       initialActiveJob={data.activeJob}
       message={actionData && "message" in actionData ? String(actionData.message ?? "") : null}

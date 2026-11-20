@@ -41,6 +41,7 @@ function createServices(): ProductAlertServices {
     createProductAlert: vi.fn(async () => ({
       alertId: "pal_1",
       version: 1,
+      status: "active" as const,
     })),
     pauseProductAlert: vi.fn(async () => ({
       alertId: "pal_1",
@@ -210,6 +211,45 @@ describe("product alert routes", () => {
       },
     });
     expect(services.createAnonymousProductAlertIntent).toHaveBeenCalledTimes(30);
+  });
+
+  it("passes an account create's attemptId on and answers the alert's own status", async () => {
+    const services = createServices();
+    vi.mocked(services.createProductAlert).mockResolvedValueOnce({ alertId: "pal_1", version: 2, status: "deleted" });
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["accounts.view"],
+      },
+      services,
+    });
+    const send = (body: Record<string, unknown>) =>
+      app.fetch(
+        new Request("http://discovery.test/account/product-alerts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ marketSide: "listing", catalogItemId: "cat_1", productId: "cat_1::", ...body }),
+        }),
+      );
+
+    const replay = await send({ attemptId: "chkentry_01JZ0000000000000000000000" });
+    expect(replay.status).toBe(201);
+    await expect(replay.json()).resolves.toEqual({ id: "pal_1", version: 2, status: "deleted" });
+    expect(services.createProductAlert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ accountId: "acc_buyer", attemptId: "chkentry_01JZ0000000000000000000000" }),
+      expect.anything(),
+    );
+
+    await send({});
+    expect(services.createProductAlert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ attemptId: null }),
+      expect.anything(),
+    );
   });
 
   it("claims an anonymous Product Alert intent for a signed-in account", async () => {

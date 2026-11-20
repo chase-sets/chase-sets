@@ -3606,6 +3606,93 @@ describe("platform Kubernetes deployment", () => {
         expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
       });
 
+      describe("queued total moves during pagination", () => {
+        // Synthetic controls: each queued read lists one run under 2, then an empty page under 1.
+        const persistent = dated(10, { status: "queued" });
+        const unlisted = dated(11, { status: "queued" });
+        const observer = dated(12, { status: "pending" });
+        const before = `<${persistent.created_at}`;
+        const after = `>=${persistent.created_at}`;
+        const totalMoves = () =>
+          Array.from({ length: 5 }, (_, index) => ({
+            pending: [index === 2 ? page(0, []) : page(1, [observer])],
+            queued: [page(2, [persistent]), page(1, [])],
+            in_progress: [page(1, [datedDeploy])],
+            windows: { [before]: [page(0, [])], [after]: [page(2, [persistent, unlisted])] },
+          }));
+
+        it("admits the marker after reconciling an empty queued page with a moved total", async () => {
+          const { census, error, requests, sleep, evidence } = await readPasses(totalMoves());
+          expect(error).toBeUndefined();
+          expect(census.runs.map(({ id }) => id)).toEqual([10, 11, 12, deploy.id]);
+          expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+          expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+          expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+          expect(requests.slice(-6)).toEqual([
+            `5:queued:${before}:1`,
+            `5:queued:${after}:1`,
+            "5:queued:1",
+            "5:queued:2",
+            "5:in_progress:1",
+            "5:waiting:1",
+          ]);
+          expect(evidence()).toMatchObject({
+            outcome: "admitted",
+            partitions: [{ status: "queued", totalCount: 2, reread: { totalCounts: [2, 1], pageLengths: [1, 0] } }],
+          });
+        });
+
+        it.each([
+          ["an unstable writer candidate", { name: "Platform Deploy" }],
+          ["an unknown path", { path: undefined }],
+          ["a changed run identity", { head_sha: "c".repeat(40) }],
+        ])("refuses a moved total when an earlier pass shows %s", async (_label, overrides) => {
+          const passes = totalMoves();
+          passes[0].pending = [page(1, [{ ...observer, ...overrides }])];
+          const { census, error, requests } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(/^census-moving after 5 passes:.*total moved during pagination/);
+          expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+        });
+
+        it("refuses a moved total when the queued windows do not reconcile", async () => {
+          const passes = totalMoves();
+          passes[4].windows[after] = [page(1, [persistent])];
+          const { census, error } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:.*window totals sum to 1/);
+        });
+
+        it("refuses changed identities even when moved-total passes repeat the same counts and IDs", async () => {
+          const passes = totalMoves();
+          passes[2].pending = passes[4].pending;
+          passes[0].pending = [page(1, [{ ...observer, path: deployPath }])];
+          const { census, error, requests } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(
+            /^census-stable-count-list-drift after 5 passes:.*total moved during pagination/,
+          );
+          expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+        });
+
+        it.each(["an earlier pass", "the final global re-read"])(
+          "refuses a populated changed-total page in %s",
+          async (stage) => {
+            const passes = totalMoves();
+            const populated = page(1, [{ ...unlisted, name: "Platform Deploy" }]);
+            if (stage === "an earlier pass") passes[0].queued[1] = populated;
+            else passes[4].queued[1] = [page(1, []), populated];
+            const { census, error } = await readPasses(passes);
+            expect(census).toBeUndefined();
+            expect(error.message).toMatch(
+              stage === "an earlier pass"
+                ? /^census-moving after 5 passes:.*total moved during pagination/
+                : /^census-partition-unreconciled after 5 passes:.*total moved during pagination/,
+            );
+          },
+        );
+      });
+
       // Captured identity of the provider-side queued ghost (marker-go-1030-r2.run-37642385358.json), unchanged.
       const ghost = {
         id: 37642385358,
