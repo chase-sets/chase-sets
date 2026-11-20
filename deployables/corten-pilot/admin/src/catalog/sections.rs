@@ -17,9 +17,8 @@
 //! stored ones as admin-web's `profileSectionCommandFromFormData` does, with its defaults and fixed
 //! values (fixtures never call the provider live, promotion is always reviewed, a retired profile is
 //! removed once its executable mapping contract is active, and the rest named in that issue). There
-//! is no revision check, as there. One difference, as the validation readiness' evidence form has
-//! (chase-sets/chase-sets#11068): migration evidence's text is never filled with admin-web's fixed
-//! sentence, which would satisfy activation; a blank one is sent blank, for the API to refuse.
+//! is no revision check, as there. Migration evidence is not merged: it sends only the text and the
+//! fixture run, and Catalog stamps the rest (chase-sets/chase-sets#11068).
 use std::collections::BTreeMap;
 
 use corten::{
@@ -435,21 +434,12 @@ pub fn section_command(profile: &Value, section: &str, form: &Posted) -> Option<
             command.insert("retirementPlan".into(), plan);
         }
         "migration-evidence" => {
-            let stored = record(get("migrationEvidence"));
-            let mut evidence = stored.cloned().unwrap_or_default();
-            let kept = |key: &str| stored.and_then(|s| s.get(key)).filter(|v| !v.is_null());
-            // Sent as typed, never admin-web's fixed sentence (chase-sets/chase-sets#11068).
-            let typed = form.get("migrationEvidenceText").map(|v| Value::String(v.trim().to_owned()));
-            evidence.insert("evidenceText".into(), typed.or_else(|| kept("evidenceText").cloned()).unwrap_or_else(|| "".into()));
-            for (field, name) in [
-                ("fixtureRunId", "migrationFixtureRunId"),
-                ("mappingFingerprintBefore", "migrationFingerprintBefore"),
-                ("mappingFingerprintAfter", "migrationFingerprintAfter"),
-            ] {
-                evidence.insert(field.into(), nullable(form, name, kept(field)));
-            }
-            let recorded = sent(form, "migrationRecordedAt").or_else(|| kept("recordedAt").cloned());
-            evidence.insert("recordedAt".into(), recorded.unwrap_or_else(|| "1970-01-01T00:00:00.000Z".into()));
+            // Only what the operator wrote; Catalog refuses a blank text and stamps the time, the
+            // author and the fingerprints itself (chase-sets/chase-sets#11068).
+            let mut evidence = Map::new();
+            let typed = form.get("migrationEvidenceText").map(|v| v.trim().to_owned()).unwrap_or_default();
+            evidence.insert("evidenceText".into(), Value::String(typed));
+            evidence.insert("fixtureRunId".into(), sent(form, "migrationFixtureRunId").unwrap_or(Value::Null));
             command.insert("migrationEvidence".into(), Value::Object(evidence));
         }
         _ => return None,
@@ -609,14 +599,21 @@ mod tests {
     }
 
     #[test]
-    fn migration_evidence_is_sent_as_typed_never_admin_webs_sentence() {
+    fn migration_evidence_sends_only_what_the_operator_wrote() {
         let command = section_command(&json!({}), "migration-evidence", &posted(&[("migrationEvidenceText", "  ")])).unwrap();
-        assert_eq!(command["migrationEvidence"]["evidenceText"], "");
-        assert_eq!(command["migrationEvidence"]["fixtureRunId"], Value::Null);
+        assert_eq!(
+            command["migrationEvidence"],
+            json!({ "evidenceText": "", "fixtureRunId": null }),
+            "blank is the API's to refuse"
+        );
         let stored = json!({ "migrationEvidence": { "evidenceText": "Replayed.", "recordedAt": "2026-11-01T00:00:00Z" } });
-        let kept = section_command(&stored, "migration-evidence", &posted(&[])).unwrap();
-        assert_eq!(kept["migrationEvidence"]["evidenceText"], "Replayed.");
-        assert_eq!(kept["migrationEvidence"]["recordedAt"], "2026-11-01T00:00:00Z");
+        let posted = posted(&[("migrationEvidenceText", " Replayed again. "), ("migrationFixtureRunId", "run_2")]);
+        let command = section_command(&stored, "migration-evidence", &posted).unwrap();
+        assert_eq!(
+            command["migrationEvidence"],
+            json!({ "evidenceText": "Replayed again.", "fixtureRunId": "run_2" }),
+            "nothing stored is carried forward"
+        );
     }
 
     #[test]
