@@ -2100,6 +2100,7 @@ export const englishTranslations = {
   "catalog.features.sourceObservations.ui.detail.rejected": "Source observation rejected",
   "catalog.features.sourceObservations.ui.detail.rejected.reason": "Rejected during review.",
   "catalog.features.sourceObservations.ui.detail.release.date": "Release Date",
+  "catalog.features.sourceObservations.ui.detail.reviewRefused": "The review was not saved",
   "catalog.features.sourceObservations.ui.detail.sku.count": "SKU Count",
   "catalog.features.sourceObservations.ui.detail.sku.evidence": "SKU Evidence",
   "catalog.features.sourceObservations.ui.detail.source.mapping.fingerprint": "Source Mapping Fingerprint",
