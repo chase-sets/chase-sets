@@ -51,7 +51,10 @@ vi.mock("@chase-sets/ordering/server", () => ({ createOrderingRequestApiClient: 
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
 }));
-vi.mock("@chase-sets/payments/web", () => ({ StripeConfirmationCard: () => null }));
+vi.mock("@chase-sets/payments/web", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/payments/web")>()),
+  StripeConfirmationCard: () => null,
+}));
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
 }));

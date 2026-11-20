@@ -7,6 +7,7 @@ import {
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
 import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { isPaymentConfirmationTokenId } from "@chase-sets/payments/server";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { checkoutConfirmationNeedsPaymentStart, checkoutPaymentStartRefusalCode } from "./payment-start-eligibility";
@@ -126,6 +127,9 @@ function errorCode(error: unknown) {
   const body = errorBody(error);
   if (body?.error?.code === "account_sign_in_required") {
     return "account_sign_in_required";
+  }
+  if (body?.error?.code === "payment_start_ambiguous") {
+    return "payment_start_ambiguous";
   }
   return "validation_failed";
 }
@@ -1209,6 +1213,7 @@ export function createAccountCheckoutSessionRoutes(
       savePaymentMethodForFuture,
     };
     const writeSources: unknown[] = [];
+    let deferredPaymentRecorded = false;
 
     try {
       assertNoUnsupportedCustomerEconomicsInput(body);
@@ -1226,6 +1231,25 @@ export function createAccountCheckoutSessionRoutes(
             },
           },
           404,
+        );
+      }
+
+      const confirmationTokenId = body.confirmationTokenId;
+      if (
+        confirmationTokenId != null &&
+        (!isPaymentConfirmationTokenId(confirmationTokenId) ||
+          savedCheckoutInstrumentId ||
+          paymentMethodCategory !== "card" ||
+          session.source_type === "offer-intent")
+      ) {
+        return c.json(
+          {
+            error: {
+              code: "invalid_payment_confirmation",
+              message: t("checkout.routes.checkoutSession.payment.details.required"),
+            },
+          },
+          400,
         );
       }
 
@@ -1451,8 +1475,10 @@ export function createAccountCheckoutSessionRoutes(
         access.actor.roleKey === "guest-buyer" ? "/checkout/payments/:paymentId" : "/account/payments/:paymentId",
         null,
         orderInputFreshnessSource,
+        ...(confirmationTokenId ? [{ confirmationTokenId }] : []),
       );
       const paymentId = payment.payment_id;
+      deferredPaymentRecorded = Boolean(confirmationTokenId);
       const paymentResult = await services.recordPaymentStarted(
         {
           sessionId,
@@ -1467,12 +1493,26 @@ export function createAccountCheckoutSessionRoutes(
       recordConfirmationPendingHandoff(checkoutObservabilityTelemetry, access.actor, session, "payment-started");
       return c.json({
         payment_id: paymentId,
+        ...(confirmationTokenId && payment.processor_status === "requires_action"
+          ? { payment_authentication_url: payment.processor_redirect_url }
+          : {}),
         order_ids: orderIds,
         status: "confirmed",
         session,
         ...checkoutCommitMetadataFromSources([...writeSources, payment, paymentResult]),
       });
     } catch (error) {
+      if (deferredPaymentRecorded) {
+        return c.json(
+          {
+            error: {
+              code: "payment_start_ambiguous",
+              message: t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.description"),
+            },
+          },
+          409,
+        );
+      }
       if (error instanceof OrderCartCleanupError) {
         return c.json(
           {
@@ -1500,7 +1540,11 @@ export function createAccountCheckoutSessionRoutes(
       recordDisabledSavedInstrumentFailure(checkoutObservabilityTelemetry, access.actor, code);
       return c.json(
         { error: { code, message: errorMessage(error) } },
-        code === unsupportedCustomerEconomicsInputCode || code === savedCheckoutInstrumentUnavailableCode ? 409 : 400,
+        code === unsupportedCustomerEconomicsInputCode ||
+          code === savedCheckoutInstrumentUnavailableCode ||
+          code === "payment_start_ambiguous"
+          ? 409
+          : 400,
       );
     }
   });

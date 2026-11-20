@@ -1801,14 +1801,20 @@ describe("checkout session routes", () => {
     });
   });
 
-  it("confirms a new checkout session by recording orders and payment", async () => {
+  const confirmNewCheckout = it.each([null, "ctoken_fixture"]);
+  confirmNewCheckout("records new checkout orders and payment (%s)", async (confirmationTokenId) => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
       writeResult: orderingApiWriteResult,
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue({
+      ...createPaymentResult("pay_1"),
+      ...(confirmationTokenId
+        ? { processor_status: "requires_action", processor_redirect_url: "https://hooks.stripe.test/auth" }
+        : {}),
+    });
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
       recordPaymentStarted: vi.fn(async ({ sessionId }) => ({
@@ -1831,7 +1837,11 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          confirmationTokenId,
+        }),
       }),
     );
 
@@ -1840,6 +1850,7 @@ describe("checkout session routes", () => {
     expect(body).toMatchObject({
       payment_id: "pay_1",
       order_ids: ["ord_1"],
+      ...(confirmationTokenId ? { payment_authentication_url: "https://hooks.stripe.test/auth" } : {}),
     });
     expect(body).toMatchObject({
       commitPosition: "91",
@@ -1888,6 +1899,7 @@ describe("checkout session routes", () => {
           commitPositions: orderingApiWriteResult.commitPositions,
         },
       },
+      ...(confirmationTokenId ? [{ confirmationTokenId }] : []),
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
@@ -1912,6 +1924,7 @@ describe("checkout session routes", () => {
     expect(emitted).not.toContain("acc_buyer");
     expect(emitted).not.toContain("ord_1");
     expect(emitted).not.toContain("pay_1");
+    expect(emitted).not.toContain("ctoken_");
   });
 
   it("records successful checkout holds before returning line-level reservation failures", async () => {

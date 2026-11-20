@@ -1342,6 +1342,78 @@ describe("payment runtime", () => {
     expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
   });
 
+  it("possible send does not resend after an empty provider search and an explicit replay", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    processorGateway.createPaymentSession.mockRejectedValue(new Error("create response lost"));
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+    });
+    const accountId = "acc_buyer" as never;
+    const orderIds = ["ord_1" as never];
+    const status = await services.getCheckoutStatus({ accountId, orderIds, paymentMethodCategory: "card" });
+    const input = {
+      accountId,
+      orderIds,
+      paymentMethodCategory: "card",
+      isGuestCheckout: true,
+      sourceContext: "checkout",
+      sourceReferenceId: "chk_1",
+      confirmationTokenId: "ctoken_first",
+      marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+    };
+    await expect(services.createAccountPayment(input, context)).rejects.toMatchObject({
+      code: "payment_start_ambiguous",
+    });
+    await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({ state: "ambiguous" });
+    await expect(
+      services.createAccountPayment({ ...input, confirmationTokenId: "ctoken_new" }, context),
+    ).rejects.toMatchObject({ code: "payment_start_ambiguous" });
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+    expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads a recorded deferred intent on the status surface without exposing its old authentication link", async () => {
+    const recorded = {
+      ...existingPaymentRow(),
+      processor_client_secret: null,
+      processor_status: "requires_action",
+      processor_redirect_url: "https://hooks.stripe.test/old",
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => ({ rows: sql.includes("payments_payment_pages") ? [recorded] : [] })),
+    };
+    const retrievePaymentResult = vi.fn(async () => ({
+      processorName: "stripe" as const,
+      processorPaymentKind: "payment-intent" as const,
+      processorPaymentReference: "pi_existing",
+      internalPaymentId: "pay_existing" as never,
+      processorStatus: "succeeded",
+      outcome: "captured" as const,
+      occurredAt: "2026-11-20T00:00:00.000Z",
+    }));
+    const processorGateway = { ...createProcessorGateway(), retrievePaymentResult };
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    await expect(services.getAccountPayment("pay_existing", "acc_buyer", true)).resolves.toMatchObject({
+      payment_id: "pay_existing",
+      processor_status: "succeeded",
+      processor_client_secret: null,
+      processor_redirect_url: null,
+      status: "pending-confirmation",
+    });
+    expect(retrievePaymentResult).toHaveBeenCalledExactlyOnceWith("pi_existing");
+    expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
+  });
+
   it("single-flights concurrent checkout-sourced payment creation", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();

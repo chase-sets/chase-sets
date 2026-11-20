@@ -1,5 +1,6 @@
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
 import type { ReactNode } from "react";
+import type { PaymentElementDefaultValues } from "@chase-sets/payments/web";
 
 export type CheckoutPaymentPreview = Readonly<{
   currency_code: string;
@@ -106,6 +107,9 @@ export type CheckoutSessionPageProps = {
   isSignedInBuyer?: boolean;
   /** Set while Auth withholds payment pending email verification: Pay now becomes this link. */
   paymentVerifyEmailHref?: string | null;
+  deferredCardKey?: string | null;
+  paymentElementDefaultValues?: PaymentElementDefaultValues | null;
+  submitDeferredPayment?: (data: FormData) => Promise<void>;
   initialEditSection?: CheckoutEditSection | null;
   preparedPaymentEntry?: ReactNode;
 };
