@@ -132,7 +132,7 @@ export async function listPayouts(
     db.query<SettlementPayoutRow>(
       `${payoutSelect}
        WHERE account_id = $1
-       ORDER BY updated_at DESC, payout_id DESC
+       ORDER BY settlement_payout_pages.updated_at DESC, payout_id DESC
        LIMIT $2 OFFSET $3`,
       [params.accountId, limit, offset],
     ),
@@ -171,7 +171,7 @@ export async function listPayoutSummaryRows(
       `${payoutSelect}
        WHERE account_id = $1
          AND status IN ('requested', 'in-transit', 'failed')
-       ORDER BY updated_at DESC, payout_id DESC
+       ORDER BY settlement_payout_pages.updated_at DESC, payout_id DESC
        LIMIT $2`,
       [accountId, PAYOUT_SUMMARY_HARD_CAP + 1],
     ),
@@ -299,7 +299,7 @@ export async function listPayoutsNeedingReconciliation(
        )
        ${payoutSelect}
        WHERE payout_id IN (SELECT entity_id FROM claimed)
-       ORDER BY updated_at ASC, payout_id ASC`,
+       ORDER BY settlement_payout_pages.updated_at ASC, payout_id ASC`,
       [limit, params.claimOwnerId, params.claimTtlMs ?? 120_000, params.accountId ?? null],
     );
 
@@ -318,7 +318,7 @@ export async function listPayoutsNeedingReconciliation(
      )
      AND ($2::text IS NULL OR account_id = $2)
      ${filterSql}
-     ORDER BY updated_at ASC, payout_id ASC
+     ORDER BY settlement_payout_pages.updated_at ASC, payout_id ASC
      LIMIT $1`,
     [limit, params.accountId ?? null],
   );
