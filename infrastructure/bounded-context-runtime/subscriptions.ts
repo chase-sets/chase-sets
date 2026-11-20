@@ -343,6 +343,8 @@ class BatchEventApplyError extends Error {
   }
 }
 
+class BatchCascadeNeedsOwnTransaction extends Error {}
+
 function leaseFencingToken(context: ProjectionRunContext | undefined): string | null {
   return context?.fencingToken && /^\d+$/.test(context.fencingToken) ? context.fencingToken : null;
 }
@@ -524,6 +526,11 @@ export function createSubscriptionRunner(
     subscription.projectionTransactionBudgetEscalationMs,
   );
   const cascadeChunkSize = normalizeCascadeChunkSize(subscription.projectionCascadeChunkSize);
+  const batchBoundedCascades =
+    handlerKind === "projection" &&
+    subscription.checkpointBatchSize !== undefined &&
+    checkpointBatchSize > 1 &&
+    subscription.projectionCascadeChunkSize !== undefined;
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
   const withProjectionTransaction: typeof runProjectionTransaction = (pool, context, work, telemetry, control) =>
     runProjectionTransaction(
@@ -1206,10 +1213,9 @@ export function createSubscriptionRunner(
                     continue;
                   }
 
-                  // Single-event transaction-budget watchdog. `checkpointBatchSize === 1`
-                  // is the smallest replay unit — there is no smaller batch to fall back
-                  // to — so an event whose projection work can never fit its transaction
-                  // budget would otherwise roll back and be re-read forever, silently
+                  // Single-event transaction-budget watchdog. There is no smaller
+                  // replay unit to fall back to, so an event that can never fit its
+                  // transaction budget would roll back and be re-read forever,
                   // stalling the whole projection (and monopolising the shared runner
                   // slot). Once such an event has been stuck longer than the escalation
                   // budget, quarantine it as poison so the checkpoint advances and the
@@ -1217,7 +1223,7 @@ export function createSubscriptionRunner(
                   // path once the underlying handler is bounded. Only deterministic
                   // budget overruns escalate — ordinary transient blips still retry.
                   if (
-                    checkpointBatchSize === 1 &&
+                    (checkpointBatchSize === 1 || batchBoundedCascades) &&
                     isProjectionTransactionBudgetExceededError(error) &&
                     ((await loadSubscriptionApplicationAgeMs(targetPool, checkpointKey, String(event.id))) ?? 0) >=
                       transactionBudgetEscalationMs
@@ -1270,12 +1276,7 @@ export function createSubscriptionRunner(
           events: readonly SubscriptionTransportEvent[],
         ): Promise<SubscriptionBatchProgress> => {
           const progress = initialProgress();
-          // A single-event projection batch (the shape a `checkpointBatchSize`-1
-          // cascade projection produces once only one event is pending) supports the
-          // bounded/resumable cascade too, so a fan-out does not blow the budget just
-          // because it happened to be the last event in the stream. Multi-event
-          // batches never carry cascades (those projections commit per event).
-          const cascadeEvent = handlerKind !== "reaction" && events.length === 1 ? events[0] : undefined;
+          const singleEventCascade = handlerKind === "projection" && events.length === 1;
           let cascadeIncomplete = false;
           let cascadeRefreshed = 0;
           await withProjectionTransaction(
@@ -1332,7 +1333,7 @@ export function createSubscriptionRunner(
                 }
 
                 const cascadeController =
-                  cascadeEvent && String(cascadeEvent.id) === eventId
+                  singleEventCascade || batchBoundedCascades
                     ? createDbProjectionCascadeController(client, {
                         projectionKey: checkpointKey,
                         eventId,
@@ -1356,13 +1357,16 @@ export function createSubscriptionRunner(
                 }
                 context?.throwIfLeaseLost?.();
                 if (cascadeController?.isExhausted()) {
+                  // Roll back the batch before retrying in order, with the existing
+                  // per-event transactions that can commit a partial cascade safely.
+                  if (!singleEventCascade) throw new BatchCascadeNeedsOwnTransaction();
                   // The cascade committed a chunk but is not done; leave the event
                   // `started` and signal the pass so the checkpoint stays pinned.
                   cascadeIncomplete = true;
                   cascadeRefreshed = cascadeController.refreshedCount();
                   continue;
                 }
-                if (cascadeController) {
+                if (cascadeController && (!batchBoundedCascades || cascadeController.hasVisitedSite())) {
                   await clearCascadeProgress(client, checkpointKey, eventId);
                 }
                 completedEventIds.push(eventId);
@@ -1394,6 +1398,12 @@ export function createSubscriptionRunner(
           handlerKind === "reaction" || storedEvents.length > checkpointBatchSize
             ? await applyStoredEventsIndividually(events)
             : await applyStoredEventsAsBatch(events).catch((error: unknown) => {
+                if (
+                  error instanceof BatchCascadeNeedsOwnTransaction ||
+                  (batchBoundedCascades && isProjectionTransactionBudgetExceededError(error))
+                ) {
+                  return applyStoredEventsIndividually(events);
+                }
                 if (!(error instanceof BatchEventApplyError)) {
                   throw error;
                 }
