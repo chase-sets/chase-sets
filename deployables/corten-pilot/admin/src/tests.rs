@@ -6648,7 +6648,11 @@ async fn a_cases_link_opens_the_attention_queue_for_that_case_alone() {
     assert!(html.contains("Case fbcase_9 has no active attention."), "{html}");
 
     let at = "/support/customer-feedback/attention?caseId=case_1";
-    assert_eq!(pilot.send(get(at, Some("support-viewer"))).await.0, StatusCode::BAD_REQUEST, "a malformed case ID is the API's 400");
+    assert_eq!(
+        pilot.send(get(at, Some("support-viewer"))).await.0,
+        StatusCode::BAD_REQUEST,
+        "a malformed case ID is the API's 400"
+    );
 }
 
 const RETURN_INTAKE: &str = "/api/marketplace/operations/return-intake";
