@@ -329,6 +329,27 @@ export async function getOrderingSupplyCandidateByListingId(
   };
 }
 
+export async function hasAcceptedOfferSupplyInputs(
+  db: PgQueryable,
+  listingId: string,
+  inventoryItemId: string,
+  inventoryItemVersion?: number,
+): Promise<boolean> {
+  // A later item event can advance its version while the hold stream is blocked.
+  const result = await db.query<{ ready: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM ordering_market_listing_inputs WHERE listing_id = $1)
+        AND EXISTS (
+          SELECT 1 FROM ordering_inventory_item_inputs
+          WHERE item_id = $2 AND ($3::bigint IS NULL OR last_stream_version >= $3::bigint)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM ordering_inventory_pending_hold_claims WHERE item_id = $2
+        ) AS ready`,
+    [listingId, inventoryItemId, inventoryItemVersion ?? null],
+  );
+  return result.rows[0]?.ready === true;
+}
+
 function availableFeeLocks(
   row: Pick<
     OrderingSupplyCandidateRow,
@@ -430,6 +451,8 @@ export type OrderingAcceptedOfferBatchInputRow = Readonly<{
   seller_account_id: string;
   listing_id: string;
   inventory_item_id: string;
+  inventory_item_version: string | null;
+  recorded_at: Date;
   listing_version: number;
   catalog_catalog_item_id: string;
   product_id: string;
@@ -476,6 +499,8 @@ export async function listAcceptedOfferBatchInputs(
        seller_account_id,
        listing_id,
        inventory_item_id,
+       inventory_item_version::text,
+       updated_at AS recorded_at,
        listing_version,
        catalog_catalog_item_id,
        product_id,

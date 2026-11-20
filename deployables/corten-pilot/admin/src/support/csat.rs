@@ -12,8 +12,8 @@
 //! Departures from admin-web, each until its issue closes:
 //! - The survey filter sends the registered version (`csat.v1`); admin-web's `v1` is answered
 //!   500 (chase-sets/chase-sets#10843), and an address with `v1` is read as `csat.v1`.
-//! - A read that fails keeps the filters on the page with a banner (502), since the API answers
-//!   a filter it refuses with 500 (chase-sets/chase-sets#10844).
+//! - A filter the API refuses (400 `validation_failed`) keeps the filters on the page with the
+//!   API's reason (400), as admin-web does; any other failed read keeps them with a banner (502).
 //! - There is no Export: it fails for everyone who is shown it (chase-sets/chase-sets#10845).
 //! - The filter form does not carry the read's `asOf` back, so a later `To` is not refused for
 //!   being after a stale `asOf`.
@@ -26,7 +26,7 @@ use serde_json::{Map, Value};
 
 use super::views;
 use crate::{
-    api::segment,
+    api::{ApiError, Caller as ApiCaller, Method, segment},
     app::{Shared, sign_in},
     auth::{PlatformFeedbackView, Staff},
     text::Sup,
@@ -93,6 +93,20 @@ pub const ROLES: [&str; 4] = ["buyer", "seller", "account", "visitor"];
 pub const STATES: [&str; 6] = ["eligible", "issued", "presented", "submitted", "dismissed", "expired"];
 pub const RATINGS: [&str; 5] = ["1", "2", "3", "4", "5"];
 pub const CONSENTS: [&str; 2] = ["granted", "not-granted"];
+/// Why Customer Feedback refuses a dashboard query (`csatQueryRefusalReasons`).
+pub const REFUSALS: [&str; 11] = [
+    "timestamp-invalid",
+    "range-order",
+    "range-after-as-of",
+    "range-too-long",
+    "history-too-long",
+    "survey-version-unregistered",
+    "granularity-unsupported",
+    "page-size-invalid",
+    "minimum-sample-size-invalid",
+    "cursor-invalid",
+    "filter-empty",
+];
 
 /// A trailing window's or a trend bucket's figures (`CsatMetricSlice`), as far as the page shows them.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
@@ -195,6 +209,8 @@ pub struct CsatScreen {
     pub filters: Chosen,
     /// The dashboard, or none when its read failed.
     pub dashboard: Option<Dashboard>,
+    /// Why the API refused the filters (one of [`REFUSALS`]), when it did.
+    pub refused: Option<String>,
 }
 
 /// The filters the page read with.
@@ -271,6 +287,37 @@ impl Chosen {
     }
 }
 
+/// The dashboard, or the reason Customer Feedback refused its filters (a 400 `validation_failed`
+/// with a reason in [`REFUSALS`]); any other failure is an error.
+async fn read(caller: &ApiCaller<'_>, path: &str) -> Result<Result<Dashboard, String>, ApiError> {
+    let res = caller.request(Method::GET, path, CONTEXT).send().await?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    if status.is_success() {
+        return Ok(Ok(res.json().await?));
+    }
+    #[derive(Deserialize, Default)]
+    struct Refused {
+        #[serde(default)]
+        error: Reason,
+    }
+    #[derive(Deserialize, Default)]
+    struct Reason {
+        code: Option<String>,
+        reason: Option<String>,
+        #[serde(default)]
+        message: String,
+    }
+    let body: Refused = res.json().await.unwrap_or_default();
+    match body.error {
+        Reason { code: Some(code), reason: Some(reason), .. }
+            if status == StatusCode::BAD_REQUEST && code == "validation_failed" && REFUSALS.contains(&reason.as_str()) =>
+        {
+            Ok(Err(reason))
+        }
+        Reason { code, message, .. } => Err(ApiError::Status { status, code, message }),
+    }
+}
+
 /// A date field's value (`YYYY-MM-DD`), else none.
 fn date(value: &str) -> Option<String> {
     let value = value.trim();
@@ -292,20 +339,20 @@ async fn dashboard(
     let query = filters.query(page);
     let path = if query.is_empty() { BASE.to_owned() } else { format!("{BASE}?{query}") };
     let caller = config.platform.caller(&headers, config.proto, None);
-    let (dashboard, status) = match caller.read::<Dashboard>(&path, CONTEXT).await {
-        Ok(dashboard) => (Some(dashboard), StatusCode::OK),
+    let (dashboard, refused, status) = match read(&caller, &path).await {
+        Ok(Ok(dashboard)) => (Some(dashboard), None, StatusCode::OK),
+        Ok(Err(reason)) => (None, Some(reason), StatusCode::BAD_REQUEST),
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return sign_in(&req),
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
             return Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN));
         }
-        // The API answers a filter it refuses with 500 (chase-sets/chase-sets#10844): the filters
-        // stay on the page so they can be changed.
+        // The filters stay on the page so they can be changed.
         Err(error) => {
             tracing::warn!("the CSAT dashboard's read failed: {error}");
-            (None, StatusCode::BAD_GATEWAY)
+            (None, None, StatusCode::BAD_GATEWAY)
         }
     };
-    let screen = CsatScreen { filters, dashboard };
+    let screen = CsatScreen { filters, dashboard, refused };
     let t: Sup = req.t();
     let view = html! { <views::CsatPage t={t} p={req.t()} screen={&screen} /> };
     req.screen_with_status(

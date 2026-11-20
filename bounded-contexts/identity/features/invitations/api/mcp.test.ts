@@ -171,7 +171,7 @@ describe("identity invitation MCP handlers", () => {
       total: 1,
       count: 1,
     });
-    expect(listInvitations).toHaveBeenCalledWith({ search: "acc_1", status: "pending", limit: 10, offset: 2 });
+    expect(listInvitations).toHaveBeenCalledWith({ accountId: "acc_1", status: "pending", limit: 10, offset: 2 });
     await expect(handlers["identity.get-invitation"]!(request({ invitationId: "ivt_1" }))).resolves.toEqual(invitation);
 
     vi.useFakeTimers();
