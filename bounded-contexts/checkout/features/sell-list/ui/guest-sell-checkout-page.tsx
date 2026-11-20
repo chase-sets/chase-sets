@@ -53,10 +53,6 @@ export type GuestSellCheckoutFormValues = Readonly<{
   payoutHandoff: string;
   labelPreference: string;
   termsAccepted: boolean;
-  payoutState: string;
-  payoutEstimateState: string;
-  riskState: string;
-  labelState: string;
 }>;
 
 export type GuestSellCheckoutFieldErrors = Partial<Record<keyof GuestSellCheckoutFormValues | "form", string>>;
@@ -96,10 +92,6 @@ export const guestSellCheckoutDefaultValues: GuestSellCheckoutFormValues = {
   payoutHandoff: "create-account",
   labelPreference: "prepaid-label",
   termsAccepted: false,
-  payoutState: "ready",
-  payoutEstimateState: "current",
-  riskState: "clear",
-  labelState: "ready",
 };
 
 function moneyNumber(value: string | null | undefined) {
@@ -225,17 +217,6 @@ function SummaryPanel({
   );
 }
 
-function hiddenCheckoutState(defaultValues: GuestSellCheckoutFormValues) {
-  return (
-    <>
-      <HiddenInput type="hidden" name="payoutState" value={defaultValues.payoutState} />
-      <HiddenInput type="hidden" name="payoutEstimateState" value={defaultValues.payoutEstimateState} />
-      <HiddenInput type="hidden" name="riskState" value={defaultValues.riskState} />
-      <HiddenInput type="hidden" name="labelState" value={defaultValues.labelState} />
-    </>
-  );
-}
-
 export function GuestSellCheckoutPage({
   sessionId,
   lines,
@@ -268,6 +249,10 @@ export function GuestSellCheckoutPage({
             </LinkButton>
           }
         />
+
+        <LinkButton href="/sell/shipping-setup" tone="secondary">
+          {t("fulfillment.shippingSetup.title")}
+        </LinkButton>
 
         {activeRecovery ? (
           <CheckoutReadinessPrompt
@@ -314,7 +299,6 @@ export function GuestSellCheckoutPage({
               <HiddenInput type="hidden" name="sessionId" value={sessionId} />
               <HiddenInput type="hidden" name="readinessSnapshotId" value={readiness?.snapshotId ?? ""} />
               <HiddenInput type="hidden" name="readinessSourceRevision" value={readiness?.sourceRevision ?? ""} />
-              {hiddenCheckoutState(values)}
 
               {fieldErrors.form ? (
                 <CheckoutStateNotice

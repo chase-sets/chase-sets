@@ -1,5 +1,9 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import { parseTypedIdBoundary, TypedIdBoundaryDomainError } from "@chase-sets/http/typed-id";
+import {
+  parseOptionalTypedIdBoundary,
+  parseTypedIdBoundary,
+  TypedIdBoundaryDomainError,
+} from "@chase-sets/http/typed-id";
 import { t } from "@chase-sets/localization";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
@@ -32,10 +36,18 @@ export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApi
     const actor = c.get("actor");
     if (!canAccessFeedbackAttention(actor, "view")) return accessResponse(c, actor ? 403 : 401);
     const url = new URL(c.req.url);
+    let caseId: string | undefined;
+    try {
+      caseId = parseOptionalTypedIdBoundary(url.searchParams.get("caseId"), "fbcase", "caseId");
+    } catch (error) {
+      if (error instanceof TypedIdBoundaryDomainError) return c.json(error.body, error.status);
+      throw error;
+    }
     const readNow = new Date().toISOString();
     const items = await listFeedbackAttention(db, {
       limit: Number(url.searchParams.get("limit") ?? 100),
       ownerId: url.searchParams.get("ownerId") ?? undefined,
+      caseId,
       overdueOnly: url.searchParams.get("overdueOnly") === "true",
       now: readNow,
     });
@@ -52,38 +64,59 @@ export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApi
     } catch {
       return c.json({ error: { code: "export_reason_code_required" } }, 400);
     }
-    const items = await listFeedbackAttention(db, { limit: 500 });
     const startedAt = new Date().toISOString();
     const exportId = createId("cse");
     const retention = await exportPort.resolveRetentionPolicy(startedAt);
     const artifactExpiresAt = new Date(
       Date.parse(startedAt) + retention.exportArtifactHours * 60 * 60 * 1_000,
     ).toISOString();
-    const rows = [
-      "case_id,state,reason,priority,owner_id,due_at,triage_due_at",
-      ...items.map((item) =>
-        [item.caseId, item.state, item.reason, item.priority, item.ownerId, item.dueAt, item.triageDueAt]
-          .map(csvCell)
-          .join(","),
-      ),
-    ];
-    await exportPort.recordAdminExport({
-      exportId,
-      actorId: actor.userId,
-      capability: privacyPermission("export-sensitive-feedback"),
-      filters: {},
-      reason,
-      startedAt,
-      completedAt: new Date().toISOString(),
-      artifactExpiresAt,
-      rowCount: items.length,
-      result: "completed",
-      failureCode: null,
-      artifactContent: `${rows.join("\n")}\n`,
-    });
-    return c.json({ exportId, rowCount: items.length, artifactExpiresAt, downloadHref: `/export/${exportId}` }, 201, {
-      "Cache-Control": "no-store",
-    });
+    const filters = {};
+    let rowCount = 0;
+    try {
+      const items = await listFeedbackAttention(db, { limit: null, now: startedAt });
+      rowCount = items.length;
+      const rows = [
+        "case_id,state,reason,priority,owner_id,due_at,triage_due_at",
+        ...items.map((item) =>
+          [item.caseId, item.state, item.reason, item.priority, item.ownerId, item.dueAt, item.triageDueAt]
+            .map(csvCell)
+            .join(","),
+        ),
+      ];
+      await exportPort.recordAdminExport({
+        exportId,
+        actorId: actor.userId,
+        capability: privacyPermission("export-sensitive-feedback"),
+        filters,
+        reason,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        artifactExpiresAt,
+        rowCount: items.length,
+        result: "completed",
+        failureCode: null,
+        artifactContent: `${rows.join("\n")}\n`,
+      });
+      return c.json({ exportId, rowCount: items.length, artifactExpiresAt, downloadHref: `/export/${exportId}` }, 201, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      await exportPort.recordAdminExport({
+        exportId,
+        actorId: actor.userId,
+        capability: privacyPermission("export-sensitive-feedback"),
+        filters,
+        reason,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        artifactExpiresAt,
+        rowCount,
+        result: "failed",
+        failureCode: "export-generation-failed",
+        artifactContent: null,
+      });
+      throw error;
+    }
   });
   app.post("/cases/:caseId/follow-up", async (c) => {
     const actor = c.get("actor");

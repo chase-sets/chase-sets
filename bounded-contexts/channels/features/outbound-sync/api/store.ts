@@ -22,6 +22,7 @@ import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs } from "../d
 import { payloadDigest } from "./payload-digest";
 import { reserveOrderPull } from "./order-pull";
 import { reserveLiveExport } from "./live-export";
+import { reserveReadyToShipCanary } from "./ready-to-ship-canary";
 
 type OperationRow = Readonly<{
   operation_id: string;
@@ -407,7 +408,7 @@ export function createOutboundOperationStore(
     reserveConnectorClaimedOperations: async (
       input: ReserveConnectorClaimedOperationsInput,
     ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null> => {
-      const { capabilities, ...reservation } = input;
+      const { capabilities, canaryGrantId, ...reservation } = input;
       assertReserveClaimedOutboundOperationsInput(reservation);
       if (
         reservation.claimant.claimantKind !== "connector" ||
@@ -427,6 +428,7 @@ export function createOutboundOperationStore(
           now,
           orderPull,
           capabilities.includes("tcgplayer-live-export"),
+          canaryGrantId,
         ),
       );
     },
@@ -457,6 +459,7 @@ async function reserveClaimedOutboundOperations(
   now: () => string,
   orderPull: boolean,
   liveExport?: boolean,
+  canaryGrantId?: string,
 ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null>;
 async function reserveClaimedOutboundOperations(
   dependencies: OutboundSyncRuntimeDependencies,
@@ -465,6 +468,7 @@ async function reserveClaimedOutboundOperations(
   now: () => string,
   orderPull: boolean,
   liveExport = false,
+  canaryGrantId?: string,
 ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null> {
   const connection = await readConnection(db, input.connectionId, true);
   if (!connection) throw new OutboundSyncError("connection-not-found");
@@ -480,6 +484,17 @@ async function reserveClaimedOutboundOperations(
   const reservationId = `cor_${randomUUID()}`;
   const reservedAt = now();
   const leaseExpiresAt = new Date(Date.parse(reservedAt) + input.leaseMs).toISOString();
+  if (canaryGrantId) {
+    const canary = await reserveReadyToShipCanary(db, {
+      connectionId: input.connectionId,
+      claimant: input.claimant,
+      grantId: canaryGrantId,
+      providerIdentity: admission.providerIdentity,
+      reservedAt,
+      leaseExpiresAt,
+    });
+    if (canary) return canary;
+  }
   const live = liveExport
     ? await reserveLiveExport(db, {
         connectionId: input.connectionId,

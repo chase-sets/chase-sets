@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterEach, describe, expect, it } from "vitest";
+import { formatSqlPartition, sqlPartitionPath } from "./sql-execution-surface-partition-format.mjs";
 import {
   SANCTIONED_SQL_RECEIVER_RESOLUTION,
   classifySqlExecutionSurface,
@@ -330,13 +331,13 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     const anchors = [
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236, "db"],
-      ["infrastructure/event-core-postgres/types.ts", 47, "client"],
+      ["infrastructure/event-core-postgres/types.ts", 49, "client"],
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 354, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
+      ["bounded-contexts/identity/features/accounts/api/listing-activation-authority.ts", 35, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
       ["bounded-contexts/catalog/features/catalog-items/read-model/projection.ts", 28, "projectionDb"],
       [
@@ -383,7 +384,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255],
+      ["bounded-contexts/identity/features/accounts/api/listing-activation-authority.ts", 35],
       [fixtureFile, 29],
       [fixtureFile, 37],
     ];
@@ -394,7 +395,12 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       path.join(repoRoot, "bounded-contexts/identity/support/runtime-support/services.ts"),
       "utf8",
     ).split(/\r?\n/);
-    expect(identityServicesLines[82]).toContain("pool as PgQueryable");
+    expect(identityServicesLines[100]).toContain("pool as PgQueryable");
+  });
+
+  it("classifies canonical-only QA actor orchestration as non-SQL", () => {
+    const result = classify(["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts"]);
+    expect(result.modules[0].outcome).toBe("not-sql");
   });
 
   it("classifies every P14 bind-then-call sibling module as SQL-executing", () => {
@@ -445,7 +451,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
     expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 867)?.outcome).toBe("not-sql");
-    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 51)?.outcome).toBe(
+    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 63)?.outcome).toBe(
       "not-sql",
     );
     expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 168)?.outcome).toBe("not-sql");
@@ -708,7 +714,7 @@ describe("SQL execution diff scope fail-closed controls", () => {
     const root = createContractRepo();
     const surviving = [
       "contracts/embedded-surface-theme/index.ts",
-      "infrastructure/stripe-appearance/stripe-appearance.ts",
+      "infrastructure/stripe-config/index.ts",
       "packages/design-system/src/index.ts",
     ];
     for (const file of surviving) {
@@ -717,9 +723,9 @@ describe("SQL execution diff scope fail-closed controls", () => {
     }
     const changedFiles = [
       ".github/workflows/platform-pr.yml",
-      "bounded-contexts/payments/tests/stripe-appearance.test.ts",
+      "bounded-contexts/payments/tests/account-payment-route.test.tsx",
       ...surviving,
-      "packages/design-system/src/theme/stripe-appearance.ts",
+      "packages/design-system/src/theme/retired-adapter.ts",
       "scripts/check-structure/sql-execution-surface-partition.json",
     ];
     const result = runSqlExecutionSurfaceGuard({ repoRoot: root, changedFilesJson: JSON.stringify(changedFiles) });
@@ -1036,15 +1042,12 @@ describe("repository-wide SQL execution partition", () => {
     );
   }, 120_000);
 
-  it("keeps the committed partition equal to fresh tracked-inventory classification", () => {
+  it("keeps the committed partition equal to fresh tracked-inventory classification", async () => {
     const files = listNonTestTypeScriptModules(repoRoot);
     const result = classify(files);
     expect(result.modules.map((module) => module.file)).toEqual(files);
     const actual = exceptionalSqlPartition(files, result);
-    const expected = readFileSync(
-      path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"),
-      "utf8",
-    );
-    expect(`${JSON.stringify(actual, null, 2)}\n`).toBe(expected);
+    const expected = readFileSync(sqlPartitionPath, "utf8");
+    expect(await formatSqlPartition(actual)).toBe(expected);
   }, 120_000);
 });

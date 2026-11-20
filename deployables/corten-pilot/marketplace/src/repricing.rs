@@ -21,30 +21,48 @@
 //! the form applies a choice as it changes (search's pattern); a text field waits for Apply or
 //! Enter.
 //!
-//! A policy's own page and its activity are `repricing_policy`, which a policy's name opens.
+//! Open up this preset (once the preset has what a preview needs) posts the form, and the page
+//! answers with the editor a policy's page revises with (`repricing_policy`'s, without a policy):
+//! the structured controls for a one-rule preset, else the advanced ones. From then the editor is
+//! one posted form carrying the body it drew, as a revise's is; its Preview starts the dry run of the
+//! body, and Activate creates the policy from a completed, unused run whose body is the editor's
+//! now, then goes to the list with its receipt.
 //!
-//! Not ported: the structured and advanced rule editors (Open up this preset) and revising a policy.
+//! A policy's own page and its activity are `repricing_policy`, which a policy's name opens; its
+//! Edit revises the policy with the structured and advanced editors too (`repricing_body`).
+//!
+//! Each write is a configuration request (chase-sets/chase-sets#11459's receipts): Pricing installs
+//! it, or records it as pending, or answers that a later request replaced it. An installed write
+//! goes on as before; one that is not is drawn where it was posted with marketplace's message
+//! (`repricingConfigurationMessage`), and an editor stays open. The list also says what each request
+//! Pricing has not installed is (`configuration-requests`; if that read fails, the list says it
+//! could not load and the halt's switch is off, as marketplace's `haltFailed`). Every posted form
+//! sends its `SubmitKey` as the request's `Idempotency-Key`, and an editor drawn again after a
+//! request that is not installed holds the key it sent, so sending it again is the same request. The
+//! create editor's controls are a GET form, which cannot carry a key without putting it in the
+//! address, so its Activate sends none and Pricing makes one up: a second Activate is a new request
+//! that replaces the first.
 use std::time::Duration;
 
 use corten::{
-    LiveResponse,
-    axum::http::{HeaderMap, StatusCode},
+    LiveResponse, SubmitKey,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;
 use platform::receipt::Receipt;
-use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
-        ApiError, PRICING_CONTEXT, PricingRefusal, RepricingCalls as _, RepricingCategory, RepricingDryRun, RepricingHalt,
-        RepricingPolicyRow, RepricingPrerequisites, RepricingScope, RepricingScopePreview, RepricingTrace,
-        repricing_dry_run_events,
+        ApiError, ConfigurationReceipt, Configured, PRICING_CONTEXT, PricingRefusal, RepricingCalls as _, RepricingCategory,
+        RepricingDryRun, RepricingHalt, RepricingPolicyRow, RepricingPrerequisites, RepricingScope, RepricingScopePreview,
+        RepricingTrace, repricing_dry_run_events,
     },
     app::{PRICING_MANAGE, Shared, sign_in, url},
     auth::{PricingManager, Viewer},
+    repricing_body::{Op, body_key, compile_preset, distinct, number},
+    repricing_policy::{Revise, ReviseEditor, ReviseScreen},
     text::{Pilot, RepricingMsg},
     views::{self, Layout},
 };
@@ -116,11 +134,6 @@ pub struct Editor {
     pub scope: RepricingScope,
 }
 
-/// A whole number when it is one, so the body says 10 and not 10.0, as the browser's JSON does.
-fn number(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 1e15 { json!(n as i64) } else { json!(n) }
-}
-
 impl Editor {
     /// The editor's controls read with what the account has (`listingCurrencyCodes`,
     /// `hasCostBasis`): a preset chosen anew starts from its own name, knob and age, as
@@ -172,63 +185,40 @@ impl Editor {
         !self.currency.is_empty() && !amount.is_empty()
     }
 
-    /// The dry run's body for the preset (marketplace's `compileRepricingPreset`), with the name.
+    /// The dry run's body for the preset (marketplace's `compileRepricingPreset`), with the name
+    /// and the authoring intent that opens it in these controls again.
     pub fn compile(&self) -> Value {
-        let preset = self.preset;
-        let anchors = match preset {
-            Preset::Beat => json!([{ "source": "lowest-competing-ask" }, { "source": "market-estimate" }]),
-            Preset::Premium => json!([{ "source": "comp-percentile", "percentile": 75 }, { "source": "market-estimate" }]),
-            Preset::Track | Preset::Slow => {
-                json!([{ "source": "market-estimate" }, { "source": "lowest-competing-ask" }, { "source": "last-sold" }])
-            }
-        };
-        let percent = if matches!(preset, Preset::Beat | Preset::Slow) { -self.knob } else { self.knob };
         let floor = match &self.floor {
             Floor::Absolute { amount } => json!({ "mode": "absolute", "amount": amount }),
             Floor::CostPlus { margin, fallback } => {
                 json!({ "mode": "cost-basis-plus-margin", "marginPercent": number(*margin), "absoluteFallbackAmount": fallback })
             }
         };
-        let tolerance = match preset {
-            Preset::Beat => 1,
-            Preset::Premium => 3,
-            Preset::Track | Preset::Slow => 2,
+        let scope = serde_json::to_value(&self.scope).unwrap_or(Value::Null);
+        compile_preset(self.preset, &self.name, &self.currency, floor, self.knob as f64, self.age, scope)
+    }
+
+    /// The preset's controls for a body whose intent is this preset (`recognizeAuthoringIntent`),
+    /// as a revise opens them: the policy's name, scope, currency and floor.
+    pub fn of_preset(body: &Value, preset: Preset, knob: f64, age: i64) -> Editor {
+        let directive = &body["rules"][0]["directive"];
+        let floor = &directive["floor"];
+        let floor = match floor["mode"].as_str() {
+            Some("cost-basis-plus-margin") => Floor::CostPlus {
+                margin: floor["marginPercent"].as_f64().unwrap_or(10.0),
+                fallback: floor["absoluteFallbackAmount"].as_str().unwrap_or_default().to_owned(),
+            },
+            _ => Floor::Absolute { amount: floor["amount"].as_str().unwrap_or_default().to_owned() },
         };
-        let max_move = match preset {
-            Preset::Premium => 15,
-            Preset::Slow => 25,
-            Preset::Track | Preset::Beat => 20,
-        };
-        let directive = json!({
-            "currencyCode": self.currency,
-            "anchorChain": anchors,
-            "offset": { "mode": "percent", "percent": percent },
-            "floor": floor,
-            "ceiling": null,
-            "tolerance": { "mode": "percent", "percent": tolerance },
-            "rounding": { "mode": "none" },
-            "maxMovePercent": max_move,
-            "terminal": { "kind": "hold" },
-        });
-        let rules = if preset == Preset::Slow {
-            let mut rest = directive.clone();
-            rest["offset"] = json!({ "mode": "percent", "percent": 0 });
-            rest["tolerance"] = json!({ "mode": "percent", "percent": 5 });
-            rest["maxMovePercent"] = json!(10);
-            json!([
-                { "conditions": [{ "type": "listing-age-at-least", "days": self.age }], "directive": directive },
-                { "conditions": [], "directive": rest },
-            ])
-        } else {
-            json!([{ "conditions": [], "directive": directive }])
-        };
-        json!({
-            "name": self.name,
-            "scope": serde_json::to_value(&self.scope).unwrap_or(Value::Null),
-            "excludedListingIds": [],
-            "maxChangesPerDay": 250,
-            "rules": rules,
-        })
+        Editor {
+            name: body["name"].as_str().unwrap_or_default().to_owned(),
+            preset,
+            knob: knob.round() as i64,
+            age,
+            currency: directive["currencyCode"].as_str().unwrap_or_default().to_owned(),
+            floor,
+            scope: serde_json::from_value(body["scope"].clone()).unwrap_or(RepricingScope::AllListings),
+        }
     }
 
     /// Whether `run` previewed this policy: Pricing keeps the body without its name.
@@ -276,20 +266,9 @@ impl Editor {
     }
 }
 
-/// Each value once, trimmed, in order; empty ones left out.
-fn distinct(values: impl Iterator<Item = String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for value in values.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()) {
-        if !out.contains(&value) {
-            out.push(value);
-        }
-    }
-    out
-}
-
 /// The page's address: the editor (open, its controls and the dry run that previews them), the
 /// receipt of the write the list waits for, and where the dry run's samples start.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -313,6 +292,12 @@ pub struct Place {
     pub dry_run: Option<String>,
     /// The dry run's samples after this listing (Next 100 results).
     pub after: Option<String>,
+    /// The policy a revise's dry run previews (its live relay's address): its part posts the
+    /// policy's editor rather than linking to this page.
+    pub revise: Option<String>,
+    /// The dry run previews the create editor opened up (its live relay's address): its part posts
+    /// that editor, and activates.
+    pub opened: Option<String>,
 }
 
 /// The editor's controls, from the address or a post.
@@ -367,48 +352,11 @@ impl Place {
     }
 }
 
-/// A write: Pause, Resume, the halt, Preview and Activate. The editor's posts carry its controls,
-/// named as the address names them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
-#[serde(rename_all = "camelCase", default)]
-pub struct WriteForm {
-    pub intent: String,
-    pub policy_id: String,
-    pub name: Option<String>,
-    pub preset: Option<String>,
-    pub from: Option<String>,
-    pub knob: Option<String>,
-    pub age: Option<String>,
-    pub currency: Option<String>,
-    pub floor: Option<String>,
-    pub amount: Option<String>,
-    pub margin: Option<String>,
-    pub fallback: Option<String>,
-    pub scope: Option<String>,
-    pub categories: Vec<String>,
-    pub listings: Option<String>,
-    pub dry_run: Option<String>,
-}
-
-impl WriteForm {
-    fn input(&self) -> EditorInput {
-        EditorInput {
-            name: self.name.clone(),
-            preset: self.preset.clone(),
-            from: self.from.clone(),
-            knob: self.knob.clone(),
-            age: self.age.clone(),
-            currency: self.currency.clone(),
-            floor: self.floor.clone(),
-            amount: self.amount.clone(),
-            margin: self.margin.clone(),
-            fallback: self.fallback.clone(),
-            scope: self.scope.clone(),
-            categories: self.categories.clone(),
-            listings: self.listings.clone(),
-        }
-    }
-}
+/// A write: Pause, Resume, the halt, Preview, Open up this preset and Activate. The address
+/// editor's posts carry its controls, named as the address names them; the opened editor's carry
+/// its tier and body as a policy's editor does. One form for both pages
+/// (`repricing_policy::PolicyForm`).
+pub type WriteForm = crate::repricing_policy::PolicyForm;
 
 /// The policies, or why the page cannot show them.
 pub enum Policies {
@@ -425,6 +373,19 @@ pub enum Traces {
     Failed,
 }
 
+/// The editor a dry run previews.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunEditor {
+    /// The create editor's address holds the run: links read its next samples and read it again,
+    /// and Activate posts the address's form.
+    Address,
+    /// The create editor opened up: posting its form reads them, and Activate posts it too.
+    Opened,
+    /// A policy's revise: posting its form reads them, and it saves without a preview (no
+    /// Activate).
+    Policy,
+}
+
 /// A dry run as the editor shows it.
 pub struct DryRunView {
     pub run: RepricingDryRun,
@@ -433,6 +394,7 @@ pub struct DryRunView {
     pub current: bool,
     /// The editor's address with this run: Next 100 results, and the read again without a script.
     pub place: Place,
+    pub editor: RunEditor,
 }
 
 impl DryRunView {
@@ -452,12 +414,16 @@ pub struct EditorScreen {
     pub run: Option<DryRunView>,
     /// What Pricing refused the last post for.
     pub errors: Vec<String>,
+    /// Activate's request, when Pricing did not install it.
+    pub requested: Option<Unsettled>,
 }
 
 /// The editor, or that it could not read what it starts from (`authoring-prerequisites`,
 /// `categories`).
 pub enum EditorPart {
     Ready(Box<EditorScreen>),
+    /// Opened up: the structured or advanced controls over the body it carries.
+    Opened(Box<ReviseScreen>),
     Unavailable,
 }
 
@@ -465,25 +431,57 @@ pub enum EditorPart {
 pub struct RepricingScreen {
     pub policies: Policies,
     pub halt: RepricingHalt,
-    /// The halt could not be read: its switch is off and the list says it could not load.
+    /// The halt, or the requests not installed, could not be read: the halt's switch is off and the
+    /// list says it could not load.
     pub halt_failed: bool,
     pub dry_runs: Vec<RepricingDryRun>,
     pub editor: Option<EditorPart>,
     /// What a list write was refused for: the message and Pricing's details.
     pub refusal: Option<(String, Vec<String>)>,
+    /// A list write's request Pricing did not install.
+    pub requested: Option<ConfigurationReceipt>,
+    /// The account's other requests Pricing has not installed.
+    pub requests: Vec<ConfigurationReceipt>,
     /// The reader may change policies and the halt (`pricing.manage`).
     pub manage: bool,
 }
 
-/// What a post's refusal puts on the page.
+/// A write Pricing recorded and did not install (pending, or replaced by a later request), and the
+/// attempt the form sent it as, which the editor's form holds again.
+#[derive(Clone, Debug)]
+pub struct Unsettled {
+    pub receipt: ConfigurationReceipt,
+    pub attempt: Option<SubmitKey>,
+}
+
+/// What marketplace says of a configuration request (`repricingConfigurationMessage`).
+pub fn configuration_message(t: RepricingMsg, receipt: &ConfigurationReceipt) -> String {
+    let revision = receipt.requested_revision().to_string();
+    match receipt {
+        ConfigurationReceipt::Applied { .. } => t.shared_configuration_applied(&revision).to_string(),
+        ConfigurationReceipt::AcceptedPending { .. } => t.shared_configuration_accepted_pending(&revision).to_string(),
+        ConfigurationReceipt::SupersededByRevision { replacing_revision, .. } => t
+            .shared_configuration_superseded_by_revision(crate::text::repricing_msg::SharedConfigurationSupersededByRevision {
+                revision: &revision,
+                replacement: &replacing_revision.to_string(),
+            })
+            .to_string(),
+    }
+}
+
+/// What a post's refusal, or its request Pricing did not install, puts on the page.
 enum Refused {
     None,
     List(String, Vec<String>),
     Editor(Vec<String>),
+    /// A list write's request.
+    Requested(ConfigurationReceipt),
+    /// The create editor's Activate's request: the editor stays open.
+    EditorRequested(Unsettled),
 }
 
 /// The session ended: the seller signs in again.
-fn ended(error: &ApiError) -> bool {
+pub(crate) fn ended(error: &ApiError) -> bool {
     error.status() == Some(StatusCode::UNAUTHORIZED)
 }
 
@@ -503,7 +501,7 @@ pub(crate) fn messages(req: &Req, refusal: PricingRefusal, fallback: &str) -> Re
 }
 
 /// The run and, once it completed, its samples from `after`.
-async fn dry_run(
+pub(crate) async fn dry_run(
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
@@ -533,6 +531,7 @@ async fn editor(
     place: &Place,
     input: &EditorInput,
     errors: Vec<String>,
+    requested: Option<Unsettled>,
 ) -> Result<EditorPart, ApiError> {
     let caller = config.platform.caller(headers, config.proto, None);
     let (facts, categories) = tokio::join!(caller.repricing_prerequisites(), caller.repricing_categories());
@@ -567,7 +566,7 @@ async fn editor(
             let current = editor.previewed_by(&run);
             let mut at = editor.place(Some(&run.dry_run_id));
             at.after = place.after.clone();
-            Some(DryRunView { run, traces, current, place: at })
+            Some(DryRunView { run, traces, current, place: at, editor: RunEditor::Address })
         }
         Some(Err(error)) if ended(&error) => return Err(error),
         Some(Err(error)) => {
@@ -576,7 +575,7 @@ async fn editor(
         }
         None => None,
     };
-    Ok(EditorPart::Ready(Box::new(EditorScreen { editor, facts, categories, preview, run, errors })))
+    Ok(EditorPart::Ready(Box::new(EditorScreen { editor, facts, categories, preview, run, errors, requested })))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -588,22 +587,30 @@ async fn render(
     place: &Place,
     input: Option<EditorInput>,
     refused: Refused,
+    opened: Option<Revise>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
     let caller = config.platform.caller(headers, config.proto, None);
-    let (policies, halt, dry_runs) =
-        tokio::join!(waiting.repricing_policies(), caller.repricing_halt(), caller.repricing_dry_runs(20));
-    if [policies.as_ref().err(), halt.as_ref().err(), dry_runs.as_ref().err()].into_iter().flatten().any(ended) {
+    let (policies, halt, dry_runs, requests) = tokio::join!(
+        waiting.repricing_policies(),
+        caller.repricing_halt(),
+        caller.repricing_dry_runs(20),
+        caller.repricing_configuration_requests(),
+    );
+    if [policies.as_ref().err(), halt.as_ref().err(), dry_runs.as_ref().err(), requests.as_ref().err()]
+        .into_iter()
+        .flatten()
+        .any(ended)
+    {
         return sign_in(req);
     }
     let policies = match policies {
         Ok(policies) => Policies::Read(policies),
         Err(error) if receipt.is_some() && error.catching_up() => Policies::CatchingUp,
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN));
+            return Err(crate::app::api_refused(error));
         }
         Err(error) => {
             tracing::warn!("the repricing policies could not be read: {error}");
@@ -613,17 +620,34 @@ async fn render(
     if let Err(error) = &halt {
         tracing::warn!("the repricing halt could not be read: {error}");
     }
-    let halt_failed = halt.is_err();
+    if let Err(error) = &requests {
+        tracing::warn!("the repricing configuration requests could not be read: {error}");
+    }
+    let halt_failed = halt.is_err() || requests.is_err();
     let halt = halt.unwrap_or_default();
     let dry_runs = dry_runs.unwrap_or_default();
-    let (refusal, errors) = match refused {
-        Refused::None => (None, Vec::new()),
-        Refused::List(message, details) => (Some((message, details)), Vec::new()),
-        Refused::Editor(errors) => (None, errors),
+    let (refusal, errors, requested, editor_requested) = match refused {
+        Refused::None => (None, Vec::new(), None, None),
+        Refused::List(message, details) => (Some((message, details)), Vec::new(), None, None),
+        Refused::Editor(errors) => (None, errors, None, None),
+        Refused::Requested(receipt) => (None, Vec::new(), Some(receipt), None),
+        Refused::EditorRequested(unsettled) => (None, Vec::new(), None, Some(unsettled)),
     };
-    let editor = if place.editing() {
+    // This post's request is said once, by the post (marketplace's filter on its `requestKey`).
+    let posted = requested.as_ref().or(editor_requested.as_ref().map(|unsettled| &unsettled.receipt));
+    let requests = requests
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| !request.applied() && posted.is_none_or(|posted| posted.request_key() != request.request_key()))
+        .collect();
+    let editor = if let Some(revise) = opened {
+        match opened_part(config, headers, revise).await {
+            Ok(part) => Some(part),
+            Err(_) => return sign_in(req),
+        }
+    } else if place.editing() {
         let input = input.unwrap_or_else(|| place.input());
-        match editor(req, config, headers, place, &input, errors).await {
+        match editor(req, config, headers, place, &input, errors, editor_requested).await {
             Ok(part) => Some(part),
             Err(_) => return sign_in(req),
         }
@@ -632,16 +656,15 @@ async fn render(
     };
     let catching_up = matches!(policies, Policies::CatchingUp);
     let manage = viewer.actor.can(PRICING_MANAGE);
-    let screen = RepricingScreen { policies, halt, halt_failed, dry_runs, editor, refusal, manage };
+    let screen = RepricingScreen { policies, halt, halt_failed, dry_runs, editor, refusal, requested, requests, manage };
     let t: RepricingMsg = req.t();
     let head = html! {
         <meta name="description" content={t.route_meta_description()}>
         <meta name="robots" content="noindex">
         {catching_up.then_some(ReadAgain { after: Duration::from_secs(2) })}
     };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_meta_title()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_meta_title()} head={head}>
             <views::RepricingPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -650,14 +673,13 @@ async fn render(
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::repricing::Repricing>,
 ) -> HtmlResult {
     let place = route.place;
-    render(&req, &viewer, &config, &headers, &place, None, Refused::None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, &place, None, Refused::None, None, StatusCode::OK).await
 }
 
 /// The list again with what a write was refused for (422).
@@ -668,10 +690,20 @@ async fn list_refused(
     headers: &HeaderMap,
     message: &str,
     details: Vec<String>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let refused = Refused::List(message.to_owned(), details);
-    render(req, viewer, config, headers, &Place::default(), None, refused, StatusCode::UNPROCESSABLE_ENTITY, chrome).await
+    render(req, viewer, config, headers, &Place::default(), None, refused, None, StatusCode::UNPROCESSABLE_ENTITY).await
+}
+
+/// The list again with a write's request Pricing did not install.
+async fn list_requested(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    receipt: ConfigurationReceipt,
+) -> HtmlResult {
+    render(req, viewer, config, headers, &Place::default(), None, Refused::Requested(receipt), None, StatusCode::OK).await
 }
 
 /// The editor again at `place` with what its post was refused for (422).
@@ -682,11 +714,117 @@ async fn editor_refused(
     headers: &HeaderMap,
     place: Place,
     errors: Vec<String>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let input = place.input();
-    render(req, viewer, config, headers, &place, Some(input), Refused::Editor(errors), StatusCode::UNPROCESSABLE_ENTITY, chrome)
+    render(req, viewer, config, headers, &place, Some(input), Refused::Editor(errors), None, StatusCode::UNPROCESSABLE_ENTITY)
         .await
+}
+
+/// The opened editor's part over `revise`.
+async fn opened_part(config: &Shared, headers: &HeaderMap, revise: Revise) -> Result<EditorPart, ApiError> {
+    Ok(match crate::repricing_policy::revise_part(config, headers, None, &Value::Null, None, Some(revise)).await? {
+        ReviseEditor::Ready(screen) => EditorPart::Opened(screen),
+        ReviseEditor::Unavailable => EditorPart::Unavailable,
+    })
+}
+
+/// The opened editor drawn again over `revise`: its part for the runtime's post (a patch), else
+/// the page.
+async fn answer_opened(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    revise: Revise,
+    status: StatusCode,
+) -> HtmlResult {
+    let Some(script) = req.action() else {
+        return render(req, viewer, config, headers, &Place::create(), None, Refused::None, Some(revise), status).await;
+    };
+    let part = match opened_part(config, headers, revise).await {
+        Ok(part) => part,
+        Err(_) => return sign_in(req),
+    };
+    let (t, p): (RepricingMsg, Pilot) = (req.t(), req.t());
+    script.patch_with_status(status, html! { <views::RepricingEditorSection t={t} p={p} part={&part} /> })
+}
+
+/// A post of the create editor opened up: its controls over the body it drew, then what it asked.
+/// Preview starts the dry run of the policy as it is now; Activate creates the policy from a
+/// completed, unused run of that policy (`canActivate`) and goes to the list with its receipt;
+/// anything else draws the editor again. A refusal keeps what was posted (422).
+async fn opened(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, form: &WriteForm) -> HtmlResult {
+    let (t, p): (RepricingMsg, Pilot) = (req.t(), req.t());
+    let caller = config.platform.caller(headers, config.proto, None);
+    let facts = match caller.repricing_prerequisites().await {
+        Ok(facts) => facts,
+        Err(error) if ended(&error) => return sign_in(req),
+        Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+    };
+    let Some(mut revise) = Revise::posted(form, &facts, t) else {
+        // A post without a body the editor can read starts the editor again.
+        return editor_refused(req, viewer, config, headers, Place::create(), vec![t.editor_validation_failed().to_owned()])
+            .await;
+    };
+    let again = |mut revise: Revise, status: StatusCode, errors: Vec<String>| {
+        revise.errors = errors;
+        answer_opened(req, viewer, config, headers, revise, status)
+    };
+    let invalid = || vec![t.editor_validation_failed().to_owned()];
+    if matches!(form.intent.as_str(), "open-up" | "open-advanced") && !revise.complete() {
+        return again(revise, StatusCode::UNPROCESSABLE_ENTITY, invalid()).await;
+    }
+    revise.change(&form.intent, form.op.as_deref().and_then(Op::read), &facts);
+    match form.intent.as_str() {
+        "preview" | "create-policy" if !revise.complete() => again(revise, StatusCode::UNPROCESSABLE_ENTITY, invalid()).await,
+        "preview" => match caller.start_repricing_dry_run(&revise.candidate()).await {
+            Ok(run) => {
+                revise.dry_run = Some(run.dry_run_id);
+                revise.after = None;
+                again(revise, StatusCode::OK, Vec::new()).await
+            }
+            Err(refusal) => match messages(req, refusal, t.editor_validation_failed()) {
+                Ok(errors) => again(revise, StatusCode::UNPROCESSABLE_ENTITY, errors).await,
+                Err(answer) => *answer,
+            },
+        },
+        "create-policy" => {
+            let Some(run_id) = revise.dry_run.clone() else {
+                return again(revise, StatusCode::UNPROCESSABLE_ENTITY, vec![p.repricing_preview_first().to_owned()]).await;
+            };
+            let run = match caller.repricing_dry_run(&run_id).await {
+                Ok(run) => run,
+                Err(error) if ended(&error) => return sign_in(req),
+                Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+            };
+            let candidate = revise.candidate();
+            let refusal = if body_key(&candidate) != body_key(&run.body) {
+                Some(p.repricing_changed())
+            } else if run.status != "completed" || run.consumed_at.is_some() {
+                Some(p.repricing_preview_first())
+            } else {
+                None
+            };
+            if let Some(refusal) = refusal {
+                return again(revise, StatusCode::UNPROCESSABLE_ENTITY, vec![refusal.to_owned()]).await;
+            }
+            let name = candidate["name"].as_str().unwrap_or_default().trim().to_owned();
+            match caller.create_repricing_policy(form.attempt.as_ref().map(SubmitKey::as_str), &run_id, &name).await {
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
+                }
+                Ok(Configured { receipt, .. }) => {
+                    revise.requested = Some(Unsettled { receipt, attempt: form.attempt.clone() });
+                    again(revise, StatusCode::OK, Vec::new()).await
+                }
+                Err(refusal) => match messages(req, refusal, t.route_action_failed()) {
+                    Ok(errors) => again(revise, StatusCode::UNPROCESSABLE_ENTITY, errors).await,
+                    Err(answer) => *answer,
+                },
+            }
+        }
+        _ => again(revise, StatusCode::OK, Vec::new()).await,
+    }
 }
 
 /// Pause, Resume, the halt, Preview and Activate (marketplace's action's intents). Each list write
@@ -694,7 +832,6 @@ async fn editor_refused(
 /// Activate to the list with the new policy's receipt. A refusal is drawn where it was posted.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -703,26 +840,34 @@ pub(crate) async fn write(
     let (t, p): (RepricingMsg, Pilot) = (req.t(), req.t());
     let caller = config.platform.caller(&headers, config.proto, None);
     let title = t.shared_action_error_title();
+    if form.tier.is_some() {
+        return opened(&req, &viewer, &config, &headers, &form).await;
+    }
+    let attempt = form.attempt.as_ref().map(SubmitKey::as_str);
     match form.intent.as_str() {
         intent @ ("pause-policy" | "resume-policy") => {
             let change = if intent == "pause-policy" { "pause" } else { "resume" };
-            match caller.repricing_lifecycle(form.policy_id.trim(), change).await {
-                Ok(receipt) => req.redirect(&url::Repricing { place: Place::list(receipt.as_ref()) }),
+            match caller.repricing_lifecycle(attempt, form.policy_id.trim(), change).await {
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
+                }
+                Ok(Configured { receipt, .. }) => list_requested(&req, &viewer, &config, &headers, receipt).await,
                 Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
-                    Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details, &chrome).await,
+                    Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details).await,
                     Err(answer) => *answer,
                 },
             }
         }
-        intent @ ("engage-halt" | "release-halt") => match caller.set_repricing_halt(intent == "engage-halt").await {
+        intent @ ("engage-halt" | "release-halt") => match caller.set_repricing_halt(attempt, intent == "engage-halt").await {
             // The halt is its own aggregate, read without a receipt (as marketplace's redirect).
-            Ok(_) => req.redirect(&url::Repricing { place: Place::default() }),
+            Ok(Configured { receipt, .. }) if receipt.applied() => req.redirect(&url::Repricing { place: Place::default() }),
+            Ok(Configured { receipt, .. }) => list_requested(&req, &viewer, &config, &headers, receipt).await,
             Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
-                Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details, &chrome).await,
+                Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details).await,
                 Err(answer) => *answer,
             },
         },
-        intent @ ("preview" | "create-policy") => {
+        intent @ ("preview" | "create-policy" | "open-up") => {
             let facts = match caller.repricing_prerequisites().await {
                 Ok(facts) => facts,
                 Err(error) if ended(&error) => return sign_in(&req),
@@ -730,22 +875,30 @@ pub(crate) async fn write(
             };
             let editor = Editor::read(&form.input(), &facts, t);
             let run_id = form.dry_run.as_deref().map(str::trim).filter(|id| !id.is_empty());
+            if intent == "open-up" {
+                // Only a preset with what a preview needs opens up (`promptComplete`).
+                if !editor.complete() {
+                    let errors = vec![t.editor_validation_failed().to_owned()];
+                    return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await;
+                }
+                return answer_opened(&req, &viewer, &config, &headers, Revise::opened(editor, &facts), StatusCode::OK).await;
+            }
             if intent == "preview" {
                 if !editor.complete() {
                     let errors = vec![t.editor_validation_failed().to_owned()];
-                    return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors, &chrome).await;
+                    return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await;
                 }
                 return match caller.start_repricing_dry_run(&editor.compile()).await {
                     Ok(run) => req.redirect(&url::Repricing { place: editor.place(Some(&run.dry_run_id)) }),
                     Err(refusal) => match messages(&req, refusal, t.editor_validation_failed()) {
-                        Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors, &chrome).await,
+                        Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await,
                         Err(answer) => *answer,
                     },
                 };
             }
             let Some(run_id) = run_id else {
                 let errors = vec![p.repricing_preview_first().to_owned()];
-                return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors, &chrome).await;
+                return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await;
             };
             let run = match caller.repricing_dry_run(run_id).await {
                 Ok(run) => run,
@@ -762,19 +915,26 @@ pub(crate) async fn write(
             };
             if let Some(refusal) = refusal {
                 let errors = vec![refusal.to_owned()];
-                return editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors, &chrome).await;
+                return editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors).await;
             }
-            match caller.create_repricing_policy(run_id, &editor.name).await {
-                Ok(receipt) => req.redirect(&url::Repricing { place: Place::list(receipt.as_ref()) }),
+            // The address editor's form is a GET form and holds no attempt (the module's doc).
+            match caller.create_repricing_policy(attempt, run_id, &editor.name).await {
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
+                }
+                Ok(Configured { receipt, .. }) => {
+                    let place = editor.place(Some(run_id));
+                    let input = place.input();
+                    let requested = Refused::EditorRequested(Unsettled { receipt, attempt: None });
+                    render(&req, &viewer, &config, &headers, &place, Some(input), requested, None, StatusCode::OK).await
+                }
                 Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
-                    Ok(errors) => {
-                        editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors, &chrome).await
-                    }
+                    Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors).await,
                     Err(answer) => *answer,
                 },
             }
         }
-        _ => list_refused(&req, &viewer, &config, &headers, t.route_unknown_action(), Vec::new(), &chrome).await,
+        _ => list_refused(&req, &viewer, &config, &headers, t.route_unknown_action(), Vec::new()).await,
     }
 }
 
@@ -825,10 +985,22 @@ pub(crate) async fn live(
                         return None;
                     }
                 };
-                let editor = Editor::read(&place.input(), &facts, t);
                 let finished = run.finished();
-                let current = editor.previewed_by(&run);
-                let view = DryRunView { place: editor.place(Some(&run.dry_run_id)), run, traces, current };
+                // A run of a posted editor (a revise's, or the create editor opened up) previews the
+                // body that editor posted; the editor says whether it still does when it is drawn
+                // again, and Activate checks it.
+                let posted = match (&place.revise, &place.opened) {
+                    (Some(_), _) => Some(RunEditor::Policy),
+                    (None, Some(_)) => Some(RunEditor::Opened),
+                    (None, None) => None,
+                };
+                let view = if let Some(editor) = posted {
+                    DryRunView { place: place.clone(), run, traces, current: true, editor }
+                } else {
+                    let editor = Editor::read(&place.input(), &facts, t);
+                    let current = editor.previewed_by(&run);
+                    DryRunView { place: editor.place(Some(&run.dry_run_id)), run, traces, current, editor: RunEditor::Address }
+                };
                 let html = views::repricing_dry_run_part(t, p, &view).to_html();
                 Some((corten::Fragment::new(html), finished))
             }
@@ -847,7 +1019,11 @@ mod tests {
     use super::*;
 
     fn facts(codes: &[&str], cost: bool) -> RepricingPrerequisites {
-        RepricingPrerequisites { listing_currency_codes: codes.iter().map(|c| (*c).to_owned()).collect(), has_cost_basis: cost }
+        RepricingPrerequisites {
+            listing_currency_codes: codes.iter().map(|c| (*c).to_owned()).collect(),
+            has_cost_basis: cost,
+            ..RepricingPrerequisites::default()
+        }
     }
 
     fn input(pairs: &[(&str, &str)]) -> EditorInput {
@@ -879,7 +1055,8 @@ mod tests {
     }
 
     /// chase-sets/chase-sets#7905's complete compiled example: preset 2 (Beat the lowest listing),
-    /// knob 2, USD, a cost basis, fallback 4.00, from a fresh editor.
+    /// knob 2, USD, a cost basis, fallback 4.00, from a fresh editor, with the authoring intent
+    /// marketplace's `compilePresetBody` binds for it.
     #[test]
     fn a_preset_compiles_to_the_decisions_example() {
         let fresh = input(&[("preset", "beat-lowest"), ("from", "track-market"), ("fallback", "4.00")]);
@@ -893,7 +1070,10 @@ mod tests {
                 "offset": { "mode": "percent", "percent": -2 },
                 "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
                 "ceiling": null, "tolerance": { "mode": "percent", "percent": 1 }, "rounding": { "mode": "none" },
-                "maxMovePercent": 20, "terminal": { "kind": "hold" } } } ] })
+                "maxMovePercent": 20, "terminal": { "kind": "hold" } } } ],
+              "authoringIntent": { "version": 1, "compilerVersion": 1,
+                "source": { "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 },
+                "semanticBody": "{\"excludedListingIds\":[],\"maxChangesPerDay\":250,\"rules\":[{\"conditions\":[],\"directive\":{\"anchorChain\":[{\"source\":\"lowest-competing-ask\"},{\"source\":\"market-estimate\"}],\"ceiling\":null,\"currencyCode\":\"USD\",\"floor\":{\"absoluteFallbackAmount\":\"4.00\",\"marginPercent\":10,\"mode\":\"cost-basis-plus-margin\"},\"maxMovePercent\":20,\"offset\":{\"mode\":\"percent\",\"percent\":-2},\"rounding\":{\"mode\":\"none\"},\"terminal\":{\"kind\":\"hold\"},\"tolerance\":{\"mode\":\"percent\",\"percent\":1}}}],\"scope\":{\"kind\":\"all-listings\"}}" } })
         );
     }
 
@@ -931,8 +1111,16 @@ mod tests {
         rest["offset"]["percent"] = json!(0);
         rest["tolerance"]["percent"] = json!(5);
         rest["maxMovePercent"] = json!(10);
+        let mut compiled = slow.compile();
+        let intent = compiled.as_object_mut().and_then(|body| body.remove("authoringIntent")).unwrap_or_default();
+        assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "slow-stock", "knob": 12, "ageDays": 60 }));
         assert_eq!(
-            slow.compile(),
+            crate::repricing_body::recognize(&slow.compile()),
+            Some(crate::repricing_body::Source::Preset { preset: Preset::Slow, knob: 12.0, age: 60 }),
+            "the intent opens the preset again"
+        );
+        assert_eq!(
+            compiled,
             json!({
                 "name": "Slow",
                 "scope": { "kind": "catalog-filter", "categoryIds": ["cat-1"] },

@@ -262,6 +262,8 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "Stagger",
   "Stat",
   "StatGrid",
+  "StatList",
+  "StatListItem",
   "StatusPill",
   "StatusReasonList",
   "StickyBar",

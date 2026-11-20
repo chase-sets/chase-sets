@@ -5,10 +5,117 @@ import type {
   ProjectionRunContext,
   ProjectorHandlerContext,
   ProjectorHandlerMap,
+  ProjectorRunResult,
 } from "@chase-sets/event-core/projector";
 import type { LinkParameterSchema } from "./link-intents";
-export type * from "./link-intents";
 import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
+export type * from "./link-intents";
+
+export type WorkerRunner<TProjectionStatus = never> = Readonly<{
+  name: string;
+  kind: "projector" | "projection-group" | "subscription" | "job";
+  /**
+   * Overrides the single-flight lease identity for this runner. Defaults to
+   * `${kind}:${name}`. Use this when two runners that share a `name` (for
+   * stable observability/metrics) must NOT share one platform-wide lease
+   * because they cover different work scopes. The projection wake lane runners
+   * set this to their hosted-context cohort so a lane held by a worker that
+   * does not host a given target context can never starve that context's
+   * intents platform-wide (see `createProjectionWakeSchedulerRunners`).
+   */
+  leaseName?: string;
+  runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
+  priority?: () => bigint | number;
+  rescheduleOnCompletion?: (result: ProjectorRunResult) => boolean;
+  /**
+   * Reserved-capacity runners belong to the loop's critical class: only they
+   * may occupy the loop's reserved slots (`reservedRunnerSlots`), which fill
+   * before the shared slots on every scheduling pass. Beyond the reservation
+   * they compete fairly in the shared rotation. Hot-lane wake runners use
+   * this so critical read-after-write wakes are not starved by standard/bulk
+   * passes.
+   */
+  reservedCapacity?: boolean;
+  /**
+   * Refreshes this runner's cached backlog so a subsequent `priority()` call
+   * reflects the live source head. The loop invokes this on idle runners whose
+   * cached `priority()` reads 0 so a group that fell behind WITHOUT running
+   * (e.g. backlog appended during a wake-relay outage, which leaves no wake
+   * intent and no runner pass to update the cache) surfaces a positive
+   * priority and re-enters the fair rotation instead of starving behind an
+   * always-positive high-backlog group (the discovery cascade). Read-only: it
+   * must never process events, acquire the run lease, or advance a checkpoint,
+   * so exactly-once and the idle-lease yield stay intact.
+   */
+  refreshPriority?: () => Promise<void>;
+  projectionStatusSnapshot?: () => TProjectionStatus;
+}>;
+
+export type ScheduledJobDeclaration = Readonly<{
+  id: string;
+  runnerExport: string;
+  group: "jobs" | "inventory-jobs" | "dispatch" | "scheduled";
+  order: number;
+  runtimeProfiles: readonly ("landing" | "proof" | "public")[];
+  schedule: Readonly<
+    | { kind: "interval"; intervalMs: number }
+    | { kind: "configured-interval"; configKey: string }
+    | { kind: "durable"; laneCount: number | string }
+    | { kind: "dispatch" }
+  >;
+  lockScope: string;
+}>;
+
+export type ScheduledJobManifestDeclaration = Omit<ScheduledJobDeclaration, "group" | "runtimeProfiles" | "schedule"> &
+  Readonly<{
+    group: string;
+    runtimeProfiles: readonly string[];
+    schedule: Readonly<{ kind: string; intervalMs?: number; configKey?: string; laneCount?: string | number }>;
+  }>;
+
+export function normalizeScheduledJobs(
+  contextName: string,
+  jobs: readonly ScheduledJobManifestDeclaration[],
+): readonly ScheduledJobDeclaration[] {
+  return jobs.map((job) => {
+    const label = `${contextName}/${job.id}`;
+    if (
+      typeof job.id !== "string" ||
+      !job.id.trim() ||
+      typeof job.runnerExport !== "string" ||
+      !job.runnerExport.trim() ||
+      !Number.isFinite(job.order) ||
+      typeof job.lockScope !== "string" ||
+      !job.lockScope.trim() ||
+      !["jobs", "inventory-jobs", "dispatch", "scheduled"].includes(job.group) ||
+      !Array.isArray(job.runtimeProfiles) ||
+      !job.runtimeProfiles.length ||
+      job.runtimeProfiles.some((profile) => !["landing", "proof", "public"].includes(profile))
+    ) {
+      throw new Error(`${label}: invalid scheduled job declaration`);
+    }
+    const schedule = job.schedule;
+    if (
+      !schedule ||
+      !(
+        schedule.kind === "dispatch" ||
+        (schedule.kind === "interval" &&
+          typeof schedule.intervalMs === "number" &&
+          Number.isFinite(schedule.intervalMs) &&
+          schedule.intervalMs > 0) ||
+        (schedule.kind === "configured-interval" &&
+          typeof schedule.configKey === "string" &&
+          schedule.configKey.length > 0) ||
+        (schedule.kind === "durable" &&
+          ((typeof schedule.laneCount === "string" && schedule.laneCount.trim().length > 0) ||
+            (typeof schedule.laneCount === "number" && Number.isInteger(schedule.laneCount) && schedule.laneCount > 0)))
+      )
+    ) {
+      throw new Error(`${label}: invalid schedule`);
+    }
+    return job as ScheduledJobDeclaration;
+  });
+}
 
 /**
  * Framework-agnostic contract for a bounded-context module.
@@ -498,6 +605,7 @@ export type BcEventSubscription = Readonly<{
 
 export type BcContextManifest = Readonly<{
   readonly contextName: string;
+  readonly scheduledJobs?: readonly ScheduledJobDeclaration[];
   readonly apiBasePath: string;
   readonly streamPrefix: string;
   readonly apiMounts?: readonly BcApiMount[];
@@ -522,6 +630,7 @@ export type BcContextManifestInput = Omit<
   | "projectionGroups"
   | "apiRuntimeProfiles"
   | "workerRuntimeProfiles"
+  | "scheduledJobs"
 > &
   Readonly<{
     readonly apiMounts?: readonly unknown[];
@@ -532,6 +641,7 @@ export type BcContextManifestInput = Omit<
     readonly projectionGroups?: readonly BcProjectionGroupManifestDeclaration[];
     readonly apiRuntimeProfiles?: readonly string[];
     readonly workerRuntimeProfiles?: readonly string[];
+    readonly scheduledJobs?: readonly ScheduledJobManifestDeclaration[];
   }>;
 
 export function defineBoundedContextManifest(manifest: BcContextManifestInput): BcContextManifest {
@@ -731,6 +841,10 @@ export type BcSchemaMigrationClient = Readonly<{
     text: string,
     values?: readonly unknown[],
   ): Promise<Readonly<{ rows: Row[]; rowCount?: number | null }>>;
+  /** Optional event-store append bound to the migration transaction. */
+  readonly appendToStreamsInTransaction?: (
+    inputs: readonly import("@chase-sets/event-core/storage").AppendToStreamInput[],
+  ) => Promise<readonly import("@chase-sets/event-core/event-store").AppendToStreamsResult[]>;
 }>;
 
 export type BcSchemaMigration = Readonly<{
@@ -939,6 +1053,9 @@ export function defineBoundedContextModule<
 export function normalizeContextManifest(manifest: BcContextManifestInput): BcContextManifest {
   return {
     contextName: manifest.contextName,
+    ...(manifest.scheduledJobs
+      ? { scheduledJobs: normalizeScheduledJobs(manifest.contextName, manifest.scheduledJobs) }
+      : {}),
     apiBasePath: manifest.apiBasePath,
     streamPrefix: manifest.streamPrefix,
     ...(manifest.apiMounts ? { apiMounts: manifest.apiMounts as readonly BcApiMount[] } : {}),

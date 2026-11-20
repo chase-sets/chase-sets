@@ -1,0 +1,155 @@
+/* Market following: one column at every width. Every control is at least --control-height tall,
+   a checkbox's label is its 44 px target, and long offer and product ids wrap. */
+.following {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-block: var(--space-6);
+}
+.title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.feedback {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.feedback > p {
+  margin: 0;
+}
+.feedback:focus {
+  outline: none;
+}
+.notice {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.notice[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge[data-status="active"] {
+  background: var(--color-success-soft);
+}
+.badge[data-status="paused"] {
+  background: var(--color-warning-soft);
+}
+.links,
+.lines {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.lines > li {
+  display: grid;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+.lines p {
+  margin: 0;
+}
+.follow,
+.review {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.follow > summary {
+  justify-self: start;
+  max-width: 100%;
+  cursor: pointer;
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.offer {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-block-end: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.advanced {
+  display: grid;
+  gap: var(--space-2);
+}
+.advanced > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  font-weight: 600;
+  cursor: pointer;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.secondary {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}

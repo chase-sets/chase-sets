@@ -32,16 +32,19 @@ let sequence = 0;
 beforeAll(async () => {
   mkdirSync(scratch, { recursive: true });
   fixture = mkdtempSync(path.join(scratch, "synthetic-seat-"));
-  for (const name of [
-    relative,
-    "scripts/lib/heavy-slot.mjs",
-    ...["capture.html", "capture.test.ts", "helper.js", "manifest.json", "package.mjs", "worker.js"].map(
-      (name) => `${core}/${name}`,
-    ),
-  ]) {
+  for (const name of [relative, "scripts/lib/heavy-slot.mjs"]) {
     const dest = path.join(fixture, name);
     mkdirSync(path.dirname(dest), { recursive: true });
     copyFileSync(path.join(repo, name), dest);
+  }
+  mkdirSync(path.join(fixture, core), { recursive: true });
+  for (const name of Object.keys(driver.LANDED_DIGESTS)) {
+    const source = `${core}/${name}`;
+    const landed = execFileSync("git", ["show", `${driver.LANDED_HEAD}:${source}`], {
+      cwd: repo,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    writeFileSync(path.join(fixture, source), landed);
   }
   writeFileSync(path.join(fixture, ".gitignore"), "artifacts/\n");
   git("init", "--initial-branch=synthetic");

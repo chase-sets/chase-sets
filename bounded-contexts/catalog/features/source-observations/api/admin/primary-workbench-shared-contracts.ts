@@ -30,6 +30,8 @@ import type {
   CatalogPrimaryWorkbenchAuditEvidenceReadModel,
 } from "./primary-workbench-lifecycle-governance-contracts";
 import { catalogPrimaryWorkbenchBlockers } from "./primary-workbench-contract-descriptors";
+import type { SourceObservationFilterScope } from "../../read-model/queries";
+import type { SourceObservationPromotionConfirmation } from "../promotion/promotion-preview-token";
 
 export type CatalogPrimaryWorkbenchSectionKey =
   | "provider-scope-selection"
@@ -169,9 +171,43 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
   promotionResult: CatalogPrimaryWorkbenchPromotionResultReadModel | null;
   actions: readonly CatalogPrimaryWorkbenchActionReadModel[];
+  flow: CatalogPrimaryWorkbenchFlowReadModel;
+  dailyStatus: CatalogPrimaryWorkbenchDailyStatusReadModel;
   deploySkew: CatalogPrimaryWorkbenchDeploySkewPolicy;
   securityPrivacy: CatalogPrimaryWorkbenchSecurityPrivacyReadModel;
   instrumentation: CatalogPrimaryWorkbenchInstrumentationReadModel;
+}>;
+
+// The daily flow's three ordered stages: Run sync, Review changes, Create / update items.
+export type CatalogPrimaryWorkbenchFlowStageKey = "run-sync" | "review-changes" | "create-items";
+
+export type CatalogPrimaryWorkbenchFlowStageState = "blocked" | "current" | "complete" | "upcoming";
+
+// All local selections use API-computed states; the browser selects and localizes.
+export type CatalogPrimaryWorkbenchFlowReadModel = Readonly<{
+  openStage: CatalogPrimaryWorkbenchFlowStageKey;
+  openStageWithHeldPreview: CatalogPrimaryWorkbenchFlowStageKey;
+  stagesByOpenStage: Readonly<
+    Record<
+      CatalogPrimaryWorkbenchFlowStageKey,
+      readonly Readonly<{
+        key: CatalogPrimaryWorkbenchFlowStageKey;
+        state: CatalogPrimaryWorkbenchFlowStageState;
+      }>[]
+    >
+  >;
+  stages: readonly Readonly<{
+    key: CatalogPrimaryWorkbenchFlowStageKey;
+    state: CatalogPrimaryWorkbenchFlowStageState;
+  }>[];
+}>;
+
+// The daily route's two status banners. Governance is denied (RBAC) before
+// stopped (rollout or kill switch); health is blocked by a blocking transport
+// before degraded. Null means the banner is not shown.
+export type CatalogPrimaryWorkbenchDailyStatusReadModel = Readonly<{
+  governance: "denied" | "stopped" | null;
+  health: "blocked" | "degraded" | null;
 }>;
 
 export type CatalogPrimaryWorkbenchActionReadModel = Readonly<{
@@ -179,6 +215,19 @@ export type CatalogPrimaryWorkbenchActionReadModel = Readonly<{
   state: CatalogPrimaryWorkbenchActionState;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   copyKey: CatalogPrimaryWorkbenchCopyKey | null;
+  commandPreview?: CatalogPrimaryWorkbenchPromotionCommandPreview;
+}>;
+
+/**
+ * Request data for the daily promotion action and each workset unit's previewPromotion
+ * action, not a preview or authorization. Add checked ids (which take precedence) or
+ * use scope only when allowScopeSelection, plus the explicit draft choice. Preview
+ * and execute retain the same confirmation; execution still requires the API token.
+ */
+export type CatalogPrimaryWorkbenchPromotionCommandPreview = Readonly<{
+  scope: SourceObservationFilterScope;
+  confirmation: SourceObservationPromotionConfirmation;
+  allowScopeSelection: boolean;
 }>;
 
 export type CatalogPrimaryWorkbenchSecurityPrivacyReadModel = Readonly<{
@@ -229,6 +278,8 @@ const safePrimaryWorkbenchSurfacePaths = new Set<string>([
   // The v2 Provider detail page's own bare fallback when no provider is
   // selected (catalogProviderDetailHref(null)).
   "/catalog/providers",
+  "/catalog/scopes",
+  "/catalog/integrations/settings",
 ]);
 
 // The v2 Provider detail page (/catalog/providers/:providerKey) is a
@@ -248,7 +299,8 @@ export function isSafePrimaryWorkbenchReturnPath(path: string): boolean {
     return (
       safePrimaryWorkbenchSurfacePaths.has(parsedUrl.pathname) ||
       (parsedUrl.pathname.startsWith(safePrimaryWorkbenchDynamicSurfacePathPrefix) &&
-        parsedUrl.pathname.length > safePrimaryWorkbenchDynamicSurfacePathPrefix.length)
+        parsedUrl.pathname.length > safePrimaryWorkbenchDynamicSurfacePathPrefix.length) ||
+      /^\/catalog\/scopes\/[^/]+$/.test(parsedUrl.pathname)
     );
   } catch {
     return false;

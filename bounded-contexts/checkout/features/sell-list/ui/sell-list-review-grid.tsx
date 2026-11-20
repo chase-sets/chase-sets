@@ -16,6 +16,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
+import type { SellListScreenReview } from "../read-model/screen-review";
 import { buyerLabel, formatMoney, moneyNumber } from "./sell-list-formatting";
 import { ProductLineRow, SelectedOfferRow } from "./sell-list-line-rows";
 import type { SellListInventoryItem, SellListOfferReview, SellListProductOfferReview } from "./sell-list-page-types";
@@ -38,7 +39,7 @@ type ReviewTerms = Readonly<{
 
 function shippingAllowance(terms: ReviewTerms | null) {
   if (!terms) {
-    return "-";
+    return t("checkout.features.sellList.ui.sellListPage.not.quoted.yet");
   }
   const allowanceBps = terms.shipping_allowance_percentage_bps ?? 0;
   const percentage = allowanceBps / 100;
@@ -50,11 +51,15 @@ function termsItems(terms: ReviewTerms | null) {
   return [
     {
       key: t("checkout.features.sellList.ui.sellListPage.marketplace.fee"),
-      value: terms ? formatMoney(terms.marketplace_sales_fee_unit_amount) : "-",
+      value: terms
+        ? formatMoney(terms.marketplace_sales_fee_unit_amount)
+        : t("checkout.features.sellList.ui.sellListPage.not.quoted.yet"),
     },
     {
       key: t("checkout.features.sellList.ui.sellListPage.seller.net"),
-      value: terms ? formatMoney(terms.seller_net_unit_amount) : "-",
+      value: terms
+        ? formatMoney(terms.seller_net_unit_amount)
+        : t("checkout.features.sellList.ui.sellListPage.not.quoted.yet"),
     },
     {
       key: t("checkout.features.sellList.ui.sellListPage.shipping.allowance"),
@@ -138,12 +143,14 @@ export function SellListReviewGrid({
   productOfferReviewsByLineId,
   inventoryByProductId,
   canAccept,
+  lineAnswers,
 }: {
   lines: readonly CheckoutSellListLineRow[];
   offerReviewsByLineId: ReadonlyMap<string, SellListOfferReview>;
   productOfferReviewsByLineId: ReadonlyMap<string, SellListProductOfferReview>;
   inventoryByProductId: ReadonlyMap<string, readonly SellListInventoryItem[]>;
   canAccept: boolean;
+  lineAnswers: SellListScreenReview["lines"];
 }) {
   const [activeLineId, setActiveLineId] = useState<string | null>(null);
   const activeLine = lines.find((line) => line.line_id === activeLineId) ?? null;
@@ -242,9 +249,9 @@ export function SellListReviewGrid({
             line.line_type === "selected-offer"
               ? offerReviewsByLineId.get(line.line_id)
               : productOfferReviewsByLineId.get(line.line_id);
-          const estimatedNet = bestOffer
-            ? moneyNumber(bestOffer.terms?.seller_net_unit_amount) * Math.min(line.quantity, bestOffer.quantity)
-            : 0;
+          const estimatedNet = bestOffer?.terms
+            ? moneyNumber(bestOffer.terms.seller_net_unit_amount) * bestOffer.quantity
+            : null;
           return (
             <ProductCard
               key={line.line_id}
@@ -265,9 +272,17 @@ export function SellListReviewGrid({
                     : t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers")}
                 </Badge>
               }
-              price={t("checkout.features.sellList.ui.sellListPage.estimated.net", {
-                amount: formatMoney(estimatedNet),
-              })}
+              price={t(
+                offers.length > 1
+                  ? "checkout.features.sellList.ui.sellListPage.best.offer.net"
+                  : "checkout.features.sellList.ui.sellListPage.estimated.net",
+                {
+                  amount:
+                    estimatedNet === null
+                      ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
+                      : formatMoney(estimatedNet),
+                },
+              )}
               meta={t("checkout.features.sellList.ui.sellListPage.card.summary", {
                 quantity: line.quantity,
                 offer: bestOffer ? formatMoney(bestOffer.gross) : "-",
@@ -406,13 +421,18 @@ export function SellListReviewGrid({
                 {offerReviewsByLineId.get(activeLine.line_id) ? (
                   <TermsComparison review={offerReviewsByLineId.get(activeLine.line_id)!} />
                 ) : null}
-                <SelectedOfferRow line={activeLine} review={offerReviewsByLineId.get(activeLine.line_id)} />
+                <SelectedOfferRow
+                  line={activeLine}
+                  review={offerReviewsByLineId.get(activeLine.line_id)}
+                  answer={lineAnswers[activeLine.line_id]!}
+                />
               </>
             ) : (
               <ProductLineRow
                 line={activeLine}
                 review={productOfferReviewsByLineId.get(activeLine.line_id)}
                 inventoryOptions={inventoryByProductId.get(activeLine.product_id) ?? []}
+                answer={lineAnswers[activeLine.line_id]!}
               />
             )}
             {bulk.selectedCount === 0 ? (

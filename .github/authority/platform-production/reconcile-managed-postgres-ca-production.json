@@ -3,42 +3,42 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-managed-postgres-ca-production",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-managed-postgres-ca-production",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-managed-postgres-ca-production",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#8",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-managed-postgres-ca-production",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#8",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-managed-postgres-ca-production",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#8",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-managed-postgres-ca-production",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#8",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },

@@ -15,6 +15,7 @@ export const operatorManifest = {
     "https://admin.staging.chasesets.com/*",
     "https://admin.chasesets.com/*",
     "https://mpapi.tcgplayer.com/*",
+    "https://mp-search-api.tcgplayer.com/*",
   ],
   background: { service_worker: "background.js", type: "module" },
   action: { default_popup: "popup.html" },

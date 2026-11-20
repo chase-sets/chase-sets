@@ -201,6 +201,23 @@ function paymentCommandHandler(): CommandHandler<PaymentCommand, PaymentState, P
 }
 
 describe("payment dispute evidence submission", () => {
+  it("records a page-limit failure without recording success or evidence submitted", async () => {
+    const processorGateway = gateway();
+    vi.mocked(processorGateway.submitDisputeEvidence!).mockRejectedValue(
+      new Error("dispute_evidence_page_limit_exceeded: Stripe rejected oversized dispute evidence."),
+    );
+    const db = fakeDb({ shipments: [shipment()] });
+    const commandHandler = paymentCommandHandler();
+    await expect(
+      submitPaymentDisputeEvidence({ db, processorGateway, commandHandler }, dispute(), context),
+    ).rejects.toThrow("dispute_evidence_page_limit_exceeded");
+    expect(processorGateway.submitDisputeEvidence).toHaveBeenCalledTimes(1);
+    expect(commandHandler).not.toHaveBeenCalled();
+    const calls = vi.mocked(db.query).mock.calls;
+    expect(calls.some(([sql]) => String(sql).includes("failed"))).toBe(true);
+    expect(calls.some(([sql]) => String(sql).includes("succeeded"))).toBe(false);
+    expect(calls.some(([sql]) => String(sql).includes("INSERT INTO payments_provider_idempotency_keys"))).toBe(false);
+  });
   it("assembles tracking, delivery proof, address, product, and settlement context", () => {
     const assembled = assembleProcessorDisputeEvidence({
       dispute: dispute(),

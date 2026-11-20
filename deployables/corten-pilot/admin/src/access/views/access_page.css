@@ -1,4 +1,5 @@
-/* Access's pages. One column on a phone; a table scrolls on its own rather than the page. */
+/* Access's pages. One column on a phone, where a table stacks (the kit Table), each row a block
+   of labelled lines. */
 .page-title {
   margin: 0 0 var(--space-4);
   font: 600 1.875rem/1.2 var(--font-display);
@@ -91,6 +92,16 @@
 }
 .table tbody tr:last-child td {
   border-bottom: 0;
+}
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells. */
+@media not (--md) {
+  .table td {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
+  }
 }
 .open {
   display: inline-flex;

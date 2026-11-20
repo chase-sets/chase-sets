@@ -13,6 +13,10 @@ import { CATALOG_CONTROL_PLANE_WORKSPACES } from "./admin-control-plane/informat
 export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "job-queued"
   | "job-cancelled"
+  | "alias-accepted"
+  | "alias-rejected"
+  | "alias-revoked"
+  | "alias-deferred"
   | "preview-ready"
   | "draft-created"
   | "profile-activated"
@@ -23,6 +27,7 @@ export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "section-conflict"
   | "section-invalid"
   | "lifecycle-conflict"
+  | "candidate-stale"
   | "confirmation-required"
   | "preview-required"
   | "job-required"
@@ -402,7 +407,7 @@ function blockerCategoryForCommandResult(
   ) {
     return "readiness";
   }
-  if (result === "section-conflict") {
+  if (result === "section-conflict" || result === "candidate-stale") {
     return "stale-context";
   }
   if (result === "lifecycle-conflict") {
@@ -430,6 +435,7 @@ function promotionTelemetryResult(
     case "section-conflict":
     case "section-invalid":
     case "lifecycle-conflict":
+    case "candidate-stale":
     case "confirmation-required":
     case "preview-required":
     case "reason-required":
@@ -440,6 +446,12 @@ function promotionTelemetryResult(
       return result;
     case "job-required":
       return "blocked";
+    case "alias-accepted":
+    case "alias-rejected":
+    case "alias-revoked":
+      return "completed";
+    case "alias-deferred":
+      return "skipped";
   }
 }
 

@@ -3,6 +3,7 @@ import type { DomainEvent } from "@chase-sets/event-core";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { DeploymentEnvironment } from "@chase-sets/platform-runtime/config-schema";
+import type { ConfigurationConsumer, ConfigurationEpochGrant } from "@chase-sets/event-core/configuration-epoch";
 
 export const channelEnvironments = ["sandbox", "production"] as const;
 export type ChannelEnvironment = (typeof channelEnvironments)[number];
@@ -98,6 +99,7 @@ export type ChannelConnectionErrorCode =
   | "connection-not-found"
   | "invalid-transition"
   | "connection-disconnected"
+  | "connection-change-pending"
   | "provider-setup-not-registered"
   | "credential-not-current"
   | "required-policy-incomplete"
@@ -186,6 +188,7 @@ export type PublicChannelConnection = Readonly<{
   environment: ChannelEnvironment;
   status: ChannelConnectionStatus;
   createdAt: string;
+  allowedActions: readonly ("pause" | "resume" | "disconnect")[];
 }>;
 
 export type ChannelConnectionPage = Readonly<{
@@ -195,6 +198,32 @@ export type ChannelConnectionPage = Readonly<{
 
 export type ChannelConnectionCommandResult = CommandExecutionResult<ChannelConnectionState, ChannelConnectionEvent>;
 
+export type ConnectionAuthorityInput = Readonly<{
+  accountId: string;
+  connectionId: string;
+  consumer: ConfigurationConsumer;
+}>;
+export type ConnectionAuthorityResult =
+  | Readonly<{
+      kind: "granted";
+      connectionId: string;
+      accountId: string;
+      providerKey: string;
+      environment: ChannelEnvironment;
+      status: "active";
+      version: number;
+      seal: Readonly<{ version: number; storeIncarnation: string }>;
+      grant: ConfigurationEpochGrant;
+    }>
+  | Readonly<{
+      kind: "denied";
+      reason: "connection-not-found" | "connection-not-active" | "connection-authority-unavailable";
+    }>;
+export interface VersionedConnectionAuthority {
+  registerConsumer(input: Pick<ConnectionAuthorityInput, "connectionId" | "consumer">): Promise<void>;
+  capture(input: ConnectionAuthorityInput): Promise<ConnectionAuthorityResult>;
+}
+
 export interface ChannelConnectionServices {
   connectChannel(
     input: Readonly<{ connectionId: string; accountId: string; providerKey: string }>,
@@ -202,12 +231,12 @@ export interface ChannelConnectionServices {
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
   activateChannelConnection(
-    input: Readonly<{
-      accountId: string;
-      connectionId: string;
-      credentialReference?: string | null;
-      bindings: readonly ChannelConnectionBinding[];
-    }>,
+    input: Readonly<
+      { accountId: string; connectionId: string } & (
+        | { storageLocationIds: readonly string[] }
+        | { credentialReference?: string | null; bindings: readonly ChannelConnectionBinding[] }
+      )
+    >,
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
   pauseChannelConnection(
@@ -222,7 +251,10 @@ export interface ChannelConnectionServices {
     input: Readonly<{ accountId: string; connectionId: string }>,
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
-  getConnection(input: Readonly<{ accountId: string; connectionId: string }>): Promise<PublicChannelConnection | null>;
+  getConnection(
+    input: Readonly<{ accountId: string; connectionId: string }>,
+    source?: "projection" | "committed",
+  ): Promise<PublicChannelConnection | null>;
   listConnections(
     input: Readonly<{
       accountId: string;

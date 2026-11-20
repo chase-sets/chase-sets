@@ -71,7 +71,9 @@ async function context(javaScriptEnabled) {
   await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
   check((await page.locator("h1").textContent()) === "Postage Policies", "the list renders in the shell");
   check(
-    (await page.locator('nav a[aria-current="page"]').textContent()) === "Postage Policies",
+    (await page.locator('nav a[aria-current="page"]').allTextContents())
+      .map((t) => t.trim())
+      .includes("Postage Policies"),
     "the commerce nav marks the page",
   );
 
@@ -137,7 +139,7 @@ async function context(javaScriptEnabled) {
   await confirm.getByRole("button", { name: "Activate" }).click();
   await page.waitForURL((u) => u.href !== revised);
   const titled = await sheetTitled(page, `Smoke ${stamp} revised`);
-  const badge = titled ? await page.locator("dialog[open] .badge__pill").first().textContent() : null;
+  const badge = titled ? await page.locator("dialog[open] .status-badge__pill").first().textContent() : null;
   check(
     badge === "active",
     `activation shows the policy active${badge === "active" ? "" : ` (titled ${titled}, badge ${badge}, ${page.url()}, ${(await page.locator("main").textContent())?.slice(0, 300)})`}`,
@@ -163,7 +165,7 @@ async function context(javaScriptEnabled) {
   await page.waitForURL((u) => u.href !== cloned);
   await sheetTitled(page, `Smoke ${stamp} rollback`);
   check(
-    (await page.locator("dialog[open] .badge__pill").first().textContent()) === "retired",
+    (await page.locator("dialog[open] .status-badge__pill").first().textContent()) === "retired",
     "retiring the rollback draft shows it retired",
   );
   // The browser logs every 4xx and 5xx answer: the two refused creates (422) and any "preparing"

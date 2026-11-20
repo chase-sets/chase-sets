@@ -41,6 +41,8 @@ function severityLabel(severity: OperationsAttentionSeverity): string {
 
 function sourceLabel(source: OperationsAttentionSourceId): string {
   switch (source) {
+    case "reported-content-response":
+      return t(`${routeKey}.source.reportedContentResponse`);
     case "projection-poison-event":
       return t(`${routeKey}.source.projectionPoisonEvent`);
     case "projection-blocked-stream":

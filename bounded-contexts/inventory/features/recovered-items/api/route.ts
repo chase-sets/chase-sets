@@ -22,10 +22,11 @@ function timestamp(value: unknown): string {
   return optionalText(value) ?? new Date().toISOString();
 }
 
+// null for an action the route does not know, which the caller refuses as client input.
 function commandFromBody(
   body: Record<string, unknown>,
   userId: string,
-): Exclude<RecoveredItemCommand, { type: "CreateRecoveredItem" }> {
+): Exclude<RecoveredItemCommand, { type: "CreateRecoveredItem" }> | null {
   const intent = text(body.intent);
   switch (intent) {
     case "identify":
@@ -131,7 +132,7 @@ function commandFromBody(
         mergedAt: timestamp(body.occurredAt),
       };
     default:
-      throw new Error(`Unsupported recovered item action '${intent}'.`);
+      return null;
   }
 }
 
@@ -189,6 +190,17 @@ export function inventoryRecoveredItemRoutes(recoveredItems: RecoveredItemServic
       );
     }
     const command = commandFromBody(body, c.get("context").audit.performedByUserId ?? "system");
+    if (!command) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.recoveredItems.api.route.unsupported.action"),
+          },
+        },
+        400,
+      );
+    }
     const result = await recoveredItems.execute(c.req.param("id"), command, c.get("context"));
     return c.json({ recoveredItemId: result.recoveredItemId, version: result.version, status: result.state.status });
   });

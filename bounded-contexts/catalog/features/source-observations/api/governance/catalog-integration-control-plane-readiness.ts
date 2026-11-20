@@ -322,6 +322,29 @@ type CatalogIntegrationProfileVersionResolverDependencies = Readonly<{
   sourceMappingFingerprintForProfileVersion: (version: CatalogProviderIntegrationProfileVersionRecord) => string;
 }>;
 
+/**
+ * The profile version an integration job snapshotted when it was queued, matched exactly on its
+ * provider, profile, version and (when the snapshot names one) ingestion unit, whatever is active
+ * now; null when that version is gone. Promotion from a snapshot and a unit's refill both read the
+ * queued version through this.
+ */
+export async function findCatalogProfileVersionFromSnapshot(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  snapshot: SourceObservationIntegrationProfileSnapshot,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const versions = await profileVersions.listProfileVersions(snapshot.providerKey);
+  return (
+    versions.find(
+      (candidate) =>
+        candidate.providerKey === snapshot.providerKey &&
+        candidate.profileKey === snapshot.profileKey &&
+        candidate.profileVersion === snapshot.profileVersion &&
+        (!snapshot.ingestionUnitKey ||
+          catalogProviderProfileVersionIngestionUnitKey(candidate) === snapshot.ingestionUnitKey),
+    ) ?? null
+  );
+}
+
 export function createCatalogIntegrationProfileVersionResolvers(
   dependencies: CatalogIntegrationProfileVersionResolverDependencies,
 ) {
@@ -526,23 +549,6 @@ export function createCatalogIntegrationProfileVersionResolvers(
 
     assertReferenceDataPromotionProfileCompatible(version, normalized);
     return version;
-  }
-
-  async function findCatalogProfileVersionFromSnapshot(
-    profileVersions: CatalogProviderIntegrationProfileVersionReader,
-    snapshot: SourceObservationIntegrationProfileSnapshot,
-  ): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
-    const versions = await profileVersions.listProfileVersions(snapshot.providerKey);
-    return (
-      versions.find(
-        (candidate) =>
-          candidate.providerKey === snapshot.providerKey &&
-          candidate.profileKey === snapshot.profileKey &&
-          candidate.profileVersion === snapshot.profileVersion &&
-          (!snapshot.ingestionUnitKey ||
-            catalogProviderProfileVersionIngestionUnitKey(candidate) === snapshot.ingestionUnitKey),
-      ) ?? null
-    );
   }
 
   function assertPromotionProfileCompatible(

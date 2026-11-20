@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { channelProviderRegistry } from "@chase-sets/channels";
-import { createChannelsReconciliationRunners } from "../src/channels-reconciliation-runners";
+import { createChannelsReconciliationRunners } from "@chase-sets/channels/server";
 import {
   describeDb,
   livenessWorkerDatabase,

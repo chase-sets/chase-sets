@@ -353,6 +353,12 @@
     },
     {
       "deployable": "marketplace-web",
+      "family": "analytics",
+      "owningContext": "discovery",
+      "purpose": "Discovery browser analytics ingestion via bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx."
+    },
+    {
+      "deployable": "marketplace-web",
       "family": "accounts",
       "owningContext": "discovery",
       "purpose": "Accounts surface (discovery)."
@@ -368,6 +374,12 @@
       "family": "checkout",
       "owningContext": "checkout",
       "purpose": "Checkout family: checkout owns the buy-flow surface; payments attaches its payment-step panel to the same family."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "channels",
+      "owningContext": "channels",
+      "purpose": "Provider OAuth callback and declined resources; account connection management stays under account."
     },
     {
       "deployable": "marketplace-web",
@@ -404,6 +416,12 @@
       "family": "search",
       "owningContext": "discovery",
       "purpose": "Search surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "sell",
+      "owningContext": "fulfillment",
+      "purpose": "Seller shipping setup before checkout for the authenticated account or existing anonymous Sell List."
     },
     {
       "deployable": "marketplace-web",
@@ -579,7 +597,6 @@
       "sitemap/:kind/:page.xml",
       "health/ready",
       "health/live",
-      "analytics/item-detail-rail",
       "offline",
       "*"
     ],

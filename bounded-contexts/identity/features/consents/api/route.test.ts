@@ -12,6 +12,7 @@ import {
   authorizeConsentForActor,
   ConsentRecordingAuthorizationError,
 } from "../domain/consent-recording-authorization";
+import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import { consentRoutes } from "./route";
 import { createConsentRuntime, type ConsentServices } from "./runtime";
 
@@ -147,34 +148,28 @@ describe("consent API route", () => {
     expect(services.listConsents).not.toHaveBeenCalled();
   });
 
-  it("scopes ordinary actors to their own user and account", async () => {
-    const services = buildServices();
+  it.each([
+    ["an owner", actor],
+    ["a security manager", { ...actor, permissions: ["security.manage"] }],
+    ["a platform admin", { ...actor, roleKey: PLATFORM_ADMIN_ROLE_KEY, permissions: ["security.manage"] }],
+  ])("lists only %s's own consents, whichever subject the query names", async (_name, currentActor) => {
+    for (const query of [
+      "?userId=usr_victim",
+      "?accountId=acc_victim",
+      "?userId=usr_victim&accountId=acc_victim",
+      "",
+    ]) {
+      const services = buildServices();
 
-    const response = await buildApp(services).request("/consents?userId=usr_victim&accountId=acc_victim");
+      const response = await buildApp(services, currentActor).request(`/consents${query}`);
 
-    expect(response.status).toBe(200);
-    expect(services.listConsents).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: actor.userId,
-        accountId: actor.accountId,
-      }),
-    );
-  });
-
-  it("allows security managers to apply explicit subject filters", async () => {
-    const services = buildServices();
-
-    const response = await buildApp(services, { ...actor, permissions: ["security.manage"] }).request(
-      "/consents?userId=usr_subject&accountId=acc_subject",
-    );
-
-    expect(response.status).toBe(200);
-    expect(services.listConsents).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: "usr_subject",
-        accountId: "acc_subject",
-      }),
-    );
+      expect(response.status).toBe(200);
+      expect(services.listConsents).toHaveBeenCalledTimes(1);
+      const [params] = services.listConsents.mock.calls[0]!;
+      expect(params.subject).toEqual({ userId: actor.userId, accountId: actor.accountId });
+      expect(params).not.toHaveProperty("userId");
+      expect(params).not.toHaveProperty("accountId");
+    }
   });
 
   it("withdraws the actor's current user consent on its event stream", async () => {

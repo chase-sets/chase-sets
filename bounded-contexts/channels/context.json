@@ -1,4 +1,129 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "channels.ebay-account-deletion-consumer",
+      "schedule": { "kind": "interval", "intervalMs": 3600000 },
+      "runnerExport": "createChannelsEbayAccountDeletionConsumerRunners",
+      "group": "scheduled",
+      "order": 99,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:channels.ebay-account-deletion-consumer"
+    },
+    {
+      "id": "channels.ebay-credential-refresh",
+      "schedule": { "kind": "interval", "intervalMs": 450000 },
+      "runnerExport": "createChannelsEbayCredentialRefreshRunners",
+      "group": "scheduled",
+      "order": 102,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:channels.ebay-credential-refresh"
+    },
+    {
+      "id": "channels.ebay-account-deletion-receipt-expiry",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 1800000
+      },
+      "runnerExport": "createChannelsEbayAccountDeletionReceiptExpiryRunners",
+      "group": "scheduled",
+      "order": 100,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels.ebay-account-deletion-receipt-expiry"
+    },
+    {
+      "id": "channels.connector-liveness-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "channelsConnectorLivenessSweepIntervalMs"
+      },
+      "runnerExport": "createChannelsConnectorLivenessSweepRunners",
+      "group": "scheduled",
+      "order": 101,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels.connector-liveness-sweep"
+    },
+    {
+      "id": "channels.outbound-operations",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "channelsOutboundOperationLaneCount"
+      },
+      "runnerExport": "createChannelsOutboundRunners",
+      "group": "jobs",
+      "order": 60,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:channels.outbound-operations.lane-{lane}"
+    },
+    {
+      "id": "channels-drift-reconciliation",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-drift-reconciliation"
+    },
+    {
+      "id": "channels-tcgplayer-orders",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-tcgplayer-orders"
+    },
+    {
+      "id": "channels-live-export-snapshots",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-live-export-snapshots"
+    },
+    {
+      "id": "channels-order-fulfillment-observations",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-order-fulfillment-observations"
+    }
+  ],
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
   "ownedNouns": [
@@ -22,6 +147,7 @@
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
   "slices": [
+    "ebay-connection",
     "ebay-account-deletion",
     "connector-feed",
     "connections",
@@ -44,6 +170,16 @@
   "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
+    {
+      "portName": "connectionConsumers",
+      "providedBy": "platform-api",
+      "purpose": "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts."
+    },
+    {
+      "portName": "ebayOAuthConfiguration",
+      "providedBy": "platform-api",
+      "purpose": "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection."
+    },
     {
       "portName": "ebayAccountDeletionConfiguration",
       "providedBy": "platform-api",
@@ -444,6 +580,90 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "channels-ebay-connection",
+          "routePath": "account/channels/ebay",
+          "fileExport": "./routes/marketplace/account-channels-ebay",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": [
+              "channels.manage"
+            ]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Account connection state is private."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "OAuth consent uses the web provider redirect."
+          }
+        },
+        {
+          "routeId": "channels-ebay-callback",
+          "routePath": "channels/ebay/callback",
+          "fileExport": "./routes/marketplace/ebay-callback",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": [
+              "channels.manage"
+            ]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Account connection state is private."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "placement": "root",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "OAuth consent uses the web provider redirect."
+          }
+        },
+        {
+          "routeId": "channels-ebay-declined",
+          "routePath": "channels/ebay/declined",
+          "fileExport": "./routes/marketplace/ebay-callback",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": [
+              "channels.manage"
+            ]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Account connection state is private."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "placement": "root",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "OAuth consent uses the web provider redirect."
+          }
+        },
+        {
           "routeId": "channels-connections",
           "routePath": "account/channels",
           "fileExport": "./routes/marketplace/account-channels",
@@ -651,6 +871,55 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "channels.ebay-credential-refresh-committed-health",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST H1c570cc9e4fb#1"],
+      "visibleDestination": { "description": "Background refresh commits custody, its successor schedule and the immutable credential health observation together. No browser mutation or redirect is introduced." },
+      "proof": {
+        "authoritativeResponse": "Only a current generation/cycle/attempt/lease can commit an outcome. Failed admission and terminal/exhausted work have no due schedule and expose credential reconnect attention through the existing health contract.",
+        "tests": [
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-credential-refresh-schedule.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-credential-refresh-outcomes.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-credential-refresh-health.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "channels.ebay-oauth-committed-state",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST Hafb45c76765c#1",
+        "api-client:bounded-contexts/channels/features/ebay-connection/api/provider.ts:POST Hb4bf3d7f7bc7#1",
+        "api-client:bounded-contexts/channels/features/ebay-connection/ui/api-client.ts:POST H547d4165826d#1",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /callback",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /declined",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /start",
+        "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /connections/:id/setup",
+        "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/channels/features/ebay-connection/ui/seller-setup.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-ebay-connection",
+        "description": "OAuth callbacks return only the committed connection identity. Seller setup returns its committed selection and active status. The journey reads locked binding, current selection and event-stream state directly, not an asynchronous projection."
+      },
+      "proof": {
+        "authoritativeResponse": "Start returns a single-use consent redirect, not connected status. Callback and composed disconnect commit before the journey can render pending setup or terminal disconnected. Setup selection, baseline event and guarded activation commit together before returning active. Failed commits return failure, never success.",
+        "tests": [
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-seller-binding.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-credential-custody-law.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-connection-journey.test.tsx",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-setup-selection.db.test.ts",
+          "bounded-contexts/channels/features/ebay-connection/tests/ebay-sandbox-setup-page.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "channels.ebay-account-deletion-signed-receipt",
       "owner": "channels",
       "risk": "important",
@@ -785,6 +1054,22 @@
       }
     },
     {
+      "id": "channels.ready-to-ship-canary-arming",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connector-feed/api/routes.ts:POST /:id/connector-pairing/ready-to-ship-canary"
+      ],
+      "visibleDestination": {
+        "description": "The founder receives an arming acknowledgement only; no page payload, optimistic sale acceptance, or follow-up read is exposed."
+      },
+      "proof": {
+        "authoritativeResponse": "204 means the one-use page is committed against the live pairing. The reservation and Inventory sale are separate outcomes; stale, foreign, or repeated requests do not get a successful arming response.",
+        "tests": ["bounded-contexts/channels/features/tcgplayer-orders/tests/tcgplayer-orders.db.test.ts"]
+      }
+    },
+    {
       "id": "channels.connection-command-snapshots",
       "owner": "channels",
       "risk": "important",
@@ -898,6 +1183,14 @@
     }
   ],
   "directoryIntent": {
+    "ebay-connection": {
+      "classification": "slice",
+      "purpose": "Own Sandbox eBay consent attempts, stable seller binding, single-lineage credentials and generation-fenced seller setup with selection-time material baselines.",
+      "expectedConsumers": [
+        "Channels module composition",
+        "Account channels routes"
+      ]
+    },
     "ebay-account-deletion": {
       "classification": "slice",
       "purpose": "Channels owns ebay-account-deletion challenge GET, deployment configuration, encrypted receipt custody, stable subject matching, expiry and staff exact lookup.",
@@ -968,12 +1261,12 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Own the context-level Channels runtime service composition contract.",
-      "expectedConsumers": ["credentials"]
+      "expectedConsumers": ["ebay-connection", "manual-sync"]
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Channels test-only browser mapping candidate and bounded row-hold support; never invoked by seed or bootstrap composition.",
-      "expectedConsumers": ["Channels cross-slice DB acceptance tests", "Deployable browser-e2e composition for #8122"]
+      "purpose": "Channels test-only browser composition for mapping candidates, bounded row holds, and isolated manual-sync recovery fixtures; never invoked by seed or bootstrap composition.",
+      "expectedConsumers": ["manual-sync"]
     },
     "manual-sync": {
       "classification": "slice",

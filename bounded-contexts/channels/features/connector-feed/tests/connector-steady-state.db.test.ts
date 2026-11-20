@@ -121,7 +121,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
         if (change === "membership-lost") await h.membership(false);
         else await h.revokeAuthGrant();
         await writer.query("COMMIT");
-        expect((await pending).status).toBe(403);
+        expect((await pending).status).toBe(change === "membership-lost" ? 403 : 401);
         const after = await h.effects();
         expect(after.e1).toEqual(before.e1);
         expect(after.e2).toEqual(before.e2);
@@ -158,7 +158,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
       const hold = vi.spyOn(h.services.connectionHealth, "readConnectionHealth");
       const before = await h.effects();
       const response = await h.request("claim", {}, state === "invalid" ? { token: "invalid-sentinel" } : {});
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(state === "membership-lost" ? 403 : 401);
       const after = await h.effects();
       expect(after.e1).toEqual(before.e1);
       expect(after.e2).toEqual(before.e2);

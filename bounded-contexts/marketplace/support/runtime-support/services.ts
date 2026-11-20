@@ -1,6 +1,7 @@
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
+  ownerPredicateKey,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -13,6 +14,7 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import type { ListingPhotoStorage } from "./index";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
+import type { ListingTargetAuthority } from "../../features/listings/api/target-contracts";
 import {
   createInventoryDraftListingConsumer,
   type InventoryDraftListingConsumer,
@@ -37,6 +39,7 @@ import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 export type MarketplaceServiceOptions = Readonly<{
+  listingTargetAuthority?: ListingTargetAuthority;
   managedOfferPricing?: ManagedOfferPricing;
   offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
   commercialTermsResolver?: CommercialTermsResolver;
@@ -71,12 +74,34 @@ export type MarketplaceServices = Readonly<{
   channelInboundClamp: ReturnType<typeof createMarketplaceChannelInboundClampRuntime>;
 }>;
 
+const listingPredicateEvents = new Set([
+  "marketplace.listing.created",
+  "marketplace.listing.price-updated",
+  "marketplace.listing.quantity-cap-updated",
+  "marketplace.listing.published",
+  "marketplace.listing.paused",
+  "marketplace.listing.auto-unlisted",
+  "marketplace.listing.operator-unlisted",
+  "marketplace.listing.withdrawn",
+  "marketplace.listing.channel-activated",
+]);
+
 export function createMarketplaceServices(
   pool: PgTransactionalPool,
   options: MarketplaceServiceOptions = {},
 ): MarketplaceServices {
   const eventStore = createPostgresEventStore({
     pool,
+    ownerPredicates: {
+      consumerPool: pool,
+      keys: (inputs) =>
+        inputs.flatMap(({ streamId, events }) =>
+          streamId.startsWith("marketplace.listing-") &&
+          events.some((event) => listingPredicateEvents.has(event.eventType))
+            ? [ownerPredicateKey("repricing-listing", streamId.slice("marketplace.listing-".length))]
+            : [],
+        ),
+    },
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "marketplace" }),
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
@@ -86,6 +111,7 @@ export function createMarketplaceServices(
   const policies = createPolicyRuntime({ eventStore, db });
   const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
   const deps = {
+    ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
     eventStore,
     checkpointStore,
     db,

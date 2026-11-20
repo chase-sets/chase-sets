@@ -92,10 +92,14 @@ describe("Pricing Health current revision authority", () => {
     const resolvePolicy = vi
       .fn<PolicyRuntime["resolvePolicy"]>()
       .mockResolvedValue({ value: FORECAST_LEDGER_LAUNCH_POLICY_VALUE } as never);
+    const retryPolicyConfiguration = vi
+      .fn<RepricingPolicyServices["retryPolicyConfiguration"]>()
+      .mockResolvedValue(null);
     const services = createPricingHealthServices({
       db,
       policies: { resolvePolicy: resolvePolicy as never },
       repricingPolicies: {
+        retryPolicyConfiguration,
         loadOwnedRepricingPolicy,
         getHalt: vi.fn<RepricingPolicyServices["getHalt"]>().mockResolvedValue({ engaged: false } as never),
         executeOwnedRepricingPolicy: vi.fn<RepricingPolicyServices["executeOwnedRepricingPolicy"]>(),
@@ -109,8 +113,41 @@ describe("Pricing Health current revision authority", () => {
         },
       },
     });
-    return { state, calls, services, loadOwnedRepricingPolicy, enqueueDryRun };
+    return { state, calls, services, loadOwnedRepricingPolicy, enqueueDryRun, retryPolicyConfiguration };
   }
+
+  it.each(["accepted-pending", "superseded-by-revision"] as const)(
+    "replays a request-specific %s without treating it as a policy",
+    async (status) => {
+      const { services, retryPolicyConfiguration, loadOwnedRepricingPolicy, enqueueDryRun } = setup();
+      const receipt = {
+        requestKey: "synthetic-goal-request",
+        requestedRevision: 2,
+        ...(status === "superseded-by-revision" ? { status, replacingRevision: 3 } : { status }),
+      };
+      retryPolicyConfiguration.mockResolvedValue(receipt);
+      const input = {
+        dryRunId: "synthetic-run",
+        targetRevision: 1,
+        targetBodyHash: "target",
+        candidateBodyHash: "candidate",
+        goalId: "fixed-percentile",
+        goalVersion: 1,
+        parameters: { percentile: 65 },
+      };
+      expect(await services.applyGoal("acc_owned", "rpp_owned", input, {} as never, receipt.requestKey)).toEqual(
+        receipt,
+      );
+      expect(retryPolicyConfiguration).toHaveBeenCalledWith(
+        "acc_owned",
+        "rpp_owned",
+        receipt.requestKey,
+        expect.any(String),
+      );
+      expect(loadOwnedRepricingPolicy).not.toHaveBeenCalled();
+      expect(enqueueDryRun).not.toHaveBeenCalled();
+    },
+  );
 
   it("hashes and computes the folded current body, never the lagging projected body", async () => {
     const { services, calls, state, loadOwnedRepricingPolicy, enqueueDryRun } = setup();

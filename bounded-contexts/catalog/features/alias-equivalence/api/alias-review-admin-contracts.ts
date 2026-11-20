@@ -259,7 +259,7 @@ export function mapCatalogAliasReviewCandidate(row: CatalogAliasCandidateRow): C
   const evidence = readEvidenceObject(row.evidence);
   const autoAccept = autoAcceptEligibility(row);
   const warnings = candidateWarnings(row, autoAccept);
-  const reviewable = row.review_status === "pending";
+  const reviewable = Boolean(row.target_id) && row.review_status === "pending";
 
   return {
     aliasHash: row.alias_hash,
@@ -282,7 +282,7 @@ export function mapCatalogAliasReviewCandidate(row: CatalogAliasCandidateRow): C
     warnings,
     autoAccept,
     reviewable,
-    availableActions: availableActions(row.review_status, autoAccept.eligible),
+    availableActions: row.target_id ? availableActions(row.review_status, autoAccept.eligible) : [],
     firstObservedAt: row.first_observed_at,
     updatedAt: row.updated_at,
   };

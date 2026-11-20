@@ -128,9 +128,24 @@ export type CatalogProviderProfileRetirementPlanUpdateCommand = Readonly<{
   retirementPlan: JsonValue;
 }>;
 
+// What the operator writes. Catalog stamps the rest of the evidence (when,
+// who, and the before and after mapping fingerprints) from the request and
+// the profile versions; a client's copies of those fields are ignored.
 export type CatalogProviderProfileMigrationEvidenceUpdateCommand = Readonly<{
   section: "migration-evidence";
-  migrationEvidence: JsonObject | null;
+  migrationEvidence: Readonly<{ evidenceText: string; fixtureRunId?: string | null }> | null;
+}>;
+
+export type CatalogProviderProfileMigrationEvidenceRecording = Readonly<{
+  recordedAt: string;
+  recordedByUserId: string | null;
+  recordedForAccountId: string | null;
+  mappingFingerprintBefore: string | null;
+  mappingFingerprintAfter: string | null;
+}>;
+
+export type CatalogProviderProfileSectionPatchContext = Readonly<{
+  migrationEvidenceRecording?: CatalogProviderProfileMigrationEvidenceRecording | null;
 }>;
 
 export type CatalogProviderProfileSectionUpdateCommand =
@@ -174,6 +189,7 @@ export type CatalogProviderProfileSectionDefinition = Readonly<{
   composePatch: (
     existing: CatalogProviderIntegrationProfileVersionRecord,
     command: CatalogProviderProfileSectionUpdateCommand,
+    context: CatalogProviderProfileSectionPatchContext,
   ) => CatalogProviderProfileVersionUpdatePatch;
 }>;
 
@@ -475,9 +491,23 @@ export const catalogProviderProfileSectionRegistry = [
         assertMigrationEvidence(command.migrationEvidence);
       }
     },
-    composePatch: (_existing, command) => ({
-      migrationEvidence: command.migrationEvidence as CatalogProviderIntegrationProfileMigrationEvidence | null,
-    }),
+    composePatch: (_existing, command, context) => {
+      if (command.migrationEvidence === null) {
+        return { migrationEvidence: null };
+      }
+      const recording = context.migrationEvidenceRecording;
+      if (!recording) {
+        throw new Error("Recording migration evidence needs the request's recording context.");
+      }
+      const fixtureRunId = command.migrationEvidence.fixtureRunId?.trim();
+      return {
+        migrationEvidence: {
+          evidenceText: command.migrationEvidence.evidenceText.trim(),
+          fixtureRunId: fixtureRunId || null,
+          ...recording,
+        },
+      };
+    },
   }),
 ] satisfies readonly CatalogProviderProfileSectionDefinition[];
 
@@ -527,6 +557,7 @@ export function parseCatalogProviderProfileSectionUpdateCommand(
 export function toCatalogProviderProfileSectionPatch(
   existing: CatalogProviderIntegrationProfileVersionRecord,
   command: CatalogProviderProfileSectionUpdateCommand,
+  context: CatalogProviderProfileSectionPatchContext = {},
 ): CatalogProviderProfileVersionUpdatePatch {
   const parsed = parseCatalogProviderProfileSectionUpdateCommand(command);
   const definition = getCatalogProviderProfileSectionDefinition(parsed.section);
@@ -534,7 +565,7 @@ export function toCatalogProviderProfileSectionPatch(
     throw new CatalogProviderProfileSectionValidationError("Unsupported profile section update command.");
   }
 
-  return definition.composePatch(existing, parsed);
+  return definition.composePatch(existing, parsed, context);
 }
 
 function defineSection<TCommand extends CatalogProviderProfileSectionUpdateCommand>(input: {
@@ -544,13 +575,14 @@ function defineSection<TCommand extends CatalogProviderProfileSectionUpdateComma
   composePatch: (
     existing: CatalogProviderIntegrationProfileVersionRecord,
     command: TCommand,
+    context: CatalogProviderProfileSectionPatchContext,
   ) => CatalogProviderProfileVersionUpdatePatch;
 }): CatalogProviderProfileSectionDefinition {
   return {
     section: input.section,
     displayName: input.displayName,
     validateCommand: input.validateCommand,
-    composePatch: (existing, command) => input.composePatch(existing, command as TCommand),
+    composePatch: (existing, command, context) => input.composePatch(existing, command as TCommand, context),
   };
 }
 
@@ -664,7 +696,9 @@ function assertMigrationEvidence(value: unknown): void {
     throw new CatalogProviderProfileSectionValidationError("migrationEvidence must be a JSON object or null.");
   }
   assertRequiredString(value.evidenceText, "migrationEvidence.evidenceText");
-  assertRequiredString(value.recordedAt, "migrationEvidence.recordedAt");
+  if (value.fixtureRunId !== null) {
+    assertOptionalString(value.fixtureRunId, "migrationEvidence.fixtureRunId");
+  }
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

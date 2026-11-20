@@ -88,6 +88,9 @@ export const authEnglishTranslations = {
   "auth.features.registration.ui.registerPage.create.account.with.code": "Create account with code",
   "auth.features.registration.ui.registerPage.use.an.account.you.already.have": "Use an account you already have.",
   "auth.features.registration.ui.registerPage.use.magic.link": "Use magic link",
+  "auth.routes.marketplace.accountGate.checkout.pay.verify.description":
+    "Enter the email on your account. Opening the link we send verifies that email and brings you back to your checkout, where you can pay.",
+  "auth.routes.marketplace.accountGate.checkout.pay.verify.title": "Verify your email to pay for this checkout",
   "auth.routes.marketplace.accountGate.listing.draft.description":
     "Your listing draft is saved. An account is required before inventory, payout, and listing publication can be confirmed.",
   "auth.routes.marketplace.accountGate.listing.draft.title": "Use an account to publish this listing",
@@ -213,6 +216,10 @@ export const authEnglishTranslations = {
   "auth.features.agentGrants.ui.agentGrantDetailPage.cancel": "Cancel",
   "auth.features.sessions.api.route.forbidden": "Forbidden.",
   "auth.features.sessions.api.route.session.not.found": "Session not found.",
+  "auth.features.sessions.api.route.refused.notActive": "This session is no longer active.",
+  "auth.features.sessions.api.route.refused.accountRequired": "Choose an account to switch to.",
+  "auth.features.sessions.api.route.refused.accountUnavailable": "This session cannot switch to that account.",
+  "auth.features.sessions.api.route.refused.accountCurrent": "This session is already using that account.",
   "auth.features.sessions.ui.sessionDetailPage.active.account": "Active Account",
   "auth.features.sessions.ui.sessionDetailPage.authentication.method": "Authentication Method",
   "auth.features.sessions.ui.sessionDetailPage.available.accounts": "Available Accounts",
@@ -224,6 +231,7 @@ export const authEnglishTranslations = {
   "auth.features.sessions.ui.sessionDetailPage.revoke.confirm.title": "Revoke session for {user}?",
   "auth.features.sessions.ui.sessionDetailPage.session.id": "Session ID",
   "auth.features.sessions.ui.sessionDetailPage.switch.account": "Switch Account",
+  "auth.features.sessions.ui.sessionDetailPage.switch.to": "Switch to",
   "auth.features.sessions.ui.sessionDetailPage.title": "{user} session",
   "auth.features.sessions.ui.sessionDetailPage.user": "User",
   "auth.features.sessions.ui.sessionDetailPage.user.id": "User ID",
@@ -344,6 +352,8 @@ export const authEnglishTranslations = {
     "Social login provider could not be reached. Try again or use another sign-in method.",
   "auth.support.apiSupport.socialLoginRoutes.provider.already.linked":
     "This social login is already connected to another Chase Sets user.",
+  "auth.support.apiSupport.socialLoginRoutes.provider.link.repair.required":
+    "This social login needs review before it can be used. Use another sign-in method or contact support.",
   "auth.support.apiSupport.socialLoginRoutes.admin.permission.required":
     "This Workspace user does not have access to this admin area.",
   "auth.support.apiSupport.socialLoginRoutes.admin.user.required": "This Workspace user is not set up in Chase Sets.",
@@ -387,4 +397,57 @@ export const authEnglishTranslations = {
   "auth.values.family.sessionStatus": "Session status",
   "auth.values.unrecognized": "Unrecognized {family}",
   "auth.values.unrecognized.withValue": "Unrecognized {family}: {value}",
+  "auth.routes.marketplace.guestPaymentClaim.back.to.purchases": "Back to purchases",
+  "auth.routes.marketplace.guestPaymentClaim.payment.marketplace": "Payment | Marketplace",
+  "auth.routes.marketplace.guestPaymentClaim.payment.has.not.started": "Your payment has not started.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.not.found": "Payment not found.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.not.found.description":
+    "We could not find this payment. It may have expired, moved to another account, or already been replaced.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.preparing": "Preparing payment",
+  "auth.routes.marketplace.guestPaymentClaim.payment.preparing.description":
+    "We are getting your secure payment ready. Refresh in a moment and your payment details should appear.",
+  "auth.routes.marketplace.guestPaymentClaim.secure.checkout": "Secure Checkout",
+  "auth.routes.marketplace.guestPaymentClaim.claim.token": "Claim token",
+  "auth.routes.marketplace.guestPaymentClaim.claim.token.entry.is.not.available":
+    "Claim token entry is not available here. Use the emailed link or request a new one.",
+  "auth.routes.marketplace.guestPaymentClaim.contact.name": "Contact name",
+  "auth.routes.marketplace.guestPaymentClaim.continue.shopping": "Continue shopping",
+  "auth.routes.marketplace.guestPaymentClaim.could.not.save.order": "Could not save order",
+  "auth.routes.marketplace.guestPaymentClaim.could.not.save.this.order": "Could not save this order.",
+  "auth.routes.marketplace.guestPaymentClaim.email.me.a.claim.link": "Email me a claim link",
+  "auth.routes.marketplace.guestPaymentClaim.link.unavailable": "Link unavailable",
+  "auth.routes.marketplace.guestPaymentClaim.local.recovery.token.in.production":
+    "Local recovery token. In production this arrives by email.",
+  "auth.routes.marketplace.guestPaymentClaim.other.options": "Other options",
+  "auth.routes.marketplace.guestPaymentClaim.passkey.registration.failed": "Passkey registration failed.",
+  "auth.routes.marketplace.guestPaymentClaim.passkey.unavailable": "Passkey unavailable",
+  "auth.routes.marketplace.guestPaymentClaim.password.setup.is.available.only.after":
+    "Password setup is available only after email verification or an authenticated session.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.link.expired": "Payment link expired",
+  "auth.routes.marketplace.guestPaymentClaim.recommended": "Recommended",
+  "auth.routes.marketplace.guestPaymentClaim.refresh.payment": "Refresh payment",
+  "auth.routes.marketplace.guestPaymentClaim.refresh.payment.in.a.moment":
+    "Refresh this payment in a moment. Keep this page open so the original secure handoff can finish.",
+  "auth.routes.marketplace.guestPaymentClaim.recover.checkout": "Recover checkout",
+  "auth.routes.marketplace.guestPaymentClaim.return.to.cart": "Return to buy cart",
+  "auth.routes.marketplace.guestPaymentClaim.return.to.your.cart.to.review":
+    "Return to your Buy Cart to review your items and start checkout again. If you already completed payment, contact support with the email address you used at checkout.",
+  "auth.routes.marketplace.guestPaymentClaim.save.this.order": "Save this order",
+  "auth.routes.marketplace.guestPaymentClaim.save.this.order.after.payment.with.a.passkey":
+    "Save this order after payment with a passkey. You can use an email link if this device cannot create one.",
+  "auth.routes.marketplace.guestPaymentClaim.save.with.passkey": "Save with passkey",
+  "auth.routes.marketplace.guestPaymentClaim.send.a.claim.link.to": "Send a claim link to {email}.",
+  "auth.routes.marketplace.guestPaymentClaim.this.checkout.payment.link.is.no.longer":
+    "This checkout payment link is no longer valid. Your payment was not charged from this link.",
+  "auth.routes.marketplace.guestPaymentClaim.no.payment.was.charged": "No payment was charged from this expired link.",
+  "auth.routes.marketplace.guestPaymentClaim.review.cart.or.start.checkout.again":
+    "Review your Buy Cart or start checkout again.",
+  "auth.routes.marketplace.guestPaymentClaim.review.cart.or.purchases":
+    "Review your Buy Cart or open your purchases to start another payment.",
+  "auth.routes.marketplace.guestPaymentClaim.support.can.help.with.order.access":
+    "Support can help recover order access if you already completed payment elsewhere.",
+  "auth.routes.marketplace.guestPaymentClaim.verify.email.and.save.order": "Verify email and save order",
+  "auth.routes.marketplace.guestPaymentClaim.we.will.save.this.order.to": "We will save this order to {email}.",
+  "auth.routes.marketplace.guestPaymentClaim.you.can.save.this.order.after.payment":
+    "You can save this order after payment is complete.",
 } as const;

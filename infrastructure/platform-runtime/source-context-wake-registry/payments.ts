@@ -15,6 +15,7 @@ export const paymentsWakeRegistryEntry = registryEntry({
   expectedEventVolume: "medium",
   wakeStoreLoadEstimate: "medium",
   affectedProjectionNames: [
+    "customer-feedback:customer-feedback-csat-outcome-fact-projection",
     "auth:auth-agent-order-webhook-projection",
     "checkout:checkout.payment-affordance-projection",
     "checkout:checkout.payment-summary-projection",
@@ -40,5 +41,6 @@ export const paymentsWakeRegistryEntry = registryEntry({
     "payments.checkout-status-order-input-fresh-read",
     "payments.create-to-detail",
     "payments.detail-self-refresh",
+    "payments.terms-accept-to-wallet-status",
   ],
 });

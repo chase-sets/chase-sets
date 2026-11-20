@@ -1,12 +1,18 @@
+import * as marketplaceRequest from "@chase-sets/marketplace/server";
+import { SellListHandoffInterruptedError } from "./marketplace-handoff";
+import { SellListPreparationRefusedError, staleReviewPlanError } from "./handoff-contracts";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
 import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import type { CheckoutSellListConfirmationRow } from "../read-model/queries";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
+import { checkoutOwnerRuntimeFixture, choices, fixtureLine } from "./owner-read.fixture";
+import { createCheckoutApiClient } from "../../../client";
 
 const readySellerReadiness: SellListReadinessSnapshot["sellerReadiness"] = {
   status: "ready",
@@ -65,12 +71,13 @@ function createServices(): CheckoutSellListServices {
   return {
     addLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 1, status: "added" })),
     removeLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 2 })),
-    confirmSellListCheckout: vi.fn(async () => ({
+    confirmSellListCheckout: vi.fn<CheckoutSellListServices["confirmSellListCheckout"]>(async () => ({
       sellerAccountId: "acc_seller" as never,
       version: 3,
       status: "confirmed",
       confirmation: confirmationRow(),
       completedLineIds: ["sll_1" as never],
+      sourceReceipts: [],
     })),
     getLatestConfirmation: vi.fn(async () => null),
     getConfirmation: vi.fn(async () => null),
@@ -194,6 +201,118 @@ function guestCheckoutActor(): CheckoutApiEnv["Variables"]["actor"] {
 }
 
 describe("checkout sell list routes", () => {
+  it("keeps an unknown write failure recoverable instead of claiming a validation refusal", async () => {
+    const services = createServices();
+    vi.mocked(services.addLine).mockRejectedValue(new Error("synthetic acknowledgement loss"));
+    const response = await buildApp({ actor: sellerActor(), services }).request("/account/sell-list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attemptId: "sell-list-route-synthetic" }),
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("maps a changed confirmation payload to 409, without falling back to the projection", async () => {
+    const services = createServices();
+    vi.mocked(services.confirmSellListCheckout).mockRejectedValue(
+      new CheckoutDomainError("Sell List confirmation changed.", "checkout_confirmation_changed"),
+    );
+    const response = await buildApp({ actor: sellerActor(), services }).request("/account/sell-list/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmationId: "slc_synthetic",
+        readinessSnapshotId: "slr_ready",
+        readinessSourceRevision: "slr_source",
+        completedLineIds: ["sll_1"],
+        sellerEvidence: sellerEvidence(),
+        handoffSummary: handoffSummary(),
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "checkout_confirmation_changed" } });
+    expect(services.getConfirmation).not.toHaveBeenCalled();
+  });
+  it.each(["manual", "saved"] as const)(
+    "AC2 composes account readiness with %s choices, never a posted owner/status",
+    async (kind) => {
+      const f = checkoutOwnerRuntimeFixture();
+      const app = buildApp({ actor: sellerActor(), services: f.services });
+      const response = await app.request("/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-sell-list-id": "anon_foreign" },
+        body: JSON.stringify({
+          ...choices,
+          shipFrom: kind === "saved" ? { addressId: "adr_fixture" } : choices.shipFrom,
+          sellerAccountId: "acc_foreign",
+          sellerEvidence: sellerEvidence(),
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        readiness: {
+          sellerReadiness: { status: "ready" },
+          ownerReads: { owner: { kind: "account", accountId: "acc_seller" } },
+        },
+      });
+    },
+  );
+
+  it("AC2 composes anonymous readiness only from its trusted header and full manual choice", async () => {
+    const f = checkoutOwnerRuntimeFixture("anon_trusted");
+    const app = buildApp({ actor: null, services: f.services });
+    const response = await app.request("/guest/sell-list/readiness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-checkout-anonymous-sell-list-id": "anon_trusted" },
+      body: JSON.stringify({ ...choices, sellerAccountId: "acc_foreign", sellerEvidence: sellerEvidence() }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      readiness: {
+        sellerReadiness: { status: "ready" },
+        ownerReads: { owner: { kind: "anonymous", anonymousSellListId: "anon_trusted" } },
+      },
+    });
+  });
+
+  it("returns only typed refusal reasons when signed-in preparation is blocked", async () => {
+    const services = createServices();
+    vi.mocked(services.createReadinessSnapshot).mockRejectedValue(
+      new SellListPreparationRefusedError(["risk-hold", "label-not-ready"]),
+    );
+    const app = buildApp({ actor: sellerActor(), services });
+    const response = await app.request("/account/sell-list/readiness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...choices,
+        confirmationId: "slc_synthetic",
+        entryReadinessSnapshotId: "slr_entry",
+        entryReadinessSourceRevision: "slr_source",
+        sellerEvidence: sellerEvidence(),
+      }),
+    });
+
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith(
+      {
+        ...choices,
+        sellerAccountId: "acc_seller",
+        decisions: { lineActions: [], lineOutcomes: [] },
+        confirmationId: "slc_synthetic",
+        entryReadinessSnapshotId: "slr_entry",
+        entryReadinessSourceRevision: "slr_source",
+      },
+      expect.anything(),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "checkout_seller_not_ready",
+        message: "Sell List readiness must be resolved before handoff.",
+        reasons: ["risk-hold", "label-not-ready"],
+      },
+    });
+  });
   it("counts sell list item quantities instead of raw lines", async () => {
     const services = createServices();
     vi.mocked(services.listLines).mockResolvedValue([
@@ -301,6 +420,26 @@ describe("checkout sell list routes", () => {
       lineId: "sll_offer" as never,
       version: 4,
       status: "merged",
+      attempt: {
+        schemaVersion: 1,
+        kind: "sell-list-line",
+        fingerprint: "a".repeat(64),
+        actorBinding: { kind: "account", digest: "b".repeat(64) },
+        target: "sell-list",
+        requestHash: "c".repeat(64),
+        ownerStatus: "committed",
+        vector: [
+          {
+            index: 0,
+            command: "add",
+            lineId: "sll_offer",
+            status: "merged",
+            version: 4,
+            outcome: "succeeded",
+            message: null,
+          },
+        ],
+      },
     });
     const app = buildApp({ actor: sellerActor(), services });
 
@@ -324,7 +463,7 @@ describe("checkout sell list routes", () => {
     );
 
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       id: "sll_offer",
       version: 4,
       status: "merged",
@@ -361,14 +500,16 @@ describe("checkout sell list routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       readiness: { snapshotId: "slr_ready", status: "ready" },
     });
-    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
-      sellerAccountId: "acc_seller",
-      decisions: {
-        lineActions: [{ lineId: "sll_1", action: "smart-match" }],
-        lineOutcomes: [{ lineId: "sll_2", outcome: "keep-in-list" }],
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith(
+      {
+        sellerAccountId: "acc_seller",
+        decisions: {
+          lineActions: [{ lineId: "sll_1", action: "smart-match" }],
+          lineOutcomes: [{ lineId: "sll_2", outcome: "keep-in-list" }],
+        },
       },
-      sellerEvidence: null,
-    });
+      expect.objectContaining({ audit: expect.objectContaining({ forAccountId: "acc_seller" }) }),
+    );
   });
 
   it("removes a Sell List line", async () => {
@@ -480,23 +621,15 @@ describe("checkout sell list routes", () => {
       confirmation: { confirmation_id: "slc_1" },
     });
     expect(services.confirmSellListCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({
+      {
         sellerAccountId: "acc_seller",
         confirmationId: "slc_1",
         readinessSnapshotId: "slr_ready",
         readinessSourceRevision: "slr_source",
-        readinessDecisions: {
-          lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-          lineOutcomes: [],
-        },
-        completedLineIds: ["sll_1"],
-        sellerEvidence: expect.objectContaining({ shipFrom: expect.objectContaining({ status: "ready" }) }),
-        handoffSummary: expect.objectContaining({
-          acceptedOfferCount: 1,
-          sideEffects: expect.objectContaining({ sale: "handoff-recorded" }),
-        }),
-      }),
+        readinessDecisions: { lineActions: [{ lineId: "sll_1", action: "selected-offer" }], lineOutcomes: [] },
+      },
       expect.any(Object),
+      expect.objectContaining({ acceptOfferMatch: expect.any(Function) }),
     );
   });
 
@@ -522,10 +655,9 @@ describe("checkout sell list routes", () => {
     expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
   });
 
-  it("rejects Sell List confirmation when ready seller evidence is incomplete", async () => {
+  it("posted handoff results cannot change the API-observed confirmation", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
-
     const response = await app.fetch(
       new Request("http://checkout.test/account/sell-list/confirm", {
         method: "POST",
@@ -534,24 +666,75 @@ describe("checkout sell list routes", () => {
           confirmationId: "slc_1",
           readinessSnapshotId: "slr_ready",
           readinessSourceRevision: "slr_source",
-          completedLineIds: ["sll_1"],
-          sellerEvidence: {
-            ...sellerEvidence(),
-            shipFrom: { ...sellerEvidence().shipFrom, postalCode: "" },
-          },
-          handoffSummary: handoffSummary(),
+          handoffSummary: { acceptedOfferCount: 999 },
+          completedLineIds: ["sll_attacker"],
+          remainingLineQuantities: [{ lineId: "sll_1", quantity: 999 }],
         }),
       }),
     );
+    expect(response.status).toBe(200);
+    const input = vi.mocked(services.confirmSellListCheckout).mock.calls[0]![0];
+    for (const field of ["handoffSummary", "completedLineIds", "remainingLineQuantities"])
+      expect(input).not.toHaveProperty(field);
+    await expect(response.json()).resolves.toMatchObject({
+      confirmation: { handoff_summary: { acceptedOfferCount: 1 } },
+      completedLineIds: ["sll_1"],
+    });
+  });
 
-    expect(response.status).toBe(400);
+  it("confirm forwards the request-bound Marketplace port", async () => {
+    const services = createServices();
+    const request = new Request("http://checkout.test/account/sell-list/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: "synthetic_session=value" },
+      body: JSON.stringify({
+        confirmationId: "slc_1",
+        readinessSnapshotId: "slr_ready",
+        readinessSourceRevision: "slr_source",
+      }),
+    });
+    const port = marketplaceRequest.createMarketplaceRequestApiClient(request);
+    const factory = vi.spyOn(marketplaceRequest, "createMarketplaceRequestApiClient").mockReturnValue(port);
+    try {
+      const response = await buildApp({ actor: sellerActor(), services }).fetch(request);
+      expect(response.status).toBe(200);
+      expect(factory).toHaveBeenCalledExactlyOnceWith(request);
+      expect(vi.mocked(services.confirmSellListCheckout).mock.calls[0]![2]).toBe(port);
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it("confirm transports partial handoff and re-review recovery", async () => {
+    const services = createServices();
+    vi.mocked(services.confirmSellListCheckout).mockRejectedValueOnce(
+      new SellListHandoffInterruptedError(staleReviewPlanError("Charizard"), [
+        { lineId: "sll_1", status: "ambiguous", detail: "Refresh reviewed terms." },
+        { lineId: "sll_2", status: "not-attempted", detail: "Not attempted." },
+      ]),
+    );
+    const response = await buildApp({ actor: sellerActor(), services }).fetch(
+      new Request("http://checkout.test/account/sell-list/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmationId: "slc_1",
+          readinessSnapshotId: "slr_ready",
+          readinessSourceRevision: "slr_source",
+        }),
+      }),
+    );
+    expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
       error: {
-        code: "validation_failed",
-        message: "Sell List confirmation requires current readiness, seller, and reviewed sale details.",
+        code: "checkout_handoff_interrupted",
+        recovery: { kind: "readiness-stale" },
+        lines: [
+          { lineId: "sll_1", status: "ambiguous" },
+          { lineId: "sll_2", status: "not-attempted" },
+        ],
       },
     });
-    expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
   });
 
   it("does not expose removed Sell List old endpoints", async () => {
@@ -677,6 +860,12 @@ describe("checkout sell list routes", () => {
 
   it("blocks new anonymous Sell List lines after the guest line limit", async () => {
     const services = createServices();
+    vi.mocked(services.addLine).mockRejectedValue(
+      new CheckoutDomainError(
+        "This device has 50 Sell List lines saved. Remove an item before adding another.",
+        "anonymous_sell_list_limit_exceeded",
+      ),
+    );
     vi.mocked(services.listLines).mockResolvedValue(
       Array.from({ length: 50 }, (_, index) => ({
         line_id: `sll_${index}`,
@@ -712,7 +901,7 @@ describe("checkout sell list routes", () => {
         message: "This device has 50 Sell List lines saved. Remove an item before adding another.",
       },
     });
-    expect(services.addLine).not.toHaveBeenCalled();
+    expect(services.addLine).toHaveBeenCalledWith(expect.objectContaining({ newLineLimit: 50 }), expect.anything());
   });
 
   it("rate limits repeated anonymous Sell List capture requests", async () => {
@@ -763,6 +952,7 @@ describe("checkout sell list routes", () => {
         },
         body: JSON.stringify({
           lineOutcomes: [{ lineId: "sll_waiting", outcome: "keep-in-list" }],
+          sellerEvidence: sellerEvidence(),
         }),
       }),
     );
@@ -774,7 +964,6 @@ describe("checkout sell list routes", () => {
         lineActions: [],
         lineOutcomes: [{ lineId: "sll_waiting", outcome: "keep-in-list" }],
       },
-      sellerEvidence: null,
     });
   });
 
@@ -849,6 +1038,157 @@ describe("checkout sell list routes", () => {
           },
         ],
       },
+    });
+  });
+});
+
+describe("API-owned Sell List review readiness", () => {
+  it("returns the authenticated API-built plan and decisions", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    const app = buildApp({ actor: sellerActor(), services: f.services });
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerAccountId: "acc_foreign",
+          selections: {
+            lines: [
+              {
+                lineId: "sll_fixture",
+                selectedOfferFeeQuoteFingerprint: "quote",
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({
+      reviewPlan: {
+        version: 1,
+        lines: [
+          {
+            lineId: "sll_fixture",
+            selectedOffer: { offerId: "off_fixture", listingId: "lst_fixture", feeQuoteFingerprint: "quote" },
+          },
+        ],
+      },
+      decisions: { lineActions: [{ lineId: "sll_fixture", action: "selected-offer" }], lineOutcomes: [] },
+      readiness: { status: "ready" },
+    });
+    const load = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          readinessSnapshotId: result.readiness.snapshotId,
+          readinessSourceRevision: result.readiness.sourceRevision,
+          reviewPlan: { lines: [] },
+          lineActions: [],
+        }),
+      }),
+    );
+    expect(load.status).toBe(200);
+    expect(await load.json()).toEqual(result);
+    const foreign = buildApp({ actor: { ...sellerActor()!, accountId: "acc_foreign" as never }, services: f.services });
+    const refused = await foreign.fetch(
+      new Request("http://checkout.test/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          readinessSnapshotId: result.readiness.snapshotId,
+          readinessSourceRevision: result.readiness.sourceRevision,
+        }),
+      }),
+    );
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: { code: "checkout_readiness_stale" } });
+  });
+
+  it("requires authentication for selections and rejects malformed selections", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    for (const actor of [null, sellerActor()]) {
+      const app = buildApp({ actor, services: f.services });
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/sell-list/readiness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selections: { lines: "invalid" } }),
+        }),
+      );
+      expect(response.status).toBe(actor ? 400 : 401);
+    }
+    expect(f.memory.allEvents).toHaveLength(0);
+  });
+
+  it("keeps no-selection guest readiness unchanged", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: null, services });
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-sell-list-id": "anon_sell_1" },
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(Object.keys(await response.json())).toEqual(["readiness"]);
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+      sellerAccountId: "anon_sell_1",
+      decisions: { lineActions: [], lineOutcomes: [] },
+    });
+  });
+});
+
+describe("Sell List composite HTTP reads", () => {
+  it("serializes account decimal answers and enforces account access", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    f.setLines([{ ...fixtureLine, quantity: 2 }]);
+    const app = buildApp({ actor: sellerActor(), services: f.services });
+    const response = await app.request("/account/sell-list/composite-review");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      screen: {
+        selectedOfferGross: "20.00",
+        expectedSellerPayout: "20.00",
+        estimatedSalesFees: "0.00",
+        futureListingGross: "0.00",
+        canContinue: true,
+      },
+    });
+    expect(
+      (await buildApp({ actor: null, services: f.services }).request("/account/sell-list/composite-review")).status,
+    ).toBe(401);
+  });
+
+  it("uses only the anonymous header for the guest composite client and returns an empty envelope without it", async () => {
+    const f = checkoutOwnerRuntimeFixture("anon_fixture");
+    const loadGuestCompositeReview = vi.spyOn(f.services, "loadGuestCompositeReview");
+    const app = buildApp({ actor: sellerActor(), services: f.services });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => app.fetch(new Request(input, init)));
+    const client = createCheckoutApiClient({ baseUrl: "http://checkout.test", fetch });
+    const guest = await client.getGuestSellListCompositeReview("anon_fixture");
+    expect(loadGuestCompositeReview).toHaveBeenCalledWith("anon_fixture");
+    expect(guest).toMatchObject({
+      inventoryItems: [],
+      productOfferReviews: [],
+      screen: {
+        payoutReadiness: null,
+        payoutIsReady: true,
+        canContinue: false,
+        selectedOfferGross: "10.00",
+        expectedSellerPayout: "10.00",
+      },
+    });
+    const empty = await client.getGuestSellListCompositeReview(null);
+    expect(loadGuestCompositeReview).toHaveBeenLastCalledWith(null);
+    expect(empty.screen).toMatchObject({
+      lineCount: 0,
+      canContinue: false,
+      selectedOfferGross: "0.00",
+      expectedSellerPayout: "0.00",
     });
   });
 });

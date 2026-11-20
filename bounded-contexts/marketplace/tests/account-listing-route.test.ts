@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { listingPreparationResponse } from "../features/listings/tests/listing-attempt-test-support";
 import {
   appendCompactPostWriteToken,
   appendFreshWriteToken,
@@ -169,6 +170,8 @@ describe("marketplace listing detail route", () => {
       listing: null,
       feeHistory: { items: [], total: 0, count: 0 },
       recovery: "fresh-write-preparing",
+      accountId: "acc_1",
+      listingRecovery: null,
     });
   });
 
@@ -306,8 +309,10 @@ describe("marketplace listing detail route", () => {
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
@@ -329,6 +334,7 @@ describe("marketplace listing detail route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "publish");
     form.set("feeQuoteFingerprint", "quote-1");
 
@@ -343,7 +349,15 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\/lst_1\?evidenceEvent=publication_succeeded&postWriteToken=/);
+    const destination = new URL(location, "http://localhost");
+    expect(destination.pathname).toBe("/account/listings/lst_1");
+    expect(destination.searchParams.get("evidenceEvent")).toBe("publication_succeeded");
+    expect(JSON.parse(destination.searchParams.get("listingRecovery")!)).toMatchObject({
+      batchId: "test_form_attempt_10923_publishListing",
+      mutationKind: "listing.publish",
+      bulk: false,
+    });
+    expect(location).not.toMatch(/targets|requestHash/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listing/);
     expect(location).not.toContain("afterWrite=");
     expect(location).not.toContain("postWriteHandoff=");
@@ -360,8 +374,10 @@ describe("marketplace listing detail route", () => {
   it("returns the current quote when a confirmed price update is stale", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
@@ -383,6 +399,7 @@ describe("marketplace listing detail route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "update-price");
     form.set("priceAmount", "20.00");
     form.set("priceCurrencyCode", "USD");
@@ -410,8 +427,10 @@ describe("marketplace listing detail route", () => {
     const currentEvidenceReadiness = { coverage: { complete: false, unmetCodes: ["slot-missing"] } };
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
         if (url.includes("/api/auth/session")) return Promise.resolve(jsonResponse({ actor: sellerActor }));
         return Promise.resolve(
           jsonResponse(
@@ -427,7 +446,11 @@ describe("marketplace listing detail route", () => {
         );
       }),
     );
-    const form = new URLSearchParams({ intent: "publish", feeQuoteFingerprint: "quote-1" });
+    const form = new URLSearchParams({
+      idempotencyKey: "test_form_attempt_10923",
+      intent: "publish",
+      feeQuoteFingerprint: "quote-1",
+    });
 
     const result = await listingAction({
       request: new Request("http://localhost/account/listings/lst_1", {
@@ -458,6 +481,7 @@ describe("marketplace listing detail route", () => {
       }),
     );
     const form = new URLSearchParams({
+      idempotencyKey: "test_form_attempt_10923",
       intent: "classify-photo",
       photoId: "lpho_1",
       slotId: "",
@@ -489,8 +513,10 @@ describe("marketplace listing detail route", () => {
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
@@ -504,6 +530,7 @@ describe("marketplace listing detail route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "update-price");
     form.set("priceAmount", "20.00");
     form.set("priceCurrencyCode", "USD");
@@ -520,7 +547,15 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toBe("/account/listings/lst_1");
+    const destination = new URL(location, "http://localhost");
+    expect(destination.pathname).toBe("/account/listings/lst_1");
+    expect(JSON.parse(destination.searchParams.get("listingRecovery")!)).toMatchObject({
+      mutationKind: "listing.update-price",
+      bulk: false,
+    });
+    expect(location).not.toMatch(/targets|requestHash/);
+    expect(location).not.toContain("priceAmount");
+    expect(location).not.toContain("20.00");
     expect(location).not.toContain("postWriteToken=");
     expect(location).not.toContain("afterWrite=");
     expect(store.storeCalls).toHaveLength(0);

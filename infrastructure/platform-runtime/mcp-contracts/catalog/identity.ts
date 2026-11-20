@@ -712,6 +712,39 @@ export const identityService = {
       availability: "available",
     },
     {
+      ...readTool(
+        "identity",
+        "get-api-key",
+        "Get API Key",
+        "Read an identity API key's public metadata without its secret or verifier.",
+        "security.manage",
+        objectSchema({ apiKeyId: stringProperty("API key to read (key_ typed identifier).") }, ["apiKeyId"]),
+        "api-key",
+        ["Use to inspect API key ownership, status, and last use."],
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...readTool(
+        "identity",
+        "list-api-keys",
+        "List API Keys",
+        "List identity API keys' public metadata without secrets or verifiers.",
+        "security.manage",
+        objectSchema({
+          search: stringProperty("Optional API key name, prefix, or user search."),
+          status: stringProperty("Optional API key status filter."),
+          limit: integerProperty("Maximum number of API keys to return (default 50, capped at 500)."),
+          offset: integerProperty("Number of API keys to skip (default 0, capped at 10000)."),
+        }),
+        "api-key",
+        ["Use to locate API keys before inspecting or revoking them."],
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
       ...writeTool(
         "identity",
         "revoke-api-key",

@@ -39,6 +39,9 @@
       "@chase-sets/auth/server": [
         "./bounded-contexts/auth/server.ts"
       ],
+      "@chase-sets/auth/test-support": [
+        "./bounded-contexts/auth/features/sessions/tests/listing-activation-test-support.ts"
+      ],
       "@chase-sets/auth/web": [
         "./bounded-contexts/auth/web.ts"
       ],
@@ -75,6 +78,9 @@
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
+      "@chase-sets/catalog-seed/ids": [
+        "./contracts/catalog-seed/ids.ts"
+      ],
       "@chase-sets/catalog/client": [
         "./bounded-contexts/catalog/client.ts"
       ],
@@ -86,6 +92,9 @@
       ],
       "@chase-sets/catalog/server": [
         "./bounded-contexts/catalog/server.ts"
+      ],
+      "@chase-sets/catalog/test-support": [
+        "./bounded-contexts/catalog/features/source-observations/tests/owner-predicate-test-support.ts"
       ],
       "@chase-sets/catalog/web": [
         "./bounded-contexts/catalog/web.ts"
@@ -438,6 +447,9 @@
       "@chase-sets/event-core/event-store": [
         "./contracts/event-core/event-store.ts"
       ],
+      "@chase-sets/event-core/owner-stream-reservation": [
+        "./contracts/event-core/owner-stream-reservation.ts"
+      ],
       "@chase-sets/event-core/platform-coverage-facts": [
         "./contracts/event-core/platform-coverage-facts.ts"
       ],
@@ -528,6 +540,9 @@
       "@chase-sets/identity/server": [
         "./bounded-contexts/identity/server.ts"
       ],
+      "@chase-sets/identity/test-support": [
+        "./bounded-contexts/identity/features/accounts/tests/listing-activation-test-support.ts"
+      ],
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
       ],
@@ -552,6 +567,9 @@
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
       ],
+      "@chase-sets/inventory/test-support": [
+        "./bounded-contexts/inventory/features/inventory-items/tests/listing-activation-test-support.ts"
+      ],
       "@chase-sets/inventory/web": [
         "./bounded-contexts/inventory/web.ts"
       ],
@@ -560,6 +578,9 @@
       ],
       "@chase-sets/localization": [
         "./contracts/localization/index.ts"
+      ],
+      "@chase-sets/localization/core": [
+        "./contracts/localization/core.ts"
       ],
       "@chase-sets/localization/locales/en": [
         "./contracts/localization/locales/en.ts"
@@ -738,6 +759,12 @@
       "@chase-sets/platform-runtime/agent-guardrails": [
         "./infrastructure/platform-runtime/agent-guardrails.ts"
       ],
+      "@chase-sets/platform-runtime/analytics-bridge": [
+        "./infrastructure/platform-runtime/analytics-bridge.ts"
+      ],
+      "@chase-sets/platform-runtime/analytics-recorder": [
+        "./infrastructure/platform-runtime/analytics-recorder.ts"
+      ],
       "@chase-sets/platform-runtime/api": [
         "./infrastructure/platform-runtime/api.ts"
       ],
@@ -782,6 +809,9 @@
       ],
       "@chase-sets/platform-runtime/http": [
         "./infrastructure/platform-runtime/http.ts"
+      ],
+      "@chase-sets/platform-runtime/inline-seed-db-test-support": [
+        "./infrastructure/platform-runtime/inline-seed-db-test-support.ts"
       ],
       "@chase-sets/platform-runtime/internal-auth": [
         "./infrastructure/platform-runtime/internal-auth.ts"
@@ -915,6 +945,9 @@
       "@chase-sets/platform-runtime/worker-event-capability": [
         "./infrastructure/platform-runtime/worker-event-capability.ts"
       ],
+      "@chase-sets/platform-runtime/worker-jobs": [
+        "./infrastructure/platform-runtime/worker-jobs.ts"
+      ],
       "@chase-sets/platform-runtime/worker-observer": [
         "./infrastructure/platform-runtime/worker-observer.ts"
       ],
@@ -944,6 +977,9 @@
       ],
       "@chase-sets/pricing/server": [
         "./bounded-contexts/pricing/server.ts"
+      ],
+      "@chase-sets/pricing/test-support": [
+        "./bounded-contexts/pricing/features/repricing-engine/tests/owner-predicate-test-support.ts"
       ],
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"
@@ -1013,9 +1049,6 @@
       ],
       "@chase-sets/settlement/server": [
         "./bounded-contexts/settlement/server.ts"
-      ],
-      "@chase-sets/stripe-appearance": [
-        "./infrastructure/stripe-appearance/stripe-appearance.ts"
       ],
       "@chase-sets/stripe-config": [
         "./infrastructure/stripe-config/index.ts"

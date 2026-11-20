@@ -13,7 +13,10 @@ import * as subjectOutcomeValidation from "../domain/subject-outcome-validation"
 import * as orderPull from "../api/order-pull";
 import * as liveExport from "../api/live-export";
 import * as liveExportContract from "../domain/live-export-codec";
+import * as canaryContract from "../domain/ready-to-ship-canary";
+import * as canary from "../api/ready-to-ship-canary";
 import * as store from "../api/store";
+import * as runSettlement from "../../connector-feed/domain/run-settlement";
 
 export type SettlementMutant = "omission-guard" | "receipt-identity" | "transaction-split";
 
@@ -49,7 +52,10 @@ export function mutatedOutboundRuntime(
     "./order-pull": orderPull,
     "./live-export": liveExport,
     "../domain/live-export-codec": liveExportContract,
+    "../domain/ready-to-ship-canary": canaryContract,
+    "./ready-to-ship-canary": canary,
     "./store": store,
+    "../../connector-feed/domain/run-settlement": runSettlement,
   };
   const exports: Partial<typeof import("../api/runtime")> = {};
   runInNewContext(

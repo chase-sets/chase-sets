@@ -1,26 +1,35 @@
 //! The scopes list (admin-web's scope-first Catalog landing, `CatalogScopeLandingPage`): every
-//! canonical Scope Record, filtered by product domain, lifecycle status and text in the API and
-//! by language edition over the page it returned, as admin-web's loader does.
+//! canonical Scope Record, filtered by product domain, lifecycle status, language edition and text
+//! in the API, with each row's promotion readiness and sync freshness as the API derives them and
+//! the language choices from its facets.
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/scopes?search&status&product_domain&language&page` | the list, with the attention queue above it ([`attention`](super::attention)) |
+//! | `GET /catalog/scopes?search&status&product_domain&language&page&evidenceRef` | the list, with the attention queue above it ([`attention`](super::attention)) |
 //!
-//! Each row's View opens the scope's page ([`scope`](super::scope)). Not ported yet: the
-//! all-scopes alias review that admin-web shows above the list.
+//! Each row's View opens the scope's page ([`scope`](super::scope)). Above the list, after the
+//! queue, is the all-scopes alias review (`alias-review?limit=200`, folded as admin-web's is), whose
+//! commands post to the attention routes ([`attention`](super::attention)): each candidate's own,
+//! and the bulk bar's for the checked candidates (`views::AliasReviewPart`).
+//!
+//! Each alias candidate links to its evidence: this list with an `evidenceRef`. With one, the page
+//! reads the daily surface for its address instead of the alias review, as admin-web's loader does:
+//! the API resolves the reference into the audit timeline the page opens above the queue, and reads
+//! the alias review in with it (`read_reviews`).
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Serialize;
-use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
-use futures_util::future::join;
+use futures_util::future::join3;
 use platform::receipt::Receipt;
 
+pub use super::api::{Promotion, Sync};
 use super::{
-    api::{AttentionQueue, Catalog as _, Kind, List, ScopeRecord},
+    api::{AliasReview, AttentionQueue, Catalog as _, Kind, List, ScopeFacets, ScopePage, ScopeRecord},
     attention::Parked,
+    integrations::AuditEvidence,
     list_query, screen,
     views::{self, ListScreen},
 };
@@ -28,7 +37,7 @@ use crate::{
     api::{ApiError, Caller},
     app::{Shared, read_failed},
     auth::{CatalogAccess, Staff, Viewer},
-    text::{Cat, Pilot},
+    text::Cat,
 };
 
 /// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
@@ -37,23 +46,37 @@ pub mod url {
     use corten::{Fields, Route};
     use serde::Deserialize;
 
-    /// The list's filters (the filter form's fields) and page (from 1).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    /// The list's filters (the filter form's fields) and page (from 1), and the attention queue's
+    /// window apart from them (admin-web's `attentionKind` and `attentionOffset`), so paging one
+    /// never moves the other. The window is read as admin-web reads it: an unknown kind is the
+    /// summary and an offset that is not a number is 0, rather than a refused page.
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct ScopeQuery {
         pub search: Option<String>,
         pub status: Option<String>,
         pub product_domain: Option<String>,
-        /// A language edition: filters the page the API returned, not the API's query.
+        /// A language edition (the API's `languageEdition`).
         pub language: Option<String>,
         pub page: Option<u32>,
+        pub attention_kind: Option<String>,
+        pub attention_offset: Option<String>,
+        /// The entity whose audit timeline the page opens (admin-web's `evidenceRef`), for the API
+        /// to resolve.
+        #[serde(rename = "evidenceRef")]
+        pub evidence_ref: Option<String>,
     }
 
-    /// What an attention queue command did: admin-web's banner (queued, or the command failed).
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    /// What an attention queue command did: admin-web's banner (queued, what an alias command
+    /// did, or the command failed).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum AttentionDone {
         Queued,
+        AliasAccepted,
+        AliasRejected,
+        AliasRevoked,
+        AliasDeferred,
         Failed,
     }
 
@@ -77,7 +100,8 @@ pub mod url {
     }
 
     impl ScopeQuery {
-        /// The filters and page that are set, by their query names: what the queue's forms keep.
+        /// The filters, page and queue window that are set, by their query names: what the queue's
+        /// forms keep.
         pub fn kept(&self) -> Vec<(corten::FieldName, String)> {
             let f = ScopeQuery::FIELDS;
             let names = [
@@ -90,7 +114,59 @@ pub mod url {
             if let Some(page) = self.page.filter(|page| *page > 1) {
                 kept.push((f.page.untyped(), page.to_string()));
             }
+            let (kind, offset) = self.attention_window();
+            if let Some(kind) = kind {
+                kept.push((f.attention_kind.untyped(), kind.as_str().to_owned()));
+            }
+            if offset > 0 {
+                kept.push((f.attention_offset.untyped(), offset.to_string()));
+            }
             kept
+        }
+
+        /// The queue window asked for (`readCatalogAttentionQueuePageWindow`): a kind, or none for
+        /// the summary, and the offset into it.
+        pub fn attention_window(&self) -> (Option<crate::catalog::api::AttentionKind>, u64) {
+            let kind = self.attention_kind.as_deref().map(str::trim).and_then(crate::catalog::api::AttentionKind::parse);
+            let offset = self.attention_offset.as_deref().and_then(|o| o.trim().parse::<f64>().ok()).filter(|o| o.is_finite());
+            match kind {
+                // An unknown kind is the summary, at its start.
+                None if self.attention_kind.as_deref().is_some_and(|k| !k.trim().is_empty()) => (None, 0),
+                kind => (kind, offset.map_or(0, |o| o.trunc().max(0.0) as u64)),
+            }
+        }
+
+        /// The same list showing the queue's window `kind` at `offset` (`catalogAttentionQueuePageHref`).
+        pub fn with_attention(&self, kind: Option<crate::catalog::api::AttentionKind>, offset: u64) -> ScopeQuery {
+            ScopeQuery {
+                attention_kind: kind.map(|k| k.as_str().to_owned()),
+                attention_offset: (offset > 0).then(|| offset.to_string()),
+                ..self.clone()
+            }
+        }
+
+        /// The same list with the audit timeline of `reference` open (`catalogEntityEvidenceHref`).
+        pub fn with_evidence(&self, reference: String) -> ScopeQuery {
+            ScopeQuery { evidence_ref: Some(reference), ..self.clone() }
+        }
+
+        /// The list's address as admin-web names its query (`productDomain`, `languageEdition`,
+        /// `attentionKind` and the rest): the daily surface's location, from which the API resolves
+        /// the `evidenceRef`.
+        pub fn location(&self) -> String {
+            use crate::catalog::daily::{at, with_query};
+            let page = self.page.map(|page| page.to_string());
+            let pairs = [
+                ("search", self.search.as_deref()),
+                ("status", self.status.as_deref()),
+                ("productDomain", self.product_domain.as_deref()),
+                ("languageEdition", self.language.as_deref()),
+                ("page", page.as_deref()),
+                ("attentionKind", self.attention_kind.as_deref()),
+                ("attentionOffset", self.attention_offset.as_deref()),
+                ("evidenceRef", self.evidence_ref.as_deref()),
+            ];
+            at(Scopes::default().href().as_str(), &with_query("", &pairs))
         }
     }
 }
@@ -103,44 +179,25 @@ pub fn product_domains() -> &'static [String] {
     &DOMAINS
 }
 
-/// Whether a scope's canonical record can promote Catalog Items yet (`CatalogScopePromotionReadiness`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToJson)]
-#[serde(rename_all = "lowercase")]
-pub enum Promotion {
-    Unpublished,
-    Live,
-    Deprecated,
-    Archived,
-}
-
-/// Whether a scope's record changed in the last two weeks (`CatalogScopeSyncFreshness`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToJson)]
-#[serde(rename_all = "lowercase")]
-pub enum Sync {
-    Fresh,
-    Stale,
-}
-
-/// A row: the record, and what admin-web derives from it.
-#[derive(Clone, Debug, Serialize, ToJson)]
-pub struct ScopeRow {
-    #[serde(flatten)]
-    pub scope: ScopeRecord,
-    pub promotion: Promotion,
-    pub sync: Sync,
-}
-
 /// The list page's view model: what it shows and what a data client gets.
 #[derive(Serialize, ToJson)]
 pub struct ScopeScreen {
     #[serde(flatten)]
-    pub list: ListScreen<ScopeRow>,
-    /// The language editions on the page the API returned, and the one filtered by.
+    pub list: ListScreen<ScopeRecord>,
+    /// The language editions across every page of the filter (the API's facets), and the one
+    /// filtered by.
     pub languages: Vec<String>,
     /// The API's message when the list could not be read (the page shows it, with no rows).
     pub error: Option<String>,
     /// The attention queue, or none when it could not be read (the page says it is unavailable).
     pub attention: Option<AttentionQueue>,
+    /// The all-scopes alias review, or none when it could not be read (`alias_review_failed`).
+    pub alias_review: Option<AliasReview>,
+    pub alias_review_failed: bool,
+    /// The audit timeline the API resolved for the address's `evidenceRef`; none without one.
+    pub audit: Option<AuditEvidence>,
+    /// The address named an `evidenceRef`, but the surface that resolves it could not be read.
+    pub evidence_failed: bool,
 }
 
 /// What the page draws besides the list: an item's sheet, open, with a park form that came back.
@@ -151,57 +208,78 @@ pub enum ScopeBack {
     Review(String, Option<Parked>),
 }
 
-/// `SCOPE_LANDING_STALE_SYNC_MS`: a record that has not changed in two weeks reads as a stale sync.
-const STALE_SYNC: Duration = Duration::days(14);
-
-/// Workaround for chase-sets/chase-sets#10507: admin-web derives a scope's promotion readiness and
-/// sync freshness in its web layer (`scope-landing-read-model.ts`), so the pilot repeats the rule.
-/// Remove it once the Catalog API returns them.
-pub(crate) fn row(scope: ScopeRecord, now: OffsetDateTime) -> ScopeRow {
-    let promotion = match scope.lifecycle_status.as_str() {
-        "active" => Promotion::Live,
-        "deprecated" => Promotion::Deprecated,
-        "archived" => Promotion::Archived,
-        _ => Promotion::Unpublished,
-    };
-    // An unreadable time is stale, so it is reviewed rather than read as fresh.
-    let sync = match OffsetDateTime::parse(&scope.updated_at, &Rfc3339) {
-        Ok(at) if now - at <= STALE_SYNC => Sync::Fresh,
-        _ => Sync::Stale,
-    };
-    ScopeRow { scope, promotion, sync }
-}
-
-/// The rows, the page and the language facet, from the API's page (`buildCatalogScopeLandingReadModel`).
-/// Workaround for chase-sets/chase-sets#10565: the API has no language filter, so the facet filters
-/// only the page shown, as admin-web's does. Forward it to the API once it takes one.
-fn scope_screen(list: List<ScopeRecord>, page: u32, language: Option<&str>, now: OffsetDateTime) -> ScopeScreen {
-    let language = language.map(str::trim).filter(|l| !l.is_empty());
-    let mut languages: Vec<String> = list.items.iter().flat_map(|s| s.language_editions.iter().cloned()).collect();
-    languages.extend(language.map(str::to_owned));
+/// The rows, the page and the language choices, from the API's page
+/// (`buildCatalogScopeLandingReadModel`): the active edition stays a choice when no record has it.
+fn scope_screen(list: ScopePage, page: u32, language: Option<&str>) -> ScopeScreen {
+    let mut languages = list.facets.language_editions;
+    languages.extend(language.map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned));
     languages.sort();
     languages.dedup();
-    let rows = List {
-        items: list
-            .items
-            .into_iter()
-            .filter(|s| language.is_none_or(|l| s.language_editions.iter().any(|e| e == l)))
-            .map(|s| row(s, now))
-            .collect(),
-        total: list.total,
-    };
-    ScopeScreen { list: screen(rows, page), languages, error: None, attention: None }
+    let rows = List { items: list.items, total: list.total };
+    ScopeScreen {
+        list: screen(rows, page),
+        languages,
+        error: None,
+        attention: None,
+        alias_review: None,
+        alias_review_failed: false,
+        audit: None,
+        evidence_failed: false,
+    }
 }
 
-/// The attention queue. The page shows it as unavailable when it cannot be read: a missing route,
-/// a failure, or an answer that is not the queue's shape (`resolveCatalogAttentionQueueResult`),
-/// so an unreadable queue never reads as an empty one.
-pub async fn read_queue(caller: &Caller<'_>) -> Result<AttentionQueue, ApiError> {
-    let read = caller.read_at::<AttentionQueue>(Kind::AttentionQueue, "").await;
+/// The attention queue's window the list asks for. The page shows it as unavailable when it cannot
+/// be read: a missing route, a failure, or an answer that is not the queue's shape
+/// (`resolveCatalogAttentionQueueResult`), so an unreadable queue never reads as an empty one.
+pub async fn read_queue(caller: &Caller<'_>, query: &url::ScopeQuery) -> Result<AttentionQueue, ApiError> {
+    // `catalogAttentionQueueWindowSearch`: the summary is the bare path.
+    let (kind, offset) = query.attention_window();
+    let mut search = Vec::new();
+    if let Some(kind) = kind {
+        search.push(format!("kind={}", kind.as_str()));
+    }
+    if offset > 0 {
+        search.push(format!("offset={offset}"));
+    }
+    let search = if search.is_empty() { String::new() } else { format!("?{}", search.join("&")) };
+    let read = caller.read_at::<AttentionQueue>(Kind::AttentionQueue, &search).await;
     if let Err(error) = &read {
         tracing::warn!("attention queue read failed: {error}");
     }
     read
+}
+
+/// The alias review the list draws and, for an address with an `evidenceRef`, the audit timeline
+/// the API resolved for it.
+#[derive(Default)]
+struct Reviews {
+    alias_review: Option<AliasReview>,
+    audit: Option<AuditEvidence>,
+    evidence_failed: bool,
+}
+
+/// The reviews as admin-web's landing loader reads them: without an `evidenceRef`, the all-scopes
+/// alias review; with one, the daily surface for the list's address, which resolves the reference
+/// and carries the alias review (the API reads it in place of the review queue and merge candidates,
+/// which it skips for this address). An unreadable review is its section's banner and an unreadable
+/// surface the timeline's, never an empty review or timeline.
+async fn read_reviews(caller: &Caller<'_>, query: &url::ScopeQuery) -> Reviews {
+    if query.evidence_ref.is_none() {
+        return match caller.read_at::<AliasReview>(Kind::AliasReview, "?limit=200").await {
+            Ok(review) => Reviews { alias_review: Some(review), ..Reviews::default() },
+            Err(error) => {
+                tracing::warn!("the all-scopes alias review could not be read: {error}");
+                Reviews::default()
+            }
+        };
+    }
+    match super::daily::read_with(caller, &query.location()).await {
+        Ok(read) => Reviews { alias_review: read.alias_review, audit: read.read_model.audit_evidence, evidence_failed: false },
+        Err(error) => {
+            tracing::warn!("the scopes list's evidence could not be read: {error}");
+            Reviews { evidence_failed: true, ..Reviews::default() }
+        }
+    }
 }
 
 async fn scopes(
@@ -229,16 +307,25 @@ pub async fn render(
     let receipt = Receipt::from_param(notice.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
-    let filters = [("search", &query.search), ("status", &query.status), ("productDomain", &query.product_domain)];
-    let now = OffsetDateTime::now_utc();
-    let (list, queue) =
-        join(caller.list::<ScopeRecord>(Kind::ScopeRecords, &list_query(&filters, page)), read_queue(&caller)).await;
+    let filters = [
+        ("search", &query.search),
+        ("status", &query.status),
+        ("productDomain", &query.product_domain),
+        ("languageEdition", &query.language),
+    ];
+    let (list, queue, reviews) = join3(
+        caller.read_at::<ScopePage>(Kind::ScopeRecords, &format!("?{}", list_query(&filters, page))),
+        read_queue(&caller, query),
+        read_reviews(&caller, query),
+    )
+    .await;
     let mut view = match list {
-        Ok(list) => scope_screen(list, page, query.language.as_deref(), now),
+        Ok(list) => scope_screen(list, page, query.language.as_deref()),
         // As admin-web's loader: an API error is the list's banner, over no rows; sign-in and no
         // answer at all are the error pages.
         Err(error) if error.status().is_some_and(|s| s != StatusCode::UNAUTHORIZED) => {
-            let mut empty = scope_screen(List { items: Vec::new(), total: 0 }, page, query.language.as_deref(), now);
+            let empty_page = ScopePage { items: Vec::new(), total: 0, facets: ScopeFacets::default() };
+            let mut empty = scope_screen(empty_page, page, query.language.as_deref());
             empty.error = Some(match error {
                 ApiError::Status { message, .. } if !message.is_empty() => message,
                 other => other.to_string(),
@@ -254,9 +341,13 @@ pub async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => return read_failed(req, error, true),
         Err(_) => None,
     };
-    let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    view.alias_review_failed = reviews.alias_review.is_none();
+    view.alias_review = reviews.alias_review;
+    view.audit = reviews.audit;
+    view.evidence_failed = reviews.evidence_failed;
+    let t: Cat = req.t();
     let manage = super::manages(viewer);
-    let page_view = views::scope_list(t, p, query, &view, notice, back, manage);
+    let page_view = views::scope_list(req, query, &view, notice, back, manage);
     req.screen(
         &view,
         html! {
@@ -271,8 +362,10 @@ pub async fn render(
 mod tests {
     use super::*;
 
-    fn scope(id: &str, status: &str, updated_at: &str, editions: &[&str]) -> ScopeRecord {
+    fn scope(id: &str, editions: &[&str]) -> ScopeRecord {
         ScopeRecord {
+            product_line_scope_record_id: None,
+            series_scope_record_id: None,
             scope_record_id: id.into(),
             reference_record_id: id.into(),
             product_domain: "pokemon".into(),
@@ -280,36 +373,57 @@ mod tests {
             name: id.into(),
             official_set_code: None,
             language_editions: editions.iter().map(|e| (*e).into()).collect(),
-            lifecycle_status: status.into(),
-            updated_at: updated_at.into(),
+            lifecycle_status: "active".into(),
+            updated_at: String::new(),
+            promotion_readiness: Promotion::Live,
+            sync_freshness: Sync::Fresh,
         }
     }
 
     #[test]
-    fn promotion_follows_the_lifecycle_and_sync_the_last_two_weeks() {
-        let now = OffsetDateTime::parse("2026-10-25T00:00:00Z", &Rfc3339).unwrap();
-        let read = |status, at| {
-            let r = row(scope("s", status, at, &[]), now);
-            (r.promotion, r.sync)
-        };
-        assert_eq!(read("active", "2026-10-11T00:00:00.000Z"), (Promotion::Live, Sync::Fresh), "exactly 14 days");
-        assert_eq!(read("draft", "2026-10-10T23:59:59Z"), (Promotion::Unpublished, Sync::Stale));
-        assert_eq!(read("deprecated", "2026-10-24T19:00:00-05:00"), (Promotion::Deprecated, Sync::Fresh), "an offset");
-        assert_eq!(read("archived", "yesterday"), (Promotion::Archived, Sync::Stale), "unreadable is stale");
+    fn the_language_choices_are_the_apis_facets_with_the_active_edition() {
+        let facets = ScopeFacets { language_editions: vec!["ja".into(), "en".into()] };
+        let list = ScopePage { items: vec![scope("a", &["en"])], total: 7, facets };
+        let all = scope_screen(list.clone(), 1, None);
+        assert_eq!(
+            (all.list.items.len(), all.list.total, all.languages.as_slice()),
+            (1, 7, &["en".to_owned(), "ja".to_owned()][..]),
+            "the rows are the API's: it filtered them"
+        );
+        let fr = scope_screen(list, 1, Some(" fr "));
+        assert_eq!(fr.languages, ["en", "fr", "ja"], "the active edition stays a choice");
     }
 
     #[test]
-    fn the_language_facet_filters_the_page_and_lists_its_editions() {
-        let now = OffsetDateTime::now_utc();
-        let list = List { items: vec![scope("a", "active", "", &["ja", "en"]), scope("b", "active", "", &["en"])], total: 7 };
-        let all = scope_screen(list.clone(), 1, None, now);
+    fn an_alias_candidates_evidence_is_its_observation_else_its_catalog_item_else_the_alias() {
+        let candidate = |observation: Option<&str>, kind: &str, target: Option<&str>| crate::catalog::api::AliasCandidate {
+            alias_hash: "ah_1".into(),
+            target_kind: kind.into(),
+            target_id: target.map(Into::into),
+            observation_id: observation.map(Into::into),
+            ..Default::default()
+        };
+        assert_eq!(candidate(Some("obs_1"), "catalog-item", Some("cat_1")).evidence_target(), ("source-observation", "obs_1"));
+        assert_eq!(candidate(Some(""), "catalog-item", Some("cat_1")).evidence_target(), ("catalog-item", "cat_1"));
+        assert_eq!(candidate(None, "reference-record", Some("ref_1")).evidence_target(), ("alias", "ah_1"));
+        assert_eq!(candidate(None, "catalog-item", None).evidence_target(), ("alias", "ah_1"));
+    }
+
+    #[test]
+    fn the_surfaces_location_is_the_list_as_admin_web_names_its_query() {
+        let query = url::ScopeQuery {
+            search: Some("pal fates".into()),
+            product_domain: Some("pokemon".into()),
+            language: Some("ja".into()),
+            page: Some(2),
+            attention_kind: Some("alias-candidate".into()),
+            ..Default::default()
+        }
+        .with_evidence("catalog-item/cat_1".into());
         assert_eq!(
-            (all.list.items.len(), all.list.total, all.languages.as_slice()),
-            (2, 7, &["en".to_owned(), "ja".to_owned()][..])
+            query.location(),
+            "/catalog/scopes?search=pal%20fates&productDomain=pokemon&languageEdition=ja&page=2\
+             &attentionKind=alias-candidate&evidenceRef=catalog-item%2Fcat_1"
         );
-        let ja = scope_screen(list.clone(), 1, Some("ja"), now);
-        assert_eq!(ja.list.items.iter().map(|r| r.scope.scope_record_id.as_str()).collect::<Vec<_>>(), ["a"]);
-        let fr = scope_screen(list, 1, Some("fr"), now);
-        assert!(fr.list.items.is_empty() && fr.languages.contains(&"fr".to_owned()), "the active edition stays a choice");
     }
 }

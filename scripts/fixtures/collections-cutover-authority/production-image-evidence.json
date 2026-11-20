@@ -1,0 +1,56 @@
+{
+  "historicalOnly": true,
+  "jobSourceSha256": "88a4f60f08ae2f7f56e8b22f03661c281d4fbebc80cdd59a0f6d2518a5701c66",
+  "sidecarSha256": "e7b326cc69ba9dcb3d2442012b1ed54bddf9e4f73f7016c1cd259ac1a6c46ab9",
+  "captureSha256": "c13102b678d1638ff3945f2162b1a5c6e4f7b7364463ff63017bfaa2ea1cd6df",
+  "commit": "d2186b574266b38897045e047a90517a6a2c8168",
+  "image": "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:3ad48c64262fe0ee966cbc54365a41c65ecae41538e50df341eab004779f7aab",
+  "jobId": 124881946972,
+  "stepNumber": 37,
+  "executionExtract": {
+    "databaseId": 41316813346,
+    "headSha": "d2186b574266b38897045e047a90517a6a2c8168",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "databaseId": 124881946972,
+        "startedAt": "2026-11-01T14:54:45Z",
+        "completedAt": "2026-11-01T15:05:49Z",
+        "status": "completed",
+        "conclusion": "success",
+        "steps": [
+          {
+            "number": 37,
+            "name": "Deploy production Kubernetes release",
+            "startedAt": "2026-11-01T15:01:35Z",
+            "completedAt": "2026-11-01T15:05:00Z",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ]
+      }
+    ]
+  },
+  "lines": [
+    {
+      "number": 7934,
+      "text": "Deploy Production\tUNKNOWN STEP\t2026-11-01T15:01:35.4889732Z   RELEASE_COMMIT: d2186b574266b38897045e047a90517a6a2c8168",
+      "sha256": "a82f0bb5733e2394867115cd3ed30b7723d4585737401f5df9c9d11e963cde47"
+    },
+    {
+      "number": 7935,
+      "text": "Deploy Production\tUNKNOWN STEP\t2026-11-01T15:01:35.4890435Z   RELEASE_IMAGE_DIGEST: sha256:3ad48c64262fe0ee966cbc54365a41c65ecae41538e50df341eab004779f7aab",
+      "sha256": "e673249d26e5e66c7792c3ee9796b891e19614c0fb8be8c4b51e655f22f08fb5"
+    }
+  ],
+  "compare": {
+    "artifactSha256": "1740ca197888047232518ca12c68ac4628f4c6729e83bcc1850bf4e6523768c5",
+    "status": "ahead",
+    "ahead_by": 378,
+    "behind_by": 0,
+    "base": "a460b410398b01d386b7919ef364e63d3d271b88",
+    "mergeBase": "a460b410398b01d386b7919ef364e63d3d271b88",
+    "head": "d2186b574266b38897045e047a90517a6a2c8168"
+  }
+}

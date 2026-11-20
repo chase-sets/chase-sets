@@ -1,4 +1,66 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "platform-operations.seller-compliance-cohort-sweep",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createPlatformOperationsSellerComplianceCohortSweepRunners",
+      "group": "scheduled",
+      "order": 106,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:platform-operations.seller-compliance-cohort-sweep"
+    },
+    {
+      "id": "platform-operations.support-request-deadline-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "supportRequestDeadlineSweepIntervalMs"
+      },
+      "runnerExport": "createPlatformOperationsSupportRequestDeadlineSweepRunners",
+      "group": "scheduled",
+      "order": 107,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:platform-operations.support-request-deadline-sweep"
+    },
+    {
+      "id": "support-evidence-operation-cleanup",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "supportEvidenceCleanupIntervalMs"
+      },
+      "runnerExport": "createPlatformOperationsSupportEvidenceCleanupRunners",
+      "group": "scheduled",
+      "order": 108,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:support-evidence-operation-cleanup"
+    },
+    {
+      "id": "platform-operations.gmv-reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "gmvReconciliationIntervalMs"
+      },
+      "runnerExport": "createPlatformOperationsGmvReconciliationRunners",
+      "group": "scheduled",
+      "order": 116,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:platform-operations.gmv-reconciliation"
+    }
+  ],
   "contextName": "platform-operations",
   "packageName": "@chase-sets/platform-operations",
   "localeCatalogs": ["contracts/localization/locales/en/platform-operations.ts"],
@@ -24,6 +86,7 @@
     "platform-remedy-policy",
     "remedy-approval",
     "seller-compliance-sale",
+    "seller-compliance-cohort",
     "appealable-enforcement-action"
   ],
   "streamPrefix": "platform-operations.",
@@ -60,7 +123,8 @@
     "support-requests",
     "csat-dashboard",
     "seller-compliance-sales",
-    "account-appeals"
+    "account-appeals",
+    "seller-compliance-cohorts"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
   "publicExports": [
@@ -72,7 +136,7 @@
     "./web",
     "./integration/link-intents"
   ],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
+  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/pricing", "@chase-sets/settlement"],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
     {
@@ -132,7 +196,7 @@
       "projectionName": "reported-content-queue-projection",
       "subscriptionVersion": 1,
       "subscriptionName": "platform-operations.reported-content-queue-projection",
-      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "eventTypes": ["platform-operations.reported-content.action-recorded", "platform-operations.reported-content.acknowledged"],
       "order": 61,
       "projectionHandlerSetNames": ["reported-content-queue-projection"]
     },
@@ -752,17 +816,20 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/platform-operations/support/request-support/reported-content-client.ts:POST H59fa1e9ad454#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/reported-content-client.ts:POST H712a0c99453d#1",
+        "api-route:bounded-contexts/platform-operations/features/reported-content/api/http.ts:POST /:targetType/:targetId/acknowledge",
         "api-route:bounded-contexts/platform-operations/features/reported-content/api/http.ts:POST /:targetType/:targetId/actions",
         "post-form:bounded-contexts/platform-operations/features/reported-content/ui/admin-pages.tsx:H901edc92b88e#1",
         "route-action:bounded-contexts/platform-operations/routes/admin/reported-content-detail.tsx"
       ],
       "visibleDestination": {
-        "description": "Reported content moderation actions return the recorded action id and timestamp; the detail route redirects back to the same queue item so the loader refetches the projected action status and audit fields."
+        "description": "Reported content moderation actions return the recorded action id and timestamp; acknowledgement returns its authoritative timestamp, including on retries. The detail route redirects back to the same queue item for projected response state."
       },
       "proof": {
         "authoritativeResponse": "Reported content action recording appends a platform-operations action event and returns the action id with recorded timestamp; the action projection updates the queue row status and latest action audit fields.",
         "tests": [
           "bounded-contexts/platform-operations/features/reported-content/read-model/projection.test.ts",
+          "bounded-contexts/platform-operations/features/reported-content/tests/reported-content-response.test.ts",
           "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
         ]
       }
@@ -1496,6 +1563,11 @@
       "classification": "slice",
       "purpose": "Own the private Account Appeal lifecycle and the Appealable Enforcement Action registry: branded seller/operator/action capabilities, deterministic state decisions, expected-version command appends, and the owner-attributed immutable tuple each source enforcement fact records.",
       "expectedConsumers": ["Internal platform-operations module composition", "Future seller and operator appeal routes"]
+    },
+    "seller-compliance-cohorts": {
+      "classification": "slice",
+      "purpose": "Own the seller-compliance-cohorts evaluator, complete policy-history replay, durable evaluation failures and sweep checkpoint, guarded cohort state and immutable transition ledger: compute and persist causal rolling-window verdicts without resolving statutory applicability.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Platform worker scheduled cohort replay"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

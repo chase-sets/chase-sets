@@ -1,5 +1,6 @@
 export {
   catalogSeedIds,
+  representativePersonaIds,
   type SeedBlueprintId,
   type SeedCatalogItemId,
   type SeedCategoryId,

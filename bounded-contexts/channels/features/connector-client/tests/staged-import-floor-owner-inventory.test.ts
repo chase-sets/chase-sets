@@ -19,9 +19,11 @@ function rawSend(source: string) {
   return found;
 }
 describe("staged-import-floor-owner-inventory", () => {
-  it("keeps product registration to the live-export executor, transport in the thin root, and no raw staged-import send", () => {
+  it("keeps product registration to live export and sealed canary, transport in the thin root, and no raw staged-import send", () => {
     const registry = readFileSync(resolve(root, "deployables/tcgplayer-connector-extension/src/executors.ts"), "utf8");
-    expect(registry).toContain("): readonly ConnectorExecutor[] => [createTcgplayerLiveExportExecutor(ports)];");
+    expect(registry).toContain(
+      "): readonly ConnectorExecutor[] => [createTcgplayerLiveExportExecutor(ports), createReadyToShipCanaryExecutor()];",
+    );
     expect(registry).not.toContain("staged-import");
     const coordinator = readFileSync(resolve(import.meta.dirname, "../domain/operation-coordinator.ts"), "utf8");
     const guard = readFileSync(resolve(import.meta.dirname, "../domain/staged-import-dispatch.ts"), "utf8");
@@ -36,9 +38,14 @@ describe("staged-import-floor-owner-inventory", () => {
     );
   });
   it("enrolls the exact DB producer test and excludes it from local non-DB unit tests", () => {
-    const pkg = JSON.parse(readFileSync(resolve(root, "bounded-contexts/channels/package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(resolve(root, "bounded-contexts/channels/package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const dbArgs = Object.entries(pkg.scripts)
+      .filter(([name]) => /^test:db:\d+$/.test(name))
+      .flatMap(([, script]) => script.split(/\s+/));
     const path = "features/connector-feed/tests/staged-import-floor-policy-production.db.test.ts";
-    expect(pkg.scripts["test:db"].split(" ")).toContain(path);
+    expect(dbArgs.filter((argument) => argument === path)).toHaveLength(1);
     expect(pkg.scripts["test:unit"]).toContain(`--exclude ${path}`);
   });
 });

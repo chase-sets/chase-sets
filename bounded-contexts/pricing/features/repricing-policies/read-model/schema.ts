@@ -101,8 +101,34 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_halts (
 
 export const pricingRepricingPolicyAuthoringIntentSchemaSql = `ALTER TABLE pricing_repricing_policies ADD COLUMN IF NOT EXISTS authoring_intent jsonb NULL;`;
 
+export const pricingRepricingConfigurationSchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_repricing_configuration_heads (
+  key text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  creation_revision integer NOT NULL CHECK (creation_revision >= 0),
+  requested_revision integer NOT NULL CHECK (requested_revision >= 0),
+  installed_revision integer NOT NULL CHECK (installed_revision >= 0 AND installed_revision <= requested_revision)
+);
+CREATE INDEX IF NOT EXISTS pricing_repricing_configuration_account_idx
+  ON pricing_repricing_configuration_heads (seller_account_id, key);
+CREATE TABLE IF NOT EXISTS pricing_repricing_configuration_requests (
+  key text NOT NULL REFERENCES pricing_repricing_configuration_heads (key),
+  seller_account_id text NOT NULL,
+  requested_revision integer NOT NULL CHECK (requested_revision > 0),
+  request_key text NOT NULL,
+  fingerprint text NOT NULL,
+  prepared text NOT NULL,
+  prepared_hash text NOT NULL,
+  receipt jsonb NOT NULL,
+  committed_events jsonb NOT NULL DEFAULT '[]',
+  PRIMARY KEY (key, requested_revision),
+  UNIQUE (seller_account_id, request_key)
+);
+`;
+
 export const pricingRepricingPolicySchemaSql = `
 ${pricingRepricingHaltSchemaSql}
+${pricingRepricingConfigurationSchemaSql}
 CREATE TABLE IF NOT EXISTS pricing_repricing_policies (
   policy_id text PRIMARY KEY,
   seller_account_id text NOT NULL,

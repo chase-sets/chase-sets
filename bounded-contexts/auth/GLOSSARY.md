@@ -22,6 +22,18 @@ The secret value that identifies the active session when sent back to Chase Sets
 
 Session-token persistence belongs to Auth.
 
+## Session Authority Grant
+
+Auth's class-C grant for `session/<sessionId>`, captured from complete canonical Session history and the matching SQL Session Token, never a projection. It binds the real User, Session stream revision (the Owner-Stream Seal version), SQL token revision and earliest UTC expiry. Session and token writers record CLOSING before mutation and install only after all registered consumers acknowledge CLOSED-THROUGH. No consumers means immediate installation. A pending closure refuses capture and writers report a retryable conflict rather than an applied result. Retrying the retained writer resumes durable closure. Expiry is checked by the consumer's store clock under its terminal guard lock, not a timer, lease or closure transition. Pre-enrollment Sessions start OPEN at creation epoch zero.
+
+## User Session Authority
+
+Auth's per-User event stream (`auth.user-session-authority-<userId>`) whose complete, monotonic history folds to that User's current Session Generation. A User with no history is at generation 0. Every Session start guards its append on this stream's version, so a start cannot commit across a concurrent advance, and actor resolution reads it on every request. Foreign, unknown, malformed, non-monotonic, or capped history fails closed. Only the successor bulk sign-out slice may advance it; nothing in Auth does yet.
+
+## Session Generation
+
+The User Session Authority generation a Session was started in, recorded on `auth.session.started` (a start recorded before the floor carries none and reads as 0). A Session authenticates only while its generation equals its User's current generation: an older one is superseded and a newer or malformed one is ambiguous, and both resolve to no actor on projection-hit and projection-miss paths alike. `identity_sessions.session_generation` is display-only and never grants. Only a real Auth Session (`sessionProvenance: "auth-session"`) has a current Session; guest-checkout (`guest:`) and linked-platform (`ucp:`) handles never name a Session stream.
+
 ## Account Selection
 
 The continuation step used when one authenticated user can act for more than one account and must choose which account to use for the current session.
@@ -41,6 +53,18 @@ from the dedicated eBay receipt lookup bearer. It carries the
 ## Projected Capability Grants
 
 Auth's per-request copy of Identity's current Capability Grants, carried on a Session-backed actor as `capabilityAssignments` (key, assignment id, assignment version). Auth projects `identity.account-capability.granted` and `.revoked` into `auth_identity_account_capabilities`, keeping the newest assignment version per tenant, Account and key, and reads the selected Account's grants on every actor resolution. A grant or revoke therefore applies on the next request after projection commit, an already-resolved actor keeps its snapshot, and switching Accounts never carries another Account's grant. Actors without an active Membership resolve to no actor, an actor whose email is unverified for commerce carries no grant, and guest checkout and UCP/agent actors never carry one. Only `support.evidence.any-case` can be granted today.
+
+## ReadGuestPaymentClaimability
+
+Auth's required host port for caller-authorized Payments access and captured eligibility. It forwards the Request and payment ID; failures are not a negative eligibility fact.
+
+## createGuestPaymentClaimRoute
+
+Auth's guest claim route factory, bound once by the marketplace host to ReadGuestPaymentClaimability. Auth owns claim credentials, cookies, continuations and browser-auth returns.
+
+## RevokeAgentGrantPaymentInstruments
+
+Auth's optional host-supplied agent grant revocation effect. Payments owns instrument cleanup; hosts supply the operation without a production Auth-to-Payments dependency.
 
 ## Guest Contact
 

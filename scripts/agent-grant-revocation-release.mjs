@@ -13,6 +13,12 @@ const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const instantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const refusalPattern = /^revocation_[a-z_]{1,64}$/;
 const recoveryRunner = "auth.agent-grant-revocation-recovery";
+// Auth's Session Generation floor (bounded-contexts/auth/features/sessions/domain/session-generation.ts).
+// The scripts test pins these equal to Auth's own exports; each pod reports them from its compiled code.
+export const SESSION_GENERATION_FLOOR_ACTION = "capture-session-generation-floor";
+export const SESSION_GENERATION_REPORT_SCHEMA = "auth-session-generation-capability/v1";
+export const SESSION_GENERATION_CAPABILITY_FLOOR = 1;
+export const SESSION_GENERATION_SCHEMA_MIGRATION_ID = "20261102_auth_session_generation";
 const logWindow = { since: "5m", tail: 200, maxPods: 100 };
 const failureCategories = new Set([
   "pod_exec",
@@ -101,6 +107,37 @@ export function diagnosticRecord({ options, refusal, failure, identityState = "u
   };
 }
 
+/**
+ * One pod's Session Generation capability as its own compiled Auth code
+ * reported it, or null when it cannot satisfy the floor at this release.
+ */
+function sessionGenerationReportOf(report, releaseCommit) {
+  if (
+    report?.schemaVersion !== SESSION_GENERATION_REPORT_SCHEMA ||
+    !Number.isSafeInteger(report.capabilityVersion) ||
+    report.capabilityVersion < SESSION_GENERATION_CAPABILITY_FLOOR ||
+    report.commit !== releaseCommit ||
+    typeof report.release !== "string" ||
+    !report.release ||
+    !Array.isArray(report.schemaLedger) ||
+    !report.schemaLedger.every((migrationId) => typeof migrationId === "string") ||
+    !report.schemaLedger.includes(SESSION_GENERATION_SCHEMA_MIGRATION_ID)
+  )
+    return null;
+  return {
+    release: report.release,
+    schemaLedger: [...report.schemaLedger],
+    sessionGenerationCapability: report.capabilityVersion,
+  };
+}
+
+/**
+ * Census of every serving `platform-api` / `platform-worker` pod. With
+ * `sessionGeneration` (pod uid -> that pod's capability report) it is the
+ * Session Generation floor receipt: each member must report the capability,
+ * this release commit, the shared release, and a schema ledger carrying the
+ * floor migration. Without it, the Agent Grant revocation census is unchanged.
+ */
 export function captureServingSet({
   pods,
   environment,
@@ -110,6 +147,7 @@ export function captureServingSet({
   evidenceId,
   fenceId,
   support,
+  sessionGeneration,
   now = new Date(),
 }) {
   if (!environments.includes(environment)) throw new Error("revocation_environment_invalid");
@@ -128,6 +166,9 @@ export function captureServingSet({
       throw new Error("revocation_census_invalid_member");
     const container = containers[0];
     const statuses = pod.status?.containerStatuses?.filter((status) => status.name === container.name) ?? [];
+    const generation = sessionGeneration
+      ? sessionGenerationReportOf(sessionGeneration.get(pod.metadata.uid), releaseCommit)
+      : null;
     if (
       pod.status?.phase !== "Running" ||
       statuses.length !== 1 ||
@@ -135,7 +176,7 @@ export function captureServingSet({
       !statuses[0].state?.running ||
       !container.image.endsWith(`@${imageDigest}`) ||
       !statuses[0].imageID?.endsWith(`@${imageDigest}`) ||
-      support.get(pod.metadata.uid) !== 1
+      (sessionGeneration ? !generation : support.get(pod.metadata.uid) !== 1)
     )
       throw new Error("revocation_census_unsupported_member");
     replicas.push({
@@ -144,7 +185,7 @@ export function captureServingSet({
       role: container.name,
       commit: releaseCommit,
       digest: imageDigest,
-      supportVersion: 1,
+      ...(generation ?? { supportVersion: 1 }),
     });
   }
   replicas.sort((a, b) => a.id.localeCompare(b.id));
@@ -154,6 +195,8 @@ export function captureServingSet({
     new Set(replicas.map((replica) => replica.id)).size !== replicas.length
   )
     throw new Error("revocation_census_incomplete");
+  if (sessionGeneration && new Set(replicas.map((replica) => replica.release)).size !== 1)
+    throw new Error("revocation_census_unsupported_member");
   return {
     environment,
     namespace,
@@ -164,7 +207,73 @@ export function captureServingSet({
     capturedAt: now.toISOString(),
     expectedReplicas: replicas.map((replica) => replica.id),
     replicas,
+    ...(sessionGeneration
+      ? {
+          sessionGenerationFloor: {
+            capabilityVersion: SESSION_GENERATION_CAPABILITY_FLOOR,
+            schemaMigrationId: SESSION_GENERATION_SCHEMA_MIGRATION_ID,
+            release: replicas[0].release,
+          },
+        }
+      : {}),
   };
+}
+
+function servingMemberUids(pods) {
+  return (pods.items ?? [])
+    .filter(
+      (pod) =>
+        pod.spec?.containers?.some((container) => roles.includes(container.name)) ||
+        roles.includes(pod.metadata?.labels?.[component]),
+    )
+    .map((pod) => pod.metadata?.uid)
+    .sort();
+}
+
+/**
+ * Session Generation floor receipt: asks every serving pod's own compiled
+ * Auth code for its capability, then re-reads membership so no pod joins or
+ * leaves between the reports and the census. Advance waits on this receipt.
+ */
+function captureSessionGenerationFloor(options, { run, now }) {
+  const readPods = () =>
+    JSON.parse(run("kubectl", ["get", "pods", "-n", options.namespace, "--chunk-size=0", "-o", "json"]));
+  const initial = readPods();
+  const reports = new Map();
+  for (const pod of initial.items ?? []) {
+    for (const container of pod.spec?.containers?.filter((container) => roles.includes(container.name)) ?? []) {
+      reports.set(
+        pod.metadata.uid,
+        JSON.parse(
+          run("kubectl", [
+            "exec",
+            "-n",
+            options.namespace,
+            pod.metadata.name,
+            "-c",
+            container.name,
+            "--",
+            "pnpm",
+            "--filter",
+            "@chase-sets/app-platform-api",
+            "exec",
+            "tsx",
+            "scripts/report-session-generation-capability.mts",
+          ]),
+        ),
+      );
+    }
+  }
+  const current = readPods();
+  if (JSON.stringify(servingMemberUids(initial)) !== JSON.stringify(servingMemberUids(current)))
+    throw new Error("revocation_membership_changed");
+  return captureServingSet({
+    ...options,
+    pods: current,
+    fenceId: SESSION_GENERATION_FLOOR_ACTION,
+    sessionGeneration: reports,
+    now,
+  });
 }
 
 export function admissionResources({ namespace, minimumCommit, imageDigests, frozen }) {
@@ -666,19 +775,21 @@ export async function main(
   { run = runCommand, spawn = spawnCommand, now = () => new Date() } = {},
 ) {
   const [action, ...flags] = args;
-  if (flags.length % 2 || !["prepare", "activate", "check-rollback"].includes(action))
+  if (flags.length % 2 || !["prepare", "activate", "check-rollback", SESSION_GENERATION_FLOOR_ACTION].includes(action))
     throw new Error("revocation_activation_arguments_invalid");
   const allowed = new Set(
     action === "check-rollback"
       ? ["--namespace", "--commit"]
-      : [
-          "--environment",
-          "--namespace",
-          "--release-commit",
-          "--image-digest",
-          "--status-out",
-          ...(action === "activate" ? ["--out"] : []),
-        ],
+      : action === SESSION_GENERATION_FLOOR_ACTION
+        ? ["--environment", "--namespace", "--release-commit", "--image-digest", "--out"]
+        : [
+            "--environment",
+            "--namespace",
+            "--release-commit",
+            "--image-digest",
+            "--status-out",
+            ...(action === "activate" ? ["--out"] : []),
+          ],
   );
   const keys = flags.filter((_, index) => index % 2 === 0);
   if (keys.some((key) => !allowed.has(key)) || new Set(keys).size !== keys.length || keys.length !== allowed.size)
@@ -703,6 +814,12 @@ export async function main(
   if (!environments.includes(options.environment)) throw new Error("revocation_environment_invalid");
   if (!sha.test(options.releaseCommit) || !digestPattern.test(options.imageDigest))
     throw new Error("revocation_release_identity_invalid");
+  if (action === SESSION_GENERATION_FLOOR_ACTION) {
+    if (!options.out || !/^\d+\/\d+$/.test(options.evidenceId))
+      throw new Error("revocation_activation_arguments_invalid");
+    writeJson(options.out, captureSessionGenerationFloor(options, { run, now: now() }));
+    return;
+  }
   if (!values["--status-out"] || (action === "activate" && (!options.out || !/^\d+\/\d+$/.test(options.evidenceId))))
     throw new Error("revocation_activation_arguments_invalid");
   let failure;

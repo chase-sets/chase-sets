@@ -190,10 +190,10 @@ function assertVerificationContract(text) {
     /^- PLAN_ONLY records a plan, not an executed local or hosted PASS\. Do not execute the selected broad local battery just to publish a draft\.$/m,
   );
   expect(text).toContain(
-    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
+    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, `pnpm run typecheck:changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
   );
   expect(text).toContain(
-    "`pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative.",
+    "The scoped `typecheck:changed` runs without heavy admission; hosted exact-head `Typecheck` remains authoritative.",
   );
   expect(text).toContain(
     "Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command; hosted CI owns full Static, Typecheck, Unit and DB Profile proof.",
@@ -226,10 +226,10 @@ function assertVerificationContract(text) {
 
 function assertScopedMirrorContract(text) {
   expect(text).toContain(
-    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
+    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, `pnpm run typecheck:changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
   );
   expect(text).toContain(
-    "`pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative.",
+    "The scoped `typecheck:changed` runs without heavy admission; hosted exact-head `Typecheck` remains authoritative.",
   );
   expect(text).toContain("Prettier is `--write` on committed changed files.");
   expect(text).toContain(
@@ -267,11 +267,7 @@ describe("delivery verification contract", () => {
       [relativePath, "node scoped verifier command", `${text}\nRun ${scopedVerifierCommand} before push.\n`],
       [relativePath, "local database command", `${text}\nRun pnpm run test:db before push.\n`],
       [relativePath, "whole verify command", `${text}\nRun pnpm run verify before push.\n`],
-      [
-        relativePath,
-        "typecheck in ordinary set",
-        text.replace("named non-DB focused tests", "named non-DB focused tests, typecheck:changed"),
-      ],
+      [relativePath, "typecheck removed from ordinary set", text.replace("`pnpm run typecheck:changed`, ", "")],
     ]),
   )("rejects the $relativePath $1 mutant", (_relativePath, _name, mutant) => {
     expect(() => assertScopedMirrorContract(mutant)).toThrow();

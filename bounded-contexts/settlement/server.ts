@@ -1,4 +1,13 @@
 export { createSettlementRequestApiClient } from "./support/request-support/api-client";
+export {
+  createSellerCheckoutRiskReader,
+  readSellerCheckoutRisk,
+  sellerCheckoutRiskPolicyRevision,
+  type SellerCheckoutRiskFactSource,
+  type SellerCheckoutRiskOwner,
+  type SellerCheckoutRiskReader,
+  type SellerCheckoutRiskResult,
+} from "./features/seller-checkout-risk/api/public";
 export type { SettlementPayoutReadinessRow } from "./support/request-support/api-client";
 /**
  * The wallet route builder, exposed for composition-root and runtime
@@ -66,3 +75,12 @@ export {
   getProtectionReserveSummary,
   type ProtectionReserveSummary,
 } from "./features/wallets/read-model/protection-reserve-summary";
+
+export {
+  createSettlementAccountLinkageCloserRunners,
+  createSettlementSellerFundsReleaseRunners,
+  createSettlementSpendHoldSweepRunners,
+  createSettlementPayoutReconciliationRunners,
+  createSettlementLiabilityReconciliationRunners,
+  createSettlementJobRunners,
+} from "./support/runtime-support/worker-jobs";

@@ -173,7 +173,7 @@ async function provisionAdminQaActorFixture(
   let createdUser = false;
   let createdMembership = false;
 
-  if (!(await rowExists(services.db, "identity_accounts", "account_id", fixture.accountId))) {
+  if (!(await services.accounts.getAccountState(fixture.accountId))) {
     await services.accounts.commandHandler({
       streamId: `identity.account-${fixture.accountId}`,
       command: {
@@ -188,7 +188,7 @@ async function provisionAdminQaActorFixture(
     createdAccount = true;
   }
 
-  if (!(await rowExists(services.db, "identity_users", "user_id", fixture.userId))) {
+  if (!(await services.users.getUserState(fixture.userId))) {
     await services.users.commandHandler({
       streamId: `identity.user-${fixture.userId}`,
       command: {
@@ -218,7 +218,7 @@ async function provisionAdminQaActorFixture(
     createdUser = true;
   }
 
-  if (!(await rowExists(services.db, "identity_memberships", "membership_id", fixture.membershipId))) {
+  if (!(await services.memberships.getMembershipState(fixture.membershipId))) {
     await services.memberships.commandHandler({
       streamId: `identity.membership-${fixture.membershipId}`,
       command: {
@@ -243,18 +243,4 @@ async function provisionAdminQaActorFixture(
     createdUser,
     createdMembership,
   };
-}
-
-async function rowExists(
-  db: IdentityServices["db"],
-  tableName: string,
-  columnName: string,
-  value: string,
-): Promise<boolean> {
-  try {
-    const existing = await db.query(`SELECT 1 FROM ${tableName} WHERE ${columnName} = $1 LIMIT 1`, [value]);
-    return existing.rows.length > 0;
-  } catch {
-    return false;
-  }
 }

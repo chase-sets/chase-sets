@@ -6,9 +6,17 @@ import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import { drainContextRuntime, getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
-import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
-import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import { drainProjectionGroups, getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
+import {
+  createProjectionGroupLeasePort,
+  representativeCommerceStateDataProfiles,
+  seedApiHostIfEmpty,
+  type ProjectionGroupLeasePort,
+} from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/catalog/server";
@@ -33,7 +41,7 @@ import {
   type MarketplaceRepresentativeListingResult,
   type RepresentativeInventoryServices,
 } from "@chase-sets/catalog-seed";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 import { createPlatformApiHost } from "./app";
 import {
   loadConfig,
@@ -69,6 +77,8 @@ type RepresentativeStepProgress = {
   afterStepCompleted?: (stepName: string) => void | Promise<void>;
 };
 
+type RepresentativeStepOptions = Readonly<{ timeoutMs?: number; awaitCancellation?: boolean }>;
+
 export type RepresentativeCommerceStateRunOptions = Readonly<{
   config?: ReturnType<typeof loadConfig>;
   pools?: ReturnType<typeof createPlatformApiPools>;
@@ -91,6 +101,30 @@ export const representativeProductContentsProjectionPlan = {
     { contextName: "discovery", projectionName: "discovery-search-item-projection" },
   ],
 } as const;
+
+function scopeRepresentativeProjectionRuntime(runtime: ReturnType<typeof createPlatformApiHost>) {
+  const sourceObservationProjection = "catalog-source-observation-projection";
+  const isCommerceGroup = (group: Readonly<{ targetContextName: string; projectionName: string }>) =>
+    group.targetContextName !== "catalog" || group.projectionName !== sourceObservationProjection;
+
+  // Source Observation review is worker-owned and isn't a prerequisite for commerce.
+  return {
+    ...runtime,
+    projectionGroups: runtime.projectionGroups.filter(isCommerceGroup),
+    subscriptionRunners: runtime.subscriptionRunners.filter(isCommerceGroup),
+    // Queued seed reconciliation can rebuild the local group list from these handlers.
+    mountedContexts: runtime.mountedContexts.map((entry) =>
+      entry.contextName === "catalog"
+        ? {
+            ...entry,
+            projectionHandlerSets: entry.projectionHandlerSets.filter(
+              (set) => set.projectionName !== sourceObservationProjection,
+            ),
+          }
+        : entry,
+    ),
+  };
+}
 
 export function assertRepresentativeProductContentsReconciled(reconciled: boolean): void {
   if (!reconciled) {
@@ -263,6 +297,7 @@ export type RepresentativeCommerceStateEvidence = Readonly<{
   representativeListingAccountCount: number;
   representativeOfferCount: number;
   representativeOfferBuyerAccountCount: number;
+  representativeOfferSkippedCount: number;
   representativeAcceptedOfferCount: number;
   representativeAcceptedOfferSkippedCount: number;
   representativeOrderingSupplyState: unknown;
@@ -362,10 +397,15 @@ export async function runRepresentativeCommerceState(
     activeStep: null,
     afterStepCompleted: options.afterStepCompleted,
   };
-  const runStep = <T>(stepName: string, run: () => Promise<T>, stepOptions: Readonly<{ timeoutMs?: number }> = {}) =>
-    runRepresentativeStep(stepName, run, stepOptions, progress);
+  const runStep = <T>(
+    stepName: string,
+    run: (signal: AbortSignal) => Promise<T>,
+    stepOptions: RepresentativeStepOptions = {},
+  ) => runRepresentativeStep(stepName, run, stepOptions, progress);
   try {
     await bootstrapPlatformControlPlane(pools.control);
+    const controlPlane = createPostgresPlatformControlPlane(pools.control);
+    const projectionGroupLeasePort = createProjectionGroupLeasePort(controlPlane, "platform-api");
     const paymentProcessorGateway =
       config?.paymentProcessor.kind === "stripe"
         ? createStripePaymentProcessorGateway({
@@ -376,7 +416,7 @@ export async function runRepresentativeCommerceState(
             apiBaseUrl: config.paymentProcessor.apiBaseUrl,
           })
         : createFakePaymentProcessorGateway();
-    const runtime =
+    const hostRuntime =
       options.runtime ??
       createPlatformApiHost({
         pools,
@@ -420,11 +460,20 @@ export async function runRepresentativeCommerceState(
           listingPhotoStorage: createObjectStorage(config!.listingPhotoStorage),
         },
       });
+    const runtime = scopeRepresentativeProjectionRuntime(hostRuntime);
     const syncProjection = (
       contextName: string,
       projectionName: string,
       syncOptions: Readonly<{ timeoutMs?: number }> = {},
-    ) => syncRepresentativeProjection(runtime, contextName, projectionName, syncOptions, runStep);
+    ) =>
+      syncRepresentativeProjection(
+        runtime,
+        projectionGroupLeasePort,
+        contextName,
+        projectionName,
+        syncOptions,
+        runStep,
+      );
 
     await runStep(
       "seed data profiles",
@@ -434,6 +483,8 @@ export async function runRepresentativeCommerceState(
           environmentName: execution.deploymentEnvironment,
           runtimeProfile: config?.runtimeProfile ?? "public",
           schemaBootstrapLockPool: seedPools?.schemaBootstrapLockPool,
+          projectionGroupLeasePort,
+          substepTimeoutMs: MAX_STEP_TIMEOUT_MS,
           // Preserve pre-seed visibility and interrupted-state reconciliation
           // without spending the canary's budget on unrelated runtime drains.
           seedContextDrain: true,
@@ -525,11 +576,7 @@ export async function runRepresentativeCommerceState(
         listings[0],
       ),
     );
-    await runStep(
-      "drain remaining representative projections",
-      () => drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
-      { timeoutMs: MAX_STEP_TIMEOUT_MS },
-    );
+    await drainRepresentativeProjections(runtime, projectionGroupLeasePort, runStep);
     await syncProjection("ordering", "ordering-marketplace-supply-input-projection");
     // Restart safety: drain retained offer events before submitting so a
     // resumed run recognizes offers whose projection sync was interrupted.
@@ -537,6 +584,7 @@ export async function runRepresentativeCommerceState(
     const offers = await runStep("submit representative offers", () =>
       submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
+    const submittedOffers = offers.filter((offer) => offer.status !== "skipped");
     await syncProjection("marketplace", "marketplace-offer-projection");
     const acceptedOffers = await runStep("accept representative offers", () =>
       acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
@@ -581,7 +629,7 @@ export async function runRepresentativeCommerceState(
         { discoveryDb: getDiscoveryDb(runtime.services) },
         {
           listingIds: listings.map((listing) => listing.listingId),
-          offerIds: offers.map((offer) => offer.offerId),
+          offerIds: submittedOffers.map((offer) => offer.offerId),
         },
       ),
     );
@@ -617,8 +665,9 @@ export async function runRepresentativeCommerceState(
       representativeInventoryStockAccountCount: new Set(inventoryStock.map((stock) => stock.accountId)).size,
       representativeListingCount: listings.length,
       representativeListingAccountCount: new Set(listings.map((listing) => listing.accountId)).size,
-      representativeOfferCount: offers.length,
-      representativeOfferBuyerAccountCount: new Set(offers.map((offer) => offer.buyerAccountId)).size,
+      representativeOfferCount: submittedOffers.length,
+      representativeOfferBuyerAccountCount: new Set(submittedOffers.map((offer) => offer.buyerAccountId)).size,
+      representativeOfferSkippedCount: offers.length - submittedOffers.length,
       representativeAcceptedOfferCount: acceptedOffers.filter(
         (offer) => offer.status === "accepted" || offer.status === "already-accepted",
       ).length,
@@ -827,8 +876,8 @@ function readRepresentativeTimeoutMs(envName: string, defaultValue: number): num
 
 async function runRepresentativeStep<T>(
   stepName: string,
-  run: () => Promise<T>,
-  options: Readonly<{ timeoutMs?: number }> = {},
+  run: (signal: AbortSignal) => Promise<T>,
+  options: RepresentativeStepOptions = {},
   progress?: RepresentativeStepProgress,
 ): Promise<T> {
   const startedAt = Date.now();
@@ -839,7 +888,7 @@ async function runRepresentativeStep<T>(
 
   let result: T;
   try {
-    result = await withRepresentativeStepTimeout(stepName, run(), options.timeoutMs);
+    result = await withRepresentativeStepTimeout(stepName, run, options);
     console.log(
       JSON.stringify({
         type: "representative-commerce-state.step.completed",
@@ -868,25 +917,32 @@ async function runRepresentativeStep<T>(
 
 async function withRepresentativeStepTimeout<T>(
   stepName: string,
-  promise: Promise<T>,
-  timeoutMs: number = readStepTimeoutMs(),
+  run: (signal: AbortSignal) => Promise<T>,
+  options: RepresentativeStepOptions,
 ): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? readStepTimeoutMs();
   let timeout: NodeJS.Timeout | null = null;
+  const abort = new AbortController();
+  const promise = Promise.resolve().then(() => run(abort.signal));
+  const timeoutError = new Error(
+    `Representative commerce state step '${stepName}' exceeded ${timeoutMs}ms. Check projection backlog and retry after workers catch up.`,
+  );
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Representative commerce state step '${stepName}' exceeded ${timeoutMs}ms. Check projection backlog and retry after workers catch up.`,
-              ),
-            ),
-          timeoutMs,
-        );
+        timeout = setTimeout(() => {
+          abort.abort();
+          reject(timeoutError);
+        }, timeoutMs);
       }),
     ]);
+  } catch (error) {
+    if (abort.signal.aborted) {
+      if (options.awaitCancellation) await Promise.allSettled([promise]);
+      throw timeoutError;
+    }
+    throw error;
   } finally {
     if (timeout) {
       clearTimeout(timeout);
@@ -894,8 +950,9 @@ async function withRepresentativeStepTimeout<T>(
   }
 }
 
-async function syncRepresentativeProjection(
+export async function syncRepresentativeProjection(
   runtime: Parameters<typeof getProjectionGroup>[0],
+  leasePort: ProjectionGroupLeasePort,
   contextName: string,
   projectionName: string,
   options: Readonly<{ timeoutMs?: number }> = {},
@@ -903,10 +960,23 @@ async function syncRepresentativeProjection(
 ): Promise<void> {
   await runStep(
     `sync ${contextName}.${projectionName}`,
-    async () => {
-      await syncProjectionGroup(getProjectionGroup(runtime, contextName, projectionName));
+    async (signal) => {
+      const group = getProjectionGroup(runtime, contextName, projectionName);
+      await leasePort.runWithLease(group, signal, (context) => syncProjectionGroup(group, context));
     },
-    options,
+    { ...options, awaitCancellation: true },
+  );
+}
+
+export async function drainRepresentativeProjections(
+  runtime: Parameters<typeof drainProjectionGroups>[0],
+  leasePort: ProjectionGroupLeasePort,
+  runStep: typeof runRepresentativeStep = runRepresentativeStep,
+): Promise<void> {
+  await runStep(
+    "drain remaining representative projections",
+    (signal) => drainProjectionGroups(runtime, { signal, settleIdleCheckpoints: true }, leasePort.runWithLease),
+    { timeoutMs: MAX_STEP_TIMEOUT_MS, awaitCancellation: true },
   );
 }
 
@@ -989,7 +1059,9 @@ function getCatalogServices(services: Readonly<Record<string, unknown>>): Repres
     !("upsertInclusionPolicy" in catalog.productContents) ||
     typeof catalog.productContents.upsertInclusionPolicy !== "function" ||
     !("replaceProductContents" in catalog.productContents) ||
-    typeof catalog.productContents.replaceProductContents !== "function"
+    typeof catalog.productContents.replaceProductContents !== "function" ||
+    !("readProductContentsAuthoringState" in catalog.productContents) ||
+    typeof catalog.productContents.readProductContentsAuthoringState !== "function"
   ) {
     throw new Error(
       "Representative commerce state requires mounted Catalog services with Product Contents, product measures, and a queryable db.",

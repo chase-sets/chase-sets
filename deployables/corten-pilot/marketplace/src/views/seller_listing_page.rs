@@ -1,16 +1,23 @@
 //! The seller's listing page (marketplace's `MarketplaceListingDetailPage` and
-//! `ListingEvidenceReadiness`): the header with Back to listings, what the last write was refused
-//! for, the listing's overview (its badges, price, fees, inventory, terms and status), its
+//! `ListingEvidenceReadiness`): what came of the change the page names (`ListingRecoveryNotice`),
+//! the header with Back to listings, what the last write was refused for, the listing's overview
+//! (its badges, price, fees, inventory, terms and status), its
 //! readiness (the checklist, the photos buyers see, and on a draft its photos' forms: add,
 //! classify, replace, move and remove), its fee lock history, and the forms that update it:
 //! price (with Preview fees, a GET of the page), quantity cap, purchase limits, publish, pause
 //! and withdraw (which asks first in a dialog its button opens, `command="show-modal"`).
 //!
-//! Every action is a form and works without JavaScript. One column, mobile first; the overview's
-//! cards and the photos sit two abreast from 48rem.
+//! Every action is a form and works without JavaScript, and posts to the page naming the change
+//! it names; while that change is recorded or unconfirmed they are off. One column, mobile first;
+//! the overview's cards and the photos sit two abreast from 48rem.
 use corten::{
+    SubmitKey,
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
 };
 
 use super::{listing_page::options, on_marketplace};
@@ -19,7 +26,8 @@ use crate::{
     app::url,
     listing_new::PICTURES,
     seller_listing::{Edits, ListingForm, ListingScreen, Place},
-    text::{Pilot, SellerListingMsg},
+    text::{ListingRecoveryMsg, Pilot, SellerListingMsg},
+    views::ListingRecoveryNotice,
 };
 
 /// The forms' section, which the overview's Update Listing links to.
@@ -44,9 +52,14 @@ pub struct AltTextId<'a>(pub &'a str);
 #[derive(Id)]
 pub struct AltTextErrorId<'a>(pub &'a str);
 
-/// The page's own address, where its forms post.
-fn here(id: &str) -> url::SellerListing<'_> {
-    url::SellerListing { id, place: Place::default() }
+/// The page's own address, naming the change it names: where its forms post.
+fn here<'a>(id: &'a str, screen: &ListingScreen) -> url::SellerListing<'a> {
+    url::SellerListing { id, place: screen.place() }
+}
+
+/// Where the photo uploads post, naming the change the page names.
+fn photos_at<'a>(id: &'a str, screen: &ListingScreen) -> url::SellerListingPhotos<'a> {
+    url::SellerListingPhotos { id, place: screen.place() }
 }
 
 /// A label without the colon marketplace writes it with ("Price: "), for a list's term.
@@ -165,12 +178,22 @@ fn inventory(t: SellerListingMsg, l: &SellerListing) -> String {
 
 /// The page.
 #[component(css)]
-pub fn SellerListingPage<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a ListingScreen) -> impl Render {
+pub fn SellerListingPage<'a>(
+    t: SellerListingMsg,
+    p: Pilot,
+    r: ListingRecoveryMsg,
+    id: &'a str,
+    screen: &'a ListingScreen,
+) -> impl Render {
     let l = &screen.listing;
     let title = l.item_title.as_deref().unwrap_or(&l.catalog_catalog_item_id);
     let back = url::SellerListings::default().href();
     let update = UpdateListingId.fragment();
+    let (here, clear) = (here(id, screen).href(), url::SellerListing { id, place: Place::default() }.href());
     html! {
+        if let Some(recovery) = &screen.recovery {
+            <ListingRecoveryNotice t={r} recovery={recovery} here={&here} clear={&clear} />
+        }
         <header class={Header}>
             <div class={Heading}>
                 <p class={Eyebrow}>{t.page_seller()}</p>
@@ -381,10 +404,10 @@ fn Readiness<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listing
         readiness.public_gallery.iter().enumerate().filter(|(_, image)| !image.assets.is_empty()).collect();
     let f = ListingForm::FIELDS;
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <Checklist t={t} readiness={readiness} />
             if !gallery.is_empty() {
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
                     <p class={Strong}>{t.evidence_seller_supplied()}</p>
                     <ul class={Gallery}>
                         for (index, image) in gallery {
@@ -395,7 +418,7 @@ fn Readiness<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listing
             }
             if l.status == "draft" {
                 <p class={Muted}>{t.guidance_description()}</p>
-                <form class={(Form, Drop)} method="post" action={url::SellerListingPhotos { id }} enctype="multipart/form-data">
+                <form class={(Form, Drop)} method="post" action={photos_at(id, screen)} enctype="multipart/form-data">
                     <input type="hidden" name={f.intent} value="add-photos">
                     <label class={Field}>
                         <span class={Label}>{t.evidence_add_photos()}</span>
@@ -403,7 +426,7 @@ fn Readiness<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listing
                         <input type="file" name={f.evidence} accept={PICTURES} multiple capture="environment" required>
                     </label>
                     <p class={Hint}>{t.evidence_choose_photos()}</p>
-                    <button class={Button} type="submit">{t.evidence_upload()}</button>
+                    <button class={Button} type="submit" disabled={screen.blocked()}>{t.evidence_upload()}</button>
                 </form>
                 <ul class={Photos}>
                     for (index, photo) in photos.iter().enumerate() {
@@ -478,7 +501,7 @@ fn PhotoForms<'a>(
     let last = index + 1 == ids.len();
     html! {
         <p class={Strong}>{&label}</p>
-        <form class={Stack} method="post" action={here(id)}>
+        <form class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id, screen)}>
             <input type="hidden" name={f.intent} value="classify-photo">
             <input type="hidden" name={f.photo_id} value={&photo.photo_id}>
             <label class={Field}>
@@ -504,9 +527,16 @@ fn PhotoForms<'a>(
                     <p id={AltTextErrorId(&photo.photo_id)} class={Error}>{&refused.message}</p>
                 }
             </div>
-            <button class={(Button, Secondary)} type="submit">{t.evidence_save_classification()}</button>
+            <button class={(Button, Secondary)} type="submit" disabled={screen.blocked()}>
+                {t.evidence_save_classification()}
+            </button>
         </form>
-        <form class={(Stack, Drop)} method="post" action={url::SellerListingPhotos { id }} enctype="multipart/form-data">
+        <form
+            class={(KitStack { gap: Gap::App }, gap_3(), Stack, Drop)}
+            method="post"
+            action={photos_at(id, screen)}
+            enctype="multipart/form-data"
+        >
             <input type="hidden" name={f.intent} value="replace-photo">
             <input type="hidden" name={f.photo_id} value={&photo.photo_id}>
             <input type="hidden" name={f.slot_id} value={photo.slot_id.as_deref().unwrap_or_default()}>
@@ -516,37 +546,42 @@ fn PhotoForms<'a>(
                 <input type="file" name={f.listing_photo} accept={PICTURES} capture="environment" required>
             </label>
             <p class={Hint}>{t.evidence_choose_replacement()}</p>
-            <button class={(Button, Secondary)} type="submit">{t.evidence_replace()}</button>
+            <button class={(Button, Secondary)} type="submit" disabled={screen.blocked()}>{t.evidence_replace()}</button>
         </form>
         <div class={Row}>
-            <form method="post" action={here(id)}>
+            <form method="post" action={here(id, screen)}>
                 <input type="hidden" name={f.intent} value="reorder-photos">
                 <input type="hidden" name={f.ordered_photo_ids} value={if first { String::new() } else { moved(index - 1) }}>
                 <button
                     class={(Button, Secondary)}
                     type="submit"
-                    disabled={first}
+                    disabled={first || screen.blocked()}
                     aria-label={p.seller_listing_move_earlier_label(index + 1).to_string()}
                 >
                     {t.evidence_move_earlier()}
                 </button>
             </form>
-            <form method="post" action={here(id)}>
+            <form method="post" action={here(id, screen)}>
                 <input type="hidden" name={f.intent} value="reorder-photos">
                 <input type="hidden" name={f.ordered_photo_ids} value={if last { String::new() } else { moved(index + 1) }}>
                 <button
                     class={(Button, Secondary)}
                     type="submit"
-                    disabled={last}
+                    disabled={last || screen.blocked()}
                     aria-label={p.seller_listing_move_later_label(index + 1).to_string()}
                 >
                     {t.evidence_move_later()}
                 </button>
             </form>
-            <form method="post" action={here(id)}>
+            <form method="post" action={here(id, screen)}>
                 <input type="hidden" name={f.intent} value="remove-photo">
                 <input type="hidden" name={f.photo_id} value={&photo.photo_id}>
-                <button class={(Button, Danger)} type="submit" aria-label={p.seller_listing_remove_label(index + 1).to_string()}>
+                <button
+                    class={(Button, Danger)}
+                    type="submit"
+                    disabled={screen.blocked()}
+                    aria-label={p.seller_listing_remove_label(index + 1).to_string()}
+                >
                     {t.evidence_remove()}
                 </button>
             </form>
@@ -587,7 +622,9 @@ fn Checklist<'a>(t: SellerListingMsg, readiness: &'a EvidenceReadiness) -> impl 
             <li class={Check}>
                 <p class={Strong}>{t.evidence_minimum_photo_count(c.minimum_photo_count)}</p>
                 <span class={State} data-done={enough}>{state(enough)}</span>
-                <p class={Muted}>{t.evidence_photo_count_progress(c.active_photo_count, c.minimum_photo_count)}</p>
+                <p class={Muted}>
+                    {t.evidence_photo_count_progress(crate::text::seller_listing_msg::EvidencePhotoCountProgress { present: c.active_photo_count, required: c.minimum_photo_count })}
+                </p>
                 if !enough {
                     <p>{t.coverage_min_photo_count_unmet()}</p>
                 }
@@ -603,7 +640,9 @@ fn Checklist<'a>(t: SellerListingMsg, readiness: &'a EvidenceReadiness) -> impl 
                         <p class={Tags}>
                             <span class={Tag}>{&required.slot_id}</span>
                             if let (Some(w), Some(h)) = (required.minimum_width_pixels, required.minimum_height_pixels) {
-                                <span class={Tag}>{t.evidence_minimum_dimensions(w, h)}</span>
+                                <span class={Tag}>
+                                    {t.evidence_minimum_dimensions(crate::text::seller_listing_msg::EvidenceMinimumDimensions { width: w, height: h })}
+                                </span>
                             }
                         </p>
                     }
@@ -634,7 +673,7 @@ fn FeeHistory<'a>(t: SellerListingMsg, p: Pilot, listing: &'a SellerListing, fee
                         <li>
                             <p class={Strong}>{fee_event(t, &e.event_type)}</p>
                             <p class={Hint}>
-                                {t.page_fee_history_recorded(e.stream_version, &when(t, e.recorded_at.as_deref()))}
+                                {t.page_fee_history_recorded(crate::text::seller_listing_msg::PageFeeHistoryRecorded { version: e.stream_version, recorded_at: &when(t, e.recorded_at.as_deref()) })}
                             </p>
                             <dl class={Lines}>
                                 <div>
@@ -689,9 +728,15 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
     let (qe, le) = (e.errors.within(QuantityFormId), e.errors.within(LimitsFormId));
     let blocked = !matches!(l.status.as_str(), "active" | "withdrawn");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <div class={Card}>
-                <form id={PriceFormId} class={Stack} method="post" action={here(id)}>
+                <form
+                    id={PriceFormId}
+                    class={(KitStack { gap: Gap::App }, gap_3(), Stack)}
+                    method="post"
+                    action={here(id, screen)}
+                >
+                    {SubmitKey::field(f.attempt)}
                     <div class={Grid}>
                         <label class={Field}>
                             <span class={Label}>{t.page_price_2()}</span>
@@ -715,10 +760,23 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                         <input type="hidden" name={f.fee_quote_fingerprint} value={fingerprint}>
                     }
                     <div class={Row}>
-                        <button class={(Button, Secondary)} type="submit" name={f.intent} value="update-price">
+                        <button
+                            class={(Button, Secondary)}
+                            type="submit"
+                            name={f.intent}
+                            value="update-price"
+                            disabled={screen.blocked()}
+                        >
                             {t.page_save_price()}
                         </button>
-                        <button class={(Button, Secondary)} type="submit" name={f.preview} value="1" formmethod="get">
+                        <button
+                            class={(Button, Secondary)}
+                            type="submit"
+                            name={f.preview}
+                            value="1"
+                            formmethod="get"
+                            disabled={screen.blocked()}
+                        >
                             {t.page_preview_fees()}
                         </button>
                     </div>
@@ -728,8 +786,14 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                 }
             </div>
             <div class={Card}>
-                <form id={QuantityFormId} class={Stack} method="post" action={here(id)}>
+                <form
+                    id={QuantityFormId}
+                    class={(KitStack { gap: Gap::App }, gap_3(), Stack)}
+                    method="post"
+                    action={here(id, screen)}
+                >
                     <input type="hidden" name={f.intent} value="update-quantity-cap">
+                    {SubmitKey::field(f.attempt)}
                     if let Some(fingerprint) = &l.fee_quote_fingerprint {
                         <input type="hidden" name={f.fee_quote_fingerprint} value={fingerprint}>
                     }
@@ -748,7 +812,9 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                     </label>
                     {qe.message(f.quantity_cap)}
                     <p class={Hint}>{t.page_quantity_cap_exposure_copy()}</p>
-                    <button class={(Button, Secondary)} type="submit">{t.page_save_quantity_cap()}</button>
+                    <button class={(Button, Secondary)} type="submit" disabled={screen.blocked()}>
+                        {t.page_save_quantity_cap()}
+                    </button>
                 </form>
             </div>
             <details class={Disclosure} data-tone="info" open={le_open(e)}>
@@ -756,8 +822,14 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                     <span class={Strong}>{t.page_purchase_limits_copy()}</span>
                     <span class={Hint}>{limits(t, l)}</span>
                 </summary>
-                <form id={LimitsFormId} class={Stack} method="post" action={here(id)}>
+                <form
+                    id={LimitsFormId}
+                    class={(KitStack { gap: Gap::App }, gap_3(), Stack)}
+                    method="post"
+                    action={here(id, screen)}
+                >
                     <input type="hidden" name={f.intent} value="update-purchase-limits">
+                    {SubmitKey::field(f.attempt)}
                     <div class={Grid3}>
                         <label class={Field}>
                             <span class={Label}>{t.page_limit_per_order()}</span>
@@ -800,12 +872,15 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                         </label>
                     </div>
                     <p class={Hint}>{t.page_purchase_limits_copy()}</p>
-                    <button class={(Button, Secondary)} type="submit">{t.page_save_purchase_limits()}</button>
+                    <button class={(Button, Secondary)} type="submit" disabled={screen.blocked()}>
+                        {t.page_save_purchase_limits()}
+                    </button>
                 </form>
             </details>
             <div class={Card}>
-                <form class={Stack} method="post" action={here(id)}>
+                <form class={(KitStack { gap: Gap::App }, gap_3(), Stack)} method="post" action={here(id, screen)}>
                     <input type="hidden" name={f.intent} value="publish">
+                    {SubmitKey::field(f.attempt)}
                     if let Some(fingerprint) = &l.fee_quote_fingerprint {
                         <input type="hidden" name={f.fee_quote_fingerprint} value={fingerprint}>
                     }
@@ -816,7 +891,9 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                         </a>
                         <a href={&on_marketplace("/contact")}>{t.guidance_contact_support()}</a>
                     </p>
-                    <button class={Button} type="submit" disabled={screen.publish_disabled()}>{t.page_publish_listing()}</button>
+                    <button class={Button} type="submit" disabled={screen.publish_disabled() || screen.blocked()}>
+                        {t.page_publish_listing()}
+                    </button>
                     if blocked && l.product_measure_snapshot.is_none() {
                         <p class={Hint}>{t.page_publish_requires_shipping_measure()}</p>
                     }
@@ -824,9 +901,10 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                         <p class={Hint}>{t.evidence_publish_blocked()}</p>
                     }
                 </form>
-                <form method="post" action={here(id)}>
+                <form method="post" action={here(id, screen)}>
                     <input type="hidden" name={f.intent} value="pause">
-                    <button class={(Button, Secondary)} type="submit" disabled={l.status != "active"}>
+                    {SubmitKey::field(f.attempt)}
+                    <button class={(Button, Secondary)} type="submit" disabled={l.status != "active" || screen.blocked()}>
                         {t.page_pause_listing()}
                     </button>
                 </form>
@@ -835,19 +913,22 @@ fn UpdateForms<'a>(t: SellerListingMsg, p: Pilot, id: &'a str, screen: &'a Listi
                     type="button"
                     command="show-modal"
                     commandfor={WithdrawDialogId}
-                    disabled={l.status == "withdrawn"}
+                    disabled={l.status == "withdrawn" || screen.blocked()}
                 >
                     {t.page_withdraw_listing()}
                 </button>
                 <dialog id={WithdrawDialogId} class={Dialog} aria-labelledby="withdraw-title" aria-describedby="withdraw-text">
                     <h3 id="withdraw-title" class={PartTitle}>{t.page_withdraw_listing()}</h3>
                     <p id="withdraw-text" class={Muted}>{t.page_withdraw_confirm_description()}</p>
-                    <form class={Row} method="post" action={here(id)}>
+                    <form class={Row} method="post" action={here(id, screen)}>
                         <input type="hidden" name={f.intent} value="withdraw">
+                        {SubmitKey::field(f.attempt)}
                         <button class={(Button, Secondary)} type="button" command="close" commandfor={WithdrawDialogId}>
                             {p.seller_listing_cancel()}
                         </button>
-                        <button class={(Button, Danger)} type="submit">{t.page_withdraw_listing()}</button>
+                        <button class={(Button, Danger)} type="submit" disabled={screen.blocked()}>
+                            {t.page_withdraw_listing()}
+                        </button>
                     </form>
                 </dialog>
             </div>
@@ -865,7 +946,7 @@ fn le_open(e: &Edits) -> bool {
 fn Preview<'a>(t: SellerListingMsg, p: Pilot, preview: &'a TermsPreview, currency: &'a str) -> impl Render {
     let currency = Some(currency).filter(|c| !c.trim().is_empty());
     html! {
-        <div class={(Stack, Quote)} role="status">
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack, Quote)} role="status">
             <p class={Strong}>{t.page_updated_fee_preview()}</p>
             <p class={Hint}>{t.page_account_type()} {&preview.account_type}</p>
             <p class={Hint}>

@@ -9,6 +9,13 @@ import type {
   ReplaceProductContentsInput,
 } from "./runtime";
 
+class ProductContentsDomainError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "ProductContentsDomainError";
+  }
+}
+
 export function productContentRoutes(services: ProductContentServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -25,6 +32,12 @@ export function productContentRoutes(services: ProductContentServices) {
   app.get("/containers/:id", async (c) => {
     const items = await services.listProductContentsForContainer(c.req.param("id"));
     return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/containers/:id/authoring", async (c) => {
+    const selectedOptions = toSelectedOptions(c.req.query("containerSelectedOptions"));
+    const snapshot = await services.readProductContentsAuthoringState(c.req.param("id"), selectedOptions);
+    return c.json(snapshot);
   });
 
   app.get("/contained/:id", async (c) => {
@@ -49,6 +62,7 @@ export function productContentRoutes(services: ProductContentServices) {
         containerSelectedOptions: toSelectedOptions(
           (body as { containerSelectedOptions?: unknown }).containerSelectedOptions,
         ),
+        expectedVersion: toExpectedVersion((body as { expectedVersion?: unknown }).expectedVersion),
       },
       c.get("context"),
     );
@@ -65,7 +79,15 @@ function toReplaceProductContentsInput(containerCatalogItemId: string, value: un
     containerCatalogItemId: parseTypedIdBoundary(containerCatalogItemId, "cat", "containerCatalogItemId"),
     containerSelectedOptions: toSelectedOptions(body.containerSelectedOptions),
     lines: Array.isArray(body.lines) ? body.lines.map(toLineInput) : [],
+    expectedVersion: toExpectedVersion(body.expectedVersion),
   };
+}
+
+function toExpectedVersion(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new ProductContentsDomainError("Product Contents expectedVersion must be a non-negative safe integer.");
+  }
+  return value as number;
 }
 
 function toLineInput(value: unknown): ProductContentLineInput {
@@ -91,6 +113,13 @@ function toProvenance(value: unknown): ProductContentProvenance {
 }
 
 function toSelectedOptions(value: unknown): readonly ProductContentSelectedOption[] | undefined {
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
   if (!Array.isArray(value)) {
     return undefined;
   }

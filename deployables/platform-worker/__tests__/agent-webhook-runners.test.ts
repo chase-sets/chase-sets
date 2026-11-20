@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentGrantRevocations, RevocationState } from "@chase-sets/identity/server";
 import type { PaymentServices } from "@chase-sets/payments/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createAgentWebhookDispatchRunners } from "../src/agent-webhook-runners";
+import { createAgentWebhookDispatchRunners } from "@chase-sets/auth/server";
+import { createAgentGrantRevocationWorkerPorts } from "../src/agent-webhook-runners";
 
 describe("agent webhook worker runners", () => {
   it("recovery-isolation completes healthy work after a throwing operation", async () => {
@@ -49,9 +50,11 @@ describe("agent webhook worker runners", () => {
         },
       },
     } as unknown as WorkerHostRuntime;
-    const recovery = createAgentWebhookDispatchRunners(runtime, { workerId: "worker_1" }).find(
-      (runner) => runner.name === "auth.agent-grant-revocation-recovery",
-    )!;
+    const recovery = createAgentWebhookDispatchRunners({
+      runtime: runtime,
+      ports: createAgentGrantRevocationWorkerPorts(runtime),
+      config: { workerId: "worker_1" },
+    }).find((runner) => runner.name === "auth.agent-grant-revocation-recovery")!;
     await recovery.runOnce().catch(() => undefined);
     expect(states[0].phase).toBe("identity-terminal");
     expect(states[1].phase).toBe("completed");
@@ -93,9 +96,11 @@ describe("agent webhook worker runners", () => {
       },
     } as unknown as WorkerHostRuntime;
     const recovery = () =>
-      createAgentWebhookDispatchRunners(runtime, { workerId: "worker_1" }).find(
-        (runner) => runner.name === "auth.agent-grant-revocation-recovery",
-      )!;
+      createAgentWebhookDispatchRunners({
+        runtime: runtime,
+        ports: createAgentGrantRevocationWorkerPorts(runtime),
+        config: { workerId: "worker_1" },
+      }).find((runner) => runner.name === "auth.agent-grant-revocation-recovery")!;
     await expect(recovery().runOnce()).rejects.toThrow("agent_grant_revocation_recovery_pending");
     expect(state.phase).toBe("identity-terminal");
     expect(await recovery().runOnce()).toMatchObject({ processed: 1 });
@@ -108,7 +113,10 @@ describe("agent webhook worker runners", () => {
     );
   });
   it("registers the Auth agent webhook dispatcher as a platform-worker job", () => {
-    const runners = createAgentWebhookDispatchRunners(createRuntimeWithAuth(), { workerId: "worker_1" });
+    const runners = createAgentWebhookDispatchRunners({
+      runtime: createRuntimeWithAuth(),
+      config: { workerId: "worker_1" },
+    });
 
     expect(runners).toHaveLength(1);
     expect(runners[0]).toMatchObject({
@@ -125,7 +133,7 @@ describe("agent webhook worker runners", () => {
       subscriptionRunners: [],
     } as unknown as WorkerHostRuntime;
 
-    expect(createAgentWebhookDispatchRunners(runtime, { workerId: "worker_1" })).toEqual([]);
+    expect(createAgentWebhookDispatchRunners({ runtime: runtime, config: { workerId: "worker_1" } })).toEqual([]);
   });
 });
 

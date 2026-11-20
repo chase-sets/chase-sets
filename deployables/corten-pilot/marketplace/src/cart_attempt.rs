@@ -9,12 +9,12 @@
 //! What the attempt then is decides the page: succeeded redirects to the cart with the write's
 //! receipt; partial and failed-safe draw the cart with what was not applied; ambiguous draws it
 //! with the cart's writes paused until the buyer sends the same change again or refreshes.
-use corten::axum::http::StatusCode;
+use corten::http::StatusCode;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::api::{Caller, CartAnswer, CartAttempt, CartWrite, Checkout as _};
+use crate::api::{Caller, CartAnswer, CartAttempt, CartWrite, Checkout as _, CommandOutcome};
 use platform::receipt::Receipt;
 
 /// What one submission came to (`CheckoutCommandAttemptResolvedState`).
@@ -42,13 +42,15 @@ impl State {
 }
 
 /// A submission's outcome: its state, the API's message for a refusal, the messages of the
-/// commands that did not apply, and the receipt the next read waits for.
+/// commands that did not apply, the receipt the next read waits for, and each command's outcome
+/// as the API kept it (none when it kept no attempt or cannot say).
 #[derive(Debug)]
 pub struct Outcome {
     pub state: State,
     pub message: Option<String>,
     pub not_applied: Vec<Option<String>>,
     pub receipt: Option<Receipt>,
+    pub vector: Vec<CommandOutcome>,
 }
 
 /// The state an attempt the API kept resolves to (`checkoutCommandAttemptStateForResult`).
@@ -94,7 +96,8 @@ pub async fn submit(caller: &Caller<'_>, attempt: &str, write: &CartWrite) -> Re
         .flat_map(|a| a.vector.iter().filter(|c| c.outcome != "succeeded").map(|c| c.message.clone()))
         .collect();
     let receipt = receipt.or_else(|| attempt_kept.as_ref().and_then(lookup_receipt));
-    Ok(Outcome { state, message, not_applied, receipt })
+    let vector = attempt_kept.map(|a| a.vector).unwrap_or_default();
+    Ok(Outcome { state, message, not_applied, receipt, vector })
 }
 
 /// The receipt an attempt found by lookup proves: its event, appended with the cart's events
@@ -110,6 +113,42 @@ pub fn attempt_id(presented: &str) -> String {
     let valid =
         (22..=128).contains(&presented.len()) && presented.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     if valid { presented.to_owned() } else { uuid::Uuid::new_v4().to_string() }
+}
+
+/// A form as it was posted, with the attempt `attempt` in `field` (where the form had one, or one
+/// drawn for it): sending it again is the same attempt, so it cannot apply twice.
+pub fn resend(raw: &crate::items::Raw, field: &str, attempt: &str) -> Vec<(String, String)> {
+    let mut pairs = posted(raw);
+    pairs.retain(|(key, _)| key != field);
+    pairs.push((field.to_owned(), attempt.to_owned()));
+    pairs
+}
+
+/// A form as it was posted, every value of every field, to send again as it is.
+pub fn posted(raw: &crate::items::Raw) -> Vec<(String, String)> {
+    raw.iter().flat_map(|(key, values)| values.all().iter().map(move |value| (key.clone(), value.to_string()))).collect()
+}
+
+/// The Marketplace attempt Decline selected declines `offer` as, made from the form's attempt
+/// (marketplace's `createHash("sha256").update(JSON.stringify(["sell-list-decline", attemptId,
+/// offerId])).digest("base64url")`), so sending the form again declines each offer as the same
+/// attempt.
+pub fn decline_attempt(attempt: &str, offer: &str) -> String {
+    let text = serde_json::to_string(&["sell-list-decline", attempt, offer]).expect("strings serialize");
+    base64url(&Sha256::digest(text.as_bytes()))
+}
+
+/// Base64url without padding, as Node's `digest("base64url")` writes it.
+fn base64url(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..=chunk.len() {
+            out.push(char::from(ALPHABET[(n >> (18 - 6 * i)) as usize & 63]));
+        }
+    }
+    out
 }
 
 /// The attempt's request hash (`computeCheckoutCommandAttemptRequestHash`): SHA-256, in hex, of
@@ -181,7 +220,10 @@ mod tests {
     fn an_attempt_resolves_as_the_web_hosts_do() {
         let attempt = |status: &str, outcomes: &[&str]| CartAttempt {
             owner_status: status.into(),
-            vector: outcomes.iter().map(|o| CommandOutcome { outcome: (*o).into(), message: None }).collect(),
+            vector: outcomes
+                .iter()
+                .map(|o| CommandOutcome { index: 0, outcome: (*o).into(), status: None, message: None })
+                .collect(),
             commit_receipt: None,
         };
         assert_eq!(state_of(&attempt("committed", &["succeeded", "succeeded"])), State::Succeeded);
@@ -191,6 +233,34 @@ mod tests {
         assert_eq!(state_of(&attempt("failed-safe", &[])), State::FailedSafe);
         assert_eq!(state_of(&attempt("not-observed", &[])), State::Ambiguous);
         assert_eq!(state_of(&attempt("ambiguous", &[])), State::Ambiguous);
+    }
+
+    #[test]
+    fn a_sell_list_write_hashes_as_the_web_hosts() {
+        // computeCheckoutCommandAttemptRequestHash({ attemptId }) for a line removed, and
+        // ({ attemptId, lineIds }) for Decline selected's batch, run with Node on the same bodies.
+        assert_eq!(
+            request_hash(&CartWrite::sell_list_remove("sll_offer", None).body),
+            "80b632f508327a345fa9aa57ed6fe9757f3fa5c99399fe19a6cfc3b3f565d82c"
+        );
+        let lines = ["sll_offer".to_owned(), "sll_two".to_owned()];
+        assert_eq!(
+            request_hash(&CartWrite::sell_list_remove_lines(&lines).body),
+            "c00d47482ce86243ea20826fc15b3722e0f9b8d9f76c3c9c6c45d44007f4f0b9"
+        );
+    }
+
+    #[test]
+    fn a_decline_s_attempt_is_marketplace_s() {
+        // createHash("sha256").update(JSON.stringify(["sell-list-decline", attemptId, offerId]))
+        // .digest("base64url"), run with Node.
+        assert_eq!(
+            decline_attempt("3f2504e0-4f89-41d3-9a0c-0305e82c3301", "off_ready"),
+            "Apm-cmT8CsgKuwxjl8A032YreUa18nMG2dX5LjfU4w4"
+        );
+        assert_eq!(base64url(&[0xfb]), "-w");
+        assert_eq!(base64url(&[0xfb, 0xff]), "-_8");
+        assert_eq!(base64url(&[0xfb, 0xff, 0x01]), "-_8B");
     }
 
     #[test]

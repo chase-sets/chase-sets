@@ -7,20 +7,26 @@ export type OrderingOrderDeliverySummary = Readonly<{
   latest_delivered_at: string | null;
 }>;
 
+// latest_delivered_at is read as a timestamp and answered in ISO 8601, like the order's other times.
 export async function getOrderingOrderDeliverySummary(
   db: PgQueryable,
   orderId: string,
 ): Promise<OrderingOrderDeliverySummary> {
-  const result = await db.query<OrderingOrderDeliverySummary>(
+  const result = await db.query<{ shipment_count: number; delivered_count: number; latest_delivered_at: Date | null }>(
     `SELECT
        COUNT(*)::integer AS shipment_count,
        COUNT(*) FILTER (WHERE status = 'delivered')::integer AS delivered_count,
-       MAX(delivered_at)::text AS latest_delivered_at
+       MAX(delivered_at) AS latest_delivered_at
      FROM ordering_order_review_shipment_sources
      WHERE order_id = $1`,
     [orderId],
   );
-  return result.rows[0]!;
+  const row = result.rows[0]!;
+  return {
+    shipment_count: row.shipment_count,
+    delivered_count: row.delivered_count,
+    latest_delivered_at: row.latest_delivered_at ? new Date(row.latest_delivered_at).toISOString() : null,
+  };
 }
 
 export type OrderingOrderReviewOpportunity = Readonly<{

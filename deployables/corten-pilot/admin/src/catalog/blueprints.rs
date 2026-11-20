@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `GET /catalog/blueprints?search&status&has_components&has_field_rules&has_dimension_rules&page` | the list; `POST` creates |
 //! | `GET /catalog/blueprints/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/blueprints/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/blueprints/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/blueprints/{id}`, `POST .../edit`, `.../lifecycle` | the blueprint; revise it; its status |
 //! | `POST /catalog/blueprints/{id}/components`, `.../components/{component_id}/detach` | attach or detach a component |
 //! | `GET /catalog/blueprints/{id}/field-rules`, `.../dimension-rules`, `.../product-resolution-rules` | a Set dialog (drawn when opened); `POST` sets |
@@ -17,7 +17,7 @@
 //! which can miss a change (chase-sets/chase-sets#10823): a rule it missed would be deleted, as
 //! a component's edit did (chase-sets/chase-sets#10824). Opening it carries the page's receipt,
 //! so the rules it starts from include the write the page shows.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 
@@ -32,7 +32,7 @@ use super::{
 use crate::{
     api::{ApiError, Caller, Method},
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -58,13 +58,12 @@ fn api_query(query: &url::BlueprintQuery, page: u32) -> String {
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use crate::catalog::url::ListNotice;
 
     /// The list's filters (the filter form's fields) and page (from 1); the `has_` filters are
     /// `true` or `false`.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct BlueprintQuery {
         pub search: Option<String>,
@@ -83,7 +82,7 @@ pub mod url {
     }
 
     /// What opening a Set dialog carries: the receipt of the write the page shows.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct Opened {
         pub after_write: Option<String>,
@@ -112,12 +111,7 @@ pub mod url {
         pub query: BlueprintQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/blueprints/bulk", post = preview_bulk)]
-    pub struct BlueprintsBulk {
-        #[route(query)]
-        pub query: BlueprintQuery,
-    }
+    pub use crate::catalog::previews::url::BlueprintsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/blueprints/bulk/confirm", post = confirm_bulk)]
@@ -242,9 +236,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_blueprints()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_blueprints()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -345,9 +339,9 @@ async fn blueprint_page(
     req.screen(
         &blueprint,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_blueprint()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_blueprint()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -383,8 +377,8 @@ async fn redraw(
     form: impl Patch,
     forms: BlueprintForms,
 ) -> HtmlResult {
-    if req.mode == Mode::Action {
-        return req.patch(form);
+    if let Some(script) = req.action() {
+        return script.patch(form);
     }
     blueprint_page(req, viewer, config, headers, id, &After::default(), forms).await
 }
@@ -529,15 +523,15 @@ async fn open_set(
         Ok(None) => SetRules::Unread(which),
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let (t, p) = (req.t(), req.t());
         return match &set {
-            SetRules::Fields(form) => req.patch(views::FieldRulesDialog { t, p, id, form: Some(form) }),
-            SetRules::Dimensions(form) => req.patch(views::DimensionRulesDialog { t, p, id, form: Some(form) }),
-            SetRules::Order(form) => req.patch(views::OrderDialog { t, p, id, form: Some(form) }),
-            SetRules::Unread(Set::Fields) => req.patch(views::FieldRulesDialog { t, p, id, form: None }),
-            SetRules::Unread(Set::Dimensions) => req.patch(views::DimensionRulesDialog { t, p, id, form: None }),
-            SetRules::Unread(Set::Order) => req.patch(views::OrderDialog { t, p, id, form: None }),
+            SetRules::Fields(form) => script.patch(views::FieldRulesDialog { t, p, id, form: Some(form) }),
+            SetRules::Dimensions(form) => script.patch(views::DimensionRulesDialog { t, p, id, form: Some(form) }),
+            SetRules::Order(form) => script.patch(views::OrderDialog { t, p, id, form: Some(form) }),
+            SetRules::Unread(Set::Fields) => script.patch(views::FieldRulesDialog { t, p, id, form: None }),
+            SetRules::Unread(Set::Dimensions) => script.patch(views::DimensionRulesDialog { t, p, id, form: None }),
+            SetRules::Unread(Set::Order) => script.patch(views::OrderDialog { t, p, id, form: None }),
         };
     }
     let forms = BlueprintForms { set: Some(set), ..Default::default() };
@@ -665,9 +659,9 @@ fn selection_filter(query: &url::BlueprintQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::blueprints::url::BlueprintsBulk>,

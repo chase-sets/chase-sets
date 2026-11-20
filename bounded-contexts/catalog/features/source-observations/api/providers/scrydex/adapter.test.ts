@@ -1,3 +1,5 @@
+import { once } from "node:events";
+import { createServer } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import onePieceSetReferenceFixture from "../../__fixtures__/scrydex-one-piece-set-reference/normal.json";
 import lorcanaSetReferenceFixture from "../../__fixtures__/scrydex-lorcana-set-reference/normal.json";
@@ -17,6 +19,7 @@ import {
   catalogSyncAcceptedScopeMappingFromRow,
   previewCatalogSyncProviderParticipation,
 } from "../catalog-sync-scope-planner";
+import { createProviderSendAdmission, runCatalogProviderWork } from "../provider-send-admission";
 
 // Every credential, identifier, URL, and usage value below is synthetic. The usage
 // body follows the real Scrydex `data` envelope captured by the host on 2026-10-09.
@@ -34,8 +37,6 @@ const forbiddenValues = [
   "synthetic-billing.invalid",
   "synthetic-scrydex.invalid",
   "synthetic-plan-tier",
-  "2026-09-22",
-  "2026-10-22",
   "2026-10-01",
 ];
 const forbiddenFieldNames = [
@@ -45,9 +46,11 @@ const forbiddenFieldNames = [
   "email",
   "invoice_url",
   "plan",
-  "overage",
+  "overage_price",
+  "overage_cost",
   "daily_usage",
-  "period",
+  "period_start",
+  "period_end",
   "credits_consumed",
 ];
 
@@ -104,6 +107,11 @@ describe("Scrydex usage snapshot boundary", () => {
       totalCredits: 50_000,
       remainingCredits: 41_234,
       usedCredits: 8_766,
+      billingPeriod: {
+        startsAt: "2026-09-22T19:39:46.000Z",
+        endsAt: "2026-10-22T19:39:46.000Z",
+        overageCreditsConsumed: 0,
+      },
       observedAt: observedAt.toISOString(),
       attemptedAt: observedAt.toISOString(),
       attemptState: "checked",
@@ -231,6 +239,48 @@ describe("Scrydex usage snapshot boundary", () => {
       diagnosticCode: "provider-degraded",
     });
     expect(JSON.stringify(snapshot)).not.toContain("synthetic-maintenance");
+  });
+
+  it("reports a redirect as unavailable after one usage GET with the send window disabled", async () => {
+    const requests: string[] = [];
+    const server = createServer((request, response) => {
+      requests.push(`${request.method} ${request.url}`);
+      if (request.url === "/account/v1/usage") {
+        response.writeHead(307, { location: "/account/v1/usage?redirected=1" }).end();
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(syntheticUsageBody()));
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Loopback unavailable.");
+      const adapter = createScrydexOnePieceProviderAdapter({
+        credentials: syntheticCredentials,
+        baseUrl: `http://127.0.0.1:${address.port}/onepiece/v1`,
+        now: () => observedAt,
+      });
+      const unexpectedLedgerCall = () => {
+        throw new Error("Disabled send admission must not contact the ledger.");
+      };
+      const admission = createProviderSendAdmission({
+        enabled: false,
+        ledger: {
+          debit: unexpectedLedgerCall,
+          settle: unexpectedLedgerCall,
+          stop: unexpectedLedgerCall,
+          bind: unexpectedLedgerCall,
+        },
+      });
+
+      const snapshot = await runCatalogProviderWork(admission, () => adapter.getUsageSnapshot());
+
+      expect(requests).toEqual(["GET /account/v1/usage"]);
+      expect(snapshot).toMatchObject({ attemptState: "unavailable", observedAt: null });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 
   it("never sends a usage request without credentials", async () => {
@@ -575,8 +625,6 @@ import {
   cacheKeyForProviderOptionQuery,
   type CatalogProviderOptionQueryCacheRecord,
 } from "../provider-option-query-cache";
-import { createServer } from "node:http";
-import { once } from "node:events";
 
 // Derived from #9431 receipt c6127099375. Items are synthetic; envelope keys/values are captured.
 const cards = { count: 100, data: Array.from({ length: 100 }, () => ({})), page: 1, page_size: 100, total_count: 121 };

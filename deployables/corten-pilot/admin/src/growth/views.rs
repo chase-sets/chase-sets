@@ -11,8 +11,8 @@ pub use google_shopping_page::{GoogleShoppingPage, job_part};
 pub use promo_page::PromoPage;
 pub use waitlist_page::WaitlistPage;
 
-/// Campaign Analytics' components: its stylesheet.
-pub const CAMPAIGN: &[Component] = &[CampaignPage];
+/// Campaign Analytics' components: its stylesheet, and the kit's Progress for its goals' bars.
+pub const CAMPAIGN: &[Component] = &[CampaignPage, platform::ui::progress::Progress];
 /// Google Shopping's components: its stylesheet.
 pub const GOOGLE_SHOPPING: &[Component] = &[GoogleShoppingPage];
 /// Promo Bar's components: its stylesheet, and the sheets' dialog.

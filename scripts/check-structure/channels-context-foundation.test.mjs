@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
-import { listContextManifests, repoRoot } from "../lib/repo.mjs";
+import { contextManifestContributesToHost, listContextManifests, repoRoot } from "../lib/repo.mjs";
+import { CONTEXT_REGISTRIES, validateContextRegistries } from "./context-registry-guard.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { syncWorkspaceMetadata } from "../sync-workspace-metadata.mjs";
 import { findSchemaMigrationDdlSafetyViolationsInSource } from "./boot-schema-ddl-discipline.mjs";
@@ -29,17 +30,18 @@ import {
   walk,
 } from "./run.mjs";
 import { runImportBoundaryValidation } from "./phases.mjs";
+import { workspaceScriptNames } from "../run-workspaces.mjs";
 
 const channelsRoot = path.join(repoRoot, "bounded-contexts/channels");
 const manifestPath = path.join(channelsRoot, "context.json");
 const packagePath = path.join(channelsRoot, "package.json");
 const baselinePath = path.join(repoRoot, "scripts/check-structure/glossary-coverage-baseline.json");
 const registryPaths = [
-  "deployables/platform-api/src/generated/api-context-registry.ts",
-  "deployables/platform-worker/src/generated/worker-context-registry.ts",
-  "deployables/admin-web/app/generated/web-context-registry.ts",
-  "deployables/marketplace/app/generated/web-context-registry.ts",
-  "deployables/public-web/app/generated/web-context-registry.ts",
+  "deployables/platform-api/src/context-registry.ts",
+  "deployables/platform-worker/src/context-registry.ts",
+  "deployables/admin-web/app/context-registry.ts",
+  "deployables/marketplace/app/context-registry.ts",
+  "deployables/public-web/app/context-registry.ts",
 ];
 const requiredRootFiles = [
   "api.ts",
@@ -94,6 +96,10 @@ function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
 }
 
+function databaseTestArguments(scripts) {
+  return workspaceScriptNames({ packageJson: { scripts } }, "test:db*").flatMap((name) => scripts[name].split(/\s+/));
+}
+
 function writeJson(filePath, value) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -118,12 +124,6 @@ function listFiles(root, directory = root) {
       return entry.isDirectory() ? listFiles(root, absolute) : [path.relative(root, absolute).replaceAll("\\", "/")];
     })
     .sort();
-}
-
-function readRegistryBytes(root) {
-  return Object.fromEntries(
-    registryPaths.map((relativePath) => [relativePath, readFileSync(path.join(root, relativePath))]),
-  );
 }
 
 function collectChannelsSurfaceViolations(candidate, relativeFiles) {
@@ -154,7 +154,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/connector-client/") &&
-        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector)-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector)-indexeddb\.ts$|integrations\/order-authority-probe\/windows-run-custody(?:\.test)?\.ps1$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
           file,
         ),
     )
@@ -205,7 +205,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/manual-sync/") &&
-        !/^features\/manual-sync\/(?:api|domain|read-model|ui)\//.test(file),
+        !/^features\/manual-sync\/(?:api|domain|read-model|tests|ui)\//.test(file),
     )
   ) {
     violations.push("manual-sync-buckets");
@@ -242,6 +242,18 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
+      {
+        portName: "connectionConsumers",
+        providedBy: "platform-api",
+        purpose:
+          "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
+      },
+      {
+        portName: "ebayOAuthConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection.",
+      },
       {
         portName: "ebayAccountDeletionConfiguration",
         providedBy: "platform-api",
@@ -289,6 +301,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
+      "ebay-connection",
       "ebay-account-deletion",
       "connector-feed",
       "connections",
@@ -317,7 +330,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (candidate.eventSubscriptions?.length !== 6) violations.push("eventSubscriptions");
   if (candidate.eventReactions?.length !== 6) violations.push("eventReactions");
-  if (candidate.deployableContributions?.[0]?.routes?.length !== 5) violations.push("deployableContributions");
+  if (candidate.deployableContributions?.[0]?.routes?.length !== 8) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
   if (JSON.stringify(candidate.apiDeployables) !== JSON.stringify(["platform-api"])) violations.push("apiDeployables");
@@ -342,11 +355,23 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("partitions every channels DB file exactly once and excludes the same union from unit runs", () => {
+    const scripts = readJson(packagePath).scripts;
+    const partitions = workspaceScriptNames({ packageJson: { scripts } }, "test:db*");
+    expect(partitions).toEqual(["test:db:1", "test:db:2", "test:db:3", "test:db:4"]);
+    expect(scripts["test:db"]).toBe(partitions.map((name) => `pnpm run ${name}`).join(" && "));
+    const dbFiles = databaseTestArguments(scripts).filter((argument) => argument.endsWith(".db.test.ts"));
+    expect(dbFiles).toHaveLength(new Set(dbFiles).size);
+    expect([...dbFiles].sort()).toEqual(listFiles(channelsRoot).filter((file) => file.endsWith(".db.test.ts")));
+    const unitExclusions = [...scripts["test:unit"].matchAll(/--exclude\s+(\S+)/g)].map((match) => match[1]);
+    expect(unitExclusions.sort()).toEqual([...dbFiles].sort());
+  });
+
   it("enrols credential DB proofs and guards their boot/migration parity", () => {
     const scripts = readJson(packagePath).scripts;
     for (const name of ["store", "rotation", "schema"]) {
       const test = `features/credentials/tests/channel-credential-${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
       expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
     }
     const source = readFileSync(path.join(channelsRoot, "features/credentials/read-model/schema.ts"), "utf8");
@@ -376,7 +401,7 @@ describe("channels-context-foundation", () => {
       "channel-attention-schema-upgrade",
     ]) {
       const test = `features/connection-attention/tests/${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
       expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
     }
     expect(
@@ -390,7 +415,7 @@ describe("channels-context-foundation", () => {
     const scripts = readJson(packagePath).scripts;
     for (const name of ["observation-idempotency", "policy-revision", "generation-interleavings"]) {
       const test = `features/connection-health/tests/channel-health-${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
       expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
     }
     expect(
@@ -403,7 +428,7 @@ describe("channels-context-foundation", () => {
   it("enrols real service composition in the DB profile and excludes it from unit runs", () => {
     const scripts = readJson(packagePath).scripts;
     const test = "tests/channels-services-composition.db.test.ts";
-    expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+    expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
     expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
   });
 
@@ -424,6 +449,7 @@ describe("channels-context-foundation", () => {
         "channel-sync-run",
       ]),
       slices: [
+        "ebay-connection",
         "ebay-account-deletion",
         "connector-feed",
         "connections",
@@ -446,6 +472,18 @@ describe("channels-context-foundation", () => {
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "connectionConsumers",
+          providedBy: "platform-api",
+          purpose:
+            "Transport routes to registered class-C Connection consumers; canonical Guard History alone determines required receipts.",
+        },
+        {
+          portName: "ebayOAuthConfiguration",
+          providedBy: "platform-api",
+          purpose:
+            "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection.",
+        },
         {
           portName: "ebayAccountDeletionConfiguration",
           providedBy: "platform-api",
@@ -499,6 +537,9 @@ describe("channels-context-foundation", () => {
     ]);
     expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([64, 65, 60, 61, 62, 63]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
+      ["channels.manage"],
+      ["channels.manage"],
+      ["channels.manage"],
       ["channels.view"],
       ["channels.view"],
       ["channels.view"],
@@ -773,37 +814,18 @@ describe("channels glossary alias evidence", () => {
 
 describe("channels-foundation-deployable-registration", () => {
   it("registers Channels in API, worker, marketplace, and admin-web support hosts while excluding public-web", () => {
-    const root = createTempRepo("channels-metadata-");
-    writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
-    const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
+    const { violations, registries } = validateContextRegistries();
+    expect(violations).toEqual([]);
+    expect(registries.map((registry) => [registry.path, registry.actual.includes("channels")])).toEqual([
+      [registryPaths[0], true],
+      [registryPaths[1], true],
+      [registryPaths[2], true],
+      [registryPaths[3], true],
+      [registryPaths[4], false],
+    ]);
+
     const manifest = readJson(manifestPath);
-    const packageJson = readJson(packagePath);
-    writeJson(fixtureManifestPath, manifest);
-    const trackedLocaleFile = "contracts/localization/locales/en/channels.ts";
-    writeSource(root, trackedLocaleFile, 'export const channels = { "channels.example": "Example" } as const;\n');
-
-    const common = { rootDir: root, trackedLocaleFiles: [trackedLocaleFile] };
-    syncWorkspaceMetadata({ ...common, workspaces: [] });
-    const before = readRegistryBytes(root);
-    const channelsWorkspace = {
-      name: "@chase-sets/channels",
-      dir: path.join(root, "bounded-contexts/channels"),
-      dirName: "channels",
-      root: "bounded-contexts",
-      packageJson,
-    };
-    syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
-    const candidate = readRegistryBytes(root);
-
-    for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[2], registryPaths[3]]) {
-      expect(candidate[relativePath]).not.toEqual(before[relativePath]);
-      expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
-    }
-    for (const relativePath of [registryPaths[4]]) {
-      expect(candidate[relativePath]).toEqual(before[relativePath]);
-    }
-
-    writeJson(fixtureManifestPath, {
+    const withdrawn = {
       ...manifest,
       apiDeployables: [],
       apiRuntimeProfiles: [],
@@ -811,10 +833,13 @@ describe("channels-foundation-deployable-registration", () => {
       workerRuntimeProfiles: [],
       deployableContributions: [],
       shellContributions: [],
-    });
-    syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
-    const mutant = readRegistryBytes(root);
-    for (const relativePath of registryPaths) expect(mutant[relativePath]).toEqual(before[relativePath]);
+    };
+    for (const registry of CONTEXT_REGISTRIES) {
+      expect(contextManifestContributesToHost(manifest, registry), registry.path).toBe(
+        registry.path !== registryPaths[4],
+      );
+      expect(contextManifestContributesToHost(withdrawn, registry), registry.path).toBe(false);
+    }
   });
 });
 
@@ -863,6 +888,8 @@ describe("channels-foundation-surface-fence", () => {
     "integrations/order-authority-probe/nested/worker.js",
     "integrations/order-authority-probe/worker.js/extra.js",
     "integrations/order-authority-probe/worker.js.backup",
+    "integrations/order-authority-probe/windows-run-custody.ps1.backup",
+    "integrations/order-detection-pagination-probe/windows-run-custody.ps1",
     "integrations/order-detection-pagination-probe/extra.js",
     "integrations/order-detection-pagination-probe/nested/worker.js",
     "integrations/order-detection-pagination-probe/worker.js/extra.js",
@@ -906,6 +933,27 @@ describe("channels-foundation-surface-fence", () => {
           ...files.map((file) => `features/connector-client/integrations/${probe}/${file}`),
         ]),
       ).toEqual([]);
+    },
+  );
+
+  it("admits the manual-sync test bucket", () => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        "features/manual-sync/tests/synthetic-fixture.ts",
+      ]),
+    ).toEqual([]);
+  });
+
+  it.each(["integrations/fixture.ts", "support/fixture.ts", "tests-sibling/fixture.ts", "tests.ts", "fixture.ts"])(
+    "rejects the forbidden manual-sync sibling %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/manual-sync/${file}`,
+        ]),
+      ).toEqual(["manual-sync-buckets"]);
     },
   );
 

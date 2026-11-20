@@ -14,6 +14,21 @@ import { unratifiedArbitrationDraftingDifferences } from "./arbitration-drafting
 const repositoryRoot = path.resolve(import.meta.dirname, "../../../../..");
 
 describe("Terms drift reconciliation", () => {
+  it("records the ratified legal-notice email without resolving counsel's governing-law review", () => {
+    const section = termsSection("governing-law-and-forum");
+    expect(section.draftText).toContain("US, or to legal@chasesets.com.");
+    expect(section.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([5677, 8668, 10299]));
+    expect(section.reviewManifest.productTruthRefs).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+    );
+    expect(section.reviewManifest.productTruthRefs).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
+    );
+    expect(section.reviewManifest.openQuestions.join(" ")).toContain("confirm no change");
+    expect(JSON.stringify(section.reviewManifest)).not.toMatch(/\[NOTICE-EMAIL\]|pending|missing|counsel-owned/);
+    expect(section.reviewStatus).toBe("counsel-required");
+  });
+
   it("distinguishes ruled Prepaid Balance from promotional Marketplace Credit", () => {
     const section = termsSection("cash-equivalent-and-marketplace-credit");
     expect(section.draftText).toContain("Prepaid Balance");
@@ -299,8 +314,8 @@ describe("Terms reconciliation with ratified decisions and shipped controls", ()
     const section = termsSection("marketplace-role-and-limited-payments-agent");
     expect(sellerProceedsErrors(section.draftText)).toEqual([]);
     expect(section.draftText).not.toContain("and the Marketplace Checkout Fee");
-    const [checkoutFee] = citedRanges("bounded-contexts/payments/GLOSSARY.md:101-103");
-    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/payments/GLOSSARY.md:101-103");
+    const [checkoutFee] = citedRanges("bounded-contexts/payments/GLOSSARY.md:105-107");
+    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/payments/GLOSSARY.md:105-107");
     expect(checkoutFee!.text).toContain("buyer-side payment-level marketplace fee");
     const sellerFeesRef = "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:154";
     expect(section.reviewManifest.productTruthRefs).toContain(sellerFeesRef);

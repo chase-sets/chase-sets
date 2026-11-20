@@ -19,6 +19,7 @@ use crate::{
         ChannelsScreen, ConnectForm, ConnectionForm, ConnectionScreen, IngestForm, ListPlace, ManualSaid, ManualSyncForm,
         PublicationForm, PublicationPlace, PublicationSaid, PublicationScreen, STATUSES, actions,
     },
+    ebay::{EbayForm, EbayPlace, EbayScreen, EbayState, MAX_PAIRS, POLICY_TYPES, SetupScreen, SetupState},
     text::{ChannelsMsg, Pilot},
     views::on_marketplace,
 };
@@ -93,7 +94,7 @@ pub fn ChannelsPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a ChannelsScreen) ->
                             <span class={Strong}>{t.connections_provider()}</span>
                             <select class={Control} name={f.provider_key} required>
                                 for provider in &screen.providers {
-                                    <option value={*provider}>{*provider}</option>
+                                    <option value={provider}>{provider}</option>
                                 }
                             </select>
                         </label>
@@ -160,12 +161,21 @@ fn ConnectionCard<'a>(t: ChannelsMsg, connection: &'a ChannelConnection) -> impl
             <p class={Strong}>{&connection.provider_key}</p>
             <Badges t={t} connection={connection} />
             <p class={Row}>
-                <a
-                    class={(Button, Secondary)}
-                    href={url::ChannelConnection { id: &connection.connection_id, place: Default::default() }}
-                >
-                    {t.connections_open()}
-                </a>
+                if connection.provider_key == "ebay" {
+                    <a
+                        class={(Button, Secondary)}
+                        href={url::EbayConnect { place: EbayPlace::connection(&connection.connection_id) }}
+                    >
+                        {t.connections_open()}
+                    </a>
+                } else {
+                    <a
+                        class={(Button, Secondary)}
+                        href={url::ChannelConnection { id: &connection.connection_id, place: Default::default() }}
+                    >
+                        {t.connections_open()}
+                    </a>
+                }
             </p>
         </li>
     }
@@ -186,7 +196,7 @@ fn Badges<'a>(t: ChannelsMsg, connection: &'a ChannelConnection) -> impl Render 
 pub fn ChannelConnectionPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a ConnectionScreen) -> impl Render {
     let connection = &screen.connection;
     let here = url::ChannelConnection { id: &connection.connection_id, place: Default::default() }.href();
-    let allowed = if screen.manage { actions(&connection.status) } else { &[] };
+    let allowed = if screen.manage { actions(connection) } else { Vec::new() };
     let f = ConnectionForm::FIELDS;
     html! {
         <div class={Page}>
@@ -215,7 +225,7 @@ pub fn ChannelConnectionPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a Connectio
                         <p class={Muted}>{t.connections_actions_none()}</p>
                     } else {
                         <div class={Row}>
-                            for action in allowed {
+                            for action in &allowed {
                                 <form class={Inline} method="post" action={&here}>
                                     <button
                                         type="submit"
@@ -283,6 +293,239 @@ pub fn ChannelConnectionPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a Connectio
                         {p.channels_open_on_marketplace()}
                     </a>
                 </p>
+            </section>
+        </div>
+    }
+}
+
+/// The eBay journey's state in its words (`channels.ebay.state.*`).
+fn ebay_state_word(t: ChannelsMsg, state: EbayState) -> &'static str {
+    match state {
+        EbayState::Consent => t.ebay_state_consent(),
+        EbayState::Declined => t.ebay_state_declined(),
+        EbayState::Failed => t.ebay_state_failed(),
+        EbayState::PendingSetup => t.ebay_state_pending_setup(),
+        EbayState::Connected => t.ebay_state_connected(),
+        EbayState::Reauthorize => t.ebay_state_reauthorize(),
+        EbayState::Disconnected => t.ebay_state_disconnected(),
+    }
+}
+
+/// A seller list item's text at `key` (eBay's ids and names are strings).
+fn item_text<'a>(item: &'a serde_json::Value, key: &str) -> &'a str {
+    item.get(key).and_then(serde_json::Value::as_str).unwrap_or_default()
+}
+
+/// A policy type's words (`channels.ebay.setup.{type}`).
+fn policy_word(t: ChannelsMsg, kind: &str) -> &'static str {
+    match kind {
+        "fulfillment" => t.ebay_setup_fulfillment(),
+        "payment" => t.ebay_setup_payment(),
+        _ => t.ebay_setup_return(),
+    }
+}
+
+/// eBay seller setup (`EbaySellerSetup`): why it cannot be chosen yet, the current selection once
+/// the connection is active, and the form that saves a selection. Its selects take the form's
+/// width, and a pair's two selects sit side by side from 48rem.
+#[component(css = ChannelsPage)]
+fn EbaySetupPart<'a>(t: ChannelsMsg, setup: &'a SetupScreen, connection_id: &'a str, here: &'a str) -> impl Render {
+    let blocked = setup.blocked();
+    let empty = setup.empty();
+    let f = EbayForm::FIELDS;
+    let failed = setup.failed || matches!(setup.state, SetupState::Error);
+    html! {
+        <section class={Section} aria-labelledby="ebay-setup">
+            <h2 id="ebay-setup" class={PartTitle}>{t.ebay_setup_title()}</h2>
+            if failed {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.ebay_setup_error()}</p>
+                    <p>{t.ebay_setup_retry()}</p>
+                </div>
+            }
+            if blocked {
+                <div class={Banner} data-tone="warning" role="status">
+                    <p class={Strong}>{t.ebay_setup_incomplete()}</p>
+                    <p>{t.ebay_setup_retry()}</p>
+                </div>
+            }
+            if let SetupState::Loaded { setup: read, locations, active, draft } = &setup.state {
+                if *active {
+                    if let Some(selection) = &read.selection {
+                        <div class={Banner} data-tone="success" role="status">
+                            <p class={Strong}>{t.ebay_setup_activated()}</p>
+                            <p>{t.ebay_setup_saved()}</p>
+                        </div>
+                        <ul class={Scopes}>
+                            for choice in &selection.policies {
+                                <li>{format!("{}: {}", policy_word(t, &choice.policy_type), choice.policy_id)}</li>
+                            }
+                            for pair in &selection.location_pairs {
+                                <li>{format!("{}: {}", pair.storage_location_id, pair.merchant_location_key)}</li>
+                            }
+                        </ul>
+                    }
+                }
+                if !blocked && empty {
+                    <p>{t.ebay_setup_empty()}</p>
+                    <p class={Row}>
+                        <a class={(Button, Secondary)} href="https://www.sandbox.ebay.com/sh/ovw">{t.ebay_setup_seller_hub()}</a>
+                        <a class={(Button, Secondary)} href={url::inventory::Locations::default()}>{t.connections_locations()}</a>
+                    </p>
+                }
+                if !blocked && !empty {
+                    <form class={(Form, Setup)} method="post" action={here}>
+                        <input type="hidden" name={f.connection_id} value={connection_id}>
+                        <input
+                            type="hidden"
+                            name={f.setup_generation}
+                            value={read.selection.as_ref().map_or(0, |s| s.setup_generation).to_string()}
+                        >
+                        for (index, (kind, id_key)) in POLICY_TYPES.iter().enumerate() {
+                            <label class={Field}>
+                                <span class={Strong}>{policy_word(t, kind)}</span>
+                                <select
+                                    class={Control}
+                                    name={[f.fulfillment_policy_id, f.payment_policy_id, f.return_policy_id][index]}
+                                    required
+                                >
+                                    <option value="">{t.ebay_setup_choose()}</option>
+                                    for item in &[&read.lists.fulfillment, &read.lists.payment, &read.lists.return_][index].items {
+                                        <option
+                                            value={item_text(item, id_key)}
+                                            selected={item_text(item, id_key) == draft.policies[index]}
+                                        >
+                                            {item_text(item, "name")}
+                                        </option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        <p>{t.ebay_setup_pairs()}</p>
+                        <ol class={Pairs}>
+                            for pair in &draft.pairs {
+                                <li class={Pair}>
+                                    <label class={Field}>
+                                        <span class={Strong}>{t.connections_locations()}</span>
+                                        <select class={Control} name={f.storage_location_id}>
+                                            <option value="">{t.ebay_setup_unpaired()}</option>
+                                            for location in locations {
+                                                <option
+                                                    value={&location.storage_location_id}
+                                                    selected={location.storage_location_id == pair.storage_location_id}
+                                                >
+                                                    {&location.name}
+                                                </option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <label class={Field}>
+                                        <span class={Strong}>{t.ebay_setup_location()}</span>
+                                        <select class={Control} name={f.merchant_location_key}>
+                                            <option value="">{t.ebay_setup_unpaired()}</option>
+                                            for item in &read.lists.locations.items {
+                                                <option
+                                                    value={item_text(item, "merchantLocationKey")}
+                                                    selected={item_text(item, "merchantLocationKey") == pair.merchant_location_key}
+                                                >
+                                                    {match item_text(item, "name") {
+                                                        "" => item_text(item, "merchantLocationKey"),
+                                                        name => name,
+                                                    }}
+                                                </option>
+                                            }
+                                        </select>
+                                    </label>
+                                </li>
+                            }
+                        </ol>
+                        <p class={Row}>
+                            <button
+                                type="submit"
+                                class={(Button, Secondary)}
+                                name={f.intent}
+                                value="add-pair"
+                                formnovalidate
+                                disabled={draft.pairs.len() >= MAX_PAIRS}
+                            >
+                                {t.ebay_setup_add_pair()}
+                            </button>
+                            <button type="submit" class={Button} name={f.intent} value="select-setup">
+                                {if *active { t.ebay_setup_replace() } else { t.ebay_setup_activate() }}
+                            </button>
+                        </p>
+                    </form>
+                }
+            }
+        </section>
+    }
+}
+
+/// Connect eBay Sandbox (`EbayConnectionJourney`): where the journey is, consent's scopes with
+/// Continue (Reauthorize for a live connection) where eBay is configured, Disconnect for a live
+/// connection, and Back to channels.
+#[component(css = ChannelsPage)]
+pub fn EbayPage<'a>(t: ChannelsMsg, screen: &'a EbayScreen, place: &'a EbayPlace) -> impl Render {
+    let here = url::EbayConnect { place: place.clone() }.href();
+    let live = screen.live();
+    let state = ebay_state_word(t, screen.state);
+    let f = EbayForm::FIELDS;
+    html! {
+        <div class={Page}>
+            <header class={Header}>
+                <h1 class={Title}>{t.ebay_title()}</h1>
+                <p class={Muted}>{t.ebay_description()}</p>
+            </header>
+            if let (Some(setup), Some(id)) = (&screen.setup, screen.connection_id.as_deref()) {
+                <EbaySetupPart t={t} setup={setup} connection_id={id} here={&here} />
+            }
+            <section class={Section} aria-labelledby="ebay-state">
+                <h2 id="ebay-state" class={PartTitle}>{state}</h2>
+                if matches!(screen.state, EbayState::Failed | EbayState::Declined) {
+                    <div class={Banner} data-tone="warning" role="alert">
+                        <p class={Strong}>{state}</p>
+                        <p>{t.ebay_try_again()}</p>
+                    </div>
+                }
+                if screen.state == EbayState::Disconnected {
+                    <div class={Banner} data-tone="warning" role="status">
+                        <p class={Strong}>{state}</p>
+                        <p>{t.ebay_unconfirmed()}</p>
+                    </div>
+                }
+                if screen.state == EbayState::PendingSetup {
+                    <p>{t.ebay_setup_required()}</p>
+                }
+                if screen.authorization_available {
+                    <div class={(Card, Tinted)}>
+                        <p>{t.ebay_consent()}</p>
+                        <ul class={Scopes}>
+                            for scope in &screen.scopes {
+                                <li>{scope}</li>
+                            }
+                        </ul>
+                        <form class={Form} method="post" action={&here}>
+                            <input type="hidden" name={f.intent} value="authorize">
+                            <input type="hidden" name={f.connection_id} value={live.unwrap_or_default()}>
+                            <input type="hidden" name={f.publication} value={if screen.publication { "true" } else { "false" }}>
+                            <p class={Row}>
+                                <button type="submit" class={Button}>
+                                    {if live.is_some() { t.ebay_reauthorize() } else { t.ebay_connect() }}
+                                </button>
+                            </p>
+                        </form>
+                    </div>
+                }
+                <div class={Row}>
+                    if let Some(id) = live {
+                        <form class={Inline} method="post" action={&here}>
+                            <input type="hidden" name={f.intent} value="disconnect">
+                            <input type="hidden" name={f.connection_id} value={id}>
+                            <button type="submit" class={(Button, Secondary)}>{t.ebay_disconnect()}</button>
+                        </form>
+                    }
+                    <a class={(Button, Secondary)} href={url::Channels::default()}>{t.ebay_back()}</a>
+                </div>
             </section>
         </div>
     }
@@ -535,7 +778,9 @@ fn BlockedListings<'a>(t: ChannelsMsg, detail: &'a ChannelPublication) -> impl R
                 if blocked.total > shown {
                     <div class={Banner} data-tone="warning">
                         <p class={Strong}>{t.publication_blocked_truncated_title()}</p>
-                        <p>{t.publication_blocked_truncated_description(shown, blocked.total)}</p>
+                        <p>
+                            {t.publication_blocked_truncated_description(crate::text::channels_msg::PublicationBlockedTruncatedDescription { shown, total: blocked.total })}
+                        </p>
                     </div>
                 }
                 <ul class={Cards} role="list">
@@ -697,7 +942,6 @@ fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said:
     let open = run.is_some_and(|run| OPEN_RUN_STATES.contains(&run.state.as_str()));
     let live = panel.inbound_coverage.state == "live";
     let write = url::ChannelManualSync { id }.href();
-    let ingest = url::ChannelManualSyncIngest { id }.href();
     let download = url::ChannelManualSyncDownload { id }.href();
     let f = ManualSyncForm::FIELDS;
     let g = IngestForm::FIELDS;
@@ -741,7 +985,11 @@ fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said:
                     <div>
                         <dt>{t.manual_sync_metric_lease()}</dt>
                         match panel.lease_countdown_ms {
-                            Some(ms) => { <dd>{t.manual_sync_lease_value(ms / 60_000, ms % 60_000 / 1_000)}</dd> }
+                            Some(ms) => {
+                                <dd>
+                                    {t.manual_sync_lease_value(crate::text::channels_msg::ManualSyncLeaseValue { minutes: ms / 60_000, seconds: ms % 60_000 / 1_000 })}
+                                </dd>
+                            }
                             None => { <dd>{t.manual_sync_lease_none()}</dd> }
                         }
                     </div>
@@ -821,7 +1069,12 @@ fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said:
                     ("staged", can("ingest-staged"), t.manual_sync_file_staged_label(), t.manual_sync_action_ingest_staged()),
                 ] {
                     if allowed {
-                        <form class={Form} method="post" action={&ingest} enctype="multipart/form-data">
+                        <form
+                            class={Form}
+                            method="post"
+                            action={url::ChannelConnection { id, place: Default::default() }.ingest()}
+                            enctype="multipart/form-data"
+                        >
                             <input type="hidden" name={g.surface} value={surface}>
                             <label class={Field}>
                                 <span class={Strong}>{label}</span>
@@ -912,11 +1165,7 @@ fn Receipt<'a>(t: ChannelsMsg, receipt: &'a IngestReceipt) -> impl Render {
                     }
                 </p>
                 <p>
-                    {t.manual_sync_receipt_ingested_description(
-                        outcome.snapshot_id.as_deref().unwrap_or_default(),
-                        outcome.snapshot_generation.unwrap_or_default(),
-                        outcome.parsed_row_count.unwrap_or_default(),
-                    )}
+                    {t.manual_sync_receipt_ingested_description(crate::text::channels_msg::ManualSyncReceiptIngestedDescription { snapshot_id: outcome.snapshot_id.as_deref().unwrap_or_default(), snapshot_generation: outcome.snapshot_generation.unwrap_or_default(), parsed_row_count: outcome.parsed_row_count.unwrap_or_default() })}
                 </p>
             </div>
         } else {

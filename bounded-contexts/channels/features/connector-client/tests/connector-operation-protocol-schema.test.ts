@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import * as canary from "../../outbound-sync/domain/ready-to-ship-canary";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as validation from "../../outbound-sync/domain/validation";
 import { canonicalJson } from "../../outbound-sync/domain/validation";
@@ -108,6 +109,7 @@ describe("connector-operation-protocol-schema", () => {
         "../../connector-feed/domain/run-settlement": settlement,
         "./extension-records": records,
         "../../outbound-sync/domain/order-pull-codec": { ...pullCodec, assertClaimedOrderPullOutcome: validateOutcome },
+        "../../outbound-sync/domain/ready-to-ship-canary": canary,
         "./order-pull-handoff": { ...handoff, assertHandoffOutcome: validateHandoff },
         "../../outbound-sync/domain/live-export-codec": {
           ...liveExportCodec,

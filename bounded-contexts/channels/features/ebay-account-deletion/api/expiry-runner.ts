@@ -1,4 +1,4 @@
-import type { WorkerRunner } from "@chase-sets/platform-runtime/worker";
+import type { WorkerRunner } from "@chase-sets/bounded-context-module";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import type { createEbayReceiptExpiryStore } from "../read-model/expiry";
 import { ebayReceiptRetention } from "../domain/policy";

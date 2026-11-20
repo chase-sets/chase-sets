@@ -1374,6 +1374,7 @@ export async function readHistoricalProducerPolicy({
   execFile = execFileSync,
   readPolicy = readOriginalQualificationPolicy,
   readLandingEvidence,
+  readHistory,
 } = {}) {
   if (!run || typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch)) {
     throw new Error("producer_policy_authority_invalid");
@@ -1384,13 +1385,18 @@ export async function readHistoricalProducerPolicy({
   const ref = defaultBranch.startsWith("origin/")
     ? defaultBranch
     : `origin/${defaultBranch.replace(/^refs\/heads\//u, "")}`;
-  const history = execFile("git", ["log", "--format=%H%x09%cI", ref, "--", MERGE_QUALIFICATION_POLICY_PATH], {
-    encoding: "utf8",
-    timeout: 30_000,
-    maxBuffer: 65_536,
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  const history = readHistory
+    ? await readHistory({ repository, defaultBranch })
+    : execFile("git", ["log", "--format=%H%x09%cI", ref, "--", MERGE_QUALIFICATION_POLICY_PATH], {
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 65_536,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+  if (typeof history !== "string" || Buffer.byteLength(history) > 65_536)
+    throw new Error("producer_policy_history_invalid");
   const candidates = history
+    .trim()
     .split(/\r?\n/u)
     .map((line) => {
       const [revision, committedAt] = line.split("\t");
@@ -1513,7 +1519,7 @@ export async function inventoryMergeQualificationProducerAttempts({
         }),
     ]);
     const seen = new Set();
-    const producers = [];
+    const latestProducers = new Map();
     for (const run of producerRuns) {
       const identityError = validateProducerRun(run, repository);
       if (identityError) return refused(identityError);
@@ -1521,15 +1527,26 @@ export async function inventoryMergeQualificationProducerAttempts({
       const identity = producerIdentity(run);
       if (seen.has(identity)) return refused("producer_identity_invalid");
       seen.add(identity);
-      if (run.event === "merge_group" && run.status === "completed") producers.push(run);
+      const id = String(run.id);
+      if (!latestProducers.has(id) || BigInt(run.run_attempt) > BigInt(latestProducers.get(id).run_attempt))
+        latestProducers.set(id, run);
     }
+    const producers = [...latestProducers.values()].filter(
+      (run) => run.event === "merge_group" && run.status === "completed",
+    );
     if (producers.length > 256) return refused("producer_worker_capacity_exceeded");
     const advisoryByProducer = new Map();
     for (const run of advisoryRuns) {
       const title = ADVISORY_RUN_TITLE.exec(String(run?.display_title ?? ""));
       if (!title) continue;
       const identity = `${title[1]}/${title[2]}`;
-      if (advisoryByProducer.has(identity)) return refused("advisory_identity_invalid");
+      const previous = advisoryByProducer.get(identity);
+      if (previous) {
+        if (String(previous.id) !== String(run.id) || String(previous.run_attempt) === String(run.run_attempt))
+          return refused("advisory_identity_invalid");
+        if (BigInt(run.run_attempt) > BigInt(previous.run_attempt)) advisoryByProducer.set(identity, run);
+        continue;
+      }
       advisoryByProducer.set(identity, run);
     }
     const attempts = [];
@@ -1581,6 +1598,8 @@ export async function inventoryMergeQualificationProducerAttempts({
           historicalPolicyState: "unknown",
           historicalPolicyReason: error instanceof Error ? error.message : "producer_policy_authority_unavailable",
           advisoryRunPresent: Boolean(advisoryRun),
+          advisoryRunId: advisoryRun ? String(advisoryRun.id) : null,
+          advisoryRunAttempt: advisoryRun ? String(advisoryRun.run_attempt) : null,
           imageEligible: null,
           eligibleAfterTick,
         });
@@ -1608,6 +1627,8 @@ export async function inventoryMergeQualificationProducerAttempts({
           historicalPolicyState: "unknown",
           historicalPolicyReason: error instanceof Error ? error.message : "producer_image_eligibility_unavailable",
           advisoryRunPresent: Boolean(advisoryRun),
+          advisoryRunId: advisoryRun ? String(advisoryRun.id) : null,
+          advisoryRunAttempt: advisoryRun ? String(advisoryRun.run_attempt) : null,
           imageEligible: null,
           eligibleAfterTick,
         });
@@ -1625,6 +1646,8 @@ export async function inventoryMergeQualificationProducerAttempts({
         historicalPolicyReason:
           policyDecision.enabled === true ? null : (policyDecision.reasonCode ?? "policy_disabled"),
         advisoryRunPresent: Boolean(advisoryRun),
+        advisoryRunId: advisoryRun ? String(advisoryRun.id) : null,
+        advisoryRunAttempt: advisoryRun ? String(advisoryRun.run_attempt) : null,
         imageEligible: true,
         eligibleAfterTick,
       });

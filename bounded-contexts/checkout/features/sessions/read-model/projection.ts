@@ -194,13 +194,17 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         sessionId: string;
         orderIds: string[];
         orderWriteCommitPositions?: unknown;
+        fulfillmentPreviewRevision?: string;
         recordedAt: string;
       };
 
+      // Confirm's shipping-address write cleared the preview; the orders keep the revision they were bound to,
+      // so a confirm that resumes their payment can send it again. Older events leave the column as it was.
       await projectionDb.query(
         `UPDATE checkout_session_pages
          SET order_ids = $2,
              order_write_commit_positions = $3,
+             fulfillment_preview_revision = COALESCE($5, fulfillment_preview_revision),
              checkout_reservations = (
                SELECT COALESCE(jsonb_agg(reservation || jsonb_build_object('status', 'converted')), '[]'::jsonb)
                FROM jsonb_array_elements(checkout_reservations) AS reservation
@@ -212,6 +216,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
           JSON.stringify(data.orderIds),
           JSON.stringify(Array.isArray(data.orderWriteCommitPositions) ? data.orderWriteCommitPositions : []),
           data.recordedAt,
+          data.fulfillmentPreviewRevision ?? null,
         ],
       );
     },

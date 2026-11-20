@@ -13,6 +13,13 @@ use corten::{
     prelude::*,
 };
 use corten_ui::CheckboxGroup;
+use platform::{
+    theme::gap_2,
+    ui::{
+        checkboxes::Checkboxes,
+        stack::{Gap, Stack as KitStack},
+    },
+};
 
 use super::{on_marketplace, order_page::display_reference};
 use crate::{
@@ -225,9 +232,11 @@ fn CaseRow<'a>(t: SupportMsg, row: &'a SupportCaseRow, role: Role) -> impl Rende
                 <span class={Badge} data-tone={if row.priority == "urgent" { "danger" } else { "neutral" }}>{&row.priority}</span>
             </td>
             <td data-label={t.list_next_deadline()}>{when(t, row.next_deadline.as_deref())}</td>
-            <td data-label={t.list_checklist()}>{t.list_checklist_summary(done, required)}</td>
+            <td data-label={t.list_checklist()}>
+                {t.list_checklist_summary(crate::text::support_msg::ListChecklistSummary { satisfied: done, required })}
+            </td>
             <td data-label={t.list_resolution()}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     if let Some(status) = &row.customer_remedy_status {
                         <RemedyStatus t={t} status={status} role={role} />
                     }
@@ -270,8 +279,18 @@ fn outcome(t: SupportMsg, status: &CustomerRemedyStatus) -> String {
         "fullRefund" => t.remedy_outcome_full_refund(&amount).to_string(),
         "partialRefund" => t.remedy_outcome_partial_refund(&amount).to_string(),
         "sellerFunded" => t.remedy_seller_allocation_seller_funded(&seller).to_string(),
-        "completedCovered" => t.remedy_seller_allocation_completed_covered(&seller, &platform).to_string(),
-        _ => t.remedy_seller_allocation_covered(&seller, &platform).to_string(),
+        "completedCovered" => t
+            .remedy_seller_allocation_completed_covered(crate::text::support_msg::RemedySellerAllocationCompletedCovered {
+                seller_amount: &seller,
+                platform_amount: &platform,
+            })
+            .to_string(),
+        _ => t
+            .remedy_seller_allocation_covered(crate::text::support_msg::RemedySellerAllocationCovered {
+                seller_amount: &seller,
+                platform_amount: &platform,
+            })
+            .to_string(),
     }
 }
 
@@ -325,7 +344,7 @@ fn next_action(t: SupportMsg, status: &CustomerRemedyStatus) -> Option<&'static 
 fn RemedyStatus<'a>(t: SupportMsg, status: &'a CustomerRemedyStatus, role: Role) -> impl Render {
     let (title, tone) = remedy_title(t, status.state);
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
             <span class={Badge} data-tone={tone}>{title}</span>
             <p class={(Small, Strong)}>{outcome(t, status)}</p>
             if let Some(coverage) = coverage(t, status) {
@@ -371,7 +390,7 @@ fn ReturnShippingStatus<'a>(t: SupportMsg, shipping: &'a ReturnShipping, role: R
         .unwrap_or_default();
     let label_url = shipping.label_document_url.as_deref().filter(|_| role == Role::Buyer && shipping.label_status == "ready");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
             <p class={(Small, Strong)}>{t.shipping_title()}</p>
             <span class={Badge} data-tone={tone}>{label}</span>
             if shipping.label_status == "failed" {
@@ -489,7 +508,7 @@ fn ItemsStep<'a>(t: SupportMsg, intake: &'a Intake) -> impl Render {
             if lines.is_empty() {
                 <div class={Banner} data-tone="info"><p>{t.list_intake_whole_order()}</p></div>
             } else {
-                <div class={Group}>
+                <Checkboxes>
                     <CheckboxGroup legend={t.list_intake_items_label()} missing={t.list_intake_items_description()}>
                         if intake.choose_items {
                             <p id="support-items-hint" class={(Small, Danger)} role="alert">
@@ -508,7 +527,7 @@ fn ItemsStep<'a>(t: SupportMsg, intake: &'a Intake) -> impl Render {
                                 >
                                 <span class={Tight}>
                                     <span>
-                                        {t.list_intake_item_label(&line.item_title, line.quantity, &money(t, &line.amount, &line.currency_code))}
+                                        {t.list_intake_item_label(crate::text::support_msg::ListIntakeItemLabel { title: &line.item_title, quantity: line.quantity, amount: &money(t, &line.amount, &line.currency_code) })}
                                     </span>
                                     if let Some(summary) = &line.product_summary {
                                         <span class={(Small, Muted)}>{summary}</span>
@@ -517,7 +536,7 @@ fn ItemsStep<'a>(t: SupportMsg, intake: &'a Intake) -> impl Render {
                             </label>
                         }
                     </CheckboxGroup>
-                </div>
+                </Checkboxes>
             }
             <div class={End}>
                 <button type="submit" class={Button} name="step" value="issue">{t.list_intake_continue()}</button>

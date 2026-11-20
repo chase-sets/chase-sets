@@ -24,6 +24,9 @@ ulid.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
+# corten::types, for the test that writes the declarations the scripts read (types/app.d.ts).
+corten = { workspace = true, features = ["types"] }
 http-body-util.workspace = true
 tokio = { workspace = true, features = ["net"] }
 tower.workspace = true

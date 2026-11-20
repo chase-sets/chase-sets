@@ -27,9 +27,76 @@ export function apply(event) {
  * @param {FormDataEvent} event
  */
 export function tidy(event) {
-  for (const [key, value] of Array.from(event.formData.entries())) {
-    if (value === "" || (key === "sort" && value === "relevance")) event.formData.delete(key);
+  const data = event.formData;
+  for (const [key, value] of Array.from(data.entries())) {
+    if (value === "" || (key === "sort" && value === "relevance")) data.delete(key);
   }
+}
+
+/**
+ * Shows a control only this script makes work (a facet's option search), drawn hidden so a page
+ * without scripts has no control that does nothing.
+ * @param {HTMLElement} element
+ */
+export function reveal(element) {
+  element.hidden = false;
+}
+
+/**
+ * A facet's option search changed (`MarketplaceFacetRail`'s): shows the values whose label or id
+ * holds the words, with the chosen ones always in view, says so when none does, and while there
+ * are words shows every match and no Show more (`data-finding`). Empty words bring the group back
+ * as it was, Show more open or closed as the user left it.
+ * @param {Event} event
+ */
+export function find(event) {
+  const field = event.target;
+  if (!(field instanceof HTMLInputElement)) return;
+  const group = field.closest("fieldset");
+  if (!group) return;
+  const words = field.value.trim().toLowerCase();
+  let shown = 0;
+  for (const choice of group.querySelectorAll("label")) {
+    const box = choice.querySelector('input[type="checkbox"]');
+    if (!(box instanceof HTMLInputElement)) continue;
+    const label = box.nextElementSibling?.textContent?.toLowerCase() ?? "";
+    const matches = !words || label.includes(words) || box.value.toLowerCase().includes(words);
+    choice.hidden = !matches && !box.checked;
+    if (matches) shown += 1;
+  }
+  group.toggleAttribute("data-finding", words !== "");
+  const none = group.querySelector("[data-none]");
+  if (none instanceof HTMLElement) none.hidden = !words || shown > 0;
+}
+
+/**
+ * Load more sends itself once the reader is within 900px of it (marketplace's
+ * `AUTO_LOAD_ROOT_MARGIN`), so the results keep coming as the page scrolls. The patch that adds
+ * the rows draws the form again for the page after, which connects and waits again; a form drawn
+ * after a failed load is not watched, so it waits for its button, as marketplace's does.
+ * @param {HTMLFormElement} form
+ * @param {AbortSignal} signal
+ */
+export function near(form, signal) {
+  if (form.hidden) return;
+  const watch = new IntersectionObserver(
+    (seen) => {
+      if (!seen.some((entry) => entry.isIntersecting)) return;
+      watch.disconnect();
+      form.requestSubmit();
+    },
+    { rootMargin: "900px" },
+  );
+  watch.observe(form);
+  signal.addEventListener("abort", () => watch.disconnect(), { once: true });
+}
+
+/**
+ * Enter in a facet's option search finds, as typing does; it does not send the filters.
+ * @param {KeyboardEvent} event
+ */
+export function stay(event) {
+  if (event.key === "Enter") event.preventDefault();
 }
 
 /**

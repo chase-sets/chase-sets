@@ -1,3 +1,6 @@
+import type { SealedFetch, SealedRequest } from "@chase-sets/catalog/client";
+import { isSealedRequestMessage, sealedProductLines } from "@chase-sets/catalog/client";
+
 export const TCGPLAYER_SET_NAMES_URL = "https://mpapi.tcgplayer.com/v2/Catalog/SetNames";
 export const TCGPLAYER_SET_NAMES_TIMEOUT_MS = 15_000;
 export const TCGPLAYER_SET_NAMES_BODY_CAP_BYTES = 4 * 1024 * 1024;
@@ -18,7 +21,7 @@ export type TcgplayerSetNameEndpointResult = Readonly<{
 }>;
 
 const jsonContentType = (value: string | null) =>
-  value?.toLowerCase().split(";", 1)[0].trim().endsWith("json") ?? false;
+  /^application\/(?:[a-z0-9!#$&^_.+-]+\+)?json$/.test(value?.toLowerCase().split(";", 1)[0].trim() ?? "");
 
 export async function fetchTcgplayerSetNames(
   productLineId: string,
@@ -27,13 +30,67 @@ export async function fetchTcgplayerSetNames(
   if (!/^\d+$/.test(productLineId)) {
     return { ok: false, status: null, contentClass: "unknown", bytes: 0, body: null, code: "invalid-product-line-id" };
   }
+  return fetchEndpoint(
+    `${TCGPLAYER_SET_NAMES_URL}?categoryId=${encodeURIComponent(productLineId)}`,
+    { method: "GET" },
+    fetcher,
+  );
+}
+
+export function createTcgplayerSealedFetch(fetcher: typeof fetch = globalThis.fetch.bind(globalThis)): SealedFetch {
+  let queue: Promise<unknown> = Promise.resolve();
+  let nextRequestAt = 0;
+  return (request: SealedRequest) => {
+    const result = queue.then(async () => {
+      if (!isSealedRequestMessage({ action: "fetch-sealed-products", request }))
+        return { ok: false, status: null, contentClass: "unknown" as const, bytes: 0, body: null };
+      const wait = nextRequestAt - Date.now();
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      try {
+        const host = "https://mp-search-api.tcgplayer.com";
+        if (request.endpoint === "detail")
+          return await fetchEndpoint(`${host}/v2/product/${request.productId}/details`, { method: "GET" }, fetcher);
+        const line = sealedProductLines().find((line) => line.id === request.productLineId)!;
+        return await fetchEndpoint(
+          `${host}/v1/search/request`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: request.from,
+              size: 24,
+              filters: {
+                term: {
+                  ...(request.includeProductLine ? { productLineName: [line.name] } : {}),
+                  setName: [request.setName],
+                },
+              },
+              sort: { field: "product-sorting-name", order: "asc" },
+            }),
+          },
+          fetcher,
+        );
+      } finally {
+        nextRequestAt = Date.now() + 1_000;
+      }
+    });
+    queue = result.catch(() => undefined);
+    return result;
+  };
+}
+
+async function fetchEndpoint(
+  url: string,
+  init: RequestInit,
+  fetcher: typeof fetch,
+): Promise<TcgplayerSetNameEndpointResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TCGPLAYER_SET_NAMES_TIMEOUT_MS);
   try {
     let response: Response;
     try {
-      response = await fetcher(`${TCGPLAYER_SET_NAMES_URL}?categoryId=${encodeURIComponent(productLineId)}`, {
-        method: "GET",
+      response = await fetcher(url, {
+        ...init,
         credentials: "omit",
         redirect: "error",
         cache: "no-store",

@@ -83,7 +83,11 @@ describe("OperationsAttentionQueuePage", () => {
     const orderedHrefs = [
       ...new Set(screen.getAllByRole("link", { name: "Open" }).map((link) => link.getAttribute("href"))),
     ];
-    expect(orderedHrefs).toEqual(["/requests?requestId=req-1", "/projections?tab=blocked", "/platform-feedback/fb-1"]);
+    expect(orderedHrefs).toEqual([
+      "/support/requests?requestId=req-1",
+      "/platform/projections?tab=blocked",
+      "/support/platform-feedback/fb-1",
+    ]);
   });
 
   it("renders the rollup stat grid", async () => {

@@ -20,6 +20,8 @@ import {
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
+  lockOwnerStreamInvalidationsInTransaction,
+  ownerPredicateKey,
   withPgTransaction,
   type PgQueryable,
   type PgTransactionalPool,
@@ -230,7 +232,8 @@ export function createInventoryDraftListingConsumer(
       const listingId = listingIdForInventoryDraftRow(message.snapshot.importRowId);
       try {
         const accepted = await runWithEventCommitMetadata(async () => {
-          const receipt = await withPgTransaction(deps.pool, async (client) => {
+          const transaction = deps.eventStore.withOwnerPredicateWrite ?? ((work) => withPgTransaction(deps.pool, work));
+          const receipt = await transaction(async (client) => {
             await assertReceiptSchemaReady(client);
             await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
               `inventory-draft:${listingId}`,
@@ -254,6 +257,10 @@ export function createInventoryDraftListingConsumer(
               appendToStream: (input) => deps.eventStore.appendToStreamInTransaction(client, input),
               appendToStreams: (inputs) => deps.eventStore.appendToStreamsInTransaction(client, inputs),
             };
+            if (deps.eventStore.withOwnerPredicateWrite)
+              await lockOwnerStreamInvalidationsInTransaction(client, [
+                ownerPredicateKey("repricing-listing", listingId),
+              ]);
             await deps.eventStore.appendToStreamsInTransaction(client, [
               {
                 streamId: inventoryListingCapacityStreamId(message.snapshot.inventoryItemId),

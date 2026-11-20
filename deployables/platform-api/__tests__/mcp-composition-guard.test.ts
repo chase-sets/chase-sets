@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getApiHostEntries } from "@chase-sets/platform-runtime/api";
 import { buildMcpHandlersFromModules, type McpModuleHandlerComposition } from "@chase-sets/platform-runtime/mcp";
 import { flattenAvailableMcpResources, flattenAvailableMcpTools } from "@chase-sets/platform-runtime/mcp-contracts";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 
 type MissingMcpHandlers = Readonly<{
   tools: readonly string[];

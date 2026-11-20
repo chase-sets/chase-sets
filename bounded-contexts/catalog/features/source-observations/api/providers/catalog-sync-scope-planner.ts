@@ -200,13 +200,19 @@ export async function previewCatalogSyncProviderParticipation(input: {
   // enrolled: it is not planned, selected or required, contributes no blocker,
   // and its adapter is never called. An explicitly required one is refused below
   // as missing.
-  const activeCandidates = input.providerProfileVersions.filter(
-    (version) =>
-      version.profile.capabilities.includes("source-observation-import") &&
-      !declaresNoImportPlanning(input.providerAdapterRegistry, version.providerKey),
+  const candidates = input.providerProfileVersions
+    .filter(
+      (version) =>
+        version.profile.capabilities.includes("source-observation-import") &&
+        !declaresNoImportPlanning(input.providerAdapterRegistry, version.providerKey),
+    )
+    .map((version) => ({ version, unitKey: unitKeyForCatalogProviderProfileVersion(version) }));
+  const activeUnitKeys = new Set(
+    candidates.filter(({ version }) => isActiveProviderProfileVersion(version)).map(({ unitKey }) => unitKey),
   );
-  const matchingCandidates = activeCandidates
-    .map((version) => ({ version, unitKey: unitKeyForCatalogProviderProfileVersion(version) }))
+  // An inactive version is only a blocker when its unit has no active version to plan with.
+  const matchingCandidates = candidates
+    .filter(({ version, unitKey }) => isActiveProviderProfileVersion(version) || !activeUnitKeys.has(unitKey))
     .filter(({ version, unitKey }) => {
       if (excludedUnitKeys.has(unitKey)) {
         return false;

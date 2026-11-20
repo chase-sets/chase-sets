@@ -10,12 +10,16 @@
 //!
 //! The start and end times are `datetime-local` fields: a wall-clock time without a zone. admin-web
 //! sends that text and the API reads it in its server's time zone, and admin-web fills the fields
-//! with the UTC time. The pilot reads and fills them in the operator's time zone (`ClientZone`, UTC
-//! when unknown) and sends the instant (chase-sets/chase-sets#10871). A time it cannot read is sent
-//! as typed, so the API refuses it in its own words.
+//! with the UTC time. The pilot draws them in the operator's time zone (`DrawZone::from(req.zone())`,
+//! UTC until the browser has said, and named beside each field), the form sends that zone back
+//! (`FormZone`), and the post reads the times in it and sends the instant
+//! (chase-sets/chase-sets#10871). A time it cannot read is sent as typed, so the API refuses it in its
+//! own words; one sent without the form's zone (not from this page) is refused.
 use corten::{
     ClientZone,
-    axum::http::{HeaderMap, StatusCode},
+    form::{DrawZone, FormZone},
+    http::{HeaderMap, StatusCode},
+    i18n::LocalDateTime,
     prelude::*,
 };
 use jiff::{Timestamp, tz::TimeZone};
@@ -115,7 +119,7 @@ impl Message {
 }
 
 /// A message's fields as the forms send them (admin-web's names).
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct MessageForm {
     pub intent: String,
@@ -127,26 +131,37 @@ pub struct MessageForm {
     pub tone: String,
     pub is_active: String,
     pub display_order: String,
-    pub starts_at: String,
-    pub ends_at: String,
+    /// Not in the screen's data: the times are the messages' own there.
+    #[serde(skip_serializing)]
+    pub starts_at: Entry<LocalDateTime>,
+    #[serde(skip_serializing)]
+    pub ends_at: Entry<LocalDateTime>,
+    /// The zone the form was drawn in, which its times are read in. None from a post that is not
+    /// this page's forms (an activate or delete sends no times and no zone).
+    #[serde(skip_serializing)]
+    pub zone: Option<FormZone>,
 }
 
-/// A wall-clock time as it reads in `zone` (`datetime-local`'s value), or empty.
-pub fn local(at: Option<&str>, zone: &TimeZone) -> String {
-    instant(at).map_or_else(String::new, |at| at.to_zoned(zone.clone()).strftime("%Y-%m-%dT%H:%M").to_string())
+/// A message's time as the field shows it in zone, to the minute the input steps by; empty
+/// for none.
+fn drawn(at: Option<&str>, zone: &DrawZone) -> Entry<LocalDateTime> {
+    at.and_then(corten::i18n::parse_timestamp)
+        .and_then(|at| zone.local(at))
+        .map_or_else(Entry::default, |local| Entry::from(local.floor_minute()))
 }
 
-/// A `datetime-local` value as the instant it is in `zone`, or the text as typed when it cannot be read.
-pub fn sent_time(text: &str, zone: &TimeZone) -> Value {
-    let text = text.trim();
-    if text.is_empty() {
-        return Value::Null;
+/// A posted time as the API takes it: null for a blank field, the instant it is in the form's
+/// zone, or the text as typed when it does not read (the API refuses it in its own words). None
+/// for a time sent without the form's zone.
+pub fn sent(entry: &Entry<LocalDateTime>, zone: Option<&FormZone>) -> Option<Value> {
+    if entry.is_blank() {
+        return Some(Value::Null);
     }
-    let read = text.parse::<jiff::civil::DateTime>().ok().and_then(|civil| civil.to_zoned(zone.clone()).ok());
-    match read {
-        Some(zoned) => json!(zoned.timestamp().to_string()),
-        None => json!(text),
-    }
+    let zone = zone?;
+    Some(match entry.at(zone).and_then(|at| Timestamp::try_from(at).ok()) {
+        Some(at) => json!(at.to_string()),
+        None => json!(entry.text().unwrap_or_default().trim()),
+    })
 }
 
 impl MessageForm {
@@ -156,7 +171,7 @@ impl MessageForm {
     }
 
     /// The form for `message`, its times in `zone`.
-    pub fn of(message: &Message, zone: &TimeZone) -> Self {
+    pub fn of(message: &Message, zone: &DrawZone) -> Self {
         MessageForm {
             intent: "update".into(),
             id: message.id.clone(),
@@ -167,20 +182,24 @@ impl MessageForm {
             tone: message.tone.clone(),
             is_active: if message.is_active { "true".into() } else { String::new() },
             display_order: message.display_order.to_string(),
-            starts_at: local(message.starts_at.as_deref(), zone),
-            ends_at: local(message.ends_at.as_deref(), zone),
+            starts_at: drawn(message.starts_at.as_deref(), zone),
+            ends_at: drawn(message.ends_at.as_deref(), zone),
+            zone: None,
         }
     }
 
     /// The body admin-web's `messageBody` sends: blank text is null; an empty order is 0 and one that
-    /// is not a number is null (`Number(..)`, then JSON), which the API reads as 100.
-    pub fn body(&self, zone: &TimeZone) -> Value {
+    /// is not a number is null (`Number(..)`, then JSON), which the API reads as 100. None when it
+    /// has a time but not the zone the form was drawn in.
+    pub fn body(&self) -> Option<Value> {
         fn optional(v: &str) -> Option<&str> {
             Some(v.trim()).filter(|v| !v.is_empty())
         }
         let order = self.display_order.trim();
         let order = if order.is_empty() { json!(0) } else { order.parse::<f64>().map_or(Value::Null, |n| json!(n)) };
-        json!({
+        let starts_at = sent(&self.starts_at, self.zone.as_ref())?;
+        let ends_at = sent(&self.ends_at, self.zone.as_ref())?;
+        Some(json!({
             "title": self.title,
             "description": optional(&self.description),
             "href": optional(&self.href),
@@ -188,9 +207,9 @@ impl MessageForm {
             "tone": if self.tone.is_empty() { "info" } else { self.tone.as_str() },
             "isActive": self.is_active == "true",
             "displayOrder": order,
-            "startsAt": sent_time(&self.starts_at, zone),
-            "endsAt": sent_time(&self.ends_at, zone),
-        })
+            "startsAt": starts_at,
+            "endsAt": ends_at,
+        }))
     }
 }
 
@@ -215,6 +234,9 @@ pub struct PromoScreen {
     pub error: Option<String>,
     #[serde(skip)]
     pub now: Timestamp,
+    /// The zone the forms' times are drawn in, named beside them.
+    #[serde(skip)]
+    pub zone: DrawZone,
 }
 
 /// The operator's zone, or UTC when the browser has not said.
@@ -227,10 +249,10 @@ async fn page(
     Caller(staff): Caller<Staff<GrowthView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    zone: Option<ClientZone>,
     Params(route): Params<url::Promo>,
 ) -> HtmlResult {
-    draw(&req, &staff.viewer, &config, &headers, &zone_of(zone), &route.open, None, StatusCode::OK).await
+    let zone = DrawZone::from(req.zone());
+    draw(&req, &staff.viewer, &config, &headers, zone, &route.open, None, StatusCode::OK).await
 }
 
 /// A write that was refused: what it sent, and why.
@@ -245,7 +267,7 @@ async fn draw(
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
-    zone: &TimeZone,
+    zone: DrawZone,
     open: &url::Open,
     refused: Option<Refused>,
     status: StatusCode,
@@ -260,7 +282,7 @@ async fn draw(
         Some(Refused { form, message }) if form.intent == "create" => (form, None, Some(message)),
         Some(Refused { form, message }) if form.intent == "update" => (MessageForm::new(), Some(form), Some(message)),
         Some(Refused { message, .. }) => (MessageForm::new(), None, Some(message)),
-        None => (MessageForm::new(), find(open.edit.as_deref()).map(|m| MessageForm::of(&m, zone)), None),
+        None => (MessageForm::new(), find(open.edit.as_deref()).map(|m| MessageForm::of(&m, &zone)), None),
     };
     let screen = PromoScreen {
         delete: if edit.is_none() { find(open.delete.as_deref()) } else { None },
@@ -270,6 +292,7 @@ async fn draw(
         done: open.done.clone().filter(|d| DONE.contains(&d.as_str()) && error.is_none()),
         error,
         now: Timestamp::now(),
+        zone,
     };
     let t: Gro = req.t();
     let view = html! { <views::PromoPage t={t} screen={&screen} marketplace={crate::app::marketplace_origin()} /> };
@@ -303,23 +326,25 @@ async fn act(
     Caller(staff): Caller<Staff<GrowthView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    zone: Option<ClientZone>,
     Form(form): Form<MessageForm>,
 ) -> HtmlResult {
     let t: Gro = req.t();
-    let zone = zone_of(zone);
+    // A refused form is drawn again in the zone it was drawn in, which its times are read in.
+    let zone = form.zone.as_ref().map_or_else(|| DrawZone::from(req.zone()), DrawZone::from);
     let id = form.id.trim().to_owned();
     let caller = config.platform.caller(&headers, config.proto, None);
     let one = |suffix: &str| format!("{BASE}/{}{suffix}", segment(&id));
+    let body = form.body();
     let (request, done) = match form.intent.as_str() {
-        "create" => (caller.request(Method::POST, BASE, CONTEXT).json(&form.body(&zone)), "created"),
-        "update" if !id.is_empty() => (caller.request(Method::PUT, &one(""), CONTEXT).json(&form.body(&zone)), "updated"),
+        "create" if body.is_some() => (caller.request(Method::POST, BASE, CONTEXT).json(&body), "created"),
+        "update" if !id.is_empty() && body.is_some() => (caller.request(Method::PUT, &one(""), CONTEXT).json(&body), "updated"),
         "activate" if !id.is_empty() => (caller.request(Method::POST, &one("/activate"), CONTEXT).json(&json!({})), "activated"),
         "deactivate" if !id.is_empty() => {
             (caller.request(Method::POST, &one("/deactivate"), CONTEXT).json(&json!({})), "deactivated")
         }
         "delete" if !id.is_empty() => (caller.request(Method::DELETE, &one(""), CONTEXT), "deleted"),
-        // No message or an unknown intent: admin-web answers "No promo bar change was applied".
+        // No message, an unknown intent, or times without the form's zone (not this page's form):
+        // admin-web answers "No promo bar change was applied".
         _ => {
             let refused = Refused { form: MessageForm::default(), message: t.promo_action_noop().to_owned() };
             return draw(
@@ -327,7 +352,7 @@ async fn act(
                 &staff.viewer,
                 &config,
                 &headers,
-                &zone,
+                zone,
                 &url::Open::default(),
                 Some(refused),
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -340,7 +365,7 @@ async fn act(
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
         Err(error) => {
             let (message, status) = refusal(t, &error);
-            draw(&req, &staff.viewer, &config, &headers, &zone, &url::Open::default(), Some(Refused { form, message }), status)
+            draw(&req, &staff.viewer, &config, &headers, zone, &url::Open::default(), Some(Refused { form, message }), status)
                 .await
         }
     }
@@ -376,19 +401,23 @@ mod tests {
 
     #[test]
     fn times_are_the_operators_and_the_body_is_admin_webs() {
-        let chicago = TimeZone::get("America/Chicago").unwrap();
-        assert_eq!(local(Some("2026-11-10 15:00:00+00"), &chicago), "2026-11-10T09:00");
-        assert_eq!(sent_time("2026-11-10T09:00", &chicago), json!("2026-11-10T15:00:00Z"));
-        assert_eq!(sent_time("2026-10-20T09:00", &chicago), json!("2026-10-20T14:00:00Z"), "daylight time");
-        assert_eq!(sent_time("soon", &chicago), json!("soon"), "the API refuses it in its words");
+        let drawn_in = DrawZone::from(corten::i18n::Visitor::named("America/Chicago"));
+        let start = drawn(Some("2026-11-10 15:00:05.250+00"), &drawn_in);
+        assert_eq!(start.value().map(|at| at.to_string()).as_deref(), Some("2026-11-10T09:00"), "to the minute");
+        let posted = |form: &[u8]| corten::form::from_bytes::<MessageForm>(form).unwrap();
+        let form = posted(b"intent=create&title=T&startsAt=2026-10-20T09%3A00&endsAt=soon&zone=America%2FChicago");
+        let body = form.body().unwrap();
+        assert_eq!(body["startsAt"], json!("2026-10-20T14:00:00Z"), "daylight time, in the form's zone");
+        assert_eq!(body["endsAt"], json!("soon"), "the API refuses it in its words");
+        assert_eq!(posted(b"intent=create&title=T&startsAt=2026-10-20T09%3A00").body(), None, "a time without the zone");
+        assert_eq!(posted(b"intent=update&title=T&startsAt=&endsAt=").body().unwrap()["startsAt"], Value::Null);
+
         let form = MessageForm { title: "T".into(), description: "  ".into(), display_order: "".into(), ..MessageForm::new() };
-        let body = form.body(&TimeZone::UTC);
+        let body = form.body().unwrap();
         assert_eq!(body["description"], Value::Null);
         assert_eq!((body["displayOrder"].clone(), body["isActive"].clone()), (json!(0), json!(true)));
         let form = MessageForm { display_order: "x".into(), is_active: String::new(), ..MessageForm::new() };
-        assert_eq!(
-            (form.body(&TimeZone::UTC)["displayOrder"].clone(), form.body(&TimeZone::UTC)["isActive"].clone()),
-            (Value::Null, json!(false))
-        );
+        let body = form.body().unwrap();
+        assert_eq!((body["displayOrder"].clone(), body["isActive"].clone()), (Value::Null, json!(false)));
     }
 }

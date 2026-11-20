@@ -513,6 +513,9 @@
   "route.mobile.watch.title": "Watch this product",
   "route.watch.offers": "Watch offers",
   "route.watch.offers.description": "Offers at or above your target.",
+  "route.watch.saved": "Watch alert saved",
+  "route.watch.saved.description": "We will notify you when this product matches your alert.",
+  "route.watch.manage.alerts": "Manage alerts",
   "route.grading.cert.lookup": "View registry lookup",
   "route.grading.cert.summary": "{company} {grade} cert {cert}",
   "route.grading.cert.verified.badge": "Registry match",
@@ -564,5 +567,10 @@
   "saved.view.collection": "View in My Collection",
   "saved.error.title": "Could not add this Product",
   "saved.error.description": "Try again. Your search and Product choices are unchanged.",
-  "saved.claim.error.title": "Saved List addition needs attention"
+  "saved.claim.error.title": "Saved List addition needs attention",
+  "sell_attempt.confirming": "Confirming this Sell List action. Do not submit it again.",
+  "sell_attempt.ambiguous": "This action could not be confirmed. Other actions are disabled. Explicitly retry the same action to resolve it.",
+  "sell_attempt.partial": "This action completed only partly. Review each result before explicitly retrying.",
+  "sell_attempt.failed_safe": "This action was refused without an unconfirmed write.",
+  "sell_attempt.retry": "Retry the same action"
 }

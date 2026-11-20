@@ -5,6 +5,7 @@
   "import.expired.description": "The resume window ended. The original receipt and row diagnostics remain available. Select the source again to start a new import; no stock was changed by validation.",
   "import.rows.previous": "Previous 100 rows",
   "import.rows.next": "Next 100 rows",
+  "recovery.check": "Check original result",
   "api.import.source.not.accepted": "Import source was not accepted. Check the file and attempt identity.",
   "api.import.row.page.invalid": "Import row page is invalid.",
   "list.create.listing": "Create listing",

@@ -151,6 +151,28 @@ afterEach(() => {
 });
 
 describe("environment topology authority derivation", () => {
+  it("derives the hyphenated Corten admin host only in staging", () => {
+    const result = deriveEnvironmentHosts(repositoryRoot);
+
+    expect(result.violations).toEqual([]);
+    expect(result.artifact.hosts.filter((entry) => entry.host.startsWith("admin-corten."))).toEqual([
+      expect.objectContaining({
+        host: "admin-corten.staging.chasesets.com",
+        environment: "staging",
+        class: "application",
+      }),
+    ]);
+  });
+
+  it.each(["-admin", "admin-", "admin--corten"])("fails closed for malformed staging label %s", (label) => {
+    const root = makeAuthorityFixture();
+    replaceInFile(root, "infrastructure/digitalocean/platform/locals.tf", '    "admin-corten",\n', `    "${label}",\n`);
+
+    expect(deriveEnvironmentHosts(root).violations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ anchorId: "A2", code: "topology-authority-diverged" })]),
+    );
+  });
+
   it("every derived host cites an authority anchor", () => {
     const result = deriveEnvironmentHosts(repositoryRoot);
 

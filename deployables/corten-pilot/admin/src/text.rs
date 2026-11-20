@@ -2,16 +2,16 @@
 //! catalog area's, `Ops` the Operations Attention queue's, `Acc` the access section's, `Sup` the support section's, `Com` the commerce section's, `Gro` the growth section's (all exported from contracts/localization
 //! by scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell and input checks. `messages!` checks every call
 //! against the catalogs when the crate compiles.
-pub use access::Acc;
-pub use catalog::Cat;
-pub use commerce::Com;
-pub use growth::Gro;
-pub use operations::Ops;
-pub use ordering::Msg;
+pub use access::{Acc, acc};
+pub use catalog::{Cat, cat};
+pub use commerce::{Com, com};
+pub use growth::{Gro, gro};
+pub use operations::{Ops, ops};
+pub use ordering::{Msg, msg};
 pub use pilot::Pilot;
 pub use sign_in::SignInMsg;
 pub use site::SiteMsg;
-pub use support::Sup;
+pub use support::{Sup, sup};
 
 /// A name as `export.mjs` writes a key's segment: `aliasCandidate` is `alias_candidate`.
 pub fn snake_case(name: &str) -> String {
@@ -83,8 +83,10 @@ mod support {
     }
 }
 
-mod pilot {
+/// The arguments of Pilot's messages that take two or more are `text::pilot::..`.
+pub(crate) mod pilot {
     corten::i18n::messages! {
         pub struct Pilot { "en" => "locales/pilot.en.json" }
     }
+    pub(crate) use self::pilot::*;
 }

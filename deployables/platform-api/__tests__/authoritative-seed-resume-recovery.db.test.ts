@@ -134,12 +134,8 @@ describe("authoritative seed resume", () => {
         .filter(([candidateId]) => candidateId !== paymentId)
         .map(([candidateId, count]) => [candidateId, count - (beforeCrash[candidateId] ?? 0)]),
     );
-    expect(afterRepair[paymentId]).toBe(3);
-    expect(await paymentStreamEventTypes(paymentId)).toEqual([
-      "payments.payment-created",
-      "payments.payment-captured",
-      "payments.csat-outcome-fact.v1",
-    ]);
+    expect(afterRepair[paymentId]).toBe(2);
+    expect(await paymentStreamEventTypes(paymentId)).toEqual(["payments.payment-created", "payments.payment-captured"]);
     expect(siblingAppends).toEqual(
       Object.fromEntries(Object.keys(siblingAppends).map((candidateId) => [candidateId, 0])),
     );

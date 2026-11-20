@@ -45,7 +45,18 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
     const identityMutations = createIdentityMutations(c);
     const existingUser = await services.identity.getUserByEmail(email);
     if (existingUser) {
-      return c.json({ error: t("auth.support.apiSupport.registerRoutes.a.user.already.exists.for.that") }, 409);
+      // The one conflict this route owns: the server-normalized email already
+      // belongs to an account. Identity's display-name, operation and mutation
+      // conflicts below keep their own codes.
+      return c.json(
+        {
+          error: {
+            code: "email_already_taken",
+            message: t("auth.support.apiSupport.registerRoutes.a.user.already.exists.for.that"),
+          },
+        },
+        409,
+      );
     }
 
     let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;

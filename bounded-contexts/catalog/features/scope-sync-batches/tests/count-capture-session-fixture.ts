@@ -1,4 +1,6 @@
 import { vi } from "vitest";
+import { evaluateScrydexBillingPeriod } from "../domain/scrydex-billing-period";
+import { periodReserve, syntheticPeriod } from "./scrydex-period-fixture";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -180,7 +182,15 @@ export function freshCaptureAuthority(nowMs: number, dispatchId = "synthetic-dis
     ...authority,
     dispatchId,
     dispatchedAt: at(-60_000),
-    budget: { ...authority.budget, observedAt: at(-60_000) },
+    budget: {
+      ...authority.budget,
+      observedAt: at(-60_000),
+      periodReserve: {
+        ...authority.budget.periodReserve,
+        runId: dispatchId,
+        observedAt: at(-60_000),
+      },
+    },
     deployment: { ...authority.deployment, startedAt, completedAt: at(-15 * 60_000) },
     pods: { ...authority.pods, observedAt: at(-50_000) },
     collection: { ...authority.collection, collectedAt: at(-40_000), createdFrom: countCaptureSearchFrom(startedAt) },
@@ -223,6 +233,25 @@ export function captureBaseline(): CountCaptureBaseline {
   };
 }
 
+export async function recordSyntheticCapturePeriodDecision(
+  store: CountCaptureStore,
+  binding: Parameters<CountCaptureStore["recordPeriodDecision"]>[0],
+) {
+  const run = await store.read(binding.runId);
+  const at = run.admittedAt;
+  return store.recordPeriodDecision(
+    binding,
+    evaluateScrydexBillingPeriod({
+      snapshot: { allowance: 100, balance: 100, observedAt: at, period: syntheticPeriod },
+      reserve: { ...periodReserve(run.host.dispatchId), observedAt: at },
+      durableCredits: 0,
+      plannedCredits: 10 + run.sends.filter((send) => send.phase === "bootstrap").length,
+      runId: run.host.dispatchId,
+      now: at,
+    }),
+  );
+}
+
 // Walks a fresh run through the stages before `phase` with the store's own
 // methods, then begins `phase`.
 export async function beginCapturePhase(
@@ -240,6 +269,7 @@ export async function beginCapturePhase(
   await store.recordInitialNotice(runId);
   if (phase === "bootstrap") return store.begin(runId, phase);
   const bootstrap = await store.begin(runId, "bootstrap");
+  await recordSyntheticCapturePeriodDecision(store, bootstrap);
   await store.recordUsage(bootstrap, { state: "skipped", required: 11, authority: captureBaseline().countAuthority });
   await store.finish(bootstrap);
   return store.begin(runId, phase);
@@ -275,7 +305,20 @@ export function createCaptureAuthorityFixture(input: { retained?: number | null;
     retained = null;
     seeded = null;
   };
-  return { authority, retainUsage, forget };
+  return {
+    authority,
+    retainUsage,
+    forget,
+    periodLedger: async () => ({
+      snapshot: {
+        allowance: retained?.totalCredits ?? null,
+        balance: retained?.remainingCredits,
+        observedAt: retained?.observedAt ?? null,
+        period: retained?.billingPeriod,
+      },
+      durableCredits: 0,
+    }),
+  };
 }
 
 // The real Scrydex adapter's usage path over a counting synthetic transport.
@@ -332,6 +375,7 @@ export function createCaptureLifecycleFixture(
     readRoster,
     readEffects,
     countAuthority: counts.authority,
+    periodLedger: counts.periodLedger,
     observeUsage: usage.getUsageSnapshot,
     now: () => clock.now,
   };

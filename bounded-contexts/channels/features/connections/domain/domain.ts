@@ -17,6 +17,31 @@ export const initialChannelConnectionState: ChannelConnectionState = {
   bindings: [],
 };
 
+export type ChannelConnectionAllowedAction = "pause" | "resume" | "disconnect";
+
+const allowedActionCommands: Readonly<Record<ChannelConnectionAllowedAction, ChannelConnectionCommand>> = {
+  pause: { type: "PauseChannelConnection" },
+  resume: { type: "ResumeChannelConnection" },
+  disconnect: { type: "DisconnectChannelConnection" },
+};
+
+export function allowedChannelConnectionActions(
+  status: NonNullable<ChannelConnectionState["status"]>,
+): readonly ChannelConnectionAllowedAction[] {
+  const state: ChannelConnectionState = {
+    ...initialChannelConnectionState,
+    connectionId: "connection",
+    status,
+  };
+  return (Object.keys(allowedActionCommands) as ChannelConnectionAllowedAction[]).filter((action) => {
+    try {
+      return decideChannelConnection(state, allowedActionCommands[action]).length > 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export const decideChannelConnection: AggregateDecider<
   ChannelConnectionState,
   ChannelConnectionCommand,
@@ -44,7 +69,11 @@ export const decideChannelConnection: AggregateDecider<
       ];
     case "ActivateChannelConnection":
       requirePresent(state);
-      if (state.status !== "pending-setup") throw new ChannelConnectionError("invalid-transition");
+      if (
+        state.status !== "pending-setup" &&
+        !(state.providerKey === "ebay" && state.environment === "sandbox" && state.status === "active")
+      )
+        throw new ChannelConnectionError("invalid-transition");
       return [
         {
           type: "channels.connection.activated",

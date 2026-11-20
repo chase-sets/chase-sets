@@ -2,6 +2,7 @@ import type { createMemoryRouter } from "react-router";
 import type { loader as listLoader } from "../../../routes/marketplace/account-channels";
 import type { loader as detailLoader } from "../ui/account-channels-connection-route-adapter";
 import type { ChannelConnectionStatus } from "../domain/contracts";
+import type { ChannelConnectionAllowedAction } from "../domain/domain";
 
 export function channelConnectionStateFixture(status: ChannelConnectionStatus) {
   return {
@@ -11,6 +12,13 @@ export function channelConnectionStateFixture(status: ChannelConnectionStatus) {
     environment: "sandbox" as const,
     status,
     createdAt: "2026-09-01T00:00:00.000Z",
+    allowedActions: (status === "pending-setup"
+      ? ["disconnect"]
+      : status === "active"
+        ? ["pause", "disconnect"]
+        : status === "paused"
+          ? ["resume", "disconnect"]
+          : []) as readonly ChannelConnectionAllowedAction[],
   };
 }
 
@@ -59,7 +67,7 @@ export async function mountChannelConnectionBrowserState(input: ReturnType<typeo
   const readyDetail: Awaited<ReturnType<typeof detailLoader>> = {
     ...baseline,
     connection: input.connection,
-    canManageDrift: true,
+    canManageConnection: true,
     setupLocations: { kind: "loaded", items: input.state === "empty" ? [] : input.locations },
   };
   let release: (() => void) | undefined;

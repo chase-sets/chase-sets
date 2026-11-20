@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `GET /catalog/scopes/sync-batches?batch_id&quote_id` | the page, with the batch and the count quote the address names |
 //! | `POST /catalog/scopes/sync-batches` | the form's `intent`: Preview batch, Quote count acquisition and Approve count acquisition answer with the page; Confirm and enqueue, Cancel batch, Resume batch and Retry unit go to the batch |
-//! | `POST /catalog/scopes/sync-batches/held-sets` | Resolve held sets (`multipart/form-data`): the page with what resolved |
+//! | `POST /catalog/scopes/sync-batches/held-sets` | Resolve held sets (`multipart/form-data`): the page with what resolved; its `GET` redirects to the page |
 //!
 //! Like admin-web's action, a refused or failed command is the page's banner, the form as it was
 //! sent. A queued or running batch's page is read again every two seconds (admin-web revalidates
@@ -21,7 +21,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use corten::{
     Upload, UploadError,
-    axum::http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
@@ -45,25 +45,29 @@ const FRAMING_BYTES: usize = 65_536;
 
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
-    use serde::Deserialize;
 
     /// The batch and the count quote the page shows.
-    #[derive(Clone, Debug, Default, Deserialize, corten::Fields, corten::Route)]
+    #[derive(Clone, Debug, Default, corten::Fields, corten::Route)]
     #[route(query)]
     pub struct BatchQuery {
         pub batch_id: Option<String>,
         pub quote_id: Option<String>,
     }
 
+    /// The page; the batch form's commands are its plain `POST`, urlencoded, and Resolve held sets
+    /// (`multipart/form-data`) is its `held_sets` post, whose answer is the page with what the export
+    /// resolved to.
     #[derive(Default)]
-    #[route("/catalog/scopes/sync-batches", get = crate::catalog::sync_batches::page, post = crate::catalog::sync_batches::act)]
+    #[route(
+        "/catalog/scopes/sync-batches",
+        get = crate::catalog::sync_batches::page,
+        post = crate::catalog::sync_batches::act,
+        post(held_sets) = crate::catalog::sync_batches::held_sets
+    )]
     pub struct SyncBatches {
         #[route(query)]
         pub query: BatchQuery,
     }
-
-    #[route("/catalog/scopes/sync-batches/held-sets", post = crate::catalog::sync_batches::held_sets)]
-    pub struct HeldSets;
 }
 
 impl url::SyncBatches {
@@ -80,7 +84,7 @@ impl url::SyncBatches {
 
 /// The batch form, and every command's fields, in admin-web's names (snake case). Each is the text
 /// sent; numbers are read as admin-web's `numberValue` reads them.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
 #[serde(default)]
 pub struct BatchInput {
     pub intent: String,
@@ -735,7 +739,7 @@ pub(crate) async fn held_sets(
 }
 
 /// The held-set form: its one file.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct HeldSetForm {
     pub file: Files,

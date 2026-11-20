@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 20,
-      authoritativeSites: 18,
+      discoveredCallCandidates: 28,
+      authoritativeSites: 26,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -220,10 +220,81 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-one green grammar instances across twenty-seven live locations without a registry", () => {
+  it("derives forty-three green grammar instances across thirty-eight live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(31);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(27);
+    expect(green).toHaveLength(43);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(38);
+    expect(
+      green
+        .filter((entry) => entry.file.includes("/inventory-items/api/stock-"))
+        .map(({ category, file, symbol }) => ({ category, file, symbol })),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
+        symbol: "createInventoryStockReservations.persistence.readStream",
+      },
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/inventory/features/inventory-items/api/stock-authority.ts",
+        symbol: "createInventoryStockAuthority.captureInTransaction.eventStore.readStream",
+      },
+      {
+        category: "type-position",
+        file: "bounded-contexts/inventory/features/inventory-items/api/stock-authority.ts",
+        symbol: "createInventoryStockAuthority.captureInTransaction.eventStore.readStream",
+      },
+    ]);
+    expect(
+      green
+        .filter((entry) => entry.file.startsWith("bounded-contexts/auth/"))
+        .map(({ category, file, symbol }) => ({ category, file, symbol }))
+        .sort((left, right) => left.file.localeCompare(right.file)),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/auth/features/sessions/api/owner-epochs.ts",
+        symbol: "createAuthSessionPersistence.readStream",
+      },
+      {
+        category: "type-position",
+        file: "bounded-contexts/auth/features/sessions/api/session-authority.ts",
+        symbol: "createAuthSessionAuthority.capture.readStream",
+      },
+    ]);
+    expect(
+      green
+        .filter((entry) => entry.file.startsWith("bounded-contexts/channels/features/connections/"))
+        .map(({ category, file, symbol }) => ({ category, file, symbol }))
+        .sort((left, right) => left.file.localeCompare(right.file)),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/channels/features/connections/api/owner-epochs.ts",
+        symbol: "createConnectionPersistence.readStream",
+      },
+      {
+        category: "member-declaration",
+        file: "bounded-contexts/channels/features/connections/api/versioned-connection-authority.ts",
+        symbol: "createVersionedConnectionAuthority.capture.loaded.readStream",
+      },
+    ]);
+    expect(
+      green
+        .filter((entry) => entry.file.endsWith("/extension-tcgplayer-sealed-products.ts"))
+        .map(({ category, symbol }) => ({ category, symbol })),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        symbol:
+          "createExtensionTcgplayerSealedProductRecorder.recordExtensionTcgplayerSealedProducts.eventStore.readStream",
+      },
+    ]);
+    expect(
+      green
+        .filter((entry) => entry.file === "bounded-contexts/catalog/features/product-contents/api/runtime.ts")
+        .map(({ category, symbol }) => ({ category, symbol })),
+    ).toEqual([{ category: "member-declaration", symbol: "readProductContentsAuthoringState.reader.readStream" }]);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
     expect(declarations.errors).toEqual([]);
     expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
@@ -323,6 +394,28 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(resolveGrammarSelectors(incomplete, memberDeclarationSelectors).errors).toEqual([
       `${label}: expected one declaration, found 0`,
     ]);
+  });
+
+  it("rejects a census missing the bulk draft removal harness declaration", () => {
+    const green = productionGrammar;
+    const selector = memberDeclarationSelectors.find(
+      (entry) =>
+        entry.file === "bounded-contexts/catalog/features/catalog-items/api/bulk-remove-drafts-test-harness.ts",
+    );
+    expect(selector).toEqual({
+      category: "member-declaration",
+      file: "bounded-contexts/catalog/features/catalog-items/api/bulk-remove-drafts-test-harness.ts",
+      symbol: "createBulkRemoveDraftsHarness.eventStore.readStream",
+    });
+    const present = resolveGrammarSelectors(green, [selector]);
+    expect(present.errors).toEqual([]);
+    const [{ instance }] = present.resolved;
+
+    const missing = green.filter((entry) => entry !== instance);
+    expect(missing).toHaveLength(green.length - 1);
+    const expected = [`${selectorLabel(selector)}: expected one declaration, found 0`];
+    expect(resolveGrammarSelectors(missing, [selector]).errors).toEqual(expected);
+    expect(resolveGrammarSelectors(missing, memberDeclarationSelectors).errors).toEqual(expected);
   });
 });
 
@@ -656,9 +749,18 @@ const memberDeclarationSelectors = [
     "writeDemandCurve.history.readStream",
   ],
   [
+    "bounded-contexts/pricing/features/repricing-policies/api/runtime.ts",
+    "createRepricingPolicyRuntime.transactionalStore.readStream",
+  ],
+  [
     "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
     "createInventoryDraftListingConsumer.accept.accepted.receipt.eventStore.readStream",
   ],
+  [
+    "bounded-contexts/catalog/features/catalog-items/api/bulk-remove-drafts-test-harness.ts",
+    "createBulkRemoveDraftsHarness.eventStore.readStream",
+  ],
+  ["bounded-contexts/auth/features/sessions/api/owner-epochs.ts", "createAuthSessionPersistence.readStream"],
 ].map(([file, symbol]) => ({ category: "member-declaration", file, symbol }));
 const sharedReaderSelectors = ["member-declaration", "type-position"].map((category) => ({
   category,

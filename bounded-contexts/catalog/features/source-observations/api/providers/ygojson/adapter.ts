@@ -449,10 +449,9 @@ function ygojsonIndividualUrl(
 }
 
 function ygojsonUrl(path: string, options: YgojsonProviderAdapterOptions): string {
-  return `${(options.baseUrl ?? "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1").replace(
-    /\/$/,
-    "",
-  )}/${path}`;
+  // Select the data branches explicitly: the v1 release tag does not contain the data files.
+  const baseUrl = options.baseUrl ?? "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/refs/heads/v1";
+  return `${baseUrl.replace(/\/$/, "")}/${path}`;
 }
 
 function ygojsonEnvelope(input: {

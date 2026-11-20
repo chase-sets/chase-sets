@@ -2,9 +2,9 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SignedInSellCheckoutPage, signedInSellCheckoutDefaultValues } from "./signed-in-sell-checkout-page";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
-import type { SellListReadinessSnapshot } from "../domain/readiness";
+import { createSellListReadinessSnapshot, type SellListReadinessLine } from "../domain/readiness";
 
-const selectedOfferLine: CheckoutSellListLineRow = {
+const selectedOfferLine: CheckoutSellListLineRow & SellListReadinessLine = {
   seller_account_id: "acc_seller",
   line_id: "sll_1",
   line_type: "selected-offer",
@@ -24,40 +24,19 @@ const selectedOfferLine: CheckoutSellListLineRow = {
   minimum_listing_price_amount: null,
   created_at: "2026-06-10T00:00:00.000Z",
   updated_at: "2026-06-10T00:00:00.000Z",
+  listing_evidence: {
+    listingId: "lst_1",
+    ready: true,
+    policyHash: "ph_v1",
+    policyVersion: 1,
+    unmetCodes: [],
+    requiredSlotCount: 2,
+    satisfiedSlotCount: 2,
+    updatedAt: "2026-06-10T00:00:00.000Z",
+  },
 };
 
-const readyReadiness: SellListReadinessSnapshot = {
-  schemaVersion: "checkout.sell-list-readiness.v1",
-  source: "sell-list",
-  sourceRevision: "slr_source",
-  snapshotId: "slr_ready",
-  status: "ready",
-  lineCount: 1,
-  includedLineIds: ["sll_1"],
-  unresolvedLineIds: [],
-  lineOutcomes: [{ lineId: "sll_1", outcome: "checkout", reason: "ready", action: "selected-offer" }],
-  sellerReadiness: {
-    status: "ready",
-    evidenceRevision: "slr_seller_evidence",
-    payout: "ready",
-    shipFrom: "ready",
-    label: "ready",
-    listingEvidence: "ready",
-    risk: "ready",
-    provider: "ready",
-    freshness: "ready",
-    outcomes: [
-      { dimension: "ship-from", status: "ready", reason: "ready" },
-      { dimension: "payout", status: "ready", reason: "ready" },
-      { dimension: "label", status: "ready", reason: "ready" },
-      { dimension: "listing-evidence", status: "ready", reason: "ready" },
-      { dimension: "risk", status: "ready", reason: "ready" },
-      { dimension: "provider", status: "ready", reason: "ready" },
-      { dimension: "freshness", status: "ready", reason: "ready" },
-    ],
-  },
-  customerSafeFacts: ["Ready for seller checkout."],
-};
+const entryReadiness = createSellListReadinessSnapshot([selectedOfferLine]);
 
 const savedShipFromAddress = {
   shippingAddressId: "adr_seller",
@@ -82,8 +61,6 @@ const payoutSummary = {
   missingRequirements: [],
 };
 
-const sellListReviewPlan = '{"version":1,"lines":[{"lineId":"sll_1","lineType":"selected-offer"}]}';
-
 const defaultValues = {
   ...signedInSellCheckoutDefaultValues,
   sellerName: "Jane Seller",
@@ -99,28 +76,31 @@ const defaultValues = {
 };
 
 describe("signed-in sell checkout page", () => {
-  it("renders concise saved seller checkout rows with summary and sticky action", () => {
+  it("shows no seller readiness verdict on entry with saved details and ready payout", () => {
+    expect(entryReadiness.status).toBe("ready");
+    expect(entryReadiness.sellerReadiness.status).toBe("blocked");
+
     const markup = renderToString(
       <SignedInSellCheckoutPage
         sessionId="chk_sell_1"
         lines={[selectedOfferLine]}
-        readiness={readyReadiness}
+        readiness={entryReadiness}
         recovery={null}
         defaultValues={defaultValues}
         savedShipFromAddresses={[savedShipFromAddress]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[{"lineId":"sll_1","action":"selected-offer"}],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
       />,
     );
 
     expect(markup).toContain("Seller checkout details");
+    expect(markup).toContain('href="/sell/shipping-setup"');
     expect(markup).toContain("seller@example.com");
     expect(markup).toContain("Sale and label updates / 316-555-0110");
     expect(markup).toContain("Ship from");
     expect(markup).toContain("100 Market Street, Wichita, KS 67202, US");
     expect(markup).toContain("Saved payout setup");
-    expect(markup).toContain("Seller account ready");
+    expect(markup).toContain("Not yet assessed");
+    expect(markup).not.toMatch(/needs review|review required|seller account ready/i);
     expect(markup).toContain("Prepare a prepaid label");
     expect(markup).toContain("Review sale details");
     expect(markup).not.toContain("Review sale handoff");
@@ -145,13 +125,11 @@ describe("signed-in sell checkout page", () => {
       <SignedInSellCheckoutPage
         sessionId="chk_sell_1"
         lines={[selectedOfferLine]}
-        readiness={readyReadiness}
+        readiness={entryReadiness}
         recovery={null}
         defaultValues={defaultValues}
         savedShipFromAddresses={[savedShipFromAddress]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
         initialEditSection="ship-from"
       />,
     );
@@ -160,7 +138,7 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Address line 1");
     expect(markup).toContain('name="email"');
     expect(markup).toContain('value="seller@example.com"');
-    expect(markup).toContain('name="sellListReviewPlan"');
+    expect(markup).not.toContain('name="sellListReviewPlan"');
   });
 
   it("falls back to the ship-from form when saved ship-from is incomplete", () => {
@@ -168,13 +146,11 @@ describe("signed-in sell checkout page", () => {
       <SignedInSellCheckoutPage
         sessionId="chk_sell_1"
         lines={[selectedOfferLine]}
-        readiness={readyReadiness}
+        readiness={entryReadiness}
         recovery={null}
         defaultValues={{ ...defaultValues, shipFromLine1: "" }}
         savedShipFromAddresses={[{ ...savedShipFromAddress, line1: "" }]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
       />,
     );
 
@@ -187,13 +163,11 @@ describe("signed-in sell checkout page", () => {
       <SignedInSellCheckoutPage
         sessionId="chk_sell_1"
         lines={[selectedOfferLine]}
-        readiness={readyReadiness}
+        readiness={entryReadiness}
         recovery={{ kind: "readiness-stale" }}
         defaultValues={defaultValues}
         savedShipFromAddresses={[savedShipFromAddress]}
         payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
       />,
     );
 

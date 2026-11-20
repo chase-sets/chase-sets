@@ -1,3 +1,11 @@
+import {
+  createMarketplaceReviewOpportunityPublicationRunners,
+  createMarketplaceManagedOfferWorkRunners,
+  createMarketplaceReviewWindowSweepRunners,
+  createMarketplaceReviewOpportunityReminderSweepRunners,
+  createMarketplaceSellerAvailabilityRestoreSweepRunners,
+  createMarketplaceSellerAwayWindowStartSweepRunners,
+} from "./support/runtime-support/worker-jobs";
 import { assertSqlIdentifier } from "@chase-sets/event-core-postgres/sql-identifier";
 import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
@@ -194,7 +202,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
   inspectSeedState: (pool) => inspectMarketplaceSeedState(pool),
 });
 
-export const module = {
+const contextModule = {
   ...baseModule,
   buildProjectionGroups: (): readonly BcProjectionGroup[] =>
     (baseModule.projectionGroups ?? []).map((group) =>
@@ -220,4 +228,16 @@ export const module = {
           }
         : group,
     ),
+};
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createMarketplaceReviewOpportunityPublicationRunners,
+    createMarketplaceManagedOfferWorkRunners,
+    createMarketplaceReviewWindowSweepRunners,
+    createMarketplaceReviewOpportunityReminderSweepRunners,
+    createMarketplaceSellerAvailabilityRestoreSweepRunners,
+    createMarketplaceSellerAwayWindowStartSweepRunners,
+  },
 };

@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { t } from "@chase-sets/localization";
+import { catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
 import {
   catalogSyncAcceptedScopeMappingFromRow,
   type CatalogSyncAcceptedScopeMapping,
@@ -211,7 +212,7 @@ async function resolveAcceptedMappings(
 ): Promise<readonly ProviderScopeMappingRow[]> {
   if (scopeRecordIds.length === 0) return [];
   const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *
+    `SELECT *, ${catalogIsoUtcTimestamp("updated_at")}
      FROM catalog_provider_scope_mappings
      WHERE scope_record_id = ANY($1::text[])
        AND review_status IN ('accepted', 'auto-accepted')

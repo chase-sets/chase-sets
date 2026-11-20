@@ -69,12 +69,6 @@ const marketplaceHostRoutes = [
     delivery: "web-resource-only",
     reason: webResourceReason,
   },
-  {
-    routePath: "analytics/item-detail-rail",
-    fileExport: "routes/item-detail-rail-analytics.ts",
-    delivery: "web-resource-only",
-    reason: webResourceReason,
-  },
   { routePath: "offline", fileExport: "routes/offline.tsx", delivery: "server-only", reason: webPageReason },
   { routePath: "(layout)", fileExport: "routes/layout.tsx", delivery: "server-only", reason: webPageReason },
   { routePath: "*", fileExport: "routes/not-found.tsx", delivery: "server-only", reason: webPageReason },

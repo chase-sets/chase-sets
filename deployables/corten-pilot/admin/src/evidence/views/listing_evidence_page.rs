@@ -4,8 +4,9 @@
 //!
 //! Every rule sends every rule field, hidden where its selector does not use it, so the parallel
 //! lists the form posts stay in step. A selector's values are drawn for the kind the form was
-//! drawn with: after choosing another kind, Show values draws the form again with its values.
-use corten::prelude::*;
+//! drawn with: after choosing another kind, Show values draws the form again with its values. The
+//! Activate form's times are drawn in `zone`, named under each, and the form sends it back.
+use corten::{form::DrawZone, prelude::*};
 
 use super::{NONE, ids, kind, lifecycle, view_set, when};
 use crate::{
@@ -49,7 +50,11 @@ fn RuleFields<'a>(o: Ops, p: Pilot, index: usize, row: &'a Row, selectors: &'a S
     let typed = listed.is_empty() && (LISTED.contains(&chosen) || matches!(chosen, "seller-reviews" | "seller-badge"));
     let price = chosen == "price";
     let words = move |c: &Choice| {
-        if chosen == "option" { o.lep_selector_option_label(&c.label, &c.id).to_string() } else { c.label.clone() }
+        if chosen == "option" {
+            o.lep_selector_option_label(crate::text::ops::LepSelectorOptionLabel { label: &c.label, id: &c.id }).to_string()
+        } else {
+            c.label.clone()
+        }
     };
     let legend = o.lep_rule_title(index + 1).to_string();
     html! {
@@ -177,7 +182,7 @@ fn RuleFields<'a>(o: Ops, p: Pilot, index: usize, row: &'a Row, selectors: &'a S
 }
 
 #[component(css)]
-pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, screen: &'a EvidenceScreen) -> impl Render {
+pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, zone: &'a DrawZone, screen: &'a EvidenceScreen) -> impl Render {
     let f = Posted::FIELDS;
     let current = &screen.overview.current;
     let at = |value: Option<&str>, otherwise: &str| value.map_or_else(|| otherwise.to_owned(), |v| when(o, here, v));
@@ -248,11 +253,7 @@ pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, screen: &'a Evi
                     <h2 class={Heading} id="lep-impact">{o.lep_impact_title()}</h2>
                     <p>{o.lep_impact_count(validation.impact_preview.impacted_listing_count).to_string()}</p>
                     <p class={Words}>
-                        {o.lep_diff(
-                            &ids(&validation.semantic_diff.added_rule_ids),
-                            &ids(&validation.semantic_diff.changed_rule_ids),
-                            &ids(&validation.semantic_diff.removed_rule_ids),
-                        ).to_string()}
+                        {o.lep_diff(crate::text::ops::LepDiff { added: &ids(&validation.semantic_diff.added_rule_ids), changed: &ids(&validation.semantic_diff.changed_rule_ids), removed: &ids(&validation.semantic_diff.removed_rule_ids) }).to_string()}
                     </p>
                     if !validation.diagnostics.is_empty() {
                         <ul class={(Alert, Diagnostics)} role="alert">
@@ -271,13 +272,16 @@ pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, screen: &'a Evi
                                 value={&validation.impact_preview.preview_hash}
                             >
                             <div class={(Fields, Two)}>
+                                {zone.field(f.zone)}
                                 <label class={Field}>
                                     <span>{o.lep_effective_from()}</span>
                                     <input type="datetime-local" name={f.effective_from} required>
+                                    <small class={Muted}>{zone.name()}</small>
                                 </label>
                                 <label class={Field}>
                                     <span>{o.lep_effective_until()}</span>
                                     <input type="datetime-local" name={f.effective_until}>
+                                    <small class={Muted}>{zone.name()}</small>
                                 </label>
                             </div>
                             <label class={Check}>

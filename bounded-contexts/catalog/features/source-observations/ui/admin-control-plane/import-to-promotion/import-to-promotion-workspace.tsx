@@ -1,7 +1,7 @@
+import type { CatalogDailyImportPreview } from "../../../api/admin/daily-import-preview";
 import { Accordion, ProgressiveDisclosure, WorkbenchStack, WorkbenchText } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
-import type { SourceObservationIntegrationImportPreview } from "../../contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { CatalogIntegrationImportJobsModule } from "../import-jobs/import-jobs-module";
 import { CatalogIntegrationSourceObservationReviewModule } from "../source-observation-review/source-observation-review-module";
@@ -44,7 +44,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   aliasVisibility?: React.ReactNode;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
   commandActionPath?: string | null;
@@ -104,7 +104,9 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         </ProgressiveDisclosure>
       </WorkbenchStack>
     ),
-    "create-items": <CatalogIntegrationCreateItemsStage readModel={readModel} />,
+    "create-items": (
+      <CatalogIntegrationCreateItemsStage readModel={readModel} selectedObservationIds={[...selectedObservationKeys]} />
+    ),
   };
 
   const workspace = (

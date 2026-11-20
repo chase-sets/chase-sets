@@ -6,7 +6,7 @@ import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { livenessConfig } from "./channels-liveness-config";
-import { createRegisteredScheduledRunners } from "../src/scheduled-runners";
+import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -83,12 +83,15 @@ describe("channels-liveness-wiring", () => {
     }
   });
   it("uses the exported guard without a Channels cast and forwards config from main", () => {
-    const source = readFileSync(new URL("../src/scheduled-runners.ts", import.meta.url), "utf8");
-    expect(source).toContain('import { isChannelsServices } from "@chase-sets/channels/server"');
+    const source = readFileSync(
+      new URL("../../../bounded-contexts/channels/support/runtime-support/worker-jobs.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('import { isChannelsServices } from "./services"');
     expect(source).toContain("isChannelsServices(channels)");
     expect(source).not.toMatch(/services\.channels\s+as\b/);
     const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(main).toMatch(/createRegisteredScheduledRunners\(\{\s*services: runtime\.services,\s*config,/);
+    expect(main).toContain("createPlatformWorkerJobComposition(");
     const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
     expect(env).toMatch(/^CHANNELS_CONNECTOR_LIVENESS_SWEEP_INTERVAL_MS=60000$/m);
   });

@@ -10,19 +10,41 @@ export type CatalogAttentionDismissalRow = Readonly<{
   updated_at: string;
 }>;
 
-// The item keys currently suppressed from the queue: dismissed items (until
-// restored) and deferred items whose re-surface time has not yet elapsed.
-// Deferred items past their window are intentionally excluded so they age back in.
+// Whether a dismissal row parks its item at `nowSql`: dismissed until restored, or
+// deferred with a re-surface time still ahead. Deferred rows past their window no
+// longer park, so those items age back in.
+function activeDismissalSql(alias: string, nowSql: string): string {
+  return `(${alias}.disposition = 'dismissed'
+        OR (${alias}.disposition = 'deferred' AND ${alias}.deferred_until IS NOT NULL AND ${alias}.deferred_until > ${nowSql}))`;
+}
+
+// SQL predicate: the attention item whose key is `itemKeySql` is parked at
+// `nowSql`. Source counts and windows exclude parked rows with it before paging,
+// so every read of one queue judges parking at the same clock.
+export function catalogAttentionItemParkedSql(itemKeySql: string, nowSql: string): string {
+  return `EXISTS (
+       SELECT 1
+       FROM catalog_attention_dismissals parked
+       WHERE parked.item_key = ${itemKeySql}
+         AND ${activeDismissalSql("parked", nowSql)}
+     )`;
+}
+
+// The parked keys among `itemKeys` (items observed in memory rather than read
+// from a queue source table), judged at `now`.
 export async function listActiveAttentionDismissalKeys(
   db: PgQueryable,
-  options: Readonly<{ now: string }>,
+  options: Readonly<{ now: string; itemKeys: readonly string[] }>,
 ): Promise<ReadonlySet<string>> {
+  if (options.itemKeys.length === 0) {
+    return new Set();
+  }
   const result = await db.query<{ item_key: string }>(
-    `SELECT item_key
-     FROM catalog_attention_dismissals
-     WHERE disposition = 'dismissed'
-        OR (disposition = 'deferred' AND deferred_until IS NOT NULL AND deferred_until > $1)`,
-    [options.now],
+    `SELECT dismissal.item_key
+     FROM catalog_attention_dismissals dismissal
+     WHERE dismissal.item_key = ANY($2::text[])
+       AND ${activeDismissalSql("dismissal", "$1")}`,
+    [options.now, [...new Set(options.itemKeys)]],
   );
   return new Set(result.rows.map((row) => row.item_key));
 }

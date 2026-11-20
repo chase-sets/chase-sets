@@ -6,6 +6,14 @@ export {
   type ReceiptLookupCredential,
 } from "./features/service-actors/api/receipt-lookup";
 export { resumeAgentGrantRevocation } from "./features/agent-grants/api/revocation";
+export {
+  createAuthSessionEpochs,
+  createAuthSessionPersistence,
+  type AuthSessionEpochs,
+  type AuthSessionTopology,
+} from "./features/sessions/api/owner-epochs";
+export { createAuthSessionAuthority, type SessionAuthorityInput } from "./features/sessions/api/session-authority";
+export type { RevokeAgentGrantPaymentInstruments } from "./features/agent-grants/api/payment-instrument-revocation";
 export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
 export {
   createConnectorOAuthService,
@@ -23,6 +31,11 @@ export {
   type PlatformAdminPasswordBootstrapConfig,
 } from "./support/runtime-support/production-bootstrap";
 export { resolveActorFromSessionId } from "./support/runtime-support/services";
+export {
+  SESSION_GENERATION_CAPABILITY_VERSION,
+  sessionGenerationCapabilityReport,
+  type SessionGenerationCapabilityReport,
+} from "./features/sessions/domain/session-generation";
 export {
   AUTH_GUEST_CHECKOUT_PERMISSIONS,
   AUTH_GUEST_CHECKOUT_ROLE_KEY,
@@ -83,3 +96,8 @@ export {
   type AgentWebhookSender,
   type AgentWebhookTarget,
 } from "./support/ucp-support/agent-webhooks";
+export { createAgentWebhookDispatchRunners } from "./support/runtime-support/worker-jobs";
+export {
+  createGuestPaymentClaimRoute,
+  type ReadGuestPaymentClaimability,
+} from "./support/route-support/guest-payment-claim/route";

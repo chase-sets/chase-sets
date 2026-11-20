@@ -26,14 +26,19 @@ function gitGrep(args: readonly string[]): readonly string[] {
 }
 
 describe("canonical role-to-permission table", () => {
-  it("canonical role table equals the pre-move Auth table", () => {
+  it("canonical role table preserves the pre-move Auth table except the authorized staff export addition", () => {
     expect(preMove.source).toEqual({
       commit: "15e1e56fc71665b8aabb699c8f00688233136be8",
       path: "bounded-contexts/auth/support/auth-support/constants.ts",
       blob: "0c4214790c27b9937e91f09e565c5c9f298bd8b1",
       export: "AUTH_ROLE_PERMISSIONS",
     });
-    expect(ROLE_PERMISSIONS).toEqual(preMove.rolePermissions);
+    expect({
+      ...ROLE_PERMISSIONS,
+      "platform-admin": ROLE_PERMISSIONS["platform-admin"].filter(
+        (key) => key !== "customer-feedback.privacy.export-sensitive-feedback",
+      ),
+    }).toEqual(preMove.rolePermissions);
   });
 
   it("is the only role-to-permission table and PermissionKey declaration", () => {
@@ -65,6 +70,19 @@ describe("canonical role-to-permission table", () => {
 });
 
 describe("role permission grants", () => {
+  it("grants canonical sensitive feedback export once to platform-admin only, never through presets", () => {
+    const capability = "customer-feedback.privacy.export-sensitive-feedback";
+    expect(PERMISSION_KEYS.filter((key) => key === capability)).toEqual([capability]);
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(permissions.filter((key) => key.startsWith("customer-feedback.privacy."))).toEqual(
+        role === "platform-admin" ? [capability] : [],
+      );
+    }
+    for (const permissions of Object.values(PERMISSION_PRESETS)) {
+      expect(permissions.filter((key) => key.startsWith("customer-feedback.privacy."))).toEqual([]);
+    }
+  });
+
   it("grants reported-content operator authority to platform-admin only", () => {
     for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       expect(permissions.filter((permission) => permission === "reported-content.view")).toEqual(
@@ -317,7 +335,15 @@ describe("pricing preset contract", () => {
       for (const key of ["pricing.view", "pricing.manage"]) {
         expect(new Set<string>(permissions).has(key), role + ":" + key).toBe(expected[role]!.includes(key));
       }
-      const other = [...new Set(permissions.filter((key) => !key.startsWith("pricing.")))].sort();
+      const other = [
+        ...new Set(
+          permissions.filter(
+            (key) =>
+              !key.startsWith("pricing.") &&
+              !(role === "platform-admin" && key === "customer-feedback.privacy.export-sensitive-feedback"),
+          ),
+        ),
+      ].sort();
       expect(createHash("sha256").update(JSON.stringify(other)).digest("hex")).toBe(
         predecessor[role as keyof typeof predecessor],
       );

@@ -16,6 +16,7 @@ export const authWakeRegistryEntry = registryEntry({
   routeDependencyIds: [
     "auth.browser-registration-identity-freshness-carrier",
     "auth.current-session-fresh-read",
+    "auth.guest-payment-claim-eligibility",
     "auth.session-detail-self-refresh",
   ],
 });

@@ -15,7 +15,7 @@
 //! admin-web revalidates its route. The platform does not register that topic yet, so the API
 //! refuses the stream and the page stays as it was drawn (admin-web's says Connecting);
 //! chase-sets/chase-sets#10607.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use serde::Serialize;
 
 pub mod api;
@@ -94,28 +94,24 @@ async fn live(
     })
 }
 
-/// admin-web's section for an item's surface (`OPERATIONS_ATTENTION_SOURCES`'s targets).
-fn section(surface: &str) -> Option<&'static str> {
-    match surface {
-        "projection-operations" => Some("platform"),
-        "support-operations" | "platform-feedback" => Some("support"),
-        _ => None,
-    }
-}
-
-/// Where an item's Open goes: its admin-web page. The API sends the path without its section
-/// (`/projections?tab=blocked`, `/platform-feedback/{id}`), which admin-web does not serve, so the
-/// pilot puts the surface's section in front of a path that has none. Remove that when
-/// chase-sets/chase-sets#10606 lands; a path with its section is taken as it is.
+/// Where an item's Open goes: the admin path the API sends, with its section
+/// (`/platform/projections?tab=blocked`, `/support/platform-feedback/{id}`), opened here when the
+/// pilot serves that page and on admin-web otherwise. Anything else has no page.
 pub fn open_href(link: &DeepLink) -> Option<String> {
     if !link.href.starts_with('/') || link.href.starts_with("//") {
         return None;
     }
     let first = link.href[1..].split(['/', '?', '#']).next().unwrap_or("");
-    let path =
-        if auth::SECTIONS.contains(&first) { link.href.clone() } else { format!("/{}{}", section(&link.surface)?, link.href) };
+    if !auth::SECTIONS.contains(&first) {
+        return None;
+    }
+    let path = link.href.clone();
     // A page the pilot serves opens here.
-    if let Some(own) = crate::support::feedback::serves(&path).or_else(|| crate::support::requests::serves(&path)) {
+    let own = crate::support::feedback::serves(&path)
+        .or_else(|| crate::support::requests::serves(&path))
+        .or_else(|| crate::reported::serves(&path))
+        .or_else(|| crate::projections::serves(&path));
+    if let Some(own) = own {
         return Some(own);
     }
     crate::views::admin_web(&path).map(|uri| uri.to_string())
@@ -134,17 +130,32 @@ mod tests {
         let origin = crate::app::admin_web_origin();
         let open = |surface: &str, href: &str| open_href(&link(surface, href)).map(|h| h.trim_start_matches(origin).to_owned());
         assert_eq!(
-            open("projection-operations", "/projections?tab=blocked").as_deref(),
-            Some("/platform/projections?tab=blocked")
+            open_href(&link("projection-operations", "/platform/projections?tab=blocked")).as_deref(),
+            Some("/platform/projections?tab=blocked"),
+            "the pilot serves the projections console"
         );
-        assert_eq!(open("support-operations", "/requests?requestId=req_1").as_deref(), Some("/support/requests?requestId=req_1"));
-        assert_eq!(open("platform-feedback", "/platform-feedback/pfb_1").as_deref(), Some("/support/platform-feedback/pfb_1"));
+        assert_eq!(
+            open("projection-operations", "/platform/projections/elsewhere").as_deref(),
+            Some("/platform/projections/elsewhere")
+        );
+        assert_eq!(
+            open("support-operations", "/support/requests?requestId=req_1").as_deref(),
+            Some("/support/requests?requestId=req_1")
+        );
         assert_eq!(
             open("platform-feedback", "/support/platform-feedback/pfb_1").as_deref(),
-            Some("/support/platform-feedback/pfb_1"),
-            "a sectioned path as it is"
+            Some("/support/platform-feedback/pfb_1")
         );
-        assert_eq!(open("other", "/elsewhere"), None, "an unknown surface has no page");
+        assert_eq!(
+            open_href(&link("reported-content", "/support/reported-content/listing/lst_1")).as_deref(),
+            Some("/support/reported-content/listing/lst_1"),
+            "the pilot serves a reported target's page"
+        );
+        assert_eq!(
+            open_href(&link("reported-content", "/support/reported-content")).as_deref(),
+            Some("/support/reported-content")
+        );
+        assert_eq!(open("platform-feedback", "/platform-feedback/pfb_1"), None, "a path without its section has no page");
         assert_eq!(open("platform-feedback", "https://example.test/x"), None, "only admin-web paths");
         assert_eq!(open("platform-feedback", "//example.test/x"), None);
     }

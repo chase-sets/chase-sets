@@ -27,6 +27,55 @@ const empty = {
 };
 
 describe("consumer-local configuration validation read envelope", () => {
+  it("orders journal rows by the numeric column rather than the text result alias", async () => {
+    const pool = fakePool({});
+    const store = createPostgresConfigurationEpochStore({
+      pool,
+      sourceIncarnation: "source-1",
+      consumers: [],
+      readCanonicalCreation: async () => ({ kind: "CREATED", sourceIncarnation: "source-1", keyCreationEpoch: 0 }),
+    });
+    await store.status("account/existing");
+    expect(
+      pool.query.mock.calls.find(([sql]) => sql.includes("FROM event_configuration_guard_history"))?.[0],
+    ).toContain("ORDER BY event_configuration_guard_history.sequence");
+  });
+
+  it("derives an absent source journal only from canonical creation without writing history", async () => {
+    const pool = fakePool({});
+    const readCanonicalCreation = vi.fn(async () => ({
+      kind: "CREATED" as const,
+      sourceIncarnation: "source-1",
+      keyCreationEpoch: 0,
+    }));
+    const store = createPostgresConfigurationEpochStore({
+      pool,
+      sourceIncarnation: "source-1",
+      consumers: [],
+      readCanonicalCreation,
+    });
+    expect(await store.status("account/existing")).toMatchObject({ epoch: 0, status: "OPEN", pendingConsumers: [] });
+    expect(readCanonicalCreation).toHaveBeenCalledOnce();
+    expect(pool.query.mock.calls.some(([sql]) => /INSERT|UPDATE/u.test(sql))).toBe(false);
+  });
+
+  it("never repairs partial source history using canonical creation", async () => {
+    const pool = fakePool({ event_configuration_journal_heads: [{ sequence: "1", digest: "partial" }] });
+    const readCanonicalCreation = vi.fn(async () => ({
+      kind: "CREATED" as const,
+      sourceIncarnation: "source-1",
+      keyCreationEpoch: 0,
+    }));
+    const store = createPostgresConfigurationEpochStore({
+      pool,
+      sourceIncarnation: "source-1",
+      consumers: [],
+      readCanonicalCreation,
+    });
+    await expect(store.status("account/existing")).rejects.toThrow("partial journal history");
+    expect(readCanonicalCreation).not.toHaveBeenCalled();
+  });
+
   it("validates the maximum 32-key vector in one read per key", async () => {
     const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [empty] });
     const grants = Array.from({ length: 32 }, (_, index) => ({ ...grant, key: `owner/${index}` }));

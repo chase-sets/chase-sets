@@ -64,6 +64,10 @@
   border-color: var(--color-success);
   background: var(--color-success-soft);
 }
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
 .card {
   display: grid;
   gap: var(--space-3);
@@ -169,6 +173,10 @@
   background: var(--color-surface);
   color: var(--color-primary);
   box-shadow: var(--shadow-sm, none);
+}
+/* The shown method's forms, in the page's column: a wrapper for their submit's analytics only. */
+.forms {
+  display: contents;
 }
 /* "Recommended", beside the passkey's copy. */
 .badge {

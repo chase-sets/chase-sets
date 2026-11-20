@@ -67,6 +67,8 @@ export type CatalogPrimaryWorkbenchValidationReadinessReadModel = Readonly<{
     blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   }>[];
   dryRunEvidence: readonly Readonly<{
+    providerKey: string | null;
+    profileVersion: string | null;
     externalKey: string;
     sourceUrl: string | null;
     sourceHash: string | null;

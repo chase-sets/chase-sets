@@ -240,6 +240,34 @@ function offlineSaleEvent(quantity: number) {
 }
 
 describe("inventory hold collision runtime", () => {
+  it.each(["native", "legacy"])(
+    "recovers an interrupted %s keyed sale without decrementing or appending again",
+    async (keyKind) => {
+      const harness = createRecoveryHarness();
+      await harness.seedItem();
+      const idempotencyKey = `interrupted-${keyKind}`;
+      harness.seedInProgressClaim(idempotencyKey, 1);
+      const adjusted = adjustedEvent(idempotencyKey, 1);
+      const payload = {
+        ...adjusted.payload,
+        ...(keyKind === "native" ? { requestIdempotencyKey: idempotencyKey } : {}),
+      };
+      if (keyKind === "native") delete (payload as { csatOutcomeFact?: unknown }).csatOutcomeFact;
+      await harness.eventStore.appendToStream({
+        streamId: "inventory.item-inv_1",
+        expectedVersion: 1,
+        context: harness.context,
+        events: [{ ...adjusted, payload }, offlineSaleEvent(1)],
+      });
+      const before = harness.readAllEvents();
+      await expect(
+        harness.createServices().reduceItem(harness.request(idempotencyKey, 1), harness.context),
+      ).resolves.toMatchObject({ version: 3, appliedQuantity: 1, refusedQuantity: 0 });
+      expect(harness.readAllEvents()).toEqual(before);
+      expect(harness.idempotencyRows.get(idempotencyKey)).toMatchObject({ status: "completed", result_version: 3 });
+      expect(harness.releaseCount).toBe(0);
+    },
+  );
   it("recovers a committed offline sale after completion fails without appending again or leaking event fields", async () => {
     const harness = createRecoveryHarness({ failNextIdempotencyComplete: true });
     const { context, idempotencyRows, readAllEvents, streams } = harness;
@@ -317,6 +345,26 @@ describe("inventory hold collision runtime", () => {
     expect(harness.releaseCount).toBe(0);
   });
 
+  it("does not adopt an adjacent keyed pair from another account", async () => {
+    const harness = createRecoveryHarness();
+    await harness.seedItem();
+    const idempotencyKey = "wrong-account-sale";
+    harness.seedInProgressClaim(idempotencyKey, 1);
+    await harness.eventStore.appendToStream({
+      streamId: "inventory.item-inv_1",
+      expectedVersion: 1,
+      context: { ...harness.context, audit: { ...harness.context.audit, forAccountId: "acc_other" } },
+      events: [adjustedEvent(idempotencyKey, 1), offlineSaleEvent(1)],
+    });
+    const before = harness.readAllEvents();
+    await expect(
+      harness.createServices().reduceItem(harness.request(idempotencyKey, 1), harness.context),
+    ).rejects.toThrow("Inventory adjustment idempotency key is already being processed.");
+    expect(harness.readAllEvents()).toEqual(before);
+    expect(harness.idempotencyRows.get(idempotencyKey)).toMatchObject({ status: "in_progress", result_version: null });
+    expect(harness.releaseCount).toBe(0);
+  });
+
   it("preserves zero-applied recovery from durable stock-authority evidence", async () => {
     const harness = createRecoveryHarness({ activeHoldQuantity: 3, failNextIdempotencyComplete: true });
     await harness.seedItem();
@@ -344,6 +392,40 @@ describe("inventory hold collision runtime", () => {
   });
 
   it.each([
+    [
+      "a conflicting native key with a matching legacy key",
+      (idempotencyKey: string) => [
+        {
+          ...adjustedEvent(idempotencyKey, 1),
+          payload: { ...adjustedEvent(idempotencyKey, 1).payload, requestIdempotencyKey: "another-request" },
+        },
+        offlineSaleEvent(1),
+      ],
+    ],
+    [
+      "a present null native key with a matching legacy key",
+      (idempotencyKey: string) => [
+        {
+          ...adjustedEvent(idempotencyKey, 1),
+          payload: { ...adjustedEvent(idempotencyKey, 1).payload, requestIdempotencyKey: null },
+        },
+        offlineSaleEvent(1),
+      ],
+    ],
+    [
+      "a mismatched adjustment item",
+      (idempotencyKey: string) => [
+        {
+          ...adjustedEvent(idempotencyKey, 1),
+          payload: { ...adjustedEvent(idempotencyKey, 1).payload, itemId: "inv_other" },
+        },
+        offlineSaleEvent(1),
+      ],
+    ],
+    [
+      "a mismatched adjustment quantity",
+      (idempotencyKey: string) => [adjustedEvent(idempotencyKey, 2), offlineSaleEvent(1)],
+    ],
     ["a missing following sale event", (idempotencyKey: string) => [adjustedEvent(idempotencyKey, 1)]],
     [
       "a non-adjacent keyed event pair",

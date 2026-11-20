@@ -73,18 +73,20 @@
 //   as select.*).
 // - marketplace/locales/sell_list.en.json: the Sell List page's English catalog
 //   (checkout.features.sellList.ui.sellListPage.* as page.*, checkout.routes.accountSellList.* as route.*,
-//   marketplace.features.listings.evidenceCoverage.* as coverage.*).
+//   checkout.sellList.attempt.* as attempt.*, marketplace.features.listings.evidenceCoverage.* as coverage.*).
 // - marketplace/locales/sell_checkout.en.json: seller checkout's English catalog
 //   (checkout.features.sellList.ui.signedInSellCheckoutPage.* as signed.*, .guestSellCheckoutPage.* as guest.*,
-//   checkout.routes.sellCheckoutSession.* as route.*, and checkout.shared.policyLinks.* as policy.*).
+//   checkout.routes.sellCheckoutSession.* as route.*, checkout.shared.policyLinks.* as policy.*, and the link to
+//   shipping setup, fulfillment.shippingSetup.title as shipping_setup).
 // - marketplace/locales/checkout.en.json: the buy checkout page's English catalog
 //   (checkout.features.sessions.ui.checkoutPage.* as page.*, checkout.routes.checkoutSession.* as
 //   route.*, checkout.routes.checkoutRecovery.* as recovery.*, checkout.shared.policyLinks.* as policy.*, and checkout
 //   start's checkout.routes.checkoutStart.* as start.*).
 // - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
 //   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the language
-//   labels the details list uses, an item's display identity, and Collections' Add to List words,
-//   collections.features.savedLists.ui.addToList.* and .api.route.*).
+//   labels the details list uses, an item's display identity, Collections' Add to List words,
+//   collections.features.savedLists.ui.addToList.* and .api.route.*, and a Sell List add's attempt words,
+//   checkout.sellList.attempt.* as sell_attempt.*).
 // - marketplace/locales/search.en.json: marketplace search's English catalog (discovery.features.search.ui.searchPage.*,
 //   discovery.routes.search.*, the home page's discovery.features.home.ui.homeMerchandising.*, a set's page's
 //   discovery.routes.set.*, and the listing card's, language labels' and display identity's words).
@@ -100,13 +102,17 @@
 //   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
 // - marketplace/locales/imports.en.json: the inventory import page's English catalog
 //   (inventory.features.importBatches.ui.importBatchPage.* as page.*, .api.route.* as api.*,
-//   inventory.routes.marketplace.accountInventoryImports.* as route.*, and inventory.import.* as import.*).
+//   inventory.routes.marketplace.accountInventoryImports.* as route.*, inventory.import.* as import.*,
+//   and Check original result, inventory.recovery.check, as recovery.check).
 // - marketplace/locales/shipments.en.json: the shipment pages' English catalog
 //   (fulfillment.features.shipments.ui.shipmentListPage.* and .shipmentDetailPage.*, and
 //   fulfillment.routes.marketplace.accountShipments.*, .accountShipment.* and .accountSaleShipment.*;
 //   the packing page's .shipmentPackingPage.* as packing.* and .accountSaleShipmentPacking.* as
 //   pack_route.*, and the packing slips' .packingSlipPage.* as slip.* and
 //   .accountSaleShipmentPackingSlips.* as slips_route.*).
+// - marketplace/locales/shipping_setup.en.json: seller shipping setup's English catalog
+//   (fulfillment.shippingSetup.*, and its label choices, Checkout's
+//   checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid and .later as label_prepaid and label_later).
 // - marketplace/locales/addresses.en.json: the shipping addresses page's English catalog
 //   (identity.features.shippingAddresses.ui.shippingAddressPage.* and .errors.*, Identity's account-management
 //   states and address choice, identity.accountManagement.*, the route's words,
@@ -145,6 +151,10 @@
 // - marketplace/agent-scopes.json: the scope families Auth recognizes (contracts/auth-context's
 //   AGENT_OAUTH_KNOWN_SCOPE_FAMILIES), each family's label and its scopes' labels and descriptions, which
 //   a grant's and a consent's scopes are listed by.
+// - marketplace/email-verification.json: each role's permissions Auth withholds until the member's email
+//   is verified (contracts/auth-context's ROLE_PERMISSIONS within EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS),
+//   which permissionAwaitsEmailVerification reads to offer Verify your email in place of an action. A
+//   workaround until Auth says what it withheld (https://github.com/chase-sets/chase-sets/issues/10987).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -163,12 +173,13 @@
 //   adjustment's account-facing status, direction and reason as adjustment_status.*, adjustment_direction.*
 //   and reason.*, and contracts/http's money status labels as status.*, their codes' dashes as underscores).
 // - marketplace/locales/payment.en.json: a buyer's payment page's English catalog
-//   (payments.routes.marketplace.accountPayment.*, at the root).
+//   (payments.routes.marketplace.accountPayment.* and auth.routes.marketplace.guestPaymentClaim.*,
+//   at the root).
 // - marketplace/locales/payment_start.en.json: starting a payment for a buyer's orders again
 //   (payments.routes.marketplace.accountPaymentNew.*, at the root).
 // - marketplace/locales/payment_methods.en.json: the saved payment methods page's English catalog
 //   (payments.routes.marketplace.accountPaymentMethods.*, at the root, and the secure step's words from
-//   payments.routes.marketplace.accountPayment.* as step.*).
+//   payments.routes.marketplace.accountPayment.* and auth.routes.marketplace.guestPaymentClaim.* as step.*).
 // - marketplace/locales/support.en.json: a Support Request participant page's English catalog
 //   (support.features.supportRequests.ui.supportRequestDetailPage.* as page.*, the route's words as route.*,
 //   the support operations page's deadline words as deadline.* and not_applicable, and
@@ -183,7 +194,8 @@
 //   bulk_route.*, the recommendations' page and route as recs.* and recs_route.*, and Pricing
 //   Health's title).
 // - marketplace/locales/channels.en.json: the channel screens' English catalog
-//   (channels.connections.*, channels.publication.* and channels.manualSync.* as manual_sync.*).
+//   (channels.connections.*, channels.publication.*, channels.manualSync.* as manual_sync.* and
+//   the eBay Sandbox connection's channels.ebay.*).
 // - marketplace/locales/offer-matches.en.json: the seller's offer matches' English catalog
 // - marketplace/locales/submitted-offers.en.json: the buyer's submitted offers' English catalog
 //   (marketplace.features.offers.ui.offerMatchListPage.* as list.*, .offerMatchDetailPage.* as detail.*,
@@ -221,16 +233,18 @@
 //   marketplace.app.routes.manifest.description as manifest_description).
 // - marketplace/static/icons/: marketplace-web's four app icons (public/icons), which its manifest names.
 // - admin/favicon.svg: the same logo, admin-web's favicon. Not committed (see GENERATED).
-// - admin/locales/site.en.json: admin-web's offline page and its web app manifest's description
-//   (adminWeb.app.routes.offline.* as offline.*, and adminWeb.app.routes.manifest.description as
-//   manifest_description).
+// - admin/locales/site.en.json: admin-web's offline page, its home (the sections), and its web app
+//   manifest's description (adminWeb.app.routes.offline.* as offline.*, adminWeb.app.routes.index.*
+//   as index.*, and adminWeb.app.routes.manifest.description as manifest_description).
 // - admin/static/icons/: admin-web's four app icons (public/icons), which its manifest names.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
-// - marketplace/nav-icons.json: the inner markup of the design system's `Icon` for each icon those
-//   entries name, and the menu's, as its lucide glyph draws it (the pilot draws the `<svg>` around it).
+// - platform/src/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
+//   entries name, the menu's and the public pages', as its lucide glyph draws it: a kit `Glyph` each
+//   (`platform::glyphs`), made with `Glyph::filled` for the ones `Icon` fills, and `named` for a nav
+//   entry's name.
 // - platform/tokens/: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, as W3C Design Tokens files and a resolver (DTCG 2025.10), which
 //   Corten's `tokens!` reads. Not committed (see GENERATED).
@@ -338,12 +352,12 @@ function marketplaceNav(slot = "top-nav") {
 }
 
 /** The inner markup of the design system's `Icon` for each icon `items` name, and the menu's. */
-async function navIcons(...slots) {
+async function designIcons(extra, ...slots) {
   const need = createRequire(path.join(repo, "packages/design-system/package.json"));
   const { createElement } = need("react");
   const { renderToStaticMarkup } = need("react-dom/server");
   const { Icon } = await import(pathToFileURL(path.join(repo, "packages/design-system/src/icons/index.tsx")).href);
-  const names = new Set(["menu"]);
+  const names = new Set(["menu", ...extra]);
   const walk = (item) => {
     if (item.icon) names.add(item.icon);
     (item.children ?? []).forEach(walk);
@@ -357,6 +371,57 @@ async function navIcons(...slots) {
     icons[name] = inner;
   }
   return icons;
+}
+
+// The design system's icons the public pages draw (public/src/views/home_page.rs's `IconName`).
+const PUBLIC_ICONS = [
+  "cart",
+  "check",
+  "chevronDown",
+  "chevronLeft",
+  "chevronRight",
+  "info",
+  "message",
+  "pause",
+  "rocket",
+  "store",
+  "users",
+  "warning",
+];
+
+/** `icons` as kit glyphs (platform/src/glyphs.rs), the ones the design system's `Icon` fills made filled. */
+function glyphsModule(icons) {
+  const source = readFileSync(path.join(repo, "packages/design-system/src/icons/index.tsx"), "utf8");
+  const rule = source.match(/const filled = ([^;]+);/)?.[1];
+  if (!rule) throw new Error("design-system Icon: no filled rule");
+  const filled = [...rule.matchAll(/name === "(\w+)"/g)].map((m) => m[1]);
+  const constant = (name) => name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+  const lines = [
+    "// Written by deployables/corten-pilot/scripts/export.mjs from the design system's `Icon`",
+    "// (packages/design-system/src/icons): each glyph the pilot draws, as Lucide draws it. Do not edit.",
+    "use crate::ui::icon::Glyph;",
+    "",
+  ];
+  for (const [name, inner] of Object.entries(icons)) {
+    if (inner.includes('"##')) throw new Error(`icon ${name}: its markup closes the raw string`);
+    const make = filled.includes(name) ? "Glyph::filled" : "Glyph::new";
+    lines.push(
+      `/// \`${name}\`${filled.includes(name) ? ", filled" : ""}.`,
+      `pub const ${constant(name)}: Glyph = ${make}(r##"${inner}"##);`,
+    );
+  }
+  lines.push(
+    "",
+    "/// The glyph a nav entry names, by the design system's name.",
+    "pub fn named(name: &str) -> Option<Glyph> {",
+    "    match name {",
+    ...Object.keys(icons).map((name) => `        "${name}" => Some(${constant(name)}),`),
+    "        _ => None,",
+    "    }",
+    "}",
+    "",
+  );
+  return lines.join("\n");
 }
 
 // Token name in the pilot -> custom property in the design system. Dark values are the same
@@ -381,14 +446,17 @@ const colors = {
   "secondary-foreground": "secondary-foreground",
   success: "success",
   "success-soft": "success-soft",
+  "success-contrast": "success-contrast",
   warning: "warning",
   "warning-soft": "warning-soft",
+  "warning-contrast": "warning-contrast",
   danger: "danger",
   "danger-soft": "danger-soft",
   "danger-hover": "danger-hover",
   "danger-contrast": "danger-contrast",
   info: "info",
   "info-soft": "info-soft",
+  "info-contrast": "info-contrast",
   overlay: "overlay",
   // The brand foil (BrandFoilText, the logo): public-web's home page title.
   "logo-start": "chase-logo-start",
@@ -411,6 +479,13 @@ function dtcgColor(text) {
     ...(alpha === 1 ? {} : { alpha }),
     hex: `#${bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
   };
+}
+// A letter spacing in ems as the number the kit's tracking tokens are (`0.025em` is 0.025).
+function ems(text) {
+  if (text === "0") return 0;
+  const match = /^(-?[\d.]+)em$/.exec(text);
+  if (!match) throw new Error(`styles.css: ${text} is not a letter spacing in em`);
+  return Number(match[1]);
 }
 function dtcgDimension(text) {
   if (text === "0") return { value: 0, unit: "rem" };
@@ -449,7 +524,7 @@ const dtcgGroup = (group, values, typed) => ({
 // system's when the page chose none.
 // The UI kit's theme (Corten's shadcn names, platform/src/ui), each a reference to the design
 // system's token, so the dark theme's changes reach the kit's components with no second set of
-// values. The status tones are the pilot's additions to the kit's names.
+// values.
 const kitTheme = {
   background: "color.background",
   foreground: "color.text",
@@ -467,14 +542,12 @@ const kitTheme = {
   "accent-foreground": "color.text",
   destructive: "color.danger",
   "destructive-foreground": "color.danger-contrast",
-  "destructive-soft": "color.danger-soft",
   success: "color.success",
-  "success-soft": "color.success-soft",
+  "success-foreground": "color.success-contrast",
   warning: "color.warning",
-  "warning-soft": "color.warning-soft",
+  "warning-foreground": "color.warning-contrast",
   info: "color.info",
-  "info-soft": "color.info-soft",
-  "primary-soft": "color.primary-soft",
+  "info-foreground": "color.info-contrast",
   border: "color.border",
   input: "color.input",
   ring: "color.ring",
@@ -501,7 +574,17 @@ function tokens() {
     radius: { md: value("radius"), lg: value("radius-lg"), xl: value("radius-xl"), full: value("radius-full") },
     shadow: scale(shadows),
     font: { display: value("display-font"), body: value("body-font"), mono: value("mono-font") },
-    control: { height: value("control-md-height"), px: value("control-md-px"), py: value("control-md-py") },
+    // The kit's control sizes are the design system's: every button and field a 44 px touch target
+    // (`--control-height` and its `-sm`), a large one 3rem, and a field's inline padding its small one's.
+    control: {
+      height: value("control-md-height"),
+      "height-sm": value("control-sm-height"),
+      "height-lg": value("control-lg-height"),
+      padding: value("control-sm-px"),
+      "font-size": value("font-size-sm"),
+      px: value("control-md-px"),
+      py: value("control-md-py"),
+    },
   };
   const dark = { color: scale(colors, "dark-"), shadow: scale(shadows, "dark-") };
   const groups = Object.fromEntries(
@@ -513,14 +596,50 @@ function tokens() {
     ...groups,
     $extensions: {
       "run.corten": {
-        breakpoints: { md: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
+        // Tailwind's names and widths, the design system's. The kit's phone layouts (NavBar, Stats,
+        // Steps, Table) switch at `wide`, which is `md`: the design system's DataTable stacks, the
+        // nav's bar and the sheets change at 48rem, and so do the pilot's own `(--md)` rules.
+        breakpoints: {
+          sm: dtcgDimension("40rem"),
+          md: dtcgDimension("48rem"),
+          lg: dtcgDimension("64rem"),
+          wide: "{md}",
+        },
         utilities: { gap: { property: "gap", group: "space" } },
       },
     },
   };
-  const kit = Object.fromEntries(
-    Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
-  );
+  // The kit's card sizes sit beside its colors, flat: a `card` group in the base set and the kit's
+  // `card` color would clash, which `tokens!` refuses to compile.
+  const kit = {
+    ...Object.fromEntries(
+      Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
+    ),
+    "card-padding": { $type: "dimension", $value: "{space.6}" },
+    "card-heading-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-base")) },
+    // The toaster's gap from the bottom, the kit's 1rem; marketplace lifts it above its phone bar on <body>.
+    "toasts-inset-bottom": { $type: "dimension", $value: dtcgDimension("1rem") },
+    // The design system's Stat (stat.tsx): the label text-xs, semibold and tracking-wide, the value
+    // font-heading text-3xl semibold with no tracking (text-2xl on a phone, where two sit in a row).
+    "stat-label-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-xs")) },
+    "stat-label-font-weight": { $type: "fontWeight", $value: 600 },
+    "stat-label-tracking": { $type: "number", $value: ems(value("letter-spacing-wide")) },
+    "stat-value-font-family": { $type: "fontFamily", $value: "{font.display}" },
+    "stat-value-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-3xl")) },
+    "stat-value-font-size-narrow": { $type: "dimension", $value: dtcgDimension(value("font-size-2xl")) },
+    "stat-value-font-weight": { $type: "fontWeight", $value: 600 },
+    "stat-value-tracking": { $type: "number", $value: ems(value("letter-spacing-none")) },
+    // The design system's CheckboxGroup and RadioGroup (checkbox.tsx, radio-group.tsx): the legend
+    // mb-2 over the choices, which are space-y-2 apart.
+    "choice-list-gap": { $type: "dimension", $value: "{space.2}" },
+    "choice-list-legend-gap": { $type: "dimension", $value: "{space.2}" },
+    // The design system's Tabs and SegmentedControl (tabs.tsx, segmented-control.tsx): every choice
+    // font-semibold, the chosen one text-accent, the kit's --primary.
+    "tab-font-weight": { $type: "fontWeight", $value: 600 },
+    "tab-selected-color": { $type: "color", $value: "{primary}" },
+    // The design system's status dot, h-1.5 w-1.5 (ConnectionStatusIndicator).
+    "status-dot-size": { $type: "dimension", $value: dtcgDimension("0.375rem") },
+  };
   return {
     base,
     kit,
@@ -720,7 +839,7 @@ const { platformOperationsReportedContentActionsByTargetType } = await import(
 const { defaultPostagePolicy } = await import(
   pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href
 );
-const { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES } = await import(
+const { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES, EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS, ROLE_PERMISSIONS } = await import(
   pathToFileURL(path.join(repo, "contracts/auth-context/index.ts")).href
 );
 const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scopes }) => ({
@@ -728,6 +847,14 @@ const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scope
   label,
   scopes: scopes.map(({ scope, label, description }) => ({ scope, label, description })),
 }));
+const emailVerification = Object.fromEntries(
+  Object.entries(ROLE_PERMISSIONS)
+    .map(([role, permissions]) => [
+      role,
+      EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS.filter((permission) => permissions.includes(permission)),
+    ])
+    .filter(([, withheld]) => withheld.length > 0),
+);
 const { adminAuthHostConfig } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/auth/support/route-support/host-config.ts")).href
 );
@@ -782,8 +909,62 @@ const outputs = [
         ["catalog.features.scopeSyncBatches.count.", "ssb.count"],
         ["catalog.features.scopeSyncBatches.routes.", "ssb.routes"],
         ["catalog.features.sourceObservations.ui.aliasReview.action.", "alias_action"],
+        ["catalog.features.sourceObservations.ui.aliasReview.allScopes.", "alias_all"],
+        ["catalog.features.sourceObservations.ui.aliasReview.metric.", "alias_metric"],
+        ["catalog.features.sourceObservations.ui.aliasReview.coverage.", "alias_coverage"],
+        ["catalog.features.sourceObservations.ui.aliasReview.table.", "alias_table"],
+        ["catalog.features.sourceObservations.ui.aliasReview.empty.", "alias_empty"],
+        ["catalog.features.sourceObservations.ui.aliasReview.warning.", "alias_warning"],
+        ["catalog.features.sourceObservations.ui.aliasReview.evidence.", "alias_evidence"],
+        ["catalog.features.sourceObservations.ui.aliasReview.selection.", "alias_selection"],
+        ["catalog.features.sourceObservations.ui.aliasReview.bulk.", "alias_bulk"],
+        ["catalog.features.sourceObservations.ui.aliasReview.title", "alias_review.title"],
+        ["catalog.features.sourceObservations.ui.aliasReview.description", "alias_review.description"],
+        ["catalog.features.sourceObservations.ui.aliasReview.status.count", "alias_review.count"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable", "alias_review.unavailable"],
         ["catalog.features.attentionQueue.", "attention"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.", "feedback"],
+        ["catalog.features.sourceObservations.ui.healthFacts.", "health_facts"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.health.", "wb_health"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.metric.", "wb_metric"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.", "wb_copy"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.stage.", "wb_stage"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.", "wb_sync"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.", "wb_jobs"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.", "wb_import_preview"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.", "wb_import_operations"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.", "wb_merge"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.review.", "wb_review"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.table.", "wb_table"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.", "wb_gov_status"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.", "wb_health_status"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.eyebrow", "wb.eyebrow"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.title", "wb.title"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.description", "wb.description"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.returnToWorkbench", "wb.return"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.not.selected", "wb.not_selected"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.none", "wb.none"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.evidence.close", "wb.evidence_close"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.evidence", "wb.evidence"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.blocked", "wb.blocked"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion", "wb.preview_promotion"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.command.count.catalogItemUpdates", "wb.item_updates"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.command.scope", "wb.command_scope"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.command.plan", "wb.command_plan"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations", "wb.eligible_observations"],
+        ["catalog.features.sourceObservations.ui.governanceControls.", "wb_gov"],
+        ["catalog.features.sourceObservations.ui.auditEvidence.", "wb_audit"],
+        ["catalog.features.sourceObservations.ui.providerDetail.", "pd"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.profile.", "wb_profile"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.validation.", "wb_validation"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.key.", "wb_key"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.command.count.", "wb_count"],
+        ["catalog.features.sourceObservations.ui.lifecycleRecovery.", "recovery"],
+        ["catalog.features.operatorSession.ui.adminPanel.", "os"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.importContext.", "wb_ctx"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.", "wb_options"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.sourceScopeWorkset.", "wb_workset"],
+        ["catalog.features.providerScopeDiscovery.ui.schedulePanel.", "schedule"],
         ["catalog.features.catalogItems.ui.catalogItemListPage.", "item_list"],
         ["catalog.features.catalogItems.ui.catalogItemDetailPage.", "item"],
         ["catalog.routes.admin.dimensions.dimensions.catalog.admin", "route.dimensions"],
@@ -808,6 +989,11 @@ const outputs = [
         ["catalog.routes.admin.scopeDetail.scope.catalog.admin", "route.scope"],
         ["catalog.routes.admin.sourceObservationsDetail.named.title", "route.obs_named"],
         ["catalog.routes.admin.sourceObservationsDetail.source.observation.catalog.admin", "route.obs"],
+        ["catalog.routes.admin.integrations.catalog.integrations.catalog.admin", "route.integrations"],
+        ["catalog.routes.admin.integrationsGovernance.governance.catalog.admin", "route.integrations_governance"],
+        ["catalog.routes.admin.integrationsSettings.settings.catalog.admin", "route.integrations_settings"],
+        ["catalog.routes.admin.integrationsHealth.health.catalog.admin", "route.integrations_health"],
+        ["catalog.routes.admin.catalogProviderDetail.provider.catalog.admin", "route.provider"],
       ]),
     ),
   ],
@@ -1036,6 +1222,7 @@ const outputs = [
         ["inventory.import.", "import"],
         ["inventory.features.importBatches.api.route.", "api"],
         ["inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing", "list.create.listing"],
+        ["inventory.recovery.check", "recovery.check"],
       ]),
     ),
   ],
@@ -1058,6 +1245,8 @@ const outputs = [
       ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
         ["checkout.features.sellList.ui.sellListPage.", "page"],
         ["checkout.routes.accountSellList.", "route"],
+        // A line write that did not fully apply (`SellListAttemptBoundary`).
+        ["checkout.sellList.attempt.", "attempt"],
       ])),
       // A listing's unmet evidence codes (`evidenceCoverageCodeLocaleKey`).
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
@@ -1073,6 +1262,9 @@ const outputs = [
         ["checkout.features.sellList.ui.guestSellCheckoutPage.", "guest"],
         ["checkout.routes.sellCheckoutSession.", "route"],
         ["checkout.shared.policyLinks.", "policy"],
+      ])),
+      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [
+        ["fulfillment.shippingSetup.title", "shipping_setup"],
       ])),
     }),
   ],
@@ -1114,6 +1306,9 @@ const outputs = [
         ["checkout.features.sessions.ui.buyCheckoutConfirmationPage.", "confirmation"],
         ["checkout.routes.buyCheckoutConfirmation.", "confirmation_route"],
         ["checkout.routes.checkoutStart.", "start"],
+        // Checkout's refusal of Pay now for a buyer who cannot start a payment, which the page
+        // gives before it writes anything.
+        ["checkout.features.sessions.api.route.payment.", "payment"],
       ]),
     ),
   ],
@@ -1138,6 +1333,10 @@ const outputs = [
         ["collections.features.savedLists.ui.addToList.", "saved"],
         ["collections.features.savedLists.api.route.", "saved_api"],
       ])),
+      // A sell form's Sell List add that did not fully apply (`SellListAttemptBoundary`).
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.sellList.attempt.", "sell_attempt"],
+      ])),
     }),
   ],
   [
@@ -1161,13 +1360,17 @@ const outputs = [
   ],
   [
     "marketplace/locales/listing.en.json",
-    json(
-      await catalog("discovery.ts", "discoveryEnglishTranslations", [
+    json({
+      ...(await catalog("discovery.ts", "discoveryEnglishTranslations", [
         ["discovery.routes.publicListing.", "page"],
         // A listing without a currency's price (the item page's words, which the listing page uses).
         ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
-      ]),
-    ),
+      ])),
+      // What a report whose answer was lost came to (marketplace's `ReviewMutationForm`).
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/account.en.json",
@@ -1183,6 +1386,9 @@ const outputs = [
         // Report review and how a review counts (marketplace's `features/reviews/ui`).
         ["reputation.features.reviews.ui.reviewReportAction.", "report"],
         ["reputation.features.reviews.ui.reviewScoringContext.", "scoring"],
+      ])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.reviewRecovery.", "attempt"],
       ])),
     }),
   ],
@@ -1225,8 +1431,20 @@ const outputs = [
         ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
         ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
         ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
+        ["fulfillment.features.shipments.ui.commandCenter.", "center"],
+        ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
       ]),
     ),
+  ],
+  [
+    "marketplace/locales/shipping_setup.en.json",
+    json({
+      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.shippingSetup.", ""]])),
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid", "label_prepaid"],
+        ["checkout.features.sellList.ui.guestSellCheckoutPage.label.later", "label_later"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/addresses.en.json",
@@ -1245,6 +1463,7 @@ const outputs = [
     json(
       await catalog("identity.ts", "identityEnglishTranslations", [
         ["identity.features.accounts.ui.accountProfilePage.", "page"],
+        ["identity.features.accounts.errors.", "errors"],
         ["identity.features.accounts.ui.currentActorDisplayCue.", "actor"],
         ["identity.features.accounts.ui.accountBadges.", "badges"],
         ["identity.values.accountType.", "account_type"],
@@ -1308,6 +1527,8 @@ const outputs = [
       ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],
         ["marketplace.features.reviews.ui.authoredTextRecovery.", "recovery"],
+        // What a review, a reply or a report whose answer was lost came to (`ReviewMutationForm`).
+        ["marketplace.reviewRecovery.", "attempt"],
       ])),
     }),
   ],
@@ -1393,6 +1614,7 @@ const outputs = [
     ),
   ],
   ["marketplace/agent-scopes.json", json(agentScopes)],
+  ["marketplace/email-verification.json", json(emailVerification)],
   [
     "marketplace/locales/listing-new.en.json",
     json(
@@ -1429,12 +1651,26 @@ const outputs = [
         ["marketplace.features.listings.ui.listingListPage.", "list"],
         ["marketplace.routes.accountListings.", "route"],
         ["marketplace.features.listings.api.route.error.", "error"],
+        // The Listing attempt refusals' words (listingErrorContract's attempt entries).
+        ["marketplace.listingRecovery.ambiguous", "error.history_incomplete"],
+        ["marketplace.listingRecovery.attemptInvalid", "error.attempt_invalid"],
+        ["marketplace.listingRecovery.attemptConflict", "error.attempt_conflict"],
         ["marketplace.features.sellerDesk.degraded.title", "degraded"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [
         ["localization.languageCode.", "language"],
       ])),
     }),
+  ],
+  [
+    "marketplace/locales/listing-recovery.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        // `continue` is a Rust keyword, so not a message's name.
+        ["marketplace.listingRecovery.continue", "start_another"],
+        ["marketplace.listingRecovery.", ""],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/desk.en.json",
@@ -1480,11 +1716,12 @@ const outputs = [
   ],
   [
     "marketplace/locales/payment.en.json",
-    json(
-      await catalog("payments.ts", "paymentsEnglishTranslations", [
+    json({
+      ...(await catalog("payments.ts", "paymentsEnglishTranslations", [
         ["payments.routes.marketplace.accountPayment.", ""],
-      ]),
-    ),
+      ])),
+      ...(await catalog("auth.ts", "authEnglishTranslations", [["auth.routes.marketplace.guestPaymentClaim.", ""]])),
+    }),
   ],
   [
     "marketplace/locales/payment_start.en.json",
@@ -1496,12 +1733,15 @@ const outputs = [
   ],
   [
     "marketplace/locales/payment_methods.en.json",
-    json(
-      await catalog("payments.ts", "paymentsEnglishTranslations", [
+    json({
+      ...(await catalog("payments.ts", "paymentsEnglishTranslations", [
         ["payments.routes.marketplace.accountPaymentMethods.", ""],
         ["payments.routes.marketplace.accountPayment.", "step"],
-      ]),
-    ),
+      ])),
+      ...(await catalog("auth.ts", "authEnglishTranslations", [
+        ["auth.routes.marketplace.guestPaymentClaim.", "step"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/support.en.json",
@@ -1561,6 +1801,7 @@ const outputs = [
         ["channels.connections.", "connections"],
         ["channels.publication.", "publication"],
         ["channels.manualSync.", "manual_sync"],
+        ["channels.ebay.", "ebay"],
       ]),
     ),
   ],
@@ -1588,6 +1829,8 @@ const outputs = [
         ["marketplace.features.offers.ui.submittedOfferDetailPage.", "detail"],
         ["marketplace.routes.accountOfferSubmitted.", "detail_route"],
         ["marketplace.features.offers.ui.offerDetailRecoveryPage.", "recovery"],
+        ["marketplace.marketFollowing.", "following"],
+        ["marketplace.recovery.", "command"],
       ]),
     ),
   ],
@@ -1699,6 +1942,7 @@ const outputs = [
     json(
       await catalog("admin-web.ts", "adminWebEnglishTranslations", [
         ["adminWeb.app.routes.offline.", "offline"],
+        ["adminWeb.app.routes.index.", "index"],
         ["adminWeb.app.routes.manifest.description", "manifest_description"],
       ]),
     ),
@@ -1706,7 +1950,10 @@ const outputs = [
   ["marketplace/nav.json", json(marketplaceNav())],
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
-  ["marketplace/nav-icons.json", json(await navIcons(marketplaceNav("bottom-nav"), marketplaceNav("account-menu")))],
+  [
+    "platform/src/glyphs.rs",
+    glyphsModule(await designIcons(PUBLIC_ICONS, marketplaceNav("bottom-nav"), marketplaceNav("account-menu"))),
+  ],
   ["platform/tokens/base.tokens.json", json(designTokens.base)],
   ["platform/tokens/dark.tokens.json", json(designTokens.dark)],
   ["platform/tokens/ui.tokens.json", json(designTokens.kit)],

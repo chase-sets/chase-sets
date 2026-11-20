@@ -18,7 +18,6 @@ import {
   type DurableJobWorkUnitSummary,
   type DurableJobWorkUnitTerminalOutcome,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
-import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, InventoryItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import { inventoryDraftListingMessageSchema } from "@chase-sets/inventory-draft-listing";
 import { normalizeGtin } from "@chase-sets/primitives/gtin";
@@ -31,6 +30,7 @@ import {
   type InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
+import { InventoryStockChangePending } from "../../inventory-items/api/stock-reservations";
 import { listNativeInventoryExportItems } from "../../inventory-items/read-model/queries";
 import { getStorageLocation, listStorageLocations } from "../../storage-locations/read-model/queries";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
@@ -105,33 +105,18 @@ import {
   type InventoryDraftListingDelivery,
   type InventoryDraftListingDeliveryResult,
 } from "./draft-listing-delivery";
+import {
+  DRAFT_LISTING_HANDOFF_RESUME_GRACE_MS,
+  draftListingHandoffScanHoldsRetention,
+  parseRetentionInstant,
+  pruneAcknowledgedImportCommitJobs,
+  scanInventoryDraftListingHandoffs,
+  type DraftListingHandoffScan,
+} from "./draft-listing-retention";
 export type { InventoryDraftListingDelivery } from "./draft-listing-delivery";
 export type { InventoryDraftListingDeliveryResult } from "./draft-listing-delivery";
+export type { DraftListingHandoffScan } from "./draft-listing-retention";
 export type { InventoryImportProductResolutionMaintenanceReceipt } from "./product-resolution-maintenance";
-
-export type InventoryDraftListingCreator = (
-  params: Readonly<{
-    accountId: string;
-    importBatchId: string;
-    importRowId: string;
-    inventoryItemId: string;
-    listingIdOverride: ListingId;
-    catalogItemId: string;
-    productId: string;
-    selectedOptions: readonly InventorySelectedOptionEntry[];
-    storageLocationId: string;
-    storageLocationName: string;
-    shipFromCode: string;
-    shipFromAddress: AddressSnapshot;
-    totalQuantity: number;
-    acquisitionCostAmount: string | null;
-    acquisitionCostCurrencyCode?: string | null;
-    priceAmount: string;
-    priceCurrencyCode: string;
-    quantityCap: number;
-  }>,
-  context: EventStoreContext,
-) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
 
 export type CreateInventoryImportBatch = Readonly<{
   accountId: AccountId;
@@ -195,11 +180,17 @@ export type InventoryImportBatchServices = Readonly<{
     >[]
   >;
   waitForImportBatchJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
+  /**
+   * Commit jobs are deleted only after every draft handoff of their batch has
+   * a durable Marketplace acknowledgement and the batch has no orphan, and not
+   * at all while the resume-window handoff scan holds an orphan, ambiguous or
+   * uncommitted handoff. An incomplete scan is reported, not treated as clean.
+   */
   pruneImportBatchJobRetention: (input?: {
     completedBefore?: string | Date;
     stagedInputCreatedBefore?: string | Date;
     limit?: number;
-  }) => Promise<{ jobs: number; stagedInputs: number }>;
+  }) => Promise<{ jobs: number; stagedInputs: number; handoffs: DraftListingHandoffScan; commitJobsHeld: boolean }>;
   processNextImportBatchJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
@@ -240,7 +231,6 @@ type InventoryImportBatchRuntimeDeps = Readonly<{
   items: InventoryItemServices;
   rowItems?: InventoryItemServices;
   catalogItems: InventoryCatalogItemServices;
-  draftListingCreator?: InventoryDraftListingCreator;
   draftListingDelivery?: InventoryDraftListingDelivery;
   importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
   executeMutation?: <T>(
@@ -1136,6 +1126,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND,
         IMPORT_BATCH_JOB_KIND_CREATE,
         IMPORT_BATCH_JOB_KIND_SNAPSHOT,
+        // Pruned only through the ACK-gated pruneAcknowledgedImportCommitJobs.
+        IMPORT_BATCH_JOB_KIND_COMMIT,
       ],
     },
     { notificationWaiterPool: deps.notificationWaiterPool },
@@ -2579,12 +2571,24 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     listImportBatchJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
     waitForImportBatchJobEvents: (jobId, signal) => jobStore.waitForEvents({ jobId, signal }),
     pruneImportBatchJobRetention: async (input = {}) => {
-      const completedBefore = input.completedBefore ?? retentionCutoff(7);
+      const completedBefore = parseRetentionInstant(input.completedBefore ?? retentionCutoff(7));
       const stagedInputCreatedBefore = input.stagedInputCreatedBefore ?? retentionCutoff(1);
-      const jobs = await jobStore.pruneTerminalJobs({
+      const handoffs = await scanInventoryDraftListingHandoffs(deps.db, {
+        since: new Date(completedBefore.getTime() - DRAFT_LISTING_HANDOFF_RESUME_GRACE_MS),
+      });
+      const otherJobs = await jobStore.pruneTerminalJobs({
         completedBefore,
         limit: input.limit,
       });
+      const commitJobsHeld = draftListingHandoffScanHoldsRetention(handoffs);
+      const commitJobs = commitJobsHeld
+        ? 0
+        : await pruneAcknowledgedImportCommitJobs(deps.db, {
+            jobKind: IMPORT_BATCH_JOB_KIND_COMMIT,
+            completedBefore,
+            lineageStartedAt: handoffs.lineageStartedAt,
+            limit: input.limit,
+          });
       const result = await deps.db.query(
         `WITH expired AS MATERIALIZED (
            SELECT input.input_id, input.snapshot_version, input.snapshot_hash
@@ -2624,7 +2628,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         [formatRetentionDate(stagedInputCreatedBefore), Math.max(1, Math.min(input.limit ?? 500, 5_000))],
       );
 
-      return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
+      return { jobs: otherJobs + commitJobs, stagedInputs: Number(result.rowCount ?? 0), handoffs, commitJobsHeld };
     },
     processNextImportBatchJob: async (input) => {
       if (input.signal?.aborted) return 0;
@@ -2770,6 +2774,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         return 1;
       } catch (error) {
         if (isImportBatchJobHandoff(error, input)) {
+          return 0;
+        }
+        if (error instanceof InventoryStockChangePending) {
+          await jobStore.releaseClaim({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: claimed.progress,
+          });
           return 0;
         }
         await requireImportBatchJobClaim(
@@ -2924,7 +2936,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         }))
       );
     } catch (error) {
-      if (input.signal?.aborted) {
+      if (input.signal?.aborted || error instanceof InventoryStockChangePending) {
         await workUnitStore.releaseClaim(fence);
         return 0;
       }

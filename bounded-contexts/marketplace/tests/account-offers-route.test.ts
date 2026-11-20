@@ -10,6 +10,10 @@ import { fixture, context as policyContext, terms, privatePolicyFields } from ".
 import { createBuyerOfferPolicyRoutes } from "../features/offer-policy/api/route";
 import type { MarketplaceApiEnv } from "../api";
 import { omitPrivateOfferResponseFields } from "../features/offers/api/response-shape";
+import {
+  createMarketplaceOfferMatchPatch,
+  createMarketplaceOfferPatch,
+} from "../support/realtime-support/projection-patches";
 import { action as itemDetailAction } from "../../discovery/routes/item-detail";
 import {
   appendFreshWriteToken,
@@ -472,6 +476,35 @@ describe("market-following Submitted Offer real router", () => {
     });
     for (const key of Object.keys(privatePolicyFields)) expect(JSON.stringify(data)).not.toContain(key);
     expect(data).toMatchObject({ managed_status: "unavailable", can_fulfill: false });
+  });
+
+  it("keeps buyer maximums out of public and seller streamed projection updates, including option snapshots", () => {
+    const source = {
+      offer_id: "off_private_stream",
+      price_amount: "7.50",
+      quantity_requested: 2,
+      ...privatePolicyFields,
+      maximumUnitItemAmount: "1937.41",
+      selected_options: [{ dimensionId: "dim_condition", optionId: "opt_near_mint", maximumUnitItemAmount: "1937.41" }],
+    };
+    for (const patch of [
+      createMarketplaceOfferPatch(["public-offers"], source),
+      createMarketplaceOfferMatchPatch(["seller-matches"], source.offer_id, source),
+    ]) {
+      const serialized = JSON.stringify(patch);
+      for (const key of Object.keys(privatePolicyFields)) expect(serialized).not.toContain(`"${key}"`);
+      expect(serialized).not.toContain("1937.41");
+      expect(patch.changes).toEqual([
+        expect.objectContaining({
+          value: {
+            offer_id: source.offer_id,
+            price_amount: "7.50",
+            quantity_requested: 2,
+            selected_options: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+          },
+        }),
+      ]);
+    }
   });
 });
 

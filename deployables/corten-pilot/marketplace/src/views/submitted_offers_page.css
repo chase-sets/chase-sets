@@ -54,8 +54,6 @@
   margin-block: var(--space-6);
 }
 .stack {
-  display: grid;
-  gap: var(--space-3);
   min-width: 0;
 }
 .row {
@@ -301,7 +299,7 @@
   color: var(--color-text);
   border-color: var(--color-border-strong);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .bar {
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;

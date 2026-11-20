@@ -18,7 +18,7 @@
 //! - The filter form does not carry the read's `asOf` back, so a later `To` is not refused for
 //!   being after a stale `asOf`.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,6 @@ const BASE: &str = "/api/customer-feedback";
 #[corten::routes(state = crate::app::Shared, area = crate::support::csat::url::Csat, caller = crate::auth::Staff<crate::auth::PlatformFeedbackView>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     /// The dashboard, filtered, on a page of its queue.
     #[derive(Clone, Debug, Default)]
@@ -49,7 +48,7 @@ pub mod url {
     }
 
     /// The dashboard's filters (one value each, as admin-web's selects send) and the queue's page.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct Filters {

@@ -230,6 +230,9 @@ describe("checkout command attempt lookup", () => {
           "/account",
           createAccountCommandAttemptRoutes({
             lookupCartAttempt: h.runtime.lookupCartAttempt,
+            lookupSellListAttempt: async () => {
+              throw new Error("A cart lookup never reads a Sell List attempt.");
+            },
             lookupEntryAttempt: async () => {
               throw new Error("A cart lookup never reads an entry attempt.");
             },

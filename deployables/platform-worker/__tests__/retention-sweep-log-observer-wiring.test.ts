@@ -129,9 +129,9 @@ describe("retention sweep worker observer wiring", () => {
         rewrite(
           text,
           `targets: collectRetentionSweepTargets(runtime, pools.control),
-          observer: createRetentionSweepLogObserver(logger),`,
+      observer: createRetentionSweepLogObserver(logger),`,
           `observer: createRetentionSweepLogObserver(logger),
-          targets: collectRetentionSweepTargets(runtime, pools.control),`,
+      targets: collectRetentionSweepTargets(runtime, pools.control),`,
         ),
     ],
   ])("accepts an equivalent composition with %s", async (_label, variant) => {

@@ -9,7 +9,11 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
-import { createBulkRepriceIngestionRuntime, type BulkRepriceMarketplaceListingGateway } from "../api/runtime";
+import {
+  BulkRepriceAttemptConflictError,
+  createBulkRepriceIngestionRuntime,
+  type BulkRepriceMarketplaceListingGateway,
+} from "../api/runtime";
 import { listBulkRepriceRows, upsertBulkRepriceRows } from "../read-model/queries";
 import { pricingBulkRepriceIngestionSchemaMigrations } from "../read-model/schema";
 
@@ -245,6 +249,183 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     expect(completedJob?.result).toEqual({ applied: 0, unchanged: 3, failed: 0, total: 3 });
   });
 
+  it("re-drives only an explicit unknown target with its original wave batch and row attempt", async () => {
+    const pool = pools.pricing;
+    await seedListings(pool);
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const job = await runtime.enqueueJob(
+      {
+        accountId: "acc_seller",
+        rows: [
+          { listingId: "lst_1", newPriceAmount: "12.00" },
+          { listingId: "lst_2", newPriceAmount: "22.00" },
+          { listingId: "lst_3", newPriceAmount: "17.00" },
+        ],
+      },
+      eventContext("acc_seller"),
+    );
+    const calls: Parameters<BulkRepriceMarketplaceListingGateway["applyBulkListingPriceUpdates"]>[0][] = [];
+    const gateway: BulkRepriceMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: async (body) => {
+        calls.push(body);
+        return {
+          items: body.updates.map(({ listingId }) => ({
+            listingId,
+            outcome:
+              listingId === "lst_1"
+                ? "applied"
+                : listingId === "lst_2"
+                  ? "conflict"
+                  : calls.length === 1
+                    ? "unknown"
+                    : "no_op",
+            message: listingId === "lst_2" ? "Listing changed." : undefined,
+          })),
+        };
+      },
+    };
+
+    expect(
+      await runtime.processNextBulkRepriceJob({
+        claimOwnerId: "worker_unknown_retry",
+        claimTtlMs: 30_000,
+        marketplaceListingGatewayForAccount: () => gateway,
+        inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+      }),
+    ).toBe(1);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.batchId).toMatch(/^bri_wave_/);
+    expect(calls[0]?.updates.every((update) => update.idempotencyKey?.startsWith("bri_row_"))).toBe(true);
+    expect(calls[1]).toEqual({ batchId: calls[0]?.batchId, updates: [calls[0]?.updates[2]] });
+    expect(calls.flatMap((call) => call.updates).map((update) => update.listingId)).toEqual([
+      "lst_1",
+      "lst_2",
+      "lst_3",
+      "lst_3",
+    ]);
+    expect(await runtime.listJobRows(job.jobId)).toMatchObject([
+      { row_number: 1, outcome: "applied", error_message: null },
+      { row_number: 2, outcome: "failed", error_message: "Listing changed." },
+      { row_number: 3, outcome: "unchanged", error_message: null },
+    ]);
+    expect(await runtime.getJob(job.jobId)).toMatchObject({
+      status: "completed",
+      result: { applied: 1, unchanged: 1, failed: 1, total: 3 },
+    });
+  });
+
+  it("stops after one unknown re-drive without inventing a failed row or counting it as failed", async () => {
+    const pool = pools.pricing;
+    await seedListings(pool);
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const job = await runtime.enqueueJob(
+      {
+        accountId: "acc_seller",
+        rows: [
+          { listingId: "lst_1", newPriceAmount: "12.00" },
+          { listingId: "lst_2", newPriceAmount: "20.00" },
+          { listingId: "lst_3", newPriceAmount: "17.00" },
+        ],
+      },
+      eventContext("acc_seller"),
+    );
+    const calls: Parameters<BulkRepriceMarketplaceListingGateway["applyBulkListingPriceUpdates"]>[0][] = [];
+    const gateway: BulkRepriceMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: async (body) => {
+        calls.push(body);
+        return {
+          items: body.updates.map(({ listingId }) => ({
+            listingId,
+            outcome: listingId === "lst_1" ? "applied" : listingId === "lst_2" ? "no_op" : "unknown",
+            message: "The target's outcome is unknown; retry the batch.",
+          })),
+        };
+      },
+    };
+
+    await runtime.processNextBulkRepriceJob({
+      claimOwnerId: "worker_still_unknown",
+      claimTtlMs: 30_000,
+      marketplaceListingGatewayForAccount: () => gateway,
+      inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual({ batchId: calls[0]?.batchId, updates: [calls[0]?.updates[2]] });
+    const rows = await runtime.listJobRows(job.jobId);
+    expect(rows).toHaveLength(2);
+    expect(rows).toMatchObject([
+      { row_number: 1, outcome: "applied" },
+      { row_number: 2, outcome: "unchanged" },
+    ]);
+    expect(rows.find((row) => row.row_number === 3)).toBeUndefined();
+    expect(await runtime.getJob(job.jobId)).toMatchObject({
+      status: "failed",
+      progress: { phase: "failed", completed: 2, total: 3, message: expect.stringContaining("remain unknown") },
+      errorMessage: expect.stringContaining("may already have applied"),
+      result: { applied: 1, unchanged: 1, failed: 0, total: 3 },
+    });
+    expect(await runtime.getResultsCsv(job.jobId)).not.toContain("lst_3");
+  });
+
+  it("retains earlier unknown outcomes and known counts when a later wave rejects", async () => {
+    const pool = pools.pricing;
+    await seedListings(pool);
+    await pool.query(
+      `UPDATE platform_policy_documents SET value = jsonb_set(value, '{chunkSize}', '2'::jsonb)
+       WHERE document_id = 'doc_bulk_reprice_enabled'`,
+    );
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const job = await runtime.enqueueJob(
+      {
+        accountId: "acc_seller",
+        rows: [
+          { listingId: "lst_1", newPriceAmount: "12.00" },
+          { listingId: "lst_2", newPriceAmount: "22.00" },
+          { listingId: "lst_3", newPriceAmount: "17.00" },
+        ],
+      },
+      eventContext("acc_seller"),
+    );
+    const calls: Parameters<BulkRepriceMarketplaceListingGateway["applyBulkListingPriceUpdates"]>[0][] = [];
+    const gateway: BulkRepriceMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: async (body) => {
+        calls.push(body);
+        if (body.updates.some(({ listingId }) => listingId === "lst_3")) {
+          throw new Error("Later-wave transport failure");
+        }
+        return {
+          items: body.updates.map(({ listingId }) => ({
+            listingId,
+            outcome: listingId === "lst_1" ? "applied" : "unknown",
+          })),
+        };
+      },
+    };
+    await runtime.processNextBulkRepriceJob({
+      claimOwnerId: "worker_later_wave_failure",
+      claimTtlMs: 30_000,
+      marketplaceListingGatewayForAccount: () => gateway,
+      inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+    });
+
+    expect(calls).toHaveLength(3);
+    expect(calls[1]).toEqual({ batchId: calls[0]?.batchId, updates: [calls[0]?.updates[1]] });
+    expect(await runtime.listJobRows(job.jobId)).toMatchObject([{ row_number: 1, outcome: "applied" }]);
+    expect(await runtime.listJobRows(job.jobId)).toHaveLength(1);
+    const message = expect.stringMatching(/Later-wave transport failure.*1 .*remain unknown.*may already have applied/);
+    expect(await runtime.getJob(job.jobId)).toMatchObject({
+      status: "failed",
+      progress: { phase: "failed", completed: 1, total: 3, message },
+      errorMessage: message,
+      result: { applied: 1, unchanged: 0, failed: 0, total: 3 },
+    });
+    const csv = await runtime.getResultsCsv(job.jobId);
+    expect(csv).not.toContain("lst_2");
+    expect(csv).not.toContain("lst_3");
+  });
+
   it("processes a 10k-row CSV through the job and downloadable outcomes CSV", async () => {
     const pool = pools.pricing;
     const accountId = "acc_10k_seller";
@@ -450,7 +631,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     });
   });
 
-  it("returns applied waves and a complete results CSV when cancelled mid-run", async () => {
+  it("retains applied waves without inventing unresolved outcomes when cancelled mid-run", async () => {
     const pool = pools.pricing;
     const accountId = "acc_cancel_mid_wave";
     const totalRows = 201;
@@ -494,11 +675,89 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     expect((await runtime.getJob(job.jobId))?.result).toEqual({
       applied: 200,
       unchanged: 0,
-      failed: 1,
+      failed: 0,
       total: 201,
     });
-    expect((await runtime.getResultsCsv(job.jobId)).split("\n")).toHaveLength(202);
+    expect((await runtime.getJob(job.jobId))?.progress).toMatchObject({
+      completed: 200,
+      total: 201,
+      message: expect.stringContaining("may already have applied"),
+    });
+    expect((await runtime.getResultsCsv(job.jobId)).split("\n")).toHaveLength(201);
+    expect((await runtime.listJobRows(job.jobId)).some((row) => row.row_number === 201)).toBe(false);
   });
+
+  it.each(["unknown", "rejected"] as const)(
+    "leaves an unresolved target without a terminal row when cancellation interrupts its %s re-drive",
+    async (retry) => {
+      const pool = pools.pricing;
+      await seedListings(pool);
+      const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+      const job = await runtime.enqueueJob(
+        {
+          accountId: "acc_seller",
+          rows: [
+            { listingId: "lst_1", newPriceAmount: "12.00" },
+            { listingId: "lst_2", newPriceAmount: "20.00" },
+            { listingId: "lst_3", newPriceAmount: "17.00" },
+          ],
+        },
+        eventContext("acc_seller"),
+      );
+      const calls: Parameters<BulkRepriceMarketplaceListingGateway["applyBulkListingPriceUpdates"]>[0][] = [];
+      const gateway: BulkRepriceMarketplaceListingGateway = {
+        applyBulkListingPriceUpdates: async (body) => {
+          calls.push(body);
+          if (calls.length === 2) {
+            await runtime.cancelJob(job.jobId, "acc_seller");
+            // A different replica must retain the same conservative rule after cancel response loss.
+            await createBulkRepriceIngestionRuntime({ db: pool }).cancelJob(job.jobId, "acc_seller");
+            if (retry === "rejected") throw new Error("Re-drive response lost after cancellation");
+          }
+          return {
+            items: body.updates.map(({ listingId }) => ({
+              listingId,
+              outcome: listingId === "lst_1" ? "applied" : listingId === "lst_2" ? "no_op" : "unknown",
+            })),
+          };
+        },
+      };
+      expect(
+        await runtime.processNextBulkRepriceJob({
+          claimOwnerId: "worker_cancel_unknown",
+          claimTtlMs: 30_000,
+          marketplaceListingGatewayForAccount: () => gateway,
+          inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+        }),
+      ).toBe(0);
+
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toEqual({ batchId: calls[0]?.batchId, updates: [calls[0]?.updates[2]] });
+      const rows = await runtime.listJobRows(job.jobId);
+      expect(rows).toHaveLength(2);
+      expect(rows).toMatchObject([
+        { row_number: 1, outcome: "applied" },
+        { row_number: 2, outcome: "unchanged" },
+      ]);
+      expect(rows.some((row) => row.row_number === 3)).toBe(false);
+      const expected = {
+        status: "failed",
+        progress: {
+          phase: "failed",
+          completed: 2,
+          total: 3,
+          message: expect.stringMatching(/Cancelled.*1 .*remain unknown.*may already have applied/),
+        },
+        result: { applied: 1, unchanged: 1, failed: 0, total: 3 },
+      };
+      expect(await runtime.getJob(job.jobId)).toMatchObject(expected);
+      expect(await runtime.cancelJob(job.jobId, "acc_seller")).toMatchObject(expected);
+      const csv = await runtime.getResultsCsv(job.jobId);
+      expect(csv).toContain("lst_1");
+      expect(csv).toContain("lst_2");
+      expect(csv).not.toContain("lst_3");
+    },
+  );
 
   it("cancels a queued job so it is never claimed", async () => {
     const pool = pools.pricing;
@@ -512,6 +771,13 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
 
     const cancelled = await runtime.cancelJob(job.jobId, "acc_seller");
     expect(cancelled.status).toBe("failed");
+    expect(cancelled).toMatchObject({
+      progress: { completed: 1, total: 1, message: "Cancelled by account." },
+      result: { applied: 0, unchanged: 0, failed: 1, total: 1 },
+    });
+    expect(await runtime.listJobRows(job.jobId)).toMatchObject([
+      { outcome: "failed", error_message: "Row was not processed because the bulk reprice job was cancelled." },
+    ]);
 
     const marketplaceGateway = fakeMarketplaceGateway();
     const processed = await runtime.processNextBulkRepriceJob({
@@ -522,6 +788,66 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     });
 
     expect(processed).toBe(0);
+    expect(marketplaceGateway.calls).toBe(0);
+  });
+
+  it("bulk reprice attempt identity", async () => {
+    const pool = pools.pricing;
+    await seedListings(pool);
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const attempt = "bulk_reprice_attempt_0000000001";
+    const rows = [{ listingId: "lst_1", newPriceAmount: "11.00" }];
+    const counts = async () =>
+      (
+        await pool.query<{ jobs: number; inputs: number }>(
+          `SELECT (SELECT count(*)::int FROM pricing_bulk_reprice_jobs WHERE payload->>'accountId' = 'acc_seller') AS jobs,
+                  (SELECT count(*)::int FROM pricing_bulk_reprice_job_inputs WHERE account_id = 'acc_seller') AS inputs`,
+        )
+      ).rows[0];
+
+    const first = await runtime.enqueueJob(
+      { accountId: "acc_seller", rows, idempotencyKey: attempt },
+      eventContext("acc_seller"),
+    );
+    // Commit-then-loss: the identical retry, even from another replica, returns the first job and no second input.
+    const retried = await createBulkRepriceIngestionRuntime({ db: pool }).enqueueJob(
+      { accountId: "acc_seller", rows: rows.map((row) => ({ ...row })), idempotencyKey: attempt },
+      eventContext("acc_seller"),
+    );
+    expect(retried.jobId).toBe(first.jobId);
+    await expect(counts()).resolves.toEqual({ jobs: 1, inputs: 1 });
+
+    // Changed-row mutant: the same attempt with different parsed rows conflicts and leaves nothing behind.
+    await expect(
+      runtime.enqueueJob(
+        { accountId: "acc_seller", rows: [{ listingId: "lst_1", newPriceAmount: "12.00" }], idempotencyKey: attempt },
+        eventContext("acc_seller"),
+      ),
+    ).rejects.toBeInstanceOf(BulkRepriceAttemptConflictError);
+    await expect(counts()).resolves.toEqual({ jobs: 1, inputs: 1 });
+
+    // Cancel-then-loss mutant: a cancel retried after its response was lost converges on the one cancellation.
+    const cancelled = await runtime.cancelJob(first.jobId, "acc_seller");
+    await expect(runtime.cancelJob(first.jobId, "acc_seller")).resolves.toMatchObject({
+      jobId: cancelled.jobId,
+      status: "failed",
+      errorMessage: cancelled.errorMessage,
+    });
+    // The identical attempt still names the one cancelled job instead of starting a second one.
+    await expect(
+      runtime.enqueueJob({ accountId: "acc_seller", rows, idempotencyKey: attempt }, eventContext("acc_seller")),
+    ).resolves.toMatchObject({ jobId: first.jobId, status: "failed" });
+    await expect(counts()).resolves.toEqual({ jobs: 1, inputs: 1 });
+
+    const marketplaceGateway = fakeMarketplaceGateway();
+    await expect(
+      runtime.processNextBulkRepriceJob({
+        claimOwnerId: "worker_1",
+        claimTtlMs: 30_000,
+        marketplaceListingGatewayForAccount: () => marketplaceGateway,
+        inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+      }),
+    ).resolves.toBe(0);
     expect(marketplaceGateway.calls).toBe(0);
   });
 

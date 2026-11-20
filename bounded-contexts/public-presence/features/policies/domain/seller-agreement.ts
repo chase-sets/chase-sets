@@ -51,7 +51,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/settlement/features/payout-readiness/domain/setup-progress.ts:4-15 (payout-setup requirement groups, including identity-and-business)",
           "bounded-contexts/settlement/features/payout-readiness/domain/setup-progress.ts:83,186 (identity-and-business requirement id)",
-          "bounded-contexts/identity/features/accounts/domain/domain.ts:75-77,186-189 (SuspendAccount command and active-only precondition)",
+          "bounded-contexts/identity/features/accounts/domain/domain.ts:76-78,187-190 (SuspendAccount command and active-only precondition)",
           "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts:113-195,200-283 (partial velocity/threshold signals, per #5685's INFORM findings)",
         ],
         openQuestions: [
@@ -74,7 +74,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
             assertion:
               "An account-level suspend/reactivate capability exists and is available as the mechanism behind any verification-driven suspension.",
             evidenceRef:
-              "bounded-contexts/identity/features/accounts/domain/domain.ts:75-82,186-207 (SuspendAccount/ReactivateAccount commands and preconditions)",
+              "bounded-contexts/identity/features/accounts/domain/domain.ts:76-83,187-208 (SuspendAccount/ReactivateAccount commands and preconditions)",
           },
           {
             assertion:
@@ -309,7 +309,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           "Describe the shipped account-suspension/reactivation/closure state machine and the shipped listing-report moderation ladder as platform enforcement capabilities, and state a support-contact reconsideration path while flagging the absence of a structured in-product appeal workflow.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/identity/features/accounts/domain/domain.ts:34-42,75-85,133-135,186-218,301-306,403-440 (Account enforcement commands, events, retained action state, and active/suspended/closed lifecycle)",
+          "bounded-contexts/identity/features/accounts/domain/domain.ts:35-43,76-86,134-136,187-219,302-307,411-448 (Account enforcement commands, events, retained action state, and active/suspended/closed lifecycle)",
           "bounded-contexts/platform-operations/features/reported-content/api/contracts.ts:1-39 (dismiss/contact-seller/unlist/escalate-account-suspension moderation actions)",
           "bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts:141-166 (statusByAction projection)",
           "bounded-contexts/marketplace/GLOSSARY.md (Seller Listing Availability)",
@@ -324,7 +324,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
             assertion:
               "Account suspension, reactivation, and closure are separate event-sourced facts with a closed provenance reason and stable action identity; this recording does not add an appeal workflow or change who may enforce.",
             evidenceRef:
-              "bounded-contexts/identity/features/accounts/domain/domain.ts:4,75-85,133-135 (AccountSuspendedEvent/AccountReactivatedEvent/AccountClosedEvent publish AccountEnforcementData)",
+              "bounded-contexts/identity/features/accounts/domain/domain.ts:4,76-86,134-136 (AccountSuspendedEvent/AccountReactivatedEvent/AccountClosedEvent publish AccountEnforcementData)",
           },
           {
             assertion:
@@ -370,15 +370,18 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "governing-law",
       title: "Governing law and dispute forum",
       draftText:
-        "This Agreement is between you and Chase Sets Limited, registered in Wichita, Kansas, and is governed by the laws of the State of Kansas, without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state and federal courts located in Kansas.\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to [NOTICE-EMAIL].",
+        "This Agreement is between you and Chase Sets Limited, registered in Wichita, Kansas, and is governed by the laws of the State of Kansas, without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state and federal courts located in Kansas.\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to legal@chasesets.com.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Align the entity, governing-law state, courts and mailing notice address with the Terms of Service and #5677, retaining [NOTICE-EMAIL] because that fact remains pending.",
-        decisionRefs: [5677],
-        productTruthRefs: [],
+          "Align the entity, governing-law state, courts and mailing notice address with the Terms of Service and the ratified contracting decision, and the legal-notice email with Todd's recorded selection.",
+        decisionRefs: [5677, 8668, 10299],
+        productTruthRefs: [
+          "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+          "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
+        ],
         openQuestions: [
-          "#5677 did not supply a dedicated legal-notice email; [NOTICE-EMAIL] remains pending, as in the Terms of Service. Counsel must confirm the final governing-law and forum language before publication.",
+          "Counsel must confirm the final governing-law and forum language before publication.",
           "Initial rollout jurisdictions (#5678: US, all 50 states + DC) are carried in the artifact's rolloutJurisdictionsOrProductLimits metadata field at publication time, not in this subject's prose.",
         ],
         assumptions: [

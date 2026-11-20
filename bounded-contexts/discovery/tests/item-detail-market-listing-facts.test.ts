@@ -22,7 +22,7 @@ describe("item detail market listing facts", () => {
       query: async <Row>(sql: string, values: readonly unknown[] = []) => {
         calls.push({ sql, values });
 
-        if (sql.includes("FROM discovery_item_detail_pages AS page")) {
+        if (sql.includes("FROM discovery_item_detail_pages")) {
           return {
             rows: [
               {

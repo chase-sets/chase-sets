@@ -1,4 +1,69 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "catalog.provider-scope-refresh",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "catalogProviderScopeRefreshIntervalMs"
+      },
+      "runnerExport": "createCatalogProviderScopeRefreshRunners",
+      "group": "scheduled",
+      "order": 117,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:catalog.provider-scope-refresh"
+    },
+    {
+      "id": "catalog.source-observation-bulk-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "sourceObservationBulkJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.source-observation-bulk-jobs.lane-{lane}"
+    },
+    {
+      "id": "catalog.source-observation-integration-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "sourceObservationIntegrationJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.source-observation-integration-jobs.lane-{lane}"
+    },
+    {
+      "id": "catalog.authoring-bulk-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "catalogAuthoringBulkJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.authoring-bulk-jobs.lane-{lane}"
+    }
+  ],
   "contextName": "catalog",
   "packageName": "@chase-sets/catalog",
   "localeCatalogs": ["contracts/localization/locales/en/catalog.ts"],
@@ -56,10 +121,20 @@
     "shell-support",
     "test-support"
   ],
-  "publicExports": [".", "./client", "./context", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./client", "./context", "./routes/*", "./server", "./test-support", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [
+    {
+      "portName": "catalogMarketObservationRequests",
+      "providedBy": "platform-api",
+      "purpose": "Relays Pricing's current TCGplayer market observation request without reading Pricing policy; absent sources fail closed."
+    },
+    {
+      "portName": "catalogOperatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Checks the live Identity authority of the actor and each operator-session grant creator before Catalog observation access."
+    },
     {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
@@ -77,7 +152,43 @@
     {
       "mountPath": "/api/catalog",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/items/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "catalog_admin_catalog_item_detail_pages" },
+            { "projectionName": "catalog-admin-catalog-item-projection" },
+            { "readModelTable": "catalog_items" },
+            { "readModelTable": "catalog_fields" },
+            { "readModelTable": "catalog_display_templates" },
+            { "readModelTable": "catalog_item_aliases" },
+            { "readModelTable": "catalog_reference_record_aliases" }
+          ]
+        },
+        {
+          "routePath": "/items",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "catalog_admin_catalog_item_list_pages" },
+            { "readModelTable": "catalog_external_product_references" },
+            { "readModelTable": "catalog_external_catalog_item_references" },
+            { "readModelTable": "catalog_admin_catalog_item_detail_pages" },
+            { "readModelTable": "catalog_blueprints" }
+          ]
+        },
+        {
+          "routePath": "/product-contents/containers/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "catalog_resolved_product_contents" }]
+        },
+        {
+          "routePath": "/product-contents/contained/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "catalog_resolved_product_contents" }]
+        }
+      ]
     },
     {
       "mountPath": "/api/public/catalog/operator-session",
@@ -145,10 +256,53 @@
       "ownedTables": ["catalog_attention_dismissals"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "catalog-field-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_fields"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-display-template-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_display_templates"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-alias-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_item_aliases", "catalog_reference_record_aliases"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-blueprint-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_blueprints"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "mcpCapabilities": {
     "tools": [
+      { "name": "catalog.archive-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.attach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.confirm-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.create-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.deprecate-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.detach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-authoring-job", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.list-blueprints", "ownerSlice": "blueprints" },
+      { "name": "catalog.preview-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.publish-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.revise-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-dimensions", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-fields", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-product-resolution-rules", "ownerSlice": "blueprints" },
       { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
@@ -174,8 +328,12 @@
     "resources": []
   },
   "agentCoverage": {
-    "blueprints": { "pending": "#9238" },
-    "blueprints-detail": { "pending": "#9238" },
+    "blueprints": {
+      "tools": ["catalog.list-blueprints", "catalog.create-blueprint", "catalog.preview-bulk-blueprint-lifecycle", "catalog.confirm-bulk-blueprint-lifecycle", "catalog.get-authoring-job"]
+    },
+    "blueprints-detail": {
+      "tools": ["catalog.get-blueprint", "catalog.publish-blueprint", "catalog.deprecate-blueprint", "catalog.archive-blueprint", "catalog.revise-blueprint", "catalog.attach-component", "catalog.detach-component", "catalog.set-blueprint-product-resolution-rules", "catalog.set-blueprint-fields", "catalog.set-blueprint-dimensions"]
+    },
     "catalog-items": { "pending": "#9238" },
     "catalog-items-detail": { "pending": "#9238" },
     "categories": { "pending": "#9238" },
@@ -668,7 +826,7 @@
     },
     "operator-session": {
       "classification": "slice",
-      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, and per-attempt credential resolution.",
+      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, per-attempt credential resolution, and grant-authorized operator-extension observation posts.",
       "expectedConsumers": [
         "source-observations",
         "Internal catalog module composition",
@@ -720,7 +878,8 @@
       "expectedConsumers": [
         "provider-scope-mapping",
         "Internal catalog module composition",
-        "Platform worker scheduled runners"
+        "Platform worker scheduled runners",
+        "source-observations"
       ]
     },
     "source-observations": {
@@ -747,6 +906,7 @@
         "dimensions",
         "display-templates",
         "fields",
+        "operator-session",
         "product-contents",
         "product-measures",
         "provider-scope-discovery",
@@ -820,9 +980,11 @@
         "fields",
         "product-contents",
         "product-measures",
+        "provider-scope-discovery",
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
+        "scope-sync-batches",
         "scope-sync-state",
         "source-observations"
       ]
@@ -872,6 +1034,147 @@
       "crossCuttingRuntimeComposition": true
     }
   },
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "catalog.item-detail-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["catalog-items-detail", "catalog-items"],
+        "actions": [
+          "Revise Catalog Item metadata, fields, categories, tags, images and references",
+          "Publish, archive or bulk-edit Catalog Items"
+        ],
+        "command": "Catalog Item commands returning catalog.catalog-item-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items-detail",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/items/:id",
+        "readModelTables": [
+          "catalog_admin_catalog_item_detail_pages",
+          "catalog_items",
+          "catalog_fields",
+          "catalog_display_templates",
+          "catalog_item_aliases",
+          "catalog_reference_record_aliases"
+        ],
+        "projectionDependencies": ["catalog-admin-catalog-item-projection"],
+        "freshnessDependencyReason": "Publication readiness reads catalog_item_display_identities, which the admin Catalog Item projector persists but does not own as a truncated table, so the route names that projection group directly.",
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Item detail loader forwards a valid afterWrite receipt only through createCatalogRequestApiClient. Any loader failure, including a valid fresh-write projection_freshness_timeout, renders the page without initial data, and the page re-reads the item through the browser client with its loading state and refresh control. Browser reads carry no receipt, so the command snapshot stays the authoritative post-write view."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts",
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.item-list-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["catalog-items", "catalog-items-detail"],
+        "actions": ["Create, publish, archive or bulk-edit Catalog Items"],
+        "command": "Catalog Item commands returning catalog.catalog-item-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/items",
+        "readModelTables": [
+          "catalog_admin_catalog_item_list_pages",
+          "catalog_external_product_references",
+          "catalog_external_catalog_item_references",
+          "catalog_admin_catalog_item_detail_pages",
+          "catalog_blueprints"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Items list loader forwards a valid afterWrite receipt only through createCatalogRequestApiClient. A valid fresh-write projection_freshness_timeout reaches the route error boundary, and reloading the page repeats the same bounded read while the receipt is valid. Filter branches wait on the detail page and Blueprint tables they read; browser list refreshes carry no receipt."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.product-contents-container-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "catalog-items-detail",
+        "actions": ["Replace or remove Product Contents"],
+        "command": "Product Contents commands returning catalog.product-contents-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items-detail",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/product-contents/containers/:id",
+        "readModelTables": ["catalog_resolved_product_contents"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Item detail page shows the command-returned Product Contents snapshot and refreshes the forward list through the browser client, which carries no receipt. A receipted API read returns the bounded 503 projection_freshness_timeout until the Product Contents projection reaches the receipt, and the caller retries while its receipt is valid."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts",
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.product-contents-contained-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "catalog-items-detail",
+        "actions": ["Replace or remove Product Contents"],
+        "command": "Product Contents commands returning catalog.product-contents-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items-detail",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/product-contents/contained/:id",
+        "readModelTables": ["catalog_resolved_product_contents"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Item detail page refreshes the reverse Product Contents list through the browser client, which carries no receipt. A receipted API read returns the bounded 503 projection_freshness_timeout until the Product Contents projection reaches the receipt, and the caller retries while its receipt is valid."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts",
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.db.test.ts"
+        ]
+      }
+    }
+  ],
   "mutationConsistencyInventory": [
     {
       "id": "catalog.operator-session-acknowledged-mutations",
@@ -891,6 +1194,32 @@
         "tests": [
           "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
           "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.operator-extension-scope-observation-posts",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /scope-observations/tcgplayer-set-names",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /catalog-observations/tcgplayer-sealed-products",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:PUT /observation-batches/:batchId/parts/:partIndex",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /observation-batches/:batchId/complete"
+      ],
+      "visibleDestination": {
+        "description": "The extension receives committed counts for its set-name or sealed-product post; grant provenance ids, never the bearer or any provider credential, accompany admission. Market uploads return committed part/admission status codes."
+      },
+      "proof": {
+        "authoritativeResponse": "Set-name success follows observation upserts, per-unit mapping proposals and the refresh-run record. Sealed-product success follows the atomic observation, candidate and admission-event commit, using canonical member streams rather than projection catch-up. Validation refusals carry fixed codes and write no observations; a lost commit acknowledgement remains an unknown backend outcome. Market part and completion success follows expected-version event-store COMMIT acknowledgement; completion first validates full C0 assembly, digest, byte count, endpoint clocks and grant provenance.",
+        "tests": [
+          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.db.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/sealed-product-observation-post.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/sealed-product-observation-post.db.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/operator-session-observation-parts.db.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/operator-session-observation-admission.db.test.ts"
         ]
       }
     },
@@ -957,6 +1286,25 @@
       "proof": {
         "authoritativeResponse": "Pause and resume respond with the UPDATE ... RETURNING schedule row and run-now responds with the synchronous refresh result; the schedule list read is a direct read of the mutated table, never a projection. bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts proves a pause is visible on the immediately following schedule list read and that run outcomes land on the schedule row before the command returns.",
         "tests": ["bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.provider-scope-discovery-proposal-acceptance",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts:POST /canonical-scope-record-proposals/:proposalId/accept"
+      ],
+      "visibleDestination": {
+        "description": "Accepting a canonical Scope Record proposal returns the accepted proposal row, the Scope Record id it resolved to, any Reference Record it created and published, and the per-unit mapping re-point summary. The proposal list reads the same catalog_scope_record_proposals table the command updated; the created Scope Record and the re-pointed mappings reach their read models through the Scope Registry and Provider Scope Mapping projections."
+      },
+      "proof": {
+        "authoritativeResponse": "The response carries the proposal row from the conditional UPDATE ... RETURNING (or its reread when a retry finds it already accepted) and ids decided from the Reference Record and Provider Scope Mapping streams, never from a projection. bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.db.test.ts proves the accepted proposal is visible on the next list read and that the created Scope Record projects active after a drain; runtime.db.test.ts proves the re-pointed mappings land on the accepted id.",
+        "tests": [
+          "bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.db.test.ts",
+          "bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts"
+        ]
       }
     },
     {
@@ -1069,6 +1417,8 @@
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-lifecycle/preview",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/confirm",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/preview",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-remove-drafts/confirm",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-remove-drafts/preview",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-catalog-item-references/:providerKey/:externalKey",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-product-references/:providerKey/:externalKey",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/fields/:fieldId",
@@ -1102,10 +1452,10 @@
       ],
       "visibleDestination": {
         "routeId": "catalog-items-detail",
-        "description": "Product Contents authoring stays on the Catalog Item detail surface and returns the resolved Product Contents fact snapshot from the command runtime without waiting on the forward/reverse read-model projection."
+        "description": "Product Contents authoring stays on the Catalog Item detail surface, reads a complete-stream authoring snapshot with its terminal version, and returns the guarded resolved fact snapshot without waiting on the forward/reverse read-model projection."
       },
       "proof": {
-        "authoritativeResponse": "The Product Contents replace and remove routes return the resolved fact built by the Product Contents runtime in the same request. The Catalog Item detail UI refreshes Product Contents rows after the authoritative command response, while the projection catches up for forward and reverse lookup rows.",
+        "authoritativeResponse": "The Product Contents authoring snapshot binds matching lines to the terminal stream version; replace and remove require that expectedVersion and return the resolved fact plus committed version in the same request. The Catalog Item detail UI refreshes Product Contents rows after the guarded command response, while the projection catches up for forward and reverse lookup rows.",
         "tests": [
           "bounded-contexts/catalog/features/product-contents/api/route.test.ts",
           "bounded-contexts/catalog/features/product-contents/api/runtime.test.ts",
@@ -1140,10 +1490,12 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/promote",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/split",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/update",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Ha7da7073f776#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H3ed75dd87de3#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hb4707c42a8f4#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H6e2a3b4d7d87#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H465c0434cbf3#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H849c09ce057b#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H865d458e6139#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H8869db554960#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hbfe1b7ff4330#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST He6cacbccf5d1#1",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /bulk-promote/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/impact",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/preview",
@@ -1163,7 +1515,7 @@
         "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run/state, candidate generation, merge-candidate command payload preview, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
       },
       "proof": {
-        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact promote/split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
@@ -1201,18 +1553,18 @@
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H17cd86e76cd7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H2ccae70b986c#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H4713b23308ae#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5916ed4aed53#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5951cf447e8c#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H49906495e168#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8d43e99581ed#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5f1753bd561a#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6646e478f939#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6c60f0691cb7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H7503ecdfed3e#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H785a9293c67b#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H876c5e305fd2#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8acc70cf4320#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hefce8946403d#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8ca59b7e95dc#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8fb4eb8e717e#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H9d96152ce165#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST He563b1cdce47#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hc9176fca9b33#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hd82bcf180987#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST He3dad3268adf#1",

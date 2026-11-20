@@ -17,6 +17,71 @@ export type ProviderOptionRouteServices = SourceObservationReadServices &
   ProviderOptionQueryServices &
   Pick<CatalogIntegrationEngineServices, "getCatalogIntegrationControlPlaneReadiness">;
 
+export type IntegrationOptionQueryInput = Parameters<ProviderOptionQueryServices["queryIntegrationOptions"]>[0];
+
+// The `GET /integration-options` query, parsed once so the HTTP route and the
+// in-process workbench surface read resolve options with the same semantics.
+export function integrationOptionQueryFromParams(
+  query: Readonly<Record<string, string | undefined>>,
+): IntegrationOptionQueryInput {
+  const cacheOnly = query.cacheOnly === "true";
+  return {
+    providerKey: String(query.providerKey ?? query.provider ?? "tcgdex"),
+    profileKey: query.profileKey,
+    ingestionUnitKey: query.ingestionUnitKey ?? query.unitKey,
+    queryKind: String(query.queryKind ?? query.kind ?? ""),
+    languageCode: query.languageCode ?? query.language,
+    parentValue: query.parentValue ?? query.seriesId ?? query.series,
+    cursor: query.cursor,
+    limit: positiveIntegerQueryValue(query.limit),
+    forceRefresh: query.forceRefresh === "true",
+    ...(cacheOnly ? { cacheOnly } : {}),
+  };
+}
+
+export type IntegrationOptionPage = Readonly<{
+  items: readonly unknown[];
+  total: number;
+  count: number;
+}> &
+  Readonly<Record<string, unknown>>;
+
+export async function resolveIntegrationOptionPage(
+  services: ProviderOptionQueryServices,
+  input: IntegrationOptionQueryInput,
+): Promise<IntegrationOptionPage> {
+  if (typeof services.queryIntegrationOptions === "function") {
+    return (await services.queryIntegrationOptions(input)) as unknown as IntegrationOptionPage;
+  }
+
+  const items = await services.listIntegrationOptions({
+    providerKey: input.providerKey,
+    profileKey: input.profileKey,
+    ingestionUnitKey: input.ingestionUnitKey,
+    queryKind: input.queryKind,
+    languageCode: input.languageCode,
+    parentValue: input.parentValue,
+  });
+  return { items, total: items.length, count: items.length };
+}
+
+// The documented refusals of an option query and the status each one answers
+// with. Anything else is an unexpected failure the caller rethrows.
+export function integrationOptionQueryRefusal(
+  error: unknown,
+): Readonly<{ status: 400 | 403 | 503; body: Readonly<{ error: Readonly<Record<string, unknown>> }> }> | null {
+  if (error instanceof CatalogIntegrationRolloutControlError) {
+    return { status: 403, body: rolloutControlErrorResponse(error) };
+  }
+  if (error instanceof CatalogProviderOptionQueryUnavailableError) {
+    return { status: 503, body: { error: { code: error.code, message: error.message } } };
+  }
+  if (error instanceof CatalogProviderOptionQueryInvalidRequestError) {
+    return { status: 400, body: { error: { code: error.code, message: error.message } } };
+  }
+  return null;
+}
+
 export function providerOptionRoutes(services: ProviderOptionRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -45,68 +110,12 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
       return permissionError;
     }
 
-    const providerKey = String(c.req.query("providerKey") ?? c.req.query("provider") ?? "tcgdex");
-    const profileKey = c.req.query("profileKey");
-    const ingestionUnitKey = c.req.query("ingestionUnitKey") ?? c.req.query("unitKey");
-    const queryKind = String(c.req.query("queryKind") ?? c.req.query("kind") ?? "");
-    const languageCode = c.req.query("languageCode") ?? c.req.query("language");
-    const parentValue = c.req.query("parentValue") ?? c.req.query("seriesId") ?? c.req.query("series");
-    const cursor = c.req.query("cursor");
-    const limit = positiveIntegerQueryValue(c.req.query("limit"));
-    const forceRefresh = c.req.query("forceRefresh") === "true";
-    const cacheOnly = c.req.query("cacheOnly") === "true";
-
     try {
-      if (typeof services.queryIntegrationOptions === "function") {
-        const page = await services.queryIntegrationOptions({
-          providerKey,
-          profileKey,
-          ingestionUnitKey,
-          queryKind,
-          languageCode,
-          parentValue,
-          cursor,
-          limit,
-          forceRefresh,
-          ...(cacheOnly ? { cacheOnly } : {}),
-        });
-        return c.json(page);
-      }
-
-      const items = await services.listIntegrationOptions({
-        providerKey,
-        profileKey,
-        ingestionUnitKey,
-        queryKind,
-        languageCode,
-        parentValue,
-      });
-      return c.json({ items, total: items.length, count: items.length });
+      return c.json(await resolveIntegrationOptionPage(services, integrationOptionQueryFromParams(c.req.query())));
     } catch (error) {
-      if (error instanceof CatalogIntegrationRolloutControlError) {
-        return c.json(rolloutControlErrorResponse(error), 403);
-      }
-      if (error instanceof CatalogProviderOptionQueryUnavailableError) {
-        return c.json(
-          {
-            error: {
-              code: error.code,
-              message: error.message,
-            },
-          },
-          503,
-        );
-      }
-      if (error instanceof CatalogProviderOptionQueryInvalidRequestError) {
-        return c.json(
-          {
-            error: {
-              code: error.code,
-              message: error.message,
-            },
-          },
-          400,
-        );
+      const refusal = integrationOptionQueryRefusal(error);
+      if (refusal) {
+        return c.json(refusal.body, refusal.status);
       }
       throw error;
     }

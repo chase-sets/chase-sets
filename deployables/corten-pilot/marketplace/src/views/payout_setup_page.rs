@@ -388,6 +388,7 @@ pub fn ConnectSurface<'a>(
                     </div>
                     <div
                         class={Surface}
+                        role="group"
                         aria-label={label}
                         on:connect={js::mount(target, parts, key, &session, could_not_load, no_session, signal)}
                     ></div>

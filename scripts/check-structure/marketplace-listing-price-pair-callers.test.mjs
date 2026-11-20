@@ -8,7 +8,7 @@ import { validateReadAfterWriteRouteInventory } from "./read-after-write-invento
 
 const registeredCallers = new Map([
   [
-    "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts",
+    "bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts",
     ["priceCurrencyCode: review.fallbackListing.priceCurrencyCode"],
   ],
   [
@@ -61,8 +61,7 @@ const registeredCallers = new Map([
   ],
   ["bounded-contexts/pricing/support/request-support/marketplace-listings.ts", ["PricingMarketplaceListingGateway"]],
   ["contracts/catalog-seed/representative-commerce-state.ts", ["priceCurrencyCode: string"]],
-  ["deployables/platform-api/src/app.ts", ["InventoryDraftListingCreator"]],
-  ["deployables/platform-worker/src/main.ts", ["MarketplaceListingServices", "InventoryDraftListingCreator"]],
+  ["bounded-contexts/pricing/support/runtime-support/worker-jobs.ts", ["MarketplaceServices", "...body"]],
 ]);
 
 const registeredOfferCallers = new Map([

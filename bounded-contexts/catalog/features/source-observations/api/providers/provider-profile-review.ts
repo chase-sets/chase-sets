@@ -39,6 +39,7 @@ import {
   catalogProviderProfileEditableSectionMetadata,
   toCatalogProviderProfileSectionPatch,
   type CatalogProviderProfileEditableSectionMetadata,
+  type CatalogProviderProfileMigrationEvidenceRecording,
   type CatalogProviderProfileSectionUpdateCommand,
   type CatalogProviderProfileVersionUpdatePatch,
 } from "./provider-profile-section-registry";
@@ -85,6 +86,17 @@ export class CatalogProviderProfileVersionNotFoundError extends Error {
     this.name = "CatalogProviderProfileVersionNotFoundError";
     this.providerKey = providerKey;
     this.profileVersion = profileVersion;
+  }
+}
+
+export class CatalogProviderProfileVersionImmutableError extends Error {
+  readonly code = "profile_version_immutable";
+  readonly lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
+
+  constructor(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]) {
+    super(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
+    this.name = "CatalogProviderProfileVersionImmutableError";
+    this.lifecycle = lifecycle;
   }
 }
 
@@ -387,18 +399,7 @@ export async function getCatalogProviderProfileAuthoringModel(input: {
   const selector = profileVersionSelectorFromInput(input);
   const version = await requireProfileVersion(input.store, input.providerKey, input.profileVersion, selector);
   const referenceCount = await input.store.countProfileVersionReferences(version.providerKey, version.profileVersion);
-  const versions = await input.store.listProfileVersions(version.providerKey);
-  const activeVersion =
-    versions.find(
-      (candidate) =>
-        candidate.active &&
-        candidate.lifecycle === "active" &&
-        catalogProviderProfileVersionsCompete(candidate, version),
-    ) ??
-    (await input.store.getActiveProfileVersion(version.providerKey, {
-      profileKey: version.profileKey,
-      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
-    }));
+  const activeVersion = await findCompetingActiveProfileVersion(input.store, version);
   const fixtureCases = authoringFixtureCasesForVersion(
     version,
     input.fixtureCases ?? catalogProviderProfileFixtureCases(),
@@ -593,11 +594,14 @@ export async function createCatalogProviderProfileVersionForReview(input: {
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
 }): Promise<CatalogProviderProfileVersionReview> {
   assertMutableLifecycle(input.version.lifecycle);
-  const saved = await input.store.upsertProfileVersion({
-    ...assertProfileVersionIdentity(input.version),
-    active: false,
-    authoringAudit: mergeAuthoringAudit(null, input.audit),
-  });
+  const saved = await input.store.upsertProfileVersion(
+    {
+      ...assertProfileVersionIdentity(input.version),
+      active: false,
+      authoringAudit: mergeAuthoringAudit(null, input.audit),
+    },
+    refuseImmutableDestination,
+  );
   return toProfileVersionReview(saved);
 }
 
@@ -633,7 +637,7 @@ export async function cloneCatalogProviderProfileVersionForReview(input: {
     authoringAudit: mergeAuthoringAudit(null, input.audit),
   });
   assertMutableLifecycle(cloned.lifecycle);
-  const saved = await input.store.upsertProfileVersion(cloned);
+  const saved = await input.store.upsertProfileVersion(cloned, refuseImmutableDestination);
   return toProfileVersionReview(saved);
 }
 
@@ -680,7 +684,7 @@ export async function updateCatalogProviderProfileVersionForReview(input: {
       : (existing.migrationEvidence ?? null),
     authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, input.audit),
   });
-  const saved = await input.store.upsertProfileVersion(updated);
+  const saved = await input.store.upsertProfileVersion(updated, refuseImmutableDestination);
   return toProfileVersionReview(saved);
 }
 
@@ -700,7 +704,12 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
     input.profileVersion,
     profileVersionSelectorFromInput(input),
   );
-  const patch = toCatalogProviderProfileSectionPatch(existing, input.command);
+  const patch = toCatalogProviderProfileSectionPatch(existing, input.command, {
+    migrationEvidenceRecording:
+      input.command.section === "migration-evidence"
+        ? await migrationEvidenceRecording(input.store, existing, input.audit ?? null)
+        : null,
+  });
   return updateCatalogProviderProfileVersionForReview({
     store: input.store,
     providerKey: input.providerKey,
@@ -711,6 +720,40 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
     audit: input.audit,
     activeJobs: input.activeJobs,
   });
+}
+
+async function findCompetingActiveProfileVersion(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const versions = await store.listProfileVersions(version.providerKey);
+  return (
+    versions.find(
+      (candidate) =>
+        candidate.active &&
+        candidate.lifecycle === "active" &&
+        catalogProviderProfileVersionsCompete(candidate, version),
+    ) ??
+    (await store.getActiveProfileVersion(version.providerKey, {
+      profileKey: version.profileKey,
+      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+    }))
+  );
+}
+
+async function migrationEvidenceRecording(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  audit: CatalogProviderIntegrationProfileAuthoringAudit | null,
+): Promise<CatalogProviderProfileMigrationEvidenceRecording> {
+  const active = await findCompetingActiveProfileVersion(store, version);
+  return {
+    recordedAt: audit?.updatedAt ?? new Date().toISOString(),
+    recordedByUserId: audit?.updatedByUserId ?? null,
+    recordedForAccountId: audit?.updatedForAccountId ?? null,
+    mappingFingerprintBefore: active ? sourceMappingFingerprint(active) : null,
+    mappingFingerprintAfter: sourceMappingFingerprint(version),
+  };
 }
 
 export async function rollbackCatalogProviderProfileVersionForReview(input: {
@@ -1594,7 +1637,18 @@ function profileVersionSelectorFromInput(
 
 function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]): void {
   if (lifecycle !== "draft" && lifecycle !== "test") {
-    throw new Error(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
+    throw new CatalogProviderProfileVersionImmutableError(lifecycle);
+  }
+}
+
+/**
+ * An authoring write (create, clone, edit) replaces the row with its provider, profile key and
+ * version, so the persisted row must be draft or test too, as the store reads it under its lock.
+ * Activation, deprecation, retirement and seeding write without it.
+ */
+function refuseImmutableDestination(persisted: CatalogProviderIntegrationProfileVersionRecord | null): void {
+  if (persisted) {
+    assertMutableLifecycle(persisted.lifecycle);
   }
 }
 

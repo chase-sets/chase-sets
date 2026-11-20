@@ -261,6 +261,69 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     ]);
   });
 
+  it("keeps the synthetic managed update fresh across closer passes and expires at its published bound", async () => {
+    const pool = pools.pricing;
+    const unsupported = await persistSyntheticEstimate();
+    const cleanupInitial = await seedSyntheticOfferMarketPrice(pool, syntheticFixture);
+    const updatedFixture = { ...syntheticFixture, estimateVersion: "8347002", amount: "135.00" };
+    const cleanupUpdate = await seedSyntheticOfferMarketPrice(pool, {
+      ...updatedFixture,
+      previousEstimateVersion: syntheticFixture.estimateVersion,
+    });
+    try {
+      const trades = await pool.query<{ unit_price_amount: string; buyer_account_id: string }>(
+        "SELECT unit_price_amount::text, buyer_account_id FROM pricing_market_trades",
+      );
+      expect(trades.rows).toHaveLength(4);
+      expect(trades.rows.every((trade) => trade.unit_price_amount === "135.00")).toBe(true);
+      expect(new Set(trades.rows.map((trade) => trade.buyer_account_id)).size).toBe(4);
+      const [published] = await loadBuyerOfferMarketPrices(pool, [syntheticFixture]);
+      const { runtime } = createRuntime(pool);
+      const selection = {
+        offerId: "off_synthetic_freshness",
+        offerVersion: 1,
+        ...updatedFixture,
+        selectedOptions: [],
+        quantity: 2,
+        maximumUnitItemAmount: "140.00",
+      };
+      const evaluate = (marketPrice: typeof published, evaluatedAt: string) =>
+        evaluateBuyerOfferTarget({
+          selection,
+          marketPrice: marketPrice!,
+          currency: "USD",
+          adjustmentBps: 0,
+          policyRevision: 2,
+          evaluatedAt,
+        });
+      const afterSeed = (seconds: number) =>
+        new Date(Date.parse(published!.estimatedAt) + seconds * 1000).toISOString();
+      expect(evaluate(published, afterSeed(1))).toMatchObject({ status: "target", unitItemAmount: "135.00" });
+      // Reproduce the closer between the applied audit and the later consent evaluation.
+      for (const seconds of [36, 44]) {
+        expect(await runtime.runMarketPriceEstimateCloser({ now: afterSeed(seconds) })).toMatchObject({
+          belowGate: seconds === 36 ? 1 : 0,
+        });
+        const [current] = await loadBuyerOfferMarketPrices(pool, [syntheticFixture]);
+        expect(current).toEqual(published);
+        expect(await runtime.getMarketPriceEstimate(syntheticFixture)).toMatchObject(published!);
+        expect(evaluate(current, afterSeed(seconds))).toMatchObject({ status: "target", unitItemAmount: "135.00" });
+      }
+      const [expired] = await loadBuyerOfferMarketPrices(pool, [unrelatedProduct]);
+      expect(expired!.estimateVersion).toBe(unsupported.payload.estimateVersion);
+      expect(Date.parse(expired!.freshUntil)).toBeLessThan(Date.parse(afterSeed(36)));
+      expect(expired!.freshUntil).not.toBe(unsupported.payload.freshUntil);
+      expect(evaluate(published, published!.freshUntil)).toMatchObject({
+        status: "held",
+        reason: "market-price-stale",
+      });
+    } finally {
+      await cleanupUpdate();
+      await cleanupInitial();
+    }
+    expect((await pool.query("SELECT order_id FROM pricing_market_trades")).rows).toEqual([]);
+  });
+
   it("refuses an existing estimate without changing its persisted event or projection", async () => {
     const existing = await persistSyntheticEstimate(syntheticFixture);
     const before = await pools.pricing.query("SELECT * FROM pricing_market_price_estimates");

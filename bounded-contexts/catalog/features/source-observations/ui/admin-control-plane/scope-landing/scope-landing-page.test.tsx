@@ -9,6 +9,9 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { readCatalogListQuery } from "../../../../../support/shell-support/list-query-state";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
 import { CatalogScopeLandingPage } from "./scope-landing-page";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
+import { controlPlaneOverview, profileReview } from "../../primary-workbench-test-fixtures";
+import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { buildCatalogScopeLandingReadModel } from "./scope-landing-read-model";
 import { catalogAttentionQueueReadModelFixture } from "../../../../attention-queue/api/attention-queue-test-fixtures";
 import type { CatalogDeferredAttentionQueueResult } from "../../../../attention-queue/api/contracts";
@@ -22,7 +25,6 @@ import type {
   CatalogItemAliasRow,
   CatalogReferenceRecordAliasRow,
 } from "../../../../alias-equivalence/read-model/queries";
-
 afterEach(cleanup);
 
 const GENERATED_AT = "2026-07-13T12:00:00.000Z";
@@ -44,6 +46,8 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: GENERATED_AT,
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -58,6 +62,7 @@ function renderLanding(input: {
   canManage?: boolean;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback;
   attentionItemKey?: string;
+  auditEvidence?: CatalogPrimaryWorkbenchReadModel["auditEvidence"];
 }) {
   const url = input.url ?? "https://admin.example/catalog/scopes";
   const query = readCatalogListQuery(new Request(url));
@@ -89,6 +94,7 @@ function renderLanding(input: {
             canManage={input.canManage}
             commandFeedback={input.commandFeedback}
             attentionItemKey={input.attentionItemKey}
+            auditEvidence={input.auditEvidence}
           />
         ),
       },
@@ -190,7 +196,9 @@ function acceptedReferenceAlias(
   };
 }
 
-function generalAliasReview(): CatalogAliasReviewReadModel {
+function generalAliasReview(
+  statuses: Readonly<Record<string, CatalogAliasCandidateRow["review_status"]>> = {},
+): CatalogAliasReviewReadModel {
   return buildCatalogAliasReviewReadModel({
     generatedAt: GENERATED_AT,
     filter: {
@@ -203,7 +211,7 @@ function generalAliasReview(): CatalogAliasReviewReadModel {
       targetId: null,
     },
     candidateRows: [
-      aliasCandidate(),
+      aliasCandidate({ review_status: statuses["alias-pending"] ?? "pending" }),
       aliasCandidate({
         alias_hash: "alias-reference",
         target_kind: "reference-record",
@@ -211,15 +219,53 @@ function generalAliasReview(): CatalogAliasReviewReadModel {
         target_key: "expansion",
         alias_text: "Base Set JP",
         alias_type: "set-equivalent",
-        review_status: "auto-accepted",
+        review_status: statuses["alias-reference"] ?? "auto-accepted",
+      }),
+      aliasCandidate({
+        alias_hash: "alias-accepted-item",
+        review_status: statuses["alias-accepted-item"] ?? "accepted",
       }),
     ],
-    catalogItemAliasRows: [acceptedItemAlias()],
+    catalogItemAliasRows: [acceptedItemAlias({ review_status: statuses["alias-accepted-item"] ?? "accepted" })],
     referenceRecordAliasRows: [acceptedReferenceAlias()],
   });
 }
 
 describe("CatalogScopeLandingPage", () => {
+  it("opens alias-associated evidence over home without losing its filters", async () => {
+    const aliases = generalAliasReview();
+    const url = "https://admin.example/catalog/scopes?search=paldean&evidenceRef=source-observation/obs-1";
+    const audit = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl: url,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profileReview()], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      auditAliases: aliases.candidates,
+      canManageCatalog: true,
+    }).auditEvidence;
+    renderLanding({
+      scopes: { items: [scope()], total: 1, count: 1 },
+      url,
+      generalAliasReview: aliases,
+      auditEvidence: audit,
+    });
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getAllByText("diagnostics-present").length).toBeGreaterThan(0);
+    expect(
+      within(dialog)
+        .getAllByRole("link")
+        .every((link) => link.getAttribute("href")?.includes("search=paldean")),
+    ).toBe(true);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close evidence" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Search" }).getAttribute("value")).toBe("paldean");
+    await userEvent.click(screen.getByRole("button", { name: /All-scopes alias review/i }));
+    expect(
+      screen
+        .getAllByRole("link", { name: "Audit timeline: obs-1" })
+        .every((link) => link.getAttribute("href")?.includes("search=paldean")),
+    ).toBe(true);
+  });
   // The DS DataTable renders both a desktop table and a mobile card layout in
   // jsdom, so cell values appear more than once; assert on "at least one".
   it("renders the canonical scope record list with promotion and sync signals, each linking to its Scope Detail", async () => {
@@ -238,7 +284,7 @@ describe("CatalogScopeLandingPage", () => {
 
   it("shows a stale-sync signal for a scope whose projection has not advanced recently", () => {
     renderLanding({
-      scopes: { items: [scope({ updatedAt: "2026-01-01T00:00:00.000Z" })], total: 1, count: 1 },
+      scopes: { items: [scope({ updatedAt: "2026-01-01T00:00:00.000Z", syncFreshness: "stale" })], total: 1, count: 1 },
     });
 
     expect(screen.getAllByText("Stale sync").length).toBeGreaterThan(0);
@@ -274,18 +320,22 @@ describe("CatalogScopeLandingPage", () => {
     expect(review.closest("main") ?? review.parentElement).toBeTruthy();
   });
 
-  it("mounts the on-demand all-scopes alias disclosure with item/reference targets and every command form", async () => {
+  it("mounts general alias review for a single-language scope with item/reference and accepted/auto-accepted targets", async () => {
     const user = userEvent.setup();
     renderLanding({
-      scopes: { items: [scope()], total: 1, count: 1 },
+      scopes: { items: [scope({ languageEditions: ["en"] })], total: 1, count: 1 },
       generalAliasReview: generalAliasReview(),
       canManage: true,
     });
 
     const disclosure = screen.getByRole("button", { name: /All-scopes alias review/i });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
     await user.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getAllByText("フシギダネ").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Base Set JP").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("accepted").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("auto-accepted").length).toBeGreaterThan(0);
     const commands = [...document.querySelectorAll("[data-alias-review-command]")].map((node) =>
       node.getAttribute("data-alias-review-command"),
     );
@@ -344,5 +394,25 @@ describe("CatalogScopeLandingPage", () => {
       attentionQueue: { status: "unavailable" },
     });
     expect(screen.getByText(/attention queue/i)).toBeTruthy();
+  });
+
+  it("links the queue's next page while keeping the Scope Record filters and pager", () => {
+    renderLanding({
+      scopes: { items: [scope()], total: 1, count: 1 },
+      url: "https://admin.example/catalog/scopes?status=active&page=2",
+      attentionQueue: {
+        status: "ready",
+        readModel: catalogAttentionQueueReadModelFixture(undefined, undefined, {
+          cohorts: { "alias-candidate": { total: 5027 } },
+        }),
+        navigation: { pathname: "/catalog/scopes", search: "status=active&page=2" },
+      },
+    });
+    const coverage = document.querySelector<HTMLElement>('[data-attention-coverage-kind="alias-candidate"]');
+    expect(coverage?.textContent).toContain("Showing 1 of 5,027");
+    const next = document.querySelector<HTMLAnchorElement>('[data-attention-page="next"]');
+    expect(next?.getAttribute("href")).toBe(
+      "/catalog/scopes?status=active&page=2&attentionKind=alias-candidate&attentionOffset=1",
+    );
   });
 });

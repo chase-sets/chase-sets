@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { sortCatalogAttentionItems, summarizeCatalogAttentionItems, type CatalogAttentionItem } from "./attention-item";
+import {
+  CATALOG_ATTENTION_DEFAULT_WINDOW_LIMIT,
+  CATALOG_ATTENTION_ITEM_KINDS,
+  CATALOG_ATTENTION_KIND_SEVERITIES,
+  CATALOG_ATTENTION_SUMMARY_WINDOW,
+  catalogAttentionKindWindow,
+  sortCatalogAttentionItems,
+  type CatalogAttentionItem,
+} from "./attention-item";
 
 function item(
   overrides: Partial<CatalogAttentionItem> & Pick<CatalogAttentionItem, "itemKey" | "severity" | "observedAt" | "kind">,
@@ -44,18 +52,28 @@ describe("sortCatalogAttentionItems", () => {
   });
 });
 
-describe("summarizeCatalogAttentionItems", () => {
-  it("counts by severity and kind and cannot disagree with the list length", () => {
-    const items = [
-      item({ itemKey: "a", kind: "merge-conflict", severity: "critical", observedAt: "2026-07-01T00:00:00.000Z" }),
-      item({ itemKey: "b", kind: "provider-health", severity: "critical", observedAt: "2026-07-01T00:00:00.000Z" }),
-      item({ itemKey: "c", kind: "alias-candidate", severity: "info", observedAt: "2026-07-01T00:00:00.000Z" }),
-    ];
-    const counts = summarizeCatalogAttentionItems(items);
-    expect(counts.total).toBe(items.length);
-    expect(counts.bySeverity.critical).toBe(2);
-    expect(counts.bySeverity.info).toBe(1);
-    expect(counts.byKind["merge-conflict"]).toBe(1);
-    expect(counts.byKind["provider-health"]).toBe(1);
+describe("catalogAttentionKindWindow", () => {
+  it("gives every kind the summary window and only the paged kind a named-kind window", () => {
+    const summary = { kind: null, offset: 0, limit: CATALOG_ATTENTION_DEFAULT_WINDOW_LIMIT } as const;
+    expect(CATALOG_ATTENTION_SUMMARY_WINDOW).toEqual(summary);
+    for (const kind of CATALOG_ATTENTION_ITEM_KINDS) {
+      expect(catalogAttentionKindWindow(summary, kind)).toEqual({ offset: 0, limit: 20 });
+      expect(catalogAttentionKindWindow({ kind: null, offset: 40, limit: 200 }, kind)).toEqual({
+        offset: 40,
+        limit: 200,
+      });
+    }
+
+    const paged = { kind: "unmapped-scope", offset: 200, limit: 200 } as const;
+    expect(catalogAttentionKindWindow(paged, "unmapped-scope")).toEqual({ offset: 200, limit: 200 });
+    for (const kind of CATALOG_ATTENTION_ITEM_KINDS.filter((candidate) => candidate !== "unmapped-scope")) {
+      expect(catalogAttentionKindWindow(paged, kind)).toEqual({ offset: 0, limit: 0 });
+    }
+  });
+
+  it("declares a producible severity set for every kind", () => {
+    expect(Object.keys(CATALOG_ATTENTION_KIND_SEVERITIES).sort()).toEqual([...CATALOG_ATTENTION_ITEM_KINDS].sort());
+    expect(CATALOG_ATTENTION_KIND_SEVERITIES["import-job"]).toEqual(["critical", "warning"]);
+    expect(CATALOG_ATTENTION_KIND_SEVERITIES["merge-conflict"]).toEqual(["critical", "warning"]);
   });
 });

@@ -13,6 +13,51 @@ doksIngress:
       dnsNames: []
   hosts: []
 components:
+  admin-corten:
+    enabled: true
+    kind: "service"
+    replicas: 1
+    image: ""
+    command: "exec /usr/local/bin/corten-pilot-admin"
+    env:
+      - name: "HOST"
+        value: "0.0.0.0"
+      - name: "PORT"
+        value: "8080"
+      - name: "HOSTS"
+        value: "admin-corten.staging.chasesets.com"
+      - name: "PROXIES"
+        value: ""
+      - name: "PUBLIC_PROTO"
+        value: "https"
+      - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
+        value: ""
+      - name: "PLATFORM_API_ORIGIN"
+        value: ""
+      - name: "PLATFORM_INTERNAL_AUTH_SECRET"
+        secret: true
+        secretKey: "PLATFORM_INTERNAL_AUTH_SECRET"
+      - name: "ADMIN_WEB_ORIGIN"
+        value: "https://admin.staging.chasesets.com"
+      - name: "CHASE_SETS_MARKETPLACE_ORIGIN"
+        value: "https://marketplace.staging.chasesets.com"
+    port: 8080
+    service:
+      type: "ClusterIP"
+      port: 8080
+    healthPath: "/health/ready"
+    livenessPath: "/health/live"
+    readinessProbe:
+      timeoutSeconds: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "1"
+        memory: "512Mi"
+    podAnnotations: {}
+    podLabels: {}
   public-web:
     rollout:
       enabled: true
@@ -409,6 +454,10 @@ components:
       - name: "STRIPE_WEBHOOK_SECRET"
         secret: true
         secretKey: "STRIPE_WEBHOOK_SECRET"
+      - name: "STRIPE_WEBHOOK_SECRET_PREVIOUS"
+        secret: true
+        secretKey: "STRIPE_WEBHOOK_SECRET_PREVIOUS"
+        optional: true
       - name: "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
         value: "false"
       - name: "UCP_BUSINESS_SIGNING_ALG"
@@ -428,13 +477,19 @@ components:
         secretKey: "VOYAGE_API_KEY"
       - name: "EBAY_APPLICATION_CLIENT_ID"
         secret: true
-        secretKey: "EBAY_APPLICATION_CLIENT_ID"
+        secretKey: "EBAY_SANDBOX_APP_ID"
       - name: "EBAY_APPLICATION_CLIENT_SECRET"
         secret: true
-        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
+        secretKey: "EBAY_SANDBOX_CERT_ID"
+      - name: "EBAY_OAUTH_RUNAME"
+        secret: true
+        secretKey: "EBAY_SANDBOX_RUNAME"
       - name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON"
         secret: true
         secretKey: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON"
+      - name: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256"
+        secret: true
+        secretKey: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256"
   platform-worker:
     # Keep one warm worker for health and deploy continuity; KEDA adds up to four pods when eligible wake intents accumulate.
     # The cap preserves the staging database connection budget while covering representative wake and import bursts.

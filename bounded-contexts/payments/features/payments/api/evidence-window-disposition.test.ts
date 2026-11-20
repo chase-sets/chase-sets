@@ -316,12 +316,151 @@ describe("evidence window disposition synthetic controls", () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it("AC-09: shared fixture scenarios validate; invented runner residueUnknown is rejected", () => {
-    for (const scenario of Object.values(SCENARIO_FIXTURES))
-      expect(validateProviderObjectDisposition(scenario).ok).toBe(true);
-    const mutant = { ...SCENARIO_FIXTURES.success, residueUnknown: false };
-    mutant.resultDigest = computeResultDigest(mutant);
-    expect(validateProviderObjectDisposition(mutant).ok).toBe(false);
+  describe("AC-09: shared fixture to local executor and validator", () => {
+    type FixtureClass = (typeof SCENARIO_FIXTURES)[keyof typeof SCENARIO_FIXTURES]["classes"][number];
+    const cases = Object.entries(SCENARIO_FIXTURES).flatMap(([scenario, receipt]) =>
+      receipt.classes.map((entry) => ({ scenario, entry })),
+    );
+
+    async function executeClass(entry: FixtureClass) {
+      const index = OPTION_B_CLASS_TABLE.findIndex((table) => table.class === entry.class);
+      expect(index).toBeGreaterThanOrEqual(0);
+      const objectClass = (index + 1) as ProviderObjectClass;
+      let initial: ProviderWriteRow[];
+      switch (entry.state) {
+        case "not-attempted":
+        case "not-created":
+          initial = [];
+          break;
+        case "unknown":
+          initial = [row(objectClass, 1, { state: "pending" })];
+          break;
+        case "cancelled":
+        case "already-terminal":
+        case "disposition-failed":
+          initial = [
+            row(
+              objectClass,
+              1,
+              entry.state === "disposition-failed" && objectClass !== 3
+                ? { providerReference: "seti_SYNTHETIC_INVALID" }
+                : {},
+            ),
+          ];
+          break;
+        case "remedy-requested":
+        case "retained-reused":
+        case "budgeted-residue":
+          initial = Array.from({ length: entry.observedCount! }, (_, ordinal) =>
+            row(objectClass, ordinal + 1, { reusedExisting: objectClass === 5 }),
+          );
+          break;
+        default:
+          throw new Error(`Unmapped shared fixture state: ${entry.class}/${entry.state}`);
+      }
+      const subject = compose(initial, {
+        ...(entry.state === "not-attempted" ? { authority: async () => null } : {}),
+        ...(entry.correlationSource === "creation-time-record-plus-provider-cross-check"
+          ? {
+              crossCheck: async (checkedClass) => {
+                const references = initial
+                  .filter((candidate) => candidate.key.objectClass === checkedClass)
+                  .map((candidate) => candidate.providerReference!);
+                return {
+                  references,
+                  total: references.length,
+                  complete: true,
+                  capHit: false,
+                  nextLink: null,
+                  membershipQualified: true,
+                };
+              },
+            }
+          : {}),
+      });
+      fakeProvider(subject.store);
+      if (entry.state === "already-terminal")
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => Response.json({ id: initial[0]!.providerReference, status: "canceled" })),
+        );
+      if (entry.state === "disposition-failed") {
+        if (objectClass === 3)
+          vi.spyOn(subject.gateway, "cancelSetupSession").mockResolvedValue({
+            outcome: "refused",
+            reason: "provider-rejected",
+            httpStatus: 400,
+          });
+      }
+      return subject.dispose(windowId);
+    }
+
+    function assertMapping(result: Awaited<ReturnType<typeof executeClass>>, entry: FixtureClass) {
+      expect(validateProviderObjectDisposition(result)).toMatchObject({ ok: true, errors: [] });
+      expect(result.classes.map((actual) => actual.class)).toEqual(OPTION_B_CLASS_TABLE.map((table) => table.class));
+      const actual = result.classes.find((candidate) => candidate.class === entry.class)!;
+      expect(actual).toMatchObject({
+        class: entry.class,
+        state: entry.state,
+        declaredBudget: entry.declaredBudget,
+        budgetScope: entry.budgetScope,
+        precedenceOrdinal: entry.precedenceOrdinal,
+        enumerationComplete: entry.enumerationComplete,
+        correlationSource: entry.correlationSource,
+        // The schema's failed/zero example is not a local cancellation discharge.
+        observedCount: entry.state === "disposition-failed" ? 1 : entry.observedCount,
+      });
+      expect(actual.dispositionStartedAt === null).toBe(entry.dispositionStartedAt === null);
+      expect(actual.dispositionCompletedAt === null).toBe(entry.dispositionCompletedAt === null);
+    }
+
+    // Map class facts, not fixture timestamps or stop-at-precedence envelopes:
+    // this executor continues cleanup and emits cleanup-failure, not post-network-failure.
+    it.each(cases)("$scenario / $entry.class / $entry.state", async ({ entry }) => {
+      assertMapping(await executeClass(entry), entry);
+    });
+
+    it("covers every shared class and applicable permitted state without a runner", async () => {
+      for (const receipt of Object.values(SCENARIO_FIXTURES)) {
+        expect(validateProviderObjectDisposition(receipt).ok).toBe(true);
+        expect(receipt.classes.map((entry) => entry.class)).toEqual(OPTION_B_CLASS_TABLE.map((table) => table.class));
+      }
+      for (const table of OPTION_B_CLASS_TABLE) {
+        for (const state of table.permittedStates) {
+          if (table.class === "captured-payment-intent" && state === "budgeted-residue") {
+            // Schema-only: the local executor always requests a captured remedy.
+            expect(table.successStates).not.toContain(state);
+            continue;
+          }
+          if (cases.some(({ entry }) => entry.class === table.class && entry.state === state)) continue;
+          expect(["already-terminal", "disposition-failed"]).toContain(state);
+          const entry = {
+            ...SCENARIO_FIXTURES.success.classes.find((candidate) => candidate.class === table.class)!,
+            state,
+          };
+          assertMapping(await executeClass(entry), entry);
+        }
+      }
+    });
+
+    it("omitted class, swapped state and invented runner receipt field fail red", async () => {
+      const entry = SCENARIO_FIXTURES.success.classes[1]!;
+      const result = await executeClass(entry);
+      assertMapping(result, entry);
+      const omitted = structuredClone(result);
+      omitted.classes = omitted.classes.filter((candidate) => candidate.class !== entry.class);
+      omitted.resultDigest = computeResultDigest(omitted);
+      expect(() => assertMapping(omitted, entry)).toThrow();
+      const swapped = structuredClone(result);
+      swapped.classes.find((candidate) => candidate.class === entry.class)!.state = "already-terminal";
+      swapped.resultDigest = computeResultDigest(swapped);
+      expect(validateProviderObjectDisposition(swapped).ok).toBe(true);
+      expect(() => assertMapping(swapped, entry)).toThrow();
+      const invented = { ...result, residueUnknown: false };
+      invented.resultDigest = computeResultDigest(invented);
+      expect(validateProviderObjectDisposition(invented).ok).toBe(false);
+      expect(() => assertMapping(invented, entry)).toThrow();
+    });
   });
 
   it("AC-04: missing known membership and beyond-cap observations are not zero residue", async () => {

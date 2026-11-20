@@ -8,7 +8,6 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { JsonObject } from "@chase-sets/primitives/json";
 import type {
   AcquisitionOccurrence,
   InventoryAdjustmentReason,
@@ -52,7 +51,6 @@ import {
   type InventoryItemEvent,
   type InventoryItemState,
 } from "../domain/domain";
-import { createInventoryItemAdjustedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { buildInventoryItemProjectionHandlers } from "../read-model/projection";
 import { buildInventoryItemLedgerProjectionHandlers } from "../read-model/ledger-projection";
 import { getInventoryItem, getInventoryItemForListingStock, listInventoryItems } from "../read-model/queries";
@@ -271,11 +269,6 @@ export function createInventoryItemRuntime(
           type: "CreateInventoryItem",
           itemId,
           accountId: params.accountId,
-          csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-            accountId: params.accountId,
-            itemId,
-            idempotencyKey: `inventory:item.adjusted:${itemId}:created`,
-          }),
           catalogItemId: params.catalogItemId as CatalogItemId,
           productId: catalogVersion.productId,
           selectedOptions: catalogVersion.selection,
@@ -352,11 +345,6 @@ export function createInventoryItemRuntime(
 
       let resultVersion: number;
       try {
-        const csatOutcomeFact = createInventoryItemAdjustedCsatOutcomeFact({
-          accountId: params.accountId as AccountId,
-          itemId: params.itemId as InventoryItemId,
-          idempotencyKey: idempotencyKey ?? `inventory:item.adjusted:${params.itemId}:${commandFingerprint}`,
-        });
         if (params.quantityDelta < 0) {
           resultVersion = await appendAuthoritativeNegativeAdjustment({
             deps,
@@ -364,7 +352,7 @@ export function createInventoryItemRuntime(
             codec,
             params,
             context,
-            csatOutcomeFact,
+            ...(idempotencyKey !== null ? { requestIdempotencyKey: idempotencyKey } : {}),
           });
         } else {
           const stock = await loadAuthoritativeInventoryStockSnapshot({
@@ -379,7 +367,7 @@ export function createInventoryItemRuntime(
             streamId: `inventory.item-${params.itemId}`,
             command: {
               type: "AdjustInventoryItemQuantity",
-              csatOutcomeFact,
+              ...(idempotencyKey !== null ? { requestIdempotencyKey: idempotencyKey } : {}),
               quantityDelta: params.quantityDelta,
               heldQuantity: stock.heldQuantity,
               reason: params.reason,
@@ -554,11 +542,6 @@ export function createInventoryItemRuntime(
                 type: "CreateInventoryItem",
                 itemId,
                 accountId: params.accountId,
-                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                  accountId: params.accountId,
-                  itemId,
-                  idempotencyKey: `inventory:item.adjusted:${itemId}:listing-stock-created`,
-                }),
                 catalogItemId: params.catalogItemId as CatalogItemId,
                 productId: catalogVersion.productId,
                 selectedOptions: catalogVersion.selection,
@@ -580,7 +563,6 @@ export function createInventoryItemRuntime(
         totalQuantity = params.quantity;
         availableQuantity = params.quantity;
       } else if (aggregate && availableQuantity < params.quantity) {
-        const adjustedItemId = inventoryItemId;
         adjustedQuantityBy = params.quantity - availableQuantity;
         await child(
           "listing-adjustment",
@@ -601,11 +583,6 @@ export function createInventoryItemRuntime(
               expectedVersion: aggregate.version,
               command: {
                 type: "AdjustInventoryItemQuantity",
-                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                  accountId: params.accountId,
-                  itemId: adjustedItemId,
-                  idempotencyKey: `inventory:item.adjusted:${inventoryItemId}:listing-stock:${params.quantity}`,
-                }),
                 quantityDelta: adjustedQuantityBy,
                 heldQuantity: totalQuantity - availableQuantity,
                 reason: "Automatic listing stock",
@@ -677,7 +654,7 @@ async function appendAuthoritativeNegativeAdjustment(
       sourceRef?: InventoryAdjustmentSourceRef;
     }>;
     context: EventStoreContext;
-    csatOutcomeFact: JsonObject;
+    requestIdempotencyKey?: string;
   }>,
 ): Promise<number> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -693,7 +670,7 @@ async function appendAuthoritativeNegativeAdjustment(
     });
     const events = decideInventoryItem(aggregate.state, {
       type: "AdjustInventoryItemQuantity",
-      csatOutcomeFact: input.csatOutcomeFact,
+      ...(input.requestIdempotencyKey !== undefined ? { requestIdempotencyKey: input.requestIdempotencyKey } : {}),
       quantityDelta: input.params.quantityDelta,
       heldQuantity: stock.heldQuantity,
       reason: input.params.reason,

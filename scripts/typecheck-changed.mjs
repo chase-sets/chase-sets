@@ -4,7 +4,6 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { classifyChanges, listChangedFiles } from "./change-scope.mjs";
-import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 
 const require = createRequire(import.meta.url);
@@ -182,10 +181,8 @@ export async function runTypecheckChanged({
   repoRoot = rootDir,
   execFile = execFileSync,
   listWorkspaces = () => listWorkspacePackages({ repoRoot, assertRootCoverage: false }),
-  acquireSlot = acquireHeavySlot,
   runCompiler = (configPath) => runTsc(configPath, repoRoot),
   stdout = console.log,
-  stderr = console.error,
 } = {}) {
   if (argv.length > 0) throw new TypecheckChangedError("TYPECHECK_CHANGED_USAGE", "Usage: pnpm run typecheck:changed");
   const derived = deriveChangedFiles({ repoRoot, env, execFile });
@@ -203,11 +200,6 @@ export async function runTypecheckChanged({
     `[TYPECHECK_CHANGED_SCOPED] workspaces=${selected.workspaces.map((workspace) => workspace.name).join(",")} ` +
       `test-files=${selected.testFiles.length}`,
   );
-  const admitted = acquireSlot("repository-gate");
-  if (admitted === false) {
-    stderr("[TYPECHECK_CHANGED_NOT_EXECUTED] no heavy-slot client found or admission refused; exit 73");
-    return 73;
-  }
   let program;
   try {
     program = createTempProgram(repoRoot, [...selected.testFiles, ...selected.ambientFiles]);

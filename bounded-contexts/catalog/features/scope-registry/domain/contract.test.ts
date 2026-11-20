@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertCatalogScopeRecordFixtureMatchesContract,
+  catalogScopeLanguageEditionFilter,
   catalogScopeProductDomainContracts,
   catalogScopeProductDomains,
   representativeCatalogScopeRecordFixtures,
@@ -29,6 +30,35 @@ describe("Catalog scope record contract", () => {
     for (const contract of Object.values(catalogScopeProductDomainContracts)) {
       expect(contract.requiredLeafAttributeKeys).toEqual(["release-date", "official-set-code", "language-editions"]);
     }
+  });
+
+  it("declares English and Japanese discovery for Pokemon and English for every other domain", () => {
+    expect(
+      Object.fromEntries(
+        Object.values(catalogScopeProductDomainContracts).map((contract) => [
+          contract.productDomain,
+          contract.discoveryLanguageCodes,
+        ]),
+      ),
+    ).toEqual({
+      pokemon: ["en", "ja"],
+      magic: ["en"],
+      yugioh: ["en"],
+      "one-piece": ["en"],
+      lorcana: ["en"],
+    });
+  });
+
+  it("filters Scope Records by language edition only where the domain keeps one record per edition", () => {
+    expect(catalogScopeLanguageEditionFilter("pokemon", "ja")).toEqual({
+      languageCode: "ja",
+      includesUnrecorded: false,
+    });
+    expect(catalogScopeLanguageEditionFilter("pokemon", " EN ")).toEqual({
+      languageCode: "en",
+      includesUnrecorded: true,
+    });
+    expect(catalogScopeLanguageEditionFilter("magic", "en")).toBeNull();
   });
 
   it("keeps one representative canonical scope fixture for every product domain", () => {

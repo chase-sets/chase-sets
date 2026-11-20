@@ -11,6 +11,10 @@ import {
 import { emptyOperatorRecord, isOperatorRecord, operatorRecordKey, type OperatorRecord } from "./record";
 import { createOperatorTransport } from "./transport";
 import { isSetNamesRequestResult, type SetNamesRequestResult } from "./set-names/probe";
+import { isSetNamesPostMessage, type SetNamesPostResult } from "./set-names/transport";
+import { isSealedRequestMessage } from "./sealed-products/bridge";
+import { isSealedPostMessage, type SealedPostResult } from "./sealed-products/transport";
+import type { SealedFetch } from "./sealed-products/collector";
 
 export type OperatorAdapters = {
   storage: {
@@ -21,6 +25,7 @@ export type OperatorAdapters = {
   badge(required: boolean): Promise<void>;
   fetch: typeof fetch;
   setNames?: (productLineId: string) => Promise<SetNamesRequestResult>;
+  sealedProducts?: SealedFetch;
 };
 
 type Slot = { record: OperatorRecord; blocked: boolean; queue: Promise<unknown> };
@@ -112,6 +117,82 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     return status(environment);
   }
   return {
+    async receiveSealedProducts(
+      value: unknown,
+      sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
+      extensionId: string,
+    ): Promise<SetNamesRequestResult | SealedPostResult | null> {
+      const origin = `chrome-extension://${extensionId}`;
+      if (
+        sender.id !== extensionId ||
+        sender.url !== `${origin}/popup.html` ||
+        sender.origin !== origin ||
+        sender.hasTab
+      )
+        return null;
+      if (isSealedRequestMessage(value)) {
+        try {
+          const result = await adapters.sealedProducts?.(value.request);
+          return isSetNamesRequestResult(result) ? result : null;
+        } catch {
+          return null;
+        }
+      }
+      if (!isSealedPostMessage(value)) return null;
+      try {
+        return await serial(value.environment, async (current): Promise<SealedPostResult> => {
+          if (current.blocked || !current.record.grant) return { outcome: "grant-invalid" };
+          const result = await transport.postSealedProducts(value.environment, current.record.grant, value.post);
+          if (result.outcome === "grant-invalid") {
+            await write(current, {
+              ...current.record,
+              grant: null,
+              state: "re-pair-required",
+              dirty: false,
+              lastOutcome: "grant-invalid",
+            });
+            await badge();
+          }
+          return result;
+        });
+      } catch {
+        return { outcome: "unavailable" };
+      }
+    },
+    async receiveSetNamePost(
+      value: unknown,
+      sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
+      extensionId: string,
+    ): Promise<SetNamesPostResult | null> {
+      const origin = `chrome-extension://${extensionId}`;
+      if (
+        sender.id !== extensionId ||
+        sender.url !== `${origin}/popup.html` ||
+        sender.origin !== origin ||
+        sender.hasTab ||
+        !isSetNamesPostMessage(value)
+      )
+        return null;
+      try {
+        return await serial(value.environment, async (current): Promise<SetNamesPostResult> => {
+          if (current.blocked || !current.record.grant) return { outcome: "grant-invalid" };
+          const result = await transport.postSetNames(value.environment, current.record.grant, value.post);
+          if (result.outcome === "grant-invalid") {
+            await write(current, {
+              ...current.record,
+              grant: null,
+              state: "re-pair-required",
+              dirty: false,
+              lastOutcome: "grant-invalid",
+            });
+            await badge();
+          }
+          return result;
+        });
+      } catch {
+        return { outcome: "unavailable" };
+      }
+    },
     async receiveSetNames(
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; hasTab: boolean },

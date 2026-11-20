@@ -4,7 +4,7 @@
 //! payment, the deadline while it waits, the secure payment step, the status, the event timeline,
 //! staff's support details, the wallet's cover, and the purchases. A guest checkout's page has no
 //! Back to purchases or Open purchase; its Retry payment is a form (see `payment`), and a paid
-//! guest order offers Save this order, marketplace's page at the same address.
+//! guest order offers Save this order, a link to the claim (see `guest_claim`).
 //!
 //! The secure payment step is Stripe's: the step's script (`payment_entry.js`) loads Stripe.js,
 //! mounts the payment fields in the step and turns Confirm payment on once they are ready; Confirm
@@ -20,11 +20,11 @@ use corten::{
     prelude::*,
 };
 
-use super::on_marketplace;
 use crate::{
     api::{AccountPayment, PaymentOrder},
     app::url,
-    payment::{PaymentScreen, RetryForm, WatchRoute},
+    // `Defaults` by its name: payment_entry.js's `mount` takes its generated declaration.
+    payment::{Defaults, GuestForm, PaymentScreen, Watch, WatchRoute},
     text::PaymentMsg,
 };
 
@@ -76,6 +76,12 @@ fn provider_event(t: PaymentMsg, kind: &str) -> String {
         "payment-cancelled" => t.provider_closed_payment_session().to_owned(),
         other => other.replace('-', " "),
     }
+}
+
+/// Save this order's address, carrying the receipt the page was read after
+/// (`preserveFreshWriteMetadata`).
+fn claim_place(screen: &PaymentScreen) -> crate::guest_claim::ClaimPlace {
+    crate::guest_claim::ClaimPlace { after_write: screen.after_write.clone(), claim_continuation: None }
 }
 
 /// A label the catalog ends with `": "`, as a term.
@@ -153,7 +159,7 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                         </div>
                         if screen.guest {
                             <form method="post" action={url::GuestPayment { id: &payment.payment_id, place: Default::default() }}>
-                                <button type="submit" class={Button} name={RetryForm::FIELDS.intent} value="retry-payment">
+                                <button type="submit" class={Button} name={GuestForm::FIELDS.intent} value="retry-payment">
                                     {t.retry_payment()}
                                 </button>
                             </form>
@@ -177,8 +183,13 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                             <p>{says}</p>
                         </div>
                     </section>
+                    // Save this order (`guestClaimSection`): the claim, read after the write this page was.
                     if screen.guest && payment.status == "captured" {
-                        <SaveOrder t={t} id={&payment.payment_id} />
+                        <p>
+                            <a class={Button} href={url::GuestClaim { id: &payment.payment_id, place: claim_place(screen) }}>
+                                {t.save_this_order()}
+                            </a>
+                        </p>
                     }
                     <section class={Section} aria-labelledby="payment-timeline-title">
                         <h2 id="payment-timeline-title" class={PartTitle}>{t.event_timeline()}</h2>
@@ -279,7 +290,9 @@ fn Summary<'a>(t: PaymentMsg, payment: &'a AccountPayment) -> impl Render {
                 </li>
                 <li>
                     <p class={Strong}>{t.purchase_coverage()}</p>
-                    <p class={Muted}>{t.covers_purchases(&count.to_string(), purchases)}</p>
+                    <p class={Muted}>
+                        {t.covers_purchases(crate::text::payment_msg::CoversPurchases { count: &count.to_string(), purchase_label: purchases })}
+                    </p>
                 </li>
                 <li>
                     <p class={Strong}>{t.fee_transparency()}</p>
@@ -292,14 +305,18 @@ fn Summary<'a>(t: PaymentMsg, payment: &'a AccountPayment) -> impl Render {
 
 /// The secure payment step (`StripeConfirmationCard`, or the provider's own page by address):
 /// Stripe's fields, mounted by the script, Confirm payment (off until they are ready), and on a
-/// phone the bar with the total and Confirm payment.
+/// phone the bar with the total and Confirm payment. Once Stripe confirms, the script sends the
+/// step's hidden status form (a `GET` of the status part, `data-patch`), so the runtime reads the
+/// part and draws its answer: a script may not draw markup from a string, since pages require
+/// Trusted Types.
 #[component(css = PaymentPage, js)]
 pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str) -> impl Render {
     let payment = &screen.payment;
     let stripe = payment.processor_client_secret.as_deref().zip(payment.processor_publishable_key.as_deref());
-    let (fields, skeleton, error, error_text, processing) = refs();
-    let parts = js::Parts { fields, skeleton, error, error_text, processing };
-    let watch = screen.watch.as_ref().map_or("", |w| w.href.as_str());
+    let (fields, skeleton, error, error_text, processing, status, until) = refs();
+    let parts = js::Parts { fields, skeleton, error, error_text, processing, status, until };
+    let status_action = screen.status_action();
+    let w = Watch::FIELDS;
     html! {
         <section class={Section} aria-labelledby="payment-entry-title" data-payment-entry>
             <h2 id="payment-entry-title" class={PartTitle}>{t.secure_payment_2()}</h2>
@@ -326,12 +343,16 @@ pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str
                                 <p class={Strong}>{t.payment_in_progress()}</p>
                                 <p>{t.the_payment_is_being_updated_by()}</p>
                             </div>
+                            <form ref={status} method="get" action={&status_action} data-patch hidden>
+                                <input type="hidden" name={w.since} value={&payment.status}>
+                                <input type="hidden" ref={until} name={w.until} value="">
+                            </form>
                             <button
                                 type="button"
                                 class={(Button, Wide)}
                                 data-payment-confirm
                                 disabled
-                                on:click={js::confirm(scope, parts, watch, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
+                                on:click={js::confirm(scope, parts, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
                             >
                                 {t.confirm_payment()}
                             </button>
@@ -345,7 +366,7 @@ pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str
                                     class={(Button, Wide)}
                                     data-payment-confirm
                                     disabled
-                                    on:click={js::confirm(scope, parts, watch, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
+                                    on:click={js::confirm(scope, parts, t.the_secure_processor_could_not_complete(), t.stripe_is_still_loading(), t.confirming_payment(), t.processing_payment())}
                                 >
                                     {t.confirm_payment()}
                                 </button>
@@ -386,7 +407,9 @@ fn SupportDetails<'a>(t: PaymentMsg, payment: &'a AccountPayment) -> impl Render
             <details class={Fold} open={payment.failure_code.is_some()}>
                 <summary>
                     <span class={Strong}>{t.support_details()}</span>
-                    <span class={Muted}>{t.provider_events_status_summary(&count, &payment.processor_status)}</span>
+                    <span class={Muted}>
+                        {t.provider_events_status_summary(crate::text::payment_msg::ProviderEventsStatusSummary { count: &count, status: &payment.processor_status })}
+                    </span>
                 </summary>
                 <dl class={Facts}>
                     <div>
@@ -475,23 +498,6 @@ pub fn PaymentWatch<'a>(again: Option<&'a WatchRoute<'a>>) -> impl Patch {
             Some(WatchRoute::Guest(from)) => { {read.from(from)} }
             None => {}
         }
-    }
-}
-
-/// A paid guest order's Save this order (`GuestClaimPrompt`): marketplace's page at the same
-/// address, which saves it with a passkey or an emailed claim link (see `payment`).
-#[component(css = PaymentPage)]
-fn SaveOrder<'a>(t: PaymentMsg, id: &'a str) -> impl Render {
-    let save = on_marketplace(&url::GuestPayment { id, place: Default::default() }.href());
-    html! {
-        <section class={Section} aria-labelledby="payment-save-title">
-            <h2 id="payment-save-title" class={PartTitle}>{t.save_this_order()}</h2>
-            <div class={Card}>
-                <p><span class={Badge} data-tone="accent">{t.recommended()}</span></p>
-                <p class={Muted}>{t.save_this_order_after_payment_with_a_passkey()}</p>
-                <p><a class={Button} href={&save}>{t.save_this_order()}</a></p>
-            </div>
-        </section>
     }
 }
 

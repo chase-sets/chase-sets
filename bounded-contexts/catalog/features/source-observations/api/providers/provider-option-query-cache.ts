@@ -20,6 +20,7 @@ export type CatalogProviderOptionQueryRequest = Readonly<{
   queryKind: string;
   languageCode?: string | null;
   parentValue?: string | null;
+  requestFingerprint?: string;
   cursor?: string | null;
   limit?: number | null;
   forceRefresh?: boolean | null;
@@ -335,6 +336,7 @@ export function cacheKeyForProviderOptionQuery(request: CatalogProviderOptionQue
     queryKind: normalizeKey(request.queryKind),
     languageCode: normalizedLanguageCode(request.languageCode),
     parentValue: normalizedParentValue(request.parentValue),
+    requestFingerprint: request.requestFingerprint,
   };
   return `sha256:${createHash("sha256").update(JSON.stringify(normalized)).digest("hex")}`;
 }

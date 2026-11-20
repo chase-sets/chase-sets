@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 20,
-      authoritativeSites: 18,
+      discoveredCallCandidates: 28,
+      authoritativeSites: 26,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -84,6 +84,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       production.roots.length,
     );
     expect(production.candidates.map(({ file, outcome }) => [file, outcome])).toEqual([
+      ["bounded-contexts/auth/features/sessions/api/owner-epochs.ts", "CANONICAL"],
+      ["bounded-contexts/catalog/features/operator-session/api/market-observations.ts", "CANONICAL"],
       ["bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts", "CANONICAL"],
       [
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
@@ -93,16 +95,22 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
         "CANONICAL",
       ],
+      ["bounded-contexts/channels/features/connections/api/owner-epochs.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
+      ["bounded-contexts/checkout/features/command-attempts/api/sell-list-attempt.test-support.ts", "CANONICAL"],
+      ["bounded-contexts/fulfillment/features/seller-checkout-readiness/api/test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/api.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
+      ["bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
       ["bounded-contexts/marketplace/features/listings/api/listing-attempt.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
+      ["bounded-contexts/marketplace/features/reports/api/runtime.ts", "CANONICAL"],
+      ["bounded-contexts/platform-operations/features/reported-content/api/runtime.ts", "CANONICAL"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
       [
         "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
@@ -117,7 +125,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
     ]);
-    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:79"]);
+    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:88"]);
     expect(production.anchors.helperDeclarations).toEqual(["contracts/event-core/complete-stream.ts:5"]);
     expect(production.program.getCompilerOptions()).toMatchObject({
       allowJs: true,
@@ -176,7 +184,6 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "scripts/check-structure/run.mjs",
         "scripts/lib/heavy-slot.mjs",
         "scripts/verify-static-surfaces.mjs",
-        "scripts/verify-static-scoped.mjs",
         "tsconfig.json",
         "tsconfig.base.json",
       ]),

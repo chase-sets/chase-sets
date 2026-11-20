@@ -1,24 +1,32 @@
 //! The seller's list of listings (marketplace's `MarketplaceListingListPage` and
 //! `TimeAwayCapacityCard`): the header with Create Listing and Advanced import, what a write was
 //! refused for, the time away and order capacity card, the listings' counts, the seller's
-//! reliability, the filters as a GET form with the applied ones as chips, a bulk write's outcomes,
-//! the listings (each with a box for Pause selected and Withdraw selected), a page at a time as
-//! links, and the fee lock report in a disclosure.
+//! reliability, the filters as a GET form with the applied ones as chips, the listings (each with
+//! a box for Pause selected and Withdraw selected), a page at a time as links, and the fee lock
+//! report in a disclosure. Above them, what came of the change the address names
+//! (ListingRecoveryNotice); while that change is recorded or not confirmed, the writes are off.
 //!
-//! Every action is a form and works without JavaScript; a picked day is read on the server where
-//! the seller is (`seller_listings::seller_zone`). The page's script counts the checked listings. One
-//! column on a phone; a listing's facts beside it from 64rem.
+//! Every action is a form and works without JavaScript; a day form is drawn where the seller is
+//! (`seller_listings::seller_zone`), names that zone, and sends it back for the server to read the
+//! picked day's start in. The page's script counts the checked listings. One column on a phone; a
+//! listing's facts beside it from 64rem.
 use corten::{
-    i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
+    SubmitKey,
+    i18n::{Currency, DateStyle, Day, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
 };
 
 use super::listing_page::options;
 use crate::{
     api::{FeeLockRow, ListingPage, ListingRow, SellerMetrics, StatusCounts},
     app::url,
-    seller_listings::{Filters, ListingsForm, ListingsScreen, Outcome, Place, REASONS, STATUSES},
-    text::{Pilot, SellerListingsMsg},
+    seller_listings::{Filters, ListingsForm, ListingsScreen, Place, REASONS, STATUSES},
+    text::{ListingRecoveryMsg, Pilot, SellerListingsMsg},
+    views::ListingRecoveryNotice,
 };
 
 corten::script::script!(pub mod handlers = "seller_listings_page.js");
@@ -147,12 +155,25 @@ fn sent(screen: &ListingsScreen, intent: &str, field: impl Fn(&ListingsForm) -> 
     if screen.sent.intent == intent { field(&screen.sent).to_owned() } else { otherwise.to_owned() }
 }
 
+/// The day a refused form was sent with, as typed, else the page's.
+fn sent_day(screen: &ListingsScreen, intent: &str, field: impl Fn(&ListingsForm) -> &Entry<Day>, otherwise: &str) -> String {
+    if screen.sent.intent != intent {
+        return otherwise.to_owned();
+    }
+    let day = field(&screen.sent);
+    day.text().map_or_else(|| day.value().map(|day| day.to_string()).unwrap_or_default(), str::to_owned)
+}
+
 /// The page.
 #[component(css)]
-pub fn SellerListingsPage<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a ListingsScreen) -> impl Render {
+pub fn SellerListingsPage<'a>(t: SellerListingsMsg, p: Pilot, r: ListingRecoveryMsg, screen: &'a ListingsScreen) -> impl Render {
     let filters = &screen.filters;
     let live = url::SellerListingsLive { place: filters.here().place };
+    let (here, clear) = (screen.action.href(), filters.here().href());
     html! {
+        if let Some(recovery) = &screen.recovery {
+            <ListingRecoveryNotice t={r} recovery={recovery} here={&here} clear={&clear} />
+        }
         <header class={Header}>
             <div class={Heading}>
                 <p class={Eyebrow}>{t.list_seller()}</p>
@@ -192,9 +213,6 @@ pub fn SellerListingsPage<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a Listin
         <section class={Section} aria-labelledby="current-title">
             <h2 id="current-title" class={PartTitle}>{t.list_current_listings()}</h2>
             <FilterForm t={t} filters={filters} />
-            if let Some(outcomes) = &screen.outcomes {
-                <BulkResults t={t} outcomes={outcomes} />
-            }
             <BulkForm t={t} p={p} screen={screen} />
         </section>
         <section class={Section} aria-labelledby="fee-report-title">
@@ -232,9 +250,9 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
     let e = screen.errors.within(DisableFormId);
     let intent = "disable-listing-availability";
     let reason = sent(screen, intent, |s| &s.reason_category, a.disabled_reason_category.as_deref().unwrap_or_default());
-    let on = sent(screen, intent, |s| &s.available_again_on, a.available_again_on.as_deref().unwrap_or_default());
+    let on = sent_day(screen, intent, |s| &s.available_again_on, a.available_again_on.as_deref().unwrap_or_default());
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Badges}>
                 <span class={Badge} data-tone={if available { "success" } else { "warning" }}>
                     if available {
@@ -249,10 +267,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                 if available {
                     {t.list_availability_available_description()}
                 } else {
-                    {t.list_availability_unavailable_description(
-                        reason_label(t, a.disabled_reason_category.as_deref()),
-                        a.available_again_on.as_deref().unwrap_or(t.list_no_return_date()),
-                    )}
+                    {t.list_availability_unavailable_description(crate::text::seller_listings_msg::ListAvailabilityUnavailableDescription { reason: reason_label(t, a.disabled_reason_category.as_deref()), date: a.available_again_on.as_deref().unwrap_or(t.list_no_return_date()) })}
                 }
             </p>
             if !available && a.available_again_at.is_some() {
@@ -268,8 +283,15 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                         <p>{t.list_impact_preview_description(screen.page.status_counts.active)}</p>
                     </div>
                 } else {
-                    <form method="post" action={screen.filters.here()}>
-                        <button class={Button} type="submit" name={f.intent} value="enable-listing-availability">
+                    <form method="post" action={screen.action.clone()}>
+                        {SubmitKey::field(f.attempt)}
+                        <button
+                            class={Button}
+                            type="submit"
+                            name={f.intent}
+                            value="enable-listing-availability"
+                            disabled={screen.blocked()}
+                        >
                             {t.list_turn_on_listings()}
                         </button>
                     </form>
@@ -278,8 +300,10 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                     id={DisableFormId}
                     class={Form}
                     method="post"
-                    action={screen.filters.here()}
+                    action={screen.action.clone()}
                 >
+                    {SubmitKey::field(f.attempt)}
+                    {screen.zone.field(f.zone)}
                     <div class={Grid}>
                         <label class={Field}>
                             <span class={Label}>{t.list_reason()}</span>
@@ -294,12 +318,19 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                                 value={&on}
                                 {..e.aria(f.available_again_on)}
                             >
+                            <small class={Muted}>{screen.zone.name()}</small>
                             {e.message(f.available_again_on)}
                         </div>
                     </div>
                     {e.message(f.reason_category)}
                     <p class={Row}>
-                        <button class={(Button, Secondary)} type="submit" name={f.intent} value={intent}>
+                        <button
+                            class={(Button, Secondary)}
+                            type="submit"
+                            name={f.intent}
+                            value={intent}
+                            disabled={screen.blocked()}
+                        >
                             if available {
                                 {t.list_turn_off_listings()}
                             } else {
@@ -334,31 +365,34 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
     let e = screen.errors.within(AwayFormId);
     let intent = "schedule-away-window";
     let reason = sent(screen, intent, |s| &s.away_window_reason_category, "");
-    let starts = sent(screen, intent, |s| &s.away_window_starts_on, "");
-    let ends = sent(screen, intent, |s| &s.away_window_ends_on, "");
+    let starts = sent_day(screen, intent, |s| &s.away_window_starts_on, "");
+    let ends = sent_day(screen, intent, |s| &s.away_window_ends_on, "");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_away_window()}</h3>
             if let Some(starts_at) = &a.away_window_starts_at {
                 <p class={Muted}>
-                    {t.list_away_window_scheduled_description(
-                        reason_label(t, a.away_window_reason_category.as_deref()),
-                        &when(t, Some(starts_at)),
-                        &a.away_window_ends_at.as_deref().map_or_else(|| t.list_no_return_date().to_owned(), |at| when(t, Some(at))),
-                    )}
+                    {t.list_away_window_scheduled_description(crate::text::seller_listings_msg::ListAwayWindowScheduledDescription { reason: reason_label(t, a.away_window_reason_category.as_deref()), start_date: &when(t, Some(starts_at)), end_date: &a.away_window_ends_at.as_deref().map_or_else(|| t.list_no_return_date().to_owned(), |at| when(t, Some(at))) })}
                 </p>
                 <div class={Banner}>
                     <p class={Strong}>{t.list_scheduled_restore_title()}</p>
                     <p>
                         if let Some(ends_at) = &a.away_window_ends_at {
-                            {t.list_scheduled_restore_notice_window(&when(t, Some(starts_at)), &when(t, Some(ends_at)))}
+                            {t.list_scheduled_restore_notice_window(crate::text::seller_listings_msg::ListScheduledRestoreNoticeWindow { start_date: &when(t, Some(starts_at)), end_date: &when(t, Some(ends_at)) })}
                         } else {
                             {t.list_scheduled_restore_notice_window_indefinite(&when(t, Some(starts_at)))}
                         }
                     </p>
                 </div>
-                <form method="post" action={screen.filters.here()}>
-                    <button class={(Button, Secondary)} type="submit" name={f.intent} value="cancel-away-window">
+                <form method="post" action={screen.action.clone()}>
+                    {SubmitKey::field(f.attempt)}
+                    <button
+                        class={(Button, Secondary)}
+                        type="submit"
+                        name={f.intent}
+                        value="cancel-away-window"
+                        disabled={screen.blocked()}
+                    >
                         {t.list_cancel_away_window()}
                     </button>
                 </form>
@@ -367,8 +401,10 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                     id={AwayFormId}
                     class={Form}
                     method="post"
-                    action={screen.filters.here()}
+                    action={screen.action.clone()}
                 >
+                    {SubmitKey::field(f.attempt)}
+                    {screen.zone.field(f.zone)}
                     <p class={Muted}>{t.list_away_window_description()}</p>
                     <div class={Grid3}>
                         <div class={Field}>
@@ -396,6 +432,7 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                                 required
                                 {..e.aria(f.away_window_starts_on)}
                             >
+                            <small class={Muted}>{screen.zone.name()}</small>
                             {e.message(f.away_window_starts_on)}
                         </div>
                         <div class={Field}>
@@ -407,11 +444,18 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
                                 value={&ends}
                                 {..e.aria(f.away_window_ends_on)}
                             >
+                            <small class={Muted}>{screen.zone.name()}</small>
                             {e.message(f.away_window_ends_on)}
                         </div>
                     </div>
                     <p class={Row}>
-                        <button class={(Button, Secondary)} type="submit" name={f.intent} value={intent}>
+                        <button
+                            class={(Button, Secondary)}
+                            type="submit"
+                            name={f.intent}
+                            value={intent}
+                            disabled={screen.blocked()}
+                        >
                             {t.list_schedule_away_window()}
                         </button>
                     </p>
@@ -433,11 +477,13 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
     let value = sent(screen, "set-order-capacity", |s| &s.max_open_orders, &current);
     let open = match (screen.open_orders, cap) {
         (None, _) => t.list_order_capacity_open_orders_unavailable().to_owned(),
-        (Some(count), Some(cap)) => t.list_order_capacity_open_orders_now(count, cap).to_string(),
+        (Some(count), Some(cap)) => t
+            .list_order_capacity_open_orders_now(crate::text::seller_listings_msg::ListOrderCapacityOpenOrdersNow { count, cap })
+            .to_string(),
         (Some(count), None) => t.list_order_capacity_open_orders_now_unlimited(count).to_string(),
     };
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_order_capacity()}</h3>
             <p class={Muted}>{t.list_order_capacity_description()}</p>
             <div class={Tight}>
@@ -451,7 +497,8 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
                 <p class={Hint}>{&open}</p>
                 <p class={Hint}>{t.list_order_capacity_sourced_from_ordering()}</p>
             </div>
-            <form id={CapacityFormId} class={Form} method="post" action={screen.filters.here()}>
+            <form id={CapacityFormId} class={Form} method="post" action={screen.action.clone()}>
+                {SubmitKey::field(f.attempt)}
                 <div class={Grid}>
                     <div class={Field}>
                         <label class={Label} for="max-open-orders">{t.list_order_capacity_max_open_orders()}</label>
@@ -469,7 +516,13 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
                     </div>
                 </div>
                 <p class={Row}>
-                    <button class={(Button, Secondary)} type="submit" name={f.intent} value="set-order-capacity">
+                    <button
+                        class={(Button, Secondary)}
+                        type="submit"
+                        name={f.intent}
+                        value="set-order-capacity"
+                        disabled={screen.blocked()}
+                    >
                         {t.list_order_capacity_set()}
                     </button>
                     if cap.is_some() {
@@ -479,6 +532,7 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
                             name={f.intent}
                             value="clear-order-capacity"
                             formnovalidate
+                            disabled={screen.blocked()}
                         >
                             {t.list_order_capacity_clear()}
                         </button>
@@ -512,7 +566,7 @@ fn Health<'a>(t: SellerListingsMsg, counts: &'a StatusCounts) -> impl Patch {
                 <div>
                     <dt>{t.list_paused_listings()}</dt>
                     <dd class={Big}>{counts.paused}</dd>
-                    // Marketplace shows its message unfilled here (chase-sets/chase-sets#10653).
+                    <dd class={Hint}>{t.list_paused_listings_detail()}</dd>
                 </div>
                 <div>
                     <dt>{t.list_withdrawn_listings()}</dt>
@@ -604,35 +658,6 @@ fn FilterForm<'a>(t: SellerListingsMsg, filters: &'a Filters) -> impl Render {
     }
 }
 
-/// What a bulk Pause or Withdraw did to each listing.
-#[component(css = SellerListingsPage)]
-fn BulkResults<'a>(t: SellerListingsMsg, outcomes: &'a [Outcome]) -> impl Render {
-    let succeeded = outcomes.iter().filter(|o| o.ok).count();
-    let failed = outcomes.len() - succeeded;
-    html! {
-        <div class={(Card, Tinted)} role="status" tabindex="-1">
-            <p class={Strong}>{t.list_bulk_action_results(succeeded, failed)}</p>
-            <ul class={Outcomes}>
-                for outcome in outcomes {
-                    <li>
-                        <span class={Badge} data-tone={if outcome.ok { "success" } else { "danger" }}>
-                            if outcome.ok {
-                                {t.list_bulk_action_succeeded()}
-                            } else {
-                                {t.list_bulk_action_failed()}
-                            }
-                        </span>
-                        <span>{t.route_bulk_action_listing_label(&outcome.listing_id)}</span>
-                        if let Some(message) = &outcome.message {
-                            <span class={Hint}>{message}</span>
-                        }
-                    </li>
-                }
-            </ul>
-        </div>
-    }
-}
-
 /// The listings in the bulk form, and its bar: how many are checked (with the script), Pause
 /// selected, Withdraw selected and Clear selection (the form's reset).
 #[component(css = SellerListingsPage)]
@@ -645,19 +670,26 @@ fn BulkForm<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a ListingsScreen) -> i
             id={BulkFormId}
             class={Bulk}
             method="post"
-            action={screen.filters.here()}
+            action={screen.action.clone()}
             on:change={handlers::picked(form, count, t.js().list_bulk_selected())}
             on:reset={handlers::cleared(form, count, t.js().list_bulk_selected())}
             on:connect={handlers::picked(form, count, t.js().list_bulk_selected())}
         >
+            {SubmitKey::field(f.attempt)}
             <Rows t={t} p={p} page={&screen.page} filters={&screen.filters} />
             <div class={Bar}>
                 <output ref={count} class={Strong}></output>
                 <p class={Row}>
-                    <button class={Button} type="submit" name={f.intent} value="bulk-pause-listings">
+                    <button class={Button} type="submit" name={f.intent} value="bulk-pause-listings" disabled={screen.blocked()}>
                         {t.list_pause_selected()}
                     </button>
-                    <button class={(Button, Secondary)} type="submit" name={f.intent} value="bulk-withdraw-listings">
+                    <button
+                        class={(Button, Secondary)}
+                        type="submit"
+                        name={f.intent}
+                        value="bulk-withdraw-listings"
+                        disabled={screen.blocked()}
+                    >
                         {t.list_withdraw_selected()}
                     </button>
                     <button class={(Button, Secondary)} type="reset">{t.list_clear_selection()}</button>
@@ -677,7 +709,7 @@ fn Rows<'a>(t: SellerListingsMsg, p: Pilot, page: &'a ListingPage, filters: &'a 
     let paged = page.total > limit || filters.offset > 0;
     let next = filters.offset + limit;
     html! {
-        <div id={ListingRowsId} class={Stack}>
+        <div id={ListingRowsId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             if page.items.is_empty() {
                 <div class={Card}>
                     <p class={Strong}>{t.list_no_listings_yet()}</p>
@@ -707,7 +739,7 @@ fn Rows<'a>(t: SellerListingsMsg, p: Pilot, page: &'a ListingPage, filters: &'a 
                             {p.seller_listings_previous()}
                         </a>
                     }
-                    <span>{p.seller_listings_page_of(current, pages)}</span>
+                    <span>{p.seller_listings_page_of(crate::text::pilot::SellerListingsPageOf { page: current, pages })}</span>
                     if next < page.total {
                         <a class={(Button, Secondary)} href={filters.at(next)} rel="next">{p.seller_listings_next()}</a>
                     }

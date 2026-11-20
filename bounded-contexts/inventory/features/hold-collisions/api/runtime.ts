@@ -33,7 +33,6 @@ import {
   initialInventoryItemState,
   type InventoryItemEvent,
 } from "../../inventory-items/domain/domain";
-import { createInventoryItemAdjustedCsatOutcomeFact } from "../../inventory-items/api/request-support/customer-feedback-outcome-fact";
 import type { InventoryOfflineSaleResult } from "../../inventory-items/api/contracts";
 import {
   decideInventoryHold,
@@ -262,11 +261,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
                       : offlineSale
                         ? {
                             type: "RecordOfflineSale",
-                            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                              accountId: params.accountId as AccountId,
-                              itemId: params.itemId as InventoryItemId,
-                              idempotencyKey: offlineSale.idempotencyKey,
-                            }),
+                            requestIdempotencyKey: offlineSale.idempotencyKey,
                             quantity: appliedQuantity,
                             heldQuantity,
                             salePriceAmount: offlineSale.salePriceAmount,
@@ -276,11 +271,6 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
                           }
                         : {
                             type: "AdjustInventoryItemQuantity",
-                            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                              accountId: params.accountId as AccountId,
-                              itemId: params.itemId as InventoryItemId,
-                              idempotencyKey: `inventory:hold-collision:${params.itemId}:${attempt}:${Date.now()}`,
-                            }),
                             quantityDelta: -appliedQuantity,
                             heldQuantity,
                             reason: params.reason,
@@ -593,7 +583,10 @@ async function recoverOfflineSaleResult(
       if (event.eventType !== "inventory.item.adjusted" || !Number.isFinite(recordedAt) || recordedAt < createdAt) {
         return [];
       }
-      const payload = event.payload as { csatOutcomeFact?: unknown };
+      const payload = event.payload as { requestIdempotencyKey?: unknown; csatOutcomeFact?: unknown };
+      if (Object.hasOwn(payload, "requestIdempotencyKey")) {
+        return payload.requestIdempotencyKey === input.idempotencyKey ? [index] : [];
+      }
       const csatOutcomeFact = payload.csatOutcomeFact;
       return csatOutcomeFact &&
         typeof csatOutcomeFact === "object" &&

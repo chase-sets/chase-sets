@@ -89,6 +89,21 @@ describeDb("channels-services-composition", () => {
     expect(channelsServicesMembers).toContain("connectionHealth");
     expect(channelsServicesMembers).toContain("connectionAttention");
     expect(channelsServicesMembers).toContain("manualSync");
+    expect(channelsServicesMembers).toContain("connectionAuthority");
+    expectTypeOf(services.connectionAuthority.capture).toEqualTypeOf<
+      import("../features/connections/domain/contracts").VersionedConnectionAuthority["capture"]
+    >();
+  });
+  it.each(["capture", "registerConsumer"])("rejects a missing Connection authority %s port", (member) => {
+    const services = createServices();
+    expect(
+      isChannelsServices({
+        ...services,
+        connectionAuthority: Object.fromEntries(
+          Object.entries(services.connectionAuthority).filter(([key]) => key !== member),
+        ),
+      }),
+    ).toBe(false);
   });
 
   it.each(["submitObservation", "readConnectionHealth", "listOpenReasonGenerations"])(

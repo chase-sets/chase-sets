@@ -184,7 +184,7 @@ describe("release-tuple support deployment instance", () => {
       'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
     );
   });
-  it("renders the evidence-window admission key optional for api and worker and leaves other secrets required", () => {
+  it("renders only the evidence-window admission and Payments overlap keys optional for their consumers", () => {
     const keep = (name) => ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].includes(name);
     for (const component of ["platform-api", "platform-worker"]) {
       const env = render("release-a", "preview-a", [], undefined, component, false).filter((item) => !keep(item.name));
@@ -201,9 +201,15 @@ describe("release-tuple support deployment instance", () => {
           },
         },
       ]);
-      const required = env.filter((item) => item.valueFrom?.secretKeyRef && item.name !== windowKey[0].name);
-      expect(required.map((item) => item.name)).toContain("STRIPE_SECRET_KEY");
-      expect(required.filter((item) => "optional" in item.valueFrom.secretKeyRef)).toEqual([]);
+      const secretRefs = env.filter((item) => item.valueFrom?.secretKeyRef);
+      expect(
+        secretRefs.find((item) => item.name === "STRIPE_SECRET_KEY").valueFrom.secretKeyRef.optional,
+      ).toBeUndefined();
+      expect(secretRefs.filter((item) => "optional" in item.valueFrom.secretKeyRef).map(({ name }) => name)).toEqual(
+        component === "platform-api"
+          ? ["EVIDENCE_WINDOW_ADMISSION_SECRET", "STRIPE_WEBHOOK_SECRET_PREVIOUS"]
+          : ["EVIDENCE_WINDOW_ADMISSION_SECRET"],
+      );
     }
   });
   it("scopes the worker's Support evidence cleanup binding by the same release tuple", () => {
@@ -1130,6 +1136,49 @@ describe("platform Kubernetes deployment", () => {
     ).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.production.yaml"]));
   });
 
+  it.each([
+    ["platform-pr.yml", "Reset preview namespace", "Deploy preview Kubernetes release"],
+    ["platform-merge-gate-verification.yml", "Create gate namespace", "Deploy gate Kubernetes release"],
+    ["platform-ephemeral-verification.yml", "Reset verification namespace", "Deploy verification Kubernetes release"],
+  ])("pins %s to a fresh preview install without deploy retry", (file, resetName, deployName) => {
+    const workflow = parseYaml(readFileSync(`.github/workflows/${file}`, "utf8"));
+    const job = Object.values(workflow.jobs).find((job) => job.steps?.some((step) => step.name === deployName));
+    const reset = job.steps.findIndex((step) => step.name === resetName);
+    const deploy = job.steps.findIndex((step) => step.name === deployName);
+    expect(reset).toBeGreaterThanOrEqual(0);
+    expect(reset).toBeLessThan(deploy);
+    if (file === "platform-merge-gate-verification.yml") {
+      expect(job.env.CHASE_SETS_KUBERNETES_NAMESPACE).toBe(
+        "chase-sets-gate-${{ github.run_id }}-${{ github.run_attempt }}",
+      );
+      expect(job.steps[reset].run).toContain("kubectl create -f -");
+    } else {
+      expect(job.steps[reset].run).toContain(
+        'kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true',
+      );
+      expect(job.steps[reset].run).toContain('kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+      if (file === "platform-ephemeral-verification.yml") {
+        expect(job.env.CHASE_SETS_KUBERNETES_NAMESPACE).toBe(
+          "chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}",
+        );
+      }
+    }
+    const run = job.steps[deploy].run;
+    expect(run.match(/pnpm run platform:kubernetes-deployment -- deploy/g)).toHaveLength(1);
+    expect(run).toContain("DEPLOYMENT_ENVIRONMENT=preview");
+    expect(run).not.toMatch(/--attempts-out|--admission-retry|\b(for|while|until)\b|continue-on-error/);
+    expect(job.steps[deploy]["continue-on-error"]).not.toBe(true);
+    const args = buildHelmUpgradeArgs({
+      release: "preview-fixture",
+      namespace: "preview-fixture",
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:fixture",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-9963" },
+    });
+    expect(args.slice(0, 2)).toEqual(["upgrade", "--install"]);
+    expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
+  });
+
   it("enables in-cluster collection with environment-safe export only for long-lived environments", () => {
     const stagingArgs = buildHelmUpgradeArgs({
       release: "chase-sets-platform",
@@ -1205,6 +1254,31 @@ describe("platform Kubernetes deployment", () => {
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-4051" },
     });
     expect(previewArgs).not.toContain("observability.enabled=true");
+  });
+
+  it("refreshes production API pods after Secret apply even when redeploying the same image", () => {
+    const workflow = parseYaml(readFileSync(".github/workflows/platform-production.yml", "utf8"));
+    const steps = workflow.jobs["deploy-production"].steps;
+    const deploy = steps.find((step) => step.id === "production_kubernetes_deploy");
+    expect(steps.findIndex((step) => step.name === "Apply production Kubernetes runtime secrets")).toBeLessThan(
+      steps.indexOf(deploy),
+    );
+    expect(deploy.env.PRODUCTION_RUNTIME_SECRET_REVISION).toBe("${{ github.run_id }}-${{ github.run_attempt }}");
+    const args = (revision, environment = "production") =>
+      buildHelmUpgradeArgs({
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          DEPLOYMENT_ENVIRONMENT: environment,
+          OBSERVABILITY_ENABLED: "false",
+          PREVIEW_IDENTIFIER: "pr-42",
+        },
+        env: { PRODUCTION_RUNTIME_SECRET_REVISION: revision },
+      });
+    const annotation = "components.platform-api.podAnnotations.chase-sets\\.com/production-runtime-secret-revision=";
+    expect(args("1000-1")).toContain(`${annotation}1000-1`);
+    expect(args("1000-2")).toContain(`${annotation}1000-2`);
+    expect(args("1000-2", "preview").some((arg) => arg.startsWith(annotation))).toBe(false);
+    expect(() => args("invalid")).toThrow("Production runtime Secret revision must be a GitHub run ID and attempt.");
   });
 
   it("drives the exact workflow staging argv end-to-end and executes helm with the staging overlay", async () => {
@@ -1335,7 +1409,9 @@ describe("platform Kubernetes deployment", () => {
 
     // The env helper computes the origin from the platform-api component name
     // (which is release-fullname-derived), not from the baked base value.
-    expect(envHelper).toContain('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const computedOriginBranch =
+      '{{- else if or (eq .name "CHASE_SETS_INTERNAL_API_ORIGIN") (eq .name "PLATFORM_API_ORIGIN") }}';
+    expect(envHelper).toContain(computedOriginBranch);
     expect(envHelper).toContain(
       'value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}',
     );
@@ -1344,7 +1420,7 @@ describe("platform Kubernetes deployment", () => {
     // the computed origin sits ahead of the plain base-value fallback so the
     // baked staging default can never leak into a preview release.
     const globalOverrideBranch = envHelper.indexOf("hasKey $envOverrides .name");
-    const originBranch = envHelper.indexOf('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const originBranch = envHelper.indexOf(computedOriginBranch);
     const baseValueBranch = envHelper.indexOf('value: {{ default "" .value | quote }}');
     expect(globalOverrideBranch).toBeGreaterThan(-1);
     expect(originBranch).toBeGreaterThan(globalOverrideBranch);
@@ -3427,6 +3503,196 @@ describe("platform Kubernetes deployment", () => {
       const driftPasses = [1, 2, 3, 4, 5].flatMap((pass) => passRequests(pass, 2).slice(0, -1));
       const onePerPage = (total, runs) => runs.map((run) => page(total, [run]));
       const earlier = (run) => ({ ...run, created_at: "2026-10-31T07:59:00Z" });
+      const nonWriterMovement = (lists, hidden = dated(20)) => {
+        const final = lists.at(-1);
+        const boundary = final.map((run) => run.created_at).sort()[Math.floor(final.length / 2)];
+        const all = [...final, hidden];
+        const windows = Object.fromEntries(
+          ["<", ">="].map((operator) => {
+            const runs = all.filter((run) =>
+              operator === "<" ? run.created_at < boundary : run.created_at >= boundary,
+            );
+            return [`${operator}${boundary}`, [page(runs.length, runs)]];
+          }),
+        );
+        return lists.map((runs) => ({
+          in_progress: [page(runs.length + 1, runs), page(runs.length + 1, [])],
+          windows,
+        }));
+      };
+      const growingLists = [1, 2, 3, 4, 5].map((count) => [datedDeploy, ...datedBatch(1, count)]);
+
+      it.each([
+        ["start", growingLists],
+        ["finish", [...growingLists].reverse()],
+      ])(
+        "reconciles the missing run when only identified non-writers %s between shortfall passes",
+        async (_label, lists) => {
+          const { census, error, sleep, requests, evidence } = await readPasses(nonWriterMovement(lists));
+          expect(error).toBeUndefined();
+          expect(census.runs.map(({ id }) => id)).toEqual(
+            [...lists.at(-1).map(({ id }) => id), 20].sort((a, b) => a - b),
+          );
+          expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+          expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+          expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+          expect(requests.filter((request) => request.includes(":requested:1"))).toHaveLength(5);
+          expect(evidence()).toMatchObject({ outcome: "admitted", partitions: [{ status: "in_progress" }] });
+        },
+      );
+
+      it.each([
+        ["writer name at a non-writer path", { name: "Platform Deploy", head_sha: "b".repeat(40) }],
+        ["writer path with a non-writer name", { path: deployPath, head_sha: "b".repeat(40) }],
+        ["recovery writer", { name: "Platform Production Stale Helm Recovery", path: recoveryPath }],
+      ])("still refuses a hidden %s after non-writer movement", async (_label, overrides) => {
+        const { census, error } = await readPasses(nonWriterMovement(growingLists, dated(20, overrides)));
+        expect(error).toBeUndefined();
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([20, deploy.id]);
+        expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
+          "active or conflicting production writer",
+        );
+        expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
+          /only active writer; observed 2/,
+        );
+      });
+
+      it.each([
+        ["a possible writer in an earlier pass", { name: "Platform Deploy", head_sha: "b".repeat(40) }],
+        ["an unknown path", { path: undefined }],
+        ["a changed non-writer identity", { head_sha: "b".repeat(40) }],
+      ])("does not reconcile movement containing %s", async (_label, overrides) => {
+        const lists = growingLists.map((runs, index) =>
+          index === 0 ? runs.map((run) => (run.id === 1 ? { ...run, ...overrides } : run)) : runs,
+        );
+        const { census, error, requests } = await readPasses(nonWriterMovement(lists));
+        expect(census).toBeUndefined();
+        expect(error.message).toMatch(/^census-moving after 5 passes:/);
+        expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+      });
+
+      it("does not assume a counted but unlisted run is a non-writer after non-writer movement", async () => {
+        const passes = nonWriterMovement(growingLists);
+        for (const pass of passes) pass.windows = reconciled;
+        const { census, error } = await readPasses(passes);
+        expect(census).toBeUndefined();
+        expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:/);
+      });
+
+      it("refuses a recovered run whose writer path cannot be ruled out after non-writer movement", async () => {
+        const { census, error } = await readPasses(nonWriterMovement(growingLists, dated(20, { path: undefined })));
+        expect(census).toBeUndefined();
+        expect(error.message).toContain("window run 20 has an unknown writer identity");
+      });
+
+      it.each(["requested", "waiting"])(
+        "refuses an ambiguous run outside the partitioned status in %s after non-writer movement",
+        async (status) => {
+          const passes = nonWriterMovement(growingLists);
+          for (const pass of passes) pass[status] = [page(1, [dated(30, { status, path: undefined })])];
+          const { census, error } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:/);
+          expect(error.message).toContain("run 30 has an unknown writer identity");
+        },
+      );
+
+      it("refuses a changing unexplained count even when all listed movement is non-writers", async () => {
+        const passes = nonWriterMovement(growingLists);
+        passes[0].in_progress = [page(4, growingLists[0]), page(4, [])];
+        const { census, error, requests } = await readPasses(passes);
+        expect(census).toBeUndefined();
+        expect(error.message).toMatch(/^census-moving after 5 passes:/);
+        expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+      });
+
+      describe("queued total moves during pagination", () => {
+        // Synthetic controls: each queued read lists one run under 2, then an empty page under 1.
+        const persistent = dated(10, { status: "queued" });
+        const unlisted = dated(11, { status: "queued" });
+        const observer = dated(12, { status: "pending" });
+        const before = `<${persistent.created_at}`;
+        const after = `>=${persistent.created_at}`;
+        const totalMoves = () =>
+          Array.from({ length: 5 }, (_, index) => ({
+            pending: [index === 2 ? page(0, []) : page(1, [observer])],
+            queued: [page(2, [persistent]), page(1, [])],
+            in_progress: [page(1, [datedDeploy])],
+            windows: { [before]: [page(0, [])], [after]: [page(2, [persistent, unlisted])] },
+          }));
+
+        it("admits the marker after reconciling an empty queued page with a moved total", async () => {
+          const { census, error, requests, sleep, evidence } = await readPasses(totalMoves());
+          expect(error).toBeUndefined();
+          expect(census.runs.map(({ id }) => id)).toEqual([10, 11, 12, deploy.id]);
+          expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+          expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+          expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+          expect(requests.slice(-6)).toEqual([
+            `5:queued:${before}:1`,
+            `5:queued:${after}:1`,
+            "5:queued:1",
+            "5:queued:2",
+            "5:in_progress:1",
+            "5:waiting:1",
+          ]);
+          expect(evidence()).toMatchObject({
+            outcome: "admitted",
+            partitions: [{ status: "queued", totalCount: 2, reread: { totalCounts: [2, 1], pageLengths: [1, 0] } }],
+          });
+        });
+
+        it.each([
+          ["an unstable writer candidate", { name: "Platform Deploy" }],
+          ["an unknown path", { path: undefined }],
+          ["a changed run identity", { head_sha: "c".repeat(40) }],
+        ])("refuses a moved total when an earlier pass shows %s", async (_label, overrides) => {
+          const passes = totalMoves();
+          passes[0].pending = [page(1, [{ ...observer, ...overrides }])];
+          const { census, error, requests } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(/^census-moving after 5 passes:.*total moved during pagination/);
+          expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+        });
+
+        it("refuses a moved total when the queued windows do not reconcile", async () => {
+          const passes = totalMoves();
+          passes[4].windows[after] = [page(1, [persistent])];
+          const { census, error } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:.*window totals sum to 1/);
+        });
+
+        it("refuses changed identities even when moved-total passes repeat the same counts and IDs", async () => {
+          const passes = totalMoves();
+          passes[2].pending = passes[4].pending;
+          passes[0].pending = [page(1, [{ ...observer, path: deployPath }])];
+          const { census, error, requests } = await readPasses(passes);
+          expect(census).toBeUndefined();
+          expect(error.message).toMatch(
+            /^census-stable-count-list-drift after 5 passes:.*total moved during pagination/,
+          );
+          expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
+        });
+
+        it.each(["an earlier pass", "the final global re-read"])(
+          "refuses a populated changed-total page in %s",
+          async (stage) => {
+            const passes = totalMoves();
+            const populated = page(1, [{ ...unlisted, name: "Platform Deploy" }]);
+            if (stage === "an earlier pass") passes[0].queued[1] = populated;
+            else passes[4].queued[1] = [page(1, []), populated];
+            const { census, error } = await readPasses(passes);
+            expect(census).toBeUndefined();
+            expect(error.message).toMatch(
+              stage === "an earlier pass"
+                ? /^census-moving after 5 passes:.*total moved during pagination/
+                : /^census-partition-unreconciled after 5 passes:.*total moved during pagination/,
+            );
+          },
+        );
+      });
+
       // Captured identity of the provider-side queued ghost (marker-go-1030-r2.run-37642385358.json), unchanged.
       const ghost = {
         id: 37642385358,
@@ -5290,6 +5556,120 @@ describe("platform Kubernetes deployment", () => {
       pendingDescription: "Preparing upgrade",
       issueNumber: "7504",
       admissionOutPath: "artifacts/admission.json",
+    });
+  });
+
+  describe("component image rollback identity", () => {
+    const pilotImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
+    const values = {
+      ...rollbackValues,
+      components: {
+        ...rollbackValues.components,
+        "admin-corten": { enabled: true, kind: "service", image: pilotImage },
+      },
+    };
+    const before = [{ revision: 3, status: "deployed", description: "Upgrade complete" }];
+    const after = [
+      { revision: 3, status: "superseded", description: "Upgrade complete" },
+      { revision: 4, status: "deployed", description: "Rollback to 3" },
+    ];
+    const workloadList = (image = pilotImage) => {
+      const list = JSON.parse(rollbackWorkloadList());
+      list.items.push({
+        kind: "Deployment",
+        metadata: {
+          name: "proof-chase-sets-platform-admin-corten",
+          labels: { "app.kubernetes.io/component": "admin-corten" },
+        },
+        spec: { template: { spec: { containers: [{ name: "admin-corten", image }] } } },
+      });
+      return JSON.stringify(list);
+    };
+    const captureOptions = (image = pilotImage, recordedValues = values) => ({
+      values: recordedValues,
+      release: "proof",
+      namespace: "staging",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-split-image",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(before) },
+          { code: 0, stdout: JSON.stringify(recordedValues) },
+          { code: 0, stdout: workloadList(image) },
+          { code: 0, stdout: helmHistory(before) },
+        ],
+      ),
+    });
+
+    it("captures the recorded pilot digest alongside the global platform image", async () => {
+      const target = await captureKubernetesRollbackTarget(captureOptions());
+      expect(target.workloadIdentities).toEqual([
+        expect.objectContaining({
+          component: "admin-corten",
+          images: [{ container: "admin-corten", containerType: "application", image: pilotImage }],
+        }),
+        expect.objectContaining({
+          component: "platform-worker",
+          images: [{ container: "platform-worker", containerType: "application", image: rollbackImageRef }],
+        }),
+      ]);
+    });
+
+    it("refuses capture when the pilot digest differs from its recorded image", async () => {
+      await expect(
+        captureKubernetesRollbackTarget(captureOptions(pilotImage.replace("c".repeat(64), "d".repeat(64)))),
+      ).rejects.toThrow("does not match");
+    });
+
+    it.each(["", "registry.digitalocean.com/chase-sets/chase-sets-corten-admin:latest"])(
+      "refuses a recorded pilot image without an immutable digest: %s",
+      async (image) => {
+        const recordedValues = structuredClone(values);
+        recordedValues.components["admin-corten"].image = image;
+        await expect(captureKubernetesRollbackTarget(captureOptions(pilotImage, recordedValues))).rejects.toThrow();
+      },
+    );
+
+    it.each([false, true])("verifies restored pilot identity with altered digest=%s", async (altered) => {
+      const rollbackTarget = await captureKubernetesRollbackTarget(captureOptions());
+      const result = await rollbackPlatformOnKubernetes({
+        values,
+        release: "proof",
+        namespace: "staging",
+        releaseExists: true,
+        revision: "3",
+        rollbackTarget,
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0, stdout: JSON.stringify(values) },
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0 },
+            { code: 0 },
+            { code: 0 },
+            { code: 0, stdout: helmHistory(after) },
+            { code: 0, stdout: JSON.stringify(values) },
+            {
+              code: 0,
+              stdout: workloadList(altered ? pilotImage.replace("c".repeat(64), "d".repeat(64)) : pilotImage),
+            },
+            { code: 0, stdout: helmHistory(after) },
+          ],
+        ),
+      });
+      expect(result.result).toBe(altered ? "failure" : "success");
+      if (altered) {
+        expect(result.reason).toContain("admin-corten");
+        expect(result.reason).toContain("does not match");
+      } else {
+        expect(result.rollbackIdentity.workloadIdentities).toEqual(rollbackTarget.workloadIdentities);
+      }
     });
   });
 
@@ -7223,6 +7603,9 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       namespace,
       timeout: "15m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      ...(environment === "staging"
+        ? { cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}` }
+        : {}),
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: environment,
         ...(environment === "preview" ? { PREVIEW_IDENTIFIER: "pr-123" } : {}),
@@ -7258,13 +7641,13 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
 
   it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
     const memoryByComponent = {
-      "public-web": "1024Mi",
-      marketplace: "1152Mi",
-      "admin-web": "832Mi",
-      "platform-api": "640Mi",
-      "platform-worker": "832Mi",
-      "platform-bootstrap": "1152Mi",
-      "preview-postgres": "448Mi",
+      "public-web": "1216Mi",
+      marketplace: "1280Mi",
+      "admin-web": "960Mi",
+      "platform-api": "1408Mi",
+      "platform-worker": "960Mi",
+      "platform-bootstrap": "896Mi",
+      "preview-postgres": "512Mi",
     };
     for (const release of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
       const args = deployArgs("preview", release);
@@ -7278,7 +7661,10 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         const component = pod.metadata.labels["app.kubernetes.io/component"];
         const { spec, metadata } = pod.spec.template;
         expect(spec.containers).toHaveLength(1);
-        expect(spec.containers[0].resources).toEqual({ requests: { memory: memoryByComponent[component] } });
+        expect(spec.containers[0].resources).toEqual({
+          requests: { cpu: component === "platform-bootstrap" ? "250m" : "100m", memory: memoryByComponent[component] },
+          limits: { memory: memoryByComponent[component] },
+        });
         const selector = (operator) => ({
           matchExpressions: [
             { key: "app.kubernetes.io/name", operator: "In", values: ["chase-sets-platform"] },
@@ -7307,6 +7693,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         } else if (component === "platform-bootstrap") {
           expect(pod.kind).toBe("Job");
           expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-20");
+          expect(pod.metadata.annotations["helm.sh/hook-delete-policy"]).toContain("hook-succeeded");
           expect(pod.spec.activeDeadlineSeconds).toBe(890);
         } else {
           expect(pod.kind).toBe("Deployment");

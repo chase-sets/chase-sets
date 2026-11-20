@@ -1,7 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { readAcceptedReadyToShipMembership } from "../../order-fulfillment-observations/api/runtime";
 import { OutboundSyncError } from "../domain/contracts";
-import type { OrderPullPayload, ClaimedOrderPullOutcome } from "../domain/order-pull";
+import type { OrderPullPayload, OrderPullProgressOutcome } from "../domain/order-pull";
 import {
   advanceOrderPullTraversal,
   assertOrderPullChunk,
@@ -47,7 +47,7 @@ export async function readOrderPullWork(
 export async function commitOrderPullProgress(
   db: PgQueryable,
   payload: OrderPullPayload,
-  outcome: Exclude<ClaimedOrderPullOutcome["outcome"], { kind: "order-pull-unknown" | "abandoned" }>,
+  outcome: OrderPullProgressOutcome,
 ): Promise<Readonly<{ checkpoint: OrderPullCheckpoint; kind: ReturnType<typeof orderPullProgressKind> }>> {
   const { connectionId, checkpoint } = payload;
   const progress = outcome.progress;

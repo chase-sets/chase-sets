@@ -53,10 +53,24 @@ const boundedSites = [
     pointer: "bounded-contexts/identity/tests/registration-operation-recovery.db.test.ts",
     consumption: "presence",
   },
+  {
+    id: "bounded-contexts/marketplace/features/reports/api/runtime.ts#readStream#1",
+    pointer: "bounded-contexts/marketplace/features/reports/api/runtime.test.ts",
+    consumption: "presence",
+  },
 ];
 
 const expectedInventory = [
   ...boundedSites.map(({ id }) => [id, "1"]),
+  [
+    "bounded-contexts/catalog/features/operator-session/api/market-observations.ts#readStream#1",
+    "Math.min(500, cap - events.length)",
+  ],
+  // Auth's enrolled writer adapter forwards the caller's complete history request unchanged.
+  ["bounded-contexts/auth/features/sessions/api/owner-epochs.ts#readStream#1", null],
+  // Channels' enrolled writer adapter forwards the caller's complete history request unchanged.
+  ["bounded-contexts/channels/features/connections/api/owner-epochs.ts#readStream#1", null],
+  ["bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts#readStream#1", null],
   // The authority-tracking decorator forwards the caller's complete read request.
   [
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
@@ -65,6 +79,11 @@ const expectedInventory = [
   // Fenced enrollment reads the creation event; its decorator still forwards complete caller requests.
   ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#1", "1"],
   ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#2", null],
+  // Acknowledgement reads every page before checking disposition and the stream version.
+  [
+    "bounded-contexts/platform-operations/features/reported-content/api/runtime.ts#readStream#1",
+    "EVENT_STORE_READ_PAGE_SIZE_MAX",
+  ],
   // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
   ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
   [
@@ -78,6 +97,9 @@ const expectedInventory = [
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
   // The owner-transaction adapter forwards the complete request unchanged.
   ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
+  // The non-DB shipping test seam forwards the complete read request to the in-memory store unchanged.
+  ["bounded-contexts/fulfillment/features/seller-checkout-readiness/api/test-support.ts#readStream#1", null],
+  ["bounded-contexts/checkout/features/command-attempts/api/sell-list-attempt.test-support.ts#readStream#1", null],
   // The owner-checking lookup reader forwards the complete history request unchanged.
   ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts#readStream#1", null],
   // Listing-attempt owner lookup forwards the complete history request unchanged.
@@ -110,9 +132,88 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact nineteen-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact tracked-call corpus and six production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("retains the market upload's request-derived cap and bounded history pages", () => {
+    const file = "bounded-contexts/catalog/features/operator-session/api/market-observations.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site.limit).toBe("Math.min(500, cap - events.length)");
+    expect(readSource(file)).toContain("events.length >= cap");
+    expect(
+      errorCodes(mutatedInventory(file, readSource(file).replace("Math.min(500, cap - events.length)", "1"))),
+    ).toContain("inventory-mismatch");
+  });
+
+  it("keeps the Auth Session persistence reader's complete history request unchanged", () => {
+    const file = "bounded-contexts/auth/features/sessions/api/owner-epochs.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["input"]);
+    expect(site.limit).toBeNull();
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          readSource(file).replace("store.readStream(input)", "store.readStream({ ...input, limit: 1 })"),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
+  });
+
+  it("keeps the Channels Connection persistence reader's complete history request unchanged", () => {
+    const file = "bounded-contexts/channels/features/connections/api/owner-epochs.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["input"]);
+    expect(site.limit).toBeNull();
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          readSource(file).replace("store.readStream(input)", "store.readStream({ ...input, limit: 1 })"),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
+  });
+
+  it("keeps the Inventory stock persistence reader's complete history request unchanged", () => {
+    const file = "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["input"]);
+    expect(site.limit).toBeNull();
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          readSource(file).replace("store.readStream(input)", "store.readStream({ ...input, limit: 1 })"),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
+  });
+
+  it("retains the Reported Content acknowledgement's complete-history page bound", () => {
+    const file = "bounded-contexts/platform-operations/features/reported-content/api/runtime.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site).toBeDefined();
+    expect(site.limit).toBe("EVENT_STORE_READ_PAGE_SIZE_MAX");
+    expect(
+      errorCodes(mutatedInventory(file, readSource(file).replace("limit: EVENT_STORE_READ_PAGE_SIZE_MAX", "limit: 1"))),
+    ).toContain("inventory-mismatch");
+  });
+
+  it("keeps the Marketplace legacy report read presence-only", () => {
+    const file = "bounded-contexts/marketplace/features/reports/api/runtime.ts";
+    const source = readSource(file);
+    expect(errorCodes(mutatedInventory(file, source.replace("limit: 1,", "limit: 2,")))).toContain(
+      "bounded-limit-not-one",
+    );
+    expect(errorCodes(mutatedInventory(file, source.replace("legacy.length > 0", "legacy.some(Boolean)")))).toContain(
+      "presence-consumption-changed",
+    );
   });
 
   it("keeps the Marketplace lookup reader's complete history request unchanged", () => {

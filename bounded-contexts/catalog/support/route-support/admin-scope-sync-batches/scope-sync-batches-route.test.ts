@@ -15,6 +15,11 @@ import {
 import { createCatalogApiClient } from "../../shell-support/api/client";
 import { captureCountsFixture } from "../../../features/scope-sync-batches/tests/count-capture-counts-fixture";
 import { captureNow } from "../../../features/scope-sync-batches/tests/count-capture-planner-fixture";
+import { createScopeSyncCountRuntime } from "../../../features/scope-sync-batches/api/count-runtime";
+import {
+  CountAcquisitionRefused,
+  CountPeriodCapRefused,
+} from "../../../features/scope-sync-batches/domain/count-acquisition";
 
 const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
   const api = {
@@ -283,14 +288,15 @@ describe("count-capture intents", () => {
     const [baseline, notice, usage] = await Promise.all(responses.map((response) => response.json()));
     expect(baseline).toMatchObject({ providerSends: 0, baseline: { selection: { scopeRecordId: captureScope } } });
     expect(notice).toMatchObject({ notice: { body: { kind: "initial" } } });
-    expect(usage).toEqual({ usage: expect.objectContaining({ state: "skipped" }) });
+    expect(usage).toEqual({ usage: expect.objectContaining({ state: "persisted" }) });
     expect(f.memory.history.at(-1)?.payload).toMatchObject({
       status: "open",
       phases: ["baseline", "bootstrap"],
       request: null,
       notice: { fingerprint: notice.notice.fingerprint },
     });
-    expect(f.usage.fetch).not.toHaveBeenCalled();
+    expect(f.usage.fetch).toHaveBeenCalledTimes(1);
+    expect(f.usage.fetch.mock.calls[0]?.[0]).toBe("https://api.scrydex.com/account/v1/usage");
   });
 
   it("forwards each closed step to its typed client method", async () => {
@@ -377,6 +383,45 @@ describe("count-capture intents", () => {
       ])) as Response;
       expect(result.status).toBe(409);
     }
+  });
+
+  it("an Admin count acquisition carries no period reserve, so staging refuses usage-period-cap before the quote", async () => {
+    const store = { loadQuote: vi.fn(async () => Promise.reject(new CountAcquisitionRefused())) };
+    const counts = createScopeSyncCountRuntime({
+      pool: {} as never,
+      store: store as never,
+      environment: "staging",
+      accountRevision: "runtime",
+      profiles: {} as never,
+      adapterOptions: {},
+    });
+    const root = new Hono<{ Variables: { context: EventStoreContext; actor: ResolvedActor | null } }>();
+    root.use("*", async (c, next) => {
+      c.set("context", captureContext);
+      c.set("actor", captureActor());
+      await next();
+    });
+    root.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes(counts as never));
+    const requests: unknown[] = [];
+    const client = createCatalogApiClient({
+      baseUrl: `${stagingAdmin}/api/catalog`,
+      headers: { origin: stagingAdmin, "sec-fetch-site": "same-origin" },
+      fetch: async (input, init) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return root.request(input instanceof Request ? input : String(input), init);
+      },
+    });
+    createCatalogRequestApiClient.mockReturnValueOnce(client as never);
+    const quoteId = "00000000-0000-4000-8000-000000000001";
+    await expect(
+      runRequest(formRequest({ intent: "count-acquire", quoteId, countFingerprint: "a".repeat(64) })),
+    ).resolves.toEqual({
+      preview: null,
+      heldSetResolution: null,
+      error: new CountPeriodCapRefused(null).message,
+    });
+    expect(requests).toEqual([{ quoteId, fingerprint: "a".repeat(64) }]);
+    expect(store.loadQuote).not.toHaveBeenCalled();
   });
 
   it.each([

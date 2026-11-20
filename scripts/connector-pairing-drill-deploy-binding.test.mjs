@@ -16,11 +16,39 @@ const repo = "repos/chase-sets/chase-sets";
 const mergeOf = (issue) => issue.toString(16).padStart(40, "e");
 const pairingIssues = [10110, 9985, 10639, 10640];
 
+const linkedPr = (overrides = {}) => ({
+  __typename: "PullRequest",
+  number: 19001,
+  merged: true,
+  mergeCommit: { oid: mergeOf(10640) },
+  baseRefName: "main",
+  repository: { nameWithOwner: "chase-sets/chase-sets" },
+  ...overrides,
+});
+const crossReference = (pr = linkedPr()) => ({ __typename: "CrossReferencedEvent", source: pr });
+// Synthetic API payload for the production mapping's identity; never live GitHub evidence.
+const mappedPr = (overrides = {}) => ({
+  number: 10944,
+  merged: true,
+  merge_commit_sha: mergeOf(10640),
+  base: { ref: "main", repo: { full_name: "chase-sets/chase-sets" } },
+  ...overrides,
+});
+
 /**
  * A fake `gh api`: Platform Deploy listings, attempts' jobs and the deploy log from the captured fixture, one
- * merged closing PR per issue, and a compare status per merge commit.
+ * merged closing PR per issue, mapped implementation metadata, incidental references, and merge comparisons.
  */
-function fakeGh({ closing = {}, compare = {}, fail = () => false } = {}) {
+function fakeGh({
+  closing = {},
+  linked = [],
+  implementation = mappedPr(),
+  state = "CLOSED",
+  truncated = false,
+  closingTruncated = false,
+  compare = {},
+  fail = () => false,
+} = {}) {
   const calls = [];
   const gh = vi.fn(async (args) => {
     calls.push(args);
@@ -29,9 +57,20 @@ function fakeGh({ closing = {}, compare = {}, fail = () => false } = {}) {
     if (args[0] === "graphql") {
       const issue = Number(args.find((arg) => arg.startsWith("number=")).slice("number=".length));
       const nodes = closing[issue] ?? [{ number: issue, merged: true, mergeCommit: { oid: mergeOf(issue) } }];
-      return json({ data: { repository: { issue: { closedByPullRequestsReferences: { nodes } } } } });
+      return json({
+        data: {
+          repository: {
+            issue: {
+              state,
+              closedByPullRequestsReferences: { nodes, pageInfo: { hasNextPage: closingTruncated } },
+              timelineItems: { nodes: linked, pageInfo: { hasNextPage: truncated } },
+            },
+          },
+        },
+      });
     }
     const path = args.at(-1);
+    if (path === `${repo}/pulls/10944`) return json(implementation);
     let match = /^repos\/chase-sets\/chase-sets\/compare\/([a-f0-9]{40})\.\.\.([a-f0-9]{40})\?per_page=1$/.exec(path);
     if (match) return json({ status: compare[match[1]] ?? "ahead" });
     match =
@@ -95,6 +134,8 @@ describe("connector-pairing-drill-deploy-binding", () => {
       pairingIssues.map((issue) => `number=${issue}`),
     );
     expect(calls.map((args) => args.at(-1))).toContain(`${repo}/actions/jobs/118064914233/logs`);
+    expect(calls.some((args) => args.some((arg) => arg.includes("timelineItems")))).toBe(false);
+    expect(calls.some((args) => args.at(-1).includes("/pulls/"))).toBe(false);
   });
 
   it("returns the selector's stop for a newer unfinished, indeterminate or missing deploy", async () => {
@@ -110,6 +151,160 @@ describe("connector-pairing-drill-deploy-binding", () => {
     });
     expect(await read({}, { gh: fakeGh().gh, selectGeneration: throwing })).toEqual({
       stop: "deploy-generation-unavailable",
+    });
+  });
+
+  const failedGh = (code, stderr = "") =>
+    ghApi([], {
+      run: (_file, _args, _options, done) =>
+        done(
+          Object.assign(new Error("token=private-error"), { code }),
+          Buffer.from("private-body"),
+          Buffer.from(stderr),
+        ),
+    });
+
+  it.each([
+    ["bare 503", () => failedGh(1, "gh: HTTP 503\r\n")],
+    ["429", () => failedGh(1, "gh: private-stderr (HTTP 429)")],
+    ["transport", () => failedGh(1, 'Get "https://private-url": unexpected EOF')],
+    ["timeout", () => failedGh("ABORT_ERR")],
+  ])("retries a transient jobs GET and binds the exact applied job (%s)", async (_kind, fail) => {
+    const { gh } = fakeGh();
+    let firstJobsPage;
+    let calls = 0;
+    const flaky = (args) => {
+      const path = args.at(-1);
+      if (path.includes("/attempts/")) firstJobsPage ??= path;
+      return path === firstJobsPage && ++calls === 1 ? fail() : gh(args);
+    };
+    expect(await read({}, { gh: flaky, readReceiptFloor: async () => capturedRun })).toMatchObject({
+      binding: { runId: capturedRun, jobId: "118064914233", deployedHead: capturedHead },
+    });
+    expect(calls).toBe(2);
+  });
+
+  it.each([
+    ["workflow-runs", "/workflows/", 1, "gh: private-stderr\ncontinued (HTTP 403)", "http-403", 1],
+    ["attempt-jobs", "/attempts/", 1, "gh: private-stderr (HTTP 404)", "http-404", 1],
+    ["attempt-jobs", "/attempts/", 1, "gh: private-stderr (HTTP 503)", "http-503", 3],
+    ["deploy-job-log", "/logs", 4, "private-stderr", "exit-4", 1],
+  ])("refuses an unreadable %s phase with only the safe class", async (phase, match, code, stderr, reason, count) => {
+    const { gh } = fakeGh();
+    const fail = vi.fn(() => failedGh(code, stderr));
+    const readReceiptFloor = vi.fn();
+    const result = await read(
+      {},
+      {
+        gh: (args) => (args.at(-1).includes(match) ? fail() : gh(args)),
+        readReceiptFloor,
+      },
+    );
+    expect(result).toEqual({ stop: `github-request-failed:${phase}:${reason}` });
+    expect(fail).toHaveBeenCalledTimes(count);
+    expect(readReceiptFloor).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a GraphQL POST even on a retryable HTTP status", async () => {
+    const { gh } = fakeGh();
+    const fail = vi.fn(() => failedGh(1, "gh: private-stderr (HTTP 503)"));
+    expect(await read({}, { gh: (args) => (args[0] === "graphql" ? fail() : gh(args)) })).toEqual({
+      stop: "required-merge-unreadable:required-merges:http-503",
+    });
+    expect(fail).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{ linked: [] }, { linked: [crossReference(), crossReference(linkedPr({ number: 19002 }))] }])(
+    "accepts only the mapped implementation regardless of incidental timeline references: %j",
+    async ({ linked }) => {
+      const { gh, calls } = fakeGh({
+        closing: { 10640: [] },
+        linked,
+      });
+      const result = await read({}, { gh, readReceiptFloor: async () => capturedRun });
+      expect(result.binding.requiredMerges.at(-1)).toEqual({
+        issue: 10640,
+        pullRequest: 10944,
+        mergeCommit: mergeOf(10640),
+        contained: true,
+      });
+      expect(calls.map((args) => args.at(-1))).toContain(`${repo}/pulls/10944`);
+      expect(calls.some((args) => args.some((arg) => arg.includes("timelineItems")))).toBe(false);
+    },
+  );
+
+  it.each([
+    ["open issue", { state: "OPEN" }],
+    ["unmerged PR", { implementation: mappedPr({ merged: false }) }],
+    [
+      "PR targeting another branch",
+      { implementation: mappedPr({ base: { ref: "release", repo: { full_name: "chase-sets/chase-sets" } } }) },
+    ],
+    [
+      "foreign repository PR",
+      { implementation: mappedPr({ base: { ref: "main", repo: { full_name: "other/repo" } } }) },
+    ],
+    ["wrong PR identity", { implementation: mappedPr({ number: 900000003 }) }],
+    ["missing merge SHA", { implementation: mappedPr({ merge_commit_sha: null }) }],
+    ["malformed merge SHA", { implementation: mappedPr({ merge_commit_sha: "unknown" }) }],
+    ["missing PR metadata", { implementation: null }],
+    ["uncontained PR", { compare: { [mergeOf(10640)]: "behind" } }],
+    ["diverged PR", { compare: { [mergeOf(10640)]: "diverged" } }],
+  ])("refuses a manual closeout with %s", async (_name, options) => {
+    const { gh, calls } = fakeGh({ closing: { 10640: [] }, linked: [crossReference()], ...options });
+    const { binding } = await read({}, { gh, readReceiptFloor: async () => capturedRun });
+    expect(binding.requiredMerges.at(-1)).toMatchObject({ issue: 10640, contained: false });
+    if (Object.hasOwn(options, "implementation"))
+      expect(calls.map((args) => args.at(-1))).not.toContain(
+        `${repo}/compare/${mergeOf(10640)}...${capturedHead}?per_page=1`,
+      );
+  });
+
+  it("refuses unreadable mapped PR metadata without consulting the timeline", async () => {
+    const { gh, calls } = fakeGh({ closing: { 10640: [] }, fail: (args) => args.at(-1).includes("/pulls/") });
+    expect(await read({}, { gh, readReceiptFloor: async () => capturedRun })).toEqual({
+      stop: "required-merge-unreadable",
+    });
+    expect(calls.some((args) => args.some((arg) => arg.includes("timelineItems")))).toBe(false);
+  });
+
+  it("refuses an incidental reference alone for an unknown manual closeout", async () => {
+    const issue = 900000001;
+    const { gh, calls } = fakeGh({ closing: { [issue]: [] }, linked: [crossReference()] });
+    const { binding } = await read({ requiredIssues: [issue], requireReceiptFloor: false }, { gh });
+    expect(binding.requiredMerges).toEqual([{ issue, pullRequest: null, mergeCommit: null, contained: false }]);
+    expect(calls.some((args) => args.at(-1).includes("/compare/") || args.at(-1).includes("/pulls/"))).toBe(false);
+  });
+
+  it("refuses an uncontained implementation beside a contained incidental reference", async () => {
+    const incidentalMerge = "f".repeat(40);
+    const { gh, calls } = fakeGh({
+      closing: { 10640: [] },
+      linked: [crossReference(), crossReference(linkedPr({ mergeCommit: { oid: incidentalMerge } }))],
+      compare: { [mergeOf(10640)]: "behind", [incidentalMerge]: "ahead" },
+    });
+    const { binding } = await read({}, { gh, readReceiptFloor: async () => capturedRun });
+    expect(binding.requiredMerges.at(-1)).toMatchObject({ pullRequest: 10944, contained: false });
+    expect(calls.map((args) => args.at(-1))).not.toContain(
+      `${repo}/compare/${incidentalMerge}...${capturedHead}?per_page=1`,
+    );
+  });
+
+  it("refuses incomplete closing-PR authority instead of falling back", async () => {
+    const { gh } = fakeGh({ closingTruncated: true, linked: [crossReference()] });
+    expect(await read({}, { gh, readReceiptFloor: async () => capturedRun })).toEqual({
+      stop: "required-merge-unreadable",
+    });
+  });
+
+  it("refuses an unknown mapped comparison even beside a contained incidental reference", async () => {
+    const { gh } = fakeGh({
+      closing: { 10640: [] },
+      linked: [crossReference(), crossReference(linkedPr({ number: 19002, mergeCommit: { oid: "f".repeat(40) } }))],
+      compare: { [mergeOf(10640)]: "unknown" },
+    });
+    expect(await read({}, { gh, readReceiptFloor: async () => capturedRun })).toEqual({
+      stop: "required-merge-unreadable",
     });
   });
 
@@ -185,12 +380,12 @@ describe("connector-pairing-drill-deploy-binding", () => {
       headers: { authorization: "Bearer gh-api", accept: "application/vnd.github.raw+json" },
     });
     expect(response.status).toBe(200);
-    expect(gh).toHaveBeenCalledWith([
-      "-H",
-      "Accept: application/vnd.github.raw+json",
-      `${repo}/actions/runs/1/attempts/1?x=1`,
-    ]);
+    expect(gh).toHaveBeenCalledWith(
+      ["-H", "Accept: application/vnd.github.raw+json", `${repo}/actions/runs/1/attempts/1?x=1`],
+      { signal: undefined },
+    );
     expect((await transport("https://synthetic.blob.core.windows.net/logs/1")).status).toBe(599);
+    expect((await transport(`https://api.github.com/${repo}`, { method: "POST" })).status).toBe(599);
     expect(gh).toHaveBeenCalledTimes(1);
     const refusing = ghApiTransport(async () => {
       throw new Error("gh-api-refused");

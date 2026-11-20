@@ -14,7 +14,7 @@
 //! refused action draws the page again with the form as it was sent, as admin-web's form keeps its
 //! values.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -111,7 +111,7 @@ struct List {
 }
 
 /// An action's fields (admin-web's form names).
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ActionForm {
     pub recovered_item_id: String,

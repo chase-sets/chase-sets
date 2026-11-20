@@ -116,11 +116,11 @@ export async function seedCatalogDatabase(
   }
 
   if (shouldSeedScenarioData) {
-    await seedCatalogScenarioData(pool, authoring);
+    await seedCatalogScenarioData(pool, services, authoring);
   }
 
   if (shouldSeedRepresentativeProductContents) {
-    await seedRepresentativeProductContentsCatalogItems(pool, authoring);
+    await seedRepresentativeProductContentsCatalogItems(pool, services, authoring);
   }
 
   if (shouldSeedAuthoring || shouldSeedScenarioData) {
@@ -349,8 +349,11 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
   }
 }
 
-async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: CatalogIntegrationIds): Promise<void> {
-  const services = createCatalogServices(createProjectionAwarePool(pool));
+async function seedCatalogScenarioData(
+  pool: PgTransactionalPool,
+  services: CatalogServices,
+  authoring: CatalogIntegrationIds,
+): Promise<void> {
   const targetCatalogItemId = catalogSeedIds.items.pikachuJungle as CatalogItemId;
   const { hasAnyCatalogItem, retainedScenarioItemIds } = await loadCatalogScenarioSeedState(services.db);
 
@@ -461,9 +464,9 @@ async function recoverScenarioCatalogItemProjections(
 
 async function seedRepresentativeProductContentsCatalogItems(
   pool: PgTransactionalPool,
+  services: CatalogServices,
   authoring: CatalogIntegrationIds,
 ): Promise<void> {
-  const services = createCatalogServices(createProjectionAwarePool(pool));
   const streamIds = representativeProductContentsScenario.requiredCatalogItemIds.map(
     (catalogItemId) => `catalog.item-${catalogItemId}`,
   );

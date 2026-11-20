@@ -1,29 +1,29 @@
 import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
-import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
-import { createDurableJobLaneRunners, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
+import { createPricingJobRunners } from "@chase-sets/pricing/server";
+import { module as pricingModule } from "@chase-sets/pricing";
 import type { RepricingEngineServices } from "@chase-sets/pricing/server";
 
 describe("production repricing dry-run lane composition", () => {
   it("runs the main.ts lane callback without Marketplace and forwards cancellation and lease ownership", async () => {
     const text = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    const source = ts.createSourceFile("main.ts", text, ts.ScriptTarget.ES2022, true);
-    const declaration = source.statements.find(
-      (node) => ts.isFunctionDeclaration(node) && node.name?.text === "createPricingJobRunners",
-    );
-    expect(declaration).toBeDefined();
-    const compiled = ts.transpileModule(declaration!.getText(source), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-    }).outputText;
+    expect(pricingModule.workerJobFactories.createPricingJobRunners).toBe(createPricingJobRunners);
     const processNext: RepricingEngineServices["processNextDryRunJob"] = vi.fn(async (input) => {
       input.throwIfLeaseLost?.();
       return 1;
     });
-    const runners: readonly WorkerRunner[] = runInNewContext(compiled + "\ncreatePricingJobRunners(services, config)", {
-      createDurableJobLaneRunners,
+    const runners = createPricingJobRunners({
       services: { pricing: { repricingEngine: { processNextDryRunJob: processNext } } },
-      config: { workerId: "worker-7910", leaseTtlMs: 1_000, pricingRepricingDryRunJobLaneCount: 2 },
+      config: {
+        workerId: "worker-7910",
+        leaseTtlMs: 1_000,
+        pricingRepricingDryRunJobLaneCount: 2,
+        pricingRecommendationJobLaneCount: 1,
+        pricingRecommendationJobWorkflowMaxActiveClaims: 1,
+        pricingRecommendationJobMaxActiveClaimsPerJob: 1,
+        pricingRepricingEvaluationJobLaneCount: 1,
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
     expect(runners.map((runner) => runner.name)).toEqual([
       "job:pricing.repricing-dry-run-jobs.lane-1",
@@ -42,7 +42,7 @@ describe("production repricing dry-run lane composition", () => {
       throwIfLeaseLost,
     });
     expect(throwIfLeaseLost).toHaveBeenCalledOnce();
-    expect(text).toContain("...createPricingJobRunners(runtime.services, config)");
-    expect(text).toContain('pricing?: Partial<Pick<PricingServices, "recommendations" | "repricingEngine">>');
+    expect(text).toContain("createPlatformWorkerJobComposition(");
+    expect(text).not.toContain("function createPricingJobRunners");
   });
 });

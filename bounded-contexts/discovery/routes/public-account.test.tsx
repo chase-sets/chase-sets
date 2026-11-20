@@ -29,7 +29,7 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
-import PublicAccountRoute, { action, loader } from "./public-account";
+import PublicAccountRoute, { action, loader, meta } from "./public-account";
 
 function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): DiscoveryPublicAccount {
   return {
@@ -191,6 +191,62 @@ describe("discovery public account loader", () => {
     expect((thrown as Response).status).toBe(301);
     expect((thrown as Response).headers.get("Location")).toBe("/accounts/north-store");
   });
+
+  function stubAccountRead(status: number) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { code: status === 404 ? "not_found" : "failed", message: "Failed" } }),
+            {
+              status,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      ),
+    );
+  }
+
+  function loadAccount(slug = "no-such-account") {
+    return loader({
+      request: new Request(`http://localhost/accounts/${slug}?role=buyer`),
+      params: { accountSlug: slug },
+      context: undefined,
+    } as never);
+  }
+
+  it("answers an account the API does not have with 404, noindex and no canonical link", async () => {
+    stubAccountRead(404);
+
+    const result = (await loadAccount()) as unknown as {
+      data: { account: null; notFound: boolean; canonicalUrl: null; reviewRole: string | null };
+      init: { status: number };
+    };
+    expect(result.init.status).toBe(404);
+    expect(result.data).toMatchObject({ account: null, notFound: true, canonicalUrl: null, reviewRole: "buyer" });
+    const tags = meta({ data: result.data } as never) ?? [];
+
+    expect(tags).toContainEqual({ name: "robots", content: "noindex" });
+    expect(tags.some((tag) => "rel" in tag && tag.rel === "canonical")).toBe(false);
+  });
+
+  it.each([
+    [500, 502],
+    [503, 503],
+    [400, 502],
+  ])("answers an account read the API fails with %i as %i, not as a missing account", async (status, expected) => {
+    stubAccountRead(status);
+
+    await expect(loadAccount()).rejects.toMatchObject({ init: { status: expected } });
+  });
+
+  it("keeps a found active account indexable", async () => {
+    stubAccountAndChipsFetch();
+
+    const result = await loadAccount("north-store");
+    expect(meta({ data: result } as never)).not.toContainEqual({ name: "robots", content: "noindex" });
+  });
 });
 
 describe("discovery public account review reports", () => {
@@ -205,6 +261,7 @@ describe("discovery public account review reports", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         intent: "report-review",
+        attemptId: "public_review_report_attempt_0001",
         reviewId: "rev_1",
         reason: "personal-information",
         details: "The review includes a phone number.",
@@ -226,12 +283,18 @@ describe("discovery public account review reports", () => {
 
     const result = await action({ request: reportRequest(), params: { accountSlug: "north-store" } } as never);
 
-    expect(result).toEqual({ reviewId: "rev_1", status: "submitted" });
+    expect(result).toEqual({
+      reviewId: "rev_1",
+      status: "submitted",
+      attemptId: "public_review_report_attempt_0001",
+      mutationPhase: "succeeded",
+    });
     expect(postedBodies).toEqual([
       {
         reason: "personal-information",
         details: "The review includes a phone number.",
         sourceRoutePath: "/accounts/north-store",
+        attemptId: "public_review_report_attempt_0001",
       },
     ]);
   });
@@ -258,6 +321,37 @@ describe("discovery public account review reports", () => {
     expect(thrown).toBeInstanceOf(Response);
     expect((thrown as Response).status).toBe(302);
     expect((thrown as Response).headers.get("Location")).toBe("/sign-in?returnTo=%2Faccounts%2Fnorth-store%23feedback");
+  });
+
+  it("confirms a lost response with one same-reporter replay of the retained report", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        bodies.push(await request.json());
+        if (bodies.length === 1) throw new TypeError("Response lost");
+        return new Response(JSON.stringify({ id: "rpt_first", version: 1 }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const first = await action({ request: reportRequest(), params: { accountSlug: "north-store" } } as never);
+    expect(first).toMatchObject({ mutationPhase: "confirming", attemptId: "public_review_report_attempt_0001" });
+    expect(bodies).toHaveLength(1);
+    const form = await reportRequest().formData();
+    form.set("intent", "confirm:report-review");
+    const confirmed = await action({
+      request: new Request("http://localhost/accounts/north-store", {
+        method: "POST",
+        body: form,
+      }),
+      params: { accountSlug: "north-store" },
+    } as never);
+    expect(confirmed).toMatchObject({ mutationPhase: "succeeded", status: "submitted" });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
   });
 });
 

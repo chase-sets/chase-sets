@@ -1,10 +1,10 @@
 # Item Detail Rail Analytics
 
-The simplified item-detail rail emits provider-neutral analytics for the Buy, Sell, and Watch workflows. Discovery owns the browser event contract because it owns the item-detail selection surface. The marketplace deployable owns the bridge endpoint and observability recording.
+The simplified item-detail rail emits provider-neutral analytics for the Buy, Sell, and Watch workflows. Discovery owns the browser event contract and ingestion route because it owns the item-detail selection surface. Its marketplace-web root-placement contribution serves `/analytics/item-detail-rail`. The marketplace deployable registers the observability adapter at server startup through the platform-runtime analytics recorder port; an unregistered recorder is a no-op and valid events still return 204.
 
 ## Browser Event
 
-Rails dispatch a `CustomEvent` named `chase-sets:item-detail-rail-analytics`. The marketplace root listens for that event and posts allowlisted labels to `/analytics/item-detail-rail`.
+Rails dispatch a `CustomEvent` named `chase-sets:item-detail-rail-analytics`. The marketplace root configures the shared platform-runtime bridge builder with Discovery's event vocabulary and existing field readers, posting allowlisted labels to `/analytics/item-detail-rail`.
 
 The event detail must contain `event` plus optional bounded labels:
 

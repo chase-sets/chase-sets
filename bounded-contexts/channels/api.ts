@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createEbayConnectionRoutes } from "./features/ebay-connection/api/route";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelsServices } from "./support/runtime-support/services";
 import { channelConnectionRoutes, type ChannelConnectionRouteOptions } from "./features/connections/api/route";
@@ -47,7 +48,15 @@ export function buildChannelsApi(
     await next();
   });
 
-  app.route("/connections", channelConnectionRoutes(services.connections, options));
+  if (services.ebayConnection)
+    app.route("/ebay", createEbayConnectionRoutes(services.ebayConnection, services.ebaySellerSetup));
+  app.route(
+    "/connections",
+    channelConnectionRoutes(services.connections, {
+      ...options,
+      ebaySandboxEnabled: services.ebayConnection?.enabled === true,
+    }),
+  );
   app.route("/connections", createConnectionAttentionRoutes(services.connectionAttention));
   app.route("/connections", createChannelDriftRoutes(services.reconciliation));
   app.route("/connections", createSellerConnectorRoutes(services.connectorFeed));

@@ -10,6 +10,87 @@ import {
 import { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
 
 describe("Catalog primary workbench route context", () => {
+  it.each([
+    "source-observation/obs_001",
+    "provider-profile/2026.06.04/tcgdex",
+    "malformed",
+    "",
+    "raw json",
+    "x".repeat(1300),
+  ])("preserves untrusted evidenceRef %j for fail-closed membership resolution", (reference) => {
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      `https://admin.example/catalog/scopes/scope-base?reviewOffset=25&evidenceRef=${encodeURIComponent(reference)}`,
+    );
+    const expected = reference.includes("/") ? reference : "invalid";
+    expect(context.evidenceRef).toBe(expected);
+    expect(serializeCatalogPrimaryWorkbenchRouteContext(context).get("evidenceRef")).toBe(expected);
+    expect(
+      catalogPrimaryWorkbenchContextKeysFromUrl("https://admin.example/catalog/scopes/scope-base?evidenceRef=bad"),
+    ).toContain("evidenceRef");
+    expect(context.reviewOffset).toBe(25);
+  });
+
+  it("keeps provider path identity authoritative and maps Settings to its existing surface", () => {
+    expect(
+      parseCatalogPrimaryWorkbenchRouteContext(
+        "https://admin.example/catalog/providers/tcgdex?providerKey=other&evidenceRef=provider/other",
+      ).providerKey,
+    ).toBe("tcgdex");
+    expect(
+      parseCatalogPrimaryWorkbenchRouteContext(
+        "https://admin.example/catalog/integrations/settings?evidenceRef=control-plane/settings",
+      ).section,
+    ).toBe("governance-controls");
+  });
+  it.each(["pending", "rejected,pending", ""])("round-trips alias-review narrowing with statuses %j", (statuses) => {
+    const filters = {
+      aliasType: "language-edition",
+      reviewStatuses: statuses,
+      targetKind: "reference-record",
+      targetId: "synthetic-reference-record",
+    };
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      `https://admin.example/catalog/integrations?${new URLSearchParams(filters)}`,
+    );
+    const expected = { ...filters, reviewStatuses: statuses ? statuses.split(",") : [] };
+
+    expect(context).toMatchObject(expected);
+    const serialized = serializeCatalogPrimaryWorkbenchRouteContext(context);
+    expect(serialized.get("reviewStatuses")).toBe(statuses || null);
+    const hrefs = [
+      catalogPrimaryWorkbenchHref(context),
+      catalogPrimaryWorkbenchHref(context, "governance-controls"),
+      catalogPrimaryWorkbenchSupportingHref(context, "audit-evidence"),
+      catalogPrimaryWorkbenchReturnPath(context),
+    ];
+    for (const href of hrefs) {
+      const url = new URL(href, "https://admin.example");
+      expect(parseCatalogPrimaryWorkbenchRouteContext(url)).toMatchObject(expected);
+      expect(catalogPrimaryWorkbenchContextKeysFromUrl(url)).toEqual(
+        expect.arrayContaining(["aliasType", "targetKind", "targetId", ...(statuses ? ["reviewStatuses"] : [])]),
+      );
+      const returnPath = url.searchParams.get("returnPath");
+      if (returnPath) {
+        expect(parseCatalogPrimaryWorkbenchRouteContext(new URL(returnPath, url))).toMatchObject(expected);
+      }
+    }
+  });
+
+  it.each([
+    ["/catalog/providers/tcgdex", "tcgdex"],
+    ["/catalog/providers/tcgdex/?providerKey=", "tcgdex"],
+    ["/catalog/providers/%74cgdex", "tcgdex"],
+    ["/catalog/providers/tcgdex?providerKey=scryfall", "tcgdex"],
+    ["/catalog/providers/tcgdex?providerKey=%20", "tcgdex"],
+    ["/catalog/providers/%E0", null],
+    ["/catalog/providers/%20", null],
+    ["/catalog/providers/tcgdex/extra", null],
+    ["/catalog/providers/tcgdex//", null],
+    ["/catalog/integrations/health", null],
+  ])("resolves authoritative provider path identity: %s", (path, providerKey) => {
+    expect(parseCatalogPrimaryWorkbenchRouteContext(`https://admin.example${path}`).providerKey).toBe(providerKey);
+  });
+
   it("preserves exact products in URLs, return links and alternate surfaces while legacy compact scopes remain sets", () => {
     const unit = "ygojson:yugioh:sealed-product:reference-data";
     const hrefs = ["synthetic-product-a", "synthetic-product-b"].map((productId) => {
@@ -313,10 +394,21 @@ describe("Catalog primary workbench route context", () => {
 
   it("round-trips the durable review pager cursor (reviewOffset/reviewLimit) through the URL", () => {
     const context = parseCatalogPrimaryWorkbenchRouteContext(
-      "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_1&reviewOffset=50&reviewLimit=25",
+      "https://admin.example/catalog/integrations?section=promotion-preview&providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_1&reviewOffset=50&reviewLimit=25&jobId=job_1&promotionPreviewId=preview_1",
     );
     expect(context.reviewOffset).toBe(50);
     expect(context.reviewLimit).toBe(25);
+    expect(catalogPrimaryWorkbenchHref({ ...context, reviewOffset: 75 }, "source-observation-review")).toBe(
+      "/catalog/integrations?section=source-observation-review&providerKey=tcgdex&selectedObservationIds=obs_1&reviewOffset=75&reviewLimit=25&jobId=job_1&promotionPreviewId=preview_1&filter.status=changed",
+    );
+    expect(
+      catalogPrimaryWorkbenchHref(
+        { ...context, reviewOffset: null, sourceObservationFilters: { status: "eligible" } },
+        "import-to-promotion",
+      ),
+    ).toBe(
+      "/catalog/integrations?providerKey=tcgdex&selectedObservationIds=obs_1&reviewLimit=25&jobId=job_1&promotionPreviewId=preview_1&filter.status=eligible",
+    );
 
     // The pager href keeps provider/filters/selection and only moves the offset; the
     // first page drops the offset so the canonical URL stays clean.

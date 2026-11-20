@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { auditBrowserUsabilityRoutes } from "./browser-usability-goals.mjs";
+import {
+  auditBrowserUsabilityRoutes,
+  browserUsabilityGoalModules,
+  validateBrowserUsabilityGoalModules,
+} from "./browser-usability-goals.mjs";
+
+const analyticsRoute = "bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx";
+const analyticsScope = "^bounded-contexts/discovery/routes/item-detail-rail-analytics\\.tsx$";
 
 const trackedFiles = execFileSync("git", ["ls-files", "-z"], {
   cwd: new URL("../", import.meta.url),
@@ -29,6 +36,101 @@ function assertRouteCoverage(files) {
 }
 
 describe("browser usability route coverage", () => {
+  it("claims the eBay journey without navigating the single-use provider callback", () => {
+    const seller = browserUsabilityGoalModules.find(({ id }) => id === "seller");
+    const journey = "bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx";
+    const callback = "bounded-contexts/channels/routes/marketplace/ebay-callback.tsx";
+    expect(seller.goals.find(({ id }) => id === "seller-ebay-sandbox-connection").routes).toEqual({
+      [journey]: "authorization-state",
+    });
+    expect(seller.excludedRoutes).toContainEqual({ path: callback, reason: "provider-step-only" });
+    expect(auditBrowserUsabilityRoutes([journey, callback]).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { seller: { inScope: 2, claimed: 1, excluded: 1, unclaimed: [] } },
+    });
+  });
+  it("accounts for both guest claim route modules with the same explicit fixture gap", () => {
+    const routes = [
+      "bounded-contexts/auth/routes/marketplace/guest-payment-claim.tsx",
+      "deployables/marketplace/app/routes/guest-payment-claim.tsx",
+    ];
+    const guest = browserUsabilityGoalModules.find(({ id }) => id === "guest");
+    for (const route of routes) {
+      expect(trackedFiles).toContain(route);
+      expect(guest.excludedRoutes).toContainEqual({
+        path: route,
+        reason: "fixture-gap: no seeded captured guest payment and claim token",
+      });
+    }
+    expect(auditBrowserUsabilityRoutes(routes).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { guest: { inScope: 2, claimed: 0, excluded: 2, unclaimed: [] } },
+    });
+  });
+
+  it("claims shipping setup for both authenticated and existing anonymous sellers", () => {
+    const route = "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx";
+    const seller = browserUsabilityGoalModules.find(({ id }) => id === "seller");
+    expect(
+      seller.goals
+        .filter((goal) => Object.hasOwn(goal.routes, route))
+        .map(({ id, startSignedIn }) => ({ id, startSignedIn })),
+    ).toEqual([
+      { id: "seller-shipping-setup", startSignedIn: true },
+      { id: "guest-seller-shipping-setup", startSignedIn: false },
+    ]);
+    expect(auditBrowserUsabilityRoutes([route]).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { seller: { inScope: 1, claimed: 1, excluded: 0, unclaimed: [] } },
+    });
+  });
+
+  it("accounts for Discovery analytics with an exact scope and a reasoned fixture gap", () => {
+    const guest = browserUsabilityGoalModules.find(({ id }) => id === "guest");
+    expect(trackedFiles).toContain(analyticsRoute);
+    expect(guest.routeScope.at(-1)).toBe(analyticsScope);
+    expect(guest.excludedRoutes).toContainEqual({
+      path: analyticsRoute,
+      reason:
+        "fixture-gap: no participant-observable analytics receipt in the usability fixture; Discovery POST-only ingestion is proven by route and bridge tests, not a standalone page goal",
+    });
+    expect(() => validateBrowserUsabilityGoalModules(browserUsabilityGoalModules)).not.toThrow();
+    expect(auditBrowserUsabilityRoutes([analyticsRoute]).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { guest: { inScope: 1, claimed: 0, excluded: 1, unclaimed: [] } },
+    });
+  });
+
+  it("omit-analytics-scope exposes the real unscoped route and out-of-scope exclusion", () => {
+    const modules = browserUsabilityGoalModules.map((surface) =>
+      surface.id === "guest"
+        ? { ...surface, routeScope: surface.routeScope.filter((pattern) => pattern !== analyticsScope) }
+        : surface,
+    );
+    expect(auditBrowserUsabilityRoutes([analyticsRoute], modules).coverage.unscoped).toEqual([analyticsRoute]);
+    expect(() => validateBrowserUsabilityGoalModules(modules)).toThrow(`Exclusion outside scope: ${analyticsRoute}`);
+  });
+
+  it("omit-analytics-exclusion exposes the real unclaimed route without changing its scope", () => {
+    const modules = browserUsabilityGoalModules.map((surface) =>
+      surface.id === "guest"
+        ? { ...surface, excludedRoutes: surface.excludedRoutes.filter(({ path }) => path !== analyticsRoute) }
+        : surface,
+    );
+    expect(() => validateBrowserUsabilityGoalModules(modules)).not.toThrow();
+    expect(auditBrowserUsabilityRoutes([analyticsRoute], modules).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { guest: { inScope: 1, excluded: 0, unclaimed: [analyticsRoute] } },
+    });
+    const sibling = analyticsRoute.replace("rail-analytics.tsx", "rail-analytics-unclaimed.tsx");
+    expect(auditBrowserUsabilityRoutes([sibling]).coverage.unscoped).toEqual([sibling]);
+  });
+
   it("accounts for every tracked route in the live tree", () => {
     expect(() => assertRouteCoverage(trackedFiles)).not.toThrow();
   });

@@ -65,6 +65,8 @@ if (!probe) {
   let res = null;
   for (const source of products) {
     res = await call(seller, "POST", "/offers/submitted", {
+      // The submit's attempt (Marketplace's `marketplaceAttemptIdSchema`): one per try.
+      attemptId: crypto.randomUUID(),
       catalogItemId: source.catalog_catalog_item_id,
       productId: source.product_id,
       itemTitle: source.item_title,
@@ -122,8 +124,14 @@ try {
     check(res?.status() === 200, `the list answers 200 (${res?.status()})`);
     const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(wide <= 0, `nothing scrolls sideways at 390 px (${wide})`);
+    // A label counts where it holds its control (a checkbox's, the whole target); a field's label
+    // above its input is text, and the input is the target.
     const short = await page.evaluate(() =>
-      [...document.querySelectorAll("main a, main button, main label")]
+      [
+        ...document.querySelectorAll(
+          "main a, main button, main label:has(input), main input:not([type=hidden], [type=checkbox], [type=radio])",
+        ),
+      ]
         .filter((e) => e.offsetParent && e.getBoundingClientRect().height < 40)
         .map((e) => e.textContent.trim() || e.outerHTML.slice(0, 60)),
     );
@@ -157,6 +165,7 @@ try {
     const now = (await mine()).find((o) => o.offer_id === id)?.price_amount ?? PRICES[0];
     const next = now === PRICES[0] ? PRICES[1] : PRICES[0];
     const moved = await call(seller, "PATCH", `/offers/submitted/${id}/price`, {
+      attemptId: crypto.randomUUID(),
       priceAmount: next,
       priceCurrencyCode: "USD",
     });

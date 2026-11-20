@@ -17,13 +17,12 @@
 //! | `POST /account` | update the profile |
 use crate::recovery::attempt_text;
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     addresses::Said,
     api::{AccountAction, AccountAnswer, AccountCalls, AccountProfile, ActorDisplay, Addresses as _, ApiError, ProfileCommand},
@@ -36,7 +35,7 @@ use crate::{
 
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
 /// answer settles (`saved`), and an attempt to ask the API about (`check`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -45,7 +44,7 @@ pub struct Place {
 }
 
 /// The form's fields (marketplace's `name` and `displayName`) and the attempt it was drawn with.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ProfileInput {
     pub attempt: Option<SubmitKey>,
@@ -116,7 +115,6 @@ fn fallback(viewer: &Viewer, actor: Option<&ActorDisplay>) -> AccountProfile {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(AccountOwner(viewer)): Caller<AccountOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -131,7 +129,7 @@ pub(crate) async fn page(
         None if place.saved.is_some() => Said::Saved,
         None => Said::Editing,
     };
-    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK).await
 }
 
 /// What the API says came of `attempt`, for the page.
@@ -166,7 +164,6 @@ async fn render(
     said: Said,
     posted: Option<Draft>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -180,7 +177,7 @@ async fn render(
             let plain = config.platform.caller(headers, config.proto, None);
             (plain.account(id).await.unwrap_or_else(|_| fallback(viewer, actor.as_ref())), true)
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let screen = AccountScreen { account, actor, pending, said, posted };
     let t: AccountHomeMsg = req.t();
@@ -190,16 +187,14 @@ async fn render(
         }
     };
     let view = html! { <views::AccountHomePage t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_title()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_title()} head={head}>{view}</Layout>
     };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
 pub(crate) async fn update(
     req: Req,
-    chrome: Chrome,
     Caller(AccountOwner(viewer)): Caller<AccountOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -207,14 +202,17 @@ pub(crate) async fn update(
 ) -> HtmlResult {
     let (t, p): (AccountHomeMsg, Pilot) = (req.t(), req.t());
     let attempt = attempt_text(&input.attempt).to_owned();
-    let refuse = |message: &'static str| {
+    let refuse = |errors: Errors| {
+        let draft = Draft { input: input.clone(), errors };
+        render(&req, &viewer, &config, &headers, None, Said::Editing, Some(draft), StatusCode::UNPROCESSABLE_ENTITY)
+    };
+    let form = |message: &'static str| {
         let mut errors = Errors::new();
         errors.add_form(message);
-        let draft = Draft { input: input.clone(), errors };
-        render(&req, &viewer, &config, &headers, None, Said::Editing, Some(draft), StatusCode::UNPROCESSABLE_ENTITY, &chrome)
+        errors
     };
     if !valid_attempt(&attempt) {
-        return refuse(p.check_attempt()).await;
+        return refuse(form(p.check_attempt())).await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let account = viewer.actor.account_id.as_str();
@@ -224,7 +222,7 @@ pub(crate) async fn update(
             tracing::warn!("a profile update had no answer: {error}");
             AccountAnswer::Indeterminate
         }
-        Err(error) => return failed(&req, &viewer, &config, &headers, error, &chrome).await,
+        Err(error) => return failed(&req, &viewer, &config, &headers, error).await,
     };
     // No answer that says what happened: ask what came of the attempt, as marketplace does.
     let answer = match answer {
@@ -242,28 +240,31 @@ pub(crate) async fn update(
         AccountAnswer::Committed(after_write) => {
             req.redirect(&url::AccountHome { place: Place { after_write, saved: Some(attempt), ..Place::default() } })
         }
-        AccountAnswer::NotRecorded { code, .. } if code == "validation-failed" => refuse(t.action_validation()).await,
-        AccountAnswer::NotRecorded { .. } => refuse(t.manage_state_failed_safe()).await,
+        AccountAnswer::NotRecorded { code, field, .. } if code == "validation-failed" => {
+            let f = ProfileInput::FIELDS;
+            let mut errors = Errors::new();
+            // Identity names the blank name it refused.
+            match field.as_deref() {
+                Some("name") => errors.add(f.name, t.errors_name_required()),
+                Some("displayName") => errors.add(f.display_name, t.errors_display_name_required()),
+                _ => errors.add_form(t.action_validation()),
+            }
+            refuse(errors).await
+        }
+        AccountAnswer::NotRecorded { .. } => refuse(form(t.manage_state_failed_safe())).await,
         AccountAnswer::Conflict => {
-            render(&req, &viewer, &config, &headers, None, Said::Conflict, None, StatusCode::CONFLICT, &chrome).await
+            render(&req, &viewer, &config, &headers, None, Said::Conflict, None, StatusCode::CONFLICT).await
         }
         AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
 }
 
 /// A write the API refused for who is asking: sign in again, or the page saying they may not.
-async fn failed(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    error: ApiError,
-    chrome: &Chrome,
-) -> HtmlResult {
+async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
         Some(StatusCode::FORBIDDEN) => {
-            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN, chrome).await
+            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
@@ -275,7 +276,14 @@ mod tests {
     use platform::api::Actor;
 
     fn viewer() -> Viewer {
-        let actor = Actor { user_id: "usr_1".into(), account_id: "acc_1".into(), role_key: "owner".into(), permissions: vec![] };
+        let actor = Actor {
+            user_id: "usr_1".into(),
+            account_id: "acc_1".into(),
+            role_key: "owner".into(),
+            permissions: vec![],
+            session_id: "ses_1".into(),
+            agent: false,
+        };
         Viewer { actor, color_mode: Default::default() }
     }
 

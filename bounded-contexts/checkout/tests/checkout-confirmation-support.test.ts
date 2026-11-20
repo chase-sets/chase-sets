@@ -231,6 +231,48 @@ describe("checkout confirmation support", () => {
     });
   });
 
+  it("previews a Buy Now for the address it is given (#10798)", async () => {
+    mockPreviewCheckoutFulfillment.mockResolvedValue({
+      revision: "preview_buy_now_ready",
+      readyLineKeys: ["lst_1:0"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+    });
+    const shippingAddress = {
+      shippingAddressId: "adr_home" as never,
+      name: "Demo Collector",
+      line1: "42 Binder Lane",
+      line2: null,
+      city: "Evanston",
+      state: "IL",
+      postalCode: "60201",
+      country: "US",
+    };
+
+    await previewBuyNowCheckoutSupplyThroughOrdering(new Request("https://checkout.test/account/checkout-sessions"), {
+      checkoutSessionId: "chk_buy_now_preflight",
+      shippingOption: "standard",
+      optimizationGoal: "lowest-total",
+      shippingAddress,
+      line: {
+        cartLineId: null,
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::form:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: "Raw",
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_1",
+        sellerPreferenceId: "lst_1",
+      },
+    });
+
+    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(expect.objectContaining({ shippingAddress }));
+  });
+
   it("does not map offer intent directly to Ordering", async () => {
     await expect(
       createCheckoutOrdersThroughOrdering(new Request("https://checkout.test/checkout/buy/session/chk_1"), {

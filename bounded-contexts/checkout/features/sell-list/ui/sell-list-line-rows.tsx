@@ -24,12 +24,8 @@ import {
 } from "@chase-sets/design-system";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import { buyerLabel, formatMoney, productOptionsFromSelectedOptions } from "./sell-list-formatting";
-import {
-  inventorySetupHref,
-  productLineReadiness,
-  selectedOfferReadiness,
-  sellListLineSetupHref,
-} from "./sell-list-readiness";
+import { formatLineReadiness } from "./sell-list-readiness";
+import type { SellListLineScreenReview } from "../read-model/screen-review";
 import { comparisonInlineDetail, SellListTermsReferenceInfo } from "./sell-list-terms-reference";
 import type {
   LineReadiness,
@@ -169,13 +165,15 @@ function SellListOfferEvidenceReview({ evidence }: { evidence: SellListOfferRevi
 export function SelectedOfferRow({
   line,
   review,
+  answer,
 }: {
   line: CheckoutSellListLineRow;
   review: SellListOfferReview | undefined;
+  answer: SellListLineScreenReview;
 }) {
-  const readiness = selectedOfferReadiness(review);
+  const readiness = formatLineReadiness(answer);
   const comparisonDetail = comparisonInlineDetail(review?.comparison);
-  const setupHref = sellListLineSetupHref(line);
+  const setupHref = answer.setupHref;
 
   return (
     <Surface element="article" tone="default" padding={4} elevation="outlined">
@@ -244,6 +242,7 @@ export function SelectedOfferRow({
           />
         </Stack>
         <Form spacing="none" method="post">
+          <HiddenInput name="attemptId" defaultValue="" />
           <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
           <HiddenInput type="hidden" name="lineId" value={line.line_id} />
           {review?.terms?.fee_quote_fingerprint ? (
@@ -267,19 +266,21 @@ export function ProductLineRow({
   line,
   review,
   inventoryOptions,
+  answer,
 }: {
   line: CheckoutSellListLineRow;
   review: SellListProductOfferReview | undefined;
   inventoryOptions: readonly SellListInventoryItem[];
+  answer: SellListLineScreenReview;
 }) {
   const [priceCurrencyCode, setPriceCurrencyCode] = useState("");
   const defaultInventoryItem = inventoryOptions[0] ?? null;
-  const readiness = productLineReadiness({ line, review, defaultInventoryItem });
+  const readiness = formatLineReadiness(answer);
   const matchingOfferQuantity = review?.offers.reduce((sum, item) => sum + item.offer.quantity_requested, 0) ?? 0;
   const matchingOffersCoverLine = matchingOfferQuantity >= line.quantity;
   const defaultPrice = line.minimum_listing_price_amount ?? "";
-  const setupHref = sellListLineSetupHref(line, defaultInventoryItem);
-  const inventoryHref = inventorySetupHref(line);
+  const setupHref = answer.setupHref;
+  const inventoryHref = answer.inventoryHref;
 
   return (
     <Surface element="article" tone="default" padding={4} elevation="outlined">
@@ -344,6 +345,7 @@ export function ProductLineRow({
             />
           </Stack>
           <Form spacing="none" method="post">
+            <HiddenInput name="attemptId" defaultValue="" />
             <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
             <HiddenInput type="hidden" name="lineId" value={line.line_id} />
             <Button type="submit" tone="secondary" size="md" leadingIcon="trash">

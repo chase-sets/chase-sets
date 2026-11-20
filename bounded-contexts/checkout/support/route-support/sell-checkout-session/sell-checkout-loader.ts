@@ -6,26 +6,21 @@ import {
   createCheckoutRequestApiClient,
   type CheckoutSellPayoutReadinessRow,
   type CheckoutShipFromAddressRow,
-  type SellListReadinessDecisionInput,
 } from "../../request-support/api-client";
 import { readAnonymousSellListId } from "../../request-support/guest-checkout";
+import { guestSellCheckoutDefaultValues } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import { signedInSellCheckoutDefaultValues } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
 import type {
   SignedInSellCheckoutFormValues,
   SignedInSellCheckoutPayoutSummary,
   SignedInSellCheckoutShipFromAddress,
 } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
+import { normalizeQueryText } from "./sell-checkout-form";
 import {
-  guestDefaultValuesFromSearchParams,
-  normalizeQueryText,
-  signedInDefaultStateFromSearchParams,
-} from "./sell-checkout-form";
-import {
-  encodeSellListReadinessDecisions,
   filterIncludedLines,
-  parseSellListReadinessDecisions,
   recoveryFromSearchParams,
   signedInRecoveryFromSearchParams,
+  confirmationIdForSession,
 } from "./sell-checkout-readiness";
 import type {
   GuestSellCheckoutLoaderData,
@@ -105,22 +100,11 @@ export async function loadPayoutSummary(request: Request): Promise<SignedInSellC
 
 function signedInDefaultsFromFacts(
   savedShipFromAddresses: readonly SignedInSellCheckoutShipFromAddress[],
-  payoutSummary: SignedInSellCheckoutPayoutSummary | null,
-  state: ReturnType<typeof signedInDefaultStateFromSearchParams>,
 ): SignedInSellCheckoutFormValues {
   const defaultAddress =
     savedShipFromAddresses.find((address) => address.isDefault) ?? savedShipFromAddresses[0] ?? null;
-  const payoutState =
-    state.payoutState !== signedInSellCheckoutDefaultValues.payoutState
-      ? state.payoutState
-      : payoutSummary?.status === "ready"
-        ? "ready"
-        : "setup-required";
-
   return {
     ...signedInSellCheckoutDefaultValues,
-    ...state,
-    payoutState,
     sellerName: defaultAddress?.name ?? "",
     email: defaultAddress?.email ?? "",
     phone: defaultAddress?.phone ?? "",
@@ -234,9 +218,6 @@ export async function loadSignedInSellCheckoutState(
   provided: Readonly<{
     readinessSnapshotId: string;
     readinessSourceRevision: string;
-    readinessDecisions: SellListReadinessDecisionInput;
-    readinessDecisionsJson: string;
-    sellListReviewPlanJson: string;
   }>,
 ): Promise<Omit<SignedInSellCheckoutLoaderData, "defaultValues">> {
   const actor = await resolveActorFromAuthApi({ request });
@@ -247,8 +228,8 @@ export async function loadSignedInSellCheckoutState(
     sessionId,
     savedShipFromAddresses,
     payoutSummary,
-    readinessDecisions: provided.readinessDecisionsJson,
-    sellListReviewPlan: provided.sellListReviewPlanJson,
+    readinessDecisions: {},
+    reviewPlan: null,
   };
 
   if (!canUseSignedInSellCheckout(actor)) {
@@ -280,8 +261,14 @@ export async function loadSignedInSellCheckoutState(
     };
   }
 
-  const readinessResult = await api.createSellListReadiness(provided.readinessDecisions).catch(() => null);
-  if (!readinessResult?.readiness) {
+  const readinessResult = await api
+    .createSellListReadiness({
+      readinessSnapshotId: provided.readinessSnapshotId,
+      readinessSourceRevision: provided.readinessSourceRevision,
+      confirmationId: confirmationIdForSession(sessionId),
+    })
+    .catch(() => null);
+  if (!readinessResult?.readiness || !readinessResult.reviewPlan || !readinessResult.decisions) {
     return {
       ...base,
       lines: sellList.items,
@@ -323,6 +310,8 @@ export async function loadSignedInSellCheckoutState(
     ...base,
     lines: filterIncludedLines(sellList.items, readiness),
     readiness,
+    reviewPlan: readinessResult.reviewPlan,
+    readinessDecisions: readinessResult.decisions,
     recovery: null,
   };
 }
@@ -333,31 +322,19 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<S
   const actor = await resolveActorFromAuthApi({ request });
 
   if (canUseSignedInSellCheckout(actor)) {
-    const readinessDecisions = parseSellListReadinessDecisions(
-      normalizeQueryText(url.searchParams, "readinessDecisions"),
-    );
-    const readinessDecisionsJson = encodeSellListReadinessDecisions(readinessDecisions);
     const forcedRecovery = signedInRecoveryFromSearchParams(url.searchParams);
     const state = await loadSignedInSellCheckoutState(request, sessionId, {
       readinessSnapshotId: normalizeQueryText(url.searchParams, "readinessSnapshotId"),
       readinessSourceRevision: normalizeQueryText(url.searchParams, "readinessSourceRevision"),
-      readinessDecisions,
-      readinessDecisionsJson,
-      sellListReviewPlanJson: normalizeQueryText(url.searchParams, "sellListReviewPlan"),
     });
 
     return {
       ...state,
       recovery: forcedRecovery ?? state.recovery,
-      defaultValues: signedInDefaultsFromFacts(
-        state.savedShipFromAddresses,
-        state.payoutSummary,
-        signedInDefaultStateFromSearchParams(url.searchParams),
-      ),
+      defaultValues: signedInDefaultsFromFacts(state.savedShipFromAddresses),
     };
   }
 
-  const defaultValues = guestDefaultValuesFromSearchParams(url.searchParams);
   const forcedRecovery = recoveryFromSearchParams(url.searchParams);
   const state = await loadGuestSellCheckoutState(request, sessionId, {
     readinessSnapshotId: normalizeQueryText(url.searchParams, "readinessSnapshotId"),
@@ -367,6 +344,6 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<S
   return {
     ...state,
     recovery: forcedRecovery ?? state.recovery,
-    defaultValues,
+    defaultValues: guestSellCheckoutDefaultValues,
   };
 }

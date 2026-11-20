@@ -37,7 +37,7 @@ describeDb("connector-liveness-authority-write", () => {
     const next = await h.pair();
     expect(next.pairingId).not.toBe(h.pairingId);
     expect(await read()).toMatchObject({ authorityGeneration: 5, heartbeatRevision: 1, livePairingId: next.pairingId });
-    expect((await h.request("claim")).status).toBe(403);
+    expect((await h.request("claim")).status).toBe(401);
     expect((await h.request("claim", {}, { token: next.token })).status).toBe(200);
     expect((await read())?.heartbeatRevision).toBe(2);
     expect(
@@ -117,7 +117,7 @@ describeDb("connector-liveness-authority-write", () => {
       heartbeatRevision: 1,
       lastSeenAt: null,
     });
-    expect((await h.request("claim")).status).toBe(403);
+    expect((await h.request("claim")).status).toBe(401);
     await expect(h.services.connectorFeed.createPairingCode(target, seller)).rejects.toThrow();
   });
 });

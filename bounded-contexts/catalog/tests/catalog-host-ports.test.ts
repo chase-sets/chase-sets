@@ -16,6 +16,13 @@ describe("catalog host ports", () => {
     ) as CatalogContextManifest;
     const hostPorts = new Set((context.hostPorts ?? []).map((entry) => entry.portName));
 
-    expect(hostPorts).toEqual(new Set(["catalogAssetStorage", "sourceObservationTelemetry"]));
+    expect(hostPorts).toEqual(
+      new Set([
+        "catalogMarketObservationRequests",
+        "catalogOperatorAuthority",
+        "catalogAssetStorage",
+        "sourceObservationTelemetry",
+      ]),
+    );
   });
 });

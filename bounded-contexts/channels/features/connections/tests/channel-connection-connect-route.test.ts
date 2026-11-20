@@ -5,21 +5,11 @@ import { createChannelsServicesForTest } from "../../../tests/channels-services-
 import { channelProviderRegistry } from "../../publication-port/api/registry";
 import { listConnectableChannelProviders } from "../api/providers";
 import type { ChannelConnectionHostPorts, PublicChannelConnection } from "../domain/contracts";
-import { toPublicChannelConnection } from "../read-model/queries";
 import { createConnectionHarness, testContext } from "./test-support";
 
 function harness(overrides: ChannelConnectionHostPorts = {}, permissions = ["channels.view", "channels.manage"]) {
   const runtime = createConnectionHarness({ setupResolver: channelProviderRegistry.setupResolver, ...overrides });
-  const snapshots = new Map<string, PublicChannelConnection>();
-  const connect = runtime.services.connectChannel;
   const activate = vi.spyOn(runtime.services, "activateChannelConnection");
-  runtime.services.connectChannel = async (...args) => {
-    const result = await connect(...args);
-    snapshots.set(result.state.connectionId!, toPublicChannelConnection(result.state));
-    return result;
-  };
-  runtime.services.getConnection = async ({ accountId, connectionId }) =>
-    accountId === "acc_owner" ? (snapshots.get(connectionId) ?? null) : null;
   const app = new Hono<ChannelsApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", { accountId: "acc_owner", permissions });
@@ -30,10 +20,7 @@ function harness(overrides: ChannelConnectionHostPorts = {}, permissions = ["cha
     "/connections",
     buildChannelsApi(
       { ...createChannelsServicesForTest(), connections: runtime.services },
-      {
-        deploymentEnvironment: "production",
-        storageLocationAuthority: runtime.ports.storageLocationAuthority,
-      },
+      { deploymentEnvironment: "production" },
     ),
   );
   const post = (path: string, body: unknown) =>
@@ -106,8 +93,12 @@ describe("channel-connection-connect-route", () => {
     expect(first).toMatchObject({ providerKey: "tcgplayer", environment: "production", status: "pending-setup" });
     expect(first.connectionId).not.toBe(second.connectionId);
     expect(test.memory.streams.size).toBe(2);
-    expect(await listConnectableChannelProviders("production")).toEqual(["tcgplayer"]);
-    expect(await listConnectableChannelProviders("test")).toEqual(["tcgplayer"]);
+    expect(await listConnectableChannelProviders("production")).toEqual([
+      { providerKey: "tcgplayer", environment: "production" },
+    ]);
+    expect(await listConnectableChannelProviders("test")).toEqual([
+      { providerKey: "tcgplayer", environment: "sandbox" },
+    ]);
   });
 
   it.each([
@@ -137,26 +128,29 @@ describe("channel-connection-connect-route", () => {
     expect(unregistered.memory.streams.size).toBe(0);
   });
 
-  it("authors activation bindings from current authority, not browser revisions", async () => {
+  it("immediately activates the newly committed connection before projection, using current authority", async () => {
     const test = harness();
     const connection = await test.create();
+    const streamId = `channels.connection-${connection.connectionId}`;
+    expect(test.memory.streams.get(streamId)).toHaveLength(1);
+    await expect(
+      test.services.getConnection({ accountId: "acc_owner", connectionId: connection.connectionId }),
+    ).resolves.toBeNull();
     const response = await test.post(`/${connection.connectionId}/activate`, {
       storageLocationIds: ["location_7", "location_9"],
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ status: "active" });
-    expect(test.activate).toHaveBeenCalledWith(
-      {
-        accountId: "acc_owner",
-        connectionId: connection.connectionId,
+    expect(await response.json()).toMatchObject({ connectionId: connection.connectionId, status: "active" });
+    expect(test.memory.streams.get(streamId)).toHaveLength(2);
+    expect(test.memory.streams.get(streamId)?.at(-1)).toMatchObject({
+      eventType: "channels.connection.activated",
+      payload: {
         bindings: [
           { storageLocationId: "location_7", revision: 7 },
           { storageLocationId: "location_9", revision: 9 },
         ],
       },
-      testContext,
-    );
-    expect(test.memory.streams.get(`channels.connection-${connection.connectionId}`)).toHaveLength(2);
+    });
     expect(test.authorityCalls.storage).toBe(2);
   });
 
@@ -179,10 +173,15 @@ describe("channel-connection-connect-route", () => {
     revision = 2;
     expect((await test.post(`/${second.connectionId}/activate`, body)).status).toBe(200);
     expect(resolve).toHaveBeenCalledTimes(4);
-    expect(test.activate.mock.calls[1]?.[0].bindings).toEqual([
-      { storageLocationId: "location_1", revision: 2 },
-      { storageLocationId: "location_2", revision: 2 },
-    ]);
+    expect(test.memory.streams.get(`channels.connection-${second.connectionId}`)?.at(-1)).toMatchObject({
+      eventType: "channels.connection.activated",
+      payload: {
+        bindings: [
+          { storageLocationId: "location_1", revision: 2 },
+          { storageLocationId: "location_2", revision: 2 },
+        ],
+      },
+    });
     expect((await test.post(`/${first.connectionId}/pause`, undefined)).status).toBe(200);
     expect((await test.post(`/${first.connectionId}/resume`, undefined)).status).toBe(409);
     expect(resolve).toHaveBeenCalledTimes(5);
@@ -240,15 +239,20 @@ describe("channel-connection-connect-route", () => {
 
   it("makes absent and foreign connection activation identical without authority I/O", async () => {
     const test = harness();
-    const connection = await test.create();
-    test.services.getConnection = async () => null;
-    const foreign = await test.post(`/${connection.connectionId}/activate`, { storageLocationIds: ["location_1"] });
+    await test.services.connectChannel(
+      { accountId: "acc_other", connectionId: "foreign", providerKey: "tcgplayer" },
+      { deploymentEnvironment: "production" },
+      testContext,
+    );
+    const foreign = await test.post("/foreign/activate", { storageLocationIds: ["location_1"] });
     const missing = await test.post("/missing/activate", { storageLocationIds: ["location_1"] });
     expect(foreign.status).toBe(404);
-    expect({ status: foreign.status, body: await foreign.text() }).toEqual({
-      status: missing.status,
-      body: await missing.text(),
-    });
+    expect(missing.status).toBe(404);
+    const body = { error: { code: "connection-not-found", message: "connection-not-found" } };
+    expect(await foreign.json()).toEqual(body);
+    expect(await missing.json()).toEqual(body);
     expect(test.authorityCalls.storage).toBe(0);
+    expect(test.memory.streams.get("channels.connection-foreign")).toHaveLength(1);
+    expect(test.memory.streams.has("channels.connection-missing")).toBe(false);
   });
 });

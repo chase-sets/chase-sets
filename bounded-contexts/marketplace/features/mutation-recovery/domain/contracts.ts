@@ -33,12 +33,16 @@ export const marketplaceMutationKindSchema = z.enum([
   "offer.update-price",
   "offer.decline",
   "offer-policy.command",
+  "review.submit",
+  "review.reply",
+  "review.report",
+  "listing.report",
   ...marketplaceListingMutationKinds,
 ]);
 export type MarketplaceMutationKind = z.infer<typeof marketplaceMutationKindSchema>;
 export type MarketplaceListingMutationKind = (typeof marketplaceListingMutationKinds)[number];
 export const marketplaceRecoveryTargetSchema = z.strictObject({
-  kind: z.enum(["offer", "product", "offer-policy", "inventory-item", "listing", "seller"]),
+  kind: z.enum(["offer", "product", "offer-policy", "inventory-item", "listing", "seller", "order", "review"]),
   id: identity,
 });
 export type MarketplaceRecoveryTarget = z.infer<typeof marketplaceRecoveryTargetSchema>;
@@ -48,6 +52,8 @@ export function isMarketplaceListingMutationKind(kind: string): kind is Marketpl
 }
 
 export function marketplaceRecoveryTargetKind(kind: MarketplaceMutationKind): MarketplaceRecoveryTarget["kind"] {
+  if (kind === "review.submit") return "order";
+  if (kind === "review.reply" || kind === "review.report") return "review";
   if (kind === "offer.submit") return "product";
   if (kind === "offer-policy.command") return "offer-policy";
   if (kind === "listing.create") return "inventory-item";
@@ -87,18 +93,38 @@ export function canonicalMarketplaceRequest(value: unknown): string {
 export function marketplaceCanonicalRequest(kind: MarketplaceMutationKind, input: unknown): unknown {
   if (kind === "offer-policy.command" || input === null) return input;
   const request = input as Record<string, unknown>;
+  if (kind === "review.submit")
+    return {
+      orderId: request.orderId,
+      subjectAccountId: request.subjectAccountId,
+      rating: request.rating,
+      feedback: canonicalReviewText(request.feedback),
+    };
+  if (kind === "review.reply") return { reviewId: request.reviewId, feedback: canonicalReviewText(request.feedback) };
+  if (kind === "review.report" || kind === "listing.report")
+    return { targetId: request.targetId, reason: request.reason, details: canonicalReviewText(request.details) };
   return isMarketplaceListingMutationKind(kind)
     ? marketplaceListingCanonicalRequest(kind, request)
     : marketplaceOfferCanonicalRequest(kind, request);
 }
 
+function canonicalReviewText(value: unknown) {
+  return typeof value === "string" ? value.trim() || null : (value ?? null);
+}
+
 /** Normalizes a decimal money amount so `10`, `10.0` and `010.00` compare equal; anything else stays as sent. */
 export function canonicalMarketplaceMoneyAmount(value: unknown): unknown {
   if (typeof value !== "string") return value ?? null;
-  const match = /^\s*(\d+)(?:\.(\d+))?\s*$/.exec(value);
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim());
   if (!match) return value;
-  const whole = match[1]!.replace(/^0+(?=\d)/, "");
-  const fraction = (match[2] ?? "").replace(/0+$/, "");
+  const digits = match[1]!;
+  let start = 0;
+  while (start < digits.length - 1 && digits[start] === "0") start++;
+  const whole = digits.slice(start);
+  const decimals = match[2] ?? "";
+  let end = decimals.length;
+  while (end > 0 && decimals[end - 1] === "0") end--;
+  const fraction = decimals.slice(0, end);
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
@@ -109,6 +135,10 @@ function canonicalPurchaseLimits(value: unknown) {
     maxUnitsPerDay: limits.maxUnitsPerDay ?? null,
     maxUnitsPerCustomerAccount: limits.maxUnitsPerCustomerAccount ?? null,
   };
+}
+
+function canonicalSellerFormText(value: unknown) {
+  return typeof value === "string" ? value.trim() || null : (value ?? null);
 }
 
 /** Every business field of a Listing or seller-account command; amount and currency compare together. */
@@ -149,16 +179,16 @@ export function marketplaceListingCanonicalRequest(
     case "seller.availability":
       return {
         status: input.status,
-        reasonCategory: input.reasonCategory ?? null,
-        availableAgainOn: input.availableAgainOn ?? null,
-        availableAgainAt: input.availableAgainAt ?? null,
+        reasonCategory: canonicalSellerFormText(input.reasonCategory),
+        availableAgainOn: canonicalSellerFormText(input.availableAgainOn),
+        availableAgainAt: canonicalSellerFormText(input.availableAgainAt),
       };
     case "seller.away":
       return {
         action: input.action,
-        startsAt: input.startsAt ?? null,
-        endsAt: input.endsAt ?? null,
-        reasonCategory: input.reasonCategory ?? null,
+        startsAt: canonicalSellerFormText(input.startsAt),
+        endsAt: canonicalSellerFormText(input.endsAt),
+        reasonCategory: canonicalSellerFormText(input.reasonCategory),
       };
     case "seller.order-capacity":
       return { maxOpenOrders: input.maxOpenOrders ?? null };

@@ -1,3 +1,9 @@
+import { listingRecoveryUrl, loadListingRecovery, prepareListingAction } from "../features/listings/ui/listing-batch";
+import {
+  ListingRecoveryErrorBoundary,
+  ListingRecoveryNotice,
+  ListingRecoveryScope,
+} from "../features/listings/ui/listing-batch-recovery";
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -43,7 +49,9 @@ const ACCOUNT_LISTING_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/listings/:listingId",
 } as const satisfies PlatformPostWriteTelemetry;
 
-export { ListingDetailErrorBoundary as ErrorBoundary };
+export function ErrorBoundary() {
+  return <ListingRecoveryErrorBoundary fallback={<ListingDetailErrorBoundary />} />;
+}
 
 function requestWithoutFreshWrite(request: Request) {
   const url = new URL(request.url);
@@ -118,7 +126,7 @@ function parseOrderedPhotoIds(value: FormDataEntryValue | null) {
   }
 }
 
-async function navigateToAccountListingAfterWrite(commandResult: unknown, destinationRoute: string) {
+async function navigateToAccountListingWithReceipt(commandResult: unknown, destinationRoute: string) {
   return navigateAfterWriteWithCompactToken(commandResult, destinationRoute, {
     postWriteTokenStore: await resolveMarketplacePostWriteTokenStore(),
     telemetry: ACCOUNT_LISTING_POST_WRITE_TELEMETRY,
@@ -126,10 +134,18 @@ async function navigateToAccountListingAfterWrite(commandResult: unknown, destin
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "listings.view" });
+  const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
   const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
   const api = createMarketplaceRequestApiClient(resolvedRequest);
   const nonFreshApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest));
+  const listingRecovery = await loadListingRecovery(nonFreshApi, request);
+  const recoveryData = {
+    listing: null,
+    feeHistory: { items: [], total: 0, count: 0 },
+    recovery: "fresh-write-preparing" as const,
+    accountId: actor.accountId,
+    listingRecovery,
+  };
   const listingRead = await loadAfterWrite<MarketplaceListingDetail>({
     request: resolvedRequest,
     isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
@@ -137,13 +153,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     telemetry: ACCOUNT_LISTING_POST_WRITE_TELEMETRY,
   });
 
-  if (listingRead.kind === "pending") {
-    return {
-      listing: null,
-      feeHistory: { items: [], total: 0, count: 0 },
-      recovery: "fresh-write-preparing" as const,
-    };
-  }
+  if (listingRecovery && listingRead.kind !== "data") return { ...recoveryData, recoveryOnly: true as const };
+  if (listingRead.kind === "pending") return recoveryData;
 
   if (listingRead.kind === "permanent-failure") {
     const error = "error" in listingRead ? listingRead.error : null;
@@ -158,14 +169,30 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response(t("marketplace.routes.accountListing.listing.not.found"), { status: 404 });
   }
 
+  const feeHistory = await nonFreshApi.getSellerListingFeeHistory(params.listingId!).catch((error: unknown) => {
+    if (!listingRecovery) throw error;
+    return null;
+  });
+  if (!feeHistory) return { ...recoveryData, recoveryOnly: true as const };
   return {
+    accountId: actor.accountId,
+    listingRecovery,
     listing: listingRead.data,
-    feeHistory: await nonFreshApi.getSellerListingFeeHistory(params.listingId!),
+    feeHistory,
   };
 }
 
-async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
+async function handleAction(intent: string, { request, params, formData }: FormActionContext, recoverable = false) {
   const api = createMarketplaceRequestApiClient(request);
+  const preparation = await prepareListingAction(api, request, formData, params.listingId ?? null, recoverable);
+  if ("recovery" in preparation) return { listingRecovery: preparation.recovery };
+  const identity = preparation.reference;
+  const attempt = { idempotencyKey: identity?.batchId ?? "" };
+  const navigateToAccountListingAfterWrite = (commandResult: unknown, destinationRoute: string) =>
+    navigateToAccountListingWithReceipt(
+      commandResult,
+      identity ? listingRecoveryUrl(destinationRoute, identity) : destinationRoute,
+    );
   const priceDraftAmount = String(formData.get("priceAmount") ?? "");
   const priceDraftCurrencyCode = String(formData.get("priceCurrencyCode") ?? "");
 
@@ -184,6 +211,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingPrice(params.listingId!, {
+              ...attempt,
               priceAmount: priceDraftAmount,
               priceCurrencyCode: priceDraftCurrencyCode,
               feeQuoteFingerprint:
@@ -198,6 +226,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingQuantityCap(params.listingId!, {
+              ...attempt,
               quantityCap: Number(formData.get("quantityCap") ?? 0),
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
@@ -208,6 +237,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.updateListingPurchaseLimits(params.listingId!, {
+              ...attempt,
               purchaseLimits: {
                 maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
                 maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
@@ -270,16 +300,19 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.publishListing(params.listingId!, {
+              ...attempt,
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
             `${pathname}?evidenceEvent=publication_succeeded`,
           ),
         );
       case "pause":
-        return redirect(await navigateToAccountListingAfterWrite(await api.pauseListing(params.listingId!), pathname));
+        return redirect(
+          await navigateToAccountListingAfterWrite(await api.pauseListing(params.listingId!, attempt), pathname),
+        );
       case "withdraw":
         return redirect(
-          await navigateToAccountListingAfterWrite(await api.withdrawListing(params.listingId!), pathname),
+          await navigateToAccountListingAfterWrite(await api.withdrawListing(params.listingId!, attempt), pathname),
         );
       default:
         break;
@@ -287,11 +320,26 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 
     return redirect(pathname);
   } catch (error) {
+    const listingRecovery = await api.recoverInterruptedListingSend(identity, error);
+    if (listingRecovery) return { listingRecovery };
     if (error instanceof MarketplaceApiError) {
       const currentQuote = staleQuoteFromError(error);
       const currentEvidenceReadiness = evidenceReadinessFromError(error);
       const altTextRecovery = intent === "classify-photo" ? authoredTextRecoveryFromApiError(error.body) : null;
       return {
+        listingRecovery: identity
+          ? {
+              identity,
+              phase: error.status === 409 ? ("conflict" as const) : ("failed-safe" as const),
+              items: [
+                {
+                  targetId: params.listingId!,
+                  outcome: error.status === 409 ? ("conflict" as const) : ("error" as const),
+                },
+              ],
+              retryTargetIds: [],
+            }
+          : null,
         evidenceAltTextRecovery: altTextRecovery
           ? {
               photoId: String(formData.get("photoId") ?? ""),
@@ -321,20 +369,35 @@ export const action = defineFormAction({
   authorization: { permission: "listings.manage" },
   intents: {
     "preview-price": (context) => handleAction("preview-price", context),
-    "update-price": (context) => handleAction("update-price", context),
-    "update-quantity-cap": (context) => handleAction("update-quantity-cap", context),
-    "update-purchase-limits": (context) => handleAction("update-purchase-limits", context),
+    "update-price": (context) => handleAction("update-price", context, true),
+    "update-quantity-cap": (context) => handleAction("update-quantity-cap", context, true),
+    "update-purchase-limits": (context) => handleAction("update-purchase-limits", context, true),
     "add-photos": (context) => handleAction("add-photos", context),
     "classify-photo": (context) => handleAction("classify-photo", context),
     "replace-photo": (context) => handleAction("replace-photo", context),
     "remove-photo": (context) => handleAction("remove-photo", context),
     "reorder-photos": (context) => handleAction("reorder-photos", context),
-    publish: (context) => handleAction("publish", context),
-    pause: (context) => handleAction("pause", context),
-    withdraw: (context) => handleAction("withdraw", context),
+    publish: (context) => handleAction("publish", context, true),
+    pause: (context) => handleAction("pause", context, true),
+    withdraw: (context) => handleAction("withdraw", context, true),
   },
   onUnknownIntent: (context) => handleAction("", context),
 });
+
+export function shouldRevalidate({
+  actionResult,
+  defaultShouldRevalidate,
+}: {
+  actionResult?: unknown;
+  defaultShouldRevalidate: boolean;
+}) {
+  return actionResult &&
+    typeof actionResult === "object" &&
+    "listingRecovery" in actionResult &&
+    actionResult.listingRecovery
+    ? false
+    : defaultShouldRevalidate;
+}
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
@@ -376,21 +439,34 @@ export default function MarketplaceAccountListingRoute() {
   }, [data.listing?.listing_id, readiness, requestedEvidenceEvent]);
 
   if (!data.listing) {
-    return <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
+    return (
+      <ListingRecoveryScope recovery={actionData?.listingRecovery ?? data.listingRecovery}>
+        <ListingRecoveryNotice />
+        {!("recoveryOnly" in data && data.recoveryOnly) ? (
+          <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />
+        ) : null}
+      </ListingRecoveryScope>
+    );
   }
 
   const currentListing = actionData?.evidenceReadiness
     ? { ...data.listing, evidence_readiness: actionData.evidenceReadiness }
     : data.listing;
   return (
-    <MarketplaceListingDetailPage
-      listing={currentListing as MarketplaceListingDetail}
-      feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
-      priceDraftAmount={actionData?.priceDraftAmount ?? null}
-      priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
-      pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
-      errorMessage={actionData?.error ?? null}
-      evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
-    />
+    <ListingRecoveryScope
+      recovery={actionData?.listingRecovery ?? data.listingRecovery}
+      listingId={currentListing.listing_id}
+    >
+      <ListingRecoveryNotice />
+      <MarketplaceListingDetailPage
+        listing={currentListing as MarketplaceListingDetail}
+        feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
+        priceDraftAmount={actionData?.priceDraftAmount ?? null}
+        priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
+        pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
+        errorMessage={actionData?.error ?? null}
+        evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
+      />
+    </ListingRecoveryScope>
   );
 }

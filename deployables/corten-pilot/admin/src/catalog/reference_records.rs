@@ -8,12 +8,12 @@
 //! | `GET /catalog/reference-records?search&status&type_key&relationship_type&attribute_key&attribute_value&page` | the list; `POST` creates |
 //! | `GET /catalog/reference-records/new?...` | the create dialog, with the types and records it picks from |
 //! | `GET /catalog/reference-records/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/reference-records/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/reference-records/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/reference-records/{id}`, `GET` and `POST .../edit`, `POST .../lifecycle` | the record; its edit dialog and revise; its status |
 //!
 //! The create and edit dialogs read the active types and up to 500 records (admin-web's loaders
 //! read the same on every list and page load); here only opening a dialog reads them.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::future::join;
 use platform::receipt::Receipt;
 use serde_json::Value;
@@ -29,7 +29,7 @@ use super::{
 use crate::{
     api::{Caller, Method},
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -56,12 +56,11 @@ fn api_query(query: &url::RefRecordQuery, page: u32) -> String {
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use crate::catalog::{blueprints::url::Opened, url::ListNotice};
 
     /// The list's filters (the filter form's fields) and page (from 1).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct RefRecordQuery {
         pub search: Option<String>,
@@ -111,12 +110,7 @@ pub mod url {
         pub query: RefRecordQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/reference-records/bulk", post = preview_bulk)]
-    pub struct RefRecordsBulk {
-        #[route(query)]
-        pub query: RefRecordQuery,
-    }
+    pub use crate::catalog::previews::url::RefRecordsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/reference-records/bulk/confirm", post = confirm_bulk)]
@@ -225,9 +219,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_records()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_ref_records()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -272,9 +266,9 @@ async fn new_dialog(
     let choices = choices(&caller).await;
     let first = choices.types.first().map(|ty| ty.key.as_str());
     let draft = RecordDraft { form: Draft::new(RefRecordInput::blank(first)), choices };
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let action = url::RefRecords::of(&query).href();
-        return req.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
+        return script.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
     }
     let none = url::ListNotice::default();
     page_list(&req, &staff.viewer, &config, &headers, &query, &none, Some(draft), None).await
@@ -294,8 +288,8 @@ async fn create(
     let none = url::ListNotice::default();
     if let Some(next) = input.rerowed() {
         let draft = RecordDraft { form: Draft::new(next), choices: choices(&caller).await };
-        if req.mode == Mode::Action {
-            return req.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
+        if let Some(script) = req.action() {
+            return script.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
         }
         return page_list(&req, &staff.viewer, &config, &headers, &query, &none, Some(draft), None).await;
     }
@@ -357,9 +351,9 @@ async fn record_page(
     req.screen(
         &record,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_record()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_ref_record()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -386,8 +380,8 @@ async fn edit_dialog(
         Err(error) => return read_failed(&req, error, receipt.is_some()),
     };
     let draft = RecordDraft { form: Draft::new(RefRecordInput::of(&record)), choices };
-    if req.mode == Mode::Action {
-        return req.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
+    if let Some(script) = req.action() {
+        return script.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
     }
     let after = After { after_write: opened.after_write, done: None };
     let forms = RefRecordForms { edit: Some(draft), ..Default::default() };
@@ -407,8 +401,8 @@ async fn revise(
     let after = After::default();
     if let Some(next) = input.rerowed() {
         let draft = RecordDraft { form: Draft::new(next), choices: choices(&caller).await };
-        if req.mode == Mode::Action {
-            return req.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
+        if let Some(script) = req.action() {
+            return script.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
         }
         let forms = RefRecordForms { edit: Some(draft), ..Default::default() };
         return record_page(&req, &staff.viewer, &config, &headers, &id, &after, forms).await;
@@ -468,9 +462,9 @@ fn selection_filter(query: &url::RefRecordQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::reference_records::url::RefRecordsBulk>,

@@ -1,3 +1,7 @@
+import {
+  createCatalogProviderScopeRefreshRunners,
+  createCatalogBulkJobRunners,
+} from "./support/runtime-support/worker-jobs";
 import { catalogProductMeasureSubscription } from "./features/product-measures/api/runtime";
 import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
@@ -22,6 +26,7 @@ import { createReferenceDataMcpHandlers } from "./features/reference-data/api/mc
 import { createScopeRegistryMcpHandlers } from "./features/scope-registry/api/mcp";
 import { createScopeSyncBatchMcpHandlers } from "./features/scope-sync-batches/api/mcp";
 import { createSourceObservationsMcpHandlers } from "./features/source-observations/api/mcp";
+import { createBlueprintMcpHandlers } from "./features/blueprints/api/mcp";
 
 const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
@@ -44,6 +49,7 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     const registry = createScopeRegistryMcpHandlers(services.scopeRegistry);
     const batches = createScopeSyncBatchMcpHandlers(services.scopeSyncBatches);
     const observations = createSourceObservationsMcpHandlers(services.sourceObservations);
+    const blueprints = createBlueprintMcpHandlers(services.blueprints, services.authoringBulkJobs);
     return {
       toolHandlers: {
         ...discovery.toolHandlers,
@@ -52,6 +58,7 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
         ...registry.toolHandlers,
         ...batches.toolHandlers,
         ...observations.toolHandlers,
+        ...blueprints.toolHandlers,
       },
       resourceHandlers: {},
     };
@@ -67,7 +74,7 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
   inspectSeedState: (pool) => inspectCatalogSeedState(pool),
 });
 
-export const module = {
+const contextModule = {
   ...baseModule,
   buildProjectionGroups: (): readonly BcProjectionGroup[] => [
     ...(baseModule.projectionGroups ?? []),
@@ -82,4 +89,9 @@ export const module = {
       }),
     },
   ],
+};
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: { createCatalogProviderScopeRefreshRunners, createCatalogBulkJobRunners },
 };

@@ -1,4 +1,5 @@
-import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, ownerPredicateKey } from "@chase-sets/event-core-postgres";
+import { createExtensionTcgplayerSealedProductRecorder } from "../../features/source-observations/api/extension-tcgplayer-sealed-products";
 import { createPostgresPromotionTargetExclusion } from "../../features/source-observations/api/promotion/promotion-target-exclusion";
 import { createCatalogProviderSendRuntime } from "../../features/source-observations/api/providers/provider-send-runtime";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
@@ -42,11 +43,15 @@ import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observa
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
-import { createOperatorSessionGrants } from "../../features/operator-session/api/grants";
+import { createOperatorSessionGrants, type CatalogOperatorAuthority } from "../../features/operator-session/api/grants";
+import type { TcgplayerMarketObservationRequestSource } from "@chase-sets/tcgplayer-market-observations";
 
 export type CatalogHostPorts = Readonly<{
+  pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
   catalogAssetStorage?: CatalogAssetStorage;
   sourceObservationTelemetry?: SourceObservationTelemetry;
+  catalogOperatorAuthority?: CatalogOperatorAuthority;
+  catalogMarketObservationRequests?: TcgplayerMarketObservationRequestSource;
 }>;
 
 export type CatalogServices = Readonly<{
@@ -77,15 +82,42 @@ export type CatalogServices = Readonly<{
   db: PgQueryable;
 }>;
 
+export function createCatalogAuthoringPersistence(pool: PgTransactionalPool, consumerPool?: PgTransactionalPool) {
+  return createPostgresEventStore({
+    pool,
+    ownerPredicates: {
+      ...(consumerPool ? { consumerPool } : {}),
+      keys: (inputs) =>
+        inputs.flatMap(({ streamId, events }) =>
+          events.flatMap((event) => {
+            if (
+              !streamId.startsWith("catalog.item-") ||
+              (event.eventType !== "catalog.catalog-item.category-assigned" &&
+                event.eventType !== "catalog.catalog-item.category-removed")
+            )
+              return [];
+            if (typeof event.payload.categoryId !== "string")
+              throw new Error("Catalog category predicate identity is unavailable.");
+            return [
+              ownerPredicateKey(
+                "repricing-catalog-category",
+                streamId.slice("catalog.item-".length),
+                event.payload.categoryId,
+              ),
+            ];
+          }),
+        ),
+    },
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "catalog" }),
+  });
+}
+
 export function createCatalogServices(
   pool: PgTransactionalPool,
   ports: CatalogHostPorts = {},
   options: BcCreateServicesOptions<PgTransactionalPool> = {},
 ): CatalogServices {
-  const eventStore = createPostgresEventStore({
-    pool,
-    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "catalog" }),
-  });
+  const eventStore = createCatalogAuthoringPersistence(pool, ports.pricingPredicateConsumerPool);
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const countEnvironment = process.env.DEPLOYMENT_ENVIRONMENT?.trim() || process.env.NODE_ENV?.trim() || "runtime";
@@ -98,6 +130,7 @@ export function createCatalogServices(
     promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore }),
     checkpointStore,
     db,
+    extensionObservationPool: pool,
     notificationWaiterPool: options.notificationWaiterPool,
     assetStorage: ports.catalogAssetStorage,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,
@@ -163,17 +196,43 @@ export function createCatalogServices(
   };
   const attentionQueue = createCatalogAttentionQueueRuntime(deps, {
     getReadiness: sourceObservations.getCatalogIntegrationControlPlaneReadiness,
-    listActiveJobs: sourceObservations.listActiveIntegrationJobs,
+    // A runtime without the snapshot read only offers the flag-free active list,
+    // which can never prove it holds every active job.
+    listActiveJobSnapshot: async (input) =>
+      (await sourceObservations.listActiveIntegrationJobSnapshot?.(input)) ?? {
+        items: await sourceObservations.listActiveIntegrationJobs(input),
+        completeness: "incomplete",
+      },
   });
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
   const providerScopeDiscovery = createProviderScopeDiscoveryRuntime(deps, {
     listProfileVersions: () => providerIntegrationProfiles.listProfileVersions(),
     queryIntegrationOptions: (input) => sourceObservations.queryIntegrationOptions(input),
     providerScopeMappingCommandHandler: providerScopeMappings.commandHandler,
+    referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool),
+    operatorSession: createOperatorSessionGrants(
+      pool,
+      ports.catalogOperatorAuthority,
+      {
+        tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
+        tcgplayerSealedProducts: createExtensionTcgplayerSealedProductRecorder({
+          deps,
+          pool,
+          profileVersions: providerIntegrationProfiles,
+        }),
+      },
+      {
+        requestSource: ports.catalogMarketObservationRequests,
+        store: eventStore,
+        databaseNow: async () => {
+          const result = await pool.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+          return result.rows[0]!.now.toISOString();
+        },
+      },
+    ),
     dimensions,
     displayTemplates,
     fields,
@@ -199,6 +258,7 @@ export function createCatalogServices(
             readRoster: (scopeRecordId) => readCountCaptureRoster(db, providerIntegrationProfiles, scopeRecordId),
             readEffects: (at) => readCountCaptureEffects(db, at),
             countAuthority: () => countStore.authority(),
+            periodLedger: countStore.periodLedger,
             observeUsage: observeDeployedScrydexUsage(
               sourceObservations.providerAdapterRegistry,
               deps.providerSendRuntime,

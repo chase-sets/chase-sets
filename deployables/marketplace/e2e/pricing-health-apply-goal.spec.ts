@@ -113,7 +113,9 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
       data: { dryRunId, name: "Synthetic Pricing Health browser apply" },
     });
     expect(response.status()).toBe(201);
-    const policy = await response.json();
+    const receipt = await response.json();
+    expect(receipt.status).toBe("applied");
+    const policy = receipt.state;
     created = { policyId: policy.policyId, accountId: policy.accountId };
     await projectSyntheticPricingHealthPolicy(pool, created);
     fixture = await seedSyntheticPricingHealthInputs(pool, { accountId: created.accountId, listingId });
@@ -161,7 +163,7 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
 
     const haltResponse = await page.request.post(`${policiesApi}/halt`, { data: { engaged: true } });
     expect(haltResponse.status()).toBe(200);
-    expect(((await haltResponse.json()) as { engaged: boolean }).engaged).toBe(true);
+    expect(await haltResponse.json()).toMatchObject({ status: "applied", state: { engaged: true } });
     haltEngaged = true;
 
     await apply.focus();
@@ -193,7 +195,7 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     }
     const releaseHaltResponse = await page.request.post(`${policiesApi}/halt`, { data: { engaged: false } });
     expect(releaseHaltResponse.status()).toBe(200);
-    expect(((await releaseHaltResponse.json()) as { engaged: boolean }).engaged).toBe(false);
+    expect(await releaseHaltResponse.json()).toMatchObject({ status: "applied", state: { engaged: false } });
     haltEngaged = false;
     await page.reload();
 
@@ -318,7 +320,7 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
       if (haltEngaged) {
         const releaseHaltResponse = await page.request.post(`${policiesApi}/halt`, { data: { engaged: false } });
         expect(releaseHaltResponse.status()).toBe(200);
-        expect(((await releaseHaltResponse.json()) as { engaged: boolean }).engaged).toBe(false);
+        expect(await releaseHaltResponse.json()).toMatchObject({ status: "applied", state: { engaged: false } });
         haltEngaged = false;
       }
       if (created) {

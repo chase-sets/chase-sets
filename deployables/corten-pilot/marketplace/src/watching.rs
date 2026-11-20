@@ -11,28 +11,28 @@
 //! and currency. The pilot reads the item again and takes the product's options and summary from
 //! the page the form was drawn as, not the form (the API checks nothing against the catalog,
 //! chase-sets/chase-sets#10595). An account's alert is created and the page comes back on its Watch
-//! tab, saying so (marketplace says nothing, chase-sets/chase-sets#10597). A guest's alert is saved
+//! tab, saying so, as marketplace's does. A guest's alert is saved
 //! as an intent, its owner in marketplace's own cookie, and the guest goes to marketplace's
 //! registration, whose return claims it on marketplace's item page.
 //!
-//! A create has no attempt id, so the same create sent twice is two alerts
-//! (chase-sets/chase-sets#10596).
+//! An account's create is one attempt (the form's `SubmitKey`, sent as `attemptId`): the API
+//! answers the same attempt with the same request as the alert the first send created, so a form
+//! sent twice (a double click, a resend after a lost answer) is one alert. A guest's intent
+//! already dedupes by product and threshold.
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri, header},
-    },
+    extract::State,
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
 use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Discovery as _, Item, ProductAlerts as _, Selected, segment},
     app::{Shared, sign_in_at, url},
     auth::Session,
     buying::BuyNotice,
+    cart_attempt,
     items::{self, Address, ItemScreen, Market, Raw},
     text::ItemMsg,
     views,
@@ -52,6 +52,7 @@ const ACCOUNTS_VIEW: &str = "accounts.view";
 #[derive(Fields)]
 #[allow(dead_code)]
 pub struct WatchFields {
+    attempt: Option<SubmitKey>,
     side: String,
     product: String,
     threshold: String,
@@ -61,6 +62,7 @@ pub struct WatchFields {
 /// The names as text.
 pub mod field {
     use super::WatchFields;
+    pub const ATTEMPT: &str = WatchFields::FIELDS.attempt.as_str();
     pub const SIDE: &str = WatchFields::FIELDS.side.as_str();
     pub const PRODUCT: &str = WatchFields::FIELDS.product.as_str();
     pub const THRESHOLD: &str = WatchFields::FIELDS.threshold.as_str();
@@ -98,8 +100,8 @@ pub struct WatchInput {
     pub currency: String,
 }
 
-/// An alert as the item page creates one (`CreateProductAlertRequest`), with `sourcePath` for a
-/// guest's intent.
+/// An alert as the item page creates one (`CreateProductAlertRequest`), with the account
+/// create's `attemptId` or `sourcePath` for a guest's intent.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlertRequest {
@@ -110,6 +112,8 @@ pub struct AlertRequest {
     pub product_summary: Option<String>,
     pub threshold_amount: Option<String>,
     pub threshold_currency_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
 }
@@ -175,17 +179,15 @@ fn refused(
     input: WatchInput,
     message: String,
     status: StatusCode,
-    cart: Option<u64>,
 ) -> HtmlResult {
     let notice = BuyNotice::WatchRefused { message, input };
     let address = address.with_market(Market::Watch);
-    items::render(req, session, item, &address, Some(&notice), status, Default::default(), cart)
+    items::render(req, session, item, &address, Some(&notice), status, Default::default())
 }
 
 /// Watch listings and Watch offers (the action's `create-product-alert`).
 pub(crate) async fn watch(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -219,11 +221,11 @@ pub(crate) async fn watch(
     let product = first(field::PRODUCT);
     if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
         let message = t.route_product_intent_choose_options_guidance().to_owned();
-        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await);
+        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
     }
     let Some(amount) = threshold(&input.threshold) else {
         let message = t.route_validation_threshold_invalid().to_owned();
-        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await);
+        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
     };
     // A price needs its currency; without a price the alert has no threshold, whatever the
     // currency field says (the API refuses one without the other).
@@ -233,16 +235,7 @@ pub(crate) async fn watch(
             Some(code) => Some(code),
             None => {
                 let message = t.route_validation_threshold_invalid().to_owned();
-                return refused(
-                    &req,
-                    session,
-                    item,
-                    &address,
-                    input,
-                    message,
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    chrome.cart().await,
-                );
+                return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
             }
         },
     };
@@ -255,6 +248,7 @@ pub(crate) async fn watch(
         product_summary: screen.product_summary.clone(),
         threshold_amount: amount,
         threshold_currency_code: code,
+        attempt_id: None,
         source_path: None,
     };
     let Some(viewer) = viewer else {
@@ -265,7 +259,7 @@ pub(crate) async fn watch(
         let owner = guest_owner(&headers);
         let intent = match caller.product_alert_intent(&owner, &alert).await {
             Ok(intent) => intent,
-            Err(error) => return refusal(&req, session, item, &address, input, error, chrome.cart().await),
+            Err(error) => return refusal(&req, session, item, &address, input, error),
         };
         let to: Uri = register_href(&slug, &intent.intent_id).parse().map_err(corten::Error::new)?;
         let mut res = req.redirect(&to)?;
@@ -276,8 +270,10 @@ pub(crate) async fn watch(
     };
     if !viewer.actor.can(ACCOUNTS_VIEW) {
         let message = t.route_account_cannot_create_product_alerts().to_owned();
-        return refused(&req, session, item, &address, input, message, StatusCode::FORBIDDEN, chrome.cart().await);
+        return refused(&req, session, item, &address, input, message, StatusCode::FORBIDDEN);
     }
+    // A post without the form's attempt (or with one the API would not take) is still one.
+    alert.attempt_id = Some(cart_attempt::attempt_id(&first(field::ATTEMPT)));
     match caller.create_product_alert(&alert).await {
         Ok(receipt) => {
             let receipt = receipt.map(|r| r.param()).unwrap_or_default();
@@ -291,7 +287,7 @@ pub(crate) async fn watch(
             Some(to) => req.redirect(&to),
             None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
         },
-        Err(error) => refusal(&req, session, item, &address, input, error, chrome.cart().await),
+        Err(error) => refusal(&req, session, item, &address, input, error),
     }
 }
 
@@ -303,10 +299,9 @@ fn refusal(
     address: &Address,
     input: WatchInput,
     error: ApiError,
-    cart: Option<u64>,
 ) -> HtmlResult {
     match error.refusal() {
-        Some(message) => refused(req, session, item, address, input, message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY, cart),
+        Some(message) => refused(req, session, item, address, input, message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY),
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
 }

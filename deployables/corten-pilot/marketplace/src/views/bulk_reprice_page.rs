@@ -1,9 +1,11 @@
-//! Bulk reprice's page (marketplace's `PricingBulkRepricePage`): the header with Download CSV
+//! Bulk reprice's page (marketplace's `PricingBulkRepricePage`): while Pricing has it off, a line
+//! saying it is not available and Recommendations; otherwise the header with Download CSV
 //! template and Recommendations, what an upload or Cancel was refused for, then the part a running
 //! job relays live: the upload form (off while a job runs) and the job's progress with Cancel or
 //! Download results. Every action is a form or a link and works without a script. One column on a
-//! phone; the job's four counts two to a row, four from 48rem.
-use corten::prelude::*;
+//! phone; the job's four counts are the kit's Stats.
+use corten::{SubmitKey, prelude::*};
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use crate::{
     app::url,
@@ -20,27 +22,42 @@ pub struct BulkPartId;
 pub fn BulkRepricePage<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) -> impl Render {
     let live = screen.job.as_ref().filter(|_| screen.active()).map(|job| url::BulkRepriceLive { id: &job.job_id }.href());
     html! {
-        <header class={Header}>
-            <p class={Eyebrow}>{t.bulk_seller()}</p>
-            <h1 class={Title}>{t.bulk_bulk_reprice()}</h1>
-            <p class={Muted}>{t.bulk_upload_a_csv()}</p>
-            <nav class={Row} aria-label={p.bulk_reprice_pages()}>
-                <a class={(Button, Secondary)} href={url::BulkRepriceTemplate} download>{t.bulk_download_template()}</a>
-                <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.bulk_recommendations()}</a>
-            </nav>
-        </header>
-        if let Some(error) = &screen.error {
-            <div class={Banner} data-tone="danger" role="alert">
+        if !screen.available {
+            // Pricing has it switched off: say so, and offer nothing that would fail.
+            <header class={Header}>
+                <p class={Eyebrow}>{t.bulk_seller()}</p>
+                <h1 class={Title}>{t.bulk_bulk_reprice()}</h1>
+                <nav class={Row} aria-label={p.bulk_reprice_pages()}>
+                    <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.bulk_recommendations()}</a>
+                </nav>
+            </header>
+            <div class={Banner} data-tone="info" role="status">
                 <p class={Strong}>{t.bulk_bulk_reprice()}</p>
-                <p>{error}</p>
+                <p>{t.bulk_unavailable()}</p>
             </div>
-        }
-        if let Some(src) = live {
-            <corten-live class={Live} src={&src}>
-                <BulkPart t={t} p={p} screen={screen} />
-            </corten-live>
         } else {
-            <BulkPart t={t} p={p} screen={screen} />
+            <header class={Header}>
+                <p class={Eyebrow}>{t.bulk_seller()}</p>
+                <h1 class={Title}>{t.bulk_bulk_reprice()}</h1>
+                <p class={Muted}>{t.bulk_upload_a_csv()}</p>
+                <nav class={Row} aria-label={p.bulk_reprice_pages()}>
+                    <a class={(Button, Secondary)} href={url::BulkRepriceTemplate} download>{t.bulk_download_template()}</a>
+                    <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.bulk_recommendations()}</a>
+                </nav>
+            </header>
+            if let Some(error) = &screen.error {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.bulk_bulk_reprice()}</p>
+                    <p>{error}</p>
+                </div>
+            }
+            if let Some(src) = live {
+                <corten-live class={Live} src={&src}>
+                    <BulkPart t={t} p={p} screen={screen} />
+                </corten-live>
+            } else {
+                <BulkPart t={t} p={p} screen={screen} />
+            }
         }
     }
 }
@@ -61,6 +78,7 @@ fn BulkPart<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) -> impl Rende
             <section class={Section} aria-labelledby="bulk-upload-title">
                 <h2 id="bulk-upload-title" class={PartTitle}>{t.bulk_upload()}</h2>
                 <form class={(Card, Form)} method="post" action={url::BulkReprice::default()} enctype="multipart/form-data">
+                    {SubmitKey::field(f.attempt)}
                     <p class={Muted}>{t.bulk_upload_description()}</p>
                     <label class={Field}>
                         <span class={Label}>{t.bulk_csv_file()}</span>
@@ -79,26 +97,31 @@ fn BulkPart<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) -> impl Rende
                             <h3 class={Strong}>{t.bulk_progress()}</h3>
                             <p class={Muted} role="status">{job.progress.message.as_deref().unwrap_or(&job.status)}</p>
                         </div>
-                        <dl class={Stats}>
-                            <div class={Stat}>
-                                <dt>{t.bulk_completed()}</dt>
-                                <dd>{t.number(job.progress.completed).to_string()}</dd>
-                                <dd class={Hint}>
-                                    {t.bulk_rows_of_total(&t.number(job.progress.total).to_string()).to_string()}
-                                </dd>
-                            </div>
-                            <div class={Stat}>
-                                <dt>{t.bulk_applied()}</dt>
-                                <dd>{t.number(job.result.as_ref().map_or(0, |r| r.applied)).to_string()}</dd>
-                            </div>
-                            <div class={Stat}>
-                                <dt>{t.bulk_unchanged()}</dt>
-                                <dd>{t.number(job.result.as_ref().map_or(0, |r| r.unchanged)).to_string()}</dd>
-                            </div>
-                            <div class={Stat}>
-                                <dt>{t.bulk_failed()}</dt>
-                                <dd>{t.number(job.result.as_ref().map_or(0, |r| r.failed)).to_string()}</dd>
-                            </div>
+                        <dl class={KitStats { surface: StatsSurface::Plain }}>
+                            <Stat
+                                label={t.bulk_completed()}
+                                value={t.number(job.progress.completed).to_string()}
+                                note={t.bulk_rows_of_total(&t.number(job.progress.total).to_string()).to_string()}
+                                tone={StatTone::Neutral}
+                            />
+                            <Stat
+                                label={t.bulk_applied()}
+                                value={t.number(job.result.as_ref().map_or(0, |r| r.applied)).to_string()}
+                                note=""
+                                tone={StatTone::Neutral}
+                            />
+                            <Stat
+                                label={t.bulk_unchanged()}
+                                value={t.number(job.result.as_ref().map_or(0, |r| r.unchanged)).to_string()}
+                                note=""
+                                tone={StatTone::Neutral}
+                            />
+                            <Stat
+                                label={t.bulk_failed()}
+                                value={t.number(job.result.as_ref().map_or(0, |r| r.failed)).to_string()}
+                                note=""
+                                tone={StatTone::Neutral}
+                            />
                         </dl>
                     </div>
                     <div class={(Card, JobRow)}>

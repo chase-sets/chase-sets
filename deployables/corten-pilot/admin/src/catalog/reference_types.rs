@@ -7,9 +7,9 @@
 //! |---|---|
 //! | `GET /catalog/reference-types?search&status&attribute_key&page` | the list; `POST` creates |
 //! | `GET /catalog/reference-types/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/reference-types/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/reference-types/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/reference-types/{id}`, `POST .../edit`, `.../lifecycle` | the type; revise it; its status |
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 
@@ -24,7 +24,7 @@ use super::{
 use crate::{
     api::Method,
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -44,12 +44,11 @@ fn api_query(query: &url::RefTypeQuery, page: u32) -> String {
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use crate::catalog::url::ListNotice;
 
     /// The list's filters (the filter form's fields) and page (from 1).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct RefTypeQuery {
         pub search: Option<String>,
@@ -88,12 +87,7 @@ pub mod url {
         pub query: RefTypeQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/reference-types/bulk", post = preview_bulk)]
-    pub struct RefTypesBulk {
-        #[route(query)]
-        pub query: RefTypeQuery,
-    }
+    pub use crate::catalog::previews::url::RefTypesBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/reference-types/bulk/confirm", post = confirm_bulk)]
@@ -165,9 +159,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_types()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_ref_types()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -266,9 +260,9 @@ async fn ref_type_page(
     req.screen(
         &ref_type,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_type()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_ref_type()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -341,9 +335,9 @@ fn selection_filter(query: &url::RefTypeQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::reference_types::url::RefTypesBulk>,

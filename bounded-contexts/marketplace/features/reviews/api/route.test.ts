@@ -199,6 +199,7 @@ describe("marketplace review routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: "seller_review_attempt_0001",
           orderId: "ord_1",
           subjectAccountId: "acc_buyer",
           rating: 4,
@@ -217,6 +218,7 @@ describe("marketplace review routes", () => {
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_seller");
     expect(services.submitReview).toHaveBeenCalledWith(
       {
+        attemptId: "seller_review_attempt_0001",
         orderId: "ord_1",
         authorAccountId: "acc_seller",
         subjectAccountId: "acc_buyer",

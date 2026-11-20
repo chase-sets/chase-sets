@@ -40,11 +40,11 @@ export function listContextManifests(options = {}) {
   );
 }
 
-// The sandbox-ownership and registry-generation predicates must agree on
+// The sandbox-ownership predicate and the context-registry guard must agree on
 // which directories are eligible contexts at all: a directory that only has
 // a context.json (no workspace package.json) is a manifest fragment, not an
 // implemented bounded context, and must not become a database/registry
-// owner. This closure is the single admission gate both predicates share.
+// owner. This closure is the single admission gate both share.
 export function listBoundedContextManifests(options = {}) {
   const rootDir = options.repoRoot ?? repoRoot;
   const workspaces = (
@@ -164,12 +164,41 @@ export function assertUniqueContextContributionIdentities(contexts) {
   }
 }
 
+// Every way a context manifest admits itself to a deployable's context
+// registry. "host" arms list the host name, "profile" arms admit to every host
+// of the kind, and "contribution" arms carry `{ deployable }` records. The
+// table is ordered by registry kind, then by arm within the kind.
+export const CONTEXT_REGISTRY_HOST_ARMS = Object.freeze(
+  [
+    { registryKind: "api", field: "apiDeployables", match: "host" },
+    { registryKind: "api", field: "sourceRuntimeDeployables", match: "host" },
+    { registryKind: "api", field: "sourceRuntimeProfiles", match: "profile" },
+    { registryKind: "worker", field: "runtimeDeployables", match: "host" },
+    { registryKind: "worker", field: "sourceRuntimeDeployables", match: "host" },
+    { registryKind: "worker", field: "sourceRuntimeProfiles", match: "profile" },
+    { registryKind: "web", field: "deployableContributions", match: "contribution" },
+    { registryKind: "web", field: "shellContributions", match: "contribution" },
+  ].map((arm) => Object.freeze(arm)),
+);
+
+function contextManifestArmMatches(arm, manifest, hostName) {
+  const value = manifest?.[arm.field];
+  if (!Array.isArray(value)) return false;
+  if (arm.match === "host") return value.includes(hostName);
+  if (arm.match === "profile") return value.length > 0;
+  if (arm.match === "contribution") return value.some((contribution) => contribution?.deployable === hostName);
+  throw new Error(`Unknown context registry arm match "${arm.match}" for ${arm.field}.`);
+}
+
+export function contextManifestContributesToHost(
+  manifest,
+  { registryKind, hostName, arms = CONTEXT_REGISTRY_HOST_ARMS },
+) {
+  return arms.some((arm) => arm.registryKind === registryKind && contextManifestArmMatches(arm, manifest, hostName));
+}
+
 export function contextManifestContributesToApiHost(manifest, hostName) {
-  return (
-    manifest.apiDeployables?.includes(hostName) ||
-    manifest.sourceRuntimeDeployables?.includes(hostName) ||
-    manifest.sourceRuntimeProfiles?.length > 0
-  );
+  return contextManifestContributesToHost(manifest, { registryKind: "api", hostName });
 }
 
 export function normalizeRelative(filePath, fromRoot = repoRoot) {

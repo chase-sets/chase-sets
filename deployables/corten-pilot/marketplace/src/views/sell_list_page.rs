@@ -15,13 +15,18 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use crate::{
     api::{ListingEvidence, OfferReview, SellListConfirmation, SellTerms},
     app::url,
+    cart_attempt::State as Attempted,
     sell_list::{
-        Line, LineReadiness, Merged, Pick, ReadinessDetail, ReadinessLabel, Recovery, RecoveryLabel, SellListScreen, Surface,
-        support_reference,
+        AttemptNotice, Declined, Line, LineForm, LineReadiness, Merged, Pick, ReadinessDetail, ReadinessLabel, Recovery,
+        RecoveryLabel, SellListScreen, Surface, support_reference,
     },
     text::{Pilot, SellListMsg},
 };
@@ -42,11 +47,35 @@ fn dollars(t: SellListMsg, cents: i64) -> String {
     t.money(Decimal::new(i128::from(cents), 2), usd()).to_string()
 }
 
+/// A total in cents, or not quoted yet when it is not known.
+fn gross(t: SellListMsg, cents: Option<i64>) -> String {
+    cents.map_or_else(|| t.page_not_quoted_yet().to_owned(), |c| dollars(t, c))
+}
+
 /// An amount the API sent (`formatMoney`): none is "-", one that is not money as it was sent.
 fn amount(t: SellListMsg, amount: Option<&str>) -> String {
     match amount {
         None => "-".to_owned(),
         Some(text) => platform::money::cents(text).map_or_else(|| text.to_owned(), |c| dollars(t, c)),
+    }
+}
+
+/// An amount from an offer's terms: none is not quoted yet.
+fn quoted(t: SellListMsg, amount: Option<&str>) -> String {
+    match amount {
+        None => t.page_not_quoted_yet().to_owned(),
+        some => self::amount(t, some),
+    }
+}
+
+/// A payout requirement code in words (`payoutRequirementLabel`).
+fn requirement(t: SellListMsg, code: &str) -> &'static str {
+    match code {
+        "provider-onboarding" => t.page_payout_requirement_onboarding(),
+        "seller-agreement" => t.page_payout_requirement_agreement(),
+        "external_account" | "bank account" => t.page_payout_requirement_bank_account(),
+        "individual.verification.document" => t.page_payout_requirement_identity_documents(),
+        _ => t.page_payout_requirement_other(),
     }
 }
 
@@ -182,7 +211,6 @@ pub fn SellListPage<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen) ->
     let register = crate::register::href(&back);
     let sign_in = crate::app::sign_in_back_to(&back).map(|u| u.to_string()).unwrap_or_default();
     let continue_label = if screen.account { t.page_continue_to_seller_checkout() } else { t.page_create_account_to_continue() };
-    let _ = p;
     html! {
         <header class={Header}>
             <div class={Heading}>
@@ -225,6 +253,9 @@ pub fn SellListPage<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen) ->
                     <p class={Strong}>{t.page_checkout_issue()}</p>
                     <p>{message}</p>
                 </div>
+            }
+            if let Some(attempt) = &screen.attempt {
+                <AttemptBanner t={t} p={p} screen={screen} attempt={attempt} />
             }
         </div>
         if let Some(confirmation) = &screen.confirmation {
@@ -269,6 +300,50 @@ pub fn SellListPage<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen) ->
     }
 }
 
+/// A line write not known to have applied, or applied in part: what it came to, and the same
+/// write to send again (marketplace's `SellListAttemptBoundary`). Decline selected's offers are
+/// named by their lines' items, each with what its decline came to.
+#[component(css = SellListPage)]
+fn AttemptBanner<'a>(t: SellListMsg, p: Pilot, screen: &'a SellListScreen, attempt: &'a AttemptNotice) -> impl Render {
+    let title = if attempt.state == Attempted::Partial { t.attempt_partial() } else { t.attempt_ambiguous() };
+    let offer = |id: &'a str| -> &'a str {
+        screen.lines.iter().find(|l| l.row.offer_id.as_deref() == Some(id)).map_or(id, |l| l.row.item_title.as_str())
+    };
+    html! {
+        <div class={Banner} data-tone="warning" role="alert" tabindex="-1" autofocus>
+            <p class={Strong}>{title}</p>
+            if let Some(message) = &attempt.message {
+                <p>{message}</p>
+            }
+            for message in attempt.not_applied.iter().flatten() {
+                <p>{message}</p>
+            }
+            if !attempt.declines.is_empty() {
+                <dl class={Facts} aria-label={p.sell_list_results()}>
+                    for (id, declined) in &attempt.declines {
+                        <div>
+                            <dt>{offer(id)}</dt>
+                            <dd>
+                                {match declined {
+                                    Declined::Yes => p.sell_list_declined(),
+                                    Declined::Unconfirmed => p.sell_list_unconfirmed(),
+                                    Declined::NotSent => p.sell_list_not_sent(),
+                                }}
+                            </dd>
+                        </div>
+                    }
+                </dl>
+            }
+            <form class={Row} method="post" action={screen.surface.path()}>
+                for (name, value) in &attempt.resend {
+                    <input type="hidden" name={name} value={value}>
+                }
+                <button class={Button} type="submit">{t.attempt_retry()}</button>
+            </form>
+        </div>
+    }
+}
+
 /// The lines, the readiness and the summary.
 #[component(css = SellListPage)]
 fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a str) -> impl Render {
@@ -280,62 +355,89 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
         RecoveryLabel::Resolve => t.page_resolve_items(),
         RecoveryLabel::KeepSelling => t.page_keep_selling(),
     };
-    let can = screen.can_continue();
+    // A line write not known to have applied holds the page's writes until it is sent again
+    // (`SellListAttemptBoundary`).
+    let held = screen.attempt.is_some();
+    let can = screen.can_continue() && !held;
     let here = screen.surface.path();
     let any_offer = screen.lines.iter().any(|l| !l.picks.is_empty());
-    let payout_value = if !screen.account {
-        t.page_sign_in_required()
-    } else if screen.payout_ready() {
-        t.page_ready()
-    } else {
-        t.page_setup_required()
+    let payout_value = match screen.payout.as_ref().map(|p| p.status.as_str()) {
+        _ if !screen.account => t.page_sign_in_required(),
+        Some("ready") => t.page_ready(),
+        Some("pending") => t.page_payout_verification_pending(),
+        Some("restricted") => t.page_payout_restricted(),
+        Some(_) => t.page_setup_required(),
+        None => t.page_unavailable(),
     };
+    let payout_amount = totals.payout.map_or_else(|| t.page_not_quoted_yet().to_owned(), |c| dollars(t, c));
+    let payout_label =
+        if totals.all_offers { t.page_expected_seller_payout_all_offers() } else { t.page_expected_seller_payout() };
+    let payout_ready = screen.payout_ready();
+    // Each requirement once, in the order Settlement sent them.
+    let mut requirements: Vec<&str> = Vec::new();
+    for code in screen.payout.iter().flat_map(|p| &p.missing_requirements) {
+        let label = requirement(t, code);
+        if !requirements.contains(&label) {
+            requirements.push(label);
+        }
+    }
     let readiness_summary = if blocked > 0 {
         t.page_readiness_needs_action(blocked as u64).to_string()
     } else {
-        t.page_readiness_ready((screen.lines.len() - blocked) as u64).to_string()
+        t.page_readiness_ready(screen.ready() as u64).to_string()
     };
     html! {
-        <form id={SellListFormId} class={Hidden} method="post" action={here}></form>
+        <form id={SellListFormId} class={Hidden} method="post" action={here}>
+            {SubmitKey::field(LineForm::FIELDS.attempt_id)}
+        </form>
         <div class={Layout}>
             <div class={Main}>
                 <details class={(Card, Folded)}>
                     <summary class={Strong}>
-                        {t.page_sale_checkout_summary()} " · " {dollars(t, totals.payout)}
+                        {t.page_sale_checkout_summary()} " · " {&payout_amount}
                     </summary>
                     <Summary
                         t={t}
                         totals={&totals}
                         lines={screen.lines.len()}
                         payout={payout_value}
+                        payout_label={payout_label}
+                        payout_amount={&payout_amount}
                         readiness={&readiness_summary}
                     />
                 </details>
-                <div class={Banner} data-tone={if blocked > 0 { "warning" } else { "success" }}>
-                    if blocked > 0 {
+                <div class={Banner} data-tone={if blocked > 0 || !payout_ready { "warning" } else { "success" }}>
+                    if blocked == 1 {
+                        <p class={Strong}>{t.page_some_items_need_action()}</p>
+                        <p>{t.page_resolve_one_before_seller_checkout(1u64)}</p>
+                    } else if blocked > 0 {
                         <p class={Strong}>{t.page_some_items_need_action()}</p>
                         <p>{t.page_resolve_before_seller_checkout(blocked as u64)}</p>
+                    } else if !payout_ready {
+                        <p class={Strong}>{t.page_offer_acceptance_unavailable()}</p>
+                        <p>{t.page_payout_blocks_acceptance()}</p>
                     } else {
                         <p class={Strong}>{t.page_ready_for_seller_checkout()}</p>
                         <p>{t.page_ready_for_seller_checkout_description()}</p>
                     }
                 </div>
-                if screen.account && !screen.payout_ready() {
+                if screen.account && !payout_ready {
                     <div class={(Banner, Spread)} data-tone="warning">
                         <div class={Tight}>
                             <p class={Strong}>{t.page_payout_setup_required()}</p>
-                            if let Some(payout) = &screen.payout {
-                                <p>
-                                    {t.page_payout_setup_required_description(
-                                        &if payout.missing_requirements.is_empty() {
-                                            payout.status.clone()
-                                        } else {
-                                            payout.missing_requirements.join(", ")
-                                        },
-                                    )}
-                                </p>
-                            } else {
-                                <p>{t.page_payout_readiness_unavailable_description()}</p>
+                            <p>
+                                {match screen.payout.as_ref().map(|p| p.status.as_str()) {
+                                    Some("pending") => t.page_payout_pending_description(),
+                                    Some("restricted") => t.page_payout_restricted_description(),
+                                    Some(_) => t.page_payout_setup_required_description(),
+                                    None => t.page_payout_readiness_unavailable_description(),
+                                }}
+                            </p>
+                            for label in &requirements {
+                                <p>{*label}</p>
+                            }
+                            if blocked > 0 {
+                                <p>{t.page_payout_blocks_acceptance()}</p>
                             }
                         </div>
                         <a class={(Button, Secondary)} href={screen.payout_setup_href()}>{t.page_set_up_payouts()}</a>
@@ -345,7 +447,7 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
                     <h2 id="sell-list-items-title" class={PartTitle}>{t.page_review_items()}</h2>
                     <ul class={Cards}>
                         for line in &screen.lines {
-                            <LineCard t={t} line={line} surface={screen.surface} selectable={screen.account} />
+                            <LineCard t={t} line={line} surface={screen.surface} selectable={screen.account} held={held} />
                         }
                     </ul>
                 </section>
@@ -386,6 +488,7 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
                                     type="button"
                                     command="show-modal"
                                     commandfor={DeclineDialogId}
+                                    disabled={held}
                                 >
                                     {t.page_decline_selected()}
                                 </button>
@@ -420,8 +523,14 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
                     }
                     <div class={Cta}>
                         <p class={Total}>
-                            <span class={Big}>{dollars(t, totals.payout)}</span>
-                            <span class={Hint}>{t.page_expected_payout_before_checkout()}</span>
+                            <span class={Big}>{&payout_amount}</span>
+                            <span class={Hint}>
+                                {if totals.all_offers {
+                                    t.page_expected_payout_all_offers_before_checkout()
+                                } else {
+                                    t.page_expected_payout_before_checkout()
+                                }}
+                            </span>
                         </p>
                         <p class={Row}>
                             <button
@@ -447,6 +556,8 @@ fn Review<'a>(t: SellListMsg, screen: &'a SellListScreen, continue_label: &'a st
                         totals={&totals}
                         lines={screen.lines.len()}
                         payout={payout_value}
+                        payout_label={payout_label}
+                        payout_amount={&payout_amount}
                         readiness={&readiness_summary}
                     />
                 </div>
@@ -462,8 +573,11 @@ fn Summary<'a>(
     totals: &'a crate::sell_list::Totals,
     lines: usize,
     payout: &'a str,
+    payout_label: &'a str,
+    payout_amount: &'a str,
     readiness: &'a str,
 ) -> impl Render {
+    let fees = totals.fees.map_or_else(|| t.page_not_quoted_yet().to_owned(), |c| dollars(t, c));
     html! {
         <dl class={Facts}>
             <div>
@@ -476,19 +590,19 @@ fn Summary<'a>(
             </div>
             <div>
                 <dt>{t.page_selected_offer_gross()}</dt>
-                <dd>{dollars(t, totals.offer_gross)}</dd>
+                <dd>{gross(t, totals.offer_gross)}</dd>
             </div>
             <div>
-                <dt>{t.page_expected_seller_payout()}</dt>
-                <dd>{dollars(t, totals.payout)}</dd>
+                <dt>{payout_label}</dt>
+                <dd>{payout_amount}</dd>
             </div>
             <div>
                 <dt>{t.page_future_listing_gross()}</dt>
-                <dd>{dollars(t, totals.future_listing_gross)}</dd>
+                <dd>{gross(t, totals.future_listing_gross)}</dd>
             </div>
             <div>
                 <dt>{t.page_estimated_sales_fees()}</dt>
-                <dd>{dollars(t, totals.fees)}</dd>
+                <dd>{&fees}</dd>
             </div>
             <div>
                 <dt>{t.page_payout_readiness()}</dt>
@@ -499,8 +613,8 @@ fn Summary<'a>(
                 <dd>{readiness}</dd>
             </div>
             <div class={Sum}>
-                <dt>{t.page_expected_seller_payout()}</dt>
-                <dd>{dollars(t, totals.payout)}</dd>
+                <dt>{payout_label}</dt>
+                <dd>{payout_amount}</dd>
             </div>
         </dl>
         <p class={Hint}>{t.page_no_commitment_until_review()}</p>
@@ -509,7 +623,7 @@ fn Summary<'a>(
 
 /// A line's card: what it is, what it needs, Remove, and its offers and terms folded.
 #[component(css = SellListPage)]
-fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bool) -> impl Render {
+fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bool, held: bool) -> impl Render {
     let row = &line.row;
     let ready = &line.readiness;
     let best = line.best();
@@ -520,7 +634,10 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
         n => t.page_offer_count_many(n as u64).to_string(),
     };
     let subtitle = row.item_subtitle.clone().or_else(|| row.product_summary.clone());
-    let net = best.map_or(0, |(_, net)| net);
+    let net = match best {
+        Some((_, Some(net))) => dollars(t, net),
+        _ => t.page_not_quoted_yet().to_owned(),
+    };
     let best_offer = best.map_or_else(|| "-".to_owned(), |(pick, _)| amount(t, pick.price.as_deref()));
     let terms = line.offer_review.as_ref().and_then(|r| r.terms.as_ref());
     let comparison = line.offer_review.as_ref().and_then(|r| r.comparison.as_ref()).and_then(|c| match c.status.as_str() {
@@ -551,8 +668,12 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                     }
                 </div>
             </div>
-            <p class={Big}>{t.page_estimated_net(&dollars(t, net))}</p>
-            <p class={Hint}>{t.page_card_summary(row.quantity, &best_offer)}</p>
+            <p class={Big}>
+                {if offers > 1 { t.page_best_offer_net(&net).to_string() } else { t.page_estimated_net(&net).to_string() }}
+            </p>
+            <p class={Hint}>
+                {t.page_card_summary(crate::text::sell_list_msg::PageCardSummary { quantity: row.quantity, offer: &best_offer })}
+            </p>
             <p class={Muted}>{detail(t, ready)}</p>
             if let Some(comparison) = comparison {
                 <p class={Muted}>{comparison}</p>
@@ -573,7 +694,7 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                     </div>
                     <div>
                         <dt>{t.page_seller_net()}</dt>
-                        <dd>{amount(t, terms.map(|t| t.seller_net_unit_amount.as_str()))}</dd>
+                        <dd>{quoted(t, terms.map(|t| t.seller_net_unit_amount.as_str()))}</dd>
                     </div>
                 </dl>
             } else {
@@ -600,7 +721,7 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                         <dt>{t.page_inventory()}</dt>
                         <dd>
                             {match line.default_inventory() {
-                                Some(i) => t.page_inventory_option_label(&i.storage_location_name, &i.ship_from_code, i.available_quantity).to_string(),
+                                Some(i) => t.page_inventory_option_label(crate::text::sell_list_msg::PageInventoryOptionLabel { location: &i.storage_location_name, ship_from: &i.ship_from_code, quantity: i.available_quantity }).to_string(),
                                 None => t.page_inventory_required().to_owned(),
                             }}
                         </dd>
@@ -611,14 +732,21 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                 <form method="post" action={surface.path()}>
                     <input type="hidden" name="intent" value="remove-sell-list-line">
                     <input type="hidden" name="lineId" value={&row.line_id}>
-                    <button class={(Button, Secondary)} type="submit">{t.page_remove()}</button>
+                    {SubmitKey::field(LineForm::FIELDS.attempt_id)}
+                    <button class={(Button, Secondary)} type="submit" disabled={held}>{t.page_remove()}</button>
                 </form>
                 if !ready.ready && row.is_offer() {
-                    <a class={(Button, Secondary)} href={line.setup_href()}>{t.page_create_matching_listing()}</a>
+                    if let Some(setup) = line.setup_href() {
+                        <a class={(Button, Secondary)} href={setup}>{t.page_create_matching_listing()}</a>
+                    }
                 }
                 if !ready.ready && !row.is_offer() && offers == 0 {
-                    <a class={(Button, Secondary)} href={line.setup_href()}>{t.page_create_listing()}</a>
-                    <a class={(Button, Ghost)} href={line.inventory_href()}>{t.page_add_inventory()}</a>
+                    if let Some(setup) = line.setup_href() {
+                        <a class={(Button, Secondary)} href={setup}>{t.page_create_listing()}</a>
+                    }
+                    if let Some(inventory) = line.inventory_href() {
+                        <a class={(Button, Ghost)} href={inventory}>{t.page_add_inventory()}</a>
+                    }
                 }
             </div>
             if let Some(fingerprint) = terms.and_then(|t| t.fee_quote_fingerprint.as_deref()) {
@@ -645,7 +773,7 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
             }
             <details class={More}>
                 <summary class={(Button, Secondary)} aria-label={&review_label}>{t.page_review_offers_and_terms()}</summary>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
                     <p class={Hint}>{t.page_drawer_description()}</p>
                     if !line.picks.is_empty() {
                         <ul class={Picks}>
@@ -657,11 +785,11 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                     if let Some(review) = &line.offer_review {
                         <OfferTerms t={t} review={review} quantity={row.quantity} />
                         if let Some(evidence) = &review.evidence {
-                            <Evidence t={t} evidence={evidence.as_ref()} surface={surface} />
+                            <Evidence t={t} evidence={evidence.as_ref()} surface={surface} held={held} />
                         }
                     }
                     if !row.is_offer() {
-                        <ProductAction t={t} line={line} surface={surface} />
+                        <ProductAction t={t} line={line} surface={surface} held={held} />
                     }
                 </div>
             </details>
@@ -697,15 +825,21 @@ fn PickOption<'a>(t: SellListMsg, pick: &'a Pick, selectable: bool) -> impl Rend
                 </div>
                 <div>
                     <dt>{t.page_marketplace_fee()}</dt>
-                    <dd>{amount(t, pick.fee.as_deref())}</dd>
+                    <dd>{quoted(t, pick.fee.as_deref())}</dd>
                 </div>
                 <div>
                     <dt>{t.page_seller_net()}</dt>
-                    <dd>{amount(t, pick.net.as_deref())}</dd>
+                    <dd>{quoted(t, pick.net.as_deref())}</dd>
                 </div>
                 <div>
                     <dt>{t.page_shipping_allowance()}</dt>
-                    <dd>{allowance(t, cents(pick.basis.as_deref()), pick.allowance_bps)}</dd>
+                    <dd>
+                        {if pick.net.is_none() {
+                            t.page_not_quoted_yet().to_owned()
+                        } else {
+                            allowance(t, cents(pick.basis.as_deref()), pick.allowance_bps)
+                        }}
+                    </dd>
                 </div>
             </dl>
         </li>
@@ -730,7 +864,20 @@ fn OfferTerms<'a>(t: SellListMsg, review: &'a OfferReview, quantity: u64) -> imp
                     if let Some(final_terms) = &review.terms {
                         <TermsFacts t={t} terms={final_terms} />
                     } else {
-                        <p class={Hint}>{t.page_refresh_needed()}</p>
+                        <dl class={Facts}>
+                            <div>
+                                <dt>{t.page_marketplace_fee()}</dt>
+                                <dd>{t.page_not_quoted_yet()}</dd>
+                            </div>
+                            <div>
+                                <dt>{t.page_seller_net()}</dt>
+                                <dd>{t.page_not_quoted_yet()}</dd>
+                            </div>
+                            <div>
+                                <dt>{t.page_shipping_allowance()}</dt>
+                                <dd>{t.page_not_quoted_yet()}</dd>
+                            </div>
+                        </dl>
                     }
                 </div>
             </div>
@@ -873,12 +1020,13 @@ fn Payout<'a>(t: SellListMsg, review: &'a OfferReview, terms: &'a SellTerms, qua
 }
 
 /// A listing's required evidence: what it misses, its photos (each unmatched one with Classify),
-/// and Add photo while it is not complete (`SellListOfferEvidenceReview`).
+/// and Add photo while it is not complete (`SellListOfferEvidenceReview`). Classify and Add photo
+/// wait, as the page's other writes do, while a write is held.
 #[component(css = SellListPage)]
-fn Evidence<'a>(t: SellListMsg, evidence: Option<&'a ListingEvidence>, surface: Surface) -> impl Render {
+fn Evidence<'a>(t: SellListMsg, evidence: Option<&'a ListingEvidence>, surface: Surface, held: bool) -> impl Render {
     html! {
         if let Some(e) = evidence {
-            <EvidenceReview t={t} e={e} surface={surface} />
+            <EvidenceReview t={t} e={e} surface={surface} held={held} />
         } else {
             <p class={Hint}>{t.page_evidence_unavailable()}</p>
         }
@@ -886,7 +1034,7 @@ fn Evidence<'a>(t: SellListMsg, evidence: Option<&'a ListingEvidence>, surface: 
 }
 
 #[component(css = SellListPage)]
-fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) -> impl Render {
+fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface, held: bool) -> impl Render {
     let matched: Vec<&str> = e.coverage.slots.iter().filter_map(|s| s.matched_photo_id.as_deref()).collect();
     let slots = &e.requirements.required_slots;
     html! {
@@ -931,7 +1079,9 @@ fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) 
                                         }
                                     </select>
                                 </label>
-                                <button class={(Button, Secondary)} type="submit">{t.page_evidence_classify_action()}</button>
+                                <button class={(Button, Secondary)} type="submit" disabled={held}>
+                                    {t.page_evidence_classify_action()}
+                                </button>
                             </form>
                         }
                     </li>
@@ -946,7 +1096,7 @@ fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) 
                         <span class={Hint}>{t.page_evidence_photo_description()}</span>
                         <input type="file" name="listingPhoto" accept="image/jpeg,image/png,image/webp" required>
                     </label>
-                    <button class={(Button, Secondary)} type="submit">{t.page_evidence_add_action()}</button>
+                    <button class={(Button, Secondary)} type="submit" disabled={held}>{t.page_evidence_add_action()}</button>
                 </form>
             }
         </section>
@@ -959,7 +1109,7 @@ fn EvidenceReview<'a>(t: SellListMsg, e: &'a ListingEvidence, surface: Surface) 
 /// whenever there is inventory; Keep in Sell List then needs them too until a script or the
 /// browser can make a field required for one choice (todd-skelton/corten#269).
 #[component(css = SellListPage)]
-fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface) -> impl Render {
+fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface, held: bool) -> impl Render {
     let row = &line.row;
     let inventory = line.default_inventory();
     let fallback = line.fallback_default();
@@ -975,11 +1125,11 @@ fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface) -> impl R
                             {t.page_use_smart_match_offer(&buyer(t, o.offer.buyer_display_name.as_deref()))}
                         </span>
                         <span class={Hint}>
-                            {t.page_use_smart_match_offer_description(o.offer.quantity_requested, &amount(t, Some(&o.terms.seller_net_unit_amount)))}
+                            {t.page_use_smart_match_offer_description(crate::text::sell_list_msg::PageUseSmartMatchOfferDescription { quantity: o.offer.quantity_requested, seller_net: &amount(t, Some(&o.terms.seller_net_unit_amount)) })}
                         </span>
                     </p>
                     if let Some(evidence) = &o.evidence {
-                        <Evidence t={t} evidence={evidence.as_ref()} surface={surface} />
+                        <Evidence t={t} evidence={evidence.as_ref()} surface={surface} held={held} />
                     }
                 </div>
             }
@@ -1006,7 +1156,7 @@ fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface) -> impl R
                         }
                         for item in &line.inventory {
                             <option value={&item.item_id} selected={inventory.is_some_and(|i| i.item_id == item.item_id)}>
-                                {t.page_inventory_option_label(&item.storage_location_name, &item.ship_from_code, item.available_quantity)}
+                                {t.page_inventory_option_label(crate::text::sell_list_msg::PageInventoryOptionLabel { location: &item.storage_location_name, ship_from: &item.ship_from_code, quantity: item.available_quantity })}
                             </option>
                         }
                     </select>
@@ -1142,11 +1292,15 @@ fn ConfirmationPanel<'a>(t: SellListMsg, confirmation: &'a SellListConfirmation)
                 }
                 <p class={Row}>
                     <a class={Button} href={url::SellList::PATH}>{t.page_latest_confirmation_view_seller_activity()}</a>
-                    <a class={(Button, Secondary)} href="/account/sales">{t.page_latest_confirmation_view_committed_sales()}</a>
-                    <a class={(Button, Secondary)} href="/account/sales/shipments">
+                    <a class={(Button, Secondary)} href={url::Sales::default()}>
+                        {t.page_latest_confirmation_view_committed_sales()}
+                    </a>
+                    <a class={(Button, Secondary)} href={url::SaleShipments::default()}>
                         {t.page_latest_confirmation_view_sale_shipments()}
                     </a>
-                    <a class={(Button, Secondary)} href="/account/support">{t.page_latest_confirmation_open_support()}</a>
+                    <a class={(Button, Secondary)} href={url::SupportList::default()}>
+                        {t.page_latest_confirmation_open_support()}
+                    </a>
                 </p>
             </div>
         </section>

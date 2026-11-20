@@ -6,6 +6,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { formatDateTime } from "@chase-sets/localization";
 import type { ReportedContentQueueDetail, ReportedContentQueueItem } from "../api/contracts";
 import { createReportedContentRoutes } from "../api/http";
 import { createReportedContentRuntime } from "../api/runtime";
@@ -29,6 +30,16 @@ const context = Object.freeze({
 }) as EventStoreContext;
 
 const item = {
+  severity: "high",
+  policy_revision: "reported-content-response/2026-11-14",
+  policy_code: null,
+  response_started_at: "2026-10-21T02:00:00.000Z",
+  acknowledged_at: null,
+  acknowledge_due_at: null,
+  disposition_due_at: null,
+  accountable_role: "Founder",
+  response_open: false,
+  overdue: false,
   target_type: "account-profile",
   target_id: target,
   target_owner_account_id: target,
@@ -92,6 +103,53 @@ function expectNoReporterIdentifiers(text: string) {
 }
 
 describe("reported-content-operator-minimization", () => {
+  it("lists severity, due times, overdue state and accountable role in the existing queue", () => {
+    const open = {
+      ...item,
+      response_open: true,
+      overdue: true,
+      acknowledge_due_at: "2026-11-16T16:00:00.000Z",
+      disposition_due_at: "2026-11-17T16:00:00.000Z",
+    };
+    render(
+      <ReportedContentAdminListPage
+        queue={{ items: [open], count: 1, total: 1 }}
+        metrics={{ total_count: 1, needs_review_count: 1, auto_unlisted_count: 0 }}
+        filters={{ status: "all", targetType: "all" }}
+      />,
+    );
+    for (const text of [
+      "High",
+      "Founder",
+      "Overdue",
+      "Acknowledgement due",
+      "Disposition or escalation due",
+      formatDateTime(open.acknowledge_due_at),
+      formatDateTime(open.disposition_due_at),
+    ])
+      expect(within(screen.getByRole("table")).getByText(text)).toBeTruthy();
+  });
+  it("shows response severity, deadlines, overdue state and the acknowledge action only while open", () => {
+    const open = {
+      ...item,
+      response_open: true,
+      overdue: true,
+      acknowledge_due_at: "2026-11-16T16:00:00.000Z",
+      disposition_due_at: "2026-11-17T16:00:00.000Z",
+      reports: [],
+      distinct_reporter_count: 0,
+    };
+    const { rerender } = render(<ReportedContentAdminDetailPage item={open} />);
+    expect(screen.getByText("High")).toBeTruthy();
+    expect(screen.getByText("Founder")).toBeTruthy();
+    expect(screen.getByText("Overdue")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Acknowledge" })).toBeTruthy();
+    rerender(<ReportedContentAdminDetailPage item={{ ...open, acknowledged_at: "2026-11-16T15:30:00.000Z" }} />);
+    expect(screen.queryByRole("button", { name: "Acknowledge" })).toBeNull();
+    rerender(<ReportedContentAdminDetailPage item={{ ...open, response_open: false }} />);
+    expect(screen.queryByRole("button", { name: "Acknowledge" })).toBeNull();
+    expect(screen.getByText("Disposed")).toBeTruthy();
+  });
   afterEach(() => {
     cleanup();
   });

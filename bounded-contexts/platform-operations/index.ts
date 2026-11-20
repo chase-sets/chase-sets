@@ -1,3 +1,9 @@
+import {
+  createPlatformOperationsSellerComplianceCohortSweepRunners,
+  createPlatformOperationsSupportRequestDeadlineSweepRunners,
+  createPlatformOperationsSupportEvidenceCleanupRunners,
+  createPlatformOperationsGmvReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -45,12 +51,15 @@ import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/schema";
 import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
+import { sellerComplianceCohortSchemaMigrations } from "./features/seller-compliance-cohorts/read-model/cohort-schema";
+import { sellerComplianceRuntimeSchemaMigrations } from "./features/seller-compliance-cohorts/read-model/runtime-schema";
 import { accountAppealSchemaMigrations } from "./features/account-appeals/read-model/schema";
 import {
   buildAccountAppealInterestProjectionHandlers,
   buildAccountAppealProjectionHandlers,
 } from "./features/account-appeals/read-model/projection";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
+import { reportedContentResponseSchemaMigrations } from "./features/reported-content/read-model/schema";
 import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
   createPlatformOperationsServices,
@@ -60,7 +69,7 @@ import {
 
 const platformOperationsContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<
+const contextModule = defineBoundedContextModule<
   PlatformOperationsServices,
   PgTransactionalPool,
   PlatformOperationsHostPorts
@@ -69,9 +78,12 @@ export const module = defineBoundedContextModule<
   schemaSql: platformOperationsSchemaSql,
   schemaMigrations: [
     ...platformOperationsUnloggedProjectionSchemaMigrations,
+    ...reportedContentResponseSchemaMigrations,
     ...riskAlertsSchemaMigrations,
     ...supportRequestSchemaMigrations,
     ...sellerComplianceSalesSchemaMigrations,
+    ...sellerComplianceCohortSchemaMigrations,
+    ...sellerComplianceRuntimeSchemaMigrations,
     ...accountAppealSchemaMigrations,
   ],
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
@@ -166,3 +178,13 @@ export const module = defineBoundedContextModule<
   seed: seedPlatformOperationsDatabase,
   inspectSeedState: (pool) => inspectPlatformOperationsSeedState(pool),
 });
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createPlatformOperationsSellerComplianceCohortSweepRunners,
+    createPlatformOperationsSupportRequestDeadlineSweepRunners,
+    createPlatformOperationsSupportEvidenceCleanupRunners,
+    createPlatformOperationsGmvReconciliationRunners,
+  },
+};

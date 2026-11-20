@@ -8,9 +8,10 @@ import type {
 } from "../../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
 
-export type CatalogMergeCandidateReviewCommandKey = "candidate.split" | "candidate.edit";
+export type CatalogMergeCandidateReviewCommandKey = "candidate.promote" | "candidate.split" | "candidate.edit";
 
 export type CatalogMergeCandidateReviewCommandPreview =
+  | CatalogMergeCandidatePromoteCommandPreview
   | CatalogMergeCandidateSplitCommandPreview
   | CatalogMergeCandidateUpdateProductMappingCommandPreview;
 
@@ -44,6 +45,18 @@ export type CatalogMergeCandidateReviewCommandProvenance = Readonly<{
   externalProductReferences: readonly CatalogMergeCandidateExternalProductReference[];
 }>;
 
+export type CatalogMergeCandidatePromoteCommandPreview = Readonly<{
+  commandKind: "promote-catalog-merge-candidate";
+  commandKey: "candidate.promote";
+  route: Readonly<{
+    method: "POST";
+    path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote";
+    candidateId: string;
+  }>;
+  body: Readonly<{ reason: string; expectedVersion: number }>;
+  provenance: CatalogMergeCandidateReviewCommandProvenance;
+}>;
+
 export type CatalogMergeCandidateUpdateProductMappingCommandPreview = Readonly<{
   commandKind: "update-catalog-merge-candidate-product-mapping";
   commandKey: "candidate.edit";
@@ -52,9 +65,11 @@ export type CatalogMergeCandidateUpdateProductMappingCommandPreview = Readonly<{
     path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/update";
     candidateId: string;
   }>;
+  // The request the update route takes: an empty edit keeps the candidate's mapping as it is.
   body: Readonly<{
     reason: string;
-    snapshot: CatalogMergeCandidateReviewSnapshot;
+    expectedVersion: number;
+    edit: Readonly<Record<string, never>>;
   }>;
   preview: Readonly<{
     productReferenceCount: number;
@@ -72,11 +87,11 @@ export type CatalogMergeCandidateSplitCommandPreview = Readonly<{
     path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/split";
     candidateId: string;
   }>;
+  // The request the split route takes: the Catalog API builds both snapshots itself.
   body: Readonly<{
     reason: string;
-    remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
-    splitCandidateId: string;
-    splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+    expectedVersion: number;
+    splitObservationIds: readonly string[];
   }>;
   preview: Readonly<{
     remainingObservationIds: readonly string[];
@@ -97,6 +112,27 @@ export function previewCatalogMergeCandidateReviewCommand(
   const blockers = actionableBlockers(candidate);
   if (blockers.length > 0) {
     return { status: "blocked", preview: null, blockers };
+  }
+
+  if (commandKey === "candidate.promote") {
+    return {
+      status: "available",
+      blockers: [],
+      preview: {
+        commandKind: "promote-catalog-merge-candidate",
+        commandKey,
+        route: {
+          method: "POST",
+          path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote",
+          candidateId: candidate.candidate_id,
+        },
+        body: {
+          reason: "Promote from the scope-first Catalog sync workbench.",
+          expectedVersion: candidate.last_stream_version,
+        },
+        provenance: commandProvenance(candidate),
+      },
+    };
   }
 
   const snapshot = snapshotFromReviewRow(candidate);
@@ -122,7 +158,8 @@ export function previewCatalogMergeCandidateReviewCommand(
         },
         body: {
           reason: updateReason,
-          snapshot,
+          expectedVersion: candidate.last_stream_version,
+          edit: {},
         },
         preview: {
           productReferenceCount: snapshot.proposedExternalProductReferences.length,
@@ -166,37 +203,93 @@ export function snapshotFromReviewRow(
   };
 }
 
+/** The two snapshots and the new candidate's id a split of `splitObservationIds` off a candidate makes. */
+export type CatalogMergeCandidateSplitPlan = Readonly<{
+  remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
+  splitCandidateId: string;
+  splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+}>;
+
+export type CatalogMergeCandidateSplitBlocker = Extract<
+  CatalogMergeCandidateReviewCommandBlocker,
+  "split-requires-two-members" | "split-requires-separable-reference-provenance"
+>;
+
+/**
+ * Split `splitObservationIds` off the candidate whose stored snapshot is `snapshot`. The Catalog
+ * API builds both snapshots and the split candidate's id from the snapshot it holds, so a client
+ * names only the Source Observations to split off. They must be members, and some member must
+ * remain; each side keeps the references, provenance, conflicts and warnings of its own members,
+ * and each needs at least one reference of its own.
+ */
+export function planCatalogMergeCandidateSplit(
+  candidateId: string,
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  splitObservationIds: readonly string[],
+):
+  | Readonly<{ ok: true; plan: CatalogMergeCandidateSplitPlan }>
+  | Readonly<{ ok: false; blocker: CatalogMergeCandidateSplitBlocker | "split-selection-invalid" }> {
+  const memberIds = new Set(snapshot.membership.map((member) => member.observationId));
+  const splitIds = new Set(splitObservationIds.map((id) => id.trim()).filter(Boolean));
+  if (splitIds.size === 0 || [...splitIds].some((id) => !memberIds.has(id))) {
+    return { ok: false, blocker: "split-selection-invalid" };
+  }
+  const splitMembers = snapshot.membership.filter((member) => splitIds.has(member.observationId));
+  const remainingMembers = snapshot.membership.filter((member) => !splitIds.has(member.observationId));
+  if (remainingMembers.length === 0) {
+    return { ok: false, blocker: "split-requires-two-members" };
+  }
+
+  const remainingSnapshot = splitSnapshotForMembers(snapshot, remainingMembers, "remaining");
+  const splitSnapshot = splitSnapshotForMembers(snapshot, splitMembers, "split");
+  if (referenceCount(remainingSnapshot) === 0 || referenceCount(splitSnapshot) === 0) {
+    return { ok: false, blocker: "split-requires-separable-reference-provenance" };
+  }
+
+  return {
+    ok: true,
+    plan: {
+      remainingSnapshot,
+      splitCandidateId: splitCandidateIdFor(candidateId, splitMembers),
+      splitSnapshot,
+    },
+  };
+}
+
+function referenceCount(snapshot: CatalogMergeCandidateReviewSnapshot): number {
+  return snapshot.proposedExternalCatalogItemReferences.length + snapshot.proposedExternalProductReferences.length;
+}
+
+// Named by the observations split off, in id order, so the same selection gives the same id (one
+// observation keeps the id the workbench always gave it).
+function splitCandidateIdFor(
+  candidateId: string,
+  splitMembers: readonly CatalogMergeCandidateObservationMember[],
+): string {
+  const ids = splitMembers.map((member) => safeIdentifier(member.observationId)).sort();
+  return `${candidateId}__split__${ids.join("__")}`;
+}
+
+// The workbench offers a split for a candidate of two members: the second (in membership order)
+// is split off.
 function previewSplitCommand(
   candidate: CatalogMergeCandidateListRow,
   snapshot: CatalogMergeCandidateReviewSnapshot,
 ): CatalogMergeCandidateReviewCommandPreviewResult {
-  if (snapshot.membership.length !== 2) {
+  const splitMember = snapshot.membership.length === 2 ? snapshot.membership[1] : undefined;
+  if (!splitMember) {
     return { status: "blocked", preview: null, blockers: ["split-requires-two-members"] };
   }
 
-  const [remainingMember, splitMember] = snapshot.membership;
-  if (!remainingMember || !splitMember) {
-    return { status: "blocked", preview: null, blockers: ["split-requires-two-members"] };
-  }
-
-  const remainingSnapshot = splitSnapshotForMember(snapshot, remainingMember, "remaining");
-  const splitSnapshot = splitSnapshotForMember(snapshot, splitMember, "split");
-  if (
-    remainingSnapshot.proposedExternalCatalogItemReferences.length +
-      remainingSnapshot.proposedExternalProductReferences.length ===
-      0 ||
-    splitSnapshot.proposedExternalCatalogItemReferences.length +
-      splitSnapshot.proposedExternalProductReferences.length ===
-      0
-  ) {
+  const planned = planCatalogMergeCandidateSplit(candidate.candidate_id, snapshot, [splitMember.observationId]);
+  if (!planned.ok) {
     return {
       status: "blocked",
       preview: null,
-      blockers: ["split-requires-separable-reference-provenance"],
+      blockers: [planned.blocker === "split-selection-invalid" ? "split-requires-two-members" : planned.blocker],
     };
   }
-
-  const splitCandidateId = `${candidate.candidate_id}__split__${safeIdentifier(splitMember.observationId)}`;
+  const { remainingSnapshot, splitSnapshot } = planned.plan;
 
   return {
     status: "available",
@@ -211,9 +304,8 @@ function previewSplitCommand(
       },
       body: {
         reason: splitReason,
-        remainingSnapshot,
-        splitCandidateId,
-        splitSnapshot,
+        expectedVersion: candidate.last_stream_version,
+        splitObservationIds: [splitMember.observationId],
       },
       preview: {
         remainingObservationIds: remainingSnapshot.membership.map((member) => member.observationId),
@@ -226,21 +318,24 @@ function previewSplitCommand(
   };
 }
 
-function splitSnapshotForMember(
+function splitSnapshotForMembers(
   snapshot: CatalogMergeCandidateReviewSnapshot,
-  member: CatalogMergeCandidateObservationMember,
+  members: readonly CatalogMergeCandidateObservationMember[],
   role: "remaining" | "split",
 ): CatalogMergeCandidateReviewSnapshot {
-  const observationIds = new Set([member.observationId]);
+  const observationIds = new Set(members.map((member) => member.observationId));
   const fieldProvenance = snapshot.fieldProvenance.filter((entry) => observationIds.has(entry.observationId));
 
   return {
     ...snapshot,
-    identityFingerprint: `${snapshot.identityFingerprint}:${role}:${member.observationId}`,
-    membership: [member],
+    identityFingerprint: `${snapshot.identityFingerprint}:${role}:${[...observationIds].sort().join(",")}`,
+    membership: [...members],
     proposedCatalogItemFacts: factsFromProvenance(fieldProvenance, snapshot.proposedCatalogItemFacts),
-    proposedExternalCatalogItemReferences: referencesForMember(snapshot.proposedExternalCatalogItemReferences, member),
-    proposedExternalProductReferences: referencesForMember(snapshot.proposedExternalProductReferences, member),
+    proposedExternalCatalogItemReferences: referencesForMembers(
+      snapshot.proposedExternalCatalogItemReferences,
+      members,
+    ),
+    proposedExternalProductReferences: referencesForMembers(snapshot.proposedExternalProductReferences, members),
     conflicts: snapshot.conflicts.filter((conflict) =>
       conflict.observationIds.some((observationId) => observationIds.has(observationId)),
     ),
@@ -266,17 +361,16 @@ function factsFromProvenance(
   return Object.keys(facts).length > 0 ? facts : fallback;
 }
 
-function referencesForMember<T extends CatalogMergeCandidateExternalCatalogItemReference>(
+function referencesForMembers<T extends CatalogMergeCandidateExternalCatalogItemReference>(
   references: readonly T[],
-  member: CatalogMergeCandidateObservationMember,
+  members: readonly CatalogMergeCandidateObservationMember[],
 ): readonly T[] {
-  const providerKey = member.providerKey.trim().toLowerCase();
-  const externalKey = member.externalKey.trim().toLowerCase();
-  return references.filter(
-    (reference) =>
-      reference.providerKey.trim().toLowerCase() === providerKey &&
-      reference.externalKey.trim().toLowerCase() === externalKey,
-  );
+  const keys = new Set(members.map((member) => referenceKey(member.providerKey, member.externalKey)));
+  return references.filter((reference) => keys.has(referenceKey(reference.providerKey, reference.externalKey)));
+}
+
+function referenceKey(providerKey: string, externalKey: string): string {
+  return `${providerKey.trim().toLowerCase()}\u0000${externalKey.trim().toLowerCase()}`;
 }
 
 function actionableBlockers(

@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./listing-attempt-test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closeMultiContextTestPools,
@@ -11,7 +12,7 @@ import {
   createPostgresProjectionStore,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
@@ -20,6 +21,7 @@ import { buildMarketplaceInventoryProjectionHandlers } from "../integrations/sup
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
 import { createMarketplaceListingRuntime } from "../api/runtime";
 import { attemptListingId, listingAttempt, stampListingAttemptEvents } from "../api/listing-attempt";
+import { listingBatchStreamId } from "../api/listing-batch";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Listing attempt DB proof.");
@@ -77,10 +79,10 @@ describeDb("Listing attempts on PostgreSQL", () => {
       quantityCap: 1,
       idempotencyKey: key("create"),
     };
-    const first = await f.listings.createListing(create, context);
+    const first = await f.listings.createListing(listingTestCommand("listing.create", create), context);
     expect(first.listingId).toBe(attemptListingId("acc_seller", key("create")));
     await f.expectNoAppend(async () =>
-      expect(await f.restart().createListing(create, context)).toMatchObject({
+      expect(await f.restart().createListing(listingTestCommand("listing.create", create), context)).toMatchObject({
         listingId: first.listingId,
         version: first.version,
       }),
@@ -141,8 +143,8 @@ describeDb("Listing attempts on PostgreSQL", () => {
       idempotencyKey: key("concurrent-price"),
     };
     const results = await Promise.allSettled([
-      f.listings.updateListingPrice(command, context),
-      f.restart().updateListingPrice(command, context),
+      f.listings.updateListingPrice(listingTestCommand("listing.update-price", command), context),
+      f.restart().updateListingPrice(listingTestCommand("listing.update-price", command), context),
     ]);
     expect(results.every((result) => result.status === "fulfilled")).toBe(true);
     expect(results.map((result) => (result.status === "fulfilled" ? result.value.version : null))).toEqual([4, 4]);
@@ -318,9 +320,11 @@ describeDb("Listing attempts on PostgreSQL", () => {
       quantityCap: 1,
       idempotencyKey: key("create"),
     };
-    await f.listings.createListing(create, context);
+    await f.listings.createListing(listingTestCommand("listing.create", create), context);
     await f.expectNoAppend(() =>
-      expect(f.restart().createListing({ ...create, ...change }, context)).rejects.toMatchObject({
+      expect(
+        f.restart().createListing(listingTestCommand("listing.create", { ...create, ...change }), context),
+      ).rejects.toMatchObject({
         code: "attempt_conflict",
       }),
     );
@@ -372,7 +376,10 @@ describeDb("Listing attempts on PostgreSQL", () => {
     expect(firstSend).toMatchObject([{ listingId: one, outcome: "applied" }]);
     const before = await f.streamLengths([one, two]);
     const retried = await f.listings.applyBulkListingPriceUpdates(
-      { accountId: "acc_seller", updates: [batch(one, "11.00"), batch(two, "11.00")] },
+      {
+        accountId: "acc_seller",
+        updates: [batch(one, "11.00"), batch(two, "11.00")],
+      },
       context,
     );
     expect(retried).toMatchObject([
@@ -384,19 +391,23 @@ describeDb("Listing attempts on PostgreSQL", () => {
     expect(after[two]).toBeGreaterThan(before[two]!);
     // A day-after retry of the whole vector (one amount respelled) appends nothing.
     await f.expectNoAppend(async () => {
-      const replay = await f
-        .restart()
-        .applyBulkListingPriceUpdates(
-          { accountId: "acc_seller", updates: [batch(one, "11"), batch(two, "11.00")] },
-          context,
-        );
+      const replay = await f.restart().applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [batch(one, "11"), batch(two, "11.00")],
+        },
+        context,
+      );
       expect(replay.map((item) => item.outcome)).toEqual(["applied", "applied"]);
     });
     // A currency-only change under the same batch target conflicts.
     await f.expectNoAppend(async () =>
       expect(
         await f.listings.applyBulkListingPriceUpdates(
-          { accountId: "acc_seller", updates: [batch(one, "11.00", "CAD")] },
+          {
+            accountId: "acc_seller",
+            updates: [batch(one, "11.00", "CAD")],
+          },
           context,
         ),
       ).toMatchObject([{ listingId: one, outcome: "conflict" }]),
@@ -429,58 +440,331 @@ describeDb("Listing attempts on PostgreSQL", () => {
     },
   );
 
+  it("persists one terminal bulk vector and re-drives only its explicit unknown target", async () => {
+    const f = await fixture(pools.marketplace);
+    const ok = await f.activeListing("lst_vector_ok");
+    const clash = await f.activeListing("lst_vector_clash");
+    const lost = await f.activeListing("lst_vector_lost");
+    const missing = "lst_vector_missing";
+    const batchId = key("vector");
+    // The batch id bound to `clash` already recorded a different pause request.
+    await f.listings.pauseListing(
+      { accountId: "acc_seller", listingId: clash, reason: "policy-input-missing", idempotencyKey: batchId },
+      context,
+    );
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const lostStream = `marketplace.listing-${lost}`;
+    let phase: "commit" | "unreadable" | "done" = "commit";
+    // Commit-then-loss: the append commits, its response is lost, and the immediate receipt re-read fails too.
+    const lossy: EventStore = {
+      ...store,
+      appendToStream: async (input) => {
+        const stored = await store.appendToStream(input);
+        if (phase === "commit" && input.streamId === lostStream) {
+          phase = "unreadable";
+          throw createEventStoreError("infrastructure_failure", "Synthetic response loss after the commit.");
+        }
+        return stored;
+      },
+      readStream: async (input) => {
+        if (phase === "unreadable" && input.streamId === lostStream) {
+          phase = "done";
+          throw createEventStoreError("infrastructure_failure", "Synthetic unreadable receipt.");
+        }
+        return store.readStream(input);
+      },
+    };
+    const input = {
+      accountId: "acc_seller",
+      batchId,
+      family: "listing.pause",
+      listingIds: [ok, clash, missing, lost],
+    } as const;
+    // Counts the targets a batch actually drives: the batch runs each target through the runtime's own service.
+    const driven = (runtime: ReturnType<typeof f.restart>) => {
+      const sent: string[] = [];
+      const pause = runtime.pauseListing;
+      (runtime as { pauseListing: typeof pause }).pauseListing = async (params, eventContext) => {
+        sent.push(params.listingId);
+        return pause(params, eventContext);
+      };
+      return sent;
+    };
+
+    const firstRuntime = f.restart(lossy);
+    const firstSent = driven(firstRuntime);
+    const first = await firstRuntime.applyListingBatch(input, context);
+    expect(first.items.map((item) => [item.targetId, item.outcome])).toEqual([
+      [ok, "succeeded"],
+      [clash, "conflict"],
+      [missing, "error"],
+      [lost, "unknown"],
+    ]);
+    expect(firstSent).toEqual([ok, clash, missing, lost]);
+    await expect(
+      f.listings.lookupListingBatch({ accountId: "acc_seller", family: "listing.pause", batchId }),
+    ).resolves.toMatchObject({
+      items: [
+        { targetId: ok, outcome: "succeeded" },
+        { targetId: clash, outcome: "conflict" },
+        { targetId: missing, outcome: "error" },
+        { targetId: lost, outcome: "unknown" },
+      ],
+    });
+    const listingLengths = await f.streamLengths([ok, clash, lost]);
+
+    // The retry re-drives only the explicit unknown target, whose committed pause replays with zero appends.
+    const retryRuntime = f.restart();
+    const retrySent = driven(retryRuntime);
+    const retried = await retryRuntime.applyListingBatch(input, context);
+    expect(retrySent).toEqual([lost]);
+    expect(retried.items.map((item) => item.outcome)).toEqual(["succeeded", "conflict", "error", "succeeded"]);
+    expect(await f.streamLengths([ok, clash, lost])).toEqual(listingLengths);
+
+    // Resend mutant: once every target is terminal, a resend drives nothing and appends nothing.
+    const resendRuntime = f.restart();
+    const resendSent = driven(resendRuntime);
+    await f.expectNoAppend(() => resendRuntime.applyListingBatch(input, context));
+    expect(resendSent).toEqual([]);
+
+    // The bulk price family keeps its own vector under the same batch id and re-sends nothing terminal.
+    const repriced = await f.activeListing("lst_vector_price");
+    const priceInput = {
+      accountId: "acc_seller",
+      batchId,
+      updates: [{ listingId: repriced, priceAmount: "12.00", priceCurrencyCode: "USD" }],
+    };
+    const priced = await f.listings.applyBulkListingPriceUpdates(priceInput, context);
+    expect(priced).toMatchObject([{ listingId: repriced, outcome: "applied" }]);
+    await f.expectNoAppend(async () =>
+      expect(await f.restart().applyBulkListingPriceUpdates(priceInput, context)).toMatchObject([
+        { listingId: repriced, outcome: "applied", version: priced[0]!.version },
+      ]),
+    );
+    await expect(
+      f.listings.lookupListingBatch({ accountId: "acc_seller", family: "listing.update-price", batchId }),
+    ).resolves.toMatchObject({ items: [{ targetId: repriced, outcome: "succeeded" }] });
+  });
+
+  it("refuses empty, partial, draft-only, terminal-mismatched, promoted-only and wrong-target histories", async () => {
+    const f = await fixture(pools.marketplace);
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const listingId = await f.activeListing("lst_history_owned");
+    // Projected before any poisoned history is planted: the fixture projector replays every stored event.
+    const withdrawn = await f.activeListing("lst_history_withdrawn");
+    const owned = await f.listings.readAuthoritativeListing({ accountId: "acc_seller", listingId });
+    expect(owned).toMatchObject({ kind: "present", state: { status: "active" } });
+
+    // Empty: no aggregate is absent, never a default state a keyed write could decide from.
+    await expect(
+      f.listings.readAuthoritativeListing({ accountId: "acc_seller", listingId: "lst_history_empty" }),
+    ).resolves.toEqual({ kind: "absent" });
+    await f.expectNoAppend(() =>
+      expect(
+        f.listings.pauseListing(
+          { accountId: "acc_seller", listingId: "lst_history_empty", idempotencyKey: key("empty"), expectedVersion: 0 },
+          context,
+        ),
+      ).rejects.toBeDefined(),
+    );
+
+    // Wrong target: the owner reads another account's Listing as unusable rather than as its own.
+    await expect(f.listings.readAuthoritativeListing({ accountId: "acc_other", listingId })).rejects.toMatchObject({
+      code: "history_incomplete",
+    });
+
+    // Promoted-only: a later fact without the opening creation is unusable history.
+    await store.appendToStream({
+      streamId: "marketplace.listing-lst_history_promoted",
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "marketplace.listing.paused", payload: { listingId: "lst_history_promoted" } }],
+    });
+    await expect(
+      f.listings.readAuthoritativeListing({ accountId: "acc_seller", listingId: "lst_history_promoted" }),
+    ).rejects.toMatchObject({ code: "history_incomplete" });
+
+    // Presence-only mutant: a dark-inbound pause written by another attempt is not this attempt's pause.
+    const observed = owned.kind === "present" ? owned.version : 0;
+    await f.listings.pauseListing(
+      { accountId: "acc_seller", listingId, reason: "channel-inbound-dark", idempotencyKey: key("other-run") },
+      context,
+    );
+    await f.expectNoAppend(() =>
+      expect(
+        f.restart().pauseListing(
+          {
+            accountId: "acc_seller",
+            listingId,
+            reason: "channel-inbound-dark",
+            idempotencyKey: key("this-run"),
+            expectedVersion: observed,
+          },
+          context,
+        ),
+      ).rejects.toMatchObject({ code: "concurrency_conflict" }),
+    );
+
+    // Partial and draft-only vector histories: a stamped non-terminal fact for the batch target is ambiguous,
+    // so the batch reports the target unknown and appends nothing.
+    const draft = "lst_history_draft";
+    await f.listings.createListing(
+      listingTestCommand("listing.create", {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_one",
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        listingIdOverride: draft as never,
+      }),
+      context,
+    );
+    const partialBatch = key("partial");
+    const partialAttempt = listingAttempt({
+      idempotencyKey: partialBatch,
+      mutationKind: "listing.pause",
+      accountId: "acc_seller",
+      targetId: draft,
+      request: { listingId: draft, reason: "seller" },
+    });
+    const draftLength = (await f.streamLengths([draft]))[draft]!;
+    await store.appendToStream({
+      streamId: partialAttempt.streamId,
+      expectedVersion: draftLength,
+      context,
+      events: stampListingAttemptEvents(partialAttempt, [
+        { eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} },
+      ]),
+    });
+    const partialInput = {
+      accountId: "acc_seller",
+      batchId: partialBatch,
+      family: "listing.pause",
+      listingIds: [draft],
+    } as const;
+    const partialLength = (await f.streamLengths([draft]))[draft];
+    const partial = await f.restart().applyListingBatch(partialInput, context);
+    expect(partial.items).toMatchObject([{ targetId: draft, outcome: "unknown" }]);
+    expect((await f.streamLengths([draft]))[draft]).toBe(partialLength);
+
+    // Terminal-mismatched vector: a later fact re-recording a terminal target differently poisons the vector.
+    const mismatchBatch = key("mismatch");
+    const mismatchInput = {
+      accountId: "acc_seller",
+      batchId: mismatchBatch,
+      family: "listing.withdraw",
+      listingIds: [withdrawn],
+    } as const;
+    await f.listings.applyListingBatch(mismatchInput, context);
+    const batchStreamId = listingBatchStreamId({
+      accountId: "acc_seller",
+      family: "listing.withdraw",
+      batchId: mismatchBatch,
+    });
+    const recorded = await store.readStream({ streamId: batchStreamId });
+    const fact = recorded[0]!.payload as { entries: { outcome: string }[] };
+    await store.appendToStream({
+      streamId: batchStreamId,
+      expectedVersion: recorded.length,
+      context,
+      events: [
+        {
+          eventType: recorded[0]!.eventType,
+          payload: { ...fact, entries: fact.entries.map((entry) => ({ ...entry, outcome: "conflict" })) },
+        },
+      ],
+    });
+    await expect(
+      f.listings.lookupListingBatch({ accountId: "acc_seller", family: "listing.withdraw", batchId: mismatchBatch }),
+    ).rejects.toMatchObject({ code: "history_incomplete" });
+    await f.expectNoAppend(async () => {
+      const result = await f.restart().applyListingBatch(mismatchInput, context);
+      expect(result.items).toMatchObject([{ targetId: withdrawn, outcome: "unknown" }]);
+    });
+  });
+
   it("replays seller availability, away and capacity attempts and conflicts on a changed field", async () => {
     const f = await fixture(pools.marketplace);
     const disable = {
+      status: "unavailable",
       accountId: "acc_seller",
       reasonCategory: null,
       availableAgainOn: null,
       availableAgainAt: null,
       idempotencyKey: key("availability"),
     };
-    const disabled = await f.listings.disableSellerListingAvailability(disable, context);
+    const disabled = await f.listings.disableSellerListingAvailability(
+      listingTestCommand("seller.availability", disable),
+      context,
+    );
     await f.expectNoAppend(async () =>
-      expect(await f.restart().disableSellerListingAvailability(disable, context)).toMatchObject({
+      expect(
+        await f.restart().disableSellerListingAvailability(listingTestCommand("seller.availability", disable), context),
+      ).toMatchObject({
         version: disabled.version,
       }),
     );
     await f.expectNoAppend(() =>
       expect(
-        f.listings.disableSellerListingAvailability({ ...disable, availableAgainOn: "2031-01-01" }, context),
+        f.listings.disableSellerListingAvailability(
+          listingTestCommand("seller.availability", {
+            ...disable,
+            availableAgainOn: "2031-01-01",
+          }),
+          context,
+        ),
       ).rejects.toMatchObject({ code: "attempt_conflict" }),
     );
-    const enable = { accountId: "acc_seller", idempotencyKey: key("enable") };
-    const enabled = await f.listings.enableSellerListingAvailability(enable, context);
+    const enable = { status: "available", accountId: "acc_seller", idempotencyKey: key("enable") };
+    const enabled = await f.listings.enableSellerListingAvailability(
+      listingTestCommand("seller.availability", enable),
+      context,
+    );
     await f.expectNoAppend(async () =>
-      expect(await f.listings.enableSellerListingAvailability(enable, context)).toMatchObject({
+      expect(
+        await f.listings.enableSellerListingAvailability(listingTestCommand("seller.availability", enable), context),
+      ).toMatchObject({
         version: enabled.version,
       }),
     );
 
     const away = {
+      action: "schedule",
       accountId: "acc_seller",
       startsAt: "2031-01-01T00:00:00.000Z",
       endsAt: "2031-01-08T00:00:00.000Z",
       reasonCategory: "travel" as const,
       idempotencyKey: key("away"),
     };
-    const scheduled = await f.listings.scheduleSellerAwayWindow(away, context);
+    const scheduled = await f.listings.scheduleSellerAwayWindow(listingTestCommand("seller.away", away), context);
     await f.expectNoAppend(async () =>
-      expect(await f.restart().scheduleSellerAwayWindow(away, context)).toMatchObject({ version: scheduled.version }),
+      expect(
+        await f.restart().scheduleSellerAwayWindow(listingTestCommand("seller.away", away), context),
+      ).toMatchObject({ version: scheduled.version }),
     );
     await f.expectNoAppend(() =>
       expect(
-        f.listings.scheduleSellerAwayWindow({ ...away, endsAt: "2031-01-09T00:00:00.000Z" }, context),
+        f.listings.scheduleSellerAwayWindow(
+          listingTestCommand("seller.away", { ...away, endsAt: "2031-01-09T00:00:00.000Z" }),
+          context,
+        ),
       ).rejects.toMatchObject({ code: "attempt_conflict" }),
     );
 
     const capacity = { accountId: "acc_seller", maxOpenOrders: 5, idempotencyKey: key("capacity") };
-    const set = await f.listings.setSellerOrderCapacity(capacity, context);
+    const set = await f.listings.setSellerOrderCapacity(listingTestCommand("seller.order-capacity", capacity), context);
     await f.expectNoAppend(async () =>
-      expect(await f.restart().setSellerOrderCapacity(capacity, context)).toMatchObject({ version: set.version }),
+      expect(
+        await f.restart().setSellerOrderCapacity(listingTestCommand("seller.order-capacity", capacity), context),
+      ).toMatchObject({ version: set.version }),
     );
     await f.expectNoAppend(() =>
-      expect(f.listings.setSellerOrderCapacity({ ...capacity, maxOpenOrders: 6 }, context)).rejects.toMatchObject({
+      expect(
+        f.listings.setSellerOrderCapacity(
+          listingTestCommand("seller.order-capacity", { ...capacity, maxOpenOrders: 6 }),
+          context,
+        ),
+      ).rejects.toMatchObject({
         code: "attempt_conflict",
       }),
     );
@@ -618,17 +902,20 @@ async function fixture(pool: PgTransactionalPool) {
     /** An internal-exempt (no attempt) active Listing for edit and bulk cases. */
     activeListing: async (listingId: string) => {
       await listings.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_one",
           priceAmount: "10.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
-        },
+        }),
         context,
       );
-      await listings.publishListing({ accountId: "acc_seller", listingId }, context);
+      await listings.publishListing(
+        listingTestCommand("listing.publish", { accountId: "acc_seller", listingId }),
+        context,
+      );
       await project();
       return listingId;
     },

@@ -9,11 +9,25 @@ import { createRepricingPolicyRoutes } from "./route";
 import { createRepricingPolicyRuntime, type RepricingPolicyServices } from "./runtime";
 import { DryRunRequiredError } from "./activation";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
+import {
+  createConfigurationPoolFixture,
+  createMemoryRepricingConfigurationWriter,
+  withMemoryConfigurationTransactions,
+} from "../tests/configuration-fixture";
+import { createRepricingConfigurationWriter } from "./configuration";
+import { ConfigurationEpochError } from "@chase-sets/event-core/configuration-epoch";
 
-async function fixture() {
-  const { eventStore } = createInMemoryEventStore();
+async function fixture(durable?: ReturnType<typeof createConfigurationPoolFixture>) {
+  const eventStore = withMemoryConfigurationTransactions(createInMemoryEventStore().eventStore);
   const db: PgQueryable = { query: async () => ({ rows: [] }) };
-  const runtime = createRepricingPolicyRuntime({ eventStore, db, goalAdoptions: async () => [] });
+  const runtime = createRepricingPolicyRuntime({
+    eventStore,
+    db,
+    configuration: durable
+      ? createRepricingConfigurationWriter({ ...durable, eventStore })
+      : createMemoryRepricingConfigurationWriter(eventStore),
+    goalAdoptions: async () => [],
+  });
   const created = await runtime.commandHandler({
     streamId: runtime.streamIdForPolicy("rpp_synthetic_7911"),
     context: dryRunContext,
@@ -75,11 +89,19 @@ async function fixture() {
       shadowedBy: [],
       takenFrom: [],
     })),
-    activateRepricingPolicy: vi.fn(async ({ accountId, dryRunId }) => {
-      if (accountId !== "acc_7910" || dryRunId === "missing") return null;
-      if (dryRunId !== "completed") throw new DryRunRequiredError();
-      return created.state;
-    }),
+    activateRepricingPolicy: vi.fn<Parameters<typeof createRepricingPolicyRoutes>[0]["activateRepricingPolicy"]>(
+      async ({ accountId, dryRunId }) => {
+        if (accountId !== "acc_7910" || dryRunId === "missing") return null;
+        if (dryRunId !== "completed") throw new DryRunRequiredError();
+        return {
+          status: "applied",
+          requestKey: "synthetic_create",
+          requestedRevision: 1,
+          installedRevision: 1,
+          state: created.state,
+        };
+      },
+    ),
   };
   function app(
     accountId = "acc_7910",
@@ -114,13 +136,144 @@ async function fixture() {
   }
   return { app, services, eventStore };
 }
-const post = (body: unknown = {}) => ({
+const post = (body: unknown = {}, requestKey?: string) => ({
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: { "content-type": "application/json", ...(requestKey && { "Idempotency-Key": requestKey }) },
   body: JSON.stringify(body),
 });
 
 describe("account policy controls", () => {
+  it("rejects a changed target under the original key even before the owned policy has a configuration head", async () => {
+    const durable = createConfigurationPoolFixture();
+    const { app, eventStore } = await fixture(durable);
+    const api = app();
+    const halt = () => api.request("/policies/halt", post({ engaged: true }, "synthetic-shared-key"));
+    durable.control.pending = true;
+    const accepted = await halt();
+    expect(accepted.status).toBe(202);
+    const receipt = await accepted.json();
+    const conflict = await api.request("/policies/rpp_synthetic_7911/pause", post({}, "synthetic-shared-key"));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ error: { code: "concurrency_conflict" } });
+    expect(durable.rows.size).toBe(1);
+    expect([...durable.heads.keys()]).toEqual(["pricing.repricing-halt:acc_7910"]);
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual(["pricing.repricing-policy.created"]);
+    const replay = await halt();
+    expect(replay.status).toBe(202);
+    expect(await replay.json()).toEqual(receipt);
+  });
+
+  it("returns the original pending receipt for an installation timeout and retries it without accepting again", async () => {
+    const durable = createConfigurationPoolFixture();
+    const install = durable.epochs.installClosureInTransaction;
+    const installFailure = vi
+      .spyOn(durable.epochs, "installClosureInTransaction")
+      .mockRejectedValueOnce(new ConfigurationEpochError("participation query timed out; closure remains pending"));
+    const { app, eventStore, services } = await fixture(durable);
+    const api = app();
+    const halt = () => api.request("/policies/halt", post({ engaged: true }, "synthetic-timed-out"));
+    const pending = await halt();
+    expect(pending.status).toBe(202);
+    expect(await pending.json()).toEqual({
+      status: "accepted-pending",
+      requestKey: "synthetic-timed-out",
+      requestedRevision: 1,
+    });
+    expect(await services.getHaltConfigurationStatus("acc_7910")).toMatchObject({
+      installedRevision: 0,
+      installedState: { engaged: false },
+    });
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual(["pricing.repricing-policy.created"]);
+    installFailure.mockRejectedValueOnce(new ConfigurationEpochError("corrupt source journal"));
+    await expect(services.setHalt("acc_7910", true, dryRunContext, "synthetic-timed-out")).rejects.toThrow(
+      "corrupt source journal",
+    );
+    installFailure.mockImplementation(install);
+    const applied = await halt();
+    expect(applied.status).toBe(200);
+    const receipt = await applied.json();
+    expect(receipt).toMatchObject({
+      status: "applied",
+      requestKey: "synthetic-timed-out",
+      requestedRevision: 1,
+      installedRevision: 1,
+      state: { engaged: true },
+    });
+    expect(await (await halt()).json()).toEqual(receipt);
+    expect(durable.rows.size).toBe(1);
+    expect(
+      (await eventStore.readAll()).filter((event) => event.eventType === "pricing.repricing-halt.engaged"),
+    ).toHaveLength(1);
+  });
+
+  it("binds installed reads to the revision snapshot even when an earlier aggregate read is stale", async () => {
+    const { app, services } = await fixture();
+    const loaded = await services.loadOwnedRepricingPolicy("rpp_synthetic_7911", "acc_7910");
+    const installedState = { ...loaded!.state, name: "Installed revision two" };
+    const request = {
+      status: "accepted-pending" as const,
+      requestKey: "synthetic-newer-request",
+      requestedRevision: 3,
+    };
+    vi.spyOn(services, "getPolicyConfigurationStatus").mockResolvedValue({
+      installedRevision: 2,
+      installedState,
+      requestedRevision: 3,
+      request,
+    });
+    vi.spyOn(services, "getHaltConfigurationStatus").mockResolvedValue({
+      installedRevision: 2,
+      installedState: { engaged: true, engagedAt: "2026-11-17T00:00:00Z", releasedAt: null },
+      requestedRevision: 3,
+      request,
+    });
+    expect(await (await app().request("/policies/rpp_synthetic_7911")).json()).toMatchObject({
+      name: installedState.name,
+      configuration: { installedRevision: 2, request },
+    });
+    expect(await (await app().request("/policies")).json()).toMatchObject([{ name: installedState.name }]);
+    expect(await (await app().request("/policies/halt")).json()).toMatchObject({
+      engaged: true,
+      configuration: { installedRevision: 2, request },
+    });
+  });
+  it.each(["accepted-pending", "superseded-by-revision"] as const)(
+    "returns typed %s from every write without changing installed reads",
+    async (status) => {
+      const { app, services } = await fixture();
+      const receipt = {
+        requestKey: "synthetic-http-key",
+        requestedRevision: 2,
+        ...(status === "superseded-by-revision" ? { status, replacingRevision: 3 } : { status }),
+      };
+      vi.spyOn(services, "setHalt").mockResolvedValue(receipt);
+      vi.spyOn(services, "executeOwnedRepricingPolicy").mockResolvedValue(receipt);
+      vi.mocked(services.activateRepricingPolicy).mockResolvedValue(receipt);
+      for (const [path, body] of [
+        ["", { dryRunId: "completed", name: "Requested" }],
+        ["/halt", { engaged: true }],
+        ["/rpp_synthetic_7911/revise", { ...dryRunBody, name: "Requested" }],
+        ["/rpp_synthetic_7911/pause", {}],
+        ["/rpp_synthetic_7911/resume", {}],
+        ["/rpp_synthetic_7911/delete", {}],
+      ] as const) {
+        const response = await app().request(`/policies${path}`, {
+          ...post(body),
+          headers: { "Content-Type": "application/json", "Idempotency-Key": receipt.requestKey },
+        });
+        expect(response.status).toBe(status === "accepted-pending" ? 202 : 409);
+        expect(await response.json()).toEqual(receipt);
+      }
+      const read = await app().request("/policies/rpp_synthetic_7911");
+      expect(await read.json()).toMatchObject({
+        name: "Synthetic",
+        status: "active",
+        configuration: { installedRevision: 1 },
+      });
+      expect(await (await app().request("/policies/halt")).json()).toMatchObject({ engaged: false });
+      expect(services.setHalt).toHaveBeenCalledWith("acc_7910", true, expect.anything(), receipt.requestKey);
+    },
+  );
   it("authoring prerequisites resolve before policy IDs, are actor-only and reject selectors before reading", async () => {
     const { app, services } = await fixture();
     expect(await (await app().request("/policies/authoring-prerequisites")).json()).toEqual({
@@ -247,7 +400,10 @@ describe("account policy controls", () => {
     ] as const) {
       const response = await app().request(`/policies/rpp_synthetic_7911/${action}`, post(body));
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ policyId: "rpp_synthetic_7911", accountId: "acc_7910" });
+      expect(await response.json()).toMatchObject({
+        status: "applied",
+        state: { policyId: "rpp_synthetic_7911", accountId: "acc_7910" },
+      });
     }
     expect(services.getAccountRepricingPolicy).not.toHaveBeenCalled();
     expect(services.activateRepricingPolicy).not.toHaveBeenCalled();
@@ -302,7 +458,10 @@ describe("account policy controls", () => {
     );
     const created = await app().request("/policies", post({ name: "Synthetic", dryRunId: "completed" }));
     expect(created.status).toBe(201);
-    expect(await created.json()).toMatchObject({ status: "active", accountId: "acc_7910" });
+    expect(await created.json()).toMatchObject({
+      status: "applied",
+      state: { status: "active", accountId: "acc_7910" },
+    });
   });
   it("enforces pricing.view for reads and pricing.manage for writes", async () => {
     const { app } = await fixture();

@@ -493,9 +493,14 @@ describe("public policy corpus compiler", () => {
     // Re-derived for #8667, the first Terms content edit since #7429; prior pin was on-disk Terms at bb85cc7a24^.
     // Re-derived again for the #9721 byte-identical Stripe payment citation relocations, and for the #9034
     // ratified-decision and shipped-control review-text reconciliation.
+    // Re-derived with the same baseline registry after the legal-notice email and authority update:
+    // [#9050 Fill the legal-notice email in the Terms, Seller Agreement and Privacy Policy drafts](https://github.com/chase-sets/chase-sets/issues/9050).
+    // Re-derived for the Marketplace Checkout Fee glossary line move in
+    // [#7864 Break the Auth and Payments dependency cycle and reject cycles in the structure gate](https://github.com/chase-sets/chase-sets/issues/7864).
+    // Re-derived for the Identity account-domain citation shift that the required profile name check makes.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:f7017190f077c3fec907653d167e0a590021819f81d82e1321c45c3ef1692539");
+    ).toBe("sha256:a009624e67efaefb3c8b9eb7884b6142d87ef6bd3674d2c36834dc4c2b60b910");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

@@ -1,3 +1,4 @@
+import type { WorkerRunner as JobRunner } from "@chase-sets/bounded-context-module";
 import { createHash } from "node:crypto";
 import type { ContextProjectionGroup, ContextSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
 import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
@@ -449,8 +450,16 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
             blockedStreamCount = status.blockedStreamCount;
             poisonEventCount = status.poisonEventCount;
             if (position >= requiredPosition || !progressed) {
-              return;
+              break;
             }
+          }
+
+          if (checkpointPosition < requiredPosition) {
+            // A concurrent refresh may have overwritten the run's cached progress.
+            const statusAfter = await subscription.refreshStatus();
+            checkpointPosition = BigInt(statusAfter.lastGlobalPosition);
+            blockedStreamCount = statusAfter.blockedStreamCount;
+            poisonEventCount = statusAfter.poisonEventCount;
           }
         },
       );
@@ -671,7 +680,7 @@ export function createWorkSignalCleanupRunner(
     limit?: number;
     observer?: Pick<ProjectionWakeSchedulerObserver, "workSignalCleanupCompleted">;
   }>,
-): WorkerRunner {
+): JobRunner {
   const intervalMs = Math.max(1_000, Math.floor(input.intervalMs ?? DEFAULT_WORK_SIGNAL_CLEANUP_INTERVAL_MS));
 
   return {

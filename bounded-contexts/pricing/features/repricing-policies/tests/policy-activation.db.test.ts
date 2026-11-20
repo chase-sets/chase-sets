@@ -20,6 +20,7 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { module as pricingModule } from "../../../index";
 import { createRepricingPolicyActivationServices, DryRunRequiredError } from "../api/activation";
 import { createRepricingPolicyRuntime } from "../api/runtime";
+import { createRepricingConfigurationWriter } from "../api/configuration";
 import { createRepricingEngineRuntime } from "../../repricing-engine/api/runtime";
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
@@ -47,9 +48,10 @@ describeDb("policy first activation", () => {
   afterAll(async () => closeMultiContextTestPools(pools));
 
   function services(eventStore = createPostgresEventStore({ pool: pools.pricing }), pool = pools.pricing) {
+    const configuration = createRepricingConfigurationWriter({ pool, eventStore });
     return {
-      ...createRepricingPolicyRuntime({ eventStore, db: pool, goalAdoptions: async () => [] }),
-      ...createRepricingPolicyActivationServices({ eventStore, pool }),
+      ...createRepricingPolicyRuntime({ eventStore, db: pool, configuration, goalAdoptions: async () => [] }),
+      ...createRepricingPolicyActivationServices({ eventStore, pool, configuration }),
     };
   }
   async function completedRun(body: RepricingDryRunBody = dryRunBody) {
@@ -138,7 +140,7 @@ describeDb("policy first activation", () => {
         return {
           release: client.release.bind(client),
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (sql === "COMMIT") {
+            if (sql === "COMMIT" && appended.length) {
               expect(appended).toHaveLength(1);
               expect(getEventCommitMetadata()).toEqual({
                 eventIds: [],
@@ -184,7 +186,8 @@ describeDb("policy first activation", () => {
     });
     const controls = services();
     const created = await controls.activateRepricingPolicy(activateInput(await completedRun(original)), dryRunContext);
-    const policyId = created!.policyId!;
+    if (created?.status !== "applied") throw new Error("Expected installed activation.");
+    const policyId = created.state.policyId!;
     const replayed = (await controls.loadOwnedRepricingPolicy(policyId, accountId))!.state;
     expect(replayed.authoringIntent).toEqual(original.authoringIntent);
     expect(replayed.rules).toEqual(original.rules);
@@ -224,8 +227,12 @@ describeDb("policy first activation", () => {
     );
     const controls = services();
     const state = await controls.activateRepricingPolicy(activateInput(dryRunId), dryRunContext);
-    expect(state).toMatchObject({ ...dryRunBody, accountId, status: "active", name: "Synthetic activation" });
-    const policyId = state!.policyId!;
+    expect(state).toMatchObject({
+      status: "applied",
+      state: { ...dryRunBody, accountId, status: "active", name: "Synthetic activation" },
+    });
+    if (state?.status !== "applied") throw new Error("Expected installed activation.");
+    const policyId = state.state.policyId!;
     expect(await controls.getAccountRepricingPolicy({ accountId, policyId })).toBeNull();
     expect(await controls.loadOwnedRepricingPolicy(policyId, "acc_foreign")).toBeNull();
     expect(
@@ -243,7 +250,7 @@ describeDb("policy first activation", () => {
         command: { type: "PauseRepricingPolicy", pausedAt: new Date().toISOString() },
         context: dryRunContext,
       }),
-    ).toMatchObject({ status: "paused" });
+    ).toMatchObject({ status: "applied", state: { status: "paused" } });
     const projected = buildRepricingPolicyProjectionHandlers(pools.pricing);
     for (const event of await createPostgresEventStore({ pool: pools.pricing }).readAll())
       await projected[event.eventType]?.(toTransportEvent(event));
@@ -371,7 +378,11 @@ describeDb("policy first activation", () => {
           return {
             release: client.release.bind(client),
             query: <Row>(sql: string, values?: readonly unknown[]) => {
-              if (sql.includes("UPDATE pricing_repricing_dry_runs AS run SET consumed_at")) reachedConsumption();
+              if (
+                sql.includes("'pricing_configuration:'") &&
+                values?.[0] === `pricing.repricing-activation:${accountId}:${dryRunId}`
+              )
+                reachedConsumption();
               return client.query<Row>(sql, values);
             },
           };
@@ -390,7 +401,7 @@ describeDb("policy first activation", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(loserSettled).toBe(false);
       release();
-      expect(await winner).toMatchObject({ status: "active" });
+      expect(await winner).toMatchObject({ status: "applied", state: { status: "active" } });
       await expect(loser).rejects.toBeInstanceOf(DryRunRequiredError);
       expect(await createdEvents()).toHaveLength(1);
     } finally {
@@ -403,6 +414,7 @@ describeDb("policy first activation", () => {
     "rolls back %s without a receipt, then permits exactly one retry",
     async (failure) => {
       const dryRunId = await completedRun();
+      const input = { ...activateInput(dryRunId), requestKey: "synthetic-install-recovery" };
       const store = createPostgresEventStore({ pool: pools.pricing });
       const failing: PostgresEventStore = {
         ...store,
@@ -418,9 +430,7 @@ describeDb("policy first activation", () => {
           return events;
         },
       };
-      const result = await requestActivation(() =>
-        services(failing).activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
-      );
+      const result = await requestActivation(() => services(failing).activateRepricingPolicy(input, dryRunContext));
       expect(result.error).toBeInstanceOf(Error);
       if (failure === "COMMIT failure") expect(result.error).toMatchObject({ code: "23505" });
       else expect((result.error as Error).message).toBe(`synthetic ${failure}`);
@@ -433,19 +443,20 @@ describeDb("policy first activation", () => {
             [dryRunId],
           )
         ).rows[0]?.consumed_at,
-      ).toBeNull();
-      const retried = await requestActivation(() =>
-        services().activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
-      );
-      expect(await retried.response.json()).toMatchObject({ status: "active" });
+      ).not.toBeNull();
+      expect(await services().listConfigurationRequests(accountId)).toContainEqual({
+        requestKey: input.requestKey,
+        requestedRevision: 1,
+        status: "accepted-pending",
+      });
+      const retried = await requestActivation(() => services().activateRepricingPolicy(input, dryRunContext));
+      expect(await retried.response.json()).toMatchObject({ status: "applied", state: { status: "active" } });
       const events = await createdEvents();
       expect(events).toHaveLength(1);
       expectReceipt(retried, events);
-      const repeated = await requestActivation(() =>
-        services().activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
-      );
-      expect(repeated.error).toBeInstanceOf(DryRunRequiredError);
-      expectNoReceipt(repeated);
+      const repeated = await requestActivation(() => services().activateRepricingPolicy(input, dryRunContext));
+      expect(await repeated.response.json()).toMatchObject({ status: "applied", requestedRevision: 1 });
+      expectReceipt(repeated, events);
       expect(await createdEvents()).toEqual(events);
     },
   );

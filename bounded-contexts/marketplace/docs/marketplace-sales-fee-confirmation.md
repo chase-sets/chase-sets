@@ -70,6 +70,8 @@ Preview accepted-offer terms:
 GET /api/marketplace/account/offers/matches/off_123/terms-preview
 ```
 
+Treat the returned `fee_quote_fingerprint` as opaque. For a managed Offer it also binds the exact Offer and Listing versions, so acceptance refuses any other value, including a fingerprint rebuilt from the fee fields. Checkout's Sell List reads it through its `offerAcceptanceTermsSource` host port.
+
 Accept with the confirmed offer quote:
 
 ```http

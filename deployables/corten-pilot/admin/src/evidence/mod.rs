@@ -17,18 +17,20 @@
 //!
 //! Where admin-web falls short the pilot does not: an invalid draft's diagnostics are shown
 //! (chase-sets/chase-sets#10878), Validate is offered for a validated draft as well as a draft so
-//! a validated one can still be activated (chase-sets/chase-sets#10879), the effective times are read
-//! and written in the operator's zone (chase-sets/chase-sets#10880), and a write comes back here,
-//! under `/platform` (chase-sets/chase-sets#10877).
+//! a validated one can still be activated (chase-sets/chase-sets#10879), the effective times are
+//! drawn in the operator's zone and read in the zone the Activate form sends back
+//! (chase-sets/chase-sets#10880), and a write comes back here, under `/platform`
+//! (chase-sets/chase-sets#10877).
 //!
 //! Two of the API's own faults show through: the read after a write may not show it yet
 //! (chase-sets/chase-sets#10881), and Validate fails for every draft (chase-sets/chase-sets#10882).
 use corten::{
     ClientZone,
-    axum::http::{HeaderMap, StatusCode},
+    form::{DrawZone, FormZone},
+    http::{HeaderMap, StatusCode},
+    i18n::LocalDateTime,
     prelude::*,
 };
-use jiff::tz::TimeZone;
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -39,8 +41,8 @@ use crate::{
     api::{ApiError, Method, segment},
     app::{Refusal, Shared, read_failed, refusal, refusal_answer},
     auth::{EvidenceView, Staff, Viewer},
-    growth::promo::{sent_time, zone_of},
-    text::Ops,
+    growth::promo::{sent, zone_of},
+    text::{Ops, Pilot},
     views::Here,
 };
 
@@ -235,7 +237,7 @@ impl Row {
 }
 
 /// Every write's and every redraw's fields, as admin-web's forms name them; a rule's are lists.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Posted {
     pub intent: String,
@@ -259,8 +261,10 @@ pub struct Posted {
     pub buyer_acknowledgment: Vec<String>,
     /// `add`, `refresh` or a rule's index to remove: draw the form again and write nothing.
     pub rerow: Option<String>,
-    pub effective_from: String,
-    pub effective_until: String,
+    pub effective_from: Entry<LocalDateTime>,
+    pub effective_until: Entry<LocalDateTime>,
+    /// The zone the Activate form was drawn in, which its times are read in.
+    pub zone: Option<FormZone>,
     pub impact_acknowledged: String,
     pub impact_acknowledgment_hash: String,
 }
@@ -458,17 +462,19 @@ async fn page(
     Params(route): Params<url::Evidence>,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(route.after_write.as_deref());
-    let zone = zone_of(zone);
-    draw(&req, &staff.viewer, &config, &headers, &zone, receipt.as_ref(), Kept::default(), StatusCode::OK).await
+    let zones = (Here(zone_of(zone)), DrawZone::from(req.zone()));
+    draw(&req, &staff.viewer, &config, &headers, &zones, receipt.as_ref(), Kept::default(), StatusCode::OK).await
 }
 
+/// The page's dates are written in the operator's zone (`Here`); the Activate form's times are
+/// drawn in its `DrawZone`.
 #[allow(clippy::too_many_arguments)]
 async fn draw(
     req: &Req,
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
-    zone: &TimeZone,
+    (here, drawn_in): &(Here, DrawZone),
     receipt: Option<&Receipt>,
     kept: Kept,
     status: StatusCode,
@@ -491,8 +497,7 @@ async fn draw(
         can_validate: viewer.can(VALIDATE),
         can_activate: viewer.can(ACTIVATE),
     };
-    let here = Here(zone.clone());
-    let view = html! { <views::ListingEvidencePage o={o} p={req.t()} here={&here} screen={&screen} /> };
+    let view = html! { <views::ListingEvidencePage o={o} p={req.t()} here={here} zone={drawn_in} screen={&screen} /> };
     req.screen_with_status(
         status,
         &screen,
@@ -542,11 +547,11 @@ async fn act(
     zone: Option<ClientZone>,
     Form(posted): Form<Posted>,
 ) -> HtmlResult {
-    let zone = zone_of(zone);
+    let zones = (Here(zone_of(zone)), posted.zone.as_ref().map_or_else(|| DrawZone::from(req.zone()), DrawZone::from));
     let viewer = &staff.viewer;
     let again = |kept: Kept, status: StatusCode| {
-        let (req, config, headers, zone) = (&req, &config, &headers, &zone);
-        async move { draw(req, viewer, config, headers, zone, None, kept, status).await }
+        let (req, config, headers, zones) = (&req, &config, &headers, &zones);
+        async move { draw(req, viewer, config, headers, zones, None, kept, status).await }
     };
     if let Some(draft) = Draft::rerowed(&posted) {
         return again(Kept { draft: Some(draft), ..Kept::default() }, StatusCode::OK).await;
@@ -572,7 +577,7 @@ async fn act(
             return match validate(&caller, posted.policy_id.trim()).await {
                 Ok((validation, receipt, status)) => {
                     let kept = Kept { validation: Some(validation), ..Kept::default() };
-                    draw(&req, viewer, &config, &headers, &zone, receipt.as_ref(), kept, status).await
+                    draw(&req, viewer, &config, &headers, &zones, receipt.as_ref(), kept, status).await
                 }
                 Err(error) => match refusal(&req, error) {
                     Refusal::Again(status, message) => again(Kept { refusal: Some(message), ..Kept::default() }, status).await,
@@ -594,13 +599,18 @@ async fn act(
             if posted.impact_acknowledged != "yes" {
                 return again(refused(o.lep_impact_required()), StatusCode::UNPROCESSABLE_ENTITY).await;
             }
-            let from = sent_time(&posted.effective_from, &zone);
-            if !from.as_str().is_some_and(|f| f.parse::<jiff::Timestamp>().is_ok()) {
-                return again(refused(o.lep_effective_required()), StatusCode::UNPROCESSABLE_ENTITY).await;
-            }
+            let p: Pilot = req.t();
+            let zone = posted.zone.as_ref();
+            let from = zone.and_then(|zone| posted.effective_from.at(zone)).and_then(|at| jiff::Timestamp::try_from(at).ok());
+            let (Some(from), Some(until)) = (from, sent(&posted.effective_until, zone)) else {
+                // Times without the form's zone did not come from this page.
+                let typed = !posted.effective_from.is_blank() || !posted.effective_until.is_blank();
+                let message = if zone.is_none() && typed { p.check_zone() } else { o.lep_effective_required() };
+                return again(refused(message), StatusCode::UNPROCESSABLE_ENTITY).await;
+            };
             let body = json!({
-                "effectiveFrom": from,
-                "effectiveUntil": sent_time(&posted.effective_until, &zone),
+                "effectiveFrom": from.to_string(),
+                "effectiveUntil": until,
                 "impactAcknowledgmentHash": posted.impact_acknowledgment_hash,
             });
             (format!("{BASE}/drafts/{id}/activate"), body)

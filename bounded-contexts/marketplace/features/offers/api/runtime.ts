@@ -39,7 +39,6 @@ import {
   type OfferLifecycleAction,
   type OfferStatus,
 } from "../domain/domain";
-import { createOfferAcceptedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { assertOfferSubmissionAllowed, MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
 import {
   decideMarketplaceOfferSellerControl,
@@ -921,11 +920,6 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         listingEvidencePolicyHash: evidenceRequirements.policyHash,
         listingEvidenceSnapshot,
         acceptedAt,
-        csatOutcomeFact: createOfferAcceptedCsatOutcomeFact({
-          sellerAccountId: params.sellerAccountId,
-          offerId: params.offerId,
-          acceptedAt,
-        }),
         marketplaceSalesFeePercentageBps: quote.marketplace_sales_fee_percentage_bps,
         marketplaceSalesFeeFixedAmount: quote.marketplace_sales_fee_fixed_amount,
         marketplaceSalesFeeCapAmount: quote.marketplace_sales_fee_cap_amount,

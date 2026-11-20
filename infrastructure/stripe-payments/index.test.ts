@@ -14,7 +14,11 @@ function signature(rawBody: string, secret: string, timestamp: number) {
 }
 
 function formSnapshot(body: BodyInit | null | undefined) {
-  return Object.fromEntries(new URLSearchParams(String(body)).entries());
+  const form = new URLSearchParams(String(body));
+  expect(
+    [...form.keys()].some((key) => key === "payment_method_types" || key.startsWith("payment_method_types[")),
+  ).toBe(false);
+  return Object.fromEntries(form.entries());
 }
 
 const syntheticSetupReferenceA = "seti_SYNTHETIC_6732_A";
@@ -114,6 +118,77 @@ testPaymentProcessorGatewayContract(
 );
 
 describe("Stripe payment processor gateway", () => {
+  it("pins Endive exactly", () => {
+    expect(STRIPE_API_VERSION).toBe("2026-10-28.endive");
+  });
+
+  it.each([
+    ["data_share_only", "not-shifted"],
+    ["authenticated", "shifted"],
+    ["attempt_acknowledged", "attempted"],
+  ])("retains %s authentication facts in reconciliation and signed webhooks", async (result, status) => {
+    const charge = {
+      id: "ch_endive",
+      payment_intent: "pi_endive",
+      metadata: { payment_id: "pay_endive", three_d_secure_requested: "any" },
+      payment_method_details: { card: { three_d_secure: { result } } },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        Response.json(
+          url.includes("/charges/")
+            ? charge
+            : {
+                id: "pi_endive",
+                status: "succeeded",
+                latest_charge: charge,
+                metadata: charge.metadata,
+              },
+        ),
+      ),
+    );
+    const gateway = stripeGateway();
+    const expected = { status, authenticationResult: result, threeDSecureRequested: "any" };
+    await expect(gateway.retrievePaymentResult("pi_endive")).resolves.toMatchObject({
+      liabilityShiftOutcome: expected,
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_endive",
+      type: "payment_intent.succeeded",
+      created: timestamp,
+      api_version: STRIPE_API_VERSION,
+      data: { object: { id: "pi_endive", status: "succeeded", latest_charge: "ch_endive", metadata: charge.metadata } },
+    });
+    await expect(
+      gateway.parseWebhook({ rawBody, signatureHeader: signature(rawBody, "whsec_test", timestamp) }),
+    ).resolves.toMatchObject({ liabilityShiftOutcome: expected });
+  });
+
+  it("identifies a page-limit rejection without submitting or retrying different evidence", async () => {
+    const fetch = vi.fn(async () =>
+      stripeResponse(
+        {
+          error: {
+            code: "dispute_evidence_page_limit_exceeded",
+            message: "Evidence exceeds page limit.",
+          },
+        },
+        400,
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      stripeGateway().submitDisputeEvidence!({
+        paymentId: "pay_endive" as never,
+        providerDisputeId: "dp_endive",
+        processorPaymentReference: "pi_endive",
+        evidence: { uncategorizedText: "Test evidence" },
+      }),
+    ).rejects.toThrow("dispute_evidence_page_limit_exceeded");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -255,8 +330,8 @@ describe("Stripe payment processor gateway", () => {
       return_url: "https://marketplace.test/account/payments/pay_123",
       client_reference_id: "pay_123",
       customer: "cus_123",
-      "payment_method_types[0]": "card",
-      "payment_method_types[1]": "link",
+      "allowed_payment_method_types[0]": "card",
+      "allowed_payment_method_types[1]": "link",
       "payment_intent_data[statement_descriptor_suffix]": "CHASESETS",
       "line_items[0][price_data][product_data][name]": "Test payment",
       "metadata[funds_strategy]": "platform-held",
@@ -312,8 +387,8 @@ describe("Stripe payment processor gateway", () => {
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(formSnapshot(init.body)).toMatchObject({
-      "payment_method_types[0]": "card",
-      "payment_method_types[1]": "link",
+      "allowed_payment_method_types[0]": "card",
+      "allowed_payment_method_types[1]": "link",
     });
     expect(formSnapshot(init.body)).not.toHaveProperty("customer");
 
@@ -356,9 +431,9 @@ describe("Stripe payment processor gateway", () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(formSnapshot(init.body)).toMatchObject({
       customer: "cus_123",
-      "payment_method_types[0]": "us_bank_account",
+      "allowed_payment_method_types[0]": "us_bank_account",
     });
-    expect(formSnapshot(init.body)).not.toHaveProperty("payment_method_types[1]");
+    expect(formSnapshot(init.body)).not.toHaveProperty("allowed_payment_method_types[1]");
 
     vi.unstubAllGlobals();
   });
@@ -1395,7 +1470,7 @@ describe("Stripe payment processor gateway", () => {
         const createSetupIntentAt = async (targetStatus: string) => {
           const form = new URLSearchParams({
             usage: "off_session",
-            "payment_method_types[0]": "card",
+            "allowed_payment_method_types[0]": "card",
             "metadata[acceptance_case]": `issue-6732-${targetStatus}`,
           });
           if (targetStatus === "requires_confirmation") {

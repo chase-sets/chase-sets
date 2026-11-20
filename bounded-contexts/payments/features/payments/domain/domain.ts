@@ -10,10 +10,8 @@ import type {
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
 import { centsToMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
-import {
-  createPaymentsCsatOutcomeFact,
-  paymentsCsatOutcomeFactEventType,
-} from "../../../support/request-support/csat-outcome-fact";
+import type { JsonObject } from "@chase-sets/primitives/json";
+
 import {
   assert,
   assertNever,
@@ -630,10 +628,9 @@ export type PaymentLiabilityShiftRecordedEvent = DomainEvent<
   }>
 >;
 
-export type PaymentsCsatOutcomeFactPublishedEvent = DomainEvent<
-  typeof paymentsCsatOutcomeFactEventType,
-  ReturnType<typeof createPaymentsCsatOutcomeFact>
->;
+const paymentsCsatOutcomeFactEventType = "payments.csat-outcome-fact.v1" as const;
+
+export type PaymentsCsatOutcomeFactPublishedEvent = DomainEvent<typeof paymentsCsatOutcomeFactEventType, JsonObject>;
 
 export type PaymentEvent =
   | PaymentCreatedEvent
@@ -965,7 +962,6 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       assert(state.status !== "refunded", "Refunded payments cannot be captured.");
       assert(state.status !== "disputed", "Disputed payments cannot be captured.");
       const capturedAt = ensureIsoTimestamp(command.capturedAt, "Payment capture must include a timestamp.");
-      const outcomeCode = state.sourceContext === "checkout-recovery" ? "checkout.recovered" : "checkout.completed";
       return [
         {
           type: "payments.payment-captured",
@@ -990,19 +986,8 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             processorPaymentReference: state.processorPaymentReference!,
             processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
             capturedAt,
+            sourceContext: state.sourceContext ?? null,
           },
-        },
-        {
-          type: paymentsCsatOutcomeFactEventType,
-          data: createPaymentsCsatOutcomeFact({
-            outcomeCode,
-            subjectAccountId: state.buyerAccountId!,
-            subjectKind: "buyer",
-            subjectEntityType: "payment",
-            subjectEntityId: state.paymentId,
-            outcomeOccurredAt: capturedAt,
-            idempotencyKey: `payment:${state.paymentId}:${outcomeCode}`,
-          }),
         },
       ];
     }

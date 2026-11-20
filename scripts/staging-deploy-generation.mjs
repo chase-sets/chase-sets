@@ -116,7 +116,7 @@ function readRun(value) {
 async function listRuns(read, inventory) {
   const incomplete = "deploy-run-inventory-incomplete";
   const page = (from, to, number) =>
-    read((reader) =>
+    read("workflow-runs", (reader) =>
       reader.json(
         `/actions/workflows/${workflowFile}/runs?per_page=${perPage}&page=${number}&created=${toSecond(from * 1000)}..${toSecond(to * 1000)}`,
       ),
@@ -147,7 +147,7 @@ async function listRuns(read, inventory) {
 async function listJobs(read, run, attempt) {
   const incomplete = "deploy-job-inventory-incomplete";
   const page = (number) =>
-    read((reader) =>
+    read("attempt-jobs", (reader) =>
       reader.json(`/actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=${perPage}&page=${number}`),
     );
   const jobs = await closedPages(await page(1), page, "jobs", incomplete);
@@ -313,6 +313,7 @@ export async function selectStagingDeployGeneration({
   now,
   maxAgeSeconds,
   windowStart,
+  readGitHub = (_phase, request) => request(),
 }) {
   const ageBounded = maxAgeSeconds !== undefined;
   if (
@@ -333,9 +334,9 @@ export async function selectStagingDeployGeneration({
     transport,
     limits: { ...countCaptureGitHubLimits, deadlineMs: requestTimeoutMs },
   });
-  const read = async (operation) => {
+  const read = async (phase, operation) => {
     try {
-      return await operation(reader);
+      return await readGitHub(phase, () => operation(reader));
     } catch {
       throw stop("github-request-failed");
     }
@@ -375,7 +376,7 @@ export async function selectStagingDeployGeneration({
     const selected = newestApplied(executions, nowMs, windowStartMs);
     const { run, attempt, job, steps, completedAt } = selected;
     const [, deployStep] = steps;
-    const log = await read((reader) => reader.jobLog(String(job.id)));
+    const log = await read("deploy-job-log", (reader) => reader.jobLog(String(job.id)));
     let bound;
     try {
       bound = readCountCaptureDeploymentLog(log, deployStep);

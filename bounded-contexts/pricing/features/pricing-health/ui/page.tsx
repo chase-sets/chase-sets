@@ -56,7 +56,20 @@ export function PricingHealthPage({
             }
           />
         ) : null}
-        {applyResult ? (
+        {applyResult && applyResult.status !== "applied" ? (
+          <Banner
+            tone="info"
+            title={copy(applyResult.status === "accepted-pending" ? "goals.pending" : "goals.superseded")}
+            description={copy(
+              applyResult.status === "accepted-pending" ? "goals.pending.description" : "goals.superseded.description",
+              {
+                revision: applyResult.requestedRevision,
+                replacement: applyResult.status === "superseded-by-revision" ? applyResult.replacingRevision : "",
+              },
+            )}
+          />
+        ) : null}
+        {applyResult?.status === "applied" ? (
           <Banner
             tone="success"
             title={copy("goals.applied")}
