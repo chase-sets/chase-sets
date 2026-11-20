@@ -111,6 +111,15 @@ describe("revocation-floor activation command", () => {
   ])("crosses the pod boundary with only a bounded code for %s", (_name, error, code) => {
     expect(activationRefusalCode(error)).toBe(code);
   });
+  it("does not serialize code-shaped row text as a status or activation refusal", () => {
+    const syntheticRow = "revocation_synthetic_row_value";
+    const error = new Error(syntheticRow);
+    const status = activationDiagnostic(error, undefined, "status");
+    const activation = activationDiagnostic(error);
+    expect(status).toMatchObject({ code: "revocation_status_database_read_failed", failureCategory: "unknown" });
+    expect(activation.code).toBe("revocation_activation_refused");
+    expect(JSON.stringify({ status, activation })).not.toContain(syntheticRow);
+  });
   it("extracts only a typed SQLSTATE class and finite category", () => {
     const error = Object.assign(new Error(`raw ${"secret-marker"}`), {
       code: "42501",
@@ -125,6 +134,23 @@ describe("revocation-floor activation command", () => {
     expect(JSON.stringify(activationDiagnostic(error, proof()))).not.toContain("secret-marker");
     expect(activationDiagnostic(new Error("raw secret-marker"), proof()).sqlstateClass).toBe("unknown");
     expect(activationDiagnostic(new Error("raw secret-marker"), proof()).failureCategory).toBe("unknown");
+  });
+  it.each([
+    ["42501", "revocation_status_database_permission_denied", "schema_permission"],
+    ["42P01", "revocation_status_database_schema_missing", "schema_permission"],
+    ["42703", "revocation_status_database_schema_missing", "schema_permission"],
+    ["28P01", "revocation_status_database_auth_failed", "database_connectivity"],
+    ["08006", "revocation_status_database_connection_failed", "database_connectivity"],
+    ["ECONNREFUSED", "revocation_status_database_connection_failed", "database_connectivity"],
+    ["57014", "revocation_status_database_query_cancelled", "application"],
+    [undefined, "revocation_status_database_read_failed", "unknown"],
+  ])("emits a value-free Identity status diagnosis for %s", (sqlCode, code, failureCategory) => {
+    const error = Object.assign(new Error("raw secret-marker"), { code: sqlCode });
+    const diagnostic = activationDiagnostic(error, undefined, "status");
+    expect(diagnostic).toMatchObject({ code, failureCategory, identity: { state: "unknown" } });
+    if (sqlCode === "42501") expect(diagnostic.sqlstateClass).toBe("42");
+    expect(JSON.stringify(diagnostic)).not.toContain("secret-marker");
+    expect(activationRefusalCode(error)).toBe("revocation_activation_refused");
   });
   it("retains validated proof identity in the entrypoint refusal diagnostic", async () => {
     const captured = proof();
@@ -154,12 +180,11 @@ describe("revocation-floor activation command", () => {
     const source = readFileSync(new URL("../scripts/activate-agent-grant-revocation.mts", import.meta.url), "utf8");
     const normalized = source.replaceAll("\r\n", "\n");
     expect(normalized).toContain(
-      "main().catch((error: unknown) => {\n    process.stderr.write(`${activationRefusalCode(error)}\\n`);",
+      'activationDiagnostic(error, undefined, process.argv[2] === "--status" ? "status" : "activate")',
     );
-    expect(normalized.indexOf("process.stderr.write(`${activationRefusalCode(error)}\\n`);")).toBeLessThan(
-      normalized.indexOf("process.exitCode = 1;"),
+    expect(normalized).toContain(
+      "process.stderr.write(`${diagnostic.code}\\n`);\n    process.stderr.write(`${JSON.stringify(diagnostic)}\\n`);\n    process.exitCode = 1;",
     );
-    expect(normalized).toContain("process.stderr.write(`${JSON.stringify(activationDiagnostic(error))}\\n`);");
   });
   it.each(["foreign", "old-worker", "incomplete", "stale"])(
     "refuses %s proof without an Identity activation call",
