@@ -18,7 +18,8 @@ export async function action({ request }: ActionFunctionArgs) {
       const file = formData.get("file");
       const csvText = file instanceof File ? await file.text() : String(formData.get("csvText") ?? "");
       const sourceFilename = file instanceof File ? file.name : null;
-      const job = await api.createBulkRepriceJob({ csvText, sourceFilename });
+      const idempotencyKey = String(formData.get("idempotencyKey") ?? "").trim();
+      const job = await api.createBulkRepriceJob({ csvText, sourceFilename }, idempotencyKey || undefined);
       return redirect(`/account/bulk-reprice?jobId=${encodeURIComponent(job.jobId)}`);
     }
 
