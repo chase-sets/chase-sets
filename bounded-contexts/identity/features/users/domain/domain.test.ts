@@ -1,7 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { decideUser, evolveUser, initialUserState } from "./domain";
+import { UserProfileFieldError } from "./errors";
+
+function createdUserState() {
+  return decideUser(initialUserState, {
+    type: "CreateUser",
+    userId: "usr_profile" as never,
+    displayName: "North Seller",
+    primaryEmail: "seller@example.com",
+  }).reduce(evolveUser, initialUserState);
+}
 
 describe("user domain", () => {
+  it.each(["", "   ", " \t "])("refuses a profile update whose display name is %j", (displayName) => {
+    const refusal = (() => {
+      try {
+        decideUser(createdUserState(), { type: "UpdateUserProfile", displayName, givenName: "North" });
+      } catch (error) {
+        return error;
+      }
+      return null;
+    })();
+    expect(refusal).toBeInstanceOf(UserProfileFieldError);
+    expect(refusal).toMatchObject({ field: "displayName", code: "required" });
+  });
+
+  it("trims a profile update's names and keeps given and family names optional", () => {
+    expect(decideUser(createdUserState(), { type: "UpdateUserProfile", displayName: "  South Seller " })).toEqual([
+      { type: "identity.user.profile-updated", data: { displayName: "South Seller", givenName: "", familyName: "" } },
+    ]);
+  });
+
   it("adds and verifies contact methods and auth methods", () => {
     const created = decideUser(initialUserState, {
       type: "CreateUser",

@@ -11,6 +11,32 @@ export const csatAnalyticsMaximumRangeDays = 366 as const;
 export const csatAnalyticsDefaultPageSize = 31 as const;
 export const csatAnalyticsMaximumPageSize = 100 as const;
 
+/** Why a CSAT analytics or queue read refused its query; the API answers each as 400. */
+export const csatQueryRefusalReasons = [
+  "timestamp-invalid",
+  "range-order",
+  "range-after-as-of",
+  "range-too-long",
+  "history-too-long",
+  "survey-version-unregistered",
+  "granularity-unsupported",
+  "page-size-invalid",
+  "minimum-sample-size-invalid",
+  "cursor-invalid",
+  "filter-empty",
+] as const;
+export type CsatQueryRefusalReason = (typeof csatQueryRefusalReasons)[number];
+
+export class CsatQueryRefusal extends Error {
+  constructor(
+    readonly reason: CsatQueryRefusalReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CsatQueryRefusal";
+  }
+}
+
 export type CsatAnalyticsFilters = Readonly<{
   surveyVersion?: SurveyVersionId;
   outcomeCodes?: readonly CsatWorkflowOutcomeCode[];
