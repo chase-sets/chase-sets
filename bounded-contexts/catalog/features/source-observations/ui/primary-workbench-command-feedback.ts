@@ -43,6 +43,23 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "command-failed";
 }>;
 
+const PROVIDER_REFRESH_RESULTS = [
+  "refresh-paused",
+  "refresh-resumed",
+  "refresh-ran",
+  "refresh-skipped",
+  "refresh-run-failed",
+] as const;
+
+export type CatalogProviderRefreshFeedbackResult = (typeof PROVIDER_REFRESH_RESULTS)[number];
+
+/** Provider refresh schedule commands report through the banner but are not control-plane commands. */
+export function isProviderRefreshFeedbackResult(
+  result: CatalogPrimaryWorkbenchCommandFeedback["result"],
+): result is CatalogProviderRefreshFeedbackResult {
+  return (PROVIDER_REFRESH_RESULTS as readonly string[]).includes(result);
+}
+
 export function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["result"]): string {
   if (result === "preview-ready") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.title");
