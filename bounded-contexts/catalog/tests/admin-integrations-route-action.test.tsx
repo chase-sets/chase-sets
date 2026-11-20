@@ -2376,20 +2376,19 @@ describe("Catalog integrations route", () => {
       "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
     );
 
+    // Only what the operator wrote: Catalog stamps the time, author and fingerprints,
+    // so the form's stale copies of them are not sent.
     expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
       "tcgdex",
       "2026.06.04",
       "migration-evidence",
-      expect.objectContaining({
+      {
         section: "migration-evidence",
-        migrationEvidence: expect.objectContaining({
+        migrationEvidence: {
           evidenceText: "Dry-run and replay evidence reviewed for the activation decision.",
           fixtureRunId: "fixture-run-1037",
-          mappingFingerprintBefore: "sha256:active-mapping",
-          mappingFingerprintAfter: "sha256:candidate-mapping",
-          recordedAt: "2026-06-11T00:00:00.000Z",
-        }),
-      }),
+        },
+      },
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
@@ -2411,6 +2410,45 @@ describe("Catalog integrations route", () => {
         detourTarget: "profile-authoring",
         detourOutcome: "returned",
       }),
+    );
+  });
+
+  it("sends a blank migration evidence text blank for Catalog to refuse", async () => {
+    const getSourceObservationProviderProfileAuthoringModel = vi.fn().mockResolvedValue(
+      profileAuthoringModel({
+        review: profileReview({
+          profileVersion: "2026.06.04",
+          migrationEvidence: { evidenceText: "Earlier evidence.", recordedAt: "2026-06-01T00:00:00.000Z" },
+        }),
+      }),
+    );
+    const updateSourceObservationProviderProfileSection = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04",
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getSourceObservationProviderProfileAuthoringModel,
+      updateSourceObservationProviderProfileSection,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    await runProviderDetailAction(
+      {
+        _intent: "provider-profile.edit-section",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        sectionKey: "migration-evidence",
+        migrationEvidenceText: "   ",
+      },
+      "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex&profileVersion=2026.06.04",
+    );
+
+    expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.04",
+      "migration-evidence",
+      { section: "migration-evidence", migrationEvidence: { evidenceText: "", fixtureRunId: null } },
     );
   });
 
