@@ -12,7 +12,7 @@ export const publicTermsOfServicePublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: true,
-  contentFingerprint: "sha256:9fe54dd8752dde9d3c2bbcf7da88eb50dd410aeee0f2cee7a26163bac8f09c6a",
+  contentFingerprint: "sha256:c97d6486ef03e4b6c9a07e5e2be25a3732eb6bb7f3ba37638e9cc38ebf80b695",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"terms-of-service">;
 

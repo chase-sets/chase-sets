@@ -273,7 +273,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "Define the treatment of Wallet funds during account suspension or closure, dormancy, legal holds, and lawful release of remaining funds.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "bounded-contexts/identity/features/accounts/domain/domain.ts:21,75-85,186-218,301-306 (AccountStatus and account enforcement commands/lifecycle)",
+          "bounded-contexts/identity/features/accounts/domain/domain.ts:21,76-86,187-219,302-307 (AccountStatus and account enforcement commands/lifecycle)",
           "bounded-contexts/settlement/GLOSSARY.md:162-170",
         ],
         openQuestions: [
@@ -284,7 +284,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
             assertion:
               "Identity Account status supports active/suspended/closed; there is no separate dormant-balance or legal-hold state machine today.",
             evidenceRef:
-              "bounded-contexts/identity/features/accounts/domain/domain.ts:34-42,133-135,301-306 (Account enforcement latest/open state and lifecycle events)",
+              "bounded-contexts/identity/features/accounts/domain/domain.ts:35-43,134-136,302-307 (Account enforcement latest/open state and lifecycle events)",
           },
         ],
       },

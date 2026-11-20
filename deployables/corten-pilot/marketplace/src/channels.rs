@@ -21,8 +21,7 @@
 //! an ingest draws it with Channels' receipt (422 when Channels refused the export), and its address
 //! opened again is the connection. Clamp and download posts to `{id}/manual-sync/download`
 //! and answers Channels' CSV, or, refused, the connection with what was refused, as the other
-//! writes do (`PageOr`; marketplace shows Channels' JSON instead,
-//! [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
+//! writes do (`PageOr`).
 //!
 //! A publication write is made at the configuration version the page was drawn with and answers
 //! the version it made, not a receipt: the page goes to its address with that version and reads

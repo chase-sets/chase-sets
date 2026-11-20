@@ -54,6 +54,8 @@ type LoadedData = Readonly<{
   setupLocations: ConnectionSetupLocations;
   drift: ChannelDriftDetail;
   canManageConnection: boolean;
+  /** A Clamp and download Channels refused sent the seller back here (`?manualSync=failed`). */
+  manualSyncDownloadFailed: boolean;
   loadIdentity: string;
   manualSync: AuxiliaryRead<ManualSyncPanel>;
   attention: AuxiliaryRead<ChannelConnectionAttention>;
@@ -162,6 +164,7 @@ export async function loader({ request, params }: Pick<LoaderFunctionArgs, "requ
     operationLog,
     drift: drift.kind === "loaded" ? drift.data : { kind: "unavailable" },
     canManageConnection: actor.permissions.includes("channels.manage"),
+    manualSyncDownloadFailed: new URL(request.url).searchParams.get("manualSync") === "failed",
     loadIdentity: crypto.randomUUID(),
   };
 }
@@ -412,10 +415,15 @@ export async function downloadAction({ request, params }: ActionFunctionArgs): P
   const runId = encodeURIComponent(String(form.get("runId") ?? ""));
   const revision = encodeURIComponent(String(form.get("expectedRevision") ?? ""));
   const apiBaseUrl = resolveRequestApiBaseUrl(request, "/api/channels", { requireInternalApiOrigin: true });
-  return fetch(
+  const response = await fetch(
     `${apiBaseUrl}/connections/${connectionId}/manual-sync/runs/${runId}/download?expectedRevision=${revision}`,
     { method: "POST", headers: createForwardedAuthHeaders(request) },
   );
+  if (response.ok) return response;
+  // The download is a native form post, so a refusal would replace the page with Channels' JSON
+  // error. Send the seller back to the connection, which says the action failed.
+  await response.body?.cancel();
+  return redirect(`/account/channels/${connectionId}?manualSync=failed`);
 }
 
 const stagedBasisRefusals = new Set(["staged-basis-stale", "staged-basis-unavailable"]);
@@ -454,7 +462,11 @@ export default function AccountChannelsConnectionRoute() {
   if (data.kind === "not-found") return <ChannelConnectionDetailPage state={{ kind: "not-found" }} />;
   if (data.kind === "loading") return <ChannelConnectionListPage state={{ kind: "loading" }} />;
   const connection = isAppliedConnectionAction(actionData) ? actionData.connection : data.connection;
-  const actionError = readActionError(actionData);
+  const actionError =
+    readActionError(actionData) ??
+    (actionData === undefined && data.manualSyncDownloadFailed
+      ? t("channels.manualSync.action.failed.description")
+      : null);
   return (
     <ChannelConnectionDetailPage
       state={
