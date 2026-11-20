@@ -12,7 +12,7 @@ import type { MarketplaceApiEnv } from "../api";
 import { omitPrivateOfferResponseFields } from "../features/offers/api/response-shape";
 import {
   createMarketplaceOfferMatchPatch,
-  createMarketplaceOfferPatch,
+  createMarketplaceSubmittedOfferPatch,
 } from "../support/realtime-support/projection-patches";
 import { action as itemDetailAction } from "../../discovery/routes/item-detail";
 import {
@@ -488,7 +488,7 @@ describe("market-following Submitted Offer real router", () => {
       selected_options: [{ dimensionId: "dim_condition", optionId: "opt_near_mint", maximumUnitItemAmount: "1937.41" }],
     };
     for (const patch of [
-      createMarketplaceOfferPatch(["public-offers"], source),
+      createMarketplaceSubmittedOfferPatch("acc_buyer", source),
       createMarketplaceOfferMatchPatch(["seller-matches"], source.offer_id, source),
     ]) {
       const serialized = JSON.stringify(patch);

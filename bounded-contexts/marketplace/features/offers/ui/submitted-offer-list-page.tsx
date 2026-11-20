@@ -145,7 +145,16 @@ export function MarketplaceSubmittedOfferListPage({
                         ? formatMoney(offer.price_amount, offer.price_currency_code)
                         : t("marketplace.features.offers.ui.price.incomplete")
                     }
-                    status={<Badge tone={submittedOfferStatusTone(status)}>{submittedOfferStatusLabel(status)}</Badge>}
+                    status={
+                      <Inline gap={2}>
+                        <Badge tone={submittedOfferStatusTone(status)}>{submittedOfferStatusLabel(status)}</Badge>
+                        {status === "submitted" && offer.offers_away ? (
+                          <Badge tone="warning">
+                            {t("marketplace.features.offers.ui.submittedOfferListPage.away")}
+                          </Badge>
+                        ) : null}
+                      </Inline>
+                    }
                     details={
                       <Stack gap={2}>
                         {offer.item_subtitle ? <Text size="sm">{offer.item_subtitle}</Text> : null}

@@ -1,8 +1,9 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useNavigation, useRouteLoaderData } from "react-router";
 import { useEffect, useRef } from "react";
-import { Stack, Text } from "@chase-sets/design-system";
+import { MarketplaceNotice, Stack, Text } from "@chase-sets/design-system";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { MarketplaceCommandRecoveryError } from "../client";
 import {
   defineFormAction,
@@ -25,6 +26,7 @@ import {
 import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
 import contextManifest from "../context.json";
 import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
+import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 export { OfferMatchDetailErrorBoundary as ErrorBoundary };
 
@@ -142,6 +144,19 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountOfferMatchRoute() {
   const data = useLoaderData<typeof loader>();
+  const root = useRouteLoaderData("root") as { actor?: { accountId?: string } | null } | undefined;
+  const accountId = root?.actor?.accountId;
+  const offerId = data.offerMatch?.offer_id;
+  const visible = useRealtimePatchedSnapshot({
+    initialSnapshot: true,
+    snapshotKey: JSON.stringify(data.offerMatch),
+    topics: accountId && offerId ? marketplaceRealtimeRouteTopics.accountOffers(accountId).topics : [],
+    applyPatch: (current, patch) => {
+      const change = patch.changes.find((item) => item.entity === "marketplace.offerMatch" && item.id === offerId);
+      return change ? change.op === "upsert" : current;
+    },
+    onSyncRequired: () => window.location.reload(),
+  });
   const actionData = useActionData<typeof action>();
   const location = useLocation();
   const navigation = useNavigation();
@@ -165,6 +180,10 @@ export default function MarketplaceAccountOfferMatchRoute() {
         <MarketplaceOfferDetailRecoveryPage kind="offer-match" currentPath={`${location.pathname}${location.search}`} />
       </Stack>
     );
+  }
+
+  if (!visible) {
+    return <MarketplaceNotice tone="info" title={t("marketplace.routes.accountOfferMatch.offer.match.not.found")} />;
   }
 
   return (
