@@ -337,6 +337,16 @@ export function createPricingApiClient({
         }),
       );
     },
+    /** Whether Pricing has bulk reprice on (its route tree answers 404 while it is off). */
+    async isBulkRepriceAvailable(): Promise<boolean> {
+      const response = await client.account["bulk-reprice"].$get({ header: headers });
+      if (response.status === 404) {
+        await response.body?.cancel();
+        return false;
+      }
+      await parseJsonResponse(response);
+      return true;
+    },
     async getBulkRepriceJob(jobId: string): Promise<BulkRepriceJobStatus> {
       return parseJsonResponse(
         await client.account["bulk-reprice"].jobs[":jobId"].$get({

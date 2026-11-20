@@ -14,6 +14,7 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
+import { useEntryAttemptKey } from "../../../../support/ui-support/entry-attempt-key";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
   formatMoneyAmount,
@@ -48,6 +49,8 @@ export function ProductAlertCreationSection({
   errorMessage?: string | null;
 }) {
   const isListingAlert = marketSide === "listing";
+  // The page view's key: a resend of this form (a double click, a resubmit) is the same create.
+  const attemptId = useEntryAttemptKey(formId, { marketSide, productId });
   const [thresholdCurrencyCode, setThresholdCurrencyCode] = useState("");
   const defaultActions = (
     <Button type="submit" disabled={!productId} block>
@@ -95,6 +98,7 @@ export function ProductAlertCreationSection({
           <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
           <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
           <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
+          <HiddenInput type="hidden" name="attemptId" value={attemptId} />
           {showSummary ? (
             <Stack gap={3}>
               <Stack gap={1}>

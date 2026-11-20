@@ -22,6 +22,8 @@ export function SessionDetailPage({
 }) {
   const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
   const account = data.account_display_name ?? data.account_name ?? data.account_id;
+  // Switch Account offers only another account; a session with no other account has nothing to switch to.
+  const switchTargets = data.available_account_ids.filter((accountId) => accountId !== data.account_id);
 
   return (
     <AdminResourceDetailPage
@@ -35,18 +37,14 @@ export function SessionDetailPage({
         <Inline gap={2}>
           {data.status === "active" ? (
             <>
-              {submissionMode === "router" ? (
+              {switchTargets.length === 0 ? null : submissionMode === "router" ? (
                 <RouterForm spacing="none" method="post">
                   <Stack direction="row" align="end" gap={2}>
                     <HiddenInput type="hidden" name="intent" value="switch-account" readOnly />
                     <NativeSelect
                       name="accountId"
-                      label={t("auth.features.sessions.ui.sessionDetailPage.active.account")}
-                      defaultValue={data.account_id}
-                      items={data.available_account_ids.map((accountId) => ({
-                        value: accountId,
-                        label: accountId === data.account_id ? account : accountId,
-                      }))}
+                      label={t("auth.features.sessions.ui.sessionDetailPage.switch.to")}
+                      items={switchTargets.map((accountId) => ({ value: accountId, label: accountId }))}
                     />
                     <Button type="submit" tone="secondary">
                       {t("auth.features.sessions.ui.sessionDetailPage.switch.account")}
@@ -59,12 +57,8 @@ export function SessionDetailPage({
                     <HiddenInput type="hidden" name="intent" value="switch-account" readOnly />
                     <NativeSelect
                       name="accountId"
-                      label={t("auth.features.sessions.ui.sessionDetailPage.active.account")}
-                      defaultValue={data.account_id}
-                      items={data.available_account_ids.map((accountId) => ({
-                        value: accountId,
-                        label: accountId === data.account_id ? account : accountId,
-                      }))}
+                      label={t("auth.features.sessions.ui.sessionDetailPage.switch.to")}
+                      items={switchTargets.map((accountId) => ({ value: accountId, label: accountId }))}
                     />
                     <Button type="submit" tone="secondary">
                       {t("auth.features.sessions.ui.sessionDetailPage.switch.account")}

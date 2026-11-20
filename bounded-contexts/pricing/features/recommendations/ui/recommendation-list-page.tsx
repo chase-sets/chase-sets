@@ -61,12 +61,15 @@ function statusTone(row: AccountRecommendationListItem) {
 
 export function PricingRecommendationListPage({
   recommendations,
+  bulkRepriceAvailable = true,
   activeJobId,
   initialActiveJob,
   message,
   errorMessage,
 }: {
   recommendations: readonly AccountRecommendationListItem[];
+  /** False while Pricing has bulk reprice off, so the page does not offer it. */
+  bulkRepriceAvailable?: boolean;
   activeJobId?: string | null;
   initialActiveJob?: PricingRecommendationJobStatus | null;
   message?: string | null;
@@ -104,9 +107,11 @@ export function PricingRecommendationListPage({
             <LinkButton href="/account/listings" tone="secondary">
               {t("pricing.features.recommendations.ui.recommendationListPage.listings")}
             </LinkButton>
-            <LinkButton href="/account/bulk-reprice" tone="secondary">
-              {t("pricing.features.recommendations.ui.recommendationListPage.bulk.reprice")}
-            </LinkButton>
+            {bulkRepriceAvailable ? (
+              <LinkButton href="/account/bulk-reprice" tone="secondary">
+                {t("pricing.features.recommendations.ui.recommendationListPage.bulk.reprice")}
+              </LinkButton>
+            ) : null}
             <LinkButton href="/account/inventory/imports" tone="ghost">
               {t("pricing.features.recommendations.ui.recommendationListPage.import")}
             </LinkButton>

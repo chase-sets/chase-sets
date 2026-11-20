@@ -721,8 +721,7 @@ export async function inspectInventorySeedState(db: PgQueryable): Promise<readon
   return reports;
 }
 
-export async function seedInventoryDatabase(pool: PgTransactionalPool) {
-  const services = createInventoryServices(pool);
+export async function seedInventoryDatabase(pool: PgTransactionalPool, services = createInventoryServices(pool)) {
   const retained = await inspectInventorySeedState(pool);
   const absent = new Set(retained.filter((state) => state.kind === "absent").map((state) => state.streamId));
   for (const item of inventoryItems) {

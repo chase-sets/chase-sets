@@ -250,14 +250,20 @@ describe("projection transactions", () => {
     });
   });
 
-  it("routes nested projection connections through savepoints on the scoped client", async () => {
+  const nestedTransactionOptions = [{}, { isolationLevel: "read committed" }] as const;
+
+  it.each(nestedTransactionOptions)("routes nested projection connections through savepoints (%j)", async (options) => {
     const { calls, getConnectCount, pool } = createRecordingPool();
     const projectionAwarePool = createProjectionAwarePool(pool);
 
     await runInProjectionDbContext(pool, () =>
-      withPgTransaction(projectionAwarePool, async (client) => {
-        await client.query("INSERT INTO nested_projection_side_effects VALUES ($1)", ["ok"]);
-      }),
+      withPgTransaction(
+        projectionAwarePool,
+        async (client) => {
+          await client.query("INSERT INTO nested_projection_side_effects VALUES ($1)", ["ok"]);
+        },
+        options,
+      ),
     );
 
     const savepoint = String(calls[0]?.sql).replace("SAVEPOINT ", "");
@@ -270,27 +276,34 @@ describe("projection transactions", () => {
     ]);
   });
 
-  it("rolls back nested projection connections to their savepoint", async () => {
-    const { calls, getConnectCount, pool } = createRecordingPool();
-    const projectionAwarePool = createProjectionAwarePool(pool);
+  it.each(nestedTransactionOptions)(
+    "rolls back nested projection connections to their savepoint (%j)",
+    async (options) => {
+      const { calls, getConnectCount, pool } = createRecordingPool();
+      const projectionAwarePool = createProjectionAwarePool(pool);
 
-    await expect(
-      runInProjectionDbContext(pool, () =>
-        withPgTransaction(projectionAwarePool, async (client) => {
-          await client.query("INSERT INTO nested_projection_side_effects VALUES ($1)", ["rollback"]);
-          throw new Error("nested projection failure");
-        }),
-      ),
-    ).rejects.toThrow("nested projection failure");
+      await expect(
+        runInProjectionDbContext(pool, () =>
+          withPgTransaction(
+            projectionAwarePool,
+            async (client) => {
+              await client.query("INSERT INTO nested_projection_side_effects VALUES ($1)", ["rollback"]);
+              throw new Error("nested projection failure");
+            },
+            options,
+          ),
+        ),
+      ).rejects.toThrow("nested projection failure");
 
-    const savepoint = String(calls[0]?.sql).replace("SAVEPOINT ", "");
-    expect(getConnectCount()).toBe(0);
-    expect(savepoint).toMatch(/^projection_nested_tx_\d+$/);
-    expect(calls).toEqual([
-      { sql: `SAVEPOINT ${savepoint}`, values: undefined },
-      { sql: "INSERT INTO nested_projection_side_effects VALUES ($1)", values: ["rollback"] },
-      { sql: `ROLLBACK TO SAVEPOINT ${savepoint}`, values: undefined },
-      { sql: `RELEASE SAVEPOINT ${savepoint}`, values: undefined },
-    ]);
-  });
+      const savepoint = String(calls[0]?.sql).replace("SAVEPOINT ", "");
+      expect(getConnectCount()).toBe(0);
+      expect(savepoint).toMatch(/^projection_nested_tx_\d+$/);
+      expect(calls).toEqual([
+        { sql: `SAVEPOINT ${savepoint}`, values: undefined },
+        { sql: "INSERT INTO nested_projection_side_effects VALUES ($1)", values: ["rollback"] },
+        { sql: `ROLLBACK TO SAVEPOINT ${savepoint}`, values: undefined },
+        { sql: `RELEASE SAVEPOINT ${savepoint}`, values: undefined },
+      ]);
+    },
+  );
 });

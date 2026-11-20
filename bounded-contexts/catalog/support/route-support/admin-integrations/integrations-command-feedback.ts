@@ -60,6 +60,10 @@ function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryW
   return (
     value === "job-queued" ||
     value === "job-cancelled" ||
+    value === "alias-accepted" ||
+    value === "alias-rejected" ||
+    value === "alias-revoked" ||
+    value === "alias-deferred" ||
     value === "preview-ready" ||
     value === "draft-created" ||
     value === "profile-activated" ||

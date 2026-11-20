@@ -70,6 +70,10 @@ function workflowLabel(value: string) {
   return workflowItems.find((item) => item.value === value)?.label ?? value;
 }
 
+function ratingValueText(rating: number) {
+  return t("experience.platformFeedbackAdmin.ratingValue", { value: rating, max: 5 });
+}
+
 function statusTone(status: string) {
   switch (status) {
     case "new":
@@ -239,7 +243,7 @@ export function PlatformFeedbackAdminListPage({
               {
                 key: "rating",
                 header: t("experience.platformFeedbackAdmin.rating"),
-                cell: (item) => <Rating value={item.rating} size="sm" />,
+                cell: (item) => <Rating value={item.rating} size="sm" valueText={ratingValueText(item.rating)} />,
               },
               {
                 key: "topic",
@@ -331,7 +335,7 @@ export function PlatformFeedbackAdminDetailPage({
           <Stack gap={3}>
             <Inline gap={2}>
               <Badge tone={statusTone(feedback.status)}>{statusLabel(feedback.status)}</Badge>
-              <Rating value={feedback.rating} />
+              <Rating value={feedback.rating} valueText={ratingValueText(feedback.rating)} />
             </Inline>
             <KeyValueList
               items={[

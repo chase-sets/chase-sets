@@ -147,7 +147,7 @@ const joined = await post(form({ email, games: "pokemon" }));
 const location = joined.headers.get("location") ?? "";
 if (joined.status === 429)
   console.log(
-    "note the signup was refused as too many (429): the API's one shared bucket, chase-sets/chase-sets#10644",
+    "note the signup was refused as too many (429): this address has signed up too often for the API's limit",
   );
 else {
   check(joined.status === 303, `a signup answers 303 (${joined.status})`);

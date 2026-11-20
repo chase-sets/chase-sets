@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createReportedContentRuntime } from "./runtime";
@@ -183,5 +184,38 @@ describe("reported content runtime moderation actions (m108, #4269)", () => {
     );
 
     expect(appendToStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers the action's commit receipt, so a read after it waits for it", async () => {
+    const { eventStore, db, appendToStream } = createDeps();
+    appendToStream.mockImplementation(async ({ streamId, events }) =>
+      events.map((event: { eventType: string }, index: number) => ({
+        ...event,
+        eventId: `evt_${index + 1}`,
+        streamId,
+        streamVersion: index + 1,
+        globalPosition: String(41 + index),
+      })),
+    );
+    const services = createReportedContentRuntime({ eventStore, db });
+
+    const metadata = await runWithEventCommitMetadata(async () => {
+      await services.recordModerationAction(
+        {
+          targetType: "listing",
+          targetId: createId("lst"),
+          action: "unlist",
+          note: null,
+          operatorUserId: createId("usr"),
+        },
+        context,
+      );
+      return getEventCommitMetadata();
+    });
+
+    expect(appendToStream.mock.calls[0]![0].wakeSourceContextName).toBe("platform-operations");
+    expect(metadata.sources).toEqual([
+      { sourceContextName: "platform-operations", eventIds: ["evt_1", "evt_2"], maxGlobalPosition: "42" },
+    ]);
   });
 });

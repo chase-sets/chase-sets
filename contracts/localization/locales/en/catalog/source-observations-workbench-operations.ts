@@ -73,6 +73,18 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description":
     "The durable provider import job was cancelled for this provider and scope.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title": "Job cancelled",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.description":
+    "The selected alias candidates were accepted.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.title": "Alias accepted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.description":
+    "The selected candidates stay pending for a later review. Nothing was recorded.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.title": "Left for later",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.description":
+    "The selected alias candidates were rejected with your reason.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.title": "Alias rejected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.description":
+    "The selected aliases were revoked with your reason.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.title": "Alias revoked",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required":
     "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked":

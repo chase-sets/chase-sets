@@ -851,6 +851,9 @@ pub fn SessionPage<'a>(t: Acc, p: Pilot, screen: &'a SessionScreen) -> impl Rend
     let f = SessionForm::FIELDS;
     let revoke = dialog_id("revoke-session", id);
     let active = session.status == "active";
+    // Switch Account offers only another account; with none there is nothing to switch to.
+    let others: Vec<&str> =
+        session.available_account_ids.iter().map(String::as_str).filter(|other| *other != session.account_id).collect();
     html! {
         let title = t.session_detail_title(user).to_string();
         let confirm_title = t.session_detail_revoke_confirm_title(user).to_string();
@@ -877,20 +880,20 @@ pub fn SessionPage<'a>(t: Acc, p: Pilot, screen: &'a SessionScreen) -> impl Rend
         }
         if active {
             <section class={Card}>
-                <form class={Row} method="post" action={&action}>
-                    <input type="hidden" name={f.intent} value="switch-account">
-                    <label class={Field}>
-                        <span>{t.session_detail_active_account()}</span>
-                        <select name={f.account_id}>
-                            for option in &session.available_account_ids {
-                                <option value={option} selected={*option == session.account_id}>
-                                    {if *option == session.account_id { account } else { option.as_str() }}
-                                </option>
-                            }
-                        </select>
-                    </label>
-                    <button type="submit" class={(Button, Secondary)}>{t.session_detail_switch_account()}</button>
-                </form>
+                if !others.is_empty() {
+                    <form class={Row} method="post" action={&action}>
+                        <input type="hidden" name={f.intent} value="switch-account">
+                        <label class={Field}>
+                            <span>{t.session_detail_switch_to()}</span>
+                            <select name={f.account_id} required>
+                                for other in &others {
+                                    <option value={*other}>{*other}</option>
+                                }
+                            </select>
+                        </label>
+                        <button type="submit" class={(Button, Secondary)}>{t.session_detail_switch_account()}</button>
+                    </form>
+                }
                 <div class={Actions}>
                     <button type="button" class={(Button, Danger)} command="show-modal" commandfor={&revoke}>
                         {t.session_detail_revoke()}

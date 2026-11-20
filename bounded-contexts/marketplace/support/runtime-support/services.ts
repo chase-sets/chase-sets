@@ -1,6 +1,7 @@
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
+  ownerPredicateKey,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -73,12 +74,34 @@ export type MarketplaceServices = Readonly<{
   channelInboundClamp: ReturnType<typeof createMarketplaceChannelInboundClampRuntime>;
 }>;
 
+const listingPredicateEvents = new Set([
+  "marketplace.listing.created",
+  "marketplace.listing.price-updated",
+  "marketplace.listing.quantity-cap-updated",
+  "marketplace.listing.published",
+  "marketplace.listing.paused",
+  "marketplace.listing.auto-unlisted",
+  "marketplace.listing.operator-unlisted",
+  "marketplace.listing.withdrawn",
+  "marketplace.listing.channel-activated",
+]);
+
 export function createMarketplaceServices(
   pool: PgTransactionalPool,
   options: MarketplaceServiceOptions = {},
 ): MarketplaceServices {
   const eventStore = createPostgresEventStore({
     pool,
+    ownerPredicates: {
+      consumerPool: pool,
+      keys: (inputs) =>
+        inputs.flatMap(({ streamId, events }) =>
+          streamId.startsWith("marketplace.listing-") &&
+          events.some((event) => listingPredicateEvents.has(event.eventType))
+            ? [ownerPredicateKey("repricing-listing", streamId.slice("marketplace.listing-".length))]
+            : [],
+        ),
+    },
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "marketplace" }),
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
