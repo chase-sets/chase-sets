@@ -1004,6 +1004,75 @@ describe("source observation routes: integration discovery and profile administr
     });
   });
 
+  it("records migration evidence with Catalog's time, author and fingerprints, not the client's", async () => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
+    ]);
+    const app = buildApp({} as SourceObservationRouteServices, store);
+    const before = Date.now();
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/migration-evidence",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          command: {
+            section: "migration-evidence",
+            migrationEvidence: {
+              evidenceText: "  Replayed the changed fixtures.  ",
+              fixtureRunId: "run_1",
+              recordedAt: "1970-01-01T00:00:00.000Z",
+              recordedByUserId: "usr_spoofed",
+              mappingFingerprintBefore: "client-before",
+              mappingFingerprintAfter: "client-after",
+            },
+          },
+        }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const saved = await store.getProfileVersion("tcgdex", "2026.06.04");
+    const evidence = saved?.migrationEvidence;
+    expect(evidence).toMatchObject({
+      evidenceText: "Replayed the changed fixtures.",
+      fixtureRunId: "run_1",
+      recordedByUserId: "usr_test",
+      recordedForAccountId: "acc_test",
+    });
+    expect(Date.parse(evidence?.recordedAt ?? "")).toBeGreaterThanOrEqual(before);
+    expect(evidence?.mappingFingerprintBefore).not.toBe("client-before");
+    expect(evidence?.mappingFingerprintAfter).not.toBe("client-after");
+  });
+
+  it("refuses migration evidence with a blank text", async () => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
+    ]);
+    const app = buildApp({} as SourceObservationRouteServices, store);
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/migration-evidence",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ command: { section: "migration-evidence", migrationEvidence: { evidenceText: "  " } } }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_profile_section_command",
+        message: "migrationEvidence.evidenceText must be a non-empty string.",
+      },
+    });
+    expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.migrationEvidence ?? null).toBeNull();
+  });
+
   it("returns a typed provider profile authoring model through the admin API", async () => {
     const getSelectedOptionAuthoringSchema = vi.fn(async () => ({
       dimensions: [

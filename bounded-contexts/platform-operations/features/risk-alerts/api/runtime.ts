@@ -1,3 +1,4 @@
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -34,8 +35,9 @@ export function createRiskAlertRuntime(deps: Readonly<{ db: PgQueryable; eventSt
 
       const actionId = createId("raa");
       const recordedAt = new Date().toISOString();
-      await deps.eventStore.appendToStream({
+      const stored = await deps.eventStore.appendToStream({
         streamId: `platform-operations.risk-alert-${params.alertId}` as never,
+        wakeSourceContextName: "platform-operations",
         expectedVersion: "any",
         events: [
           {
@@ -52,6 +54,7 @@ export function createRiskAlertRuntime(deps: Readonly<{ db: PgQueryable; eventSt
         ],
         context,
       });
+      recordCommittedEvents(stored, "platform-operations");
       return { actionId, recordedAt };
     },
     projectors: [

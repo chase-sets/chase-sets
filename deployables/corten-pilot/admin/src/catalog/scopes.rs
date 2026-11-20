@@ -67,11 +67,16 @@ pub mod url {
         pub evidence_ref: Option<String>,
     }
 
-    /// What an attention queue command did: admin-web's banner (queued, or the command failed).
+    /// What an attention queue command did: admin-web's banner (queued, what an alias command
+    /// did, or the command failed).
     #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum AttentionDone {
         Queued,
+        AliasAccepted,
+        AliasRejected,
+        AliasRevoked,
+        AliasDeferred,
         Failed,
     }
 
