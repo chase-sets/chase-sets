@@ -1,4 +1,18 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.reviewRecovery.submitting": "Submitting",
+  "marketplace.reviewRecovery.confirming": "Confirming the first result",
+  "marketplace.reviewRecovery.succeeded": "Submitted",
+  "marketplace.reviewRecovery.failedSafe": "Not submitted",
+  "marketplace.reviewRecovery.ambiguous": "Result not confirmed. Do not submit again.",
+  "marketplace.reviewRecovery.conflict": "This attempt conflicts with the first request.",
+  "marketplace.reviewRecovery.notSent": "The request was not sent. Reload the form before submitting.",
+  "marketplace.reviewRecovery.notObserved": "No committed result was found. Your work is still here.",
+  "marketplace.reviewRecovery.unconfirmed": "The first result could not be confirmed. Do not submit again.",
+  "marketplace.reviewRecovery.changedRequest": "This attempt was used for a different request.",
+  "marketplace.reviewRecovery.reportNotSent": "The report was not sent. Reload the form before submitting.",
+  "marketplace.reviewRecovery.reportFailed": "The report could not be submitted.",
+  "marketplace.reviewRecovery.reportLimited":
+    "You have sent several reports in a short time. Try again in a few minutes.",
   "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
   "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
   "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
@@ -9,7 +23,20 @@ export const marketplaceEnglishTranslations = {
   "marketplace.recovery.ambiguous":
     "We could not confirm the result. This action is disabled to avoid duplicating your work.",
   "marketplace.listingRecovery.submitting": "Sending your Listing change...",
-  "marketplace.listingRecovery.confirming": "Confirming your first result. Do not submit this change again.",
+  "marketplace.listingRecovery.loading": "Checking the recorded Listing results...",
+  "marketplace.listingRecovery.conflict":
+    "This Listing change conflicts with its recorded result. It was not sent again.",
+  "marketplace.listingRecovery.target": "{target}: {outcome}",
+  "marketplace.listingRecovery.outcome.succeeded": "succeeded, will not send again",
+  "marketplace.listingRecovery.outcome.conflict": "conflict, will not send again",
+  "marketplace.listingRecovery.outcome.error": "failed safely, will not send again",
+  "marketplace.listingRecovery.outcome.unknown": "unknown, available for explicit retry",
+  "marketplace.listingRecovery.outcome.ambiguous": "unconfirmed, changes disabled",
+  "marketplace.listingRecovery.reenter":
+    "No result is recorded. Re-enter the same details to retry this attempt; changed details will not be sent.",
+  "marketplace.listingRecovery.continue": "Start another change",
+  "marketplace.listingRecovery.checkAgain": "Check the recorded result again",
+  "marketplace.listingRecovery.confirming": "Confirming the result of your Listing change.",
   "marketplace.listingRecovery.succeeded": "Your Listing change is confirmed.",
   "marketplace.listingRecovery.failedSafe": "The change was not sent. Review your inputs before trying again.",
   "marketplace.listingRecovery.ambiguous":
@@ -113,6 +140,11 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":
     "Bulk price updates are not available with the current settings.",
   "marketplace.features.listings.api.route.error.evidenceInvalid": "Check the listing photos and try again.",
+  "marketplace.features.listings.api.listingBatch.target.recorded":
+    "The batch already recorded this target as {outcome}.",
+  "marketplace.features.listings.api.listingBatch.target.unknown": "The target's outcome is unknown; retry the batch.",
+  "marketplace.features.listings.api.listingBatch.target.changed":
+    "The batch already recorded a different request for this target.",
   "marketplace.features.listings.api.listingGatePolicyRoute.error.invalid":
     "Check the listing policy settings and try again.",
   "marketplace.features.listings.api.route.error.evidenceIncomplete":
@@ -480,7 +512,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.dispute.rate": "Dispute rate",
   "marketplace.features.listings.ui.listingListPage.dispute.rate.detail": "{count} orders, resolved against you",
   "marketplace.features.listings.ui.listingListPage.open": "Open",
-  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "{count} paused {label}",
+  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "Hidden from buyers until resumed",
   "marketplace.features.listings.ui.listingListPage.photo.count": "{count} photos",
   "marketplace.features.listings.ui.listingListPage.preview.fees.before.publishing": "Preview fees before publishing",
   "marketplace.features.listings.ui.listingListPage.preview.fees": "Preview fees",

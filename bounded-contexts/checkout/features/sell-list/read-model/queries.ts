@@ -1,12 +1,14 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { deriveSellListCompositeReview, type SellListScreenReview } from "./screen-review";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import {
   evaluateEvidenceCoverage,
   type MarketplaceListingEvidenceCoverage,
   type ResolvedListingEvidenceRequirements,
 } from "../../../support/request-support/marketplace-listing-evidence.server";
-import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
+import { CheckoutDomainError, type VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 import type { SellListLineEvidenceReadiness, SellListReadinessLine } from "../domain/readiness";
+import { realTimestamp } from "./seller-checkout-owner-reads";
 
 type CheckoutCommercialAccountType = "personal" | "business" | "enterprise";
 
@@ -51,6 +53,17 @@ export type CheckoutCommercialTermsResolver = Readonly<{
     scheduleUpdatedAt: string;
     resolvedAt: string;
   }>;
+}>;
+
+/**
+ * Marketplace's terms for accepting one Offer against one exact Listing. Its fee quote
+ * fingerprint is the value Marketplace checks at acceptance; for a managed Offer it also
+ * binds the Offer and Listing versions, so Checkout carries it rather than rebuilding it.
+ */
+export type CheckoutOfferAcceptanceTermsSource = Readonly<{
+  previewOfferAcceptanceTerms: (
+    params: Readonly<{ offerId: string; sellerAccountId: string; listingId: string }>,
+  ) => Promise<CheckoutSellListTermsPreview>;
 }>;
 
 export type CheckoutSellListLineRow = Readonly<{
@@ -115,7 +128,12 @@ export type CheckoutSellPayoutReadinessRow = Readonly<{
   updated_at: string | null;
 }>;
 
-type SellListPageRow = Omit<CheckoutSellListLineRow, "selected_options" | "line_type" | "fallback_mode"> & {
+type SellListPageRow = Omit<
+  CheckoutSellListLineRow,
+  "selected_options" | "line_type" | "fallback_mode" | "offer_stream_version" | "listing_stream_version"
+> & {
+  offer_stream_version?: number | string | null;
+  listing_stream_version?: number | string | null;
   selected_options: unknown;
   line_type: string;
   fallback_mode: string;
@@ -238,11 +256,13 @@ export type CheckoutSellListProductOfferReview = Readonly<{
   message: string | null;
 }>;
 
-export type CheckoutSellListCompositeReview = Readonly<{
+export type CheckoutSellListRawReview = Readonly<{
   offerReviews: readonly CheckoutSellListOfferReview[];
   productOfferReviews: readonly CheckoutSellListProductOfferReview[];
   inventoryItems: readonly CheckoutSellListInventoryItemOption[];
 }>;
+
+export type CheckoutSellListCompositeReview = CheckoutSellListRawReview & Readonly<{ screen: SellListScreenReview }>;
 
 type SellOfferPageRow = Readonly<{
   offer_id: string;
@@ -255,7 +275,7 @@ type SellOfferPageRow = Readonly<{
   product_summary: string | null;
   price_amount: string;
   price_currency_code: string | null;
-  last_stream_version: number;
+  last_stream_version: number | string;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -304,7 +324,7 @@ type ListingEvidenceRequirementSnapshot = Readonly<{
   requirements: ResolvedListingEvidenceRequirements;
 }>;
 
-async function getCheckoutListingEvidenceCoverage(
+export async function getCheckoutListingEvidenceCoverage(
   db: PgQueryable,
   listingId: string,
 ): Promise<MarketplaceListingEvidenceCoverage | null> {
@@ -314,7 +334,7 @@ async function getCheckoutListingEvidenceCoverage(
        status,
        evidence_requirements,
        evidence,
-       updated_at::text AS updated_at
+       updated_at
      FROM checkout_marketplace_seller_options
      WHERE listing_id = $1
      LIMIT 1`,
@@ -339,13 +359,24 @@ async function getCheckoutListingEvidenceCoverage(
     policyVersion: snapshot.policyVersion,
     requirements: snapshot.requirements,
     coverage: evaluateEvidenceCoverage(snapshot.requirements, evidence, { now: new Date().toISOString() }),
-    updatedAt: row.updated_at,
+    updatedAt: realTimestamp(row.updated_at) ?? "",
   };
+}
+
+function streamVersion(value: number | string): number {
+  const version = typeof value === "string" && !/^[1-9]\d*$/.test(value) ? NaN : Number(value);
+  if (!Number.isSafeInteger(version) || version < 1)
+    throw new CheckoutDomainError("Invalid Sell List stream version.", "checkout_confirmation_changed");
+  return version;
 }
 
 function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
   return {
     ...row,
+    offer_stream_version: row.offer_stream_version == null ? null : streamVersion(row.offer_stream_version),
+    listing_stream_version: row.listing_stream_version == null ? null : streamVersion(row.listing_stream_version),
+    created_at: realTimestamp(row.created_at) ?? "",
+    updated_at: realTimestamp(row.updated_at) ?? "",
     line_type: row.line_type === "selected-offer" ? "selected-offer" : "product",
     fallback_mode: row.fallback_mode === "create-listing" ? "create-listing" : "none",
     selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
@@ -379,6 +410,7 @@ function mapAddressSnapshot(value: unknown): AddressSnapshot {
 function mapSellOfferRow(row: SellOfferPageRow) {
   return {
     ...row,
+    last_stream_version: streamVersion(row.last_stream_version),
     selected_options: mapSelectedOptions(row.selected_options),
   };
 }
@@ -390,7 +422,7 @@ function mapOfferMatch(row: SellOfferMatchRow): CheckoutSellOfferMatch {
   return {
     ...offer,
     price_currency_code: row.price_currency_code!,
-    offer_stream_version: row.last_stream_version,
+    offer_stream_version: offer.last_stream_version,
     listing_id: row.listing_id,
     listing_price_amount: row.listing_price_amount,
     listing_price_currency_code: row.listing_price_currency_code,
@@ -462,6 +494,40 @@ async function quoteSellerTerms(
   };
 
   return { ...quote, fee_quote_fingerprint: createFeeQuoteFingerprint(quote) };
+}
+
+// Hosts without Marketplace (seed and worker paths) keep Checkout's own quote, which
+// Marketplace accepts only for unmanaged Offers.
+async function quoteOfferAcceptanceTerms(
+  commercialTermsResolver: CheckoutCommercialTermsResolver,
+  offerAcceptanceTermsSource: CheckoutOfferAcceptanceTermsSource | undefined,
+  params: Readonly<{ sellerAccountId: string; offerId: string; listingId: string | null; priceAmount: string }>,
+): Promise<CheckoutSellListTermsPreview> {
+  if (!offerAcceptanceTermsSource || !params.listingId) {
+    return quoteSellerTerms(commercialTermsResolver, params.sellerAccountId, params.priceAmount);
+  }
+
+  const terms = await offerAcceptanceTermsSource.previewOfferAcceptanceTerms({
+    offerId: params.offerId,
+    sellerAccountId: params.sellerAccountId,
+    listingId: params.listingId,
+  });
+  // Checkout's Offer projection can trail Marketplace, so a live quote for another price
+  // would authorize a sale the review does not show.
+  if (moneyCents(terms.basis_amount) !== moneyCents(params.priceAmount)) {
+    throw new Error("Offer price changed. Refresh the Sell List review.");
+  }
+  return {
+    account_type: terms.account_type,
+    basis_amount: terms.basis_amount,
+    marketplace_sales_fee_unit_amount: terms.marketplace_sales_fee_unit_amount,
+    seller_net_unit_amount: terms.seller_net_unit_amount,
+    shipping_allowance_percentage_bps: terms.shipping_allowance_percentage_bps,
+    schedule_id: terms.schedule_id,
+    agreement_id: terms.agreement_id,
+    resolved_at: terms.resolved_at,
+    fee_quote_fingerprint: terms.fee_quote_fingerprint,
+  };
 }
 
 async function quotePublicStandardTerms(
@@ -575,6 +641,7 @@ function normalizePayoutReadinessStatus(status: string): CheckoutSellPayoutReadi
 function mapPayoutReadiness(row: SellPayoutReadinessPageRow): CheckoutSellPayoutReadinessRow {
   return {
     ...row,
+    updated_at: realTimestamp(row.updated_at),
     status: normalizePayoutReadinessStatus(row.status),
     missing_requirements: Array.isArray(row.missing_requirements)
       ? row.missing_requirements.filter((value): value is string => typeof value === "string")
@@ -616,10 +683,10 @@ function toSellListLineEvidenceReadiness(coverage: MarketplaceListingEvidenceCov
 export async function listSellListReadinessLines(
   db: PgQueryable,
   sellerAccountId: string,
-): Promise<SellListReadinessLine[]> {
+): Promise<Array<CheckoutSellListLineRow & SellListReadinessLine>> {
   const lines = await listSellListLines(db, sellerAccountId);
   return Promise.all(
-    lines.map(async (line): Promise<SellListReadinessLine> => {
+    lines.map(async (line): Promise<CheckoutSellListLineRow & SellListReadinessLine> => {
       if (line.line_type !== "selected-offer" || !line.listing_id) {
         return { ...line, listing_evidence: null };
       }
@@ -963,15 +1030,17 @@ export async function listCheckoutSellListInventoryItems(
   return result.rows.map(mapInventoryItem);
 }
 
-export async function loadCheckoutSellListCompositeReview(
+export async function loadCheckoutSellListRawReview(
   db: PgQueryable,
   commercialTermsResolver: CheckoutCommercialTermsResolver,
   params: Readonly<{
     sellerAccountId: string;
     lines: readonly CheckoutSellListLineRow[];
     includeStandardComparison?: boolean;
+    sellListPath?: string;
+    offerAcceptanceTermsSource?: CheckoutOfferAcceptanceTermsSource;
   }>,
-): Promise<CheckoutSellListCompositeReview> {
+): Promise<CheckoutSellListRawReview> {
   const selectedOfferLines = params.lines.filter((line) => line.line_type === "selected-offer" && line.offer_id);
   const productLines = params.lines.filter((line) => line.line_type === "product");
   const selectedOfferIds = selectedOfferLines.map((line) => line.offer_id as string);
@@ -1009,7 +1078,13 @@ export async function loadCheckoutSellListCompositeReview(
           throw new Error("Offer is no longer submitted.");
         }
         const [terms, standardPreview] = await Promise.all([
-          quoteSellerTerms(commercialTermsResolver, params.sellerAccountId, offer.price_amount),
+          quoteOfferAcceptanceTerms(commercialTermsResolver, params.offerAcceptanceTermsSource, {
+            sellerAccountId: params.sellerAccountId,
+            offerId: offer.offer_id,
+            // Seller checkout accepts against the line's Listing, so quote that exact Listing.
+            listingId: line.listing_id,
+            priceAmount: offer.price_amount,
+          }),
           standardPreviewPromise,
         ]);
         return {
@@ -1065,7 +1140,12 @@ export async function loadCheckoutSellListCompositeReview(
         try {
           offers.push({
             offer,
-            terms: await quoteSellerTerms(commercialTermsResolver, params.sellerAccountId, offer.price_amount),
+            terms: await quoteOfferAcceptanceTerms(commercialTermsResolver, params.offerAcceptanceTermsSource, {
+              sellerAccountId: params.sellerAccountId,
+              offerId: offer.offer_id,
+              listingId: offer.listing_id,
+              priceAmount: offer.price_amount,
+            }),
             evidence: await getCheckoutListingEvidenceCoverage(db, offer.listing_id),
           });
           remainingQuantity -= offer.quantity_requested;
@@ -1096,6 +1176,39 @@ export async function loadCheckoutSellListCompositeReview(
     productOfferReviews,
     inventoryItems: productLines.length > 0 ? await listCheckoutSellListInventoryItems(db, params.sellerAccountId) : [],
   };
+}
+
+export async function loadCheckoutSellListCompositeReview(
+  db: PgQueryable,
+  commercialTermsResolver: CheckoutCommercialTermsResolver,
+  params: Parameters<typeof loadCheckoutSellListRawReview>[2],
+): Promise<CheckoutSellListCompositeReview> {
+  const [review, payoutReadiness] = await Promise.all([
+    loadCheckoutSellListRawReview(db, commercialTermsResolver, params),
+    getSellPayoutReadiness(db, params.sellerAccountId).catch(() => null),
+  ]);
+  return deriveSellListCompositeReview({
+    lines: params.lines,
+    review,
+    payoutReadiness,
+    isAccount: true,
+    sellListPath: params.sellListPath,
+  });
+}
+
+export async function loadCheckoutGuestSellListCompositeReview(
+  commercialTermsResolver: CheckoutCommercialTermsResolver,
+  lines: readonly CheckoutSellListLineRow[],
+): Promise<CheckoutSellListCompositeReview> {
+  return deriveSellListCompositeReview({
+    lines,
+    isAccount: false,
+    review: {
+      offerReviews: await loadCheckoutGuestSellListOfferReviews(commercialTermsResolver, lines),
+      productOfferReviews: [],
+      inventoryItems: [],
+    },
+  });
 }
 
 export async function loadCheckoutGuestSellListOfferReviews(

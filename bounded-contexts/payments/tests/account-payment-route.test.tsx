@@ -63,13 +63,13 @@ type StripeAppearanceMock = Readonly<{
 
 type StripeElementsOptionsMock = Readonly<{
   clientSecret: string;
-  appearance: StripeAppearanceMock;
+  appearance?: StripeAppearanceMock;
 }>;
 
 type StripeCheckoutOptionsMock = Readonly<{
   clientSecret: string;
-  elementsOptions: {
-    appearance: StripeAppearanceMock;
+  elementsOptions?: {
+    appearance?: StripeAppearanceMock;
   };
   defaultValues?: { email?: string };
 }>;
@@ -284,7 +284,7 @@ const paymentSurfaceRootCounts = {
   "../features/payments/ui/account-payment/account-payment-page.tsx": 8,
   "../features/payments/ui/account-payment/stripe-setup-card.tsx": 1,
   "../features/payments/ui/account-payment/stripe-confirmation-card.tsx": 1,
-  "../routes/marketplace/account-payment.tsx": 1,
+  "../routes/marketplace/account-payment.tsx": 0,
   "../routes/marketplace/account-payment-new.tsx": 4,
   "../routes/marketplace/account-payment-methods.tsx": 1,
 } as const;
@@ -309,6 +309,28 @@ function expectSurfaceTreatment(anchor: HTMLElement, treatment: SurfaceTreatment
 }
 
 describe("marketplace account payment route", () => {
+  it.each(["captured", "pending-confirmation", "failed", "cancelled"])(
+    "offers only a claim link for captured guest payments: %s",
+    (status) => {
+      mockUseLoaderData.mockReturnValue({
+        payment: buildPayment({ status }),
+        orders: [],
+        isGuestCheckoutPayment: true,
+        guestClaimPath: "/checkout/claim/pay_1?afterWrite=kept",
+        paymentElementDefaultValues: null,
+      });
+      render(
+        <ChaseRoot>
+          <MarketplaceAccountPaymentRoute />
+        </ChaseRoot>,
+      );
+      const link = screen.queryByRole("link", { name: "Save this order" });
+      if (status === "captured") expect(link?.getAttribute("href")).toBe("/checkout/claim/pay_1?afterWrite=kept");
+      else expect(link).toBeNull();
+      expect(screen.queryByRole("button", { name: "Email me a claim link" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Save with passkey" })).toBeNull();
+    },
+  );
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
     mockUseRevalidator.mockReturnValue({
@@ -480,40 +502,6 @@ describe("marketplace account payment route", () => {
     );
   });
 
-  it("raises the guest order claim host with its glow", () => {
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        status: "captured",
-        processor_status: "succeeded",
-        captured_at: "2026-04-01T00:05:00.000Z",
-      }),
-      orders: [buildPurchase({ status: "paid" })],
-      isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
-        contactEmail: "jane@example.com",
-        contactName: "Jane Smith",
-      },
-      showSupportDetails: false,
-      paymentElementDefaultValues: null,
-    });
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    expectSurfaceTreatment(
-      screen.getByText(
-        "Save this order after payment with a passkey. You can use an email link if this device cannot create one.",
-      ),
-      "elevated",
-      true,
-    );
-  });
-
   it("does not render the retired checkout-payment feedback prompt for any payment status", () => {
     for (const status of ["pending-confirmation", "failed", "cancelled", "captured"]) {
       cleanup();
@@ -676,78 +664,6 @@ describe("marketplace account payment route", () => {
     expect(screen.getAllByRole("button", { name: "Retry payment" }).length).toBeGreaterThan(0);
   });
 
-  it("does not render manual guest claim token entry when no gated local token is present", () => {
-    mockUseActionData.mockReturnValue({
-      status: "claim-link-sent",
-      token: null,
-      expiresAt: "2026-05-04T16:00:00.000Z",
-      displayName: "Jane Smith",
-    });
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        status: "captured",
-        processor_status: "succeeded",
-        captured_at: "2026-04-01T00:05:00.000Z",
-      }),
-      orders: [buildPurchase({ status: "paid" })],
-      isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
-        contactEmail: "jane@example.com",
-        contactName: "Jane Smith",
-      },
-      showSupportDetails: false,
-      paymentElementDefaultValues: null,
-    });
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    expect(screen.getByText("Save this order")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Email me a claim link" })).toBeTruthy();
-    expect(screen.queryByLabelText("Claim token")).toBeNull();
-    expect(screen.queryByText("Local recovery token. In production this arrives by email.")).toBeNull();
-  });
-
-  it("renders manual guest claim token entry only when action data carries a gated local token", () => {
-    mockUseActionData.mockReturnValue({
-      status: "claim-link-sent",
-      token: "magic_token",
-      expiresAt: "2026-05-04T16:00:00.000Z",
-      displayName: "Jane Smith",
-    });
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        status: "captured",
-        processor_status: "succeeded",
-        captured_at: "2026-04-01T00:05:00.000Z",
-      }),
-      orders: [buildPurchase({ status: "paid" })],
-      isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
-        contactEmail: "jane@example.com",
-        contactName: "Jane Smith",
-      },
-      showSupportDetails: false,
-      paymentElementDefaultValues: null,
-    });
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    expect(screen.getByLabelText("Claim token")).toHaveProperty("value", "magic_token");
-    expect(screen.getByText("Local recovery token. In production this arrives by email.")).toBeTruthy();
-  });
-
   it("confirms a pending Stripe payment and revalidates afterward", async () => {
     const paymentElement = {
       mount: vi.fn(),
@@ -800,18 +716,6 @@ describe("marketplace account payment route", () => {
     });
     expect(elements).toHaveBeenCalledWith({
       clientSecret: "pi_secret_123",
-      appearance: expect.objectContaining({
-        theme: "flat",
-        variables: expect.objectContaining({
-          colorPrimary: "#4845c6",
-          colorText: "#211d33",
-        }),
-        rules: expect.objectContaining({
-          ".Input": expect.objectContaining({
-            color: "#211d33",
-          }),
-        }),
-      }),
     });
     expect(elementsCreate).toHaveBeenCalledWith("payment", {
       ...walletElementOptions,
@@ -945,24 +849,14 @@ describe("marketplace account payment route", () => {
       timeout: 1000,
     });
     const initCheckoutOptions = initCheckoutElementsSdk.mock.calls[0]?.[0];
-    expect(initCheckoutOptions).toMatchObject({
+    expect(initCheckoutOptions).toEqual({
       clientSecret: "cs_live_123_secret_456",
-      elementsOptions: {
-        appearance: {
-          theme: "flat",
-          variables: expect.objectContaining({
-            colorPrimary: "#4845c6",
-            colorText: "#211d33",
-          }),
-        },
-      },
       // Custom Checkout carries buyer defaultValues on the SDK itself
       // (stripe.initCheckoutElementsSdk), not per-element. The typed
       // @stripe/stripe-js loader has no `defaultValues` slot on
       // createPaymentElement for this integration pattern.
       defaultValues: { email: "buyer@example.com" },
     });
-    expect(initCheckoutOptions?.elementsOptions.appearance.rules).toBeUndefined();
     expect(createPaymentElement).toHaveBeenCalledWith(walletElementOptions);
     expect(paymentElement.mount).toHaveBeenCalled();
     // A successful first load never remounts; the defaultValues email stays.
@@ -1015,6 +909,10 @@ describe("marketplace account payment route", () => {
     expect(initCheckoutElementsSdk.mock.calls[0]?.[0]?.defaultValues).toEqual({ email: "buyer@example.com" });
     expect(initCheckoutElementsSdk.mock.calls[1]?.[0]?.defaultValues).toBeUndefined();
     expect(initCheckoutElementsSdk.mock.calls[1]?.[0]?.clientSecret).toBe("cs_live_123_secret_456");
+    for (const [options] of initCheckoutElementsSdk.mock.calls) {
+      expect(options).not.toHaveProperty("appearance");
+      expect(options.elementsOptions).toBeUndefined();
+    }
     expect(firstElement.destroy).toHaveBeenCalled();
     expect(secondElement.mount).toHaveBeenCalled();
 
@@ -1732,7 +1630,7 @@ describe("marketplace account payment route", () => {
     expect(document.body.innerHTML).not.toContain("_secret_");
   });
 
-  it("updates the Payment Element appearance in place when the scoped theme changes", async () => {
+  it("uses default Payment Element appearance without theme-only SDK calls", async () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
@@ -1772,33 +1670,30 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith({
-        appearance: expect.objectContaining({
-          variables: expect.objectContaining({ colorText: "#eeeeee" }),
-        }),
-      }),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     expect(paymentElement.destroy).not.toHaveBeenCalled();
     expect(elements).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledTimes(1);
-    expect(elements.mock.calls[0]?.[0].appearance.variables.colorText).toBe("#111111");
+    expect(elements.mock.calls[0]?.[0]).toEqual({ clientSecret: "pi_secret_123" });
+    expect(update).not.toHaveBeenCalled();
 
     rerender(
       <ChaseRoot theme={{ colors: { foreground: "var(--missing)" } }}>
         <MarketplaceAccountPaymentRoute />
       </ChaseRoot>,
     );
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith({
-        appearance: expect.objectContaining({ variables: expect.objectContaining({ colorText: "#211d33" }) }),
-      }),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(elements).toHaveBeenCalledTimes(1);
     expect(paymentElement.destroy).not.toHaveBeenCalled();
   });
 
-  it("restyles a Checkout Session element in place when the scoped theme changes", async () => {
+  it("uses default Checkout appearance without theme-only SDK calls", async () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
@@ -1844,13 +1739,14 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    await waitFor(() =>
-      expect(changeAppearance).toHaveBeenCalledWith(
-        expect.objectContaining({
-          variables: expect.objectContaining({ colorText: "#eeeeee" }),
-        }),
-      ),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(changeAppearance).not.toHaveBeenCalled();
+    expect(initCheckoutElementsSdk.mock.calls[0]?.[0]).toEqual({
+      clientSecret: "cs_live_123_secret_456",
+      defaultValues: { email: "buyer@example.com" },
+    });
 
     expect(paymentElement.destroy).not.toHaveBeenCalled();
     expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);

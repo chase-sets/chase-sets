@@ -12,10 +12,15 @@ export function healthTriageFor(input: {
   overview: CatalogIntegrationControlPlaneOverview | null;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"];
+  scopeUnitKeys?: readonly string[];
 }): CatalogPrimaryWorkbenchHealthTriageReadModel {
   const generatedAt = input.overview?.generatedAt ?? new Date().toISOString();
-  const units = input.overview?.readiness.units ?? [];
-  const providerRows = (input.overview?.providerReadiness.providers ?? []).map((provider) => {
+  const scoped = input.scopeUnitKeys !== undefined;
+  const units = (input.overview?.readiness.units ?? []).filter(
+    (unit) => !scoped || input.scopeUnitKeys?.includes(unit.unitKey),
+  );
+  const audit = scoped ? null : input.overview?.auditLifecycle;
+  const providerRows = (scoped ? [] : (input.overview?.providerReadiness.providers ?? [])).map((provider) => {
     const latestDiagnostic = provider.diagnostics.filter((diagnostic) => diagnostic.severity !== "info").at(-1) ?? null;
 
     return {
@@ -52,7 +57,7 @@ export function healthTriageFor(input: {
       nextAction: providerNextAction(provider),
     } satisfies CatalogPrimaryWorkbenchHealthTriageReadModel["providers"][number];
   });
-  const rolloutControls = (input.overview?.readiness.rolloutControls.controls ?? []).map((control) => ({
+  const rolloutControls = (scoped ? [] : (input.overview?.readiness.rolloutControls.controls ?? [])).map((control) => ({
     controlId: control.controlId,
     status: control.status,
     severity: control.severity,
@@ -119,19 +124,19 @@ export function healthTriageFor(input: {
   const rolloutStops = rolloutControls.filter((control) => control.status !== "open").length;
   const activeJobs = recentJobs.filter((job) => job.phase === "queued" || job.phase === "running").length;
   const failedJobs = recentJobs.filter((job) => job.phase === "failed").length;
-  const auditFreshness =
-    !input.overview || input.overview.auditLifecycle.projectionStatus === "unavailable" ? "unavailable" : "partial";
-  const status = !input.overview
-    ? "unavailable"
-    : blockedUnits > 0 || rolloutControls.some((control) => control.status === "blocked")
-      ? "blocked"
-      : degradedProviders > 0 ||
-          unitRows.some((unit) => unit.status === "degraded") ||
-          rolloutControls.some((control) => control.status === "degraded") ||
-          failedJobs > 0 ||
-          input.overview.auditLifecycle.projectionStatus === "unavailable"
-        ? "degraded"
-        : "ready";
+  const auditFreshness = !audit || audit.projectionStatus === "unavailable" ? "unavailable" : "partial";
+  const status =
+    !input.overview || (scoped && units.length === 0)
+      ? "unavailable"
+      : blockedUnits > 0 || rolloutControls.some((control) => control.status === "blocked")
+        ? "blocked"
+        : degradedProviders > 0 ||
+            unitRows.some((unit) => unit.status === "degraded") ||
+            rolloutControls.some((control) => control.status === "degraded") ||
+            failedJobs > 0 ||
+            (!scoped && audit?.projectionStatus === "unavailable")
+          ? "degraded"
+          : "ready";
 
   return {
     status,
@@ -147,7 +152,7 @@ export function healthTriageFor(input: {
       degradedProviders,
       activeJobs,
       rolloutStops,
-      auditEntries: input.overview?.auditLifecycle.entries.length ?? 0,
+      auditEntries: audit?.entries.length ?? 0,
     },
     readModels: [
       readModelState(
@@ -162,7 +167,7 @@ export function healthTriageFor(input: {
       readModelState(
         "provider-transport-readiness-summary",
         input.overview ? "fresh" : "partial",
-        input.overview?.providerReadiness.generatedAt ?? null,
+        scoped ? null : (input.overview?.providerReadiness.generatedAt ?? null),
         input.overview
           ? t("catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.transport")
           : t("catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.partial"),
@@ -180,24 +185,27 @@ export function healthTriageFor(input: {
       readModelState(
         "audit-evidence-timeline",
         auditFreshness,
-        input.overview?.auditLifecycle.generatedAt ?? null,
-        input.overview?.auditLifecycle.statusMessage ??
+        audit?.generatedAt ?? null,
+        audit?.statusMessage ??
           t("catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.audit.unavailable"),
         "catalog.integration.audit.generated_at",
       ),
-    ],
+    ].filter(
+      (row) =>
+        !scoped || row.queryKey === "integration-health-summary" || row.queryKey === "import-job-progress-summary",
+    ),
     units: unitRows,
     providers: providerRows,
     rolloutControls,
     recentJobs,
     auditPreview: {
-      generatedAt: input.overview?.auditLifecycle.generatedAt ?? null,
-      projectionStatus: input.overview?.auditLifecycle.projectionStatus ?? "unavailable",
+      generatedAt: audit?.generatedAt ?? null,
+      projectionStatus: audit?.projectionStatus ?? "unavailable",
       statusMessage:
-        input.overview?.auditLifecycle.statusMessage ??
+        audit?.statusMessage ??
         t("catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.audit.unavailable"),
       entries:
-        input.overview?.auditLifecycle.entries.slice(0, 6).map((entry) => ({
+        audit?.entries.slice(0, 6).map((entry) => ({
           eventId: entry.eventId,
           occurredAt: entry.occurredAt,
           eventName: entry.eventName,

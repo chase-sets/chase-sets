@@ -11,5 +11,5 @@ export const meta: MetaFunction = () => [{ title: t("customer-feedback.attention
 
 export default function CustomerFeedbackAttentionRoute() {
   const data = useLoaderData<typeof loader>();
-  return <FeedbackAttentionSurface items={data.items} metrics={data.metrics} />;
+  return <FeedbackAttentionSurface items={data.items} metrics={data.metrics} caseId={data.caseId} />;
 }

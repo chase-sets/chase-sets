@@ -3372,62 +3372,346 @@ describe("subscription pass checkpoint bounds Postgres", () => {
 describe("projection-group-recovery-marker Postgres", () => {
   let pools: Readonly<Record<"marker", PgTransactionalPool>>;
   let failProjection = false;
-  const module = defineBoundedContextModule({
-    manifest: {
-      contextName: "marker",
-      apiBasePath: "/marker",
-      streamPrefix: "marker.",
-      eventSubscriptions: [
+  const makeModule = (projectionRevision = 1, includeDependent = false) =>
+    defineBoundedContextModule({
+      manifest: {
+        contextName: "marker",
+        apiBasePath: "/marker",
+        streamPrefix: "marker.",
+        eventSubscriptions: [
+          {
+            sourceContextName: "marker",
+            projectionName: "worker-marker",
+            subscriptionVersion: 1,
+            projectionHandlerSetNames: ["worker-marker"],
+            eventTypes: ["marker.recorded"],
+            streamPrefixes: ["marker."],
+          },
+          ...(includeDependent
+            ? [
+                {
+                  sourceContextName: "marker",
+                  projectionName: "worker-marker-dependent",
+                  subscriptionVersion: 1,
+                  projectionHandlerSetNames: ["worker-marker-dependent"],
+                  eventTypes: ["marker.recorded"],
+                  streamPrefixes: ["marker."],
+                },
+              ]
+            : []),
+        ],
+        projectionGroups: [
+          {
+            projectionName: "worker-marker",
+            sourceContextNames: ["marker"],
+            projectionRevision,
+            ownedTables: ["worker_marker_items"],
+            resetStrategy: "truncate-owned-tables",
+          },
+          ...(includeDependent
+            ? [
+                {
+                  projectionName: "worker-marker-dependent",
+                  sourceContextNames: ["marker"],
+                  ownedTables: ["worker_marker_dependent_items"],
+                  resetStrategy: "truncate-owned-tables" as const,
+                },
+              ]
+            : []),
+        ],
+      },
+      schemaSql: `CREATE TABLE worker_marker_items (item_id text PRIMARY KEY);
+      CREATE TABLE worker_marker_truncates (projection_name text NOT NULL);
+      CREATE FUNCTION record_worker_marker_truncate() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN INSERT INTO worker_marker_truncates VALUES (TG_TABLE_NAME); RETURN NULL; END;
+      $$;
+      CREATE TRIGGER worker_marker_truncate AFTER TRUNCATE ON worker_marker_items
+        EXECUTE FUNCTION record_worker_marker_truncate();`,
+      createServices: () => ({}),
+      buildApis: () => [],
+      buildSubscriptions: () => [
         {
-          sourceContextName: "marker",
+          subscriptionName: "marker.worker",
           projectionName: "worker-marker",
+          sourceContextName: "marker",
           subscriptionVersion: 1,
-          projectionHandlerSetNames: ["worker-marker"],
           eventTypes: ["marker.recorded"],
           streamPrefixes: ["marker."],
-        },
-      ],
-      projectionGroups: [
-        {
-          projectionName: "worker-marker",
-          sourceContextNames: ["marker"],
-          ownedTables: ["worker_marker_items"],
-          resetStrategy: "truncate-owned-tables",
-        },
-      ],
-    },
-    schemaSql: "CREATE TABLE worker_marker_items (item_id text PRIMARY KEY)",
-    createServices: () => ({}),
-    buildApis: () => [],
-    buildSubscriptions: () => [
-      {
-        subscriptionName: "marker.worker",
-        projectionName: "worker-marker",
-        sourceContextName: "marker",
-        subscriptionVersion: 1,
-        eventTypes: ["marker.recorded"],
-        streamPrefixes: ["marker."],
-        handlers: {
-          "marker.recorded": async (event, context) => {
-            if (failProjection) throw new Error("marker projection blocked");
-            await context!.db!.query("INSERT INTO worker_marker_items VALUES ($1) ON CONFLICT DO NOTHING", [
-              event.streamId,
-            ]);
+          handlers: {
+            "marker.recorded": async (event, context) => {
+              if (failProjection) throw new Error("marker projection blocked");
+              await context!.db!.query("INSERT INTO worker_marker_items VALUES ($1) ON CONFLICT DO NOTHING", [
+                event.streamId,
+              ]);
+            },
           },
         },
-      },
-    ],
-  });
+        ...(includeDependent
+          ? [
+              {
+                subscriptionName: "marker.dependent",
+                projectionName: "worker-marker-dependent",
+                sourceContextName: "marker",
+                subscriptionVersion: 1,
+                eventTypes: ["marker.recorded"],
+                streamPrefixes: ["marker."],
+                handlers: {
+                  "marker.recorded": async (
+                    event: Parameters<ProjectorHandler>[0],
+                    context?: Parameters<ProjectorHandler>[1],
+                  ) => {
+                    await context!.db!.query(
+                      "INSERT INTO worker_marker_dependent_items VALUES ($1) ON CONFLICT DO NOTHING",
+                      [event.streamId],
+                    );
+                  },
+                },
+              },
+            ]
+          : []),
+      ],
+    });
+  const module = makeModule();
   beforeAll(async () => {
     if (!adminDatabaseUrl) throw new Error("TEST_DATABASE_URL is required for worker recovery DB tests.");
     const urls = createMultiContextTestDatabaseUrls(adminDatabaseUrl, ["marker"], "worker_marker");
     await ensureMultiContextTestDatabases(adminDatabaseUrl, urls);
     pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    failProjection = false;
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(module, pools.marker);
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  const makeGroup = (revision = 1) =>
+    createMountedContextTestRuntime([
+      { contextName: "marker", module: makeModule(revision), pool: pools.marker, ports: {} },
+    ]).projectionGroups[0];
+  const readRebuild = async () => {
+    const result = await pools.marker.query(`SELECT active_generation::text, rebuilding_generation::text,
+      target_projection_revision, state, started_at::text, cutover_at::text
+      FROM event_projection_group_generations WHERE projection_name = 'worker-marker'`);
+    return result.rows[0];
+  };
+  const truncateCount = async () => {
+    const result = await pools.marker.query("SELECT count(*)::int AS count FROM worker_marker_truncates");
+    return result.rows[0].count;
+  };
+  const seedStaleRevision = async () => {
+    const store = createPostgresEventStore({ pool: pools.marker });
+    await store.appendToStream({
+      streamId: "marker.rebuild",
+      expectedVersion: "no_stream",
+      events: [{ eventType: "marker.recorded", payload: {} }],
+      context: {
+        tenantId: "tenant_test" as never,
+        audit: { performedByUserId: "user_test" as never, forAccountId: "account_test" as never },
+      },
+    });
+    await syncProjectionGroup(makeGroup());
+  };
+
+  it.each([false, true])(
+    "resumes one stale-revision generation and its committed checkpoint after a drain error (restart=%s)",
+    async (restart) => {
+      await seedStaleRevision();
+      const group = makeGroup(2);
+      const subscription = group.subscriptionRunners[0];
+      let injectFailure = true;
+      const markRevisionSynced = vi.fn(group.markRevisionSynced);
+      const workerGroup = {
+        ...group,
+        markRevisionSynced,
+        subscriptionRunners: [
+          {
+            ...subscription,
+            runOnce: async (context?: ProjectionRunContext) => {
+              const result = await subscription.runOnce(context);
+              if (injectFailure) {
+                injectFailure = false;
+                throw new Error("injected drain error after checkpoint commit");
+              }
+              return result;
+            },
+          },
+        ],
+      };
+      let worker = createProjectionGroupWorkerRunner(workerGroup);
+      await expect(worker.runOnce()).rejects.toThrow("injected drain error");
+      const rebuilding = await readRebuild();
+      expect(rebuilding).toMatchObject({
+        active_generation: "1",
+        rebuilding_generation: "2",
+        target_projection_revision: 2,
+        state: "rebuilding",
+      });
+      expect(await truncateCount()).toBe(1);
+      expect(markRevisionSynced).not.toHaveBeenCalled();
+      const checkpoint = await pools.marker.query(
+        "SELECT last_global_position::text FROM event_subscription_checkpoints",
+      );
+      expect(checkpoint.rows).toEqual([{ last_global_position: "1" }]);
+      if (restart) worker = createProjectionGroupWorkerRunner({ ...makeGroup(2), markRevisionSynced });
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0 });
+      expect(markRevisionSynced).toHaveBeenCalledTimes(1);
+      const settled = await readRebuild();
+      expect(settled).toMatchObject({
+        active_generation: "2",
+        rebuilding_generation: null,
+        target_projection_revision: 2,
+        state: "active",
+        started_at: rebuilding.started_at,
+      });
+      expect(await truncateCount()).toBe(1);
+      const revision = await pools.marker.query("SELECT projection_revision FROM event_projection_group_revisions");
+      expect(revision.rows).toEqual([{ projection_revision: 2 }]);
+      await worker.runOnce();
+      expect(await readRebuild()).toEqual(settled);
+      expect(await truncateCount()).toBe(1);
+    },
+  );
+
+  it.each([
+    { target: 1, storedRevision: 1 },
+    { target: null, storedRevision: 1 },
+    { target: 1, storedRevision: 2 },
+    { target: null, storedRevision: 2 },
+  ])(
+    "projection-group-revision-mismatch replaces target $target once (stored=$storedRevision) and fences superseded completion",
+    async ({ target, storedRevision }) => {
+      await seedStaleRevision();
+      const prior = makeGroup();
+      const staleToken = await resetProjectionGroup(prior);
+      await pools.marker.query("UPDATE event_projection_group_revisions SET projection_revision = $1", [
+        storedRevision,
+      ]);
+      if (target === null) {
+        await pools.marker.query(
+          "ALTER TABLE event_projection_group_generations DROP COLUMN target_projection_revision",
+        );
+        await pools.marker.query(eventSubscriptionSchemaSql);
+      } else {
+        await pools.marker.query("UPDATE event_projection_group_generations SET target_projection_revision = $1", [
+          target,
+        ]);
+      }
+      const group = makeGroup(2);
+      await expect(group.markRevisionSynced(staleToken)).rejects.toThrow("rejected stale rebuild token");
+      await expect(group.completeGenerationRebuild!(staleToken!)).rejects.toThrow("rejected stale rebuild token");
+      const worker = createProjectionGroupWorkerRunner(group);
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 1 });
+      const current = await readRebuild();
+      expect(current).toMatchObject({ rebuilding_generation: "3", target_projection_revision: 2, state: "rebuilding" });
+      expect(await truncateCount()).toBe(2);
+      await expect(prior.markRevisionSynced(staleToken)).rejects.toThrow("rejected stale rebuild token");
+      await expect(prior.completeGenerationRebuild!(staleToken!)).rejects.toThrow("rejected stale rebuild token");
+      expect(await readRebuild()).toEqual(current);
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0 });
+      expect(await readRebuild()).toMatchObject({
+        active_generation: "3",
+        rebuilding_generation: null,
+        state: "active",
+      });
+      expect(await truncateCount()).toBe(2);
+    },
+  );
+
+  it("rolls back the target revision, generation, truncate and checkpoint reset together", async () => {
+    await seedStaleRevision();
+    const group = makeGroup(2);
+    const before = await readRebuild();
+    const checkpoints = await pools.marker.query("SELECT * FROM event_subscription_checkpoints");
+    const subscription = group.subscriptionRunners[0];
+    await expect(
+      resetProjectionGroup({
+        ...group,
+        subscriptionRunners: [
+          {
+            ...subscription,
+            reset: async (context, options) => {
+              await subscription.reset(context, options);
+              throw new Error("injected reset failure");
+            },
+          },
+        ],
+      }),
+    ).rejects.toThrow("injected reset failure");
+    expect(await readRebuild()).toEqual(before);
+    expect(await truncateCount()).toBe(0);
+    expect((await pools.marker.query("SELECT * FROM event_subscription_checkpoints")).rows).toEqual(checkpoints.rows);
+    expect((await pools.marker.query("SELECT item_id FROM worker_marker_items")).rows).toEqual([
+      { item_id: "marker.rebuild" },
+    ]);
+  });
+
+  it.each([false, true])("projection-group-recovery-dependent survives owner resume (restart=%s)", async (restart) => {
+    await seedStaleRevision();
+    await pools.marker.query(`CREATE TABLE worker_marker_dependent_items
+      (item_id text PRIMARY KEY REFERENCES worker_marker_items(item_id));
+      CREATE TRIGGER worker_marker_dependent_truncate AFTER TRUNCATE ON worker_marker_dependent_items
+        EXECUTE FUNCTION record_worker_marker_truncate();`);
+    const makeGroups = () =>
+      createMountedContextTestRuntime([
+        {
+          contextName: "marker",
+          module: makeModule(2, true),
+          pool: pools.marker,
+          ports: {},
+        },
+      ]).projectionGroups;
+    const groups = makeGroups();
+    const owner = groups.find((group) => group.projectionName === "worker-marker")!;
+    const dependent = groups.find((group) => group.projectionName === "worker-marker-dependent")!;
+    const subscription = owner.subscriptionRunners[0];
+    let fail = true;
+    let worker = createProjectionGroupWorkerRunner({
+      ...owner,
+      subscriptionRunners: [
+        {
+          ...subscription,
+          runOnce: async (context?: ProjectionRunContext) => {
+            const result = await subscription.runOnce(context);
+            if (fail) {
+              fail = false;
+              throw new Error("owner drain failure");
+            }
+            return result;
+          },
+        },
+      ],
+    });
+    await expect(worker.runOnce()).rejects.toThrow("owner drain failure");
+    const ownerRebuild = await readRebuild();
+    const readDependent = () =>
+      loadProjectionGroupGeneration(pools.marker, {
+        targetContextName: "marker",
+        projectionName: "worker-marker-dependent",
+      });
+    expect(await readDependent()).toMatchObject({ state: "failed" });
+    const dependentWorker = createProjectionGroupWorkerRunner(dependent);
+    await expect(dependentWorker.runOnce()).resolves.toMatchObject({ processed: 1 });
+    await dependentWorker.runOnce();
+    const dependentSettled = await readDependent();
+    expect(dependentSettled).toMatchObject({ state: "active" });
+    const truncates = await truncateCount();
+    if (restart)
+      worker = createProjectionGroupWorkerRunner(
+        makeGroups().find((group) => group.projectionName === "worker-marker")!,
+      );
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0 });
+    expect(await readRebuild()).toMatchObject({
+      active_generation: ownerRebuild.rebuilding_generation,
+      started_at: ownerRebuild.started_at,
+      state: "active",
+    });
+    expect(await readDependent()).toEqual(dependentSettled);
+    expect(await truncateCount()).toBe(truncates);
+    const rows = await pools.marker.query("SELECT item_id FROM worker_marker_dependent_items");
+    expect(rows.rows).toEqual([{ item_id: "marker.rebuild" }]);
   });
 
   it("recovery reset, busy/blocked retention, stale capture and restart settle use the database token", async () => {

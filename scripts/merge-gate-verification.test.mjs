@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildPlatformHelmPreviewValues } from "./render-platform-helm-values.mjs";
 import {
   MERGE_GATE_OVERHEAD_BUDGET_MS,
   MERGE_GATE_PROOF_REQUIRED_RUNS,
@@ -110,6 +111,26 @@ describe("capacity headroom preflight", () => {
     status: { phase },
   });
   const pools = [{ name: "preview", max_nodes: 3 }];
+
+  it("counts overlay-sized scheduled preview pods and refuses exhausted memory headroom", () => {
+    const values = buildPlatformHelmPreviewValues();
+    const steady = Object.entries(values.components).filter(([name]) => name !== "platform-bootstrap");
+    const previewPods = [...steady.map(([, value]) => value), values.previewPostgres].map((value) => ({
+      metadata: { namespace: "chase-sets-pr-9963" },
+      spec: { nodeName: "preview-a", containers: [{ resources: value.resources }] },
+      status: { phase: "Running" },
+    }));
+    const input = {
+      config: validConfig(),
+      nodes: { items: [previewNode("preview-a", "7900m", "14000Mi")] },
+      nodePools: [{ name: "preview", max_nodes: 1 }],
+    };
+    expect(evaluateMergeGateCapacity({ ...input, pods: { items: [] } }).passed).toBe(true);
+    const result = evaluateMergeGateCapacity({ ...input, pods: { items: previewPods } });
+    expect(result.measurement.committed).toEqual({ cpuMillicores: 600, memoryMib: 6336, pods: 6 });
+    expect(result.passed).toBe(false);
+    expect(result.errors).toEqual([expect.stringContaining("insufficient preview-pool headroom (memory:")]);
+  });
 
   it("passes with an empty pool and counts live preview pod requests against capacity", () => {
     const config = validConfig();

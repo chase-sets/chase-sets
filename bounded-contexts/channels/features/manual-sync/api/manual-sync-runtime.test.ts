@@ -732,6 +732,7 @@ function activeConnection() {
     environment: "production" as const,
     status: "active" as const,
     createdAt: "2026-09-10T11:00:00.000Z",
+    allowedActions: ["pause", "disconnect"] as const,
   };
 }
 

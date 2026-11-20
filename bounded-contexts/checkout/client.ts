@@ -1,7 +1,13 @@
+import type { SellListReviewSelections, SellListReviewPlan } from "./features/sell-list/api/review-plan-contracts";
+export type {
+  SellListReviewSelections,
+  SellListReviewPlan,
+  SellListReviewPlanLine,
+} from "./features/sell-list/api/review-plan-contracts";
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
-import type { MutationResult } from "@chase-sets/http/responses";
+import type { CommandReceiptMetadata, MutationResult } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine, CheckoutCartRead } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
@@ -14,12 +20,8 @@ import type {
   CheckoutSellPayoutReadinessRow,
 } from "./features/sell-list/read-model/queries";
 import type { CheckoutShipFromAddressRow } from "./features/cart/integrations/identity/identity-queries";
-import type {
-  SellListConfirmationSummary,
-  SellListReadinessDecisionInput,
-  SellListReadinessSnapshot,
-  SellListSellerConfirmationEvidence,
-} from "./features/sell-list/api/contracts";
+import type { SellerCheckoutChoices } from "./features/sell-list/domain/owner-reads";
+import type { SellListReadinessDecisionInput, SellListReadinessSnapshot } from "./features/sell-list/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 import type { CheckoutSavedPaymentInstrumentRow } from "./features/sessions/integrations/payments/payment-affordance-queries";
 import type { CheckoutPaymentSummaryRow } from "./features/sessions/integrations/payments/payment-summary-queries";
@@ -28,6 +30,7 @@ import type { CheckoutFulfillmentPreview } from "./features/sessions/domain/fulf
 import {
   parseCheckoutCommandAttemptResult,
   type CheckoutCartAttemptKind,
+  type CheckoutLineAttemptKind,
   type CheckoutCommandAttemptResult,
 } from "./features/command-attempts/api/contracts";
 import type { CheckoutEntryAttemptQuery } from "./features/command-attempts/api/entry-attempt-contracts";
@@ -57,7 +60,7 @@ export type CheckoutCartAttemptFields = Readonly<{ attemptId: string }>;
 
 export type CheckoutCartCommandAttemptQuery = Readonly<{
   attemptId: string;
-  kind: CheckoutCartAttemptKind;
+  kind: CheckoutLineAttemptKind;
   target: string;
   requestHash: string;
 }>;
@@ -134,6 +137,7 @@ export type AddCheckoutCartLinesResponse = Readonly<{
 }>;
 
 export type AddCheckoutSellListLineRequest = Readonly<{
+  attemptId: string;
   lineType: "selected-offer" | "product";
   offerId?: string | null;
   listingId?: string | null;
@@ -537,6 +541,31 @@ export function createCheckoutApiClient({
     }> {
       return parseJsonResponse(await client.account["sell-list"].$get({ header: headers }));
     },
+    async getSellListCommandAttempt(
+      query: CheckoutCartCommandAttemptQuery,
+      anonymousSellListId?: string,
+    ): Promise<CheckoutCommandAttemptResult> {
+      const endpoint = anonymousSellListId
+        ? client.guest["command-attempts"][":attemptId"]
+        : client.account["command-attempts"][":attemptId"];
+      return parseCommandAttemptLookup(
+        await parseJsonResponse<{ attempt: unknown }>(
+          await endpoint.$get({
+            param: { attemptId: query.attemptId },
+            query: { kind: query.kind, target: query.target, requestHash: query.requestHash },
+            header: anonymousSellListId
+              ? mergeHeaders(headers, { "x-checkout-anonymous-sell-list-id": anonymousSellListId })
+              : headers,
+          }),
+        ),
+      );
+    },
+    async removeSellListLines(body: {
+      attemptId: string;
+      lineIds: readonly string[];
+    }): Promise<CheckoutCartAttemptMutationResult> {
+      return parseJsonResponse(await client.account["sell-list"].commands.$post({ json: body, header: headers }));
+    },
     async getSellListPayoutReadiness(): Promise<CheckoutSellPayoutReadinessRow> {
       return parseJsonResponse(await client.account["sell-list"]["payout-readiness"].$get({ header: headers }));
     },
@@ -544,11 +573,14 @@ export function createCheckoutApiClient({
       return parseJsonResponse(await client.account["sell-list"]["ship-from-addresses"].$get({ header: headers }));
     },
     async getSellListCompositeReview(
-      options: Readonly<{ includeStandardComparison?: boolean }> = {},
+      options: Readonly<{ includeStandardComparison?: boolean; sellListPath?: string }> = {},
     ): Promise<CheckoutSellListCompositeReview> {
       return parseJsonResponse(
         await client.account["sell-list"]["composite-review"].$get({
-          query: options.includeStandardComparison ? { includeStandardComparison: "true" } : {},
+          query: {
+            ...(options.includeStandardComparison ? { includeStandardComparison: "true" } : {}),
+            ...(options.sellListPath ? { sellListPath: options.sellListPath } : {}),
+          },
           header: headers,
         }),
       );
@@ -573,6 +605,18 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async getGuestSellListCompositeReview(
+      anonymousSellListId: string | null,
+    ): Promise<CheckoutSellListCompositeReview> {
+      return parseJsonResponse(
+        await client.guest["sell-list"]["composite-review"].$get({
+          header: mergeHeaders(
+            headers,
+            anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {},
+          ),
+        }),
+      );
+    },
     async getGuestSellListOfferReviews(
       anonymousSellListId: string | null,
     ): Promise<{ offerReviews: readonly CheckoutSellListOfferReview[] }> {
@@ -586,13 +630,27 @@ export function createCheckoutApiClient({
       );
     },
     async createSellListReadiness(
-      body: SellListReadinessDecisionInput & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
-    ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
+      body: SellListReadinessDecisionInput &
+        SellerCheckoutChoices & {
+          confirmationId?: string;
+          entryReadinessSnapshotId?: string;
+          entryReadinessSourceRevision?: string;
+          readinessSnapshotId?: string;
+          readinessSourceRevision?: string;
+          selections?: SellListReviewSelections;
+        } = {},
+    ): Promise<
+      CheckoutMutationResult<{
+        readiness: SellListReadinessSnapshot;
+        reviewPlan?: SellListReviewPlan;
+        decisions?: SellListReadinessDecisionInput;
+      }>
+    > {
       return parseJsonResponse(await client.account["sell-list"].readiness.$post({ json: body, header: headers }));
     },
     async createGuestSellListReadiness(
       anonymousSellListId: string,
-      body: SellListReadinessDecisionInput & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
+      body: SellListReadinessDecisionInput = {},
     ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(
         await client.guest["sell-list"].readiness.$post({
@@ -603,13 +661,13 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async addSellListLine(body: AddCheckoutSellListLineRequest): Promise<CheckoutCommandMutationResult> {
+    async addSellListLine(body: AddCheckoutSellListLineRequest): Promise<CheckoutCartAttemptMutationResult> {
       return parseJsonResponse(await client.account["sell-list"].$post({ json: body, header: headers }));
     },
     async addGuestSellListLine(
       anonymousSellListId: string,
       body: AddCheckoutSellListLineRequest,
-    ): Promise<CheckoutCommandMutationResult> {
+    ): Promise<CheckoutCartAttemptMutationResult> {
       return parseJsonResponse(
         await client.guest["sell-list"].$post({
           json: body,
@@ -619,11 +677,11 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async removeSellListLine(lineId: string): Promise<CheckoutCommandMutationResult> {
+    async removeSellListLine(lineId: string, body: { attemptId: string }): Promise<CheckoutCartAttemptMutationResult> {
       return parseJsonResponse(
         await client.account["sell-list"][":lineId"].remove.$post({
           param: { lineId },
-          json: {},
+          json: body,
           header: headers,
         }),
       );
@@ -637,24 +695,30 @@ export function createCheckoutApiClient({
       );
     },
     async confirmSellListCheckout(
-      body: Readonly<{
-        confirmationId: string;
-        readinessSnapshotId: string;
-        readinessSourceRevision: string;
-        readinessDecisions?: SellListReadinessDecisionInput | null;
-        completedLineIds?: readonly string[];
-        remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
-        sellerEvidence: SellListSellerConfirmationEvidence;
-        handoffSummary: SellListConfirmationSummary;
-      }>,
-    ): Promise<CheckoutMutationResult<{ confirmation: CheckoutSellListConfirmationRow }>> {
+      body: SellerCheckoutChoices &
+        Readonly<{
+          confirmationId: string;
+          readinessSnapshotId: string;
+          readinessSourceRevision: string;
+          readinessDecisions?: SellListReadinessDecisionInput | null;
+        }>,
+    ): Promise<
+      CheckoutMutationResult<{
+        confirmation: CheckoutSellListConfirmationRow;
+        sourceReceipts: readonly { commandReceipt: CommandReceiptMetadata }[];
+      }>
+    > {
       return parseJsonResponse(await client.account["sell-list"].confirm.$post({ json: body, header: headers }));
     },
-    async removeGuestSellListLine(anonymousSellListId: string, lineId: string): Promise<CheckoutCommandMutationResult> {
+    async removeGuestSellListLine(
+      anonymousSellListId: string,
+      lineId: string,
+      body: { attemptId: string },
+    ): Promise<CheckoutCartAttemptMutationResult> {
       return parseJsonResponse(
         await client.guest["sell-list"][":lineId"].remove.$post({
           param: { lineId },
-          json: {},
+          json: body,
           header: mergeHeaders(headers, {
             "x-checkout-anonymous-sell-list-id": anonymousSellListId,
           }),

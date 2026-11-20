@@ -140,6 +140,12 @@ Advanced inventory workflows may still call `GET /api/inventory/items` and `GET 
 
 High-dollar Listing publication can fail with `validation_failed` when Marketplace requires Listing Photo evidence or account trust before activation. Draft creation remains allowed; only buyer-visible publication is blocked until the Listing and account-risk policy clears.
 
+Listing command recovery:
+
+1. With `listings.manage`, post the command to `POST /api/marketplace/account/listings/batch/prepare`. For example, use `{"intent":"bulk-pause-listings","idempotencyKey":"seller_form_attempt_0001","listingId":null,"listingIds":["lst_1","lst_2"],"fields":{}}`. Use `listingId` for a single Listing. For seller settings, send `listingId: null` and `listingIds: []`. Send the command's raw form fields in `fields`. Marketplace computes the request hashes and returns `{"reference":{"batchId":...,"mutationKind":...,"bulk":...}}` without executing the command.
+2. Keep the reference before sending the command. Read `GET /api/marketplace/account/listings/batch/{batchId}?family={mutationKind}&bulk={bulk}` with `listings.view` to get the phase, each target's outcome, `retryTargetIds`, and a re-entry hint when the original command can be re-entered. This is a read, not a retry; unavailable or unbound history never grants retry eligibility.
+3. For bulk pause or withdraw, post the reference alone to `POST /api/marketplace/account/listings/batch/retry` with `listings.manage`. Marketplace rechecks owner history and sends only targets still eligible. For a single command, use the reference's `batchId` as the command idempotency key. Pass the original reference as `retained` when preparing a re-entered command; changed requests cannot replace the vector.
+
 Agent listing import:
 
 1. `GET /api/inventory/import-batches/sources`
@@ -153,6 +159,10 @@ Sale shipment printing:
 
 1. `GET /api/marketplace/account/sales/shipments`
 2. `GET /api/marketplace/account/sales/shipments/packing-slips?shipmentIds=shp_1,shp_2`
+
+Seller fulfillment command center:
+
+1. `GET /api/marketplace/account/sales/shipments/command-center`: the shipments that need the seller now (not cancelled, in a working status or holding a conflict), bucketed as exceptions, ready to dispatch, needs label and needs packing, ordered by the Seller Desk attention policy, each with its next action and disclosed actions. Each action's own command decides its legality against the shipment's stored state.
 
 Notification center:
 

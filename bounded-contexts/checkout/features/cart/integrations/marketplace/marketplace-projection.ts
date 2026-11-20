@@ -259,7 +259,11 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
       await db.query(
         `UPDATE checkout_marketplace_seller_options
          SET evidence_requirements = $2,
-             updated_at = $3
+             updated_at = CASE
+               WHEN (evidence_requirements - 'evaluatedAt') IS NOT DISTINCT FROM ($2::jsonb - 'evaluatedAt')
+                 THEN updated_at
+               ELSE $3
+             END
          WHERE listing_id = $1`,
         [
           extractIdFromStreamId(event.streamId, "marketplace.listing-"),

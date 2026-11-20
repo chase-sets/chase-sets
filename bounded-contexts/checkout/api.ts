@@ -2,6 +2,15 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import type {
+  SellerCheckoutReadinessOwner,
+  SellerCheckoutReadinessReader,
+  SellerCheckoutReadinessResult,
+  SellerShippingSetupServices,
+  SellerShippingOrigin,
+  SellerShippingOriginResolution,
+} from "@chase-sets/fulfillment/server";
+import type { SellerCheckoutRiskReader, SellerCheckoutRiskResult } from "@chase-sets/settlement/server";
 import type { CheckoutServices } from "./support/runtime-support/services";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./features/cart/api/route";
 import {
@@ -13,6 +22,20 @@ import { createAccountCheckoutSessionRoutes } from "./features/sessions/api/rout
 import { createCheckoutSupportLookupRoutes } from "./features/support-lookup/api/route";
 
 export type CheckoutApiEnv = AuthenticatedApiEnv;
+
+export type CheckoutSellerCheckoutOwners = Readonly<{
+  readRisk: SellerCheckoutRiskReader;
+  readFulfillment: SellerCheckoutReadinessReader;
+  resolveOrigin: SellerShippingSetupServices["resolveOrigin"];
+  invalidateAnonymousOwner: SellerShippingSetupServices["invalidateAnonymousOwner"];
+}>;
+export type {
+  SellerCheckoutReadinessOwner,
+  SellerCheckoutReadinessResult,
+  SellerCheckoutRiskResult,
+  SellerShippingOrigin,
+  SellerShippingOriginResolution,
+};
 
 export function createCheckoutCommercialTermsResolver(db: PgQueryable) {
   return createCommercialTermsResolver({ db });
@@ -27,6 +50,7 @@ export function buildCheckoutApi(services: CheckoutServices) {
     createAccountCommandAttemptRoutes({
       lookupCartAttempt: services.cart.lookupCartAttempt,
       lookupEntryAttempt: services.sessions.lookupEntryAttempt,
+      lookupSellListAttempt: services.sellList.lookupSellListAttempt,
     }),
   );
   app.route("/account", createAccountSellListRoutes(services.sellList, services.checkoutObservabilityTelemetry));
@@ -35,7 +59,13 @@ export function buildCheckoutApi(services: CheckoutServices) {
     "/guest",
     createGuestCartRoutes(services.cart, services.checkoutObservabilityTelemetry, services.rateLimitPolicyResolver),
   );
-  app.route("/guest", createGuestCommandAttemptRoutes(services.cart));
+  app.route(
+    "/guest",
+    createGuestCommandAttemptRoutes({
+      lookupCartAttempt: services.cart.lookupCartAttempt,
+      lookupSellListAttempt: services.sellList.lookupSellListAttempt,
+    }),
+  );
   app.route("/guest", createGuestSellListRoutes(services.sellList, services.rateLimitPolicyResolver));
   app.route("/support", createCheckoutSupportLookupRoutes(services.supportLookup));
 

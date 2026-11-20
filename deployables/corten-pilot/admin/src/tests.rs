@@ -2,13 +2,14 @@
 //! to the API, and how each answer of the API becomes a page, a patch or a redirect.
 use std::sync::{Arc, Mutex};
 
-use corten::axum::{
+// The stand-in API is a server of its own, a plain axum router (a dev-dependency) with axum's
+// `State`, `Json` and `Response`; the app under test is a `corten::Router`, and the rest names Corten.
+use axum::{
     Json, Router,
-    body::Body,
     extract::State,
-    http::{HeaderMap, Method, Request, StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
+use corten::http::{Body, HeaderMap, Method, Request, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -54,15 +55,51 @@ fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(json!({ "error": { "code": code, "message": message } }))).into_response()
 }
 
+/// An integration job the API queued (`202` with its `jobId`) and the write's receipt.
+fn queued(id: &str) -> Response {
+    let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    (StatusCode::ACCEPTED, headers, Json(json!({ "jobId": id, "status": "queued" }))).into_response()
+}
+
 fn written(status: StatusCode, id: &str) -> Response {
     let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
     (status, headers, Json(json!({ "id": id, "version": 2 }))).into_response()
 }
 
+/// Auth's Google Workspace sign-in: the start redirects to the provider, back to the origin the
+/// request's `Host` names; the return with code `good` starts a session and goes to `/catalog`, and
+/// any other code goes back to the sign-in with `admin_permission_required`. A return with no code (a
+/// cancelled sign-in) or the state `spent` is Auth's `invalid_state`, which it answers before it reads the
+/// state's journey, so at its journey-less `/sign-in` (social-login-routes.ts's `redirectToFallback`).
+fn workspace_sso(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let step = uri.path().strip_prefix("/api/auth/social/google/")?;
+    if *method != Method::GET {
+        return None;
+    }
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let found = |to: String| (StatusCode::FOUND, [(header::LOCATION, to)]).into_response();
+    Some(match step {
+        "start" => {
+            found(format!("https://provider.test/authorize?hd=chasesets.test&back=http://{host}/api/auth/social/google/callback"))
+        }
+        "callback" if uri.query().is_none_or(|q| !q.contains("code=") || q.contains("state=spent")) => {
+            found("/sign-in?socialLoginError=invalid_state".to_owned())
+        }
+        "callback" if uri.query().is_some_and(|q| q.contains("code=good")) => {
+            let mut res = found("/catalog".to_owned());
+            let cookie = format!("{}={}; Path=/; SameSite=Lax", "chase_sets_session", "tok_workspace");
+            res.headers_mut().append(header::SET_COOKIE, cookie.parse().unwrap());
+            res
+        }
+        _ => found("/access/sign-in?socialLoginError=admin_permission_required".to_owned()),
+    })
+}
 /// Auth's sign-in routes, as far as the sign-in page uses them: `staff@example.test` with `right`
 /// starts a session, `member@example.test` must choose an account first (`sel_1`), and
-/// `limited@example.test` is rate limited.
+/// `limited@example.test` is rate limited. A passkey challenge is `cmd_1`, and a passkey sign-in
+/// with the credential `signed` starts a session.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method != Method::POST || !path.starts_with("/api/auth/") {
         return None;
@@ -92,6 +129,11 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
             "good" => started("tok_magic"),
+            _ => unknown(),
+        },
+        "/api/auth/passkeys/challenge" => Json(json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" })).into_response(),
+        "/api/auth/passkeys/sign-in" => match (text("challengeId").as_str(), text("webauthnResponse").as_str()) {
+            ("cmd_1", "signed") => started("tok_passkey"),
             _ => unknown(),
         },
         "/api/auth/phone-code/request" => {
@@ -127,6 +169,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         body: body.clone(),
     });
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if let Some(answer) = workspace_sso(&method, &uri, &headers) {
+        return answer;
+    }
     if let Some(answer) = auth(&method, uri.path(), &body) {
         return answer;
     }
@@ -140,6 +185,11 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             return Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": permissions } }))
                 .into_response();
         }
+        if cookie.contains("chase_sets_session=catalog-admin") {
+            let permissions = ["catalog.view", "catalog.manage"];
+            return Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": permissions } }))
+                .into_response();
+        }
         return if cookie.contains("chase_sets_session=access-staff") {
             actor(&["accounts.view", "security.manage", "memberships.view"])
         } else if cookie.contains("chase_sets_session=accounts-only") {
@@ -149,6 +199,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         } else if cookie.contains("chase_sets_session=catalog-reader")
             || cookie.contains("chase_sets_session=catalog-viewer")
             || cookie.contains("chase_sets_session=queue-down")
+            || cookie.contains("chase_sets_session=queue-many")
+            || cookie.contains("chase_sets_session=queue-unknown")
         {
             actor(&["catalog.view"])
         } else if cookie.contains("chase_sets_session=projections-operator") {
@@ -167,6 +219,16 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["platform-feedback.view"])
         } else if cookie.contains("chase_sets_session=support-viewer") || cookie.contains("chase_sets_session=attention-down") {
             actor(&["support.view"])
+        } else if cookie.contains("chase_sets_session=support-remedies") {
+            actor(&[
+                "support.manage",
+                "support.remedies.propose",
+                "support.remedies.approve",
+                "support.remedies.override-return",
+                "support.remedies.retry",
+                "support.remedies.waive",
+                "support.remedies.correct",
+            ])
         } else if cookie.contains("chase_sets_session=support-agent") || cookie.contains("chase_sets_session=support-lag") {
             actor(&["support.manage"])
         } else if cookie.contains("chase_sets_session=intake-manager") {
@@ -244,11 +306,18 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix("/api/catalog/scope-sync-batches") {
         return sync_batches_api(&method, rest, &headers, &body);
     }
+    if uri.path() == "/api/catalog/alias-review" && uri.query() == Some("limit=200") {
+        return all_scopes_alias_review(cookie);
+    }
+    // The daily workbench's alias review, for the provider (and profile version) it names.
+    if uri.path() == "/api/catalog/alias-review" && uri.query().is_some_and(|q| q.starts_with("providerKey=")) {
+        return all_scopes_alias_review(cookie);
+    }
     if let Some(answer) = scope_api(&method, uri.path(), uri.query().unwrap_or_default(), &body) {
         return answer;
     }
     if let Some(rest) = uri.path().strip_prefix("/api/catalog/attention-queue") {
-        return attention_queue(method, rest, cookie, &headers, &body);
+        return attention_queue(method, rest, uri.query().unwrap_or_default(), cookie, &headers, &body);
     }
     if let Some(rest) = uri.path().strip_prefix("/api/auth/sessions") {
         return auth_sessions(&method, rest, &body);
@@ -320,6 +389,21 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if uri.path() == "/api/platform/provider-connections" {
         return provider_connections();
+    }
+    if let Some(surface) = uri.path().strip_prefix("/api/catalog/source-observations/workbench-surfaces/") {
+        return workbench_surface(surface, uri.query().unwrap_or_default(), cookie);
+    }
+    if let Some(id) = uri.path().strip_prefix("/api/catalog/source-observations/").and_then(|r| r.strip_suffix("/evidence")) {
+        return observation_evidence(id);
+    }
+    if let Some(answer) = daily_command(&method, uri.path(), &body) {
+        return answer;
+    }
+    if let Some(answer) = provider_api(&method, uri.path(), &body) {
+        return answer;
+    }
+    if let Some(answer) = operator_session_api(&method, uri.path(), &headers) {
+        return answer;
     }
     if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
         return shopping_api(&method, rest, uri.query().unwrap_or_default(), &body);
@@ -519,8 +603,8 @@ fn identity_api(method: &Method, rest: &str, body: &str) -> Response {
     }
 }
 
-/// Auth's sessions: one of 120 in the list; `ses_1` active with two accounts, `ses_old` revoked,
-/// and a switch to `acc_gone` refused.
+/// Auth's sessions: one of 120 in the list; `ses_1` active with two accounts, `ses_solo` active with
+/// only its own, `ses_old` revoked, and a switch to `acc_gone` refused.
 fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
     let session = |id: &str, status: &str| {
         json!({
@@ -534,6 +618,11 @@ fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
         (Method::GET, "") => Json(json!({ "items": [session("ses_1", "active")], "total": 120, "count": 1 })).into_response(),
         (Method::GET, "/ses_1") => Json(session("ses_1", "active")).into_response(),
         (Method::GET, "/ses_old") => Json(session("ses_old", "revoked")).into_response(),
+        (Method::GET, "/ses_solo") => {
+            let mut solo = session("ses_solo", "active");
+            solo["available_account_ids"] = json!(["acc_1"]);
+            Json(solo).into_response()
+        }
         (Method::POST, "/ses_1/switch-account") if body.contains("acc_gone") => {
             refusal(StatusCode::CONFLICT, "account_unavailable", "That account is not available to this session.")
         }
@@ -543,10 +632,19 @@ fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
 }
 
 /// Platform Operations' reported content: a listing with two reports and a review in the queue
-/// (one page of 12), and a withdrawal without its note refused as the API refuses it.
+/// (one page of 12), and a withdrawal without its note refused as the API refuses it. The listing's
+/// response is critical, open and not acknowledged, and acknowledging it answers no receipt; the
+/// review's is acknowledged and overdue, and acknowledging it is refused as disposed.
 fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
     let item = |kind: &str, id: &str, status: &str| {
+        let listing = kind == "listing";
         json!({
+            "severity": if listing { "critical" } else { "standard" },
+            "policy_revision": if listing { json!("rcp-2026-11") } else { Value::Null }, "policy_code": Value::Null,
+            "response_started_at": "2026-10-28T12:00:00.000Z",
+            "acknowledged_at": if listing { Value::Null } else { json!("2026-10-30T09:00:00.000Z") },
+            "acknowledge_due_at": "2026-10-28T13:00:00.000Z", "disposition_due_at": "2026-10-29T12:00:00.000Z",
+            "accountable_role": "trust-and-safety", "response_open": true, "overdue": !listing,
             "target_type": kind, "target_id": id, "target_owner_account_id": "acc_seller", "status": status,
             "report_count": 2, "reasons": [{ "reason": "counterfeit", "count": 2 }],
             "first_reported_at": "2026-10-28T12:00:00.000Z", "last_reported_at": "2026-10-29T12:00:00.000Z",
@@ -583,6 +681,12 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
             Json(json!({ "id": "rca_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
         }
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
+        (Method::POST, "/listing/lst_1/acknowledge") => Json(json!({ "acknowledgedAt": "2026-11-15T12:00:00.000Z" })).into_response(),
+        // As the API refuses it: a reason and no message.
+        (Method::POST, "/review/rev_1/acknowledge") => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "reason": "target-disposed" } })))
+                .into_response()
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -706,8 +810,10 @@ const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 /// Support requests' ops API: `req_1`, urgent, contested and ready for support with a photo, a
 /// note, a seller's challenge, a declined offer and the API's operator policy (its prefill and
 /// ceiling are not what the offer and lines would give, so the page shows the API's); `req_done`, resolved with a refund and not yet
-/// closable; the flows' titles; Escalate overdue's counts; a resolve without its summary refused;
-/// and `req_1`'s one photo.
+/// closable; `req_remedy`, whose remedy awaits a second approval and has a retryable, a waivable,
+/// an unwaivable and a releasable effect; a remedy preview (refused without a rationale) and the
+/// remedy writes; the flows' titles; Escalate overdue's counts; a resolve without its summary
+/// refused; and `req_1`'s one photo.
 fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
     let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
         json!({
@@ -775,6 +881,67 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
             Json(detail).into_response()
         }
+        (Method::GET, "/ops/req_remedy") => {
+            let mut detail = row("req_remedy", "SUP-1077", "resolved", "normal", None);
+            let more = json!({
+                "buyer_account_id": "acc_buyer", "seller_account_id": "acc_seller",
+                "resolution": { "summary": "Refunded twelve.", "refundAmount": "12.00", "resolvedAt": "2026-05-08T09:00:00.000Z" },
+                "flow": { "allowedResolutions": ["partial-refund"] },
+            });
+            detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            let terms = json!({
+                "remedyId": "rmd_1", "remedy": { "kind": "partial-refund", "amount": "12.00", "currencyCode": "usd" },
+                "allocation": { "sellerFundedAmount": "4.00", "platformFundedAmount": "8.00", "currencyCode": "usd", "fundingKind": "split" },
+                "returnDirective": "no-return", "refundTrigger": "operator-release", "reasonCode": "customer-protection",
+                "policyVersion": "platform-operations.platform-remedies:compiled-v1",
+            });
+            let audit = json!([
+                { "action": "proposal", "actorType": "human", "actorAccountId": "acc_ops", "reasonCode": "customer-protection",
+                  "occurredAt": "2026-05-08T10:00:00.000Z", "correlationId": "cor_1" },
+                { "action": "reservation-reserved", "actorType": "system", "actorAccountId": null, "reasonCode": "reserved",
+                  "occurredAt": "2026-05-08T10:01:00.000Z", "correlationId": "cor_2" },
+            ]);
+            detail["remedy_approval"] = json!({
+                "terms": terms, "status": "approval-pending", "reservationStatus": "reserved", "reservationReasonCode": null,
+                "requiredApprovalCount": 2, "approvals": [{ "approvedByAccountId": "acc_ops", "reasonCode": "policy-approved" }],
+                "auditTrail": audit,
+            });
+            let effect = |effect: &str, status: &str, key: Option<&str>| {
+                let facts: Vec<Value> = key
+                    .map(|key| json!({ "effect": effect, "idempotencyKey": key, "reasonCode": "processor-timeout",
+                        "occurredAt": "2026-05-08T11:00:00.000Z" }))
+                    .into_iter()
+                    .collect();
+                json!({ "effect": effect, "required": true, "status": status, "facts": facts, "waiver": null })
+            };
+            let effects = vec![
+                effect("refund-execution", "failed-retryable", Some("idem_3")),
+                effect("buyer-notification", "failed-terminal", Some("idem_4")),
+                effect("coverage-reservation", "failed-terminal", Some("idem_5")),
+                effect("operator-release", "pending", None),
+            ];
+            detail["remedy"] = json!({ "remedyId": "rmd_1", "status": "action-required", "effects": effects });
+            Json(detail).into_response()
+        }
+        (Method::POST, "/ops/req_done/remedy-proposals/preview") if body.contains(r#""rationale":"""#) => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "A remedy rationale is required.")
+        }
+        (Method::POST, "/ops/req_done/remedy-proposals/preview") => Json(json!({
+            "customerOutcome": "Refund 5.00 usd now", "sellerImpact": "No seller debit", "protectionReserveImpact": "Reserve 5.00",
+            "returnLabelCostPayer": "none", "refundTrigger": "immediate", "reservationExpiresAt": "2026-05-09T09:00:00.000Z",
+            "requiredApprovalCount": 1, "requiresElevatedApproval": false, "returnOverrideRequired": true,
+            "policyVersion": "platform-operations.platform-remedies:compiled-v1",
+        }))
+        .into_response(),
+        (
+            Method::POST,
+            "/ops/req_done/remedy-proposals"
+            | "/ops/req_remedy/remedy-proposals/approve"
+            | "/ops/req_remedy/remedies/rmd_1/effects/refund-execution/retry"
+            | "/ops/req_remedy/remedies/rmd_1/effects/buyer-notification/override"
+            | "/ops/req_remedy/remedies/rmd_1/effects"
+            | "/ops/req_remedy/remedy-corrections",
+        ) => written(StatusCode::OK, "req_remedy"),
         (Method::POST, "/ops/escalate-overdue") => {
             let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
             let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
@@ -795,10 +962,14 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
 }
 
 /// Customer Feedback's CSAT dashboard: a 7-day window with too few answers, a 30-day one with
-/// figures, one trend bucket, one invitation and both pages; a `to` in the future is answered 500,
-/// as the API does (chase-sets/chase-sets#10844).
+/// figures, one trend bucket, one invitation and both pages; a `to` in the future is refused as
+/// the API refuses it (400 `validation_failed`, `range-after-as-of`), and the expired state fails.
 fn csat_dashboard(query: &str) -> Response {
     if query.contains("to=2099") {
+        let body = json!({ "error": { "code": "validation_failed", "reason": "range-after-as-of", "message": "CSAT trendTo cannot be after asOf." } });
+        return (StatusCode::BAD_REQUEST, Json(body)).into_response();
+    }
+    if query.contains("states=expired") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
     }
     let slice = |csat: Value, availability: &str| {
@@ -882,7 +1053,7 @@ fn risk_alerts(method: &Method, rest: &str) -> Response {
 
 /// The pilot, in front of a stand-in API on a loopback port.
 struct Pilot {
-    router: Router,
+    router: corten::Router,
     calls: Calls,
 }
 
@@ -892,7 +1063,7 @@ impl Pilot {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(platform).with_state(calls.clone());
-        tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
+        tokio::spawn(async move { axum::serve(listener, stand_in).await.unwrap() });
         let router = app(Config { platform: Platform::new(&origin), proto: "http" }).router();
         Pilot { router, calls }
     }
@@ -918,18 +1089,54 @@ fn get(uri: &str, session: Option<&str>) -> Request<Body> {
     req.body(Body::empty()).unwrap()
 }
 
+/// Whether a link to `href` in `html` is marked the current page, whatever attributes sit between.
+/// A stacked table's cell as the kit draws it: its column's label (shown on a phone), then its value.
+fn labelled_cell(label: &str, value: &str) -> String {
+    format!(r#"<td><span class="table__label" aria-hidden="true">{label}</span>{value}</td>"#)
+}
+
+fn marks_current(html: &str, href: &str) -> bool {
+    let needle = format!(r#"href="{href}""#);
+    html.match_indices(&needle).any(|(at, _)| {
+        let start = html[..at].rfind('<').unwrap_or(0);
+        let end = html[at..].find('>').map_or(html.len(), |n| at + n);
+        html[start..end].contains(r#"aria-current="page""#)
+    })
+}
+
 /// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
 fn post(uri: &str, body: &str, script: bool) -> Request<Body> {
     post_as("staff", uri, body, script)
 }
 
+/// What a browser's navigation asks for: Corten's debug checks of a browser's plain post (a page
+/// answered at a path with no `GET`) see these posts as a browser's.
+const BROWSER_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+/// A GET form's submit as staff: `body` is the form's fields, joined to `uri`'s query as a
+/// browser joins them (a bulk preview), sent by the runtime (`corten: action`) or as a browser
+/// without JavaScript.
+fn form_get(uri: &str, body: &str, script: bool) -> Request<Body> {
+    let join = if uri.contains('?') { '&' } else { '?' };
+    let mut req = Request::get(format!("{uri}{join}{body}"))
+        .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
+        .header(header::COOKIE, "chase_sets_session=staff");
+    if script {
+        req = req.header("corten", "action");
+    }
+    req.body(Body::empty()).unwrap()
+}
+
 fn post_as(session: &str, uri: &str, body: &str, script: bool) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
-        req = req.header("corten", "action");
+        // As the runtime sends a form: a write's own page is drawn whole.
+        req = req.header("corten", "action").header("prefer", "corten-draws=whole");
     }
     req.body(Body::from(body.to_owned())).unwrap()
 }
@@ -965,6 +1172,7 @@ async fn a_signed_out_visitor_signs_in_through_the_pilot() {
 fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if let Some(cookie) = cookie {
         req = req.header(header::COOKIE, cookie);
@@ -983,8 +1191,8 @@ async fn the_sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     let (status, _, html) = pilot.send(get("/access/sign-in?returnTo=%2Fcatalog", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
-        html.contains(r#"href="http://localhost:7752/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
-        "Google Workspace through admin-web, back to the page: {html}"
+        html.contains(r#"href="/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog" data-reload>"#),
+        "Google Workspace through the pilot's relay, back to the page, never prefetched: {html}"
     );
     assert!(html.contains(r#"<form class="sign-in-page__form" method="get" action="/access/sign-in">"#), "{html}");
     assert!(html.contains(r#"name="noindex""#) || html.contains(r#"content="noindex""#), "not indexed: {html}");
@@ -1044,6 +1252,81 @@ async fn a_password_starts_the_session_and_goes_back_to_the_page() {
     assert!(set_cookies(&headers).is_empty(), "no session");
     let (status, _, _) = pilot.send(visitor_post(at, None, "intent=password&email=limited%40example.test&password=x")).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn google_workspace_goes_through_auth_and_comes_back_to_the_pages_origin() {
+    let pilot = Pilot::new().await;
+    let start = "/api/auth/social/google/start?journey=admin&returnTo=%2Fcatalog";
+    let (status, headers, _) = pilot.send(get(start, None)).await;
+    assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.ends_with("back=http://localhost:7790/api/auth/social/google/callback"), "back to the page's origin: {to}");
+    let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.starts_with("/api/auth/social/")).cloned().unwrap();
+    assert_eq!(sent.path, start, "the query as sent");
+    assert_eq!(sent.headers[header::HOST.as_str()], "localhost:7790");
+
+    let (status, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_1&code=good", None)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::FOUND, "/catalog"));
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_workspace;")), "{headers:?}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "a session's answer: {headers:?}");
+
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_1&code=outsider", None)).await;
+    let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(back, "/access/sign-in?socialLoginError=admin_permission_required");
+    let (status, _, html) = pilot.send(get(&back, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("This Workspace user does not have access to this admin area."), "{html}");
+}
+
+#[tokio::test]
+async fn a_cancelled_or_spent_workspace_sign_in_lands_on_the_pilots_sign_in_with_auths_error() {
+    let pilot = Pilot::new().await;
+    for callback in [
+        "/api/auth/social/google/callback?state=st_1&error=access_denied",
+        "/api/auth/social/google/callback?state=spent&code=good",
+    ] {
+        let (status, headers, _) = pilot.send(get(callback, None)).await;
+        assert_eq!(status, StatusCode::FOUND, "{callback}: {headers:?}");
+        let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+        assert_eq!(back, "/access/sign-in?socialLoginError=invalid_state", "the pilot's sign-in, not admin-web's: {callback}");
+        assert!(set_cookies(&headers).is_empty(), "no session or selection: {headers:?}");
+        let (status, headers, html) = pilot.send(get(&back, None)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(html.contains("Social login could not be completed. Try again or use another sign-in method."), "{html}");
+        assert!(set_cookies(&headers).is_empty(), "{headers:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_passkey_is_the_pilots_step_and_signs_in_with_its_credential() {
+    let pilot = Pilot::new().await;
+    let at = "/access/sign-in?returnTo=%2Fcatalog&signInIdentifier=staff%40example.test&signInMethod=passkey";
+    let (status, _, html) = pilot.send(get(at, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"value="passkey-sign-in""#) && html.contains(r#"name="webauthnResponse""#), "{html}");
+    assert!(!html.contains("http://localhost:7752/access/sign-in"), "no longer admin-web's: {html}");
+
+    let (status, headers, json) =
+        pilot.send(visitor_post("/access/sign-in/passkey", None, "purpose=passkey-sign-in&email=staff%40example.test")).await;
+    assert_eq!(status, StatusCode::OK, "{json}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(serde_json::from_str::<Value>(&json).unwrap(), json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" }));
+    let challenge = pilot.calls.lock().unwrap().iter().find(|c| c.path == "/api/auth/passkeys/challenge").cloned().unwrap();
+    assert_eq!(challenge.headers["x-forwarded-host"], "localhost:7790", "the page's origin, which Auth checks");
+
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=signed";
+    let body = format!("intent=passkey-sign-in&email=staff%40example.test&{credential}");
+    let (status, headers, _) = pilot.send(visitor_post(at, None, &body)).await;
+    assert_eq!((status, &headers[header::LOCATION]), (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/catalog")));
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_passkey;")));
+
+    // No credential: the step's script did not run. Nothing is sent.
+    let (status, _, html) = pilot.send(visitor_post(at, None, "intent=passkey-sign-in&email=staff%40example.test")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Passkey sign-in failed."), "{html}");
+    let sent = pilot.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/passkeys/sign-in").count();
+    assert_eq!(sent, 1);
 }
 
 #[tokio::test]
@@ -1166,7 +1449,7 @@ async fn the_list_renders_for_staff_and_data_clients_get_the_screen() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("<h1>Postage Policies</h1>"), "{html}");
     assert!(html.contains("Default postage policy"), "{html}");
-    assert!(html.contains(r#"href="/commerce/postage-policies" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/commerce/postage-policies"), "{html}");
 
     let mut req = get("/commerce/postage-policies?policy=opp_seed", Some("staff"));
     req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
@@ -1449,9 +1732,21 @@ fn publish_candidate(id: &str, outcome: &str, retryable: bool) -> Value {
     })
 }
 
-/// A catalog item bulk job, done: a publish (one published, one to retry) or an edit.
+/// A draft removal's item (`BulkRemoveDraftCandidate`): only a draft is ready.
+fn removal_candidate(id: &str, status: &str, outcome: &str) -> Value {
+    let reason = if matches!(outcome, "ready" | "succeeded") { Value::Null } else { json!("Only draft items can be removed.") };
+    json!({ "catalog_item_id": id, "title": format!("Title {id}"), "status": status, "outcome": outcome, "reason": reason })
+}
+
+const ITEMS_REMOVE_DRAFTS: &str = "catalog.authoring.items.remove-drafts";
+
+/// A catalog item bulk job, done: a publish (one published, one to retry), a draft removal (one
+/// removed, one skipped) or an edit.
 fn item_job(id: &str, kind: &str, action: &str) -> Value {
-    let result = if kind.ends_with(".publish") {
+    let result = if kind == ITEMS_REMOVE_DRAFTS {
+        json!({ "item_ids": ["cat_a", "cat_b"], "total": 2, "succeeded_count": 1, "skipped_count": 1, "failed_count": 0,
+                "candidates": [removal_candidate("cat_a", "removed", "succeeded"), removal_candidate("cat_b", "active", "skipped")] })
+    } else if kind.ends_with(".publish") {
         json!({ "item_ids": ["cat_a", "cat_b"], "total": 2, "published_count": 1, "failed_count": 1, "skipped_count": 0,
                 "candidates": [publish_candidate("cat_a", "published", false), publish_candidate("cat_b", "failed", true)] })
     } else {
@@ -1496,28 +1791,84 @@ fn items_api(method: Method, rest: &str, body: &str) -> Response {
         (Method::POST, "/bulk-edit/confirm") => {
             (StatusCode::ACCEPTED, Json(item_job("job_edit", "catalog.authoring.items.edit", "mergeTags"))).into_response()
         }
+        (Method::POST, "/bulk-remove-drafts/preview" | "/bulk-remove-drafts/confirm")
+            if !body.contains(r#""ids":["#) || body.contains(r#""ids":[]"#) =>
+        {
+            refusal(StatusCode::BAD_REQUEST, "invalid_request", "Choose at least one Catalog Item to remove.")
+        }
+        (Method::POST, "/bulk-remove-drafts/preview") => {
+            let candidates = [removal_candidate("cat_a", "draft", "ready"), removal_candidate("cat_b", "active", "blocked")];
+            Json(json!({ "mode": "ids", "item_ids": ["cat_a", "cat_b"], "total": 2, "ready_count": 1, "blocked_count": 1,
+                         "candidates": candidates }))
+            .into_response()
+        }
+        (Method::POST, "/bulk-remove-drafts/confirm") => {
+            (StatusCode::ACCEPTED, Json(item_job("job_remove", ITEMS_REMOVE_DRAFTS, "remove-drafts"))).into_response()
+        }
         (Method::DELETE, "/cat_used") => refusal(StatusCode::CONFLICT, "invalid_transition", "Only draft items can be removed."),
+        (Method::GET, "/cat_box" | "/cat_race") => Json(item(&rest[1..], "active")).into_response(),
+        (Method::GET, "/cat_origin") => {
+            let mut origin = item("cat_origin", "active");
+            origin["external_product_references"] = json!([{ "providerKey": "tcgplayer", "externalKey": "p/1" }]);
+            origin["external_catalog_item_references"] = json!([{ "providerKey": "admin-web", "externalKey": "k/1" }]);
+            Json(origin).into_response()
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
-/// The Catalog's Scope Records: two on the page of 51, one live and changed lately (a time to
-/// come, so it stays fresh), one a draft untouched since 2020. A search for `broken` fails.
+/// The Catalog API's Product Contents for `cat_box` and `cat_race`: one line, read at version 4.
+/// A replace at that version is written; any other is the API's `concurrency_conflict`, and every
+/// replace of `cat_race` is, as if another write landed between the read and this one.
+fn contents_api(method: &Method, rest: &str, body: &str) -> Option<Response> {
+    let rest = rest.strip_prefix("/product-contents")?;
+    let list = |items: Value| Json(json!({ "items": items, "total": 0, "count": 0 })).into_response();
+    let line = |container: &str| {
+        json!({ "lineId": "pcl_1", "containerCatalogItemId": container, "containedCatalogItemId": "cat_a", "quantity": 1,
+                "contentTypeId": "pct_1", "inclusionPolicyId": null, "provenance": { "source": "operator" },
+                "resolutionStatus": "resolved" })
+    };
+    let conflict = || refusal(StatusCode::CONFLICT, "conflict", "Product Contents changed since the authoring snapshot.");
+    Some(match (method, rest) {
+        (&Method::GET, "/content-types") => list(
+            json!([{ "content_type_id": "pct_1", "key": "booster", "display_name": { "en": "Booster" }, "status": "active" }]),
+        ),
+        (&Method::GET, "/inclusion-policies") => list(json!([])),
+        (&Method::GET, "/contained/cat_box" | "/contained/cat_race") => list(json!([])),
+        (&Method::GET, "/containers/cat_box/authoring" | "/containers/cat_race/authoring") => {
+            let container = &rest["/containers/".len()..rest.len() - "/authoring".len()];
+            Json(json!({ "containerCatalogItemId": container, "containerSelectedOptions": null, "lines": [line(container)], "version": 4 }))
+                .into_response()
+        }
+        (&Method::PUT, "/containers/cat_race") => conflict(),
+        (&Method::PUT, "/containers/cat_box") => {
+            let sent: Value = serde_json::from_str(body).unwrap();
+            if sent["expectedVersion"] == json!(4) { written(StatusCode::OK, "cat_box") } else { conflict() }
+        }
+        _ => return None,
+    })
+}
+
+/// The Catalog's Scope Records: two on the page of 51, one live and fresh, one a draft the API
+/// reads as a stale sync, with the editions across every page as the facets. The API filters by
+/// `languageEdition`. A search for `broken` fails.
 fn scope_records(query: &str) -> Response {
     if query.contains("search=broken") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The scope list is unavailable.");
     }
-    let scope = |id: &str, name: &str, code: Option<&str>, editions: &[&str], status: &str, updated: &str| {
+    let scope = |id: &str, name: &str, code: Option<&str>, editions: &[&str], status: &str, row: [&str; 2]| {
         json!({ "scopeRecordId": id, "productDomain": "pokemon", "scopeKind": "expansion", "referenceTypeKey": "expansion",
                 "referenceRecordId": format!("ref_{id}"), "referenceRecordKey": id, "name": name, "parentScopeRecordId": null,
                 "productLineScopeRecordId": null, "seriesScopeRecordId": null, "releaseDate": null, "officialSetCode": code,
-                "languageEditions": editions, "lifecycleStatus": status, "updatedAt": updated })
+                "languageEditions": editions, "lifecycleStatus": status, "updatedAt": "2026-11-04T00:00:00.000Z",
+                "promotionReadiness": row[0], "syncFreshness": row[1] })
     };
-    let items = [
-        scope("scp_paf", "Paldean Fates", Some("PAF"), &["en", "ja"], "active", "2999-01-01T00:00:00.000Z"),
-        scope("scp_base", "Base Set", None, &[], "draft", "2020-01-01T00:00:00.000Z"),
-    ];
-    Json(json!({ "items": items, "total": 51, "count": 2 })).into_response()
+    let paf = scope("scp_paf", "Paldean Fates", Some("PAF"), &["en", "ja"], "active", ["live", "fresh"]);
+    let base = scope("scp_base", "Base Set", None, &[], "draft", ["unpublished", "stale"]);
+    let items = if query.contains("languageEdition=ja") { vec![paf] } else { vec![paf, base] };
+    let facets = json!({ "languageEditions": ["en", "fr", "ja"] });
+    Json(json!({ "generatedAt": "2026-11-04T12:00:00.000Z", "items": items, "total": 51, "count": 2, "facets": facets }))
+        .into_response()
 }
 
 /// A scope's page's reads and writes. `scp_paf` has two editions (its Japanese alias pending), a
@@ -1528,8 +1879,10 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
     let scope = |id: &str, editions: &[&str], status: &str| {
         json!({ "scopeRecordId": id, "productDomain": "pokemon", "scopeKind": "expansion", "referenceTypeKey": "expansion",
                 "referenceRecordId": format!("ref_{id}"), "referenceRecordKey": id, "name": "Paldean Fates",
+                "productLineScopeRecordId": "scp_pokemon", "seriesScopeRecordId": "scp_sv",
                 "officialSetCode": "PAF", "languageEditions": editions, "lifecycleStatus": status,
-                "updatedAt": "2999-01-01T00:00:00.000Z" })
+                "updatedAt": "2026-11-04T00:00:00.000Z",
+                "promotionReadiness": if status == "active" { "live" } else { "unpublished" }, "syncFreshness": "fresh" })
     };
     let job = |id: &str, kind: &str, status: &str, result: Value, error: Value| {
         json!({ "jobId": id, "kind": kind, "status": status, "progress": { "completed": 1, "total": 2 },
@@ -1613,12 +1966,66 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
     Some(answer)
 }
 
+/// The all-scopes alias review (`alias-review?limit=200`): a pending, flagged candidate with its
+/// evidence, an accepted one, and a pending one from a Source Observation. It cannot be read for
+/// `queue-down`.
+fn all_scopes_alias_review(cookie: &str) -> Response {
+    if cookie.contains("queue-down") {
+        return refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Alias review is unavailable.");
+    }
+    Json(all_scopes_alias_review_json()).into_response()
+}
+
+fn all_scopes_alias_review_json() -> Value {
+    json!({
+        "schemaVersion": "catalog-alias-review-v1", "generatedAt": "2026-11-03T00:00:00.000Z",
+        "counts": { "total": 2, "pending": 1, "accepted": 1, "autoAccepted": 0, "rejected": 0, "revoked": 0,
+                    "needsReview": 1, "autoAcceptEligible": 0, "warned": 1 },
+        "coverage": { "cardsWithAcceptedEnglishAlias": 3, "cardsWithOnlySpeciesAliases": 1, "cardsNeedingReview": 2,
+                      "expansionsAndSeriesNeedingReview": 1, "cards": [], "referenceScopes": [] },
+        "groups": [],
+        "candidates": [
+            { "aliasHash": "ah_glurak", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "nativePrintedName": "Glurak", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
+              "aliasType": "generated-translation", "confidence": "generated", "reviewStatus": "pending",
+              "sourceCategory": "machine-translation", "providerKey": "cardmarket",
+              "evidence": [{ "key": "provider", "label": "Provider", "value": "cardmarket" }],
+              "warnings": ["generated-translation", "low-confidence-evidence"],
+              "autoAccept": { "eligible": false, "reasons": ["Machine translations are never official."] },
+              "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
+            { "aliasHash": "ah_pika", "targetKind": "catalog-item", "targetId": "cat_pikachu", "targetKey": "name",
+              "nativePrintedName": "ピカチュウ", "proposedAlias": "Pikachu", "aliasLanguageCode": "en",
+              "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "accepted",
+              "sourceCategory": "official-provider", "providerKey": "tcgplayer", "evidence": [], "warnings": [],
+              "autoAccept": { "eligible": false, "reasons": [] },
+              "reviewable": false, "availableActions": ["alias.revoke"] },
+            { "aliasHash": "ah_dracaufeu", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "observationId": "obs_2",
+              "nativePrintedName": "Dracaufeu", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
+              "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "pending",
+              "sourceCategory": "official-provider", "providerKey": "tcgdex", "evidence": [], "warnings": [],
+              "autoAccept": { "eligible": true, "reasons": [] },
+              "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
+        ],
+    })
+}
+
 const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
 
+/// One kind's coverage in the queue's answer (`catalogAttentionKindCoverage`).
+fn coverage(total: u64, exact: bool, offset: u64, limit: u64, returned: u64) -> Value {
+    let more = offset + returned < total;
+    json!({ "total": total, "totalKind": if exact { "exact" } else { "lower-bound" }, "offset": offset, "limit": limit,
+        "returned": returned, "truncated": more || !exact, "nextOffset": if more { json!(offset + returned) } else { Value::Null } })
+}
+
 /// The Catalog attention queue: a provider unit's health (critical, its sheet links to the
-/// provider's page) and an alias candidate (accept and reject in one click). It cannot be read
-/// for `queue-down`; a park whose reason is `refuse` is refused.
-fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap, body: &str) -> Response {
+/// provider's page), an alias candidate (accept and reject in one click), and one whose target is
+/// missing (the API marks both commands unavailable). For `queue-many` there are 2,335 alias
+/// candidates and the import jobs could not all be checked, and `kind=alias-candidate&offset=2` is
+/// their second page; for `queue-unknown` nothing was counted but the import jobs could not all be
+/// checked. It cannot be read for `queue-down`; a park whose reason is `refuse` is refused.
+fn attention_queue(method: Method, rest: &str, query: &str, cookie: &str, headers: &HeaderMap, body: &str) -> Response {
     match (method, rest) {
         (Method::GET, _) if cookie.contains("queue-down") && headers.contains_key("chase-sets-read-after-write") => refusal(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1650,15 +2057,64 @@ fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap
                 "detailParams": { "provider": "tcgdex", "type": "name", "confidence": 0.92 },
                 "providerKey": "tcgdex", "unitKey": null, "observedAt": "2026-10-24T04:09:09.701000Z",
                 "resolution": { "intent": "alias.accept", "mode": "command", "labelKey": format!("{q}.action.acceptAlias"),
-                    "fields": { "aliasHashes": "h1" }, "requiresReason": false },
+                    "fields": { "aliasHashes": "h1", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name" },
+                    "requiresReason": false },
                 "secondaryResolutions": [{ "intent": "alias.reject", "mode": "command", "labelKey": format!("{q}.action.rejectAlias"),
-                    "fields": { "aliasHashes": "h1" }, "requiresReason": true }],
+                    "fields": { "aliasHashes": "h1", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name" },
+                    "requiresReason": true }],
             });
+            let orphan = |intent: &str, label: &str, reason: bool| {
+                json!({
+                    "intent": intent, "mode": "command", "labelKey": format!("{q}.action.{label}"),
+                    "fields": { "aliasHashes": "h2", "targetKind": "catalog-item", "targetId": "", "targetKey": "name" },
+                    "requiresReason": reason, "unavailable": true,
+                })
+            };
+            let missing = json!({
+                "itemKey": "alias-candidate:h2", "kind": "alias-candidate", "severity": "info",
+                "titleKey": format!("{q}.item.aliasCandidate.title"), "titleParams": { "alias": "Glurak", "type": "name" },
+                "detailKey": format!("{q}.item.aliasCandidate.detail"),
+                "detailParams": { "provider": "tcgdex", "type": "name", "confidence": 0.81 },
+                "providerKey": "tcgdex", "unitKey": null, "observedAt": "2026-10-24T04:09:09.701000Z",
+                "resolution": orphan("alias.accept", "acceptAlias", false),
+                "secondaryResolutions": [orphan("alias.reject", "rejectAlias", true)],
+            });
+            let exact = json!({ "total": "exact", "bySeverity": { "critical": "exact", "warning": "exact", "info": "exact" } });
+            let none = |limit| coverage(0, true, 0, limit, 0);
+            let (items, counts, basis, window, cover_all) = if cookie.contains("queue-unknown") {
+                let counts = json!({ "total": 0, "bySeverity": { "critical": 0, "warning": 0, "info": 0 } });
+                let basis = json!({ "total": "lower-bound", "bySeverity": { "critical": "lower-bound", "warning": "lower-bound", "info": "exact" } });
+                let cover = json!({ "unmapped-scope": none(20), "merge-conflict": none(20), "provider-health": none(20),
+                    "import-job": coverage(0, false, 0, 20, 0), "alias-candidate": none(20), "stale-scope-sync": none(20) });
+                (vec![], counts, basis, json!({ "kind": null, "offset": 0, "limit": 20 }), cover)
+            } else if cookie.contains("queue-many") {
+                let counts = json!({ "total": 2336, "bySeverity": { "critical": 1, "warning": 0, "info": 2335 } });
+                let basis = json!({ "total": "lower-bound", "bySeverity": { "critical": "lower-bound", "warning": "lower-bound", "info": "exact" } });
+                if query.contains("kind=alias-candidate") && query.contains("offset=2") {
+                    let cover = json!({ "unmapped-scope": none(0), "merge-conflict": none(0),
+                        "provider-health": coverage(1, true, 0, 0, 0), "import-job": coverage(0, false, 0, 0, 0),
+                        "alias-candidate": coverage(2335, true, 2, 20, 1), "stale-scope-sync": none(0) });
+                    (vec![missing], counts, basis, json!({ "kind": "alias-candidate", "offset": 2, "limit": 20 }), cover)
+                } else {
+                    let cover = json!({ "unmapped-scope": none(20), "merge-conflict": none(20),
+                        "provider-health": coverage(1, true, 0, 20, 1), "import-job": coverage(0, false, 0, 20, 0),
+                        "alias-candidate": coverage(2335, true, 0, 20, 2), "stale-scope-sync": none(20) });
+                    (vec![health, alias, missing], counts, basis, json!({ "kind": null, "offset": 0, "limit": 20 }), cover)
+                }
+            } else {
+                let counts = json!({ "total": 3, "bySeverity": { "critical": 1, "warning": 0, "info": 2 } });
+                let cover = json!({ "unmapped-scope": none(20), "merge-conflict": none(20),
+                    "provider-health": coverage(1, true, 0, 20, 1), "import-job": none(20),
+                    "alias-candidate": coverage(2, true, 0, 20, 2), "stale-scope-sync": none(20) });
+                (vec![health, alias, missing], counts, exact, json!({ "kind": null, "offset": 0, "limit": 20 }), cover)
+            };
+            let mut counts = counts;
+            counts["byKind"] = json!(serde_json::Map::from_iter(
+                cover_all.as_object().unwrap().iter().map(|(kind, c)| (kind.clone(), c["total"].clone()))
+            ));
             Json(json!({
-                "generatedAt": "2026-10-25T09:20:07.661Z", "empty": false, "items": [health, alias],
-                "counts": { "total": 2, "bySeverity": { "critical": 1, "warning": 0, "info": 1 },
-                    "byKind": { "unmapped-scope": 0, "merge-conflict": 0, "provider-health": 1, "import-job": 0,
-                        "alias-candidate": 1, "stale-scope-sync": 0 } },
+                "generatedAt": "2026-10-25T09:20:07.661Z", "empty": false, "items": items,
+                "counts": counts, "countBasis": basis, "coverage": cover_all, "window": window,
                 "freshness": { "generatedAt": "2026-10-25T09:20:07.661Z", "oldestObservedAt": null, "newestObservedAt": null },
             }))
             .into_response()
@@ -1674,17 +2130,20 @@ fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap
 /// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages). A
 /// bulk archive cannot start (another change is running).
 /// A Source Observation the stand-in knows: `obs_card`, an observed Pokemon card; `obs_product`,
-/// a changed provider product; `obs_done`, a promoted one. Promoting `obs_held` is refused by a
-/// rollout control (403), as the API answers it.
+/// a changed provider product; `obs_set`, an observed YGOJSON set reference, stored without image
+/// URLs; `obs_done`, a promoted one. Promoting `obs_held` is refused by a rollout control (403), as
+/// the API answers it.
 fn observation(id: &str, status: &str) -> Value {
-    let normalized = if id == "obs_product" {
-        json!({ "kind": "provider-product", "name": "Booster Box", "imageUrls": [], "providerProductId": "pp_9",
+    let normalized = match id {
+        "obs_product" => json!({ "kind": "provider-product", "name": "Booster Box", "imageUrls": [], "providerProductId": "pp_9",
                 "productLineName": "Lorcana", "productCategoryName": null,
-                "skuReferences": [{ "externalKey": "sku-1" }, { "externalKey": "sku-2" }] })
-    } else {
-        json!({ "kind": "pokemon-card", "name": "Pikachu", "setName": "Base", "expansionName": null, "cardNumber": "58",
+                "skuReferences": [{ "externalKey": "sku-1" }, { "externalKey": "sku-2" }] }),
+        "obs_set" => json!({ "kind": "yugioh-set-reference", "tcg": "yugioh", "languageCode": "en", "name": "Starter Deck Kaiba",
+                "setId": "000f0093-1847-4db7-a315-5bd07f055c7a", "setCode": "SDK", "setName": "Starter Deck Kaiba",
+                "expansionName": null, "cardNumber": null, "releaseDate": null, "cardCount": null }),
+        _ => json!({ "kind": "pokemon-card", "name": "Pikachu", "setName": "Base", "expansionName": null, "cardNumber": "58",
                 "imageUrls": ["https://images.example/pikachu.png"], "cardVariantLabel": "Holo", "rarity": "Common",
-                "imageDisclaimer": null, "illustrator": "Atsuko Nishida", "releaseDate": "1999-01-09" })
+                "imageDisclaimer": null, "illustrator": "Atsuko Nishida", "releaseDate": "1999-01-09" }),
     };
     json!({ "observation_id": id, "provider_key": "tcgdex", "external_key": "base1-58", "source_url": "https://api.example/base1-58",
             "language_code": "en", "source_record_hash": "h_1", "source_updated_at": null, "observed_at": "2026-10-30T10:00:00Z",
@@ -1701,7 +2160,7 @@ fn observation_api(method: &Method, rest: &str, _body: &str) -> Option<Response>
     let rest = rest.strip_prefix("/source-observations/")?;
     let (id, action) = rest.split_once('/').map_or((rest, None), |(id, action)| (id, Some(action)));
     let status = match id {
-        "obs_card" | "obs_held" => "observed",
+        "obs_card" | "obs_held" | "obs_set" => "observed",
         "obs_product" => "changed",
         "obs_done" => "promoted",
         "obs_down" if *method == Method::GET => return Some(StatusCode::SERVICE_UNAVAILABLE.into_response()),
@@ -1730,12 +2189,18 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
     if let Some(answer) = observation_api(&method, rest, body) {
         return answer;
     }
+    if let Some(answer) = contents_api(&method, rest, body) {
+        return answer;
+    }
     match (method, rest) {
         (Method::GET, "/bulk-authoring-jobs/job_publish") => {
             Json(item_job("job_publish", "catalog.authoring.items.publish", "publish")).into_response()
         }
         (Method::GET, "/bulk-authoring-jobs/job_edit") => {
             Json(item_job("job_edit", "catalog.authoring.items.edit", "mergeTags")).into_response()
+        }
+        (Method::GET, "/bulk-authoring-jobs/job_remove") => {
+            Json(item_job("job_remove", ITEMS_REMOVE_DRAFTS, "remove-drafts")).into_response()
         }
         (
             Method::POST,
@@ -1900,7 +2365,11 @@ impl Pilot {
     }
 
     fn catalog_writes(&self) -> Vec<Call> {
-        self.catalog_calls().into_iter().filter(|c| c.method != Method::GET).collect()
+        // The scope's sync state is a POST that reads (the daily surface's `catalog-sync-scope/state`).
+        self.catalog_calls()
+            .into_iter()
+            .filter(|c| c.method != Method::GET && !c.path.ends_with("/catalog-sync-scope/state"))
+            .collect()
     }
 
     /// The stylesheet a page links whose URL contains `part`, and its text.
@@ -1945,7 +2414,124 @@ async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     assert!(section.contains(".list-page__table") && section.contains(".catalog-dialog__form"), "{section}");
     assert!(!section.contains(".policy-table__"), "{section}");
     assert!(!shared.contains(".list-page__") && !shared.contains(".policy-table__"), "{shared}");
-    assert!(shared.contains(".admin-nav__bar"), "{shared}");
+    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__tag"), "the frame is shared: {shared}");
+}
+
+#[tokio::test]
+async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/dimensions", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let bar = &html[html.find("<header").unwrap()..html.find("</header>").unwrap()];
+    // The kit's bar, which gives its links a row of their own on a phone.
+    assert!(bar.starts_with(r#"<header class="nav-bar__bar">"#), "{bar}");
+    assert!(bar.contains(r#"<nav class="nav-bar__sections""#), "{bar}");
+    // The catalog's section is current (the kit draws it from `aria-current="page"`), marked by
+    // Corten so the runtime moves the mark after a client navigation; the others are not.
+    assert!(bar.contains(r#"href="/catalog" data-nav="section" data-nav-group=""#), "{bar}");
+    assert_eq!(bar.matches(r#"aria-current="page""#).count(), 1, "{bar}");
+    assert!(
+        bar[bar.find(r#"href="/catalog""#).unwrap()..].split('>').next().unwrap().contains(r#"aria-current="page""#),
+        "{bar}"
+    );
+    assert!(bar.contains(r#"href="/commerce" data-nav="section""#), "{bar}");
+    assert!(!html.contains("data-nav-path"), "no hand marks left: {html}");
+    assert!(bar.contains(r#"<div class="nav-bar__actions"><details class="admin-nav__account">"#), "{bar}");
+}
+
+#[tokio::test]
+async fn the_home_lists_the_sections_the_viewer_may_open_and_sends_one_with_one_straight_there() {
+    let pilot = Pilot::new().await;
+    let location = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    // Catalog and Commerce, in admin-web's order, each a card whose Open is the pilot's section home.
+    let (status, _, html) = pilot.send(get("/", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<h1>Admin sections</h1>"), "{html}");
+    let main = &html[html.find("<main>").unwrap()..];
+    let (catalog, commerce) = (main.find(r#"href="/catalog""#).unwrap(), main.find(r#"href="/commerce""#).unwrap());
+    assert!(catalog < commerce, "{main}");
+    assert!(
+        main.contains(r#"aria-describedby="home-catalog""#)
+            && main.contains(r#"id="home-commerce" class="index-page__name">Commerce</h2>"#),
+        "{main}"
+    );
+    assert!(
+        !main.contains(r#"href="/access""#) && !main.contains(r#"href="/platform""#),
+        "only what the viewer may open: {main}"
+    );
+    // admin-web's root shell: the bar, and no section's pages under it.
+    assert!(!html.contains("admin-nav__side"), "no section nav on the home: {html}");
+    let bar = &html[html.find("<header").unwrap()..html.find("</header>").unwrap()];
+    assert!(bar.contains(r#"<a class="nav-bar__brand" href="/">"#), "the brand is the pilot's home: {bar}");
+    // One section: straight to it, as admin-web's loader does.
+    let (status, headers, _) = pilot.send(get("/", Some("ops"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/platform"));
+    // None: the page says so, with no cards.
+    let (status, _, html) = pilot.send(get("/", Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("No admin sections available") && !html.contains("Admin sections</h1>"), "{html}");
+    // Someone not signed in signs in first.
+    let (status, headers, _) = pilot.send(get("/", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location(&headers).contains("sign-in"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_section_home_opens_its_first_page_the_viewer_may_see() {
+    let pilot = Pilot::new().await;
+    let location = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    // Commerce's first entry this viewer may see, in its nav's order.
+    let (status, headers, _) = pilot.send(get("/commerce", Some("staff"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/commerce/postage-policies"));
+    let (status, headers, _) = pilot.send(get("/commerce", Some("intake-viewer"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/commerce/return-intake"));
+    let (status, headers, _) = pilot.send(get("/support", Some("support-agent"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/support/requests"));
+    let (status, headers, _) = pilot.send(get("/platform", Some("ops"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/platform/operations-attention"));
+    let (status, headers, _) = pilot.send(get("/growth", Some("growth-viewer"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/growth/waitlist"));
+    // A section with nothing the viewer may see is refused, as admin-web's is.
+    let (status, _, _) = pilot.send(get("/growth", Some("staff"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // Someone not signed in signs in first.
+    let (status, headers, _) = pilot.send(get("/support", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location(&headers).contains("sign-in"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn the_section_nav_marks_the_entry_that_holds_the_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/dimensions/dim_seed", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let side = &html[html.find(r#"<nav class="admin-nav__side""#).unwrap()..];
+    let side = &side[..side.find("</nav>").unwrap()];
+    let tag = |href: &str| side[side.find(&format!(r#"href="{href}""#)).unwrap()..].split('>').next().unwrap().to_owned();
+    assert!(tag("/catalog/dimensions").contains(r#"aria-current="page""#), "{side}");
+    assert!(tag("/catalog/dimensions").contains(r#"data-nav-group=""#), "{side}");
+    assert!(!tag("/catalog/fields").contains("aria-current"), "{side}");
+    assert_eq!(side.matches(r#"aria-current="page""#).count(), 1, "{side}");
+}
+
+/// The section's pages are the layout's element marked `page`, beside `<main>`: a navigation's
+/// answer carries it, so one from Catalog to Commerce draws Commerce's, not the ones the first
+/// page had.
+#[tokio::test]
+async fn a_navigation_into_another_section_draws_that_sections_pages() {
+    let pilot = Pilot::new().await;
+    let mut req = get("/commerce/postage-policies", Some("staff"));
+    req.headers_mut().insert("corten", header::HeaderValue::from_static("nav"));
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(!body.contains("<header class=\"nav-bar__bar\">"), "a navigation's answer has no top bar: {body}");
+    let side = &body[body.find(r#"aria-label="Commerce pages""#).expect("the section's pages")..];
+    assert!(body.contains(r#"<nav class="admin-nav__side" aria-label="Commerce pages">"#), "{body}");
+    assert!(marks_current(side, "/commerce/postage-policies") && !side.contains(r#"href="/catalog/dimensions""#), "{side}");
+    // A whole document draws them beside <main>, after the bar and before the page.
+    let (_, _, html) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
+    let (nav, main) = (html.find(r#"aria-label="Commerce pages""#).expect("the section's pages"), html.find("<main>").unwrap());
+    assert!(nav < main && !html.contains(r#"<main><nav class="admin-nav__side""#), "{html}");
 }
 
 #[tokio::test]
@@ -1962,7 +2548,7 @@ async fn the_list_asks_the_api_as_admin_web_does_and_pages() {
     assert!(html.contains(r#"href="/catalog/dimensions?search=cond&amp;status=active&amp;page=3" rel="next""#), "{html}");
     assert!(html.contains("Page 2 of 3"), "{html}");
     assert!(html.contains(r#"<option value="active" selected>Active</option>"#), "the filter shows its value: {html}");
-    assert!(html.contains(r#"href="/catalog/dimensions" aria-current="page""#), "the catalog's own nav: {html}");
+    assert!(marks_current(&html, "/catalog/dimensions"), "the catalog's own nav: {html}");
     assert!(html.contains(r#"href="/catalog/fields""#), "{html}");
 }
 
@@ -2057,26 +2643,40 @@ async fn options_are_added_revised_retired_and_reordered() {
     // Add Label draws the form again with a row more, and writes nothing.
     let rows = "code=nm&numeric_value=&label_locale=en&label_value=Near+mint";
     let (status, headers, html) =
-        pilot.send(post("/catalog/dimensions/dim_seed/options", &format!("option_id=chc_x&{rows}&relabel=add"), true)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed", &format!("option_id=chc_x&{rows}&relabel=add"), true)).await;
     assert_eq!((status, headers.contains_key("corten-patch")), (StatusCode::OK, true));
     assert_eq!(html.matches(r#"name="label_locale""#).count(), 2, "{html}");
     assert!(html.contains(r#"value="Near mint""#), "{html}");
     assert!(pilot.catalog_writes().is_empty());
     let (status, _, html) =
-        pilot.send(post("/catalog/dimensions/dim_seed/options", &format!("option_id=chc_x&{rows}&relabel=add"), false)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed", &format!("option_id=chc_x&{rows}&relabel=add"), false)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"id="catalog-add-option-dialog" aria-labelledby="catalog-add-option-dialog-title" open"#), "{html}");
+    // An option's edit draws its form again the same way, at an address whose GET is the page with
+    // that option's dialog open (a reload of the redraw lands there).
+    let edit = format!("{rows}&relabel=add");
+    let (status, headers, html) = pilot.send(post("/catalog/dimensions/dim_seed/options/chc_a", &edit, true)).await;
+    assert_eq!((status, headers.contains_key("corten-patch")), (StatusCode::OK, true));
+    assert_eq!(html.matches(r#"name="label_locale""#).count(), 2, "{html}");
+    let (status, _, html) = pilot.send(post("/catalog/dimensions/dim_seed/options/chc_a", &edit, false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"aria-labelledby="option-dialog-chc_a-title" open"#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/dimensions/dim_seed/options/chc_a", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"aria-labelledby="option-dialog-chc_a-title" open"#), "{html}");
+    assert!(!html.contains(r#"aria-labelledby="option-dialog-chc_b-title" open"#), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
 
     // A number that does not parse is the pilot's own check.
     let (status, _, html) =
-        pilot.send(post("/catalog/dimensions/dim_seed/options", "option_id=chc_x&code=nm&numeric_value=two", true)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed", "option_id=chc_x&code=nm&numeric_value=two", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains(r#"id="catalog-add-option-numeric_value-error""#), "{html}");
     assert!(pilot.catalog_writes().is_empty());
 
     let posts = [
         (
-            "/catalog/dimensions/dim_seed/options",
+            "/catalog/dimensions/dim_seed",
             format!("option_id=chc_x&{}", rows.replace("numeric_value=", "numeric_value=3")),
             "option_added",
         ),
@@ -2152,7 +2752,7 @@ async fn categories_are_created_revised_and_published_not_activated() {
         "/api/catalog/categories?parentCategoryId=ctg_root&hierarchy=child&limit=50&offset=0"
     );
     assert!(html.contains(r#"href="/catalog/categories/ctg_seed">View</a>"#), "{html}");
-    assert!(html.contains("<td>Energy types</td>"), "a child shows its parent's name: {html}");
+    assert!(html.contains(&labelled_cell("Parent", "Energy types")), "a child shows its parent's name: {html}");
     assert!(html.contains(r#"<option value="child" selected>Child Categories</option>"#), "{html}");
 
     // A create leaves an empty parent out; an edit sends it as null (a root category).
@@ -2288,7 +2888,7 @@ async fn a_refused_rule_removal_is_its_rows_message_and_a_component_bulk_change_
 
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/components/bulk?has_dimension_rules=false", "action=activate&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/components/bulk?has_dimension_rules=false", "action=activate&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Bulk Activate Preview"), "{html}");
     let sent = pilot.catalog_writes().remove(0);
@@ -2426,7 +3026,7 @@ async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_st
 
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/blueprints/bulk?has_components=false", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/blueprints/bulk?has_components=false", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Bulk Publish Preview"), "{html}");
     let sent = pilot.catalog_writes().remove(0);
@@ -2442,7 +3042,11 @@ async fn display_templates_are_listed_created_and_revised_and_a_refused_publish_
     let (status, _, html) = pilot.send(get("/catalog/display-templates?target_kind=blueprint", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/display-templates?targetKind=blueprint&limit=50&offset=0");
-    assert!(html.contains("<td>Blueprint: bpr_seed</td>") && html.contains("<td>{field.card-name}</td>"), "{html}");
+    assert!(
+        html.contains(&labelled_cell("Target", "Blueprint: bpr_seed"))
+            && html.contains(&labelled_cell("Title Template", "{field.card-name}")),
+        "{html}"
+    );
     assert!(html.contains(r#"href="/catalog/display-templates/dtp_seed">View</a>"#), "{html}");
     // The create dialog opens on a blueprint target at priority 10, as admin-web's does.
     assert!(html.contains(r#"<option value="blueprint" selected>Blueprint</option>"#), "{html}");
@@ -2504,7 +3108,7 @@ async fn reference_types_are_listed_created_revised_and_bulk_published_and_a_ref
     let (status, _, html) = pilot.send(get("/catalog/reference-types?attribute_key=series", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/reference-types?attributeKey=series&limit=50&offset=0");
-    assert!(html.contains("<td>set</td>") && html.contains("<td>2</td>"), "{html}");
+    assert!(html.contains(&labelled_cell("Key", "set")) && html.contains(&labelled_cell("Attributes", "2")), "{html}");
     assert!(html.contains(r#"href="/catalog/reference-types/rft_seed">View</a>"#), "{html}");
 
     let posts = [
@@ -2536,7 +3140,8 @@ async fn reference_types_are_listed_created_revised_and_bulk_published_and_a_ref
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Only a deprecated reference type can be archived."), "{html}");
 
-    let (status, _, _) = pilot.send(post("/catalog/reference-types/bulk?status=draft", "action=publish&mode=filter", true)).await;
+    let (status, _, _) =
+        pilot.send(form_get("/catalog/reference-types/bulk?status=draft", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     let sent = pilot.catalog_writes().remove(3);
     assert_eq!(sent.path, "/api/catalog/reference-types/bulk-lifecycle/preview");
@@ -2560,7 +3165,10 @@ async fn reference_records_are_created_and_revised_with_attributes_and_relations
         "{:?}",
         calls.iter().map(|c| &c.path).collect::<Vec<_>>()
     );
-    assert!(html.contains("<td>product-line</td>") && html.contains("<td>Pokemon TCG</td>"), "{html}");
+    assert!(
+        html.contains(&labelled_cell("Type", "product-line")) && html.contains(&labelled_cell("Name", "Pokemon TCG")),
+        "{html}"
+    );
     assert!(html.contains(r#"href="/catalog/reference-records/ref_seed">View</a>"#), "{html}");
     // The list does not read the records a form picks from; opening the create dialog does,
     // and it keeps the list's filters.
@@ -2624,7 +3232,7 @@ async fn reference_records_are_created_and_revised_with_attributes_and_relations
     assert!(html.contains("&quot;sets&quot;: 12"), "{html}");
 
     let (status, _, _) =
-        pilot.send(post("/catalog/reference-records/bulk?status=draft", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/reference-records/bulk?status=draft", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     let sent = pilot.catalog_writes().remove(2);
     assert_eq!(sent.path, "/api/catalog/reference-records/bulk-lifecycle/preview");
@@ -2633,7 +3241,7 @@ async fn reference_records_are_created_and_revised_with_attributes_and_relations
 async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activate() {
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/categories/bulk?hierarchy=root&search=gen", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/categories/bulk?hierarchy=root&search=gen", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Bulk Publish Preview"), "{html}");
     assert!(html.contains(r#"action="/catalog/categories/bulk/confirm?search=gen&amp;hierarchy=root""#), "{html}");
@@ -2645,7 +3253,7 @@ async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activ
     );
 
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/categories/bulk", "action=activate&mode=filter", true)).await;
+    let (status, _, html) = pilot.send(form_get("/catalog/categories/bulk", "action=activate&mode=filter", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This action is not available here."), "{html}");
     assert!(pilot.catalog_writes().is_empty());
@@ -2728,7 +3336,11 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/dimensions?status=active", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains(r#"<form data-ref="form" id="catalog-bulk" class="bulk-rows__bar" method="post" action="/catalog/dimensions/bulk?status=active" data-patch"#), "{html}");
+    assert!(html.contains(r#"<form data-ref="form" id="catalog-bulk" class="bulk-rows__bar" method="get" action="/catalog/dimensions/bulk?status=active" data-patch"#), "{html}");
+    assert!(
+        html.contains(r#"</div><input type="hidden" name="status" value="active"></form>"#),
+        "the GET keeps the list's filters: {html}"
+    );
     assert!(html.contains(r#"name="ids" value="dim_seed" form="catalog-bulk" aria-label="Select row dim_seed""#), "{html}");
     assert!(
         html.contains(r#"name="all" form="catalog-bulk" aria-label="Select all rows" hidden"#),
@@ -2736,7 +3348,7 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     );
     assert!(
         html.contains(
-            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:&quot;120 matching Dimensions&quot;,entity:&quot;Dimensions&quot;,selected:%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entityName&quot;,&quot; selected&quot;]})"#
+            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:"120 matching Dimensions",entity:"Dimensions",selected:%["","count"," ","entityName"," selected"]})"#
         ),
         "the count's text is the catalog's message, sent unfilled: {html}"
     );
@@ -2748,9 +3360,8 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"<div id="catalog-rows">"#) && !html.contains("catalog-bulk\""), "{html}");
     assert!(!html.contains(r#"name="ids""#), "{html}");
-    let (status, _, _) =
-        pilot.send(post_as("catalog-reader", "/catalog/dimensions/bulk", "action=deprecate&mode=filter", true)).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/catalog/dimensions/bulk?action=deprecate&mode=filter", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a preview needs catalog.manage");
     let (_, rows) = pilot.events("/catalog/fields/live", "catalog-viewer", 1).await.remove(0);
     assert!(rows.starts_with(r#"<div id="catalog-rows">"#) && !rows.contains("catalog-bulk"), "{rows}");
 }
@@ -2759,12 +3370,13 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
 async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_with_its_dialog() {
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot
-        .send(post("/catalog/dimensions/bulk?status=active", "action=deprecate&mode=ids&ids=dim_seed&ids=dim_b", true))
+        .send(form_get("/catalog/dimensions/bulk?status=active", "action=deprecate&mode=ids&ids=dim_seed&ids=dim_b", true))
         .await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
     assert!(
-        html.starts_with(r#"<dialog class="catalog-dialog__dialog" id="catalog-bulk-preview""#) && html.contains(" open "),
+        html.starts_with(r#"<dialog data-scope="catalog-dialog" class="catalog-dialog__dialog" id="catalog-bulk-preview""#)
+            && html.contains(" open "),
         "{html}"
     );
     assert!(html.contains("Bulk Deprecate Preview") && html.contains("1 ready, 1 blocked."), "{html}");
@@ -2781,7 +3393,7 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
     // Every field the filters match: the list's filters are the selection's query.
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot
-        .send(post("/catalog/fields/bulk?search=lang&value_type=string&sortable=true", "action=archive&mode=filter", true))
+        .send(form_get("/catalog/fields/bulk?search=lang&value_type=string&sortable=true", "action=archive&mode=filter", true))
         .await;
     assert_eq!(status, StatusCode::OK);
     assert!(!html.contains(r#"name="ids""#), "a filter is confirmed as a filter: {html}");
@@ -2794,7 +3406,8 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
     );
 
     // Without JavaScript: the list, with the preview open.
-    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=deprecate&mode=ids&ids=dim_seed", false)).await;
+    let (status, _, html) =
+        pilot.send(form_get("/catalog/dimensions/bulk", "action=deprecate&mode=ids&ids=dim_seed", false)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
         html.starts_with("<!DOCTYPE html>")
@@ -2807,11 +3420,11 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
 #[tokio::test]
 async fn a_preview_of_nothing_or_of_an_action_not_offered_is_refused_without_asking_the_api() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=deprecate&mode=ids", true)).await;
+    let (status, _, html) = pilot.send(form_get("/catalog/dimensions/bulk", "action=deprecate&mode=ids", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains(r#"<p class="form-error" role="alert">Select at least one row to preview.</p>"#), "{html}");
     assert!(html.contains("disabled") && !html.contains("ready,"), "nothing to confirm: {html}");
-    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=delete&mode=filter", true)).await;
+    let (status, _, html) = pilot.send(form_get("/catalog/dimensions/bulk", "action=delete&mode=filter", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This action is not available here."), "{html}");
     assert!(pilot.catalog_writes().is_empty());
@@ -2860,7 +3473,10 @@ async fn a_refused_confirm_is_the_preview_again_with_the_apis_message() {
     let (status, _, html) =
         pilot.send(post("/catalog/dimensions/bulk/confirm", "action=archive&mode=ids&ids=dim_seed", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.starts_with(r#"<dialog class="catalog-dialog__dialog" id="catalog-bulk-preview""#), "{html}");
+    assert!(
+        html.starts_with(r#"<dialog data-scope="catalog-dialog" class="catalog-dialog__dialog" id="catalog-bulk-preview""#),
+        "{html}"
+    );
     assert!(html.contains(r#"<p class="form-error" role="alert">Another bulk change is running.</p>"#), "{html}");
     assert!(html.contains("1 ready, 1 blocked."), "the preview is drawn again: {html}");
     let paths: Vec<_> = pilot.catalog_writes().iter().map(|c| c.path.clone()).collect();
@@ -2939,18 +3555,19 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert!(html.contains("<title>Catalog Items | Catalog Admin</title>"), "{html}");
     assert!(html.contains("75 matching Catalog Items") && html.contains("Page 2 of 2"), "{html}");
     assert!(
-        html.contains("<td>Title cat_a</td>") && html.contains("<td>Japanese</td>") && html.contains("<td>Card</td>"),
+        html.contains(&labelled_cell("Title", "Title cat_a"))
+            && html.contains(&labelled_cell("Language", "Japanese"))
+            && html.contains(&labelled_cell("Blueprint", "Card")),
         "{html}"
     );
-    assert!(html.contains("<td>tcgplayer, pokemon</td>"), "the sources: {html}");
+    assert!(html.contains(&labelled_cell("Source", "tcgplayer, pokemon")), "the sources: {html}");
     assert!(html.contains(r#"href="/catalog/catalog-items/cat_a""#), "the item's page is the pilot's: {html}");
     assert!(html.contains(r#"<details class="list-page__more" open>"#), "a folded filter that is set opens them: {html}");
     assert!(html.contains(r#"value="missing" selected"#), "{html}");
-    assert!(html.contains(r#"data-status="draft""#), "a draft's box says so: {html}");
-    assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-requires="draft""#), "{html}");
+    assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-checked"#), "{html}");
     assert!(html.contains(r#"<option value="mergeTags">Merge Tags</option>"#) && html.contains(r#"name="tags""#), "{html}");
     assert!(
-        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on="#),
+        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on='"#),
         "{html}"
     );
     assert!(html.contains(r#"href="/catalog/catalog-items""#), "the nav serves the list: {html}");
@@ -2959,6 +3576,74 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert_eq!(status, StatusCode::OK);
     assert!(!html.contains("catalog-bulk\"") && !html.contains("New Catalog Item"), "no writes for catalog.view: {html}");
     assert!(!html.contains("<details class=\"list-page__more\" open>"), "{html}");
+}
+
+#[tokio::test]
+async fn an_items_originating_imports_open_the_pilots_workbench_for_each_provider() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/catalog-items/cat_origin", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Originating import"), "{html}");
+    for provider in ["admin-web", "tcgplayer"] {
+        assert!(html.contains(&format!(r#"href="/catalog/integrations?providerKey={provider}""#)), "{provider}: {html}");
+    }
+    let origin = crate::app::admin_web_origin();
+    assert!(!html.contains(&format!("{origin}/catalog/integrations")), "nothing opens admin-web's workbench: {html}");
+}
+
+#[tokio::test]
+async fn a_content_lines_add_and_remove_send_the_contents_version_the_page_read() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/catalog-items/cat_box", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="item-contents""#), "{html}");
+    assert_eq!(
+        html.matches(r#"<input type="hidden" name="expected_version" value="4">"#).count(),
+        2,
+        "the opener and the remove: {html}"
+    );
+
+    let (_, _, html) = pilot.send(form_get("/catalog/catalog-items/cat_box/contents", "expected_version=4", true)).await;
+    assert!(html.contains(r#"<input type="hidden" name="expected_version" value="4">"#), "the dialog's form: {html}");
+
+    let add = "content_type_id=pct_1&inclusion_policy_id=&contained_catalog_item_id=cat_b&contained_options=&quantity=2";
+    let (status, headers, _) =
+        pilot.send(post("/catalog/catalog-items/cat_box/contents", &format!("{add}&expected_version=4"), true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=contents_updated"), "{headers:?}");
+    let (status, headers, _) =
+        pilot.send(post("/catalog/catalog-items/cat_box/contents/pcl_1/remove", "expected_version=4", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=contents_updated"), "{headers:?}");
+    let sent: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0]["expectedVersion"], json!(4));
+    let added: Vec<&str> =
+        sent[0]["lines"].as_array().unwrap().iter().map(|l| l["containedCatalogItemId"].as_str().unwrap()).collect();
+    assert_eq!(added, ["cat_a", "cat_b"], "the line read, then the new one");
+    assert_eq!((&sent[1]["expectedVersion"], &sent[1]["lines"]), (&json!(4), &json!([])));
+}
+
+#[tokio::test]
+async fn contents_that_changed_since_the_page_was_read_are_refused_and_drawn_as_they_are_now() {
+    let pilot = Pilot::new().await;
+    let changed = "Product Contents changed since this page was loaded";
+    // A form drawn at version 3: nothing is sent, and the part and the form come back at 4.
+    let add = "content_type_id=pct_1&contained_catalog_item_id=cat_b&quantity=2&expected_version=3";
+    let (status, _, html) = pilot.send(post("/catalog/catalog-items/cat_box/contents", add, true)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains(r#"id="item-contents""#) && html.contains(changed), "{html}");
+    assert!(html.contains(r#"name="quantity" value="2""#), "the typed line stays: {html}");
+    assert!(html.contains(r#"<input type="hidden" name="expected_version" value="4">"#), "{html}");
+    assert!(!html.contains("<html"), "a patch: {html}");
+    assert!(pilot.catalog_writes().is_empty(), "a stale form sends nothing");
+
+    // The API's own refusal (another write landed first), without JavaScript: the page, open.
+    let (status, _, html) =
+        pilot.send(post("/catalog/catalog-items/cat_race/contents/pcl_1/remove", "expected_version=4", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("<html") && html.contains(changed), "{html}");
+    assert_eq!(pilot.catalog_writes().len(), 1, "the remove was sent once, and not again");
 }
 
 #[tokio::test]
@@ -2988,7 +3673,7 @@ async fn each_bulk_operation_previews_through_its_own_api_route() {
     let pilot = Pilot::new().await;
     // A publish of the matching items: the filters are the selection.
     let (status, _, html) =
-        pilot.send(post("/catalog/catalog-items/bulk?status=draft&tag=foil", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/catalog-items/bulk?status=draft&tag=foil", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Bulk Publish Preview") && html.contains("Matching drafts: 1 ready, 1 need attention."), "{html}");
     assert!(html.contains("Display identity is not resolved yet."), "{html}");
@@ -3008,7 +3693,11 @@ async fn each_bulk_operation_previews_through_its_own_api_route() {
     // An edit of the checked rows, its tags as admin-web reads them.
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot
-        .send(post("/catalog/catalog-items/bulk", "action=mergeTags&mode=ids&ids=cat_a&tags=foil%2C%20featured%2C%20foil", true))
+        .send(form_get(
+            "/catalog/catalog-items/bulk",
+            "action=mergeTags&mode=ids&ids=cat_a&tags=foil%2C%20featured%2C%20foil",
+            true,
+        ))
         .await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Bulk Merge Tags Preview") && html.contains("1 ready, 0 need attention."), "{html}");
@@ -3026,14 +3715,14 @@ async fn each_bulk_operation_previews_through_its_own_api_route() {
 
     // An archive: the lifecycle change, labelled as the item page labels it.
     let pilot = Pilot::new().await;
-    let (_, _, html) = pilot.send(post("/catalog/catalog-items/bulk", "action=archive&mode=ids&ids=cat_a", true)).await;
+    let (_, _, html) = pilot.send(form_get("/catalog/catalog-items/bulk", "action=archive&mode=ids&ids=cat_a", true)).await;
     assert!(html.contains("Bulk Archive Preview") && html.contains("1 ready, 1 blocked."), "{html}");
     assert_eq!(pilot.catalog_writes().remove(0).path, "/api/catalog/items/bulk-lifecycle/preview");
 
     // An edit without the value it takes is the field's message, and the API is not asked.
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/catalog-items/bulk", "action=assignBlueprint&mode=filter&blueprint_id=%20", true)).await;
+        pilot.send(form_get("/catalog/catalog-items/bulk", "action=assignBlueprint&mode=filter&blueprint_id=%20", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Enter a value.") && html.contains("disabled"), "{html}");
     assert!(pilot.catalog_writes().is_empty());
@@ -3092,32 +3781,38 @@ async fn a_confirm_starts_the_operations_job_and_the_dialog_shows_its_outcome() 
 }
 
 #[tokio::test]
-async fn checked_drafts_are_removed_one_by_one_and_only_drafts() {
+async fn the_checked_rows_removal_is_the_apis_preview_and_job() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts?status=draft", "mode=ids&ids=cat_a", true)).await;
+    let (status, _, html) =
+        pilot.send(form_get("/catalog/catalog-items/drafts?status=draft", "mode=ids&ids=cat_a&ids=cat_b", true)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Bulk Remove drafts Preview") && html.contains("1 ready, 1 blocked."), "{html}");
+    assert!(html.contains("Only draft items can be removed."), "the API's reason: {html}");
+    assert!(html.contains(r#"action="/catalog/catalog-items/drafts/confirm?status=draft""#), "{html}");
     assert!(
-        html.contains("Remove Draft Catalog Items") && html.contains("Remove 1 draft Catalog Items from the grid."),
+        html.contains(r#"<input type="hidden" name="ids" value="cat_a"><input type="hidden" name="ids" value="cat_b">"#),
         "{html}"
     );
-    assert!(html.contains(r#"action="/catalog/catalog-items/drafts/confirm?status=draft""#), "{html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items/bulk-remove-drafts/preview");
+    assert_eq!(sent_json(&sent), json!({ "selection": { "mode": "ids", "ids": ["cat_a", "cat_b"] } }));
 
-    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts", "mode=ids&ids=cat_a&ids=cat_b", true)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("Check only draft Catalog Items to remove them.") && html.contains("disabled"), "{html}");
-    assert!(pilot.catalog_writes().is_empty());
+    // None checked: the API's refusal, and nothing to confirm.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(form_get("/catalog/catalog-items/drafts", "mode=ids", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Choose at least one Catalog Item to remove.") && html.contains("disabled"), "{html}");
 
-    let (status, headers, _) = pilot.send(post("/catalog/catalog-items/drafts/confirm?status=draft", "ids=cat_a", true)).await;
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/catalog/catalog-items/drafts/confirm?status=draft", "ids=cat_a&ids=cat_b", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let to = headers["corten-location"].to_str().unwrap();
-    assert!(
-        to.starts_with("/catalog/catalog-items?status=draft&after_write=") && to.ends_with("&done=drafts_removed&removed=1"),
-        "{to}"
-    );
-    let removed: Vec<_> = pilot.catalog_writes().iter().map(|c| (c.method.clone(), c.path.clone())).collect();
-    assert_eq!(removed, [(Method::DELETE, "/api/catalog/items/cat_a".to_owned())]);
-    let (_, _, html) = pilot.send(get("/catalog/catalog-items?done=drafts_removed&removed=1", Some("staff"))).await;
-    assert!(html.contains("1 draft Catalog Items removed"), "{html}");
+    assert_eq!(headers["corten-location"], "/catalog/catalog-items?status=draft&job=job_remove");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items/bulk-remove-drafts/confirm");
+    assert_eq!(sent_json(&sent), json!({ "selection": { "mode": "ids", "ids": ["cat_a", "cat_b"] } }));
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items?job=job_remove", Some("staff"))).await;
+    assert!(html.contains("Bulk Remove drafts Result") && html.contains("1 succeeded, 1 skipped, 0 failed."), "{html}");
 }
 
 #[tokio::test]
@@ -3149,17 +3844,21 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
     assert!(html.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#), "{html}");
     assert!(
         html.contains(
-            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on="connect:live_status.stale($c,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;],%{"#
+            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on='connect:live_status.stale($c,@since,%["Stale since ","value",""],%{"#
         ),
         "the stream's connection status, in the element that streams: {html}"
     );
     // The stale time is written by the server's date format (`t.js().date_time`), in UTC.
     let live = &html[html.find("<corten-live").unwrap()..];
     let live = &live[..live.find('>').unwrap()];
-    assert_eq!(live.matches(r#"&quot;u&quot;:&quot;UTC&quot;"#).count(), 2, "on connect and on each status: {live}");
+    assert_eq!(live.matches(r#""u":"UTC""#).count(), 2, "on connect and on each status: {live}");
     assert!(
         html.contains(r#"<input type="hidden" name="status" value="draft"><button type="submit" class="live-status__reload">Reload</button>"#),
         "a stale stream's Reload keeps the filters: {html}"
+    );
+    assert!(
+        html.contains(r#"<span class="live-status__badge live-status__live"><span class="status-dot__dot status-dot__live status-dot__text" aria-hidden="true"></span>Live</span>"#),
+        "the Live badge's dot is the kit's LiveDot, in the badge's color: {html}"
     );
     assert!(
         html.contains(r#"<div id="catalog-changes" class="item-form__changes" role="status"></div></corten-live>"#),
@@ -3182,7 +3881,7 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
         "{calls:?}"
     );
     assert!(html.contains("<strong>Paldean Fates</strong>") && html.contains(">PAF</span>"), "{html}");
-    assert!(html.contains("<td>pokemon · expansion</td>") && html.contains("2 edition(s): en, ja"), "{html}");
+    assert!(html.contains(&labelled_cell("Domain", "pokemon · expansion")) && html.contains("2 edition(s): en, ja"), "{html}");
     assert!(html.contains(">Live</span>") && html.contains(">Fresh</span>"), "an active scope, changed lately: {html}");
     assert!(
         html.contains("No editions yet") && html.contains(">Unpublished</span>") && html.contains(">Stale sync</span>"),
@@ -3197,21 +3896,22 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
         html.contains(r#"<option value="pokemon" selected>pokemon</option>"#) && html.contains(r#"<option value="lorcana">"#),
         "{html}"
     );
-    assert!(html.contains(r#"href="/catalog/scopes" aria-current="page""#), "the nav's Scopes is the pilot's: {html}");
+    assert!(marks_current(&html, "/catalog/scopes"), "the nav's Scopes is the pilot's: {html}");
 }
 
 #[tokio::test]
-async fn the_scopes_language_filters_the_page_the_api_returned() {
+async fn the_scopes_language_is_the_apis_filter_and_its_choices_the_apis_facets() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/catalog/scopes?language=ja", Some("staff"))).await;
     assert!(
-        pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/scope-records?limit=50&offset=0"),
-        "not sent to the API"
+        pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/scope-records?languageEdition=ja&limit=50&offset=0"),
+        "{:?}",
+        pilot.catalog_calls()
     );
-    assert!(html.contains("Paldean Fates") && !html.contains("Base Set"), "{html}");
+    assert!(html.contains("Paldean Fates") && !html.contains("Base Set"), "the API's rows: {html}");
     assert!(
-        html.contains(r#"<option value="ja" selected>ja</option>"#) && html.contains(r#"<option value="en">en</option>"#),
-        "{html}"
+        html.contains(r#"<option value="ja" selected>ja</option>"#) && html.contains(r#"<option value="fr">fr</option>"#),
+        "every page's editions, not only this page's: {html}"
     );
 }
 
@@ -3246,7 +3946,7 @@ async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let (queue, list) = (html.find("data-attention-queue").unwrap(), html.find("Paldean Fates").unwrap());
     assert!(queue < list, "the queue is above the list");
-    assert!(html.contains(">2 need you</span>") && html.contains("As of 2026-10-25T09:20:07.661Z"), "{html}");
+    assert!(html.contains(">3 need you</span>") && html.contains("As of 2026-10-25T09:20:07.661Z"), "{html}");
     assert!(
         html.contains("Unblock TCGplayer Magic Single Cards on tcgplayer")
             && html.contains("Blocked by credential · provider-retired"),
@@ -3263,6 +3963,15 @@ async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
         "a reject sends its label as the reason: {html}"
     );
     assert!(html.contains(r#"<dialog id="attention-sheet"></dialog>"#), "the sheet is drawn when opened: {html}");
+    assert!(
+        html.contains(r#"value="h1"><button type="submit" class="attention-panel__small">Accept</button>"#),
+        "a candidate with its target: {html}"
+    );
+    assert!(
+        html.contains(r#"value="h2"><button type="submit" class="attention-panel__small" disabled>Accept</button>"#)
+            && html.contains(r#"value="Reject"><button type="submit" class="attention-panel__small" disabled>Reject</button>"#),
+        "a candidate whose target is missing cannot be accepted or rejected: {html}"
+    );
 
     let mut req = get("/catalog/scopes", Some("staff"));
     req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
@@ -3278,6 +3987,85 @@ async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
     );
 }
 
+/// admin-web's #11027 panel: counts are each kind's whole cohort, "at least" when the import jobs
+/// could not all be checked; each kind says how much of it the window shows, with its pages; paging
+/// one kind keeps the list's filters, and the list's pager keeps the queue's window.
+#[tokio::test]
+async fn the_attention_queue_counts_each_kinds_cohort_and_pages_one_kind() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("queue-many"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(">At least 2,336 need you</span>"), "a lower-bound total: {html}");
+    assert!(
+        html.contains(r#"<dd class="attention-panel__value">At least 1</dd>"#)
+            && html.contains(r#"<dd class="attention-panel__value">At least 0</dd>"#)
+            && html.contains(r#"<dd class="attention-panel__value">2,335</dd>"#),
+        "a severity a lower-bound kind can produce is at least: {html}"
+    );
+    let kind = |name: &str| {
+        let at = html.find(&format!(r#"data-attention-coverage-kind="{name}""#)).unwrap_or_else(|| panic!("{name}: {html}"));
+        html[at..at + html[at..].find("</dd>").unwrap()].to_owned()
+    };
+    assert!(kind("provider-health").contains("Showing 1 of 1"), "{html}");
+    let aliases = kind("alias-candidate");
+    assert!(aliases.contains("Showing 2 of 2,335"), "{aliases}");
+    assert!(
+        aliases.contains(r#"href="/catalog/scopes?status=active&amp;attention_kind=alias-candidate&amp;attention_offset=2" data-attention-page="next">Next page</a>"#),
+        "{aliases}"
+    );
+    let jobs = kind("import-job");
+    assert!(jobs.contains("Some import jobs could not be checked.") && !jobs.contains("Showing"), "{jobs}");
+    assert!(
+        !html.contains(r#"data-attention-coverage-kind="unmapped-scope""#),
+        "a kind with nothing counted is left out: {html}"
+    );
+    assert!(!html.contains(r#"data-attention-page="summary""#), "the summary has no Show all kinds: {html}");
+
+    let page = "/catalog/scopes?status=active&attention_kind=alias-candidate&attention_offset=2";
+    let (status, _, html) = pilot.send(get(page, Some("queue-many"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let at = html.find(r#"data-attention-coverage-kind="alias-candidate""#).unwrap();
+    let aliases = &html[at..at + html[at..].find("</dd>").unwrap()];
+    assert!(aliases.contains("Showing 3 to 3 of 2,335"), "{aliases}");
+    assert!(
+        aliases.contains(r#"href="/catalog/scopes?status=active&amp;attention_kind=alias-candidate" data-attention-page="previous">Previous page</a>"#)
+            && aliases.contains(r#"href="/catalog/scopes?status=active&amp;attention_kind=alias-candidate&amp;attention_offset=3" data-attention-page="next">"#),
+        "{aliases}"
+    );
+    let at = html.find(r#"data-attention-coverage-kind="provider-health""#).unwrap();
+    let health = &html[at..at + html[at..].find("</dd>").unwrap()];
+    assert!(
+        health.contains("None of 1 on this page")
+            && health.contains(
+                r#"href="/catalog/scopes?status=active&amp;attention_kind=provider-health" data-attention-page="show">Show</a>"#
+            ),
+        "another kind opens from its own line: {health}"
+    );
+    assert!(html.contains(r#"href="/catalog/scopes?status=active" data-attention-page="summary">Show all kinds</a>"#), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="attention_kind" value="alias-candidate"><input type="hidden" name="attention_offset" value="2">"#),
+        "an item's Review keeps the window: {html}"
+    );
+    assert!(html.contains("Glurak") && !html.contains("Unblock TCGplayer"), "only the window's items: {html}");
+    let calls: Vec<String> = pilot.calls_to("/api/catalog/attention-queue").into_iter().map(|c| c.path).collect();
+    assert!(
+        calls.iter().any(|path| path == "/api/catalog/attention-queue?kind=alias-candidate&offset=2"),
+        "the API is asked for the window: {calls:?}"
+    );
+
+    let (_, _, html) =
+        pilot.send(get("/catalog/scopes?status=active&attention_kind=everything&attention_offset=x", Some("queue-many"))).await;
+    assert!(html.contains("Showing 2 of 2,335"), "an unknown kind is the summary: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes", Some("queue-unknown"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(">At least 0 need you</span>") && !html.contains("Nothing needs you"), "{html}");
+    assert!(
+        html.contains("<div data-attention-incomplete>") && html.contains("import jobs past the checked snapshot may"),
+        "an incomplete zero is unknown work, not the empty state: {html}"
+    );
+}
+
 #[tokio::test]
 async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     let pilot = Pilot::new().await;
@@ -3286,14 +4074,14 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
         html.starts_with(
-            r#"<dialog class="catalog-dialog__dialog" id="attention-sheet" aria-labelledby="attention-sheet-title" open"#
+            r#"<dialog data-scope="catalog-dialog" class="catalog-dialog__dialog" id="attention-sheet" aria-labelledby="attention-sheet-title" open"#
         ),
         "{html}"
     );
     assert!(html.contains("<dt>Unit</dt><dd>tcgplayer:mtg:single-card:source-observation-import</dd>"), "{html}");
     assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
-        "the destination is admin-web's: {html}"
+        html.contains(r#"href="/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
+        "the destination is the pilot's provider page: {html}"
     );
     assert!(
         html.contains(r#"id="attention-dismiss" method="post" action="/catalog/scopes/attention/dismiss?status=active""#),
@@ -3301,9 +4089,30 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     );
     assert!(html.contains(r#"<input type="hidden" name="kind" value="provider-health">"#), "{html}");
     assert!(!html.contains("Paldean Fates"), "only the sheet: {html}");
+    assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(
+                r#"<div role="alert" class="alert__region"><div data-ref="said" class="alert__alert alert__destructive alert__soft" hidden><p>That did not go through, and may not have been saved. Check and try again.</p></div></div>"#
+            ),
+        "a park that gets no answer is said in the sheet, hidden until then: {html}"
+    );
 
     let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=gone")).await;
-    assert_eq!(html, r#"<dialog id="attention-sheet"></dialog>"#, "an item no longer in the queue");
+    // An item no longer in the queue: the empty sheet, then the area's stylesheets every patch
+    // from it carries (corten-run/corten#1366).
+    let links = html.strip_prefix(r#"<dialog id="attention-sheet"></dialog>"#).expect(&html);
+    assert!(
+        links.split_inclusive("data-corten-style>").all(|link| link.starts_with(r#"<link rel="stylesheet" href="/assets/"#)),
+        "an item no longer in the queue: {html}"
+    );
+
+    // A command resolves in its row: its sheet opens no page and says nothing is missing, unless the
+    // API says its target is.
+    let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=alias-candidate%3Ah1")).await;
+    assert!(html.contains("<dt>targetId</dt><dd>cat_charizard</dd>"), "its fields: {html}");
+    assert!(!html.contains("data-attention-destination") && !html.contains("Resolution unavailable"), "{html}");
+    let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=alias-candidate%3Ah2")).await;
+    assert!(html.contains("Resolution unavailable: the target is missing or deleted."), "{html}");
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/scopes/attention/review?item={key}"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
@@ -3386,7 +4195,10 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post("/catalog/scopes/attention/alias/accept", "alias_hashes=h1", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(headers["corten-location"].to_str().unwrap().contains("done=queued"));
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias_accepted"), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Alias accepted") && html.contains("The selected alias candidates were accepted."), "{html}");
     pilot.send(post("/catalog/scopes/attention/alias/reject", "alias_hashes=h1&reason=Reject", true)).await;
     let writes = pilot.catalog_writes();
     assert_eq!(writes[0].path, "/api/catalog/alias-review/commands");
@@ -3407,12 +4219,178 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
 }
 
 #[tokio::test]
+async fn each_alias_candidate_on_the_scopes_list_links_its_evidence_and_the_list_opens_the_timeline_it_resolves() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let link =
+        |reference: &str| format!(r#"href="/catalog/scopes?status=active&amp;evidenceRef={reference}" data-alias-evidence>"#);
+    for (reference, label) in [
+        ("catalog-item%2Fcat_charizard", "Audit timeline: cat_charizard"),
+        ("catalog-item%2Fcat_pikachu", "Audit timeline: cat_pikachu"),
+        ("source-observation%2Fobs_2", "Audit timeline: obs_2"),
+    ] {
+        assert!(html.contains(&format!("{}{label}</a>", link(reference))), "{reference}: {html}");
+    }
+    assert!(integrations_calls(&pilot).is_empty(), "no surface is read without a reference");
+    let reviews =
+        |pilot: &Pilot| pilot.catalog_calls().iter().filter(|c| c.path == "/api/catalog/alias-review?limit=200").count();
+    let before = reviews(&pilot);
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active&evidenceRef=candidate%2Fcand_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let calls = integrations_calls(&pilot);
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.ends_with("/daily?location=%2Fcatalog%2Fscopes%3Fstatus%3Dactive%26evidenceRef%3Dcandidate%252Fcand_1")),
+        "the API resolves it for the list's address: {calls:?}"
+    );
+    assert_eq!(reviews(&pilot), before, "the alias review comes with the surface");
+    let drawer = html.find(r#"id="scopes-evidence-audit""#).expect("the timeline is drawn");
+    assert!(drawer < html.find("data-attention-queue").unwrap(), "above the queue: {html}");
+    assert!(html.contains("Candidate cand_1 reviewed."), "{html}");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#) && html.contains(&link("source-observation%2Fobs_2")), "{html}");
+    assert!(!html.contains("evidenceRef=candidate%2Fcand_1&amp;evidenceRef="), "a link replaces the reference: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes?evidenceRef=scope%2Fscp_down", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "the list still draws: {html}");
+    assert!(html.contains("Audit projection is unavailable") && !html.contains(r#"id="scopes-evidence-audit""#), "{html}");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#) && html.contains("Paldean Fates"), "{html}");
+}
+
+#[tokio::test]
+async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_post_the_alias_review() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/alias-review?limit=200"), "read with the page");
+    let review = html.find(r#"data-alias-review="all-scopes""#).expect("the review is drawn");
+    assert!(html.find("data-attention-queue").unwrap() < review, "under the queue: {html}");
+    assert!(review < html.find("Paldean Fates").unwrap(), "above the list: {html}");
+    let part = &html[review..];
+    assert!(!part[..200].contains(" open"), "folded at first, as admin-web's is: {part}");
+    assert!(part.contains("All-scopes alias review") && part.contains("1 pending alias candidates"), "{part}");
+    assert!(part.contains("2 candidates") && part.contains("Cards with accepted English alias"), "{part}");
+    assert!(
+        part.contains(r#"<dd class="stats__value">3</dd>"#) && part.contains(r#"<dd class="stats__value">2</dd>"#),
+        "the API's coverage counts: {part}"
+    );
+    assert!(part.contains("Generated translation") && part.contains("Low-confidence evidence"), "its warnings: {part}");
+    assert!(part.contains("cardmarket · machine-translation"), "its source: {part}");
+    assert!(part.contains("Evidence") && part.contains("<dt>Provider</dt><dd>cardmarket</dd>"), "its evidence: {part}");
+    assert!(
+        part.contains(r#"action="/catalog/scopes/aliases?status=active""#)
+            && part.contains(r#"<input type="hidden" name="intent" value="alias.accept"><input type="hidden" name="alias_hashes" value="ah_glurak">"#),
+        "each command keeps the list's filters: {part}"
+    );
+    assert!(part.contains(r#"value="alias.revoke"><input type="hidden" name="alias_hashes" value="ah_pika">"#), "{part}");
+
+    let (status, headers, _) = pilot
+        .send(post("/catalog/scopes/aliases?status=active", "intent=alias.accept&alias_hashes=ah_glurak,ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=alias_accepted"), "{to}");
+    let (_, headers, _) =
+        pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_revoked"), "{headers:?}");
+    let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak" }),
+            json!({ "intent": "revoke", "aliasHashes": "ah_pika", "reason": "Wrong card" })
+        ]
+    );
+
+    // Defer writes nothing; a revoke with no reason and an unknown intent are the failed banner.
+    let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", "intent=alias.defer&alias_hashes=ah_glurak", false)).await;
+    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=alias_deferred");
+    let (_, _, html) = pilot.send(get("/catalog/scopes?done=alias_deferred", Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
+    for body in
+        ["intent=alias.revoke&alias_hashes=ah_pika&reason=+", "intent=alias.forget&alias_hashes=ah_pika", "intent=alias.accept"]
+    {
+        let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
+        assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
+    }
+    assert_eq!(pilot.catalog_writes().len(), 2, "none of those was sent");
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes", Some("catalog-viewer"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains(r#"value="ah_glurak">"#) && part.contains("disabled"), "off for a viewer who may not write: {part}");
+    let (status, _, _) = pilot
+        .send(post_as("catalog-viewer", "/catalog/scopes/aliases", "intent=alias.accept&alias_hashes=ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+}
+
+#[tokio::test]
+async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accepts_only_the_eligible() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    let bar = &part[part.find("data-alias-review-bulk-actions").expect("a bulk bar while a candidate is pending")..];
+    assert!(part.find(r#"id="alias-bulk""#).unwrap() < part.find("ah_glurak").unwrap(), "the bar above the candidates: {part}");
+    assert!(bar.contains(r#"action="/catalog/scopes/aliases?status=active""#), "{bar}");
+    // The reason and Reject first, so Enter in the reason rejects; the other buttons skip its check.
+    let reject = bar.find(r#"value="alias.reject""#).unwrap();
+    assert!(
+        bar.find(r#"name="reason" required"#).unwrap() < reject && reject < bar.find(r#"value="alias.accept""#).unwrap(),
+        "{bar}"
+    );
+    assert!(
+        bar.contains(r#"value="alias.accept" formnovalidate"#) && bar.contains(r#"value="alias.defer" formnovalidate"#),
+        "{bar}"
+    );
+    assert!(bar.contains(r#"value="alias.accept-eligible" formnovalidate"#), "a pending candidate is eligible: {bar}");
+    assert!(bar.contains(r#"type="reset""#) && bar.contains("Clear selection"), "{bar}");
+    // A box for each pending candidate in the bar's form, none for the accepted one.
+    for hash in ["ah_glurak", "ah_dracaufeu"] {
+        assert!(part.contains(&format!(r#"name="picked" value="{hash}" form="alias-bulk""#)), "{hash}: {part}");
+    }
+    assert!(!part.contains(r#"name="picked" value="ah_pika""#), "{part}");
+
+    let at = "/catalog/scopes/aliases?status=active";
+    let (status, headers, _) = pilot.send(post(at, "intent=alias.accept&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_accepted"), "{headers:?}");
+    pilot.send(post(at, "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
+    let (_, headers, _) = pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_rejected"), "{headers:?}");
+    let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu" }),
+            json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }),
+            json!({ "intent": "reject", "aliasHashes": "ah_glurak", "reason": "Machine translation" })
+        ],
+        "Auto-accept eligible sends only the eligible one (chase-sets/chase-sets#11024)"
+    );
+
+    // None eligible, none checked, or a reject without its reason: the failed banner, nothing sent.
+    for body in ["intent=alias.accept-eligible&picked=ah_glurak", "intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
+        let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
+        assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
+    }
+    assert_eq!(pilot.catalog_writes().len(), 3);
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes", Some("catalog-viewer"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains(r#"value="ah_glurak" form="alias-bulk" aria-label="Select row Charizard" disabled"#), "{part}");
+}
+
+#[tokio::test]
 async fn a_queue_the_api_cannot_read_is_its_banner_and_the_list_still_shows() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes", Some("queue-down"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Attention queue unavailable") && html.contains("Paldean Fates"), "{html}");
     assert!(!html.contains("data-attention-queue"), "{html}");
+    let review = &html[html.find(r#"data-alias-review="all-scopes""#).expect("its banner")..];
+    assert!(review.contains("Alias review") && review.contains("Unavailable") && !review[..300].contains("<details"), "{review}");
 
     let (status, _, _) =
         pilot.send(get(&format!("/catalog/scopes?after_write={}&done=queued", fresh_receipt()), Some("queue-down"))).await;
@@ -3433,6 +4411,7 @@ fn operations_attention(cookie: &str) -> Response {
             wake,
             { "id": "support-request-deadline", "status": "available", "itemCount": 1, "total": 1 },
             { "id": "platform-feedback-unreviewed", "status": "available", "itemCount": 1, "total": 1 },
+            { "id": "reported-content-response", "status": "available", "itemCount": 1, "total": 1 },
         ])
     };
     if cookie.contains("chase_sets_session=ops-empty") {
@@ -3452,7 +4431,7 @@ fn operations_attention(cookie: &str) -> Response {
                 "entity": "poison-event",
                 "severity": "critical",
                 "summary": { "code": "poisonEvent", "params": { "eventType": "OrderPlaced", "projectionKey": "ordering-orders", "retryCount": 3 } },
-                "deepLink": { "surface": "projection-operations", "href": "/projections?tab=blocked" },
+                "deepLink": { "surface": "projection-operations", "href": "/platform/projections?tab=blocked" },
                 "dueAt": null,
                 "observedAt": "2026-10-25T09:20:00.000Z",
             },
@@ -3462,9 +4441,19 @@ fn operations_attention(cookie: &str) -> Response {
                 "entity": "support-request",
                 "severity": "warning",
                 "summary": { "code": "supportRequest", "params": { "reference": "SR-1042" } },
-                "deepLink": { "surface": "support-operations", "href": "/requests?requestId=req_1" },
+                "deepLink": { "surface": "support-operations", "href": "/support/requests?requestId=req_1" },
                 "dueAt": "2026-10-26T12:00:00.000Z",
                 "observedAt": "2026-10-24 08:00:00+00",
+            },
+            {
+                "id": "reported-content-response:listing:lst_1",
+                "source": "reported-content-response",
+                "entity": "reported-content",
+                "severity": "critical",
+                "summary": { "code": "reportedContent", "params": { "severity": "critical", "role": "trust-and-safety" } },
+                "deepLink": { "surface": "reported-content", "href": "/support/reported-content/listing/lst_1" },
+                "dueAt": "2026-10-28T13:00:00.000Z",
+                "observedAt": "2026-10-28T12:00:00.000Z",
             },
             {
                 "id": "platform-feedback-unreviewed:pfb_1",
@@ -3472,14 +4461,17 @@ fn operations_attention(cookie: &str) -> Response {
                 "entity": "platform-feedback",
                 "severity": "info",
                 "summary": { "code": "somethingNew", "params": {} },
-                "deepLink": { "surface": "platform-feedback", "href": "/platform-feedback/pfb_1" },
+                "deepLink": { "surface": "platform-feedback", "href": "/support/platform-feedback/pfb_1" },
                 "observedAt": "2026-10-23T10:00:00.000Z",
             },
         ],
         "rollup": {
-            "total": 3,
-            "bySeverity": { "critical": 1, "warning": 1, "info": 1 },
-            "bySource": { "projection-poison-event": 1, "support-request-deadline": 1, "platform-feedback-unreviewed": 1 },
+            "total": 4,
+            "bySeverity": { "critical": 2, "warning": 1, "info": 1 },
+            "bySource": {
+                "projection-poison-event": 1, "support-request-deadline": 1, "platform-feedback-unreviewed": 1,
+                "reported-content-response": 1,
+            },
         },
         "sources": sources(json!({ "id": "wake-stalled-job", "status": "unavailable", "itemCount": 0, "total": "unknown", "reason": "wake status unavailable" })),
         "degraded": true,
@@ -3496,8 +4488,8 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
         html.contains("<title>Attention Queue | Chase Sets Admin</title>") && html.contains("<h1>What needs you</h1>"),
         "{html}"
     );
-    for (label, count) in [("Total", 3), ("Critical", 1), ("Warning", 1), ("Info", 1)] {
-        assert!(html.contains(&format!("<dt>{label}</dt><dd>{count}</dd>")), "{label}: {html}");
+    for (label, count) in [("Total", 4), ("Critical", 2), ("Warning", 1), ("Info", 1)] {
+        assert!(html.contains(&format!("<dt>{label}</dt><dd class=\"stats__value\">{count}</dd>")), "{label}: {html}");
     }
     assert!(
         html.contains("Some sources are unavailable") && html.contains("Wake work unavailable: wake status unavailable"),
@@ -3506,6 +4498,7 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
     let rows = [
         "Poison event OrderPlaced on ordering-orders (retried 3)",
         "Support case SR-1042 needs review",
+        "Reported Content: critical; accountable role: trust-and-safety",
         "platformOperations.operationsAttention.summary.somethingNew",
     ];
     let at: Vec<usize> = rows.iter().map(|row| html.find(row).unwrap_or_else(|| panic!("{row}: {html}"))).collect();
@@ -3515,10 +4508,16 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
         "an ISO and a Postgres time: {html}"
     );
     assert!(html.contains("Oct 26, 2026, 12:00 PM UTC") && html.contains("No deadline"), "{html}");
-    let origin = crate::app::admin_web_origin();
-    assert!(html.contains(&format!(r#"href="{origin}/platform/projections?tab=blocked">Open</a>"#)), "{html}");
+    assert!(
+        html.contains(r#"href="/platform/projections?tab=blocked">Open</a>"#),
+        "the pilot serves the projections console: {html}"
+    );
     assert!(html.contains(r#"href="/support/requests?requestId=req_1">Open</a>"#), "the pilot serves a request's sheet: {html}");
     assert!(html.contains(r#"href="/support/platform-feedback/pfb_1">Open</a>"#), "the pilot serves a feedback's page: {html}");
+    assert!(
+        html.contains(r#"href="/support/reported-content/listing/lst_1">Open</a>"#) && html.contains("Reported Content response"),
+        "the pilot serves a reported target's page: {html}"
+    );
     assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
     assert!(html.contains(r#"<div id="attention-queue">"#), "{html}");
     assert!(
@@ -3557,7 +4556,7 @@ async fn an_empty_queue_says_so_and_a_queue_the_api_cannot_read_is_an_error() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/platform/operations-attention", Some("ops-empty"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("Nothing needs you") && html.contains("<dt>Total</dt><dd>0</dd>"), "{html}");
+    assert!(html.contains("Nothing needs you") && html.contains(r#"<dt>Total</dt><dd class="stats__value">0</dd>"#), "{html}");
     assert!(!html.contains("Some sources are unavailable") && !html.contains("<table"), "{html}");
     let (status, _, _) = pilot.send(get("/platform/operations-attention", Some("ops-down"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
@@ -3618,7 +4617,18 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     // The editions: English canonical, Japanese open with its candidate and its commands.
     assert!(html.contains(r#"data-link="pending-review""#) && html.contains("Confidence is below high."), "{html}");
     assert!(html.contains(r#"data-language-edition-command="alias.defer""#), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_paf""#), "the workspace is admin-web's: {html}");
+    // The import-to-promotion section: one read of the daily surface for the scope's own page, whose
+    // journey the API composes from the Scope Record, its commands posting with the working set that
+    // lands them back here.
+    let daily = |location: &str| {
+        format!("/api/catalog/source-observations/workbench-surfaces/daily?location={}", crate::api::segment(location))
+    };
+    let reads: Vec<&String> = calls.iter().filter(|c| c.contains("/workbench-surfaces/daily?")).collect();
+    assert_eq!(reads, [&daily("/catalog/scopes/scp_paf")], "the journey's own read, and no other");
+    assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the stages: {html}");
+    assert!(html.contains(r#"action="/catalog/integrations/review?home=scp_paf""#), "a command carries the working set: {html}");
+    assert!(!html.contains("data-import-context") && !html.contains("Run tcgdex"), "no import context bar or workset: {html}");
+    assert!(!html.contains("The import-to-promotion workspace could not be read."), "the workspace is the pilot's: {html}");
     assert!(
         pilot.stylesheet(&html, "sections/catalog").await.is_some_and(|css| css.contains(".scope-page__stages")),
         "the page's stylesheet is the area's"
@@ -3626,10 +4636,187 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
 
     let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobs=c2", Some("staff"))).await;
     assert!(pilot.catalog_calls().iter().any(|c| c.path.ends_with("&status=completed&cursor=c2")));
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf">"#) && !html.contains("?jobs="), "first page, no next: {html}");
+}
+
+#[tokio::test]
+async fn a_scopes_page_keeps_its_members_health_and_their_jobs_recovery() {
+    let pilot = Pilot::new().await;
+    let health = |html: &str| {
+        let start = html.find(r#"data-catalog-scope-health="true""#).expect("the scope's health");
+        let end = start + html[start..].find("</section>").expect("its end");
+        html[start..end].to_owned()
+    };
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let part = health(&html);
+    assert!(part.contains("Scope unit readiness and recovery") && part.contains("Degraded"), "{part}");
+    // The member unit with its readiness and its provider's page; the Lorcast unit is not a member.
+    assert!(part.contains(r#"data-catalog-health-unit="tcgplayer:pokemon:card""#), "{part}");
+    assert!(!part.contains("lorcast:pokemon:card"), "{part}");
+    assert!(part.contains("Add fixture coverage for this ingestion unit.") && part.contains("fixture_missing"), "{part}");
     assert!(
-        html.contains(r#"href="/catalog/scopes/scp_paf">"#) && !html.contains(r#"rel="next""#),
-        "first page, no next: {html}"
+        part.contains(r#"href="/catalog/providers/tcgplayer?unitKey=tcgplayer%3Apokemon%3Acard""#)
+            && part.contains("Provider setup: tcgplayer"),
+        "{part}"
     );
+    // The provenance of the scope's two reads, not the audit's.
+    assert!(part.contains(r#"data-catalog-health-provenance="true""#), "{part}");
+    assert!(part.contains("Unit readiness comes from the overview.") && part.contains("Job progress comes from durable jobs."));
+    assert!(!part.contains("Audit projection is partial."), "{part}");
+    // The member's job with its progress and recovery, posted with the working set; the job of
+    // another scope is not drawn.
+    assert!(part.contains(r#"data-catalog-scope-health-job="job_1""#) && part.contains("3/10 work units"), "{part}");
+    assert!(!part.contains("job_other"), "{part}");
+    assert!(part.contains(r#"action="/catalog/integrations/jobs/job_1?home=scp_paf""#), "{part}");
+    assert!(part.contains(r#"value="retry""#) && part.contains(r#"value="cancel""#), "{part}");
+    assert!(!part.contains("Resolution unavailable"), "{part}");
+
+    // A job in the address that is not a member's: the resolution is unavailable.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobId=job_other", Some("staff"))).await;
+    assert!(health(&html).contains("Resolution unavailable: the target is missing or deleted."), "{html}");
+
+    // The member job's retry, posted as drawn, lands back on the scope with the job queued.
+    let (status, headers, _) = pilot.send(post("/catalog/integrations/jobs/job_1?home=scp_paf", "command=retry", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?") && to.contains("done=queued"), "{to}");
+    assert!(pilot.catalog_writes().iter().any(|c| c.path.contains("job_1")), "the retry reached the Catalog API");
+
+    // A Catalog viewer sees the member's health without its commands, and cannot send one.
+    let before = pilot.catalog_writes().len();
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("catalog-viewer"))).await;
+    let part = health(&html);
+    assert!(part.contains(r#"data-catalog-scope-health-job="job_1""#) && !part.contains(r#"value="retry""#), "{part}");
+    let (status, _, _) =
+        pilot.send(post_as("catalog-viewer", "/catalog/integrations/jobs/job_1?home=scp_paf", "command=retry", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+    assert_eq!(pilot.catalog_writes().len(), before, "nothing was sent");
+}
+
+#[tokio::test]
+async fn a_scopes_journey_is_read_for_its_own_page_and_the_api_composes_it_from_the_scope_record() {
+    let pilot = Pilot::new().await;
+    // A provider or a hierarchy in the address is the scope's to choose; the API decides them. The
+    // address's other keys pass through.
+    let (status, _, html) =
+        pilot.send(get("/catalog/scopes/scp_paf?languageCode=ja&providerKey=tcgplayer&seriesId=scp_other", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let reads: Vec<String> = pilot
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c.path.split_once("/workbench-surfaces/daily?location=").map(|(_, at)| at.to_owned()))
+        .map(|at| percent_encoding::percent_decode_str(&at).decode_utf8_lossy().into_owned())
+        .collect();
+    assert_eq!(reads, ["/catalog/scopes/scp_paf?languageCode=ja"], "one read, with no hierarchy of the pilot's");
+    assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the stages: {html}");
+    assert!(
+        html.contains(r#"action="/catalog/integrations/review?languageCode=ja&amp;home=scp_paf""#),
+        "a command carries the page's working set: {html}"
+    );
+
+    let (status, headers, _) = pilot
+        .send(post("/catalog/integrations/review?languageCode=ja&home=scp_paf", "action=defer&observation=obs_1", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?languageCode=ja&") && to.contains("done=queued"), "{to}");
+}
+
+#[tokio::test]
+async fn a_scopes_page_links_each_entitys_evidence_and_opens_the_timeline_the_api_resolved() {
+    let pilot = Pilot::new().await;
+    let drawer = |html: &str| {
+        let at = html.find(r#"id="scope-evidence-audit""#)?;
+        let tag = html[..at].rfind("<details")?;
+        Some(html[tag..].split('>').next().unwrap().contains(" open"))
+    };
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-scope-evidence-links"), "{html}");
+    for reference in ["scope%2Fscp_paf", "candidate%2Fcand_1", "source-observation%2Fobs_1", "import-job%2Fjob_1"] {
+        assert!(html.contains(&format!(r#"href="/catalog/scopes/scp_paf?evidenceRef={reference}""#)), "{reference}: {html}");
+    }
+    assert!(!html.contains("evidenceRef=scope%2Fscp_paf&amp;home="), "a link is the page's, not the working set's: {html}");
+    assert_eq!(drawer(&html), None, "no timeline without a reference: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?evidenceRef=candidate%2Fcand_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(drawer(&html), Some(true), "a resolved reference opens it: {html}");
+    assert!(html.contains("Candidate cand_1 reviewed."), "{html}");
+    let read = pilot.calls.lock().unwrap().iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
+    assert!(read.path.contains("evidenceRef%3Dcandidate%252Fcand_1"), "the API resolves it: {}", read.path);
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?evidenceRef=import-job%2Fjob_gone", Some("staff"))).await;
+    assert_eq!(drawer(&html), Some(false), "one the API did not find stays closed: {html}");
+    assert!(html.contains("No associated evidence"), "{html}");
+}
+#[tokio::test]
+async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_address_keeps_its_working_set() {
+    let pilot = Pilot::new().await;
+    // A provider in the address is the scope's to choose, as admin-web drops it; the review's page stays.
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?providerKey=tcgplayer&reviewOffset=25", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot.calls.lock().unwrap().iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
+    let location =
+        percent_encoding::percent_decode_str(read.path.split_once("location=").unwrap().1).decode_utf8_lossy().into_owned();
+    assert_eq!(location, "/catalog/scopes/scp_paf?reviewOffset=25", "no provider, no hierarchy and no home");
+    assert!(
+        html.contains(r#"href="/catalog/scopes/scp_paf?productLineName=pokemon&amp;"#),
+        "the review's status and page links stay on the scope: {html}"
+    );
+
+    let context = "home=scp_paf";
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/review?{context}"), "action=defer&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?") && to.contains("done=queued"), "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Command queued"), "the scope's toast: {html}");
+    assert!(
+        daily_writes(&pilot).iter().any(|c| c.path == "/api/catalog/source-observations/bulk-defer/jobs"),
+        "the defer was sent"
+    );
+
+    // Refused without the runtime: the scope's page again for the same working set, with the API's
+    // reason; with it, the reason is patched into the section's notice.
+    let at = format!("/catalog/integrations/review?{context}");
+    let (status, _, html) = pilot.send(post(&at, "action=reject&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A reason is required to reject observations."), "{html}");
+    assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the scope's page: {html}");
+    // The same working set: the page builds it from the address again.
+    assert!(
+        html.contains(&format!(r#"action="/catalog/integrations/review?{context}""#)),
+        "its commands keep the working set: {html}"
+    );
+    // Nothing checked: the API refuses it, and the page says the API's reason.
+    let bulk = |pilot: &Pilot| daily_writes(pilot).iter().filter(|c| c.path.contains("/bulk-")).count();
+    let before = bulk(&pilot);
+    for body in ["action=reject&reason=Duplicate", "action=defer"] {
+        let (status, _, html) = pilot.send(post(&at, body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {html}");
+        assert!(
+            html.contains("Bulk review requires selected observations or an explicit review scope.")
+                && html.contains("data-scope-workspace"),
+            "{body}: {html}"
+        );
+    }
+    assert_eq!(bulk(&pilot), before + 2, "each was sent, and the API refused it");
+    // A command from the daily workbench itself, refused, is the daily workbench again.
+    let daily = "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
+                 &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en";
+    let (status, _, html) =
+        pilot.send(post(&format!("/catalog/integrations/review?{daily}"), "action=reject&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A reason is required to reject observations.") && !html.contains("data-scope-workspace"), "{html}");
+    let (status, _, patch) = pilot.send(post(&at, "action=reject&observation=obs_1", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(patch.contains("A reason is required to reject observations.") && !patch.contains("wb-stage"), "{patch}");
 }
 
 #[tokio::test]
@@ -3644,6 +4831,12 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     assert_eq!(status, StatusCode::OK, "as admin-web's loader degrades them: {html}");
     assert!(html.matches(r#"role="status""#).count() >= 3, "the journey's and both banners: {html}");
     assert!(!html.contains("Accept all"), "no commands over a coverage that could not be read: {html}");
+    assert!(
+        html.contains("The import-to-promotion workspace could not be read.")
+            && html.contains(r#"href="/catalog/scopes/scp_down">Read the workspace again</a>"#)
+            && !html.contains(r#"name="wb-stage""#),
+        "a workspace that cannot be read is its section's banner and a link to read it again: {html}"
+    );
 
     let (status, _, _) = pilot.send(get("/catalog/scopes/scp_gone", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -3739,7 +4932,7 @@ async fn a_scopes_coverage_page_writes_through_the_scope_routes_and_comes_back()
 
     let (status, _, html) = pilot.send(get("/catalog/scope-coverage/scp_down", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "a coverage that cannot be read is a banner: {html}");
-    assert!(html.contains(r#"role="status""#) && !html.contains("Accept all"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && !html.contains("Accept all"), "{html}");
     let (status, _, _) = pilot.send(get("/catalog/scope-coverage/scp_gone", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "an unknown scope");
 }
@@ -3780,9 +4973,9 @@ async fn an_editions_alias_commands_post_the_alias_review_and_defer_writes_nothi
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
     assert_eq!(to, "/catalog/scopes/scp_paf?done=alias_deferred");
-    assert!(pilot.catalog_writes().is_empty(), "chase-sets/chase-sets#10702: defer has no command");
+    assert!(pilot.catalog_writes().is_empty(), "defer has no command");
     let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
-    assert!(html.contains("stays pending"), "{html}");
+    assert!(html.contains("Left for later"), "admin-web's words for a defer: {html}");
 
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.accept&alias_hashes=ah_ja", true)).await;
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.reject&alias_hashes=ah_ja&reason=Not+this+set", true)).await;
@@ -3829,7 +5022,7 @@ async fn a_source_observation_shows_its_values_and_offers_what_its_status_allows
         html.contains(r#"value="promote""#) && html.contains(r#"value="reject""#) && html.contains(r#"name="reason""#),
         "{html}"
     );
-    assert!(html.contains("/catalog/integrations?section=workbench"), "the way back is admin-web's workbench: {html}");
+    assert!(html.contains(r#"href="/catalog/integrations?section=workbench""#), "the way back is the pilot's workbench: {html}");
 
     let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_product", Some("staff"))).await;
     assert!(html.contains(r#"value="promote""#) && !html.contains(r#"value="reject""#), "a changed one is promoted only: {html}");
@@ -3837,6 +5030,12 @@ async fn a_source_observation_shows_its_values_and_offers_what_its_status_allows
 
     let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_done", Some("staff"))).await;
     assert!(!html.contains(r#"value="promote""#) && html.contains("cat_pika") && html.contains("pokemon-cards@2"), "{html}");
+
+    // A set reference is stored without image URLs: its page draws with no image, as admin-web's.
+    let (status, _, html) = pilot.send(get("/catalog/source-observations/obs_set", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Starter Deck Kaiba | Catalog Admin</title>"), "{html}");
+    assert!(!html.contains(r#"width="180""#), "no image is drawn: {html}");
 
     let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_card", Some("catalog-viewer"))).await;
     assert!(!html.contains(r#"value="promote""#), "a viewer reviews nothing: {html}");
@@ -4083,7 +5282,7 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
             && html.contains("<title>Projection Operations | Chase Sets Admin</title>"),
         "{html}"
     );
-    assert!(html.contains(r#"href="/platform/projections" aria-current="page""#), "the nav entry is the pilot's: {html}");
+    assert!(marks_current(&html, "/platform/projections"), "the nav entry is the pilot's: {html}");
     assert!(html.contains("/sections/platform/projections.css"), "the area's own stylesheet: {html}");
     // The API's and the wake read's attention: a danger item makes the console Needs attention.
     for text in
@@ -4092,7 +5291,7 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
         assert!(html.contains(text), "{text}: {html}");
     }
     // The counts: three attention items, the source lag grouped, the API's worker counts.
-    assert!(html.contains("<dt>Attention</dt><dd>3</dd>"), "{html}");
+    assert!(html.contains(r#"<dt>Attention</dt><dd class="stats__value">3</dd>"#), "{html}");
     assert!(html.contains("12,345"), "grouped as admin-web's formatDecimalCount: {html}");
     assert!(html.contains("1 active · 0 stale"), "{html}");
     assert!(html.contains("16 expired heartbeats in the last 7 days"), "{html}");
@@ -4114,8 +5313,8 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
     assert!(html.contains(r#"action="/platform/projections/refresh""#) && html.contains("Refresh status"), "{html}");
     assert!(html.contains(r#"src="/platform/projections/live""#), "{html}");
     assert!(
-        html.contains(r#"href="/catalog/dimensions""#) && html.contains("/access/accounts"),
-        "Catalog and Identity for who may see them"
+        html.contains(r#"href="/catalog/dimensions""#) && html.contains(r#"href="/access/accounts""#),
+        "Catalog and Identity for who may see them, on the pilot"
     );
     assert!(!html.contains("<dialog"), "nothing selected, no sheet");
     assert!(!pilot.projection_calls().iter().any(|c| c.path.contains("/blocked-streams")), "no detail read without a selection");
@@ -4381,7 +5580,7 @@ async fn access_is_an_area_each_list_needs_its_nav_entrys_permission() {
     for path in ["/access/users", "/access/api-keys", "/access/memberships", "/access/invitations"] {
         let (status, _, html) = pilot.send(get(path, Some("access-staff"))).await;
         assert_eq!(status, StatusCode::OK, "{path}: {html}");
-        assert!(html.contains(&format!(r#"href="{path}" aria-current="page""#)), "the nav serves it: {html}");
+        assert!(marks_current(&html, path), "the nav serves it: {html}");
     }
 }
 
@@ -4536,7 +5735,7 @@ async fn sessions_list_and_page_read_auth_as_admin_web_does() {
     assert_eq!(paths, ["/api/auth/sessions?limit=50&offset=50&status=revoked&search=dana"]);
     assert!(html.contains("dana@example.test") && html.contains("Acme Cards") && html.contains("Magic link"), "{html}");
     assert!(html.contains(r#"href="/access/sessions/ses_1""#) && html.contains("Status: Revoked"), "{html}");
-    assert!(html.contains(r#"href="/access/sessions" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/access/sessions"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/access/sessions", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
     assert_eq!(pilot.send(get("/access/sessions/ses_1", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
 
@@ -4544,7 +5743,11 @@ async fn sessions_list_and_page_read_auth_as_admin_web_does() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("dana@example.test session") && html.contains("acc_1, acc_2"), "{html}");
     assert!(html.contains(r#"value="switch-account""#) && html.contains(r#"value="revoke""#), "{html}");
-    assert!(html.contains(r#"<option value="acc_1" selected>Acme Cards</option>"#), "{html}");
+    assert!(html.contains("Switch to") && html.contains(r#"<option value="acc_2">acc_2</option>"#), "{html}");
+    assert!(!html.contains(r#"<option value="acc_1""#), "the current account is not offered: {html}");
+    let (_, _, html) = pilot.send(get("/access/sessions/ses_solo", Some("access-staff"))).await;
+    assert!(!html.contains(r#"value="switch-account""#), "no other account, no switch: {html}");
+    assert!(html.contains(r#"value="revoke""#), "{html}");
     let (_, _, html) = pilot.send(get("/access/sessions/ses_old", Some("access-staff"))).await;
     assert!(!html.contains(r#"value="revoke""#), "a revoked session has no forms: {html}");
     assert_eq!(pilot.send(get("/access/sessions/ses_none", Some("access-staff"))).await.0, StatusCode::NOT_FOUND);
@@ -4617,13 +5820,34 @@ async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
         [format!("{REPORTED}/metrics"), format!("{REPORTED}?limit=100&offset=0&status=needs-review")],
         "an unknown target type is all of them"
     );
-    for text in ["<dd>12</dd>", "<dd>7</dd>", "<dd>3</dd>", "Listing lst_1", "counterfeit (2)", "Showing 2 of 12"] {
+    for text in [
+        r#"<dd class="stats__value">12</dd>"#,
+        r#"<dd class="stats__value">7</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
+        "Listing lst_1",
+        "counterfeit (2)",
+        "Showing 2 of 12",
+        "Critical",
+        "trust-and-safety",
+        "Oct 28, 2026, 1:00 PM UTC",
+        "Oct 29, 2026, 12:00 PM UTC",
+    ] {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains(r#"<option value="needs-review" selected>Needs review</option>"#), "{html}");
     assert!(html.contains(r#"<option value="all" selected>All targets</option>"#), "{html}");
     assert!(html.contains(r#"href="/support/reported-content/listing/lst_1""#), "{html}");
-    assert!(html.contains(r#"href="/support/reported-content" aria-current="page""#), "the nav serves it: {html}");
+    assert!(
+        html.contains(
+            r#"<td class="reported-page__words"><span class="table__label" aria-hidden="true">Reasons</span>counterfeit (2)</td>"#
+        ),
+        "the queue stacks on a phone: {html}"
+    );
+    for (label, words) in [("Severity", "Standard"), ("Response state", "Open"), ("Response state", "Overdue")] {
+        let cell = format!(r#"<span class="table__label" aria-hidden="true">{label}</span>{words}</td>"#);
+        assert!(html.contains(&cell), "{cell}: {html}");
+    }
+    assert!(marks_current(&html, "/support/reported-content"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/reported-content", Some("staff"))).await.0, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_1", Some("staff"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -4638,13 +5862,28 @@ async fn a_reported_targets_page_offers_its_target_types_actions_and_its_reports
         assert!(html.contains(&format!(r#"value="{action}""#)), "{action}: {html}");
     }
     assert!(!html.contains(r#"value="withdraw-review""#), "{html}");
-    for text in
-        ["Fake holo.", "No details provided.", "Visitor at", "Signed-in account at", "Latest moderation action: contact seller"]
-    {
+    for text in [
+        "Fake holo.",
+        "No details provided.",
+        "Visitor at",
+        "Signed-in account at",
+        "Latest moderation action: contact seller",
+        "<dt>Severity</dt><dd>Critical</dd>",
+        "<dt>Accountable role</dt><dd>trust-and-safety</dd>",
+        "<dt>Response state</dt><dd>Open</dd>",
+        "<dt>Response policy</dt><dd>rcp-2026-11</dd>",
+        r#"value="acknowledge">Acknowledge</button>"#,
+    ] {
         assert!(html.contains(text), "{text}: {html}");
     }
     let (_, _, html) = pilot.send(get("/support/reported-content/review/rev_1", Some("moderator"))).await;
     assert!(html.contains(r#"value="withdraw-review""#) && html.contains(r#"value="withdraw-review-reply""#), "{html}");
+    assert!(
+        html.contains("<dt>Response state</dt><dd>Overdue</dd>")
+            && html.contains("<dt>Response policy</dt><dd>policy-incomplete</dd>"),
+        "{html}"
+    );
+    assert!(!html.contains(r#"value="acknowledge""#), "an acknowledged response is not offered again: {html}");
     let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_none", Some("moderator"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
@@ -4687,7 +5926,7 @@ async fn a_target_read_after_an_action_that_is_not_readable_yet_is_read_without_
     let at = format!("/support/reported-content/listing/lst_1?after_write={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&at, Some("moderator-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
     let reads = pilot.calls_to(REPORTED);
     assert_eq!(reads.len(), 2, "with the receipt, then without it");
     assert!(!reads[1].headers.contains_key("chase-sets-read-after-write"));
@@ -4703,10 +5942,43 @@ async fn an_action_answered_without_a_receipt_carries_its_time_and_the_page_says
     assert_eq!(to, "/support/reported-content/review/rev_1?recorded=2026-10-30T12%3A00%3A00.000Z");
     let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "older than the action: {html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "older than the action: {html}");
     let caught_up = "/support/reported-content/review/rev_1?recorded=2026-10-29T13%3A00%3A00.000Z";
     let (_, _, html) = pilot.send(get(caught_up, Some("moderator"))).await;
     assert!(!html.contains("Refresh in a moment"), "the target shows the action: {html}");
+}
+
+#[tokio::test]
+async fn acknowledging_a_response_posts_to_its_endpoint_and_a_refusal_draws_the_page_again() {
+    let pilot = Pilot::new().await;
+    let at = "/support/reported-content/listing/lst_1";
+    let (status, headers, _) = pilot.send(post_as("moderator", at, "action=acknowledge&note=ignored", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let write = pilot.calls_to(REPORTED).into_iter().last().unwrap();
+    assert_eq!(
+        (write.method, write.path.as_str(), write.body.as_str()),
+        (Method::POST, &*format!("{REPORTED}/listing/lst_1/acknowledge"), ""),
+        "no body and no note, as admin-web sends it"
+    );
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(to, "/support/reported-content/listing/lst_1?recorded=2026-11-15T12%3A00%3A00.000Z", "the section stays");
+    let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Refresh in a moment"), "the target does not show the acknowledgement yet: {html}");
+    // The review's last action (Oct 29) is older than this; its acknowledgement (Oct 30, 9:00) is not.
+    let shown = "/support/reported-content/review/rev_1?recorded=2026-10-30T09%3A00%3A00.000Z";
+    let (_, _, html) = pilot.send(get(shown, Some("moderator"))).await;
+    assert!(!html.contains("Refresh in a moment"), "the target shows the acknowledgement: {html}");
+
+    let review = "/support/reported-content/review/rev_1";
+    let (status, headers, html) = pilot.send(post_as("moderator", review, "action=acknowledge", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    assert!(html.contains("The change was not made.") && html.contains(r#"role="alert""#), "{html}");
+    let (status, _, _) = pilot.send(post_as("staff", at, "action=acknowledge", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let writes = pilot.calls_to(REPORTED).into_iter().filter(|c| c.method == Method::POST).count();
+    assert_eq!(writes, 2, "the forbidden one writes nothing");
 }
 
 const RISK: &str = "/api/experience/risk-alerts";
@@ -4725,7 +5997,7 @@ async fn risk_alerts_read_the_queue_and_an_alerts_page_as_admin_web_does() {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains(r#"<option value="review-velocity" selected>Review velocity</option>"#), "{html}");
-    assert!(html.contains(r#"href="/support/risk-alerts" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/risk-alerts"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/risk-alerts", Some("staff"))).await.0, StatusCode::FORBIDDEN);
 
     let (status, _, html) = pilot.send(get("/support/risk-alerts/ral_1", Some("moderator"))).await;
@@ -4751,7 +6023,7 @@ async fn a_risk_alert_response_is_sent_and_the_page_says_it_is_being_applied_unt
         (Method::POST, &*format!("{RISK}/ral_1/actions"), r#"{"action":"acknowledge","note":"Known seller"}"#)
     );
     let (_, _, html) = pilot.send(get(&to, Some("moderator"))).await;
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
     assert_eq!(pilot.send(post_as("moderator", at, "action=unlist", false)).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(pilot.send(post_as("staff", at, "action=acknowledge", false)).await.0, StatusCode::FORBIDDEN);
     let writes = pilot.calls_to(RISK).into_iter().filter(|c| c.method == Method::POST).count();
@@ -4767,7 +6039,7 @@ async fn reference_lookup_finds_the_record_a_reference_names_and_links_its_admin
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(pilot.calls_to(LOOKUP).is_empty(), "nothing is looked up before a search");
     assert!(!html.contains("No record found") && !html.contains("Result"), "{html}");
-    assert!(html.contains(r#"href="/support/reference-lookup" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/reference-lookup"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/support/reference-lookup?reference=+ORD-A1B2C3D4+", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -4803,11 +6075,11 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
         "admin-web's v1 is the registered version; what admin-web does not offer is left out"
     );
     for text in [
-        "<dd>Insufficient sample</dd>",
-        "<dd>86%</dd>",
-        "<dd>25%</dd>",
-        "<dd>7</dd>",
-        "<dd>28</dd>",
+        r#"<dd class="stats__value">Insufficient sample</dd>"#,
+        r#"<dd class="stats__value">86%</dd>"#,
+        r#"<dd class="stats__value">25%</dd>"#,
+        r#"<dd class="stats__value">7</dd>"#,
+        r#"<dd class="stats__value">28</dd>"#,
         "csi_1",
         "Order delivered",
         "Transactional CSAT v1",
@@ -4819,7 +6091,7 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
     assert!(html.contains(r#"value="2026-10-01""#), "{html}");
     assert!(html.contains("cursor=c2&amp;direction=next") && html.contains("cursor=c0&amp;direction=previous"), "{html}");
     assert!(!html.contains("Export safe CSV"), "Export is left out until it works: {html}");
-    assert!(html.contains(r#"href="/support/csat" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/csat"), "the nav serves it: {html}");
 
     pilot.send(get("/support/csat?cursor=c2&direction=next&ratings=4", Some("feedback-viewer"))).await;
     assert_eq!(pilot.calls_to(CSAT).last().unwrap().path, format!("{CSAT}?ratings=4&cursor=c2&direction=next"));
@@ -4829,10 +6101,24 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
 #[tokio::test]
 async fn a_csat_read_that_fails_keeps_the_filters_on_the_page_with_a_banner() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    let (status, _, html) = pilot.send(get("/support/csat?from=2026-10-01&states=expired", Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
-    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2099-01-01""#), "{html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2026-10-01""#), "{html}");
+    assert!(html.contains(r#"<option value="expired" selected>Expired</option>"#), "{html}");
+    assert!(!html.contains("These filters can&#39;t be applied") && !html.contains("These filters can't be applied"), "{html}");
+}
+
+#[tokio::test]
+async fn a_csat_filter_the_api_refuses_keeps_the_filters_and_says_why() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{html}");
+    assert!(html.contains(r#"value="2099-01-01""#), "{html}");
     assert!(html.contains(r#"<option value="issued" selected>Issued</option>"#), "{html}");
+    let alert = html.split(r#"role="alert">"#).nth(1).unwrap_or_default();
+    assert!(alert.contains("These filters can") && alert.contains("The To date can"), "{html}");
+    assert!(alert.contains("be later than today."), "{html}");
+    assert_eq!(html.matches(r#"role="alert""#).count(), 1, "one alert, the reason: {html}");
 }
 
 const FEEDBACK: &str = "/api/experience/platform-feedback";
@@ -4851,9 +6137,9 @@ async fn platform_feedback_reads_the_queue_and_its_counts_with_the_filters_admin
         "an unknown topic is all of them"
     );
     for text in [
-        "<dd>5</dd>",
-        "<dd>3</dd>",
-        "<dd>3.80</dd>",
+        r#"<dd class="stats__value">5</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
+        r#"<dd class="stats__value">3.80</dd>"#,
         "\u{2605}\u{2605}\u{2605}\u{2605}\u{2606}",
         "4/5",
         "Ease of use",
@@ -4870,7 +6156,7 @@ async fn platform_feedback_reads_the_queue_and_its_counts_with_the_filters_admin
     assert!(html.contains(r#"value="bulk-review""#) && html.contains(r#"value="bulk-archive""#), "{html}");
     assert!(html.contains(r#"action="/support/platform-feedback?status=new&amp;workflow=offer-submit""#), "{html}");
     assert!(html.contains(r#"href="/support/platform-feedback/export?status=new&amp;workflow=offer-submit""#), "{html}");
-    assert!(html.contains(r#"href="/support/platform-feedback" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/platform-feedback"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/support/platform-feedback", Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -4975,7 +6261,7 @@ async fn a_feedbacks_writes_are_sent_and_its_page_is_read_after_them() {
     let lagging = format!("{at}?after_write={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&lagging, Some("feedback-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
 }
 
 #[tokio::test]
@@ -5003,7 +6289,7 @@ async fn support_requests_reads_the_queue_with_the_filters_admin_web_offers() {
         "{html}"
     );
     assert!(html.contains(r#"aria-current="page">Ready for support</a>"#), "the status tab: {html}");
-    assert!(html.contains(r#"href="/support/requests" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/requests"), "the nav serves it: {html}");
     assert!(!html.contains("<dialog"), "no sheet without a request: {html}");
     assert_eq!(pilot.send(get("/support/requests", Some("feedback-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -5042,7 +6328,8 @@ async fn a_requests_sheet_shows_the_case_and_recommends_what_admin_web_would() {
     assert!(html.contains("Refunded five.") && html.contains("Refund still settling"), "{html}");
     assert!(html.contains(r#"value="close""#) && !html.contains(r#"value="cancel""#), "a resolved request: {html}");
     let origin = crate::app::admin_web_origin();
-    assert!(html.contains(&format!(r#"href="{origin}/support/requests?requestId=req_done""#)), "the remedy on admin-web: {html}");
+    assert!(html.contains(r#"value="preview-remedy""#), "a refund decision offers a remedy: {html}");
+    assert!(!html.contains(&format!("{origin}/support/requests")), "the remedy is the pilot's, not admin-web's: {html}");
 
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_none", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -5105,6 +6392,142 @@ async fn a_case_action_is_sent_and_the_sheet_is_read_after_it() {
 }
 
 #[tokio::test]
+async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_requested() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-remedies"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="remedyAmount" inputmode="decimal" value="5.00""#), "the decided refund: {html}");
+    assert!(html.contains(r#"name="currencyCode" value="usd""#), "no affected lines, admin-web's usd: {html}");
+    assert!(html.contains(r#"value="req_done:platform-remedy-proposal""#), "{html}");
+    assert!(html.contains(r#"value="preview-remedy">"#), "{html}");
+    assert!(html.contains(r#"value="propose-remedy" disabled>"#), "no reservation before a preview: {html}");
+    let (_, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
+    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "without support.remedies.propose: {html}");
+
+    let at = "/support/requests/req_done?status=resolved";
+    let form = "intent=preview-remedy&remedyKind=partial-refund&remedyAmount=5.00&currencyCode=usd&fundingKind=platform-funded\
+        &sellerFundedAmount=0.00&platformFundedAmount=5.00&returnDirective=no-return&refundTrigger=immediate\
+        &reasonCode=customer-protection&returnExceptionReasonCode=&rationale=Lost+in+transit&evidenceReferences=ev_1%0Aev_2\
+        &idempotencyKey=req_done%3Aplatform-remedy-proposal";
+    let (status, headers, html) = pilot.send(post_as("support-remedies", at, form, false)).await;
+    assert_eq!(status, StatusCode::OK, "a preview is the sheet with it: {html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    // The sheet is read again after the preview, so the preview is the last POST.
+    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().rfind(|c| c.method == Method::POST).unwrap();
+    assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals/preview"));
+    let allocation = json!({ "sellerFundedAmount": "0.00", "platformFundedAmount": "5.00", "currencyCode": "usd", "fundingKind": "platform-funded" });
+    assert_eq!(
+        serde_json::from_str::<Value>(&call.body).unwrap(),
+        json!({
+            "remedy": { "kind": "partial-refund", "amount": "5.00", "currencyCode": "usd" }, "allocation": allocation,
+            "returnDirective": "no-return", "refundTrigger": "immediate", "reasonCode": "customer-protection",
+            "returnExceptionReasonCode": null, "rationale": "Lost in transit", "evidenceReferences": "ev_1\nev_2",
+            "idempotencyKey": "req_done:platform-remedy-proposal",
+        })
+    );
+    for text in ["Refund 5.00 usd now", "Reserve 5.00", "A documented return exception is required.", "Lost in transit"] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="partial-refund" selected>"#), "the proposal as it was filled in: {html}");
+    assert!(html.contains(r#"value="propose-remedy">"#), "previewed, it can be requested: {html}");
+
+    let propose = form.replace("intent=preview-remedy", "intent=propose-remedy");
+    let (status, headers, _) = pilot.send(post_as("support-remedies", at, &propose, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/support/requests?status=resolved&requestId=req_done&action=remedy-proposed&after_write="), "{to}");
+    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals"));
+
+    let unexplained = form.replace("rationale=Lost+in+transit", "rationale=");
+    let (status, _, html) = pilot.send(post_as("support-remedies", at, &unexplained, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A remedy rationale is required."), "the sheet says why: {html}");
+    assert!(html.contains(r#"<option value="partial-refund" selected>"#), "and keeps what was filled in: {html}");
+    assert!(html.contains(r#"value="propose-remedy" disabled>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_remedy", Some("support-remedies"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "approval-pending",
+        "12.00 usd · split",
+        "no-return · operator-release",
+        "1/2",
+        "System/service",
+        "acc_ops",
+        "processor-timeout",
+        r#"value="rmd_1:approval""#,
+        r#"value="rmd_1:refund-execution:idem_3:retry""#,
+        r#"value="rmd_1:buyer-notification:idem_4:waive""#,
+        r#"value="rmd_1:operator-release""#,
+        r#"value="rmd_1:correction""#,
+        r#"value="approve-remedy">"#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert_eq!(html.matches(r#"value="waive-remedy-effect""#).count(), 1, "a coverage reservation is never waived: {html}");
+    assert!(!html.contains(r#"value="preview-remedy""#), "a workflow, not a proposal: {html}");
+    let (_, _, html) = pilot.send(get("/support/requests?requestId=req_remedy", Some("support-agent"))).await;
+    for intent in
+        ["approve-remedy", "retry-remedy-effect", "waive-remedy-effect", "release-remedy-refund", "request-remedy-correction"]
+    {
+        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} needs its capability: {html}");
+    }
+
+    let reasoned =
+        |key: &str| json!({ "reasonCode": "r", "rationale": "Why", "evidenceReferences": "ev_1", "idempotencyKey": key });
+    let writes = [
+        (
+            "intent=retry-remedy-effect&remedyId=rmd_1&effect=refund-execution&idempotencyKey=k1&reasonCode=r&rationale=Why",
+            "/remedies/rmd_1/effects/refund-execution/retry",
+            json!({ "reasonCode": "r", "rationale": "Why", "idempotencyKey": "k1" }),
+            "remedy-retry-requested",
+        ),
+        (
+            "intent=waive-remedy-effect&remedyId=rmd_1&effect=buyer-notification&idempotencyKey=k2&reasonCode=r&rationale=Why\
+                &evidenceReferences=ev_1",
+            "/remedies/rmd_1/effects/buyer-notification/override",
+            reasoned("k2"),
+            "remedy-effect-waived",
+        ),
+        (
+            "intent=release-remedy-refund&remedyId=rmd_1&idempotencyKey=k3&reasonCode=r",
+            "/remedies/rmd_1/effects",
+            json!({ "reasonCode": "r", "idempotencyKey": "k3", "effect": "operator-release" }),
+            "remedy-refund-released",
+        ),
+        (
+            "intent=approve-remedy&idempotencyKey=k4&reasonCode=r&rationale=Why&evidenceReferences=ev_1",
+            "/remedy-proposals/approve",
+            reasoned("k4"),
+            "remedy-approved",
+        ),
+        (
+            "intent=request-remedy-correction&idempotencyKey=k5&reasonCode=r&rationale=Why&evidenceReferences=ev_1",
+            "/remedy-corrections",
+            reasoned("k5"),
+            "remedy-correction-requested",
+        ),
+    ];
+    for (form, path, body, action) in writes {
+        let (status, headers, _) = pilot.send(post_as("support-remedies", "/support/requests/req_remedy", form, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{form}");
+        let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+        assert!(to.starts_with(&format!("/support/requests?requestId=req_remedy&action={action}&after_write=")), "{to}");
+        let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+        assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_remedy{path}"));
+        assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap(), body, "{form}");
+    }
+    let (_, _, html) =
+        pilot.send(get("/support/requests?requestId=req_remedy&action=remedy-refund-released", Some("support-remedies"))).await;
+    assert!(html.contains("Operator refund trigger released."), "{html}");
+}
+
+#[tokio::test]
 async fn escalate_overdue_reports_its_counts_on_the_queue() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post_as("support-agent", "/support/requests?status=open", "", false)).await;
@@ -5119,7 +6542,7 @@ async fn escalate_overdue_reports_its_counts_on_the_queue() {
     );
     let (status, _, html) = pilot.send(get(&to, Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("120"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("120"), "{html}");
 }
 
 #[tokio::test]
@@ -5153,7 +6576,7 @@ async fn the_ebay_lookup_shows_the_counts_and_a_user_ids_unexpired_receipts() {
     );
     assert!(html.contains(r#"name="userId""#) && html.contains(r#"maxlength="1024""#), "{html}");
     assert!(!html.contains("Unexpired receipts") && !html.contains(r#"role="alert""#), "{html}");
-    assert!(html.contains(r#"href="/support/ebay-account-deletion" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/ebay-account-deletion"), "the nav serves it: {html}");
 
     let at = "/support/ebay-account-deletion";
     let (status, headers, html) = pilot.send(post_as("support-agent", at, "userId=ebay-user-1", false)).await;
@@ -5190,10 +6613,10 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
     let (status, _, html) = pilot.send(get(at, Some("support-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     for text in [
-        "<dd>4</dd>",
-        "<dd>1</dd>",
-        "<dd>2 hours</dd>",
-        "<dd>3</dd>",
+        r#"<dd class="stats__value">4</dd>"#,
+        r#"<dd class="stats__value">1</dd>"#,
+        r#"<dd class="stats__value">2 hours</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
         "fbcase_1",
         "1/5",
         "SLA breached",
@@ -5205,9 +6628,16 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert_eq!(html.matches("SLA breached").count(), 1, "only the case the API says is overdue: {html}");
+    assert!(
+        html.contains(&labelled_cell("Rating", "1/5"))
+            && html.contains(
+                r#"<td class="feedback-attention-page__words"><span class="table__label" aria-hidden="true">Owner</span>Unassigned</td>"#
+            ),
+        "the queue stacks on a phone: {html}"
+    );
     assert!(html.contains("May 8, 2026, 12:00 PM UTC"), "a case past its date by the clock is the API's not overdue: {html}");
     assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
-    assert!(html.contains(r#"href="/support/customer-feedback/attention" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/customer-feedback/attention"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to("/api/customer-feedback/attention").len(), 1);
 
     assert_eq!(pilot.send(get(at, Some("attention-down"))).await.0, StatusCode::BAD_GATEWAY);
@@ -5377,7 +6807,8 @@ async fn the_sync_batch_page_offers_its_forms_to_who_may_write_and_follows_a_run
     );
     assert!(html.contains("/sections/catalog.css"), "the catalog area's stylesheet: {html}");
     assert!(
-        html.contains(r#"action="/catalog/scopes/sync-batches/held-sets""#) && html.contains(r#"enctype="multipart/form-data""#),
+        html.contains(r#"action="/catalog/scopes/sync-batches?do=held_sets""#)
+            && html.contains(r#"enctype="multipart/form-data""#),
         "{html}"
     );
     assert!(html.contains(r#"name="selection_mode""#) && html.contains(r#"<option value="matching-scope" selected>"#), "{html}");
@@ -5405,7 +6836,13 @@ async fn the_sync_batch_page_offers_its_forms_to_who_may_write_and_follows_a_run
     // A viewer sees the batch without the forms or its commands.
     let (status, _, html) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=ssb_1", Some("catalog-viewer"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!html.contains("held-sets") && !html.contains("Cancel batch") && !html.contains("Retry unit"), "{html}");
+    assert!(
+        !html.contains("held-sets")
+            && !html.contains("do=held_sets")
+            && !html.contains("Cancel batch")
+            && !html.contains("Retry unit"),
+        "{html}"
+    );
     let (status, _, _) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=gone", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = pilot.send(get("/catalog/scopes/sync-batches", Some("reader"))).await;
@@ -5529,7 +6966,7 @@ async fn a_held_set_export_is_sent_on_and_its_scopes_can_be_previewed() {
 Pokemon,Paldean Fates
 ";
     let req =
-        post_multipart("/catalog/scopes/sync-batches/held-sets", "staff", None, &[], &[("file", "live.csv", "text/csv", csv)]);
+        post_multipart("/catalog/scopes/sync-batches?do=held_sets", "staff", None, &[], &[("file", "live.csv", "text/csv", csv)]);
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let sent = pilot.sync_calls().pop().unwrap();
@@ -5545,7 +6982,7 @@ Pokemon,Paldean Fates
     assert!(html.contains(r#"href="/catalog/scope-coverage?product_domain=pokemon""#), "the inbox for its domain: {html}");
     assert!(html.contains(r#"name="scope_record_ids" value="scp_paf""#) && html.contains("Preview resolved sets"), "{html}");
     // No file: the page says to choose one.
-    let req = post_multipart("/catalog/scopes/sync-batches/held-sets", "staff", None, &[], &[]);
+    let req = post_multipart("/catalog/scopes/sync-batches?do=held_sets", "staff", None, &[], &[]);
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a held-set export CSV."), "{html}");
@@ -5581,6 +7018,7 @@ fn post_multipart(
     };
     Request::post(uri)
         .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, cookie)
         .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={BOUNDARY}"))
         .body(Body::from(body))
@@ -5588,6 +7026,15 @@ fn post_multipart(
 }
 
 /// A complete intake's fields for `rsh_1` at `version`, received at `received_at`.
+/// Whether the input `marker` names is a search field: the kit's input group, with the search glyph before it.
+fn in_search_group(html: &str, marker: &str) -> bool {
+    let Some(input) = html.find(marker) else { return false };
+    html[..input].rfind(r#"<span class="input-group__input-group">"#).is_some_and(|group| {
+        html[group..input].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#)
+            && !html[group..input].contains("</span></span>")
+    })
+}
+
 fn intake_fields<'a>(version: &'a str, received_at: &'a str, custody: &'a str) -> Vec<(&'a str, &'a str)> {
     vec![
         ("intent", "complete"),
@@ -5609,6 +7056,7 @@ fn intake_fields<'a>(version: &'a str, received_at: &'a str, custody: &'a str) -
         ("owner", "Facility operations"),
         ("nextAction", "Complete custody handoff"),
         ("notes", ""),
+        ("zone", "UTC"),
     ]
 }
 
@@ -5622,16 +7070,25 @@ async fn the_return_intake_station_opens_a_facility_and_resolves_a_scan() {
     assert!(html.contains("Choose the assigned facility") && html.contains(r#"name="facilityId""#), "{html}");
     assert!(!html.contains("Record unidentified package"), "no unidentified form before a facility: {html}");
     assert!(pilot.calls_to(RETURN_INTAKE).is_empty(), "nothing is read before a facility is open");
-    assert!(html.contains(r#"href="/commerce/return-intake" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/return-intake"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/commerce/return-intake?facilityId=fac_1", Some("intake-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    for text in
-        ["<dd>4</dd>", "<dd>2h</dd>", "<dd>25%</dd>", "<dd>3</dd>", "<dd>3m</dd>", "rsh_1", "9400TRACK1", "CUST-UNK-1", "rsh_old"]
-    {
+    for text in [
+        r#"<dd class="stats__value">4</dd>"#,
+        r#"<dd class="stats__value">2h</dd>"#,
+        r#"<dd class="stats__value">25%</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
+        r#"<dd class="stats__value">3m</dd>"#,
+        "rsh_1",
+        "9400TRACK1",
+        "CUST-UNK-1",
+        "rsh_old",
+    ] {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains("Record unidentified package"), "an open facility offers the unidentified form: {html}");
+    assert!(in_search_group(&html, r#"name="identifier""#), "the scan is the design system's SearchInput: {html}");
     assert_eq!(html.matches(r#"value="reconcile""#).count(), 1, "only the unreconciled package takes Reconcile: {html}");
     assert!(html.contains(r#"enctype="multipart/form-data""#), "{html}");
 
@@ -5671,6 +7128,13 @@ async fn completing_an_intake_sends_each_photo_then_cites_it_at_the_operators_ti
     let photos: [(&str, &str, &str, &[u8]); 2] =
         [("evidence", "front.jpg", "image/jpeg", b"front"), ("evidence", "label.png", "image/png", b"label")];
     let fields = intake_fields("3", "2026-10-30T14:05", "CUST-1");
+    let fields: Vec<_> = fields.into_iter().map(|(k, v)| if k == "zone" { (k, "America/Chicago") } else { (k, v) }).collect();
+    let (_, _, html) = pilot.send(get(at, Some("intake-manager; corten-zone=America/Chicago"))).await;
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the custody form sends its zone back and names it: {html}"
+    );
     let (status, headers, html) =
         pilot.send(post_multipart(at, "intake-manager", Some("America/Chicago"), &fields, &photos)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
@@ -5723,6 +7187,12 @@ async fn a_refused_intake_redraws_the_station_and_sends_nothing_it_should_not() 
     assert!(html.contains("Enter the date and time the package was received."), "{html}");
     let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
     assert_eq!(before, after, "no photo is sent for a time that cannot be read");
+    let unzoned: Vec<_> = intake_fields("3", "2026-10-30T14:05", "CUST-1").into_iter().filter(|(k, _)| *k != "zone").collect();
+    let (status, _, html) = pilot.send(post_multipart(at, "intake-manager", None, &unzoned, &photo)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "a time without the form's zone: {html}");
+    let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
+    assert_eq!(before, after, "no photo is sent without the zone");
 
     let many: Vec<(&str, &str, &str, &[u8])> = (0..11).map(|_| ("evidence", "p.jpg", "image/jpeg", b"p" as &[u8])).collect();
     let (status, _, html) =
@@ -5759,6 +7229,7 @@ async fn the_station_records_unidentified_packages_reconciles_them_and_corrects_
         ("owner", "Facility operations"),
         ("nextAction", "Hold for review"),
         ("notes", "No label"),
+        ("zone", "UTC"),
     ];
     let (status, headers, html) = pilot.send(post_multipart(at, "intake-manager", None, &unidentified, &photo)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
@@ -5910,7 +7381,12 @@ async fn recovered_returns_shows_the_figures_the_queue_and_the_action_form() {
     ] {
         assert!(html.contains(text), "{text}: {html}");
     }
-    assert!(html.contains(r#"href="/commerce/recovered-items" aria-current="page""#), "the nav serves it: {html}");
+    assert!(
+        html.contains(&labelled_cell("Condition grade", "near-mint"))
+            && html.contains(r#"<th scope="row"><span class="table__label" aria-hidden="true">Signal</span>Unidentified</th>"#),
+        "the figures and the queue stack on a phone, each cell named by its column: {html}"
+    );
+    assert!(marks_current(&html, "/commerce/recovered-items"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to(RECOVERED).len(), 2, "the list and the figures");
     assert_eq!(pilot.send(get(RECOVERED_PAGE, Some("intake-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -6147,7 +7623,7 @@ async fn commercial_terms_lists_the_published_schedule_and_the_active_and_schedu
     let reads: Vec<_> = pilot.calls_to(TERMS_API).into_iter().map(|c| c.path).collect();
     assert!(reads.iter().any(|p| p == "/api/commercial-terms/home"), "{reads:?}");
     assert!(!reads.iter().any(|p| p.contains("/schedules?") || p.contains("/agreements?")), "no list reads: {reads:?}");
-    assert!(html.contains(r#"href="/commerce/terms" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/terms"), "the nav serves it: {html}");
     assert!(!html.contains("<dialog"), "no sheet: {html}");
     assert_eq!(pilot.send(get(TERMS, Some("recovery-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -6520,9 +7996,11 @@ async fn the_waitlist_forwards_admin_webs_filters_and_shows_the_figures_and_sign
     );
     assert!(html.contains("<title>Waitlist | Experience Admin"), "{html}");
     assert!(html.contains(r#"<option value="sell" selected>List cards</option>"#), "{html}");
+    assert!(in_search_group(&html, r#"name="search" value="seller""#), "the search is the design system's SearchInput: {html}");
     assert!(html.contains("Wave 1") && html.contains("3 of 100 admitted"), "{html}");
     assert!(html.contains("seller@example.test") && html.contains("Bulk listing") && html.contains(">discord<"), "{html}");
     assert!(html.contains(">Yes<") && html.contains("Showing 1 of 7"), "{html}");
+    assert!(html.contains(&labelled_cell("Referred", "Yes")), "the signups stack on a phone: {html}");
     assert!(html.contains(r#"href="/growth/waitlist/export?search=seller&amp;role=sell&amp;sort=referrals""#), "{html}");
 
     let (status, _, _) = pilot.send(get("/growth/waitlist?search=down", Some("growth-viewer"))).await;
@@ -6622,6 +8100,12 @@ async fn the_promo_bar_previews_live_messages_and_shows_each_messages_status() {
     let (_, _, html) =
         pilot.send(get("/growth/promo-bar?edit=pbm_off", Some("growth-viewer; corten-zone=America/Chicago"))).await;
     assert!(html.contains("<dialog") && html.contains(r#"value="2026-11-10T09:00""#), "the time in the operator's zone: {html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let (_, _, html) = pilot.send(get("/growth/promo-bar", Some("growth-viewer"))).await;
+    assert!(html.contains(r#"name="zone" value="UTC""#) && html.contains(">UTC<"), "UTC until the browser says: {html}");
     let (_, _, html) = pilot.send(get("/growth/promo-bar?delete=pbm_off", Some("growth-viewer"))).await;
     assert!(html.contains(r#"role="alertdialog""#) && html.contains("Old news"), "{html}");
 }
@@ -6631,7 +8115,7 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     let pilot = Pilot::new().await;
     let session = "growth-viewer; corten-zone=America/Chicago";
     let create = "intent=create&title=New&description=&href=%2Fx&linkLabel=Go&tone=warning&isActive=true&displayOrder=5\
-                  &startsAt=2026-11-10T09%3A00&endsAt=";
+                  &startsAt=2026-11-10T09%3A00&endsAt=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, "/growth/promo-bar", create, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -6642,6 +8126,18 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     assert_eq!(body["startsAt"], json!("2026-11-10T15:00:00Z"), "Chicago's 9:00 as its instant");
     assert_eq!((body["endsAt"].clone(), body["description"].clone()), (Value::Null, Value::Null));
     assert_eq!((body["displayOrder"].clone(), body["tone"].clone()), (json!(5.0), json!("warning")));
+
+    // The times are read in the zone the form was drawn in, not the post's.
+    let drawn_in_tokyo = create.replace("America%2FChicago", "Asia%2FTokyo");
+    let (status, _, _) = pilot.send(post_as(session, "/growth/promo-bar", &drawn_in_tokyo, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent: Vec<Call> = pilot.calls_to_path(PROMO_API).into_iter().filter(|c| c.method == Method::POST).collect();
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["startsAt"], json!("2026-11-10T00:00:00Z"), "Tokyo's 9:00");
+    let no_zone = create.replace("&zone=America%2FChicago", "");
+    let (status, _, html) = pilot.send(post_as(session, "/growth/promo-bar", &no_zone, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "times without the form's zone: {html}");
+    assert!(html.contains("No promo bar change was applied."), "{html}");
 
     for (form, method, path) in [
         ("intent=activate&id=pbm_off", Method::POST, format!("{PROMO_API}/pbm_off/activate")),
@@ -6816,6 +8312,2816 @@ fn provider_connections() -> Response {
     .into_response()
 }
 
+/// The Catalog API's composed integrations surface (`GET /api/catalog/source-observations/
+/// workbench-surfaces/{surface}?location=`): a TCGplayer context with a blocked unit, a degraded
+/// provider, a rollout stop, a failed job and a partial audit projection. A location naming
+/// `providerKey=down` is a read model built without the control-plane overview (its panels say
+/// they are unavailable); `providerKey=broken` fails the read.
+fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
+    if !matches!(surface, "daily" | "daily/source-options" | "daily/import-preview" | "governance" | "health") {
+        return refusal(
+            StatusCode::NOT_FOUND,
+            "invalid_workbench_surface",
+            "The workbench surface must be daily, governance, or health.",
+        );
+    }
+    let location =
+        query.strip_prefix("location=").map(|l| percent_encoding::percent_decode_str(l).decode_utf8_lossy().into_owned());
+    // A scope page's own address is composed for its Scope Record, as the Catalog API's
+    // `catalogScopeDetailDailyLocation` does (its own tests cover the hierarchy by kind): here the
+    // address's other keys, then the fixtures' product line, the scope as the expansion, its id and
+    // its first edition unless the address names one. Any other location is read as sent.
+    let composed = location.as_deref().and_then(|l| l.strip_prefix("/catalog/scopes/")).map(|rest| {
+        let (id, query) = rest.split_once('?').unwrap_or((rest, ""));
+        let decided = ["providerKey=", "unitKey=", "importScope=", "profileVersion=", "productLine", "series", "expansion"];
+        let mut keys: Vec<String> =
+            query.split('&').filter(|p| !p.is_empty() && !decided.iter().any(|k| p.starts_with(k))).map(str::to_owned).collect();
+        keys.extend([format!("productLineName=pokemon&expansionId={id}"), format!("scopeRecordId={id}")]);
+        if !query.split('&').any(|p| p.starts_with("languageCode=")) {
+            keys.push("languageCode=en".into());
+        }
+        (id.to_owned(), format!("/catalog/integrations?{}", keys.join("&")))
+    });
+    let (scope, location) = match composed {
+        Some((id, at)) => (Some(id), Some(at)),
+        None => (None, location),
+    };
+    if location.as_deref().is_some_and(|l| l.contains("scopeRecordId=scp_down")) {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The workbench surface is unavailable.");
+    }
+    let Some(location) = location.filter(|l| l.starts_with("/catalog/")) else {
+        return refusal(
+            StatusCode::BAD_REQUEST,
+            "invalid_workbench_location",
+            "The workbench location must be a Catalog admin path.",
+        );
+    };
+    if location.contains("providerKey=broken") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "The read failed.");
+    }
+    if surface == "daily" {
+        return daily_surface(&location, scope.as_deref());
+    }
+    if surface == "daily/source-options" {
+        if location.contains("providerKey=nooptions") {
+            return refusal(StatusCode::SERVICE_UNAVAILABLE, "provider_unavailable", "The provider options could not be read.");
+        }
+        return Json(source_options(true)).into_response();
+    }
+    if surface == "daily/import-preview" {
+        return Json(import_preview(&location)).into_response();
+    }
+    if surface == "health" && location.starts_with("/catalog/providers/") {
+        return provider_surface(&location, cookie);
+    }
+    let down = location.contains("providerKey=down");
+    // The API resolves an `evidenceRef` against the records it loaded; here none resolves.
+    let reference = location.split(['?', '&']).find_map(|p| p.strip_prefix("evidenceRef="));
+    let link = |key: &str, label: &str, href: &str, kind: &str| {
+        json!({ "key": key, "label": label, "href": href, "kind": kind, "summary": format!("{label} summary"),
+            "redactionState": "redacted", "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required" })
+    };
+    let observation = link("obs", "Observation obs_1", "/catalog/source-observations/obs_1", "audit-event");
+    let provider = link("provider", "Provider tcgplayer", "/catalog/providers/tcgplayer", "proof");
+    Json(json!({
+        "readModelFailures": if down { json!(["control-plane-overview"]) } else { json!([]) },
+        "catalogSyncScope": null,
+        "readModel": {
+            "sourceObservationReview": { "counts": { "observed": 12, "changed": 3, "promoted": 0, "rejected": 0, "blocked": 1, "eligible": 4 },
+                "promotionReadyCount": 4 },
+            "importJobs": { "freshness": "fresh", "activeJobCount": 2, "failedJobCount": 1 },
+            "promotionPreview": { "destructiveCount": 7 },
+            "healthTriage": {
+                "status": if down { "unavailable" } else { "degraded" },
+                "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+                "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer",
+                "summary": { "readyUnits": 1, "totalUnits": 2, "blockedUnits": 1, "degradedProviders": 1, "activeJobs": 2,
+                    "rolloutStops": 1, "auditEntries": 1 },
+                "readModels": [{ "queryKey": "provider-health", "freshness": "stale", "generatedAt": "2026-11-04T11:00:00.000Z",
+                    "statusMessage": "Provider adapter transport readiness is derived separately.", "ownerMetricKey": "catalog_provider_health" }],
+                "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "displayName": "Pokemon singles",
+                    "productDomain": "pokemon", "productForm": "card", "status": "blocked", "semanticReadiness": "blocked",
+                    "credentialReadiness": "ready", "credentialReadinessState": "configured", "transportReadiness": "ready",
+                    "fixtureValidationStatus": "blocked", "dryRunStatus": "blocked", "observationFacts": 12,
+                    "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 }, "diagnosticCodes": ["fixture_missing"],
+                    "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+                    "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+                    "nextAction": "Add fixture coverage for this ingestion unit before enabling provider pulls." }],
+                "providers": [{ "providerKey": "tcgplayer", "adapterKey": "tcgplayer-catalog", "status": "degraded", "readiness": "degraded",
+                    "credentialReadiness": "ready", "credentialReadinessState": "configured", "unitKeys": ["tcgplayer:pokemon:card"],
+                    "apiReachability": "ready", "optionQueryHealth": "degraded", "rateLimitStatus": "ready", "payloadAcquisition": "ready",
+                    "usageBudget": { "creditBalance": 40, "creditAllowance": 100, "creditUnit": "credits", "readiness": "degraded",
+                        "freshness": "stale", "observedAt": "2026-11-04T11:30:00.000Z", "lagCategory": "beyond-provider-window",
+                        "diagnosticCode": "usage_stale", "diagnostic": "Usage is older than its window.", "estimatedCalls": 12,
+                        "estimatedScope": "one set" },
+                    "countSpend": [{ "debitId": "d1", "quoteId": "q1", "kind": "cards", "credits": 1, "outcome": "complete",
+                        "debitedAt": "2026-11-04T10:00:00.000Z", "observedAt": "2026-11-04T10:05:00.000Z", "expiresAt": null }],
+                    "diagnosticCodes": [], "latestDiagnosticText": null, "ownerMetricKey": "catalog_provider_option_queries",
+                    "nextAction": "Refresh provider option queries." }],
+                "rolloutControls": [
+                    { "controlId": "import-kill-switch", "status": "blocked", "severity": "error", "metricKey": "catalog_import_kill_switch",
+                        "message": "Imports are stopped.", "providerKeys": ["tcgplayer"], "unitKeys": [], "nextAction": "Clear the stop." },
+                    { "controlId": "promotion", "status": "open", "severity": "info", "metricKey": "m", "message": "Open.",
+                        "providerKeys": [], "unitKeys": [], "nextAction": "None." }],
+                "recentJobs": [{ "jobId": "job_9", "providerKey": "tcgplayer", "unitKey": null, "operatorStatus": "Failed",
+                    "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+                    "ownerMetricKey": "catalog_import_jobs", "nextAction": "Open the durable job evidence." }],
+                "auditPreview": { "generatedAt": null, "projectionStatus": "partial", "statusMessage": "Some lifecycle events are missing.",
+                    "entries": [{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "profile-activated",
+                        "category": "activation", "providerKey": "tcgplayer", "unitKey": null, "summary": "Profile 3 activated." }] }
+            },
+            "governanceControls": {
+                "status": "blocked", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+                "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer", "auditEvidenceUrl": "/catalog/integrations/health",
+                "summary": { "activeRolloutStops": 1, "deniedCommands": 2, "blockedCommands": 3, "degradedSignals": 1, "alertCount": 4,
+                    "deletionEvidenceCount": 1 },
+                "rolloutMode": { "label": "Staged rollout", "state": "stopped", "rolloutEnabled": true, "workerState": "paused",
+                    "providerEmergencyStopCount": 1, "importKillSwitchActive": true, "promotionKillSwitchActive": false,
+                    "reapplyKillSwitchActive": false },
+                "controls": [{ "controlId": "import-kill-switch", "kind": "import-kill-switch", "label": "Import kill switch",
+                    "status": "blocked", "metricKey": "catalog_import_kill_switch", "evidenceUrl": "/catalog/integrations/health",
+                    "commandKeys": [], "blockers": ["kill-switch-active", "kill-switch-active", "permission-denied"],
+                    "providerKeys": ["tcgplayer"], "unitKeys": [], "message": "Imports are stopped." }],
+                "rbacMatrix": [{ "actionKey": "provider-import.start", "requiredPermission": "catalog.manage",
+                    "routePattern": "/catalog/integrations", "state": "denied", "blockers": ["permission-denied"],
+                    "confirmationRequired": true, "destructive": false, "deniedCopy": "Ask for catalog.manage." }],
+                "observability": { "status": "degraded", "generatedAt": null, "signals": [{ "key": "job-failure-rate", "label": "Job failure rate",
+                    "status": "degraded", "value": "12%", "threshold": "5%", "ownerMetricKey": "catalog_job_failures",
+                    "evidenceUrl": "/catalog/integrations/health", "stale": true,
+                    "alertLinks": [{ "label": "Failure alert",
+                        "href": "https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/jobs" }],
+                    "runbookLinks": [{ "label": "Runbook",
+                        "href": "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-jobs.md" }] }] },
+                "legacyRemovalEvidence": { "status": "removed", "requiredDisposition": "complete-removal",
+                    "removedSurfaces": ["raw-json"], "forbiddenSupportPaths": [], "launchBlockerIfPresent": ["raw-json"],
+                    "evidence": [{ "key": "raw-json", "label": "Raw JSON editor", "status": "removed",
+                        "evidenceUrl": "/catalog/integrations/health", "detail": "Deleted." }] }
+            },
+            "auditEvidence": {
+                "selection": match reference {
+                    Some(r) => json!({ "reference": r, "state": "no-associated-evidence", "deepLinkOpen": false }),
+                    None => json!({ "reference": null, "state": "not-requested", "deepLinkOpen": false }),
+                },
+                "status": if down { "unavailable" } else { "partial" }, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+                "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer",
+                "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 2, "partialProjectionCount": 1 },
+                "filters": [{ "key": "provider", "label": "Provider", "value": "tcgplayer", "options": ["tcgplayer", "lorcast"], "active": true },
+                    { "key": "job", "label": "Job", "value": null, "options": [], "active": false }],
+                "projectionState": { "queryKey": "audit-evidence-timeline", "freshness": "fresh", "generatedAt": null,
+                    "statusMessage": "Audit evidence timeline projection is unavailable.", "missingProjection": down, "partialProjection": !down },
+                "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
+                    "unsafeEvidenceBlocked": true, "governedDataClasses": [], "forbiddenEvidenceRequests": ["raw-payload"],
+                    "summary": "Normal review uses redacted summaries." },
+                "timeline": if reference.is_some() { json!([]) } else { json!([{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "promotion-applied",
+                    "category": "promotion", "actorLabel": "operator scope", "targetType": "source-observation", "targetId": "obs_1",
+                    "providerKey": "tcgplayer", "unitKey": null, "profileVersion": null, "jobId": null, "observationId": "obs_1",
+                    "catalogItemId": null, "summary": "Promoted to the Catalog.", "diagnosticCodes": [], "redactionState": "redacted",
+                    "evidenceLinks": [observation.clone()] }]) },
+                "evidenceLinks": if reference.is_some() { json!([]) } else { json!([observation, provider]) }
+            }
+        }
+    }))
+    .into_response()
+}
+
+/// The Catalog API's composed daily surface (`workbench-surfaces/daily?location=`): a Pokemon
+/// card scope with one eligible unit and one blocked one, a failed job to retry, a page of 25 of 30
+/// observations to review (one observed, one promoted), a merge candidate, a degraded provider
+/// transport, and the defer and reject commands open. `providerKey=stopped` is a context behind
+/// the import kill switch, with nothing to review; its location's `section` is the route's. A
+/// `scope` is the Scope Record a scope page's address was composed for.
+fn daily_surface(location: &str, scope: Option<&str>) -> Response {
+    // The scopes list's address: the API reads the all-scopes alias review in with the timeline its
+    // `evidenceRef` resolves. Here the surface for `scope/scp_down` cannot be read.
+    let landing = location.starts_with("/catalog/scopes?");
+    if landing && location.contains("evidenceRef=scope%2Fscp_down") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The workbench surface is unavailable.");
+    }
+    let stopped = location.contains("providerKey=stopped");
+    let section = location.split(['?', '&']).find_map(|p| p.strip_prefix("section=")).unwrap_or_default();
+    let status_filter = location.split(['?', '&']).find_map(|p| p.strip_prefix("filter.status="));
+    let rows = if stopped {
+        json!([])
+    } else {
+        json!([
+            { "observationId": "obs_1", "providerKey": "tcgplayer", "externalKey": "sv1-001", "displayName": "Sprigatito",
+              "status": "changed", "sourceUpdatedAt": null, "changedAt": "2026-11-04T09:00:00.000Z",
+              "factSummaryPreview": ["number 001", "rarity common"], "payloadSummary": "12 fields", "redactionSummary": "no secrets",
+              "duplicateCount": 1, "promotionReadiness": { "state": "eligible", "blockers": [] }, "actions": [] },
+            { "observationId": "obs_2", "providerKey": "tcgplayer", "externalKey": "sv1-002", "displayName": "Floragato",
+              "status": "promoted", "sourceUpdatedAt": "2026-11-03T09:00:00.000Z", "changedAt": "2026-11-03T09:00:00.000Z",
+              "factSummaryPreview": [], "payloadSummary": "11 fields", "redactionSummary": "no secrets",
+              "duplicateCount": 0, "promotionReadiness": { "state": "blocked", "blockers": ["promotion-conflict"] }, "actions": [] }
+        ])
+    };
+    // Built apart from the surface below so one `json!` stays inside the macro's recursion limit.
+    // The alias review's narrowing is parsed from the location, as the API's route context is.
+    let param = |key: &str| {
+        let raw = location.split(['?', '&']).find_map(|p| p.strip_prefix(key)?.strip_prefix('='))?;
+        Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
+    };
+    let statuses: Vec<String> =
+        param("reviewStatuses").map(|s| s.split(',').filter(|s| !s.is_empty()).map(str::to_owned).collect()).unwrap_or_default();
+    let context = json!({
+        "routeContext": { "section": section, "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card",
+            "scope": { "languageCode": "en", "expansionId": "sv1", "expansionName": "Scarlet & Violet" },
+            "importScope": "en:sv1", "profileVersion": null, "aliasType": param("aliasType"), "reviewStatuses": statuses,
+            "targetKind": param("targetKind"), "targetId": param("targetId") },
+        "providerScope": { "providers": [
+            { "providerKey": "lorcast", "displayName": "Lorcast", "units": [
+                { "unitKey": "lorcast:pokemon:card", "productDomain": "pokemon", "productForm": "card", "activeProfile": null }] },
+            { "providerKey": "tcgplayer", "displayName": "TCGplayer", "units": [
+                { "unitKey": "tcgplayer:pokemon:card", "productDomain": "pokemon", "productForm": "card",
+                  "activeProfile": { "profileVersion": "3" } },
+                { "unitKey": "tcgplayer:pokemon:sealed", "productDomain": "pokemon", "productForm": "sealed", "activeProfile": null }] }
+        ] },
+        "sourceOptions": source_options(false),
+        "sourceScopeWorkset": workset(stopped, location.contains("unitPreview=open"))
+    });
+    let mut surface = json!({
+        "readModelFailures": [],
+        "catalogSyncScope": { "scopeVersion": "catalog-sync-scope-v2", "productDomain": "pokemon", "productForm": "card",
+            "languageCode": "en", "reference": { "kind": "expansion", "scopeRecordId": "sr_sv1" },
+            "providerParticipation": { "requiredUnitKeys": [], "selectedUnitKeys": ["tcgplayer:pokemon:card"], "excludedUnitKeys": [] } },
+        "readModel": {
+            "readiness": {
+                "freshness": "fresh",
+                "blockers": if stopped { json!(["kill-switch-active"]) } else { json!([]) },
+                "providerTransport": ["throttle"],
+                "rolloutEnabled": !stopped, "rbacAllowed": true
+            },
+            "catalogSync": {
+                "status": if stopped { "blocked" } else { "ready" },
+                "scope": { "productDomain": "pokemon", "productForm": "card", "languageCode": "en",
+                    "reference": { "kind": "expansion", "scopeRecordId": "sr_sv1" }, "label": "Pokemon cards, Scarlet & Violet",
+                    "hasConcreteScope": true },
+                "preview": { "status": "ready", "startAllowed": true, "explanation": "Pull the selected units for this set.",
+                    "estimate": { "totalEstimatedRequestCount": 40, "estimateReason": null,
+                        "creditConsumingProviders": [{ "providerKey": "tcgplayer", "displayName": "TCGplayer" }] },
+                    "units": [
+                        { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "displayName": "Pokemon singles",
+                          "profileVersion": "3", "role": "primary", "requirement": "optional", "selected": true,
+                          "eligibility": "eligible", "blockers": [] },
+                        { "providerKey": "lorcast", "unitKey": "lorcast:pokemon:card", "displayName": "Lorcast cards",
+                          "profileVersion": null, "role": "supplemental", "requirement": "optional", "selected": false,
+                          "eligibility": "ineligible", "blockers": [{ "code": "active-profile-missing", "message": "No active profile." }] }
+                    ] },
+                "action": { "key": "scope.sync", "state": if stopped { "blocked" } else { "available" },
+                    "blockers": if stopped { json!(["kill-switch-active"]) } else { json!([]) } }
+            },
+            "importJobs": { "freshness": "fresh", "activeJobCount": 1, "failedJobCount": 1,
+                "selectedScope": { "readiness": { "adapterReadiness": "ready", "credentialReadiness": "not-required" } }, "jobs": [{
+                "jobId": "job_1", "state": "failed", "operatorStatus": "failed", "summary": "Pull stopped at page 3.",
+                "completed": 3, "total": 10, "progressPercent": 30, "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer",
+                "importScope": "sv1", "profileVersion": "3", "profileSnapshot": { "profileKey": "tcgplayer-cards", "profileVersion": "3" },
+                "scopeMatchesRoute": true, "createdAt": "2026-11-04T08:00:00.000Z", "startedAt": "2026-11-04T08:01:00.000Z",
+                "failureGroups": [{ "key": "transport", "label": "Transport", "count": 2, "severity": "error" }],
+                "retryAvailable": true, "resumeAvailable": false, "cancelAvailable": true,
+                "sourceObservationReviewHref": "/catalog/integrations?providerKey=tcgplayer&importJobId=job_1",
+                "auditEvidenceUrl": "/catalog/integrations/health",
+                "result": { "usage": { "actualRequestCount": 12, "pageCount": 3, "cacheHitCount": 4, "cacheMissCount": 8 } },
+                "blockers": [] }] },
+            "sourceObservationReview": {
+                "freshness": "fresh",
+                "counts": { "observed": 12, "changed": 3, "promoted": 14, "rejected": 1, "blocked": 1, "eligible": 4 },
+                "promotionReadyCount": if stopped { 0 } else { 4 },
+                "filters": [{ "key": "status", "label": "Status", "value": status_filter, "serverApplied": true },
+                    { "key": "setId", "label": "Set", "value": "sv1", "serverApplied": true }],
+                "pagination": { "limit": 25, "offset": 0, "total": if stopped { 0 } else { 30 } },
+                "rows": rows
+            },
+            "mergeCandidateReview": { "freshness": "fresh", "counts": { "total": 1, "ready": 1, "conflict": 0 }, "rows": [{
+                "candidateId": "cand_1", "identityFingerprint": "pokemon:sv1:001", "identityLabel": "Sprigatito 001",
+                "sourceCount": 2, "sources": [{ "providerKey": "tcgplayer", "observationId": "obs_1", "externalKey": null }],
+                "status": "ready", "conflicts": { "blocking": 0, "warnings": 1 },
+                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create" },
+                "actions": [{ "key": "candidate.promote", "state": "available", "blockers": [] },
+                    { "key": "candidate.ignore", "state": "available", "blockers": [] },
+                    { "key": "candidate.defer", "state": "blocked", "blockers": ["source-projection-stale"] },
+                    { "key": "candidate.split", "state": "available", "blockers": [], "commandPreview": {
+                        "commandKind": "catalog-merge-candidate-split",
+                        "body": { "reason": "Split from the scope-first Catalog sync workbench.", "expectedVersion": 4,
+                            "splitObservationIds": ["obs_2"] } } }],
+                "editForm": { "state": "available", "blockers": [], "candidateVersion": 4,
+                    "promotionIntent": "create-catalog-item", "catalogItemId": null, "productIds": ["prd_1"],
+                    "editableFacts": [{ "key": "name", "fieldPath": "catalogItem.name", "label": "name", "value": "Sprigatito" },
+                        { "key": "rarity", "fieldPath": "catalogItem.rarity", "label": "rarity", "value": "Common" }],
+                    "externalCatalogItemReferences": [{ "index": 0, "label": "tcgplayer:111" }],
+                    "externalProductReferences": [] } }] },
+            "promotionPreview": promotion_preview(location),
+            "promotionResult": null,
+            "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
+                { "key": "observation.reject", "state": "available", "blockers": [] }]
+        }
+    });
+    // The candidate's detail sheet's lines (set apart, as one `json!` holding them passes its recursion limit).
+    let candidate = &mut surface["readModel"]["mergeCandidateReview"]["rows"][0];
+    candidate["conflicts"]["messages"] = json!(["Rarity differs between sources."]);
+    candidate["proposedMapping"] = json!({ "promotionIntent": "create-catalog-item", "catalogItemId": null, "productIds": ["prd_1"],
+        "externalCatalogItemReferences": ["tcgplayer:111"], "externalProductReferences": [] });
+    candidate["sourceComparison"] = json!([{ "fieldPath": "catalogItem.name", "value": "Sprigatito", "providerKey": "tcgplayer",
+        "observationId": "obs_1", "confidence": "exact" }]);
+    candidate["fieldProvenance"] = json!([{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer",
+        "sourceProfileVersion": "sv-2026", "confidence": "exact", "evidenceSummary": "name" }]);
+    candidate["proposedFacts"] = json!([{ "key": "name", "value": "Sprigatito" }]);
+    // `candidateConflicts=blocking` is a read whose candidate has a blocking conflict to resolve, its
+    // promote blocked by it alone; `candidateConflicts=stale` one whose promote a stale projection
+    // blocks as well.
+    if location.contains("candidateConflicts=") {
+        let stale = location.contains("candidateConflicts=stale");
+        candidate["status"] = json!(if stale { "stale" } else { "has-conflicts" });
+        candidate["conflicts"]["blocking"] = json!(1);
+        candidate["conflicts"]["blockingConflicts"] = json!([{
+            "code": "rarity-mismatch", "message": "Rarity differs between sources.", "fieldPath": "catalogItem.rarity",
+            "existingValueDisplay": "Ultra Rare", "proposedValueDisplay": "Double Rare",
+            "existingValueJson": "\"Ultra Rare\"", "proposedValueJson": "\"Double Rare\"",
+            "observationIds": ["obs_1", "obs_2"] }]);
+        let blockers =
+            if stale { json!(["promotion-conflict", "source-projection-stale"]) } else { json!(["promotion-conflict"]) };
+        candidate["promoteReadiness"] = json!({ "state": if stale { "stale" } else { "blocked" }, "blockers": blockers });
+        candidate["actions"][0] = json!({ "key": "candidate.promote", "state": "blocked", "blockers": blockers,
+            "commandPreview": { "commandKind": "promote-catalog-merge-candidate",
+                "body": { "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4 } } });
+    }
+    candidate["actions"][3]["commandPreview"]["provenance"] =
+        json!({ "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }], "externalProductReferences": [] });
+    // A scope page's journey is its Scope Record's: its Catalog sync names the scope.
+    if let Some(id) = scope {
+        surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
+    }
+    // `candidatePromote=versioned` is a read that offers a candidate's promote with the version it
+    // read (the stand-in's other rows have none to offer).
+    if location.contains("candidatePromote=versioned") {
+        surface["readModel"]["mergeCandidateReview"]["rows"][0]["actions"][0]["commandPreview"] = json!({
+            "commandKind": "promote-catalog-merge-candidate",
+            "body": { "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4 } });
+    }
+    // The read builds the promotion's selection and confirmation; `providerKey=legacy` is a read
+    // that does not offer the promotion.
+    if !location.contains("providerKey=legacy") {
+        let actions = surface["readModel"]["actions"].as_array_mut().expect("the actions are a list");
+        actions.push(json!({ "key": "observation.promote", "state": "available", "blockers": [],
+            "commandPreview": promotion_descriptor("tcgplayer:pokemon:card") }));
+    }
+    let serde_json::Value::Object(context) = context else { unreachable!("the context is an object") };
+    surface["readModel"].as_object_mut().expect("the read model is an object").extend(context);
+    // A scope page's own surface names its Scope Record and the job its address does, its job's
+    // import scope is the TCGplayer unit's, and its health triage is the scope's members'.
+    if let Some(id) = scope {
+        let model = &mut surface["readModel"];
+        model["routeContext"]["scopeRecordId"] = json!(id);
+        model["routeContext"]["jobId"] = json!(param("jobId"));
+        model["importJobs"]["jobs"][0]["importScope"] = json!("en:sv1");
+        model["healthTriage"] = scope_health_json();
+    }
+    // What the API works out for this read (`flow`, `dailyStatus`, the review's links): it opens
+    // on the section's stage, else Review (there are changes); a stop blocks Run sync and is the
+    // governance banner; the throttled transport is a degraded health banner.
+    let open = match section {
+        "import-jobs" | "provider-scope-selection" | "readiness" => "run-sync",
+        "promotion-preview" | "promotion-result" => "create-items",
+        _ => "review-changes",
+    };
+    let order = ["run-sync", "review-changes", "create-items"];
+    let at = |key: &str| order.iter().position(|k| *k == key);
+    let stages: Vec<Value> = order
+        .iter()
+        .map(|key| {
+            let state = if *key == "run-sync" && stopped {
+                "blocked"
+            } else if *key == open {
+                "current"
+            } else if at(key) < at(open) {
+                "complete"
+            } else {
+                "upcoming"
+            };
+            json!({ "key": key, "state": state })
+        })
+        .collect();
+    surface["readModel"]["flow"] = json!({ "openStage": open, "openStageWithHeldPreview": open, "stages": stages });
+    surface["readModel"]["dailyStatus"] =
+        json!({ "governance": if stopped { Some("stopped") } else { None }, "health": "degraded" });
+    let kept: Vec<&str> = location
+        .split_once('?')
+        .map_or("", |(_, q)| q)
+        .split('&')
+        .filter(|p| !p.is_empty() && !["filter.status=", "reviewOffset=", "section=", "status="].iter().any(|k| p.starts_with(k)))
+        .collect();
+    let daily =
+        |extra: &[&str]| format!("/catalog/integrations?{}", kept.iter().chain(extra).copied().collect::<Vec<_>>().join("&"));
+    let review = &mut surface["readModel"]["sourceObservationReview"];
+    review["statusFilters"] = json!([
+        { "value": "all", "count": 30, "href": daily(&[]) },
+        { "value": "observed", "count": 12, "href": daily(&["filter.status=observed"]) },
+        { "value": "eligible", "count": 4, "href": daily(&["filter.status=eligible"]) },
+        { "value": "promoted", "count": 14, "href": daily(&["filter.status=promoted"]) },
+        { "value": "rejected", "count": 1, "href": daily(&["filter.status=rejected"]) }
+    ]);
+    if !stopped {
+        review["pagination"]["previousHref"] = Value::Null;
+        review["pagination"]["nextHref"] = json!(daily(&["reviewOffset=25", "section=source-observation-review"]));
+    }
+    // An evidence reference the address names: the scope's own and its candidate resolve, as the
+    // API's membership check finds them; any other is not associated.
+    if let Some(reference) = location.split(['?', '&']).find_map(|p| p.strip_prefix("evidenceRef=")) {
+        let reference = percent_encoding::percent_decode_str(reference).decode_utf8_lossy().into_owned();
+        let resolved = scope.is_some_and(|id| reference == format!("scope/{id}")) || reference == "candidate/cand_1";
+        surface["readModel"]["auditEvidence"] = json!({
+            "selection": { "reference": reference,
+                "state": if resolved { "resolved" } else { "no-associated-evidence" }, "deepLinkOpen": resolved },
+            "status": "ready", "freshness": "fresh",
+            "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 0, "partialProjectionCount": 0 },
+            "filters": [], "projectionState": { "queryKey": "audit-evidence-timeline", "generatedAt": null, "statusMessage": "Ready." },
+            "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
+                "forbiddenEvidenceRequests": [], "summary": "Normal review uses redacted summaries." },
+            "timeline": if resolved { json!([{ "eventId": "evt_c", "occurredAt": "2026-11-04T09:00:00.000Z",
+                "eventName": "candidate-reviewed", "category": "promotion", "actorLabel": "operator", "targetType": "source-observation",
+                "targetId": "obs_1", "providerKey": "tcgplayer", "summary": "Candidate cand_1 reviewed.", "diagnosticCodes": [],
+                "redactionState": "redacted", "evidenceLinks": [] }]) } else { json!([]) },
+            "evidenceLinks": []
+        });
+    }
+    if landing && location.contains("evidenceRef=") {
+        surface["aliasReview"] = all_scopes_alias_review_json();
+    }
+    Json(surface).into_response()
+}
+
+/// A scope page's health triage as the API composes it: the workset's TCGplayer unit and its
+/// failed job, then a Lorcast unit and a job of another scope the page is not to draw, and the
+/// read models the scope's provenance names beside one it does not.
+fn scope_health_json() -> Value {
+    let read_model = |key: &str, message: &str| {
+        json!({ "queryKey": key, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z", "statusMessage": message,
+            "ownerMetricKey": format!("metric_{key}") })
+    };
+    let unit = |key: &str, provider: &str| {
+        json!({ "unitKey": key, "providerKey": provider, "displayName": key, "productDomain": "pokemon", "productForm": "card",
+            "ingestionPurpose": "catalog-facts", "profileVersion": "3", "status": "blocked", "semanticReadiness": "blocked",
+            "credentialReadiness": "ready", "credentialReadinessState": "configured", "transportReadiness": "ready",
+            "fixtureValidationStatus": "blocked", "dryRunStatus": "blocked", "observationFacts": 12,
+            "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 }, "diagnosticCodes": ["fixture_missing"],
+            "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+            "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+            "nextAction": "Add fixture coverage for this ingestion unit." })
+    };
+    let job = |id: &str| {
+        json!({ "jobId": id, "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "operatorStatus": "Failed",
+            "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+            "ownerMetricKey": "catalog_import_jobs", "nextAction": "Retry the failed pages." })
+    };
+    json!({ "status": "degraded", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+        "returnToPrimaryHref": "/catalog/integrations", "summary": {},
+        "readModels": [read_model("integration-health-summary", "Unit readiness comes from the overview."),
+            read_model("import-job-progress-summary", "Job progress comes from durable jobs."),
+            read_model("audit-evidence-timeline", "Audit projection is partial.")],
+        "providers": [], "rolloutControls": [], "auditPreview": { "projectionStatus": "ready", "statusMessage": "", "entries": [] },
+        "units": [unit("tcgplayer:pokemon:card", "tcgplayer"), unit("lorcast:pokemon:card", "lorcast")],
+        "recentJobs": [job("job_1"), job("job_other")] })
+}
+
+/// The daily surface's source options for TCGplayer cards: Language, then Expansion under it
+/// (its English sets and one Japanese), and a Rarity kind no route field takes. `populated` is the
+/// deferred read; without it, the skeleton the surface carries (the kinds and empty pages). Each
+/// carries the scope selects the Catalog API works out for the location's English Scarlet & Violet:
+/// the expansions narrowed to English, and without the populated read only what is chosen.
+fn source_options(populated: bool) -> Value {
+    let items = |list: Value| if populated { list } else { json!([]) };
+    let page = |kind: &str, name: &str, scope: &str, list: Value, refresh: bool| {
+        json!({ "queryKind": kind, "displayName": name, "scope": scope, "state": if populated { "cached" } else { "not-requested" },
+            "actionState": "available", "degraded": false, "request": { "providerKey": "tcgplayer" },
+            "page": { "count": list.as_array().map_or(0, Vec::len) }, "cache": { "diagnostics": [] }, "items": items(list),
+            "refreshHref": refresh.then_some("/api/catalog/source-observations/integration-options?forceRefresh=true") })
+    };
+    let option = |value: &str, label: &str, parent: Option<&str>| json!({ "value": value, "label": label, "description": null, "parentValue": parent });
+    let (languages, expansions) = if populated {
+        (
+            json!([option("en", "English", None), option("ja", "Japanese", None)]),
+            json!([option("sv1", "Scarlet & Violet", Some("en")), option("sv2", "Paldea Evolved", Some("en"))]),
+        )
+    } else {
+        (json!([option("en", "en", None)]), json!([option("sv1", "sv1", None)]))
+    };
+    let guided_fields = json!([
+        { "queryKind": "languages", "scope": "language", "label": "Language", "fieldName": "languageCode",
+          "labelFieldName": null, "options": languages, "selectedValue": "en", "selectedLabel": if populated { "English" } else { "en" },
+          "parentMissing": false, "parentScope": null, "parentDiagnostic": null },
+        { "queryKind": "expansions", "scope": "expansion", "label": "Expansion", "fieldName": "expansionId",
+          "labelFieldName": "expansionName", "options": expansions, "selectedValue": "sv1", "selectedLabel": "Scarlet & Violet",
+          "parentMissing": false, "parentScope": "language", "parentDiagnostic": null }
+    ]);
+    json!({
+        "status": if populated { "ready" } else { "unavailable" },
+        "guidedFields": guided_fields,
+        "freeTextApplicable": false,
+        "contextSummary": "tcgplayer · tcgplayer:pokemon:card · en/sv1",
+        "summary": { "declaredKinds": 3, "loadedPages": if populated { 3 } else { 0 }, "availableOptions": if populated { 5 } else { 0 } },
+        "optionKinds": [
+            { "queryKind": "languages", "scope": "language", "parentScope": null, "parent": { "scope": null, "missing": false } },
+            { "queryKind": "expansions", "scope": "expansion", "parentScope": "language",
+              "parent": { "scope": "language", "selectedValue": "en", "missing": false } },
+            { "queryKind": "rarities", "scope": "rarity", "parentScope": null, "parent": { "scope": null, "missing": false } }
+        ],
+        "pages": [
+            page("languages", "Language", "language", json!([{ "value": "en", "label": "English" }, { "value": "ja", "label": "Japanese" }]), false),
+            page("expansions", "Expansion", "expansion", json!([
+                { "value": "sv1", "label": "Scarlet & Violet", "parentValue": "en" },
+                { "value": "sv2", "label": "Paldea Evolved", "parentValue": "en" },
+                { "value": "sv1a", "label": "Triplet Beat", "parentValue": "ja" }
+            ]), true),
+            page("rarities", "Rarity", "rarity", json!([]), false)
+        ],
+        "refresh": { "state": "available", "refreshAllHref": "/api/catalog/source-observations/integration-options?forceRefresh=true" }
+    })
+}
+
+/// The import preflight the Catalog API answers for a daily location: two TCGplayer targets planned
+/// bulk-first; `providerKey=slow` is a provider past the API's deadline, and `providerKey=nopreview`
+/// a location the API plans no preflight for.
+fn import_preview(location: &str) -> Value {
+    if location.contains("providerKey=slow") {
+        return json!({ "status": "unavailable" });
+    }
+    if location.contains("providerKey=nopreview") {
+        return Value::Null;
+    }
+    let target = |id: &str, plan: &str, payloads: u64| {
+        json!({ "targetId": id, "name": id, "languageCode": "en", "scopeKey": "en:sv1", "planKey": plan,
+            "estimatedPayloads": payloads, "transportSteps": ["catalog-page", "price-page"], "usageEstimate": null })
+    };
+    json!({
+        "status": "ready",
+        "preview": { "action": "import", "providerKey": "tcgplayer",
+            "scope": { "provider": "tcgplayer", "ingestionUnitKey": "tcgplayer:pokemon:card", "language": "en", "setId": "sv1" },
+            "profileSnapshot": null, "targetCount": 2,
+            "targets": [target("t1", "plan-cards", 120), target("t2", "plan-prices", 30)] },
+        "usageSummary": { "requestStrategy": "bulk-first", "estimateState": "estimated", "estimatedRequestCount": 6,
+            "estimateReason": null, "usageCheckState": "checked", "pageSize": 100, "selectedFields": ["name", "number"],
+            "perRecordFallbackReason": null, "creditDiagnostic": null, "degradedDiagnostic": "Prices lag by an hour." }
+    })
+}
+
+/// The Catalog sync run `run_1`: partial, one provider child completed and one failed.
+fn sync_run() -> Response {
+    Json(json!({ "syncRunId": "run_1", "status": "partial",
+        "progress": { "childJobs": { "total": 2, "queued": 0, "running": 0, "completed": 1, "partial": 0, "failed": 1,
+            "cancelled": 0, "stale": 0 }, "providerTargets": { "completed": 1, "total": 2 } },
+        "childJobs": [
+            { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "displayName": "Pokemon singles",
+              "childJobId": "job_5", "status": "completed", "syncRunLinkState": "attached-to-child-payload", "errorMessage": null },
+            { "providerKey": "lorcast", "unitKey": "lorcast:pokemon:card", "displayName": "Lorcast cards",
+              "childJobId": null, "status": "failed", "syncRunLinkState": "child-enqueue-failed", "errorMessage": "No profile." }
+        ] }))
+    .into_response()
+}
+
+/// The scope's durable sync state for the daily surface's scope: one unit settled, one failed with
+/// its last job; any other scope has none, and one without a scope is refused.
+fn scope_sync_state(sent: &Value) -> Response {
+    let scope = &sent["scope"];
+    if scope.is_null() {
+        return refusal(StatusCode::BAD_REQUEST, "invalid_scope", "Catalog sync scope is invalid.");
+    }
+    let items = if scope["reference"]["scopeRecordId"] == "sr_sv1" {
+        json!([
+            { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "displayName": "Pokemon singles", "role": "primary",
+              "requirement": "optional", "state": "settled", "lastSyncRunId": "run_1", "lastJobId": "job_5",
+              "observedCount": 40, "changedCount": 3, "lastCompletedAt": "2026-11-04T09:00:00.000Z", "updatedAt": "2026-11-04T09:00:00.000Z" },
+            { "providerKey": "lorcast", "unitKey": "lorcast:pokemon:card", "displayName": "Lorcast cards", "role": "supplemental",
+              "requirement": "optional", "state": "failed", "lastSyncRunId": "run_1", "lastJobId": "job_7",
+              "observedCount": null, "changedCount": null, "lastCompletedAt": null, "updatedAt": "2026-11-04T09:00:00.000Z" }
+        ])
+    } else {
+        json!([])
+    };
+    let total = items.as_array().map_or(0, Vec::len);
+    Json(json!({ "items": items, "total": total, "count": total })).into_response()
+}
+/// The daily workbench's commands: a sync with no unit selected is refused, as is a job the API
+/// no longer has (`job_gone`) and a reject without a reason; the rest are queued.
+fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix("/api/catalog/source-observations")?;
+    if *method == Method::GET && rest == "/catalog-sync-scope/runs/run_1" {
+        return Some(sync_run());
+    }
+    if *method != Method::POST {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let answer = match rest {
+        "/catalog-sync-scope/runs" => {
+            let selected = &sent["scope"]["providerParticipation"]["selectedUnitKeys"];
+            if selected.as_array().is_none_or(Vec::is_empty) {
+                refusal(StatusCode::BAD_REQUEST, "invalid_scope", "Select at least one provider unit to sync.")
+            } else {
+                let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+                (StatusCode::ACCEPTED, headers, Json(json!({ "syncRunId": "run_1", "status": "queued" }))).into_response()
+            }
+        }
+        "/catalog-sync-scope/state" => scope_sync_state(&sent),
+        // A bulk defer or reject needs observations or a scope (the API's `selection_required`).
+        "/bulk-defer/jobs" | "/bulk-reject/jobs"
+            if sent["observationIds"]
+                .as_array()
+                .is_none_or(|ids| ids.iter().all(|id| id.as_str().is_none_or(|id| id.trim().is_empty())))
+                && sent["scope"].is_null() =>
+        {
+            if rest == "/bulk-reject/jobs" && sent["reason"].as_str().is_none_or(str::is_empty) {
+                refusal(StatusCode::BAD_REQUEST, "reason_required", "A reason is required to reject observations.")
+            } else {
+                refusal(
+                    StatusCode::BAD_REQUEST,
+                    "selection_required",
+                    "Bulk review requires selected observations or an explicit review scope.",
+                )
+            }
+        }
+        "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
+        // A promotion's preview answers a token bound to the draft choice; its commit admits only
+        // that token with the same choice (the API's `stale_promotion_preview` otherwise).
+        "/bulk-promote/preview" if sent["confirmation"].is_object() => {
+            let token = if sent["promoteAsDraft"] == json!(true) { "tok_draft" } else { "tok_1" };
+            Json(json!({ "previewToken": token, "matched": 1, "eligible": 1 })).into_response()
+        }
+        "/bulk-promote/jobs" => {
+            let draft = sent["promoteAsDraft"] == json!(true);
+            match sent["previewToken"].as_str() {
+                Some("tok_1") if !draft => queued("job_p1"),
+                Some("tok_draft") if draft => queued("job_p2"),
+                _ => refusal(
+                    StatusCode::CONFLICT,
+                    "stale_promotion_preview",
+                    "The promotion preview is stale. Preview again before promoting.",
+                ),
+            }
+        }
+        // A workset unit's import and reapply.
+        "/integration-jobs" => queued("job_9"),
+        "/reapply" => queued("job_10"),
+        "/admin/merge-candidates/cand_1/ignore" | "/admin/merge-candidates/cand_1/defer" => written(StatusCode::OK, "cand_1"),
+        "/admin/merge-candidates/cand_1/split"
+        | "/admin/merge-candidates/cand_1/update"
+        | "/admin/merge-candidates/cand_1/promote" => {
+            if sent["expectedVersion"] == json!(4) {
+                written(StatusCode::OK, "cand_1")
+            } else {
+                refusal(StatusCode::CONFLICT, "stale_merge_candidate", "Catalog Merge Candidate changed.")
+            }
+        }
+        "/admin/merge-candidates/cand_gone/ignore" => {
+            refusal(StatusCode::NOT_FOUND, "candidate_not_found", "That merge candidate no longer exists.")
+        }
+        "/bulk-reject/jobs" => {
+            if sent["reason"].as_str().is_none_or(str::is_empty) {
+                refusal(StatusCode::BAD_REQUEST, "reason_required", "A reason is required to reject observations.")
+            } else {
+                written(StatusCode::ACCEPTED, "bulk_2")
+            }
+        }
+        _ => {
+            let job = rest.strip_prefix("/integration-jobs/")?;
+            if job.starts_with("job_gone/") {
+                refusal(StatusCode::NOT_FOUND, "job_not_found", "That import job no longer exists.")
+            } else {
+                written(StatusCode::ACCEPTED, "job_1")
+            }
+        }
+    };
+    Some(answer)
+}
+
+/// Provider detail's section groups (`profileAuthoring.sectionGroups`).
+fn section_groups() -> Value {
+    json!([{ "key": "profile-foundation", "label": "Profile foundation", "sections": ["basics", "fixtures"] }])
+}
+
+/// Two of provider detail's section workspaces: one the API lets be saved, one it does not.
+fn section_workspaces() -> Value {
+    json!([
+        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation",
+            "description": "The profile's name and scopes.", "domainConcept": "Provider profile", "status": "valid",
+            "editable": true, "actionState": "available", "blockers": [], "dirtyState": "clean", "staleState": "fresh",
+            "saveOutcome": "not-submitted", "anchorId": "profile-section-basics", "semanticChangeCount": 0,
+            "readinessCheckCount": 2, "diagnostics": [],
+            "fields": [
+                { "key": "displayName", "label": "Display name", "value": "TCGplayer Pokemon Cards", "control": "text",
+                    "required": true, "disabled": false, "helpText": null, "options": [] },
+                { "key": "status", "label": "Status", "value": "active", "control": "select", "required": true,
+                    "disabled": false, "helpText": null,
+                    "options": [{ "value": "active", "label": "Active" }, { "value": "planned", "label": "Planned" }] },
+                { "key": "capabilities", "label": "Capabilities", "value": "source-observation-import", "control": "tags",
+                    "required": false, "disabled": true, "helpText": "Comma-separated.", "options": [] }
+            ] },
+        { "sectionKey": "fixtures", "displayName": "Fixtures", "groupLabel": "Profile foundation",
+            "description": "Recorded provider payloads.", "domainConcept": "Fixture set", "status": "error",
+            "editable": false, "actionState": "blocked", "blockers": ["profile-lifecycle-conflict"], "dirtyState": "clean",
+            "staleState": "fresh", "saveOutcome": "not-submitted", "anchorId": "profile-section-fixtures",
+            "semanticChangeCount": 1, "readinessCheckCount": 0,
+            "diagnostics": [{ "path": "fixtures.coveredFlows", "diagnosticText": "The stale flow has no fixture.", "severity": "error" }],
+            "fields": [
+                { "key": "liveProviderCallsAllowed", "label": "Live provider calls", "value": "false", "control": "checkbox",
+                    "required": false, "disabled": true, "helpText": null, "options": [] }
+            ] }
+    ])
+}
+
+/// The Catalog API's composed health surface for a provider's page (`location=/catalog/providers/
+/// {key}?...`): TCGplayer with a degraded transport, an active profile that can become a draft,
+/// two versions with rollback blocked and deprecate and retire offered, one unit, and a failed job.
+/// The provider named by the path gets its own refresh schedule (TCGplayer's runs on its own,
+/// Lorcast's is paused, `noschedule`'s could not be read), and a platform admin on TCGplayer is
+/// offered the Operator session, as the API decides.
+fn provider_surface(location: &str, cookie: &str) -> Response {
+    let key = location.trim_start_matches("/catalog/providers/").split(['?', '/']).next().unwrap_or_default();
+    let schedule = |paused: bool, status: &str| {
+        json!({ "providerKey": key, "scheduleEnabled": true, "manualOnly": false, "intervalMs": 86_400_000, "paused": paused,
+            "nextRunAt": "2026-11-05T12:00:00.000Z", "lastRunCompletedAt": "2026-11-04T12:00:00.000Z",
+            "lastRunStatus": status, "lastRunError": null })
+    };
+    let schedules = match key {
+        "tcgplayer" => json!([schedule(false, "succeeded")]),
+        "lorcast" => json!([schedule(true, "failed")]),
+        "noschedule" => Value::Null,
+        _ => json!([]),
+    };
+    let operator_session = key == "tcgplayer" && cookie.contains("chase_sets_session=catalog-admin");
+    let selected = if location.contains("profileVersion=2026.06.23") { "2026.06.23" } else { "2026.07.13" };
+    let job = location.contains("jobId=job_9").then_some("job_9");
+    let op = |operation: &str, label: &str, state: &str, blockers: &[&str]| {
+        json!({ "operation": operation, "label": label, "description": format!("{label} description."),
+            "commandKey": format!("provider-profile.{operation}"), "providerKey": "tcgplayer", "profileVersion": selected,
+            "lifecycle": "active", "active": true, "state": state, "blockers": blockers,
+            "impact": { "referencedObservationCount": 3, "impactedCatalogItemCount": 2, "externalReferenceCount": 1,
+                "sampleObservationIds": ["obs_1"] } })
+    };
+    let version = |key: &str, version: &str, name: &str| {
+        json!({ "providerKey": "tcgplayer", "profileKey": key, "profileVersion": version, "displayName": name,
+            "lifecycle": "active", "active": true, "referenceCount": 4,
+            "href": format!("/catalog/providers/tcgplayer?profileVersion={version}") })
+    };
+    // The page's own evidence links name the provider or a profile version of it; the API resolves
+    // either, and nothing else, against this provider's records. Built apart from the surface
+    // below so one json! stays inside the macro's recursion limit.
+    let reference = location
+        .split(['?', '&'])
+        .find_map(|p| p.strip_prefix("evidenceRef="))
+        .map(|r| percent_encoding::percent_decode_str(r).decode_utf8_lossy().into_owned());
+    let resolved = reference.as_deref().map(|r| r == format!("provider/{key}") || r.ends_with(&format!("/{key}")));
+    let audit = json!({
+        "selection": { "reference": reference,
+            "state": match resolved { Some(true) => "resolved", Some(false) => "no-associated-evidence", None => "not-requested" },
+            "deepLinkOpen": resolved == Some(true) },
+        "status": "ready", "freshness": "fresh", "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 0, "partialProjectionCount": 0 },
+        "filters": [], "projectionState": { "queryKey": "audit-evidence-timeline", "generatedAt": null, "statusMessage": "Ready." },
+        "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
+            "forbiddenEvidenceRequests": [], "summary": "Normal review uses redacted summaries." },
+        "timeline": if resolved == Some(false) { json!([]) } else { json!([{ "eventId": "evt_p", "occurredAt": "2026-11-04T09:00:00.000Z",
+            "eventName": "profile-activated", "category": "activation", "actorLabel": "operator", "targetType": "provider-profile",
+            "targetId": "2026.07.13", "providerKey": key, "summary": "Profile 2026.07.13 activated.", "diagnosticCodes": [],
+            "redactionState": "redacted", "evidenceLinks": [] }]) },
+        "evidenceLinks": []
+    });
+    // The health triage: TCGplayer's row with its usage budget, its one unit's readiness, the failed
+    // job's progress, and the read models each home names as its source.
+    let read_model = |key: &str, message: &str| {
+        json!({ "queryKey": key, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z", "statusMessage": message,
+            "ownerMetricKey": format!("metric_{key}") })
+    };
+    let triage = json!({ "status": "degraded", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+        "readModels": [read_model("integration-health-summary", "Unit readiness comes from the overview."),
+            read_model("provider-transport-readiness-summary", "Transport readiness is derived separately."),
+            read_model("import-job-progress-summary", "Job progress comes from durable jobs."),
+            read_model("audit-evidence-timeline", "Audit projection is partial.")],
+        "providers": [{ "providerKey": "tcgplayer", "adapterKey": "tcgplayer-catalog", "status": "degraded", "readiness": "degraded",
+            "credentialReadiness": "ready", "credentialReadinessState": "configured", "unitKeys": ["tcgplayer:pokemon:card"],
+            "apiReachability": "ready", "optionQueryHealth": "degraded", "rateLimitStatus": "ready", "payloadAcquisition": "ready",
+            "usageBudget": { "creditBalance": 40, "creditAllowance": null, "creditUnit": "credits", "readiness": "degraded",
+                "freshness": "stale", "observedAt": null, "lagCategory": "beyond-provider-window", "diagnosticCode": "usage_stale",
+                "diagnostic": "Usage is older than its window.", "estimatedCalls": null, "estimatedScope": null },
+            "diagnosticCodes": ["option_query_slow"], "latestDiagnosticText": "Option queries are slow.",
+            "ownerMetricKey": "catalog_provider_option_queries", "nextAction": "Refresh provider option queries." }],
+        "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "displayName": "Pokemon singles",
+            "productDomain": "pokemon", "productForm": "card", "ingestionPurpose": "catalog-facts", "profileVersion": null,
+            "status": "blocked", "semanticReadiness": "blocked", "credentialReadiness": "ready",
+            "credentialReadinessState": "configured", "transportReadiness": "ready", "fixtureValidationStatus": "blocked",
+            "dryRunStatus": "blocked", "observationFacts": 12, "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 },
+            "diagnosticCodes": ["fixture_missing"], "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+            "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+            "nextAction": "Add fixture coverage for this ingestion unit." }],
+        "recentJobs": [{ "jobId": "job_9", "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card",
+            "operatorStatus": "Failed", "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+            "ownerMetricKey": "catalog_import_jobs", "nextAction": "Open the durable job evidence." }] });
+    let mut surface = json!({
+        "readModelFailures": [],
+        "providerRefreshSchedules": schedules,
+        "operatorSession": operator_session,
+        "operatorSessionActorKey": if operator_session { json!("usr_1:mem_1") } else { Value::Null },
+        "readModel": {
+            "generatedAt": "2026-11-05T12:00:00.000Z",
+            "validationReadiness": validation_readiness(selected),
+            "routeContext": { "providerKey": "tcgplayer", "unitKey": null, "jobId": job, "profileVersion": selected },
+            "readiness": { "freshness": "fresh", "blockers": [], "providerTransport": [], "rolloutEnabled": true, "rbacAllowed": true },
+            "healthTriage": null,
+            "providerScope": { "providers": [{ "providerKey": "tcgplayer", "units": [{ "unitKey": "tcgplayer:pokemon:card",
+                "productDomain": "pokemon", "productForm": "card", "importScopes": ["set-name"],
+                "activeProfile": { "profileVersion": "2026.07.13" } }] }] },
+            "profileAuthoring": {
+                "selectedProfile": { "providerKey": "tcgplayer", "profileKey": "pokemon-card", "profileVersion": selected,
+                    "displayName": "TCGplayer Pokemon Cards", "lifecycle": "active", "active": true,
+                    "connectorKind": "tcgplayer-automation-client", "capabilities": ["source-observation-import"],
+                    "supportedScopes": ["set-name", "product"], "languageOptions": ["en"], "mappingOutputKind": "pokemon-card",
+                    "hasExecutableMappingContract": true, "mappingFingerprint": null,
+                    "sourceContract": { "owner": "chase-sets/catalog", "repository": "chase-sets/chase-sets", "fixtureSetVersion": "v3" },
+                    "fixtures": { "fixtureRoot": "fixtures/tcgplayer", "coveredFlows": ["normal", "partial"], "liveProviderCallsAllowed": false },
+                    "validation": { "status": "valid", "latestDiagnosticText": null },
+                    "migrationEvidence": { "state": "not-recorded", "recordedAt": null }, "authoringAudit": {} },
+                "cloneDraft": { "sourceProviderKey": "tcgplayer", "sourceProfileVersion": selected,
+                    "targetProfileVersion": format!("{selected}-draft"), "state": "available", "blockers": [] },
+                "sectionGroups": section_groups(),
+                "sectionWorkspaces": section_workspaces()
+            },
+            "lifecycleRecovery": { "freshness": "fresh",
+                "summary": { "activeJobs": 0, "affectedReferences": 4, "downstreamProfileReferences": 1, "impactedCatalogItems": 2, "blockers": 1 },
+                "profiles": [version("pokemon-card", "2026.07.13", "TCGplayer Pokemon Cards"),
+                    version("one-piece-card", "2026.06.23", "TCGplayer One Piece Cards")],
+                "operations": [op("activation", "Activation recovery", "available", &[]),
+                    op("rollback", "Rollback profile", "blocked", &["profile-lifecycle-conflict"]),
+                    op("deprecate", "Deprecate profile", "available", &[]), op("retire", "Retire profile", "available", &[])],
+                "recentAuditEvents": [],
+                "strictRetirement": { "requiredDisposition": "complete-removal", "forbiddenSupportPaths": ["raw-json"] } },
+            "importJobs": { "freshness": "fresh", "activeJobCount": 0, "failedJobCount": 1,
+                "selectedScope": { "readiness": { "adapterReadiness": "ready", "credentialReadiness": "not-required" } },
+                "jobs": [{ "jobId": "job_9",
+                "state": "failed", "operatorStatus": "Failed", "summary": "Pull stopped at page 3.", "completed": 3, "total": 10,
+                "progressPercent": 30, "providerKey": "tcgplayer", "createdAt": "2026-11-04T09:00:00.000Z", "failureGroups": [],
+                "unitKey": "tcgplayer:pokemon:card",
+                "retryAvailable": true, "resumeAvailable": false, "cancelAvailable": false,
+                "sourceObservationReviewHref": "/catalog/integrations?jobId=job_9", "auditEvidenceUrl": "/catalog/integrations/health",
+                "result": { "observedCount": 12, "skippedCount": 1, "failedCount": 2 }, "blockers": [] }] }
+        }
+    });
+    surface["readModel"]["auditEvidence"] = audit;
+    surface["readModel"]["healthTriage"] = triage;
+    // `nobudget` is a provider the triage has a row for, with no usage budget at all.
+    if key == "nobudget" {
+        let row = &mut surface["readModel"]["healthTriage"]["providers"][0];
+        row["providerKey"] = json!(key);
+        row["usageBudget"] = Value::Null;
+    }
+    Json(surface).into_response()
+}
+
+/// The validation readiness of the selected version: a fixture flow with a diagnostic, a dry run's
+/// proof, a changed mapping section, an activation check that is blocked, and a decision that needs
+/// migration evidence before it can activate (whose evidence can be saved).
+fn validation_readiness(selected: &str) -> Value {
+    json!({
+        "status": "blocked",
+        "summary": { "readyFixtureFlows": 1, "totalFixtureFlows": 2, "blockedFixtureFlows": 1, "dryRunEvidenceCount": 1,
+            "semanticChangeCount": 1, "unchangedSectionCount": 1, "blockingReadinessChecks": 1, "auditEvidenceCount": 0 },
+        "fixtureFlows": [
+            { "flow": "normal", "label": "Normal", "status": "ready", "payloadFile": "normal.json", "payloadPath": "fixtures/tcgplayer/normal.json",
+              "expectedStatus": "observed", "expectedDiagnosticPaths": [], "expectedHashEvidencePaths": ["card.hash"],
+              "expectedMergeEvidencePaths": [], "expectedPromotionCommands": ["CreateCatalogItem"], "samplePayloadAvailable": true,
+              "diagnostics": [], "actionState": "available", "blockers": [] },
+            { "flow": "partial", "label": "Partial", "status": "blocked", "payloadFile": null, "payloadPath": null,
+              "expectedStatus": null, "expectedDiagnosticPaths": ["card.number"], "expectedHashEvidencePaths": [],
+              "expectedMergeEvidencePaths": [], "expectedPromotionCommands": [], "samplePayloadAvailable": false,
+              "diagnostics": [{ "path": "card.number", "diagnosticText": "The partial fixture has no card number.", "severity": "error" }],
+              "actionState": "blocked", "blockers": ["fixture-validation-blocked"] }
+        ],
+        "dryRunEvidence": [{ "externalKey": "sv1-001", "sourceUrl": "https://example.test/cards/sv1-001", "sourceHash": "sha256:abc",
+            "status": "completed",
+            "normalizedFacts": [{ "key": "name", "value": "Sprigatito" }, { "key": "number", "value": "001" },
+                { "key": "rarity", "value": "common" }, { "key": "set", "value": "sv1" }, { "key": "language", "value": "en" }],
+            "redactionSummary": [{ "label": "Payload body", "value": "not retained" }],
+            "duplicateCandidates": [{ "key": "dup.0", "label": "Merge evidence 1", "path": "duplicatePrevention.0", "summary": "mergeIdentity",
+                "owner": "catalog-merge-evidence", "uses": ["merge-identity"], "diagnostics": [] }],
+            "selectedOptions": [],
+            "promotionCommandPreview": [{ "commandName": "CreateCatalogItem", "inputs": [{ "key": "title", "label": "title",
+                "path": "promotionCommandPlan.title", "summary": "card.name", "owner": null, "uses": [], "diagnostics": [] }] }],
+            "diagnostics": [], "auditEvidence": [] }],
+        "semanticCompare": {
+            "mappingFingerprint": { "candidate": "fp_new", "active": "fp_old", "changed": true },
+            "activationImpact": ["Card numbers map from a new path."],
+            "fixtureCoverage": [{ "flow": "normal", "status": "ready" }, { "flow": "partial", "status": "blocked" }],
+            "sections": [{ "sectionKey": "catalog-field-mapping", "domainConcept": "catalog field mapping", "status": "warning",
+                "changeCount": 1, "changes": [{ "path": "fields.number", "label": "Card number", "candidateSummary": "card.localId",
+                    "activeSummary": "card.number", "changed": true, "severity": "warning",
+                    "activationImpact": "Card numbers map from a new path." }] }],
+            "unchangedSections": [{ "sectionKey": "basics", "domainConcept": "profile identity" }]
+        },
+        "activationReadiness": { "status": "blocked", "requiresMigrationEvidence": true, "referenceCount": 4,
+            "groups": [{ "domainConcept": "Migration Evidence", "status": "blocked", "checks": [{ "checkKey": "migration:evidence",
+                "code": "activation-migration-evidence", "sectionKey": "migration-evidence", "status": "blocked",
+                "path": "migrationEvidence.evidenceText",
+                "diagnosticText": "Source Observation mapping fingerprint changes require explicit migration evidence before activation.",
+                "severity": "error", "remediation": "Record migration evidence, then retry activation.",
+                "blockingBehavior": "block", "flow": null }] }] },
+        "activationDecision": { "status": "blocked", "actionState": "blocked", "blockers": ["migration-evidence-missing"],
+            "saveEvidenceState": "available", "saveEvidenceBlockers": [],
+            "activationCommandKey": "provider-profile.activate", "evidenceCommandKey": "provider-profile.edit-section",
+            "workspaceHref": format!("/catalog/providers/tcgplayer?profileVersion={selected}"),
+            "providerKey": "tcgplayer", "profileVersion": selected, "lifecycle": "draft", "importEligibility": "blocked",
+            "affectedReferences": { "referenceCount": 4, "requiresMigrationEvidence": true,
+                "replayImplications": ["4 existing references may need replay or reapply review after activation."] },
+            "migrationEvidence": { "state": "required", "evidenceText": "", "fixtureRunId": null,
+                "mappingFingerprintBefore": "fp_old", "mappingFingerprintAfter": "fp_new", "recordedAt": null, "recordedByUserId": null },
+            "auditConsequences": { "auditEvidenceUrl": "/catalog/integrations/health?providerKey=tcgplayer",
+                "eventNames": ["activation-readiness-evaluated", "profile-activated"],
+                "summary": "Activation records readiness evaluation and profile activation audit evidence." } }
+    })
+}
+
+/// Catalog's operator-session routes. A write without the page's own origin is refused, as the API
+/// refuses one; the session `catalog-admin-old` stands for a sign-in older than ten minutes and
+/// `catalog-admin-stale` for a grant record that changed before Disconnect ran.
+fn operator_session_api(method: &Method, path: &str, headers: &HeaderMap) -> Option<Response> {
+    let rest = path.strip_prefix("/api/catalog/operator-session")?;
+    let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let flat = |status: StatusCode, code: &str| (status, Json(json!({ "code": code }))).into_response();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => Json(json!({ "revision": 2, "storedAt": null, "browserExpiresAt": null, "custodyAvailable": false,
+            "grant": { "active": true, "createdAt": "2026-11-01T10:00:00.000Z", "idleExpiresAt": "2026-12-01T10:00:00.000Z",
+                "lastUsedAt": "2026-11-04T10:00:00.000Z" } }))
+        .into_response(),
+        (_, "" | "/grant") if origin.is_empty() => flat(StatusCode::FORBIDDEN, "forbidden"),
+        (_, "" | "/grant") if cookie.contains("=catalog-admin-old") => flat(StatusCode::BAD_REQUEST, "step_up_required"),
+        ("POST", "/grant") => {
+            Json(json!({ "grant": OPERATOR_GRANT, "idleExpiresAt": "2026-12-05T10:00:00.000Z" })).into_response()
+        }
+        ("DELETE", "") if cookie.contains("=catalog-admin-stale") => {
+            (StatusCode::CONFLICT, Json(json!({ "outcome": "stale-revision", "revision": 4 }))).into_response()
+        }
+        ("DELETE", "") => Json(json!({ "outcome": "cleared", "revision": 3 })).into_response(),
+        _ => flat(StatusCode::NOT_FOUND, "not-found"),
+    })
+}
+
+/// The grant the operator-session mock mints: 43 base64url characters, as Catalog's.
+const OPERATOR_GRANT: &str = "Q2hhc2VTZXRzT3BlcmF0b3JHcmFudEZvclRlc3RzXzA";
+
+/// A provider's commands: Lorcast's refresh run fails at the provider (the API's 502); a rollback,
+/// deprecate or retire without the confirmation of that command on that version is refused, as the
+/// API refuses it, and a deprecate of 2026.06.23 is refused as a lifecycle conflict. Migration
+/// evidence with a blank text is refused, as the API's section check does, and activating
+/// 2026.06.23 is refused for its missing evidence.
+fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
+    if let Some(rest) = path.strip_prefix("/api/catalog/provider-scope-discovery/refresh-schedule") {
+        return Some(match (method.as_str(), rest) {
+            ("POST", "/lorcast/run") => {
+                refusal(StatusCode::BAD_GATEWAY, "provider_refresh_failed", "The provider refresh run failed.")
+            }
+            ("POST", "/tcgplayer/pause" | "/tcgplayer/run" | "/lorcast/resume") => written(StatusCode::OK, "schedule_1"),
+            _ => refusal(StatusCode::NOT_FOUND, "not_found", "No such schedule command."),
+        });
+    }
+    let rest = path.strip_prefix("/api/catalog/source-observations/provider-profiles/")?;
+    if *method == Method::GET && rest == "tcgplayer/2026.07.13/authoring" {
+        return Some(
+            Json(json!({ "review": { "providerKey": "tcgplayer", "profileVersion": "2026.07.13", "displayName": "TCGplayer Pokemon Cards",
+                "status": "active", "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } }))
+            .into_response(),
+        );
+    }
+    if *method == Method::PATCH && rest == "tcgplayer/2026.07.13/sections/basics" {
+        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        return Some(if sent["command"]["displayName"] == "Stale" {
+            refusal(
+                StatusCode::CONFLICT,
+                "profile_section_conflict",
+                "Catalog provider profile section 'basics' has changed; reload before saving.",
+            )
+        } else {
+            written(StatusCode::OK, "profile_1")
+        });
+    }
+    if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
+        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        let text = sent["command"]["migrationEvidence"]["evidenceText"].as_str().unwrap_or_default();
+        return Some(if text.trim().is_empty() {
+            refusal(
+                StatusCode::BAD_REQUEST,
+                "invalid_profile_section_command",
+                "migrationEvidence.evidenceText must be a non-empty string.",
+            )
+        } else {
+            written(StatusCode::OK, "profile_1")
+        });
+    }
+    if *method != Method::POST {
+        return None;
+    }
+    if let [key, version, op @ ("rollback" | "deprecate" | "retire")] = rest.split('/').collect::<Vec<_>>()[..] {
+        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        if sent["lifecycleConfirmation"] != format!("confirm:provider-profile.{op}:{key}:{version}") {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "lifecycle_confirmation_required",
+                "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.",
+            ));
+        }
+    }
+    Some(match rest {
+        "tcgplayer/2026.07.13/clone" => {
+            let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+            let headers = [("chase-sets-commit-position", "43".to_owned()), ("chase-sets-commit-receipt", receipt)];
+            let draft = json!({ "providerKey": "tcgplayer", "profileVersion": "2026.07.13-draft" });
+            (StatusCode::CREATED, headers, Json(draft)).into_response()
+        }
+        "tcgplayer/2026.06.23/deprecate" => {
+            refusal(StatusCode::CONFLICT, "profile_lifecycle_conflict", "That profile version is still referenced.")
+        }
+        "tcgplayer/2026.06.23/activate" => refusal(
+            StatusCode::BAD_REQUEST,
+            "profile_activation_blocked",
+            "Source Observation mapping fingerprint changes require explicit migration evidence before activation.",
+        ),
+        _ => written(StatusCode::OK, "profile_1"),
+    })
+}
+
+fn provider_writes(pilot: &Pilot) -> Vec<String> {
+    let calls = pilot.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method != Method::GET && (c.path.contains("/provider-profiles/") || c.path.contains("/refresh-schedule")))
+        .map(|c| c.path.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its_schedule_and_commands() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        integrations_calls(&pilot).contains(
+            &"/api/catalog/source-observations/workbench-surfaces/health?location=%2Fcatalog%2Fproviders%2Ftcgplayer%3FprofileVersion%3D2026.07.13"
+                .to_owned()
+        ),
+        "the page's own address, whose path names the provider (chase-sets/chase-sets#11050): {:?}",
+        integrations_calls(&pilot)
+    );
+    assert!(
+        !pilot.calls.lock().unwrap().iter().any(|c| c.path.contains("/refresh-schedule")),
+        "the schedule comes with the surface"
+    );
+    assert!(html.contains(r#"data-catalog-provider-detail="true""#) && html.contains("Option queries are slow."), "{html}");
+    // Only this provider's schedule, with Pause and Run now for a manager.
+    assert!(html.contains(r#"data-catalog-provider-refresh-schedule-row="tcgplayer""#), "{html}");
+    assert!(!html.contains(r#"data-catalog-provider-refresh-schedule-row="lorcast""#), "another provider's: {html}");
+    assert!(html.contains(r#"action="/catalog/providers/tcgplayer/refresh?profileVersion=2026.07.13""#), "{html}");
+    assert!(
+        html.contains(r#"value="pause""#) && html.contains(r#"value="run""#) && !html.contains(r#"value="resume""#),
+        "{html}"
+    );
+    // The draft the API offers, from the selected version.
+    assert!(html.contains(r#"data-catalog-primary-workbench-command="provider-profile.clone""#), "{html}");
+    assert!(html.contains(r#"value="2026.07.13-draft""#), "{html}");
+    // The history, and each lifecycle operation but activation, whose box confirms its own command.
+    assert!(
+        html.contains("TCGplayer One Piece Cards")
+            && html.contains(r#"href="/catalog/providers/tcgplayer?profileVersion=2026.06.23""#),
+        "{html}"
+    );
+    assert!(!html.contains(r#"data-catalog-lifecycle-command="activation""#), "activation is validation readiness's: {html}");
+    for op in ["rollback", "deprecate", "retire"] {
+        assert!(html.contains(&format!(r#"data-catalog-lifecycle-command="{op}""#)), "{op}: {html}");
+    }
+    assert!(html.contains(r#"value="confirm:provider-profile.retire:tcgplayer:2026.07.13""#), "{html}");
+    let rollback = html.find(r#"value="confirm:provider-profile.rollback:tcgplayer:2026.07.13""#).unwrap();
+    assert!(html[rollback..].split('>').next().unwrap().contains("disabled"), "a blocked rollback: {html}");
+    // The unit, and the failed job with its counts and Retry.
+    assert!(html.contains("tcgplayer:pokemon:card"), "{html}");
+    assert!(html.contains(r#"data-catalog-provider-job-disclosure="job_9""#), "{html}");
+    assert!(html.contains(r#"action="/catalog/providers/tcgplayer/jobs/job_9?profileVersion=2026.07.13""#), "{html}");
+    assert!(html.contains(r#"value="retry""#) && !html.contains(r#"value="cancel""#), "{html}");
+    // This viewer is not offered the Operator session.
+    assert!(!html.contains("http://localhost:7752/catalog/providers"), "the provider page is the pilot's: {html}");
+    assert!(!html.contains("Operator session"), "{html}");
+
+    let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
+    assert!(section.contains(".provider-page__schedule-row") && section.contains(".provider-page__job-pair"), "{section}");
+}
+
+#[tokio::test]
+async fn provider_detail_keeps_the_health_facts_at_their_homes() {
+    // admin-web keeps each health fact where its entity is (chase-sets/chase-sets#9072): the
+    // provider's in the header, a unit's on the unit, a job's on the job, each home naming the read
+    // model it came from, and none of them the whole source's audit.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-provider-health="tcgplayer""#), "{html}");
+    for fact in ["tcgplayer-catalog", "option_query_slow", "catalog_provider_option_queries", "Refresh provider option queries."]
+    {
+        assert!(html.contains(fact), "the provider's {fact}: {html}");
+    }
+    // The usage budget: what was not reported says so, never zero.
+    assert!(html.contains("40 / Not reported / credits") && html.contains("usage_stale"), "{html}");
+    assert!(html.contains("Usage observed at") && html.contains("Estimated call scope"), "{html}");
+    // A unit's readiness and recovery, on the unit.
+    assert!(html.contains(r#"data-catalog-health-unit="tcgplayer:pokemon:card""#), "{html}");
+    for fact in [
+        "Pokemon singles / tcgplayer:pokemon:card",
+        "catalog-facts",
+        "0 / 1 / 2",
+        "fixture_missing",
+        "Add fixture coverage for this ingestion unit.",
+    ] {
+        assert!(html.contains(fact), "the unit's {fact}: {html}");
+    }
+    // A job's progress and recovery, on the job.
+    assert!(html.contains("Job progress and recovery") && html.contains("3/10 work units"), "{html}");
+    assert!(html.contains("Open the durable job evidence."), "{html}");
+    // Each home's provenance names its own read model and not the audit's.
+    assert_eq!(html.matches(r#"data-catalog-health-provenance="true""#).count(), 3, "{html}");
+    for message in [
+        "Transport readiness is derived separately.",
+        "Unit readiness comes from the overview.",
+        "Job progress comes from durable jobs.",
+    ] {
+        assert!(html.contains(message), "{message}: {html}");
+    }
+    assert!(!html.contains("Audit projection is partial."), "the source's audit is not the provider's: {html}");
+
+    // A provider the triage has no row for reads unavailable, not healthy or an empty count.
+    let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Provider readiness unavailable"), "{html}");
+    assert!(html.contains("no healthy state or empty unit count is implied"), "{html}");
+    assert!(!html.contains("Refresh provider option queries."), "another provider's facts: {html}");
+
+    // A provider whose row has no usage budget reads each budget fact as not reported, never zero.
+    let (status, _, html) = pilot.send(get("/catalog/providers/nobudget", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-provider-health="nobudget""#).expect("the provider's header");
+    let head = &html[start..start + html[start..].find("</section>").expect("its end")];
+    for label in ["Credit balance / allowance / unit", "Usage observed at", "Estimated calls", "Estimated call scope"] {
+        assert!(head.contains(&format!("<dt>{label}</dt><dd>Not reported</dd>")), "{label}: {head}");
+    }
+    assert!(head.contains("<dt>Budget readiness</dt><dd>unavailable</dd>"), "{head}");
+    assert!(!head.contains("<dd>0</dd>") && !head.contains("<dd>0 /"), "no zero is made up: {head}");
+}
+
+#[tokio::test]
+async fn provider_detail_links_its_own_evidence_and_opens_the_timeline_the_api_resolved() {
+    let pilot = Pilot::new().await;
+    let drawer = |html: &str| {
+        let at = html.find(r#"id="pd-evidence-audit""#).expect("the audit timeline");
+        let tag = html[..at].rfind("<details").expect("in a disclosure");
+        html[tag..].split('>').next().unwrap().contains(" open")
+    };
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(r#"href="/catalog/providers/tcgplayer?profileVersion=2026.07.13&"#)
+            && html.contains(r#"evidenceRef=provider%2Ftcgplayer""#)
+            && html.contains("Audit timeline: tcgplayer"),
+        "the provider's link: {html}"
+    );
+    assert!(
+        html.contains("evidenceRef=provider-profile%2F2026.07.13%2Ftcgplayer") && html.contains("Audit timeline: 2026.07.13"),
+        "the selected version's link: {html}"
+    );
+    assert!(!drawer(&html), "closed without a reference: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?evidenceRef=provider%2Ftcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(drawer(&html) && html.contains("Profile 2026.07.13 activated."), "a resolved reference opens it: {html}");
+    assert!(
+        integrations_calls(&pilot).iter().any(|c| c.contains("evidenceRef%3Dprovider%252Ftcgplayer")),
+        "the API resolves it: {:?}",
+        integrations_calls(&pilot)
+    );
+
+    let (_, _, html) = pilot.send(get("/catalog/providers/tcgplayer?evidenceRef=scope%2Fsr_other", Some("staff"))).await;
+    assert!(!drawer(&html) && html.contains("No associated evidence"), "one the API did not find stays closed: {html}");
+}
+#[tokio::test]
+async fn a_reader_sees_provider_detail_without_its_commands_and_a_platform_admin_is_offered_the_session() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"value="pause""#) && !html.contains(r#"value="retry""#), "{html}");
+    let clone = html.find(r#"data-catalog-primary-workbench-command="provider-profile.clone""#);
+    assert!(clone.is_none_or(|at| html[at..at + html[at..].find("</form>").unwrap()].contains("disabled")), "{html}");
+    let retire = html.find(r#"value="confirm:provider-profile.retire:tcgplayer:2026.07.13""#).unwrap();
+    assert!(html[retire..].split('>').next().unwrap().contains("disabled"), "{html}");
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/providers/tcgplayer/refresh", "command=pause", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage, as the API asks");
+    assert!(provider_writes(&pilot).is_empty());
+
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Operator session"), "offered by the surface (chase-sets/chase-sets#11050): {html}");
+    assert!(html.contains(r#"action="/catalog/providers/tcgplayer"><input type="hidden" name="intent" value="pair">"#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("catalog-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("Operator session"), "{html}");
+    assert!(
+        html.contains(r#"data-catalog-provider-refresh-schedule-row="lorcast""#) && html.contains(r#"value="resume""#),
+        "{html}"
+    );
+    // A schedule the API could not read draws no panel.
+    let (status, _, html) = pilot.send(get("/catalog/providers/noschedule", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"data-catalog-provider-refresh-schedule="panel""#), "{html}");
+}
+
+#[tokio::test]
+async fn each_provider_command_sends_the_apis_path_and_lands_on_the_page() {
+    let pilot = Pilot::new().await;
+    let at = "profileVersion=2026.07.13";
+    let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/providers/tcgplayer/refresh?{at}"), "command=pause", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=paused&after_write=")),
+        "{}",
+        landed(&headers)
+    );
+    let (_, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/refresh?{at}"), "command=run", false)).await;
+    assert!(landed(&headers).contains("done=ran"));
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/draft?{at}"),
+            "sourceProfileVersion=2026.07.13&targetProfileVersion=",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        landed(&headers).starts_with("/catalog/providers/tcgplayer?profileVersion=2026.07.13-draft&done=drafted&after_write="),
+        "the draft the API made, read after its write: {}",
+        landed(&headers)
+    );
+    let confirm = "confirm%3Aprovider-profile.retire%3Atcgplayer%3A2026.07.13";
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/lifecycle?{at}"),
+            &format!("operation=retire&profileVersion=2026.07.13&confirmation={confirm}"),
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(landed(&headers).contains("done=retired"));
+    let (_, headers, _) =
+        pilot.send(post(&format!("/catalog/providers/tcgplayer/jobs/job_9?{at}"), "command=retry", false)).await;
+    assert!(landed(&headers).contains("jobId=job_9") && landed(&headers).contains("done=queued"), "{}", landed(&headers));
+    assert_eq!(
+        provider_writes(&pilot),
+        [
+            "/api/catalog/provider-scope-discovery/refresh-schedule/tcgplayer/pause",
+            "/api/catalog/provider-scope-discovery/refresh-schedule/tcgplayer/run",
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/clone",
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/retire",
+        ]
+    );
+    let clone = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/clone")).cloned().unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&clone.body).unwrap(), json!({ "targetProfileVersion": "", "lifecycle": "draft" }));
+    let retire = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/retire")).cloned().unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&retire.body).unwrap(),
+        json!({ "lifecycleConfirmation": "confirm:provider-profile.retire:tcgplayer:2026.07.13" }),
+        "the box's value, which the API checks"
+    );
+
+    // The page it lands on says so.
+    let (status, _, html) = pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=retired"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_provider_command_is_the_page_again_with_its_reason() {
+    let pilot = Pilot::new().await;
+    // Without its box, or with another version's, the API refuses a lifecycle command and the page
+    // says why (chase-sets/chase-sets#11049).
+    let at = "/catalog/providers/tcgplayer/lifecycle";
+    let confirm_first = "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.";
+    let (status, _, html) = pilot.send(post(at, "operation=retire&profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"data-catalog-provider-detail="true""#) && html.contains(r#"role="alert""#), "{html}");
+    assert!(html.contains(confirm_first), "{html}");
+    let other = "confirm%3Aprovider-profile.retire%3Atcgplayer%3A2026.06.23";
+    let (status, _, patch) =
+        pilot.send(post(at, &format!("operation=retire&profileVersion=2026.07.13&confirmation={other}"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(!patch.contains("data-catalog-provider-detail") && patch.contains(confirm_first), "only the notice: {patch}");
+    let refused = provider_writes(&pilot);
+    let (status, _, _) = pilot.send(post(at, "operation=activate&profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "an operation the page does not offer");
+    assert_eq!(provider_writes(&pilot), refused, "which does not reach the API");
+
+    // The API's refusal, in its words.
+    let confirm = "confirm%3Aprovider-profile.deprecate%3Atcgplayer%3A2026.06.23";
+    let (status, _, html) = pilot
+        .send(post(
+            &format!("{at}?profileVersion=2026.06.23"),
+            &format!("operation=deprecate&profileVersion=2026.06.23&confirmation={confirm}"),
+            false,
+        ))
+        .await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains("That profile version is still referenced."), "{html}");
+    // A run that fails at the provider is said, not dropped (chase-sets/chase-sets#11051).
+    let (status, _, html) = pilot.send(post("/catalog/providers/lorcast/refresh", "command=run", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert""#), "{html}");
+    let (status, _, _) = pilot.send(post("/catalog/providers/lorcast/refresh", "command=stop", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+}
+
+#[tokio::test]
+async fn provider_detail_draws_validation_readiness_and_its_activation_decision() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-validation-readiness="true""#), "{html}");
+    // Provider readiness from the selected scope, and each row's sheet a disclosure with its evidence.
+    assert!(html.contains("Provider readiness is ready") && html.contains("Not Required"), "{html}");
+    assert!(html.contains(r#"data-catalog-validation-fixture="partial""#), "{html}");
+    assert!(html.contains("The partial fixture has no card number."), "a flow's diagnostic: {html}");
+    assert!(html.contains(r#"data-catalog-validation-dry-run="sv1-001""#) && html.contains("1 more"), "{html}");
+    assert!(html.contains(r#"data-catalog-validation-section="catalog-field-mapping""#), "{html}");
+    assert!(html.contains("Card numbers map from a new path."), "{html}");
+    // Each sheet is its cell's only content, with no phone label, so a stacked table gives it the row.
+    for sheet in [
+        r#"data-catalog-validation-fixture="partial""#,
+        r#"data-catalog-validation-dry-run="sv1-001""#,
+        r#"data-catalog-validation-section="catalog-field-mapping""#,
+    ] {
+        let at = html.find(sheet).unwrap();
+        let cell = html[..at].rfind("<td").unwrap();
+        assert!(html[cell..at].starts_with("<td><details "), "{}", &html[cell..at]);
+    }
+    assert!(html.contains("Record migration evidence, then retry activation."), "a check's remediation: {html}");
+    // The decision: blocked on migration evidence, which can be saved; activation cannot run yet.
+    assert!(html.contains("Activation decision is blocked"), "{html}");
+    let evidence = html.find(r#"data-catalog-validation-evidence-form="true""#).unwrap();
+    let form = &html[html[..evidence].rfind("<form").unwrap()..evidence + html[evidence..].find("</form>").unwrap()];
+    assert!(form.contains(r#"action="/catalog/providers/tcgplayer/evidence?profileVersion=2026.07.13""#), "{form}");
+    // Only the text and the fixture run: Catalog stamps the time, the author and the fingerprints.
+    assert!(!form.contains("migrationRecordedAt") && !form.contains("migrationFingerprint"), "{form}");
+    assert!(form.contains("required") && !form.contains("disabled"), "{form}");
+    let activate = html.find(r#"data-catalog-activate-profile-form="true""#).unwrap();
+    let form = &html[activate..activate + html[activate..].find("</form>").unwrap()];
+    assert!(form.contains("disabled"), "a blocked activation: {form}");
+    // The section's stylesheet is the area's.
+    let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
+    assert!(section.contains(".validation__checklist") && section.contains(".validation__sheet"), "{section}");
+
+    // A reader sees it all without a form to send.
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let evidence = html.find(r#"data-catalog-validation-evidence-form="true""#).unwrap();
+    assert!(html[evidence..evidence + html[evidence..].find("</form>").unwrap()].contains("disabled"), "{html}");
+}
+
+#[tokio::test]
+async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis_refusal() {
+    let pilot = Pilot::new().await;
+    let at = "profileVersion=2026.07.13";
+    let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=evidence-saved&after_write=")),
+        "{}",
+        landed(&headers)
+    );
+    let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/migration-evidence")).cloned().unwrap();
+    assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
+            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
+    );
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/providers/tcgplayer/activate?{at}"), "profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(landed(&headers).contains("done=activated"), "{}", landed(&headers));
+    assert_eq!(
+        provider_writes(&pilot),
+        [
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/sections/migration-evidence",
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/activate",
+        ]
+    );
+    let (status, _, html) =
+        pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=evidence-saved"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Migration evidence saved"), "{html}");
+
+    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068), and so is an
+    // activation it will not run.
+    let (status, _, html) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/evidence?{at}"),
+            "profileVersion=2026.07.13&migrationEvidenceText=+++",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("migrationEvidence.evidenceText must be a non-empty string."), "{html}");
+    let (status, _, patch) = pilot
+        .send(post("/catalog/providers/tcgplayer/activate?profileVersion=2026.06.23", "profileVersion=2026.06.23", true))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(patch.contains("require explicit migration evidence before activation"), "{patch}");
+    assert!(!patch.contains("data-catalog-provider-detail"), "only the notice: {patch}");
+
+    // Without a version, nothing is sent; a reader may not send either.
+    let before = provider_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/providers/tcgplayer/activate", "profileVersion=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/providers/tcgplayer/activate", "profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(provider_writes(&pilot).len(), before);
+}
+
+fn integrations_calls(pilot: &Pilot) -> Vec<String> {
+    pilot.calls.lock().unwrap().iter().filter(|c| c.path.contains("/workbench-surfaces/")).map(|c| c.path.clone()).collect()
+}
+
+#[tokio::test]
+async fn integration_health_draws_the_apis_composed_surface_for_its_address() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/integrations/health?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(
+        integrations_calls(&pilot),
+        [
+            "/api/catalog/source-observations/workbench-surfaces/health?location=%2Fcatalog%2Fintegrations%2Fhealth%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon"
+        ],
+        "the page's own address is the surface's location, as the API reads it"
+    );
+    assert!(html.contains("<title>Integration Health | Catalog Integrations"), "{html}");
+    assert!(html.contains("Pull provider data, review Source Observations, promote Catalog facts"), "the shell: {html}");
+    assert!(
+        html.contains(">12<") && html.contains("3 changed") && html.contains("Draft Catalog Item updates"),
+        "its metrics: {html}"
+    );
+    assert!(
+        html.contains(r#"href="/catalog/integrations?providerKey=tcgplayer""#),
+        "back to the import workbench, which the pilot serves: {html}"
+    );
+    assert!(html.contains("Integration health triage") && html.contains("Audit timeline"), "both workspaces: {html}");
+    let audit = html.find("Audit timeline").unwrap();
+    assert!(audit < html.find("Integration health triage").unwrap(), "the audit timeline first, as admin-web: {html}");
+    assert!(html.contains(">1/2<") && html.contains("Pokemon singles") && html.contains("tcgplayer / pokemon/card"), "{html}");
+    assert!(html.contains("2 error(s), 1 warning(s), 0 info") && html.contains("12 Source Observation fact(s)"), "{html}");
+    assert!(html.contains(">Preview promotion<"), "the unit's primary action: {html}");
+    assert!(
+        html.contains("40 of 100 credits") && html.contains("Usage is older than its window."),
+        "a stale budget's reason: {html}"
+    );
+    assert!(html.contains("Beyond the provider") && html.contains("12 / one set"), "{html}");
+    assert!(html.contains("cards: 1 / complete / 2026-11-04T10:05:00.000Z / -"), "the count spend: {html}");
+    assert!(
+        html.contains("Imports are stopped.") && !html.contains(">promotion<"),
+        "only the rollout stops that are not open: {html}"
+    );
+    assert!(html.contains("Pull stopped at page 3.") && html.contains("Audit lifecycle partial"), "{html}");
+    assert!(html.contains(r#"href="/catalog/source-observations/obs_1""#), "the pilot's observation page: {html}");
+    assert!(html.contains(r#"href="/catalog/providers/tcgplayer""#), "the pilot's provider page: {html}");
+    assert!(html.contains(r#"aria-hidden="true">Ingestion unit</span>"#), "a stacked row names its cells: {html}");
+}
+
+#[tokio::test]
+async fn an_evidence_reference_with_no_association_says_so_instead_of_the_filters_empty_state() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/integrations/health?evidenceRef=candidate%2Fcand_gone", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("No associated evidence") && html.contains("has no supported association in the loaded records"),
+        "the reference's own empty state: {html}"
+    );
+    assert!(!html.contains("No timeline events"), "not the filters' empty state: {html}");
+    let calls = integrations_calls(&pilot);
+    assert!(calls.iter().any(|c| c.contains("evidenceRef%3Dcandidate%252Fcand_gone")), "the API resolves it: {calls:?}");
+    let (_, _, html) = pilot.send(get("/catalog/integrations/health", Some("catalog-reader"))).await;
+    assert!(!html.contains("No associated evidence"), "without a reference, the timeline as before: {html}");
+}
+#[tokio::test]
+async fn settings_and_governance_draw_the_governance_controls_with_their_evidence() {
+    let pilot = Pilot::new().await;
+    for path in ["/catalog/integrations/settings", "/catalog/integrations/governance"] {
+        let (status, _, html) = pilot.send(get(path, Some("catalog-reader"))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        assert!(
+            html.contains("Governance controls are blocking") && html.contains("Rollout and worker controls"),
+            "{path}: {html}"
+        );
+        assert_eq!(html.matches(">Kill switch active<").count(), 1, "each blocker once: {html}");
+        assert!(html.contains(">Permission denied<"), "a blocker's label: {html}");
+        assert!(html.contains("Import kill switch") && html.contains(">active<") && html.contains(">clear<"), "{html}");
+        assert!(html.contains("4 alert links") && html.contains(">1 actions<"), "{html}");
+        assert!(html.contains(r#"href="https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/jobs""#), "{html}");
+        assert!(
+            html.contains(r#"href="https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-jobs.md""#),
+            "{html}"
+        );
+        assert!(html.contains("<details") && html.contains("Audit events"), "the evidence opens on the page: {html}");
+        assert!(!html.contains("Integration health triage"), "{path}: {html}");
+        // The health facts kept at Settings (chase-sets/chase-sets#9072): the triage's provenance
+        // without a read model's row, each control's severity and next action, and the evidence
+        // drawer's own projection facts.
+        assert!(html.contains("Source health provenance (not entity readiness)"), "{path}: {html}");
+        assert!(!html.contains("Provider adapter transport readiness is derived separately."), "no read model row: {html}");
+        assert!(html.contains("Clear the stop.") && html.contains(">error<"), "the control's health: {html}");
+        assert!(
+            html.contains("Projection status message") && html.contains("catalog.integration.audit.generated_at"),
+            "the drawer's provenance: {html}"
+        );
+    }
+    let calls = integrations_calls(&pilot);
+    assert!(
+        calls.iter().all(|c| c.contains("/workbench-surfaces/governance?location=%2Fcatalog%2Fintegrations%2F")),
+        "{calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_unreadable_projection_says_so_in_its_panel_and_a_failed_read_is_the_error_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations/health?providerKey=down", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Health read model is unavailable") && html.contains("Audit projection is unavailable"), "{html}");
+    let (status, _, _) = pilot.send(get("/catalog/integrations/health?providerKey=broken", Some("catalog-reader"))).await;
+    assert_ne!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(get("/catalog/integrations/health", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view, as the API asks");
+}
+
+/// The promotion's selection and confirmation the read builds (`commandPreview`):
+/// the working set's filter scope, and its unit, import scope and profile.
+fn promotion_descriptor(unit: &str) -> Value {
+    let scope = json!({ "provider": "tcgplayer", "language": "en", "setId": "sv1", "status": null });
+    json!({ "scope": scope, "allowScopeSelection": true,
+        "confirmation": { "unitKey": unit, "importScope": "en:sv1", "profileVersion": "3", "scope": scope } })
+}
+
+/// The promotion preview the read answers: none without a token; for `tok_1` or `tok_draft`, the
+/// selection previewed again, fresh and fully validated (the draft one carrying an unresolved
+/// identity as a draft); for `tok_stale`, one the API found stale; for `tok_blocked`, one an
+/// unresolvable identity blocks.
+fn promotion_preview(location: &str) -> Value {
+    let token = location.split(['?', '&']).find_map(|p| p.strip_prefix("promotionPreviewId="));
+    let Some(token) = token else {
+        return json!({ "previewId": null, "blockers": [], "destructiveCount": 0, "freshness": "partial",
+            "validation": { "promoteAsDraft": false, "coverage": "not-previewed", "coveredCount": 0,
+                "identityDiagnostics": [], "otherBlockedObservationIds": [], "continuation": null },
+            "executionSafeguards": { "previewFresh": false, "staleReasons": [] }, "previewCommittable": false });
+    };
+    let draft = token == "tok_draft";
+    let stale = token == "tok_stale";
+    let blocked = token == "tok_blocked";
+    let diagnostics = if draft || blocked {
+        json!([{ "observationId": "obs_1", "blocking": blocked, "templateReason": "unresolved-title-tokens",
+            "diagnosticText": "The title needs a card number.", "missingTokens": ["number"], "templateKey": "card" }])
+    } else {
+        json!([])
+    };
+    json!({
+        "previewId": token,
+        "blockers": if blocked { json!(["display-identity-unresolvable"]) } else if stale { json!(["stale-promotion-preview"]) } else { json!([]) },
+        "destructiveCount": 0,
+        "freshness": if stale { "stale" } else { "fresh" },
+        "scope": { "label": "Scarlet & Violet", "requestedCount": 1, "eligibleCount": 1,
+            "selectedObservationIds": ["obs_1"], "filterSummary": ["set sv1", "language en"] },
+        "outcomeCounts": { "eligible": 1, "blocked": 0, "skipped": 0, "conflicting": 0 },
+        "commandPlanHash": format!("preview:{token}:explicit:requested:1:eligible:1"),
+        "validation": { "promoteAsDraft": draft, "coverage": "complete", "coveredCount": 1,
+            "identityDiagnostics": diagnostics, "otherBlockedObservationIds": [], "continuation": null },
+        "executionSafeguards": { "previewFresh": !stale, "staleReasons": if stale { json!(["observations"]) } else { json!([]) } },
+        "previewCommittable": !stale && !blocked
+    })
+}
+
+/// The daily surface's source scope workset: the selected scope with one unit whose import and
+/// reapply are open, with the scopes they post, and one blocked until a scope is chosen; none under
+/// the kill switch.
+fn workset(stopped: bool, unit_preview: bool) -> Value {
+    let open = json!({ "key": "scope.import", "state": "available", "blockers": [] });
+    let blocked = |key: &str| json!({ "key": key, "state": "disabled", "blockers": ["import-scope-required"] });
+    json!({
+        "status": if stopped { "not-configured" } else { "degraded" },
+        "selectedScope": { "hasConcreteScope": true, "importScope": "en:sv1", "label": "tcgplayer / en / Scarlet & Violet" },
+        "summary": { "unitCount": 2, "readyUnitCount": 1, "blockedUnitCount": 1, "activeImportCount": 1,
+            "changedObservationCount": 4, "promotedObservationCount": 7 },
+        "units": if stopped { json!([]) } else { json!([
+            { "providerKey": "tcgplayer", "displayName": "TCGplayer singles", "unitKey": "tcgplayer:pokemon:card",
+              "profileVersion": "3", "importScope": "en:sv1", "state": "changed",
+              "counts": { "observed": 9, "changed": 4, "promoted": 7, "rejected": 0, "eligible": 2 },
+              "currentWorkbenchHref": "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1",
+              "commandContext": { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "importScope": "en:sv1" },
+              "commandScopes": {
+                  "import": { "provider": "tcgplayer", "ingestionUnitKey": "tcgplayer:pokemon:card", "language": "en", "setId": "sv1" },
+                  "reapply": { "provider": "tcgplayer", "language": "en", "setId": "sv1", "ingestionUnitKey": "tcgplayer:pokemon:card" } },
+              "actions": { "import": open,
+                  "previewPromotion": if unit_preview {
+                      json!({ "key": "observation.promote", "state": "available", "blockers": [],
+                          "commandPreview": promotion_descriptor("tcgplayer:pokemon:card") })
+                  } else {
+                      json!({ "key": "observation.promote", "state": "disabled",
+                          "blockers": ["no-promotion-eligible-observations"] })
+                  },
+                  "reapply": { "key": "observation.reapply", "state": "available", "blockers": [] } } },
+            { "providerKey": "lorcast", "displayName": "Lorcast cards", "unitKey": null, "profileVersion": null,
+              "state": "blocked", "counts": { "observed": 0, "changed": 0, "promoted": 0 },
+              "currentWorkbenchHref": "/catalog/integrations?providerKey=lorcast", "commandScopes": null,
+              "actions": { "import": blocked("scope.import"), "previewPromotion": blocked("observation.promote"),
+                  "reapply": blocked("observation.reapply") } }
+        ]) }
+    })
+}
+
+/// The Catalog API's evidence for a Source Observation (`source-observations/{id}/evidence`): the
+/// eligible `obs_1` with one product contents line, and none for any other.
+fn observation_evidence(id: &str) -> Response {
+    if id != "obs_1" {
+        return refusal(StatusCode::NOT_FOUND, "not_found", "No evidence for that observation.");
+    }
+    Json(json!({
+        "observationId": "obs_1",
+        "detail": {
+            "observationId": "obs_1", "providerKey": "tcgplayer", "externalKey": "tcgplayer:sv1-001", "displayName": "Sprigatito",
+            "sourceUrl": "https://example.test/sv1-001", "sourceRecordHash": "sha256:abc", "sourceUpdatedAt": null,
+            "observedAt": "2026-11-04T09:00:00.000Z", "changedAt": "2026-11-04T08:00:00.000Z", "sourceProfileVersion": "v3",
+            "promotionProfileVersion": null, "payloadSummary": "12 fields", "redactionSummary": "Prices redacted",
+            "normalizedFactSummaries": ["Rarity: Double Rare"],
+            "productContentsEvidence": { "state": "matched", "summary": "One line matched.", "rows": [{
+                "lineNumber": 1, "state": "matched", "contentTypeLabel": "Booster pack", "inclusionPolicyLabel": null,
+                "quantity": 3.0, "targetSummary": "Paldean Fates booster", "containedSelectedOptionLabels": [],
+                "provenanceSummary": ["tcgplayer"] }] },
+            "duplicateEvidence": [], "conflictEvidence": ["Name differs from pokemontcgio"],
+            "auditTrail": ["Observed by the nightly import"],
+            "promotionReadiness": { "state": "eligible", "blockers": [] },
+            "commandPreview": { "promotionPlanHash": null }
+        }
+    }))
+    .into_response()
+}
+
+const EVIDENCE: &str = "/catalog/integrations/evidence";
+
+#[tokio::test]
+async fn a_review_rows_evidence_opens_the_apis_evidence_in_a_sheet() {
+    let pilot = Pilot::new().await;
+    let (_, _, page) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert!(
+        page.contains(r#"<form id="wb-evidence-open" method="get" action="/catalog/integrations" data-patch><input type="hidden" name="providerKey" value="tcgplayer"><input type="hidden" name="unitKey" value="pokemon"></form>"#),
+        "the rows' GET form: {page}"
+    );
+    assert!(page.contains(r#"formaction="/catalog/integrations/evidence/obs_1""#), "a row's Evidence: {page}");
+    assert!(page.contains(r#"<dialog id="evidence-sheet"></dialog>"#), "the empty sheet an answer replaces: {page}");
+
+    // With JavaScript the answer is the sheet alone, drawn open with the API's facts.
+    let (status, _, html) = pilot.send(opened(&format!("{EVIDENCE}/obs_1?providerKey=tcgplayer&unitKey=pokemon"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/source-observations/obs_1/evidence"));
+    assert!(!html.contains("<title>"), "only the sheet: {html}");
+    assert!(html.contains(r#"id="evidence-sheet""#) && html.contains(" open"), "{html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#) && html.contains("Sprigatito"), "{html}");
+    assert!(
+        html.contains("https://example.test/sv1-001")
+            && html.contains("Rarity: Double Rare")
+            && html.contains("Paldean Fates booster"),
+        "{html}"
+    );
+    assert!(html.contains("Name differs from pokemontcgio") && html.contains("Observed by the nightly import"), "{html}");
+    assert!(
+        html.contains(r#"action="/catalog/integrations/promotion?providerKey=tcgplayer&amp;unitKey=pokemon""#)
+            && html.contains(r#"<input type="hidden" name="observation" value="obs_1">"#)
+            && html.contains(r#"value="preview-checked""#),
+        "an eligible row's Preview promotion previews it: {html}"
+    );
+    assert!(!html.contains("disabled"), "{html}");
+
+    // An observation the API has no evidence for is the sheet's error, its footer blocked.
+    let (status, _, html) = pilot.send(opened(&format!("{EVIDENCE}/obs_missing?providerKey=tcgplayer&unitKey=pokemon"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="error""#), "{html}");
+    assert!(html.contains("disabled") && !html.contains("preview-checked"), "{html}");
+}
+
+#[tokio::test]
+async fn a_candidates_promote_sends_the_version_read_once_the_api_checks_it() {
+    let pilot = Pilot::new().await;
+    // Before the API checks the version, Promote is admin-web's.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("staff"))).await;
+    assert!(!html.contains(r#"value="promote""#), "{html}");
+    let at = "/catalog/integrations?providerKey=tcgplayer&candidatePromote=versioned";
+    let (_, _, html) = pilot.send(get(at, Some("staff"))).await;
+    assert!(
+        html.contains(r#"data-catalog-primary-workbench-command="candidate-promote""#)
+            && html.contains(r#"<input type="hidden" name="version" value="4">"#)
+            && html.contains(r#"value="promote""#),
+        "{html}"
+    );
+    let post_to = "/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&candidatePromote=versioned";
+    let reason = "reason=Promote+from+the+scope-first+Catalog+sync+workbench.";
+    let (status, headers, _) = pilot.send(post(post_to, &format!("command=promote&version=4&{reason}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    assert_eq!(
+        last_write(&pilot, "/admin/merge-candidates/cand_1/promote"),
+        json!({ "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4, "conflictResolutions": [] })
+    );
+    // A candidate that moved since the read is admin-web's stale message; no version is not offered.
+    let (status, _, html) = pilot.send(post(post_to, &format!("command=promote&version=3&{reason}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The merge candidate changed after this page loaded it"), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post(post_to, "command=promote", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(daily_writes(&pilot).len(), before);
+}
+
+/// The daily surface reads the address names, decoded: the last one.
+fn last_daily_read(pilot: &Pilot) -> String {
+    let calls = pilot.calls.lock().unwrap();
+    let read = calls.iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).expect("a daily read");
+    percent_encoding::percent_decode_str(read.path.split_once("location=").unwrap().1).decode_utf8_lossy().into_owned()
+}
+
+/// The body of the last write to `rest` under the Source Observations API.
+fn last_write(pilot: &Pilot, rest: &str) -> Value {
+    let path = format!("/api/catalog/source-observations{rest}");
+    let write = daily_writes(pilot).into_iter().rev().find(|c| c.path == path).unwrap_or_else(|| panic!("no write to {path}"));
+    serde_json::from_str(&write.body).unwrap()
+}
+
+#[tokio::test]
+async fn preview_promotion_sends_the_reads_selection_and_confirmation_and_the_commit_presents_its_token() {
+    let pilot = Pilot::new().await;
+    let promotion = "/catalog/integrations/promotion?providerKey=tcgplayer";
+    let (_, _, page) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("staff"))).await;
+    assert!(
+        page.contains(r#"formaction="/catalog/integrations/promotion?providerKey=tcgplayer""#)
+            && page.contains(r#"value="preview-checked""#),
+        "the review bar's Preview promotion posts the checked rows to the pilot: {page}"
+    );
+    assert!(!page.contains("Preview on admin-web"), "{page}");
+    let promotes = |pilot: &Pilot| daily_writes(pilot).iter().filter(|c| c.path.contains("/bulk-promote/")).count();
+
+    // The checked row (the review form's other fields ride along), previewed with the read's confirmation.
+    let (status, headers, _) = pilot.send(post(promotion, "phase=preview-checked&observation=obs_1&reason=", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(
+        to,
+        "/catalog/integrations?providerKey=tcgplayer&section=promotion-preview&selectedObservationIds=obs_1&promotionPreviewId=tok_1"
+    );
+    let descriptor = promotion_descriptor("tcgplayer:pokemon:card");
+    assert_eq!(
+        last_write(&pilot, "/bulk-promote/preview"),
+        json!({ "promoteAsDraft": false, "confirmation": descriptor["confirmation"], "observationIds": ["obs_1"] })
+    );
+    assert!(!last_daily_read(&pilot).contains("promotionPreviewId"), "the command's read does not preview again");
+
+    // The landing previews again for the create stage: fresh, validated, the commit offered.
+    let (status, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(last_daily_read(&pilot).contains("promotionPreviewId=tok_1"), "the read previews the held token");
+    assert!(html.contains(r#"data-catalog-promotion-preview="fresh""#), "{html}");
+    assert!(html.contains("Validated every eligible observation (1) before any Catalog write."), "{html}");
+    assert!(html.contains("I confirm this will promote 1 eligible observation(s) from Scarlet &amp; Violet."), "{html}");
+    assert!(html.contains(r#"value="execute">"#), "the commit is not disabled: {html}");
+    assert!(html.contains(r#"href="/catalog/catalog-items?source=tcgplayer""#), "the Catalog Items handoff: {html}");
+
+    // A commit needs its box, and the draft choice the preview bound.
+    let held = to.replace("/catalog/integrations?", "/catalog/integrations/promotion?");
+    let before = promotes(&pilot);
+    let (status, _, html) = pilot.send(post(&held, "phase=execute", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Confirm the previewed impact before creating or updating Catalog Items."), "{html}");
+    let (status, _, html) = pilot.send(post(&held, "phase=execute&draft=true&confirm=true", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The promote-as-draft choice changed since this preview."), "{html}");
+    assert_eq!(promotes(&pilot), before, "neither was sent");
+
+    let (status, headers, _) = pilot.send(post(&held, "phase=execute&confirm=true", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(
+        landed.starts_with("/catalog/integrations?providerKey=tcgplayer&jobId=job_p1&section=promotion-result&done=queued"),
+        "{landed}"
+    );
+    assert!(!landed.contains("promotionPreviewId") && !landed.contains("selectedObservationIds"), "{landed}");
+    assert_eq!(
+        last_write(&pilot, "/bulk-promote/jobs"),
+        json!({ "promoteAsDraft": false, "confirmation": descriptor["confirmation"], "observationIds": ["obs_1"],
+            "previewToken": "tok_1" })
+    );
+
+    // A token the API finds stale is its refusal, and the page asks for a preview again.
+    let stale = "/catalog/integrations/promotion?providerKey=tcgplayer&section=promotion-preview\
+                 &selectedObservationIds=obs_1&promotionPreviewId=tok_stale";
+    let (status, _, html) = pilot.send(post(stale, "phase=execute&confirm=true", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The promotion preview is stale. Preview again before promoting."), "{html}");
+    assert!(!html.contains("tok_stale"), "the refusal drops the token: {html}");
+    let (_, _, html) = pilot.send(get(&stale.replace("/promotion?", "?"), Some("staff"))).await;
+    assert!(html.contains(r#"data-catalog-promotion-preview="stale""#) && html.contains(r#"value="execute" disabled"#), "{html}");
+    // An identity the preview cannot resolve blocks the commit.
+    let (_, _, html) =
+        pilot.send(get(&stale.replace("/promotion?", "?").replace("tok_stale", "tok_blocked"), Some("staff"))).await;
+    assert!(html.contains(r#"value="execute" disabled"#) && html.contains("1 observation(s) blocked"), "{html}");
+
+    // The create stage's Preview: the working set's selection with the draft choice, or the scope.
+    let (status, headers, _) = pilot.send(post(&held, "phase=preview&draft=true", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.ends_with("&selectedObservationIds=obs_1&promotionPreviewId=tok_draft&promoteAsDraft=true"), "{to}");
+    assert_eq!(last_write(&pilot, "/bulk-promote/preview")["observationIds"], json!(["obs_1"]));
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("1 observation(s) will be written as draft"), "{html}");
+    let (status, headers, _) = pilot
+        .send(post(
+            &to.replace("/catalog/integrations?", "/catalog/integrations/promotion?"),
+            "phase=execute&draft=true&confirm=true",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("jobId=job_p2"));
+    let (status, _, _) = pilot.send(post(promotion, "phase=preview", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = last_write(&pilot, "/bulk-promote/preview");
+    assert!(sent["observationIds"].is_null() && sent["scope"] == descriptor["scope"], "the scope: {sent}");
+
+    // Refused before any write: nothing checked from the review bar, more than the address carries, a phase it has not.
+    let before = promotes(&pilot);
+    let (status, _, html) = pilot.send(post(promotion, "phase=preview-checked&reason=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("no selected observation is eligible for promotion preview"), "{html}");
+    let many: String = (0..51).map(|i| format!("&observation=obs_{i}")).collect();
+    let (status, _, html) = pilot.send(post(promotion, &format!("phase=preview{many}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Check at most 50 Source Observations to preview at once."), "{html}");
+    let (status, _, _) = pilot.send(post(promotion, "phase=publish", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post_as("catalog-viewer", promotion, "phase=preview", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+    assert_eq!(promotes(&pilot), before);
+}
+
+#[tokio::test]
+async fn a_units_preview_runs_on_its_own_working_set_and_a_read_without_the_promotion_offers_none() {
+    let pilot = Pilot::new().await;
+    let unit = "phase=preview-unit&unit=tcgplayer%3Apokemon%3Acard";
+    // The unit's preview the read disables is not offered.
+    let (status, _, html) = pilot.send(post("/catalog/integrations/promotion?providerKey=tcgplayer", unit, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    // An open one previews the unit's scope with the unit's descriptor, and lands on its working set.
+    let at = "/catalog/integrations/promotion?providerKey=tcgplayer&unitPreview=open";
+    let (_, _, page) = pilot.send(get(&at.replace("/promotion?", "?"), Some("staff"))).await;
+    assert!(page.contains(r#"value="preview-unit""#) && !page.contains("Preview TCGplayer singles on admin-web"), "{page}");
+    let (status, headers, _) = pilot.send(post(at, unit, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers[header::LOCATION].to_str().unwrap(),
+        "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1\
+         &section=promotion-preview&promotionPreviewId=tok_1"
+    );
+    let sent = last_write(&pilot, "/bulk-promote/preview");
+    let descriptor = promotion_descriptor("tcgplayer:pokemon:card");
+    assert!(sent["observationIds"].is_null() && sent["confirmation"] == descriptor["confirmation"], "{sent}");
+
+    // A read that does not offer the promotion: no preview or commit, here or on admin-web, and a post is refused.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=legacy&section=promotion-preview", Some("staff"))).await;
+    assert!(!html.contains("promotion preview on admin-web") && !html.contains(r#"value="execute""#), "{html}");
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=legacy", Some("staff"))).await;
+    assert!(!html.contains("Preview on admin-web") && !html.contains(r#"value="preview-checked""#), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot
+        .send(post("/catalog/integrations/promotion?providerKey=legacy", "phase=preview-checked&observation=obs_1", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(daily_writes(&pilot).len(), before);
+}
+
+#[tokio::test]
+async fn without_javascript_a_rows_evidence_is_its_page_with_the_sheet_open() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get(&format!("{EVIDENCE}/obs_1?providerKey=tcgplayer&unitKey=pokemon"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#), "with the sheet open: {html}");
+
+    // From a scope's workspace the page is the scope's.
+    let (status, _, html) = pilot.send(get(&format!("{EVIDENCE}/obs_1?home=scp_paf"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#), "{html}");
+}
+
+fn daily_writes(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path.starts_with("/api/catalog/source-observations/"))
+        .filter(|c| !c.path.ends_with("/catalog-sync-scope/state"))
+        .cloned()
+        .collect()
+}
+
+#[tokio::test]
+async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let mut calls = integrations_calls(&pilot);
+    calls.sort();
+    assert_eq!(
+        calls,
+        [
+            "/api/catalog/source-observations/workbench-surfaces/daily/source-options?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon",
+            "/api/catalog/source-observations/workbench-surfaces/daily?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon",
+        ],
+        "the page's own address is the surface's location, and the source options'"
+    );
+    assert!(html.contains("<title>Catalog Integrations"), "{html}");
+    // The stages share a name, so one is open at a time; with rows to review, Review is.
+    assert_eq!(html.matches(r#"name="wb-stage""#).count(), 3, "{html}");
+    let review = html.find(r#"data-catalog-import-workflow-stage="review-changes""#).unwrap();
+    let open = &html[html[..review].rfind("<details").unwrap()..review];
+    assert!(open.contains(" open"), "the review stage opens: {open}");
+    let sync = html.find(r#"data-catalog-import-workflow-stage="run-sync""#).unwrap();
+    assert!(!html[html[..sync].rfind("<details").unwrap()..sync].contains(" open"), "{html}");
+    assert!(html.contains(r#"aria-current="step""#), "the kit's steps mark the open one: {html}");
+    assert!(html.contains(r#"data-catalog-daily-health-status="degraded""#), "a degraded transport: {html}");
+    assert!(!html.contains("data-catalog-daily-governance-status"), "{html}");
+
+    // Each command's form patches the page with JavaScript and posts without it.
+    assert_eq!(
+        html.matches("data-patch").count(),
+        10,
+        "the sync's, a failed unit's retry, the job's, the candidate's, its split, the review's, its Evidence, a unit's Sync and Reapply and the create stage's: {html}"
+    );
+    // The sync's form carries the working set, the scope and every unit, the eligible one checked.
+    assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
+    assert!(
+        html.contains(r#"name="units" value="tcgplayer:pokemon:card""#) && html.contains(r#"value="lorcast:pokemon:card""#),
+        "{html}"
+    );
+    let eligible = html.find(r#"name="selected" value="tcgplayer:pokemon:card""#).unwrap();
+    assert!(html[eligible..].split('>').next().unwrap().contains("checked"), "{html}");
+    let blocked = html.find(r#"name="selected" value="lorcast:pokemon:card""#).unwrap();
+    assert!(html[blocked..].split('>').next().unwrap().contains("disabled"), "an ineligible unit: {html}");
+    assert!(html.contains("No active profile.") && html.contains("TCGplayer"), "its blocker and the credit provider: {html}");
+
+    // The failed job offers what the API says it allows.
+    assert!(html.contains(r#"action="/catalog/integrations/jobs/job_1?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
+    assert!(html.contains(r#"name="command" value="retry""#) && html.contains(r#"name="command" value="cancel""#), "{html}");
+    assert!(!html.contains(r#"value="resume""#), "{html}");
+    assert!(html.contains("3/10 work units, 30% complete") && html.contains("Cache: 4 hits, 8 misses"), "{html}");
+
+    // Review: a box for the reviewable row only, the status links, the pager and the bulk actions.
+    assert!(
+        html.contains(r#"name="observation" value="obs_1""#) && !html.contains(r#"name="observation" value="obs_2""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"href="/catalog/source-observations/obs_1""#), "the pilot's observation page: {html}");
+    assert!(
+        html.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;filter.status=observed""#),
+        "a status link keeps the working set: {html}"
+    );
+    assert!(
+        html.contains(
+            r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;reviewOffset=25&amp;section=source-observation-review" rel="next""#
+        ),
+        "the API's next page: {html}"
+    );
+    assert!(!html.contains(r#"rel="prev""#), "no previous page on the first: {html}");
+    assert!(html.contains("1–25 of 30 (page 1 of 2)"), "{html}");
+    assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
+    assert!(html.contains(r#"name="reason""#), "{html}");
+    assert!(!html.contains(r#"value="promote""#), "the read offers no candidate promote here: {html}");
+    assert!(!html.contains("blocking conflicts runs on admin-web"), "no candidate has a blocking conflict: {html}");
+    assert!(html.contains("Sprigatito 001"), "the merge candidate: {html}");
+
+    let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
+    assert!(
+        section.contains(".daily-page__stage-box") && section.contains(".steps__"),
+        "the page's and the kit's rules: {section}"
+    );
+}
+
+#[tokio::test]
+async fn the_workset_draws_each_units_state_and_its_sync_and_reapply_and_opens_its_scope() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-source-scope-workset="degraded""#).expect("the workset draws");
+    let steps = html.find(r#"name="wb-stage""#).unwrap();
+    assert!(start < steps, "above the steps, as admin-web has it");
+    assert!(html[..start].contains(r#"data-catalog-import-context-bar="true""#), "below the context bar");
+    let panel = &html[start..steps];
+    assert!(panel.contains("tcgplayer / en / Scarlet &amp; Violet") && panel.contains("Degraded"), "{panel}");
+    assert!(panel.contains("<dd>4</dd>") && panel.contains("<dd>7</dd>") && panel.contains("<dd>1</dd>"), "the counts: {panel}");
+    // Each unit: who, its state and counts, its scope's working set on the pilot, and its commands' states.
+    assert!(panel.contains(r#"data-catalog-source-scope-unit="tcgplayer:pokemon:card""#), "{panel}");
+    assert!(panel.contains("9 observed · 4 changed · 7 promoted") && panel.contains("profile 3"), "{panel}");
+    assert!(
+        panel.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=tcgplayer%3Apokemon%3Acard&amp;importScope=en%3Asv1""#),
+        "the unit's scope opens on the pilot: {panel}"
+    );
+    // Sync and Reapply are the unit's own forms, posting the working set and naming the unit.
+    assert_eq!(panel.matches("<form").count(), 2, "{panel}");
+    assert!(
+        panel.contains(r#"<form method="post" action="/catalog/integrations/units?providerKey=tcgplayer&amp;unitKey=pokemon" data-patch data-catalog-primary-workbench-command="scope.import" data-state="available">"#),
+        "{panel}"
+    );
+    assert!(panel.contains(r#"<input type="hidden" name="unit" value="tcgplayer:pokemon:card">"#), "{panel}");
+    assert!(panel.contains(r#"name="command" value="import">Sync TCGplayer singles</button>"#), "{panel}");
+    assert!(panel.contains(r#"name="command" value="reapply">Reapply TCGplayer singles</button>"#), "{panel}");
+    // Preview is closed here, so it is its state, with no way to it on admin-web.
+    assert!(panel.contains(r#"data-catalog-primary-workbench-command="observation.promote" data-state="disabled""#), "{panel}");
+    assert!(!panel.contains("on admin-web</a>"), "{panel}");
+    // A unit without a key or profile says so, and why its commands are closed; with no scopes it
+    // has no form.
+    assert!(panel.contains(r#"data-catalog-source-scope-unit="lorcast""#) && panel.contains("No active unit"), "{panel}");
+    assert!(panel.contains("No active profile") && !panel.contains(r#"value="lorcast""#), "{panel}");
+
+    // A reader sees the workset without the way to run it.
+    let (_, _, html) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    let start = html.find("data-catalog-source-scope-workset=").unwrap();
+    let panel = &html[start..html.find(r#"name="wb-stage""#).unwrap()];
+    assert!(panel.contains("Open source scope") && !panel.contains("<form"), "{panel}");
+
+    // Without units nothing draws.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped", Some("staff"))).await;
+    assert!(!html.contains("data-catalog-source-scope-workset"), "{html}");
+}
+
+#[tokio::test]
+async fn the_review_stages_alias_review_is_narrowed_as_the_address_narrows_it() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon&aliasType=language-edition&reviewStatuses=rejected%2Cpending\
+              &targetKind=catalog-item&targetId=cat_1";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let want = "/api/catalog/alias-review?providerKey=tcgplayer&aliasType=language-edition&reviewStatuses=rejected%2Cpending\
+                &targetKind=catalog-item&targetId=cat_1";
+    let reads: Vec<String> = pilot
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/catalog/alias-review"))
+        .map(|c| c.path.clone())
+        .collect();
+    assert_eq!(reads, [want], "read once, with the API's route context's narrowing");
+    assert!(html.contains(r#"data-alias-review="all-scopes""#), "{html}");
+}
+
+#[tokio::test]
+async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land_on_the_working_set() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        pilot.calls.lock().unwrap().iter().any(|c| c.path == "/api/catalog/alias-review?providerKey=tcgplayer"),
+        "read for the provider the surface names, as admin-web's selectedScopeAliasReview"
+    );
+    // Folded inside the review stage, after its status links and outside the review's own form.
+    let review = html.find(r#"data-catalog-import-workflow-stage="review-changes""#).unwrap();
+    let part = html.find(r#"data-alias-review="all-scopes""#).expect("the alias review draws");
+    assert!(part > review && part > html.find("wb-review").unwrap(), "{html}");
+    assert!(html[..part].rfind("<form").is_none_or(|f| html[f..part].contains("</form>")), "not inside a form: {html}");
+    let part = &html[part..];
+    assert!(part.contains("1 pending alias candidates") || part.contains("Charizard"), "{part}");
+    assert!(part.contains(r#"action="/catalog/integrations/aliases?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{part}");
+
+    // Accept posts the alias review's command and lands on the working set, queued.
+    let (status, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.accept&alias_hashes=ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=alias-accepted"),
+        "{to}"
+    );
+    let sent = |pilot: &Pilot| -> Vec<Value> {
+        pilot
+            .catalog_writes()
+            .iter()
+            .filter(|c| c.path == "/api/catalog/alias-review/commands")
+            .map(|c| serde_json::from_str(&c.body).unwrap())
+            .collect()
+    };
+    assert_eq!(sent(&pilot), [json!({ "intent": "accept", "aliasHashes": "ah_glurak" })]);
+
+    // Auto-accept eligible keeps the eligible ones (chase-sets/chase-sets#11024); defer writes nothing.
+    let picked = "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu";
+    let (status, _, _) = pilot.send(post(&format!("/catalog/integrations/aliases?{at}"), picked, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(sent(&pilot).last().unwrap(), &json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }));
+    let (status, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias-deferred"), "{to}");
+    assert_eq!(sent(&pilot).len(), 2, "a defer writes nothing");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
+
+    // A reject without its reason sends nothing and draws the page with the form's message.
+    let (status, _, html) = pilot
+        .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.reject&alias_hashes=ah_glurak", false))
+        .await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains(r#"data-catalog-import-workflow-stage="review-changes""#), "the workbench again: {html}");
+    assert_eq!(sent(&pilot).len(), 2);
+
+    // A reader sees the review with its commands off; a review that does not read draws nothing.
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains("disabled"), "{part}");
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("queue-down"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-alias-review"), "{html}");
+}
+
+#[tokio::test]
+async fn the_import_context_draws_the_providers_units_and_scope_selects_from_the_source_options() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-import-context-bar="true""#).unwrap();
+    let bar = &html[html[..start].rfind("<details").unwrap()..];
+    let bar = &bar[..bar.find("</details>").unwrap()];
+    // A chosen scope: the bar is its one line, closed, and its form a GET of the workbench.
+    assert!(!bar[..bar.find('>').unwrap()].contains(" open"), "{bar}");
+    assert!(bar.contains("tcgplayer · tcgplayer:pokemon:card · en/sv1 — edit"), "{bar}");
+    assert!(bar.contains(r#"<form method="get" action="/catalog/integrations""#), "{bar}");
+    // The provider's units, the chosen one selected; a provider or unit change clears what hangs on it.
+    assert!(bar.contains(r#"<option value="tcgplayer" selected>TCGplayer</option>"#), "{bar}");
+    assert!(
+        bar.contains(r#"<option value="tcgplayer:pokemon:card" selected>"#)
+            && bar.contains(r#"value="tcgplayer:pokemon:sealed""#),
+        "{bar}"
+    );
+    assert!(!bar.contains(r#"value="lorcast:pokemon:card""#), "another provider's unit: {bar}");
+    assert!(bar.contains(r#"data-clears="unitKey profileVersion importScope productId"#), "{bar}");
+    // A select per mapped option kind, the expansions narrowed to the chosen language.
+    assert!(bar.contains(r#"name="languageCode""#) && bar.contains(r#"name="expansionId""#), "{bar}");
+    assert!(bar.contains(r#"data-query-kind="expansions""#), "{bar}");
+    assert!(!bar.contains(r#"data-query-kind="rarities""#), "a kind no route field takes gets no select: {bar}");
+    assert!(bar.contains(r#"<option value="sv1" selected data-parent="en">"#) && bar.contains(r#"value="sv2""#), "{bar}");
+    assert!(!bar.contains(r#"value="sv1a""#), "a Japanese set under English: {bar}");
+    assert!(
+        bar.contains(
+            r#"<input type="hidden" name="expansionName" value="Scarlet &amp; Violet" disabled data-label-for="expansionId">"#
+        ),
+        "a level's name goes only with the script: {bar}"
+    );
+    assert!(!bar.contains(r#"name="importScope""#), "guided selects replace the text box: {bar}");
+    assert!(bar.contains(r#"name="profileVersion" value="3""#), "the unit's active profile: {bar}");
+    // The source options and their controls post to the pilot with the working set.
+    assert!(
+        bar.contains(r#"data-catalog-source-options-status="ready""#) && bar.contains("5 options · 3/3 groups loaded"),
+        "{bar}"
+    );
+    let refresh = r#"action="/catalog/integrations/source-options?providerKey=tcgplayer&amp;unitKey=pokemon""#;
+    assert_eq!(bar.matches(refresh).count(), 5, "Refresh all, three Reloads and the expansions' Force refresh: {bar}");
+    assert!(bar.contains(r#"name="action" value="force-refresh-all""#), "{bar}");
+
+    // Without the populated read, the skeleton's kinds still draw the selects, with what is chosen.
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=nooptions", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<option value="sv1" selected>sv1</option>"#), "the chosen value, by itself: {html}");
+    assert!(html.contains(r#"data-catalog-source-options-status="unavailable""#), "{html}");
+}
+
+#[tokio::test]
+async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once_it_is_read() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let part = &html[html.find("<corten-live src=\"/catalog/integrations/import-preview?").expect(&html)..];
+    let part = &part[..part.find("</corten-live>").unwrap()];
+    assert!(
+        part.starts_with(r#"<corten-live src="/catalog/integrations/import-preview?providerKey=tcgplayer&amp;unitKey=pokemon">"#),
+        "{part}"
+    );
+    assert!(part.contains("Loading import preflight"), "{part}");
+    // Where no stream will bring it, the link to the page's own address with the preflight read in.
+    assert!(
+        part.contains(
+            r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;preflight=true" rel="nofollow">Read the import preflight</a>"#
+        ) && !part.contains("<noscript>"),
+        "{part}"
+    );
+    assert!(pilot.calls_to(preflight).is_empty(), "the page does not wait for the provider's plan");
+
+    // The fragment: the preflight the API planned and summarized, for the same location.
+    let events = pilot.events(&format!("/catalog/integrations/import-preview?{at}"), "staff", 2).await;
+    let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "end"], "one fragment, then the stream ends: {events:?}");
+    let fragment = &events[0].1;
+    for text in [
+        r#"data-catalog-import-preview="ready""#,
+        r#"data-catalog-import-preview-unit="tcgplayer:pokemon:card""#,
+        r#"data-catalog-import-preview-scope="en:sv1""#,
+        r#"data-catalog-import-preview-strategy="bulk-first""#,
+        "2 target(s)",
+        "Bulk first strategy",
+        "Checked usage check",
+        "<dd>150</dd>",
+        "<dd>catalog-page / price-page</dd>",
+        "<dd>Prices lag by an hour.</dd>",
+        "<dd>plan-cards, plan-prices</dd>",
+    ] {
+        assert!(fragment.contains(text), "{text}: {fragment}");
+    }
+    assert_eq!(
+        pilot.calls_to(preflight).last().map(|c| c.path.clone()).unwrap_or_default(),
+        format!("{preflight}?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon")
+    );
+
+    // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
+    let events = pilot.events("/catalog/integrations/import-preview?providerKey=slow", "staff", 1).await;
+    assert!(
+        events[0].1.contains(r#"data-catalog-deferred-panel="unavailable""#) && events[0].1.contains("Import preflight"),
+        "{events:?}"
+    );
+    for at in ["providerKey=nopreview", "providerKey=broken"] {
+        let events = pilot.events(&format!("/catalog/integrations/import-preview?{at}"), "staff", 1).await;
+        assert!(!events[0].1.contains("Import preflight") && !events[0].1.contains("Loading"), "{at}: {events:?}");
+    }
+}
+
+#[tokio::test]
+async fn without_javascript_the_import_preflights_link_is_the_page_with_the_preflight_read_in() {
+    let pilot = Pilot::new().await;
+    let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}&preflight=true"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
+    assert!(
+        html.contains(r#"data-catalog-import-preview="ready""#) && html.contains("2 target(s)") && html.contains("<dd>150</dd>"),
+        "the preflight, drawn in the page: {html}"
+    );
+    assert!(!html.contains("/catalog/integrations/import-preview?") && !html.contains("Loading import preflight"), "{html}");
+    assert_eq!(
+        pilot.calls_to(preflight).last().map(|c| c.path.clone()).unwrap_or_default(),
+        format!("{preflight}?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon")
+    );
+
+    // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=slow&preflight=true", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-deferred-panel="unavailable""#) && html.contains("Import preflight"), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=nopreview&preflight=true", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-catalog-import-preview=") && !html.contains("Loading import preflight"), "{html}");
+
+    // A command's forms do not carry the key: the working set is the page's, without it.
+    const PREFLIGHT_KEY: &str = "preflight=";
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&preflight=true", Some("staff"))).await;
+    let actions: Vec<&str> = html.split("action=\"").skip(1).filter_map(|rest| rest.split('"').next()).collect();
+    assert!(!actions.is_empty() && actions.iter().all(|action| !action.contains(PREFLIGHT_KEY)), "{actions:?}");
+
+    // A scope's page reads it in for its own address, its link the scope's page.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?languageCode=ja", Some("staff"))).await;
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf?languageCode=ja&amp;preflight=true" rel="nofollow""#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?preflight=true", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
+    assert!(html.contains(r#"data-catalog-import-preview="ready""#), "{html}");
+    assert!(
+        pilot.calls_to(preflight).last().is_some_and(|c| c.path.ends_with("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
+        "the scope's location: {:?}",
+        pilot.calls_to(preflight).last()
+    );
+}
+
+#[tokio::test]
+async fn every_page_has_one_toaster_the_layouts_or_the_catalog_pages_own() {
+    let pilot = Pilot::new().await;
+    // The layout's, outside <main>, where a page draws none of its own.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(html.matches(r#"id="ui-toast""#).count(), 1, "{html}");
+    let after = html.split_once("</main>").map_or("", |(_, after)| after);
+    assert!(
+        after.contains("That did not go through, and may not have been saved. Check and try again."),
+        "the failed text: {after}"
+    );
+    // A catalog page with its own toaster (what the write before did) gets no second one.
+    let (_, _, html) = pilot.send(get("/catalog/blueprints?has_components=true", Some("staff"))).await;
+    assert_eq!(html.matches(r#"id="ui-toast""#).count(), 1, "{html}");
+    let (main, after) = html.split_once("</main>").unwrap();
+    assert!(main.contains(r#"id="ui-toast""#) && !after.contains(r#"id="ui-toast""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_source_options_control_reads_them_with_its_intent_and_lands_without_it() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/source-options?{at}"), "action=force-refresh&queryKind=expansions", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], format!("/catalog/integrations?{at}").as_str(), "no intent to send again on reload");
+    let sent: Vec<String> =
+        pilot.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).filter(|path| path != "/api/auth/session").collect();
+    assert_eq!(
+        sent,
+        [
+            "/api/catalog/source-observations/workbench-surfaces/daily/source-options?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon%26sourceOptionAction%3Dforce-refresh%26sourceOptionQueryKind%3Dexpansions"
+        ]
+    );
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, _) = pilot
+        .send(post(&format!("/catalog/integrations/source-options?{at}"), "action=force-refresh-all&queryKind=expansions", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = pilot.calls.lock().unwrap()[before..]
+        .iter()
+        .map(|c| c.path.clone())
+        .find(|path| path.contains("/source-options?"))
+        .unwrap_or_default();
+    assert!(sent.ends_with("sourceOptionAction%3Dforce-refresh-all"), "refresh-all names no kind: {sent}");
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(post(&format!("/catalog/integrations/source-options?{at}"), "action=fetch", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(
+        pilot.calls.lock().unwrap()[before..].iter().all(|c| !c.path.contains("sourceOptionAction")),
+        "no read with an intent is sent"
+    );
+}
+
+#[tokio::test]
+async fn a_reader_sees_the_workbench_without_its_commands_and_a_stop_is_said() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"name="observation""#) && !html.contains(r#"name="command""#), "{html}");
+    let start = html.find(r#"data-catalog-primary-workbench-command="scope.sync""#).unwrap();
+    let form = &html[start..start + html[start..].find("</form>").unwrap()];
+    assert!(form.contains("disabled"), "Start is not the reader's: {form}");
+
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped&section=import-jobs", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-daily-governance-status="stopped""#), "{html}");
+    assert!(html.contains(r#"href="/catalog/integrations/settings?providerKey=stopped&amp;section=import-jobs""#), "{html}");
+    let sync = html.find(r#"data-catalog-import-workflow-stage="run-sync""#).unwrap();
+    assert!(html[html[..sync].rfind("<details").unwrap()..sync].contains(" open"), "the route's section: {html}");
+    assert!(html.contains(">Kill switch active<"), "the flow's blocker: {html}");
+
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/integrations/review", "action=defer&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage, as the API asks");
+    assert!(daily_writes(&pilot).is_empty());
+}
+
+#[tokio::test]
+async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let body = "productDomain=pokemon&productForm=card&languageCode=en&referenceKind=expansion&scopeRecordId=sr_sv1\
+        &units=tcgplayer%3Apokemon%3Acard&units=lorcast%3Apokemon%3Acard&selected=tcgplayer%3Apokemon%3Acard";
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/catalog-sync?{at}"), body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(
+        landed.starts_with(&format!("/catalog/integrations?{at}&jobId=run_1&done=queued&after_write=")),
+        "the run it queued: {landed}"
+    );
+    let sent: Value = serde_json::from_str(&daily_writes(&pilot)[0].body).unwrap();
+    assert_eq!(daily_writes(&pilot)[0].path, "/api/catalog/source-observations/catalog-sync-scope/runs");
+    let scope = &sent["scope"];
+    assert_eq!(scope["scopeVersion"], "catalog-sync-scope-v2");
+    assert_eq!(scope["providerParticipation"]["selectedUnitKeys"], json!(["tcgplayer:pokemon:card"]));
+    assert_eq!(scope["providerParticipation"]["excludedUnitKeys"], json!(["lorcast:pokemon:card"]));
+    assert_eq!(scope["reference"], json!({ "kind": "expansion", "scopeRecordId": "sr_sv1" }));
+
+    // The page it lands on says so, and reads after the write.
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(get(&landed, Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#), "the outcome: {html}");
+    let read =
+        pilot.calls.lock().unwrap()[before..].iter().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the receipt it carried: {:?}", read.headers);
+    assert!(
+        read.path.ends_with("%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon%26jobId%3Drun_1"),
+        "{}",
+        read.path
+    );
+
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/jobs/job_1?{at}"), "command=retry", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let (_, headers, _) = pilot.send(post(&format!("/catalog/integrations/jobs/job_1?{at}"), "command=cancel", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=cancelled"));
+    let (_, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/review?{at}"), "action=defer&observation=obs_1", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let (_, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/review?{at}"), "action=reject&observation=obs_1&reason=Duplicate", false))
+        .await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/api/catalog/source-observations/catalog-sync-scope/runs",
+            "/api/catalog/source-observations/integration-jobs/job_1/retry",
+            "/api/catalog/source-observations/integration-jobs/job_1/cancel",
+            "/api/catalog/source-observations/bulk-defer/jobs",
+            "/api/catalog/source-observations/bulk-reject/jobs",
+        ]
+    );
+    let defer: Value = serde_json::from_str(&writes[3].body).unwrap();
+    assert_eq!(
+        defer,
+        json!({ "observationIds": ["obs_1"], "reason": "Deferred from the primary workbench; observation remains in review." })
+    );
+    let reject: Value = serde_json::from_str(&writes[4].body).unwrap();
+    assert_eq!(reject, json!({ "observationIds": ["obs_1"], "reason": "Duplicate" }));
+}
+
+#[tokio::test]
+async fn the_sync_draws_the_run_the_address_names_and_the_scopes_state_with_retry_for_a_failed_unit() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&jobId=run_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // The run: its counts, and a child per provider unit, one with no child job.
+    assert!(html.contains(r#"data-catalog-sync-run-id="run_1""#) && html.contains("Parent sync run run_1"), "{html}");
+    assert!(html.contains(r#"data-catalog-sync-run-child="lorcast:pokemon:card""#) && html.contains("No child job"), "{html}");
+    assert!(html.contains("Child enqueue failed") && html.contains("1/2"), "{html}");
+    // The scope's state, read with the scope the surface names; Retry provider only for the failed unit.
+    let state = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/catalog-sync-scope/state")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&state.body).unwrap();
+    assert_eq!(sent["scope"]["reference"]["scopeRecordId"], "sr_sv1");
+    assert!(html.contains(r#"data-catalog-scope-sync-state-value="settled""#) && html.contains("Never completed"), "{html}");
+    assert!(html.contains(r#"data-catalog-scope-sync-state-retry-unit="lorcast:pokemon:card""#), "{html}");
+    assert!(!html.contains(r#"data-catalog-scope-sync-state-retry-unit="tcgplayer:pokemon:card""#), "{html}");
+    let (status, headers, _) =
+        pilot.send(post("/catalog/integrations/jobs/job_7?providerKey=tcgplayer&jobId=run_1", "command=retry", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("jobId=run_1"), "back on the run");
+    assert_eq!(daily_writes(&pilot).last().unwrap().path, "/api/catalog/source-observations/integration-jobs/job_7/retry");
+
+    // A reader sees the state without Retry provider; with no jobId there is no run.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("catalog-reader"))).await;
+    assert!(!html.contains("data-catalog-sync-run-id"), "{html}");
+    assert!(html.contains("data-catalog-scope-sync-state-row"), "{html}");
+    assert!(!html.contains("data-catalog-scope-sync-state-retry-unit"), "{html}");
+    // A jobId that names no run (an import job's) draws none, and the page still answers.
+    let (status, _, html) = pilot.send(get("/catalog/integrations?jobId=job_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-catalog-sync-run-id"), "{html}");
+}
+#[tokio::test]
+async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-primary-workbench-command="candidate""#).unwrap();
+    let form = &html[html[..start].rfind("<form").unwrap()..start + html[start..].find("</form>").unwrap()];
+    assert!(
+        form.contains(r#"action="/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&amp;unitKey=pokemon""#),
+        "{form}"
+    );
+    assert!(form.contains("data-patch"), "{form}");
+    let ignore = form.find(r#"value="ignore""#).unwrap();
+    assert!(!form[form[..ignore].rfind("<button").unwrap()..].split('>').next().unwrap().contains("disabled"), "{form}");
+    assert!(form.contains(r#"aria-label="Ignore: Sprigatito 001""#), "{form}");
+    let defer = form.find(r#"value="defer""#).unwrap();
+    assert!(
+        form[form[..defer].rfind("<button").unwrap()..].split('>').next().unwrap().contains("disabled"),
+        "a blocked defer: {form}"
+    );
+    assert!(!form.contains(r#"value="promote""#), "the read offers no candidate promote here: {form}");
+
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"data-catalog-primary-workbench-command="candidate""#), "not the reader's: {html}");
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/integrations/candidates/cand_1", "command=ignore", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), "command=ignore", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with(&format!("/catalog/integrations?{at}&done=queued")));
+    let (_, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), "command=defer", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/ignore",
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/defer",
+        ]
+    );
+    let sent: Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert_eq!(sent, json!({ "reason": "Ignore from the scope-first Catalog sync workbench." }));
+    let sent: Value = serde_json::from_str(&writes[1].body).unwrap();
+    assert_eq!(sent, json!({ "reason": "Defer from the scope-first Catalog sync workbench." }));
+
+    let (status, _, html) = pilot.send(post("/catalog/integrations/candidates/cand_gone", "command=ignore", false)).await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains("That merge candidate no longer exists."), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=promote", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+    assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_candidates_evidence_is_its_detail_sheet_from_the_row_the_read_gave() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    for text in [
+        "Candidate detail: Sprigatito 001",
+        "<dd>cand_1</dd>",
+        "<dd>Create catalog item</dd>",
+        "<dd>not selected</dd>",
+        "<dd>prd_1</dd>",
+        "tcgplayer obs_1 catalogItem.name: Sprigatito",
+        "catalogItem.name: tcgplayer sv-2026 Exact",
+        "tcgplayer:111",
+        "name: Sprigatito",
+        "Rarity differs between sources.",
+        "Split: catalog-merge-candidate-split from 2 source(s), 0 Product reference(s)",
+    ] {
+        assert!(sheet.contains(text), "{text}: {sheet}");
+    }
+    assert!(!sheet.contains("data-catalog-merge-candidate-conflicts"), "no blocking conflict to resolve: {sheet}");
+    // Its trigger opens it without a read of its own, for a viewer who cannot manage too.
+    assert!(
+        html.contains(r#"command="show-modal" commandfor="#) && html.contains(r#"aria-label="Evidence: Sprigatito 001""#),
+        "{html}"
+    );
+    // A candidate with a blocking conflict: its sheet resolves it, the catalog's value chosen until
+    // the operator picks the source's, and the row offers no plain promote.
+    let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    let form = &sheet[sheet.find("data-catalog-merge-candidate-conflict-resolution-form").expect(sheet)..];
+    assert!(
+        sheet.contains(r#"<form method="post" action="/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&amp;unitKey=pokemon&amp;candidateConflicts=blocking" class="#),
+        "{sheet}"
+    );
+    for text in [
+        r#"name="version" value="4""#,
+        r#"data-catalog-conflict-code="rarity-mismatch""#,
+        "Rarity differs between sources.",
+        "Keep the catalog value: Ultra Rare",
+        "Use the proposed source value: Double Rare",
+        r#"name="conflict[rarity-mismatch].field" value="catalogItem.rarity""#,
+        r#"name="conflict[rarity-mismatch].observation" value="obs_2""#,
+        r#"name="conflict[rarity-mismatch].reason""#,
+        "Resolve &amp; promote",
+    ] {
+        assert!(form.contains(text), "{text}: {form}");
+    }
+    let keep = &form[form.find(r#"name="conflict[rarity-mismatch].value""#).expect(form)..];
+    let keep = &keep[..keep.find('>').unwrap()];
+    assert!(keep.contains("Ultra Rare") && keep.contains("checked"), "the catalog's value is chosen first: {keep}");
+    assert!(!html.contains("runs on admin-web"), "{html}");
+    assert!(!html.contains(r#"data-catalog-primary-workbench-command="candidate-promote""#), "{html}");
+    // A reader sees the conflict, not the form.
+    let (_, _, viewer) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    assert!(viewer.contains(r#"data-catalog-merge-candidate-conflicts="cand_1""#), "{viewer}");
+    assert!(!viewer.contains("conflict-resolution-form"), "{viewer}");
+    // While a stale projection blocks the promote too, the sheet names it instead of offering the form.
+    let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=stale";
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-conflicts="cand_1""#).expect(&html)..];
+    assert!(sheet.contains("Other blockers remain") && !sheet.contains("conflict-resolution-form"), "{sheet}");
+
+    let (_, _, viewer) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    assert!(viewer.contains(r#"data-catalog-merge-candidate-detail="cand_1""#), "{viewer}");
+}
+
+#[tokio::test]
+async fn a_candidates_blocking_conflicts_resolve_with_its_promote_and_the_api_gets_each_choice() {
+    let pilot = Pilot::new().await;
+    let post_to = "/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
+    let row = "conflict%5Brarity-mismatch%5D";
+    let body = format!(
+        "command=promote&version=4&reason=Checked+against+the+set+list\
+         &{row}.field=catalogItem.rarity&{row}.observation=obs_1&{row}.observation=obs_2\
+         &{row}.value=%22Double+Rare%22&{row}.reason=The+set+list+says+Double+Rare"
+    );
+    let (status, headers, html) = pilot.send(post(post_to, &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    assert_eq!(
+        last_write(&pilot, "/admin/merge-candidates/cand_1/promote"),
+        json!({ "reason": "Checked against the set list", "expectedVersion": 4, "conflictResolutions": [{
+            "conflictCode": "rarity-mismatch", "fieldPath": "catalogItem.rarity", "chosenValue": "Double Rare",
+            "reason": "The set list says Double Rare", "observationIds": ["obs_1", "obs_2"] }] })
+    );
+    // A resolution without its reason, a value that is not the JSON the read gave, or a promote
+    // without its own reason writes nothing and says what the form needs.
+    let before = daily_writes(&pilot).len();
+    for refused in [
+        body.replace("The+set+list+says+Double+Rare", "+"),
+        body.replace("%22Double+Rare%22", "Double+Rare"),
+        body.replace("Checked+against+the+set+list", ""),
+    ] {
+        let (status, _, html) = pilot.send(post(post_to, &refused, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+        assert!(html.contains("cannot promote until every blocking conflict below has a chosen value and a reason"), "{html}");
+    }
+    assert_eq!(daily_writes(&pilot).len(), before);
+}
+
+#[tokio::test]
+async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_moved_one_says_so() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let split = &html[html.find(r#"data-catalog-primary-workbench-command="candidate-split""#).expect(&html)..];
+    let split = &split[..split.find("</form>").unwrap()];
+    assert!(split.contains(r#"name="version" value="4""#) && split.contains(r#"name="split" value="obs_2""#), "{split}");
+    assert!(split.contains(r#"aria-label="Split: Sprigatito 001""#), "{split}");
+    let edit = &html[html.find(r#"data-catalog-merge-candidate-edit-form="true""#).expect(&html)..];
+    let edit = &edit[..edit.find("</form>").unwrap()];
+    assert!(edit.contains(r#"name="command" value="update""#) && edit.contains(r#"name="version" value="4""#), "{edit}");
+    assert!(edit.contains(r#"value="create-catalog-item" checked"#), "the intent it has is chosen: {edit}");
+    assert!(edit.contains(r#"name="product_ids" value="prd_1""#), "{edit}");
+    assert!(
+        edit.contains(r#"name="fact_value" value="Sprigatito""#) && edit.contains(r#"name="fact_shown" value="Common""#),
+        "{edit}"
+    );
+    assert!(edit.contains("Remove tcgplayer:111") && edit.contains(r#"name="drop_catalog_ref" value="0""#), "{edit}");
+    assert!(!edit.contains("data-patch"), "a refusal is the page again, not behind the dialog: {edit}");
+    assert!(html.contains(r#"command="show-modal""#), "Edit opens its dialog with no script: {html}");
+
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        !html.contains(r#"data-catalog-primary-workbench-command="candidate-split""#) && !html.contains("candidate-edit-form"),
+        "not the reader's: {html}"
+    );
+
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/integrations/candidates/cand_1?{at}"),
+            "command=split&version=4&split=obs_2&reason=Split+from+the+scope-first+Catalog+sync+workbench.",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let edit = "command=update&version=4&intent=update-catalog-item&catalog_item_id=+cat_9+&product_ids=prd_1%2C+prd_2\
+        &fact_key=name&fact_value=Sprigatito&fact_shown=Sprigatito&fact_key=rarity&fact_value=Rare&fact_shown=Common\
+        &drop_catalog_ref=0&reason=Wrong+rarity";
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), edit, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/split",
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/update",
+        ]
+    );
+    let sent: Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "reason": "Split from the scope-first Catalog sync workbench.", "expectedVersion": 4, "splitObservationIds": ["obs_2"] })
+    );
+    let sent: Value = serde_json::from_str(&writes[1].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "reason": "Wrong rarity", "expectedVersion": 4, "edit": {
+            "promotionIntent": "update-catalog-item", "catalogItemId": "cat_9", "productIds": ["prd_1", "prd_2"],
+            "factOverrides": [{ "key": "rarity", "value": "Rare" }],
+            "droppedExternalCatalogItemReferenceIndexes": [0], "droppedExternalProductReferenceIndexes": [] } }),
+        "only the fact the operator changed is an override"
+    );
+
+    let stale = "command=update&version=3&reason=Wrong+rarity";
+    let (status, _, html) = pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), stale, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The merge candidate changed after this page loaded it, so nothing was saved."), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=split&split=obs_2", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a split without the version it read");
+    assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_units_sync_and_reapply_post_the_scopes_the_api_built_and_land_on_its_working_set() {
+    let pilot = Pilot::new().await;
+    let at = "/catalog/integrations/units?providerKey=tcgplayer&unitKey=pokemon";
+    let (status, headers, _) = pilot.send(post(at, "unit=tcgplayer%3Apokemon%3Acard&command=import", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(
+        landed.starts_with(
+            "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1&jobId=job_9&done=queued&after_write="
+        ),
+        "the unit's working set, with the job it queued: {landed}"
+    );
+    let (status, headers, _) = pilot.send(post(at, "unit=tcgplayer%3Apokemon%3Acard&command=reapply", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("&jobId=job_10&done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, ["/api/catalog/source-observations/integration-jobs", "/api/catalog/source-observations/reapply"]);
+    let import: Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert_eq!(
+        import,
+        json!({ "action": "import", "scope": { "provider": "tcgplayer", "ingestionUnitKey": "tcgplayer:pokemon:card", "language": "en", "setId": "sv1" } }),
+        "the read model's import scope, as it is"
+    );
+    let reapply: Value = serde_json::from_str(&writes[1].body).unwrap();
+    assert_eq!(
+        reapply,
+        json!({ "scope": { "provider": "tcgplayer", "language": "en", "setId": "sv1", "ingestionUnitKey": "tcgplayer:pokemon:card" } })
+    );
+    // The scope comes from the surface read for the page's working set, not from the form.
+    let reads = pilot.calls.lock().unwrap().iter().filter(|c| c.path.contains("/workbench-surfaces/daily?location=")).count();
+    assert_eq!(reads, 2, "one read per command");
+
+    // A unit without scopes, an unknown unit and a command the row does not offer reach nothing.
+    for body in ["unit=lorcast&command=import", "unit=nobody&command=reapply", "unit=tcgplayer%3Apokemon%3Acard&command=promote"]
+    {
+        let (status, _, html) = pilot.send(post(at, body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {html}");
+    }
+    assert_eq!(daily_writes(&pilot).len(), 2, "none of them reaches the API");
+}
+
+#[tokio::test]
+async fn a_refused_command_is_the_page_again_with_the_apis_reason() {
+    let pilot = Pilot::new().await;
+    let at = "/catalog/integrations/review?providerKey=tcgplayer";
+    let (status, _, html) = pilot.send(post(at, "action=reject&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A reason is required to reject observations.") && html.contains(r#"name="wb-stage""#), "{html}");
+    let (status, _, patch) = pilot.send(post(at, "action=reject&observation=obs_1", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(
+        patch.contains("A reason is required to reject observations.") && !patch.contains("wb-stage"),
+        "only the notice: {patch}"
+    );
+    assert_eq!(html.matches("A reason is required to reject observations.").count(), 1, "the refusal is said once: {html}");
+    assert!(
+        html.contains(r#"<div class="alert__alert alert__destructive alert__outline" role="alert"><p>A reason is required to reject observations.</p></div>"#),
+        "in the kit's alert, its one live region: {html}"
+    );
+
+    let (status, _, html) = pilot.send(post("/catalog/integrations/catalog-sync?providerKey=tcgplayer", "units=a", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Select at least one provider unit to sync."), "{html}");
+    let (status, _, html) =
+        pilot.send(post("/catalog/integrations/jobs/job_gone?providerKey=tcgplayer", "command=retry", false)).await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains("That import job no longer exists."), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/integrations/jobs/job_1", "command=promote", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+    let (status, _, _) = pilot.send(post("/catalog/integrations/review", "action=promote&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(daily_writes(&pilot).len(), before, "neither reaches the API");
+}
+
 #[tokio::test]
 async fn provider_connections_need_a_platform_admin_and_show_each_connections_freshness() {
     let pilot = Pilot::new().await;
@@ -6827,10 +11133,7 @@ async fn provider_connections_need_a_platform_admin_and_show_each_connections_fr
     assert!(html.contains(">Aging<") && html.contains("(2 min ago)") && !html.contains(">Fresh<"), "the API's: {html}");
     assert!(html.contains(">Stale<") && html.contains("(3 min ago)"), "{html}");
     assert!(html.contains("Seller account acc_9") && html.contains(">Expired<") && html.contains(">Paused<"), "{html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/providers/lorcast""#) && !html.contains("/account/channels/chc_1"),
-        "{html}"
-    );
+    assert!(html.contains(r#"href="/catalog/providers/lorcast""#) && !html.contains("/account/channels/chc_1"), "{html}");
     assert!(html.contains("Read-only; no operator action"), "{html}");
 }
 
@@ -6844,10 +11147,10 @@ async fn the_nav_links_every_page_the_pilot_serves_to_the_pilot() {
     for path in ["/growth/waitlist", "/growth/promo-bar"] {
         assert!(html.contains(&format!(r#"href="{path}""#)), "{path}: {html}");
     }
-    assert!(html.contains(r#"href="/growth/campaign-analytics" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/growth/campaign-analytics"), "{html}");
     let (status, _, html) = pilot.send(get("/platform/insights/offer-economics", Some("insights-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"href="/platform/insights/offer-economics" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/platform/insights/offer-economics"), "{html}");
     assert!(!html.contains("localhost:7752/platform/insights/offer-economics"), "{html}");
 }
 
@@ -6942,7 +11245,12 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let (_, _, html) = pilot.send(get(page, Some(session))).await;
     assert!(html.contains("Scheduled for Dec 1, 2026, 12:00 AM"), "in Chicago: {html}");
     assert!(html.contains("&quot;maximumDays&quot;: 14"), "the value, indented, to edit: {html}");
-    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#)
+            && html.contains("<small>America/Chicago</small>"),
+        "the form sends its zone back and names it: {html}"
+    );
+    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     for script in [false, true] {
         let (status, _, body) = pilot.send(post_as(session, page, revise, script)).await;
         let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
@@ -6963,10 +11271,22 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
     assert_eq!(calls, 2, "nothing sent for JSON that does not read");
 
-    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let unzoned = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let (status, _, html) = pilot.send(post_as(session, page, unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
+    let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
+    assert_eq!(calls, 2, "nothing sent without the zone");
+
+    // Read in the zone the form was drawn in, and drawn again in it.
+    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00&zone=Asia%2FTokyo";
     let (status, _, html) = pilot.send(post_as(session, page, negative, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("maximumDays must be at least 0.") && html.contains(r#"value="2026-12-01T00:00""#), "{html}");
+    assert!(html.contains(r#"name="zone" value="Asia/Tokyo""#), "drawn again in the posted zone: {html}");
+    let sent = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions");
+    let body: Value = serde_json::from_str(&sent.last().unwrap().body).unwrap();
+    assert_eq!(body["effectiveFrom"], json!("2026-11-30T15:00:00Z"), "midnight in Tokyo");
 }
 
 /// Marketplace's Listing Evidence Policy: the compiled fallback in effect, an active, a draft and a
@@ -7112,9 +11432,12 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
     assert!(html.contains("4 listings would receive changed requirements."), "{html}");
     assert!(html.contains("Added: rule-2") && html.contains("Removed: a"), "{html}");
     assert!(html.contains(r#"name="policyId" value="lep_3""#) && html.contains(r#"value="impact_1""#), "{html}");
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
+        "the Activate form sends its zone back and names it: {html}"
+    );
 
-    let activate =
-        "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    let activate = "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago";
     let (status, _, html) = pilot.send(post_as(session, page, activate, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Review and acknowledge the current Policy Impact Preview."), "{html}");
@@ -7122,6 +11445,10 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
         pilot.send(post_as(session, page, "intent=activate&policyId=lep_3&impactAcknowledged=yes&effectiveFrom=", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Choose a valid effective time before activation."), "{html}");
+    let unzoned = activate.replace("&zone=America%2FChicago", "&impactAcknowledged=yes");
+    let (status, _, html) = pilot.send(post_as(session, page, &unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("did not say which time zone"), "times without the form's zone: {html}");
     assert!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts/lep_3/activate").is_empty());
 
     let (status, headers, _) = pilot.send(post_as(session, page, &format!("{activate}&impactAcknowledged=yes"), false)).await;
@@ -7179,7 +11506,7 @@ async fn the_ops_dashboard_reads_the_range_asked_and_draws_the_trend() {
         pilot.send(get("/platform/insights/ops-dashboard?rangeDays=7&granularity=weekly", Some("insights-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls = pilot.calls_to_path("/api/platform/insights/ops/");
-    let today = jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC).date();
+    let today = jiff::Timestamp::now().to_zoned_datetime(jiff::tz::TimeZone::UTC).date();
     let from = today.checked_sub(jiff::ToSpan::days(6)).unwrap();
     assert!(calls.iter().any(|c| c.path == format!("/api/platform/insights/ops/summary?from={from}&to={today}")), "{calls:?}");
     assert!(
@@ -7318,9 +11645,12 @@ fn wallet_api(method: &Method, rest: &str, cookie: &str, body: &str) -> Response
         )
             .into_response(),
         (Method::POST, "") => (StatusCode::CREATED, receipt(), Json(wallet_adjustment("wad_new", "requested", "usr_1", true))).into_response(),
-        (Method::POST, "/wad_req/approve") if sent.get("elevationApprovedByUserId").is_none() => {
-            refusal(StatusCode::CONFLICT, "conflict", "This Wallet Adjustment requires a second, elevated approval.")
-        }
+        (Method::POST, "/wad_req/approve") if sent.get("elevationApprovedByUserId").is_none() => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": { "code": "conflict", "message": "This Wallet Adjustment requires a second, elevated approval.",
+                "details": [{ "code": "elevated_approval_required", "message": "This Wallet Adjustment requires a second, elevated approval." }] } })),
+        )
+            .into_response(),
         (Method::POST, "/wad_req/approve") => (receipt(), Json(wallet_adjustment("wad_req", "posted", "usr_2", true))).into_response(),
         (Method::POST, "/wad_req/reject") => (receipt(), Json(wallet_adjustment("wad_req", "rejected", "usr_2", true))).into_response(),
         (Method::POST, "/wad_post/reverse") => {
@@ -7458,7 +11788,10 @@ async fn a_preview_offers_confirm_and_submit_with_its_balance_revision_and_a_req
     let (status, _, html) = pilot.send(post_as("wallet-stepup", WALLET_PAGE, request, false)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
     assert!(html.contains("Reauthentication required") && html.contains("Sign in again in a new tab"), "{html}");
-    assert!(html.contains(r#"target="_blank""#) && html.contains("returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1"), "{html}");
+    assert!(
+        html.contains(r#"href="/access/sign-in?returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1" target="_blank""#),
+        "the pilot's own sign-in, whose session the command needs: {html}"
+    );
 }
 
 #[tokio::test]
@@ -7524,6 +11857,7 @@ async fn the_site_files_are_admin_webs() {
     assert_eq!(manifest["name"], "Chase Sets Admin");
     assert_eq!(manifest["short_name"], "CS Admin");
     assert_eq!(manifest["theme_color"], "#0f766e");
+    assert_eq!((&manifest["orientation"], &manifest["categories"]), (&json!("any"), &json!(["business", "productivity"])));
     assert!(manifest["description"].as_str().unwrap().starts_with("Manage Chase Sets catalog"));
     let icons = manifest["icons"].as_array().unwrap();
     assert_eq!(icons.len(), 4);
@@ -7561,4 +11895,148 @@ async fn the_offline_page_is_the_same_for_everyone() {
         assert!(!page.contains("<nav"), "{page}");
         assert_eq!(pilot.calls.lock().unwrap().len(), before);
     }
+}
+
+#[tokio::test]
+async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored_profile() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Profile foundation") && !html.contains("Profile sections are edited on admin-web."), "{html}");
+    let section = |key: &str| {
+        let at = html.find(&format!(r#"data-catalog-profile-section-workspace="{key}""#)).unwrap();
+        html[at..at + html[at..].find("</details>").unwrap()].to_owned()
+    };
+    let basics = section("basics");
+    assert!(basics.contains(r#"action="/catalog/providers/tcgplayer/sections/basics?profileVersion=2026.07.13""#), "{basics}");
+    assert!(basics.contains(r#"name="profileVersion" value="2026.07.13""#), "{basics}");
+    assert!(basics.contains(r#"name="displayName" value="TCGplayer Pokemon Cards" required"#), "{basics}");
+    assert!(basics.contains(r#"<option value="active" selected>Active</option>"#), "{basics}");
+    // A field the API disables is disabled, so it is not sent and its stored value stays.
+    let tags = &basics[basics.find(r#"name="capabilities""#).unwrap()..];
+    assert!(tags[..tags.find('>').unwrap()].contains("disabled"), "{basics}");
+    assert!(basics.contains("Comma-separated."), "{basics}");
+    let save = &basics[basics.find(r#"type="submit""#).unwrap()..];
+    assert!(!save[..save.find('>').unwrap()].contains("disabled"), "{basics}");
+    // A section the API will not take has every control and its save disabled, and says why.
+    let fixtures = section("fixtures");
+    assert!(fixtures.contains("The stale flow has no fixture.") && fixtures.contains("fixtures.coveredFlows"), "{fixtures}");
+    assert!(fixtures.contains(r#"type="checkbox" name="liveProviderCallsAllowed" value="true" disabled"#), "{fixtures}");
+    let save = &fixtures[fixtures.find(r#"type="submit""#).unwrap()..];
+    assert!(save[..save.find('>').unwrap()].contains("disabled"), "{fixtures}");
+
+    // A save reads the version's authoring model and sends the posted fields over the stored ones.
+    let at = "profileVersion=2026.07.13";
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
+            "profileVersion=2026.07.13&displayName=+Pokemon+Singles+&status=planned",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(landed.starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved&after_write=")), "{landed}");
+    let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/basics")).cloned().unwrap();
+    assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "command": { "section": "basics", "displayName": "Pokemon Singles", "status": "planned",
+            "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } })
+    );
+    let (status, _, html) =
+        pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Profile section saved"), "{html}");
+
+    // The API's refusal is the page's notice, patched in place.
+    let (status, _, patch) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
+            "profileVersion=2026.07.13&displayName=Stale",
+            true,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(patch.contains("has changed; reload before saving."), "{patch}");
+
+    // A section the command does not take, or no version, sends nothing; a reader may not save.
+    let before = provider_writes(&pilot).len();
+    let (status, _, _) =
+        pilot.send(post("/catalog/providers/tcgplayer/sections/operator-session", "profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post("/catalog/providers/tcgplayer/sections/basics", "profileVersion=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot
+        .send(post_as("catalog-reader", "/catalog/providers/tcgplayer/sections/basics", "profileVersion=2026.07.13", false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(provider_writes(&pilot).len(), before);
+}
+
+#[tokio::test]
+async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnects_behind_its_box() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let panel = &html[html.find(r#"data-catalog-operator-session-panel="true""#).unwrap()..];
+    let panel = &panel[..panel.find("</section>").unwrap()];
+    assert!(panel.contains("Extension grant") && panel.contains("Active") && panel.contains("Revision"), "{panel}");
+    assert!(!panel.contains("Stored at") && !panel.contains("Browser expiry"), "custody instants are never drawn: {panel}");
+    assert!(panel.contains(r#"name="intent" value="disconnect">"#), "the forms post to the page, naming their write: {panel}");
+    assert!(panel.contains(r#"name="confirmed" value="disconnect" required"#), "{panel}");
+
+    // Pair: the browser's origin goes along, and the answer is the page with the grant, kept by nothing.
+    let mut req = post_as("catalog-admin", "/catalog/providers/tcgplayer", "intent=pair", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    req.headers_mut().insert("sec-fetch-site", "same-origin".parse().unwrap());
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    let sent =
+        pilot.calls.lock().unwrap().iter().rev().find(|c| c.path == "/api/catalog/operator-session/grant").cloned().unwrap();
+    assert_eq!(sent.method, Method::POST);
+    assert_eq!(sent.headers[header::ORIGIN], "http://localhost:7790");
+    assert_eq!(sent.headers["sec-fetch-site"], "same-origin");
+    assert!(html.contains(&format!(r#"<code id="operator-grant">{OPERATOR_GRANT}</code>"#)), "{html}");
+    assert!(html.contains(r#"data-pending="true""#) && html.contains("operator_session.handoff"), "the script's handoff: {html}");
+    assert!(html.contains("This grant is shown once."), "{html}");
+
+    // A sign-in that is too old is refused before anything is minted, with Sign in again.
+    let mut req = post_as("catalog-admin-old", "/catalog/providers/tcgplayer", "intent=pair", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("This action needs a recent sign-in.") && html.contains("Sign in again"), "{html}");
+    assert!(!html.contains(OPERATOR_GRANT), "{html}");
+
+    // Disconnect needs its box; then it says what the API did, and a changed record is a conflict.
+    let before = pilot.calls.lock().unwrap().iter().filter(|c| c.method == Method::DELETE).count();
+    let (status, _, _) = pilot.send(post_as("catalog-admin", "/catalog/providers/tcgplayer", "intent=disconnect", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(pilot.calls.lock().unwrap().iter().filter(|c| c.method == Method::DELETE).count(), before);
+    let mut req = post_as("catalog-admin", "/catalog/providers/tcgplayer", "intent=disconnect&confirmed=disconnect", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Extension grant revoked. The record is now revision 3."), "{html}");
+    assert!(!html.contains("data-catalog-operator-session-disconnect"), "an answered Disconnect is not offered again: {html}");
+    let mut req = post_as("catalog-admin-stale", "/catalog/providers/tcgplayer", "intent=disconnect&confirmed=disconnect", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("it is now revision 4"), "{html}");
+    assert!(html.contains("data-catalog-operator-session-disconnect"), "a conflict can be tried again: {html}");
+
+    // Only where the surface offers it (a platform admin on TCGplayer): another write sends nothing.
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, _) = pilot.send(post_as("catalog-admin", "/catalog/providers/lorcast", "intent=pair", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(pilot.calls.lock().unwrap()[before..].iter().all(|c| !c.path.starts_with("/api/catalog/operator-session")));
+}
+
+/// The page before the layout's toaster (`</main>` on), or all of an answer that has no `<main>`
+/// (a patch): where a page's own `role="status"` is looked for.
+fn main_of(html: &str) -> &str {
+    html.split_once("</main>").map_or(html, |(main, _)| main)
 }

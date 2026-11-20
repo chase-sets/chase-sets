@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { getBuyerShipment, getSellerShipment, listBuyerShipments, listSellerShipments } from "./queries";
+import {
+  getBuyerShipment,
+  getSellerShipment,
+  listBuyerShipments,
+  listSellerCommandCenterShipments,
+  listSellerShipments,
+} from "./queries";
 
 const buyerVisibleConflictSet = [
   {
@@ -107,6 +113,20 @@ describe("fulfillment shipment read model queries", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.conflicts).toEqual(conflicts);
     expect(vi.mocked(db.query).mock.calls[1]?.[0]).toContain("ORDER BY conflict.conflict_kind, conflict.origin");
+  });
+
+  it("reads every working or conflicted shipment of the seller, unpaged, for the command center", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [{ shipment_id: "shp_1", conflicts: [] }] })) };
+
+    const rows = await listSellerCommandCenterShipments(db as never, { sellerAccountId: "acc_seller" });
+
+    expect(rows).toEqual([{ shipment_id: "shp_1", conflicts: [] }]);
+    const [sql, params] = vi.mocked(db.query).mock.calls[0] as unknown as [string, unknown[]];
+    expect(params).toEqual(["acc_seller"]);
+    expect(sql).toContain("WHERE page.seller_account_id = $1");
+    expect(sql).toContain("page.status <> 'cancelled'");
+    expect(sql).toContain("OR conflict_stats.shipment_id IS NOT NULL");
+    expect(sql).not.toContain("LIMIT");
   });
 
   it("loads bounded postage diagnostics without exposing raw provider payloads", async () => {

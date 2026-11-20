@@ -15,12 +15,16 @@ import {
   nonProductionDataProfiles,
   representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
+  createApiHost,
+  createProjectionGroupLeasePort,
+  type ApiHostRuntime,
 } from "@chase-sets/platform-runtime/api";
+import { bootstrapPlatformControlPlane, type PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
 import { settlementPayoutFeePolicy, type SettlementServices } from "@chase-sets/settlement/server";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import {
   assembleProductMeasurePublication,
@@ -32,15 +36,112 @@ import {
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
-import { runRepresentativeCommerceState } from "../src/representative-commerce-state";
+import { apiContextRegistry } from "../src/context-registry";
+import {
+  runRepresentativeCommerceState,
+  syncRepresentativeProjection,
+  drainRepresentativeProjections,
+} from "../src/representative-commerce-state";
+import { syncBootstrapProjectionGroups } from "../src/bootstrap";
+import {
+  appendTargetItem,
+  createRecordingControlPlane,
+  createTargetRegistry,
+  deferred,
+  holdTargetLease,
+  readProjectedItems,
+  readTargetCheckpoint,
+  readTargetLeases,
+  TARGET_GROUP,
+  TARGET_LEASE_NAME,
+  type TargetProjectionHooks,
+} from "@chase-sets/platform-runtime/inline-seed-db-test-support";
 import {
   createPlatformApiBootstrapTestHarness,
   hasSettledWithin,
   holdSchemaBootstrapAdvisoryLock,
   listingPhotoStorage,
 } from "./bootstrap-db-test-support";
+
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
 import type { PlatformApiTestPools } from "./bootstrap-db-test-support";
+
+type DirectCaller = "admin" | "representative" | "all-groups";
+
+async function directLeaseFixture() {
+  const targetPools = { platform: pools.control, target: pools.identity };
+  await bootstrapPlatformControlPlane(targetPools.platform);
+  await bootstrapContextDatabase(createTargetRegistry({})[0]!.module, targetPools.target);
+  const plane = createRecordingControlPlane(targetPools.platform);
+  const runtime = (hooks: TargetProjectionHooks = {}, revision = 1) =>
+    createApiHost(createTargetRegistry(hooks, revision), "platform-api", { pools: targetPools });
+  const port = createProjectionGroupLeasePort(plane.recording, "platform-api");
+  await appendTargetItem(targetPools, "item-1");
+  await syncBootstrapProjectionGroups(runtime(), "target", port);
+  const checkpoint = await readTargetCheckpoint(targetPools);
+  await appendTargetItem(targetPools, "item-2");
+  plane.trace.length = 0;
+  return { targetPools, plane, runtime, port, checkpoint };
+}
+
+function runDirectCaller(
+  caller: DirectCaller,
+  runtime: ApiHostRuntime,
+  controlPlane: PlatformControlPlane,
+  timeoutMs = 600_000,
+): Promise<void> {
+  const port = createProjectionGroupLeasePort(controlPlane, "platform-api");
+  if (caller === "admin") return syncBootstrapProjectionGroups(runtime, "target", port, timeoutMs);
+  if (caller === "representative") return syncRepresentativeProjection(runtime, port, "target", "items", { timeoutMs });
+  return drainRepresentativeProjections(runtime, port);
+}
+
+async function expectDirectContention(caller: DirectCaller, holderOwner?: string) {
+  const fixture = await directLeaseFixture();
+  const { targetPools, plane, runtime, port, checkpoint } = fixture;
+  const held = deferred();
+  const yieldGate = deferred();
+  const holder = holderOwner ? await holdTargetLease(plane.controlPlane, holderOwner) : undefined;
+  const sameHost = holder
+    ? undefined
+    : port.runWithLease(TARGET_GROUP, undefined, async () => {
+        held.resolve();
+        await yieldGate.promise;
+      });
+  if (sameHost) await held.promise;
+  const resets = vi.fn(async (db: PgQueryable) => {
+    await db.query("DELETE FROM projected_items");
+  });
+  const run = runDirectCaller(caller, runtime({ onReset: resets }, 2), plane.recording);
+  // Attach a handler before inspecting the blocked work, including when a mutant rejects early.
+  const outcome = run.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  try {
+    await vi.waitFor(() => expect(plane.seedAttempts()).toBeGreaterThanOrEqual(sameHost ? 3 : 2), { timeout: 20_000 });
+    expect(resets).not.toHaveBeenCalled();
+    expect(await readProjectedItems(targetPools)).toEqual(["item-1"]);
+    expect(await readTargetCheckpoint(targetPools)).toEqual(checkpoint);
+    const acquired = plane.trace.filter((entry) => entry.operation === "acquired");
+    expect(acquired).toHaveLength(sameHost ? 1 : 0);
+    if (sameHost) {
+      const missed = plane.trace.find((entry) => entry.operation === "missed")!;
+      expect(missed.ownerId).not.toBe(acquired[0]!.ownerId);
+    }
+  } finally {
+    yieldGate.resolve();
+    await sameHost;
+    await holder?.release();
+    await outcome;
+  }
+  await expect(run).resolves.toBeUndefined();
+  expect(await readProjectedItems(targetPools)).toEqual(["item-1", "item-2"]);
+  expect(await readTargetLeases(plane.controlPlane)).toEqual([]);
+}
 
 const measureAppendTrace = vi.hoisted(() => ({ inputs: null as AppendToStreamInput[] | null }));
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
@@ -229,8 +330,162 @@ async function runRepresentativeIdentitySeed(runtime: ReturnType<typeof createId
     enabledDataProfiles: representativeCommerceStateDataProfiles,
     environmentName: "test",
     runtimeProfile: "public",
+    projectionGroupLeasePort: testProjectionGroupLeasePort,
   });
 }
+
+describe("inline-seed-direct-lease", () => {
+  it("inline-seed-direct-lease: admin waits for a worker before resetting or advancing", async () => {
+    await expectDirectContention("admin", "platform-worker-1");
+  });
+
+  it("inline-seed-direct-lease: representative sync waits for a projection operation before resetting", async () => {
+    await expectDirectContention("representative", "platform-worker-1:projection-operations");
+  });
+
+  it("inline-seed-direct-lease: all-group drain refuses live same-host reentry until release", async () => {
+    await expectDirectContention("all-groups");
+  });
+
+  it("inline-seed-direct-lease: no-groups admin and all-group paths refuse ungrouped runners without writes", async () => {
+    const { targetPools, plane, runtime, checkpoint } = await directLeaseFixture();
+    const ungrouped = { ...runtime(), projectionGroups: [] };
+    await expect(runDirectCaller("admin", ungrouped, plane.recording)).rejects.toThrow(/ungrouped subscriptions/);
+    await expect(runDirectCaller("all-groups", ungrouped, plane.recording)).rejects.toThrow(/ungrouped subscriptions/);
+    expect(plane.trace).toEqual([]);
+    expect(await readProjectedItems(targetPools)).toEqual(["item-1"]);
+    expect(await readTargetCheckpoint(targetPools)).toEqual(checkpoint);
+  });
+
+  it("inline-seed-direct-lease: admin miss times out and never acquires after the holder later expires", async () => {
+    const { targetPools, plane, runtime, checkpoint } = await directLeaseFixture();
+    const holder = await holdTargetLease(plane.controlPlane, "platform-worker-1", { ttlMs: 3_000 });
+    await expect(runDirectCaller("admin", runtime({}, 2), plane.recording, 1_000)).rejects.toMatchObject({
+      name: "SeedApiHostSubstepTimeoutError",
+      code: "BOOTSTRAP_SEED_SUBSTEP_TIMEOUT",
+    });
+    const attempts = plane.seedAttempts();
+    expect(attempts).toBeGreaterThanOrEqual(2);
+    await vi.waitFor(
+      async () => {
+        const expired = await targetPools.platform.query(
+          "SELECT 1 FROM platform_control_leases WHERE lease_name = $1 AND expires_at <= now()",
+          [TARGET_LEASE_NAME],
+        );
+        expect(expired.rowCount).toBe(1);
+      },
+      { timeout: 5_000 },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(plane.seedAttempts()).toBe(attempts);
+    expect(await readProjectedItems(targetPools)).toEqual(["item-1"]);
+    expect(await readTargetCheckpoint(targetPools)).toEqual(checkpoint);
+    expect(await readTargetLeases(plane.controlPlane)).toEqual([
+      { ownerId: holder.lease.ownerId, fencingToken: holder.lease.fencingToken },
+    ]);
+    await holder.release();
+  });
+
+  it("inline-seed-direct-lease: representative timeout awaits late acquisition and exact-token cleanup", async () => {
+    const { targetPools, plane, runtime, checkpoint } = await directLeaseFixture();
+    const acquiredGate = deferred();
+    const returnGate = deferred();
+    const delayed: PlatformControlPlane = {
+      ...plane.recording,
+      acquireLease: async (input) => {
+        const lease = await plane.recording.acquireLease(input);
+        acquiredGate.resolve();
+        await returnGate.promise;
+        return lease;
+      },
+    };
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let rejected = false;
+      const run = runDirectCaller("representative", runtime({}, 2), delayed, 1_000).catch((error: unknown) => {
+        rejected = true;
+        throw error;
+      });
+      const assertion = expect(run).rejects.toThrow(
+        "Representative commerce state step 'sync target.items' exceeded 1000ms",
+      );
+      await acquiredGate.promise;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(rejected).toBe(false);
+      returnGate.resolve();
+      await assertion;
+      const acquired = plane.trace.filter((entry) => entry.operation === "acquired");
+      expect(acquired).toHaveLength(1);
+      expect(plane.trace.filter((entry) => entry.operation === "released")).toEqual(
+        acquired.map((entry) => ({ ...entry, operation: "released" })),
+      );
+      await vi.advanceTimersByTimeAsync(1_200);
+      expect(plane.seedAttempts()).toBe(1);
+      expect(await readTargetLeases(plane.controlPlane)).toEqual([]);
+      expect(await readProjectedItems(targetPools)).toEqual(["item-1"]);
+      expect(await readTargetCheckpoint(targetPools)).toEqual(checkpoint);
+    } finally {
+      returnGate.resolve();
+      vi.useRealTimers();
+    }
+  });
+
+  async function expectDirectRenewalLoss(caller: "admin" | "all-groups") {
+    const { targetPools, plane, runtime, checkpoint } = await directLeaseFixture();
+    let thief: Awaited<ReturnType<typeof holdTargetLease>> | undefined;
+    const steal = async () => {
+      await targetPools.platform.query(
+        "UPDATE platform_control_leases SET expires_at = now() - interval '1 second' WHERE lease_name = $1",
+        [TARGET_LEASE_NAME],
+      );
+      thief = await holdTargetLease(plane.controlPlane, "platform-worker-2");
+      vi.advanceTimersByTime(30_000);
+      await Promise.all(plane.renewals);
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const hooks: TargetProjectionHooks =
+        caller === "admin"
+          ? {
+              onReset: async (db) => {
+                await db.query("DELETE FROM projected_items");
+                await steal();
+              },
+            }
+          : {
+              beforeProject: async (itemId) => {
+                if (itemId === "item-2") await steal();
+              },
+            };
+      await expect(
+        runDirectCaller(caller, runtime(hooks, caller === "admin" ? 2 : 1), plane.recording),
+      ).rejects.toThrow(`Lost lease '${TARGET_LEASE_NAME}'.`);
+      expect(plane.trace).toContainEqual(expect.objectContaining({ operation: "renewal-refused" }));
+      const acquired = plane.trace.filter((entry) => entry.operation === "acquired");
+      expect(acquired).toHaveLength(1);
+      expect(plane.trace.filter((entry) => entry.operation === "released")).toEqual(
+        acquired.map((entry) => ({ ...entry, operation: "released" })),
+      );
+      expect(await readProjectedItems(targetPools)).toEqual(["item-1"]);
+      expect(await readTargetCheckpoint(targetPools)).toEqual(checkpoint);
+      expect(await readTargetLeases(plane.controlPlane)).toEqual([
+        { ownerId: "platform-worker-2", fencingToken: thief!.lease.fencingToken },
+      ]);
+    } finally {
+      vi.useRealTimers();
+      await thief?.release();
+    }
+  }
+
+  it("inline-seed-direct-lease: admin renewal loss rolls back reset and releases only its exact token", async () => {
+    await expectDirectRenewalLoss("admin");
+  });
+
+  it("inline-seed-direct-lease: all-group renewal loss rolls back drain and preserves the successor lease", async () => {
+    await expectDirectRenewalLoss("all-groups");
+  });
+});
 
 describe("platform api bootstrap production reconciliation", () => {
   it("payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile", async () => {
@@ -255,6 +510,7 @@ describe("platform api bootstrap production reconciliation", () => {
         enabledDataProfiles: productionLikeDataProfiles,
         environmentName: "production",
         runtimeProfile: "landing",
+        projectionGroupLeasePort: testProjectionGroupLeasePort,
       } as const;
       const settlementContext = runtime.mountedContexts.find((context) => context.contextName === "settlement");
       if (!settlementContext) throw new Error("Expected Settlement to be mounted in the landing profile.");
@@ -507,6 +763,7 @@ describe("platform api bootstrap production reconciliation", () => {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "production",
       runtimeProfile: "public",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
       schemaBootstrap: {
         lockAcquisitionTimeoutMs: 120_000,
         lockTimeoutMs: 50,
@@ -622,12 +879,14 @@ describe("platform api bootstrap production reconciliation", () => {
     const firstBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", firstRuntime, {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
       runtimeProfile: "public",
       schemaBootstrap,
     });
     const secondBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", secondRuntime, {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
       runtimeProfile: "public",
       schemaBootstrap,
     });
@@ -661,6 +920,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const bootstrapOptions = {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "staging",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     } as const;
     const reconciliationAttempts = new Map<string, number[]>();
     const productionSeedContextNames = runtime.mountedContexts
@@ -804,6 +1064,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const bootstrapOptions = {
       enabledDataProfiles: productionLikeDataProfiles,
       environmentName: "production",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     } as const;
 
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, bootstrapOptions);
@@ -1250,6 +1511,7 @@ describe("platform api bootstrap production reconciliation", () => {
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
       enabledDataProfiles: nonProductionDataProfiles,
       environmentName: "test",
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
     await drainContextRuntime(runtime);
     await ensureRepresentativeProductContentsTestMeasureProfile(runtime);

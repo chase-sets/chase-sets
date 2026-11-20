@@ -1,4 +1,5 @@
 import { catalogProductionTransport } from "../catalog-fixture-transports";
+import { z } from "zod";
 import {
   sendCatalogProviderRequest,
   ProviderSendStoppedError,
@@ -245,6 +246,7 @@ type ScrydexUsageReadiness = Readonly<{
   remainingCredits: number | null;
   usedCredits: number | null;
   overageCreditsConsumed: number | null;
+  billingPeriod?: ProviderUsageSnapshot["billingPeriod"];
   retryAfterSeconds?: number;
   diagnosticCode?: string;
   credentialState?: "configured" | "invalid" | "unknown";
@@ -497,11 +499,7 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
         let validatedPagination: ProviderOptionQueryResult["validatedPagination"] = null;
         const pages = await fetchScrydexPagedJson<ScrydexOnePieceCard>(
           "cards",
-          {
-            page_size: String(scrydexCardPageSize),
-            q: scrydexPrintingsSearchQuery(expansionId),
-            select: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
-          },
+          scrydexExpansionCardQuery(productDomain, expansionId),
           options,
           productDomain,
           (pagination) => {
@@ -1024,11 +1022,7 @@ async function listScrydexOnePieceOptions(
     let validatedPagination: ProviderOptionQueryResult["validatedPagination"] = null;
     const pages = await fetchScrydexPagedJson<ScrydexOnePieceCard>(
       "cards",
-      {
-        page_size: String(scrydexCardPageSize),
-        q: scrydexPrintingsSearchQuery(expansionId),
-        select: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
-      },
+      scrydexExpansionCardQuery(productDomain, expansionId),
       options,
       productDomain,
       (pagination) => {
@@ -1147,6 +1141,7 @@ async function scrydexOptionCacheIdentity(
     queryKind,
     languageCode: (scope.values.language ?? scope.values.languageCode ?? "en").trim().toLowerCase(),
     parentValue: expansionId.trim(),
+    requestFingerprint: scrydexLorcanaCardOptionFingerprint(scope.unitKey, queryKind, expansionId),
   };
   return { request, profile: version.profile };
 }
@@ -1217,14 +1212,18 @@ async function readScrydexCompletedCount(
 ): Promise<ScrydexCountSource | null> {
   if (!options.cacheStore) return null;
   try {
+    const queryKind = query.kind === "sealed" ? "sealed-products" : "cards";
+    const requestFingerprint = scrydexLorcanaCardOptionFingerprint(query.unitKey, queryKind, query.parentValue);
+    if (requestFingerprint && requestFingerprint !== query.requestFingerprint) return null;
     const request: CatalogProviderOptionQueryRequest = {
       providerKey: "scrydex",
       profileKey: query.profileKey,
       profileVersion: query.profileVersion,
       ingestionUnitKey: query.unitKey,
-      queryKind: query.kind === "sealed" ? "sealed-products" : "cards",
+      queryKind,
       languageCode: query.languageCode,
       parentValue: query.parentValue,
+      requestFingerprint,
     };
     const record = await options.cacheStore.read(request);
     if (!record) return null;
@@ -1436,7 +1435,7 @@ async function planScrydexCardImport(
     planKey: `scrydex:${productSegment}:expansion:${normalizePlanSegment(expansionId)}:cards`,
     scope: { unitKey: scope.unitKey, scopeKey: "expansion-cards", values: { ...scope.values, expansionId } },
     transportSteps: [
-      `Search Scrydex ${productLabel} cards by printings set with max page size`,
+      `Search Scrydex ${productLabel} cards by ${productDomain === "lorcana" ? "expansion ID" : "printings set"} with max page size`,
       "Sanitize card payloads",
       "Attach payload provenance",
     ],
@@ -1445,7 +1444,9 @@ async function planScrydexCardImport(
       estimatedRequestCount: observation?.estimatedRequestCount,
       selectedFields: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
       estimateReason:
-        "Card page count requires fresh exact-query Scrydex count evidence; set imports use q=printings:<set> to include reprints.",
+        productDomain === "lorcana"
+          ? "Card page count requires fresh exact-query Scrydex count evidence; Lorcana set imports use q=expansion.id:<set>."
+          : "Card page count requires fresh exact-query Scrydex count evidence; set imports use q=printings:<set> to include reprints.",
       usageReadiness,
       countSource: observation?.countSource,
     }),
@@ -1814,15 +1815,36 @@ function validateScrydexPaginationPage(body: unknown, page: number) {
 export function scrydexCountQuery(
   input: Omit<ScrydexCountQuery, "providerKey" | "requestFingerprint">,
 ): ScrydexCountQuery {
-  const request = scrydexCountRequest(input);
   return countQuerySchema.parse({
     ...input,
     providerKey: "scrydex",
-    requestFingerprint: countFingerprint({ method: "GET", ...request }),
+    requestFingerprint: scrydexCountRequestFingerprint(input),
   });
 }
 
-function scrydexCountRequest(input: Pick<ScrydexCountQuery, "kind" | "productDomain" | "parentValue">): {
+type ScrydexCountRequestInput = Pick<ScrydexCountQuery, "kind" | "productDomain" | "parentValue">;
+
+function scrydexCountRequestFingerprint(input: ScrydexCountRequestInput): string {
+  return countFingerprint({ method: "GET", ...scrydexCountRequest(input) });
+}
+
+export function scrydexLorcanaCardOptionFingerprint(
+  unitKey: string | null,
+  queryKind: string,
+  expansionId: string | null | undefined,
+): string | undefined {
+  const parentValue = expansionId?.trim();
+  if (
+    unitKey !== SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY ||
+    (queryKind !== "cards" && queryKind !== "card") ||
+    !parentValue
+  )
+    return undefined;
+  // The old option cache key did not distinguish the set predicate.
+  return scrydexCountRequestFingerprint({ kind: "cards", productDomain: "lorcana", parentValue });
+}
+
+function scrydexCountRequest(input: ScrydexCountRequestInput): {
   path: string;
   query: Readonly<Record<string, string>>;
 } {
@@ -1833,9 +1855,7 @@ function scrydexCountRequest(input: Pick<ScrydexCountQuery, "kind" | "productDom
         path: "cards",
         query: {
           page: "1",
-          page_size: String(scrydexCardPageSize),
-          q: `printings:${input.parentValue}`,
-          select: input.productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
+          ...scrydexExpansionCardQuery(input.productDomain, input.parentValue),
         },
       }
     : {
@@ -1881,7 +1901,7 @@ async function getScrydexUsageReadiness(
   }
 
   try {
-    const body = await fetchScrydexJson(scrydexAccountUrl("usage", options), options);
+    const body = await fetchScrydexJson(scrydexAccountUrl("usage", options), options, { redirect: "manual" });
     const usage = sanitizeScrydexUsage(body, (options.now ?? (() => new Date()))());
     const creditState = scrydexCreditState(usage);
     return {
@@ -1989,6 +2009,7 @@ function scrydexUsageSnapshot(observation: ScrydexUsageObservation | null): Prov
     totalCredits: checked?.readiness.totalCredits ?? null,
     remainingCredits: checked?.readiness.remainingCredits ?? null,
     usedCredits: checked?.readiness.usedCredits ?? null,
+    billingPeriod: checked?.readiness.billingPeriod ?? null,
     observedAt: checked?.observedAt ?? null,
     attemptedAt: observation?.attemptedAt ?? null,
     attemptState: !latest ? "not-configured" : latest.usageCheckState === "checked" ? "checked" : "unavailable",
@@ -2460,10 +2481,14 @@ function scrydexBaseUrl(options: ScrydexOnePieceProviderAdapterOptions, productD
   return options.baseUrl ?? scrydexOnePieceBaseUrl;
 }
 
-function scrydexPrintingsSearchQuery(expansionId: string): string {
-  const normalized = requireString(expansionId, "Scrydex One Piece printings search requires a set value.");
+function scrydexExpansionCardQuery(productDomain: ScrydexProductDomain, expansionId: string) {
+  const normalized = requireString(expansionId, "Scrydex expansion card search requires a set value.");
   const queryValue = /^[a-z0-9_-]+$/i.test(normalized) ? normalized : `"${normalized.replace(/"/g, '\\"')}"`;
-  return `printings:${queryValue}`;
+  return {
+    page_size: String(scrydexCardPageSize),
+    q: `${productDomain === "lorcana" ? "expansion.id" : "printings"}:${queryValue}`,
+    select: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
+  };
 }
 
 function absoluteScrydexUrl(
@@ -2641,15 +2666,15 @@ function recordValue(value: unknown, key: string): JsonValue | undefined {
 
 type ScrydexUsageBalances = Pick<
   ScrydexUsageReadiness,
-  "totalCredits" | "remainingCredits" | "usedCredits" | "overageCreditsConsumed"
+  "totalCredits" | "remainingCredits" | "usedCredits" | "overageCreditsConsumed" | "billingPeriod"
 >;
 
 // Scrydex returns usage in a `data` envelope: credits consumed, overage credits
 // consumed, and credits remaining for one billing period, with no allowance and no
 // update timestamp. Balances count only when that period covers the check instant.
 // The allowance is consumed plus remaining only while no overage was consumed;
-// otherwise it stays unreported rather than guessed. Daily usage and the period
-// bounds are read here and never retained.
+// otherwise it stays unreported rather than guessed. Daily usage is not retained.
+// Redacted period bounds are retained for spend admission.
 function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBalances {
   const data = jsonRecord(recordValue(value, "data") ?? null);
   const periodStart = Date.parse(stringValue(data.period_start) ?? "");
@@ -2670,6 +2695,16 @@ function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBa
     remainingCredits,
     usedCredits,
     overageCreditsConsumed,
+    billingPeriod:
+      overageCreditsConsumed === null ||
+      !z.iso.datetime({ offset: true }).safeParse(data.period_start).success ||
+      !z.iso.datetime({ offset: true }).safeParse(data.period_end).success
+        ? null
+        : {
+            startsAt: new Date(periodStart).toISOString(),
+            endsAt: new Date(periodEnd).toISOString(),
+            overageCreditsConsumed,
+          },
   };
 }
 

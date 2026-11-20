@@ -1,3 +1,4 @@
+import { createAgentWebhookDispatchRunners } from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -18,7 +19,11 @@ import {
   buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
 } from "./support/auth-support/identity-projection";
-import { authSchemaSql } from "./support/runtime-support/schema";
+import {
+  authSchemaSql,
+  authSessionGenerationSchemaMigrations,
+  authSessionEpochSchemaMigrations,
+} from "./support/runtime-support/schema";
 import { connectorOAuthSchemaMigrations } from "./support/ucp-support/connector-oauth-schema";
 import { authUcpOAuthConsentSchemaMigrations } from "./support/ucp-support/oauth";
 import { agentWebhookGrantFenceSchemaMigrations } from "./support/ucp-support/agent-webhooks/agent-webhook-outbox";
@@ -31,7 +36,7 @@ import {
   buildAgentOrderWebhookProjectionHandlers,
 } from "./support/ucp-support/agent-webhooks";
 
-export const module = defineBoundedContextModule<AuthServices, PgTransactionalPool, AuthHostPorts>({
+const contextModule = defineBoundedContextModule<AuthServices, PgTransactionalPool, AuthHostPorts>({
   manifest: contextManifest,
   schemaSql: authSchemaSql,
   retentionSweeps: authRetentionSweeps,
@@ -43,6 +48,8 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
     ...connectorOAuthSchemaMigrations,
     ...authUcpOAuthConsentSchemaMigrations,
     ...agentWebhookGrantFenceSchemaMigrations,
+    ...authSessionGenerationSchemaMigrations,
+    ...authSessionEpochSchemaMigrations,
   ],
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [{ mountPath: "/api/auth", contextMountOrdinal: 1, router: buildAuthApi(services) }],
@@ -78,3 +85,5 @@ function buildAgentWebhookHandlers(services: AuthServices) {
     resolveShipmentOrderId: services.agentWebhookOrderResolvers.resolveShipmentOrderId,
   });
 }
+
+export const module = { ...contextModule, workerJobFactories: { createAgentWebhookDispatchRunners } };

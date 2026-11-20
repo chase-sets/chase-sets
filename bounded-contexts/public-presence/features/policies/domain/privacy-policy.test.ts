@@ -145,7 +145,7 @@ describe("Privacy Policy candidate", () => {
     const [capture, strategy, onboarding] = section.reviewManifest.assumptions;
     expect(capture.assertion).toContain("records capture");
     expect(capture.evidenceRef).toContain("runtime.ts:3005-3046");
-    expect(capture.evidenceRef).toContain("domain.ts:957-994");
+    expect(capture.evidenceRef).toContain("domain.ts:954-993");
     expect(capture.evidenceRef).not.toMatch(/1485-1515|0006-stripe-connect/);
     expect(strategy.evidenceRef).toBe("docs/adr/0006-stripe-connect-custom-account-experience.md:15");
     expect(onboarding.assertion).toContain("seller onboarding uses Stripe embedded components");
@@ -555,23 +555,6 @@ function rolloutScopeErrors(artifact: PublicPolicyArtifact): readonly string[] {
   return errors;
 }
 
-/** Every Privacy manifest statement about [NOTICE-EMAIL] must carry the Terms' #5677 status and provenance. */
-function noticeEmailOwnershipErrors(artifact: PublicPolicyArtifact): readonly string[] {
-  const errors: string[] = [];
-  const statements = manifestTexts(artifact).filter((text) => /\[NOTICE-EMAIL\]|notice email/i.test(text));
-  if (statements.length < 2) errors.push(`expected the scope and rights statements, found ${statements.length}`);
-  for (const statement of statements) {
-    const label = statement.slice(0, 40);
-    for (const fragment of ["#5677", "did not supply a dedicated", "placeholder pending that operator-supplied fact"]) {
-      if (!statement.includes(fragment)) errors.push(`'${label}' lacks '${fragment}'`);
-    }
-    if (/counsel-owned|counsel's selection|counsel selection/i.test(statement)) {
-      errors.push(`'${label}' calls [NOTICE-EMAIL] counsel-owned`);
-    }
-  }
-  return errors;
-}
-
 /** The scope subject's draft text, byte-identical to its text before the Connector Pairing question was added. */
 const privacyScopeDraftFixture =
   "This privacy notice describes how Chase Sets Limited (“Chase Sets”) collects, uses, shares, and retains personal information when you visit the Chase Sets website, join the waitlist, create an Account, buy or sell trading cards and related collectibles, set up payouts, or contact support. It applies to the Chase Sets marketplace and its account, developer, and support surfaces. It does not replace the Terms of Service or the other policies that govern your use of the marketplace, and it does not cover the independent practices of other users or of providers acting under their own notices, such as the payment processing described in the Stripe-managed processing section below.";
@@ -626,30 +609,30 @@ describe("Privacy reconciliation with ratified decisions and sibling artifacts",
     expect(rolloutScopeErrors(populated)).toEqual(["publication metadata populated"]);
   });
 
-  it("notice email ownership is consistent across legal artifacts", () => {
-    expect(sectionText(privacyPolicyArtifact, "privacy-rights-and-requests")).toContain("[NOTICE-EMAIL]");
-    expect(noticeEmailOwnershipErrors(privacyPolicyArtifact)).toEqual([]);
-    const termsNoticeQuestion = termsOfServicePolicyArtifact.sections
-      .find(({ id }) => id === "governing-law-and-forum")!
-      .reviewManifest.openQuestions.find((question) => question.includes("[NOTICE-EMAIL]"));
-    expect(termsNoticeQuestion).toContain("#5677 recorded the entity, state, and mailing notice address");
-    expect(termsNoticeQuestion).toContain("did not supply a dedicated legal-notice email");
-    expect(termsNoticeQuestion).toContain("[NOTICE-EMAIL] is an explicit placeholder pending that fact");
-
-    const counselOwnedStatement = "The notice email ([NOTICE-EMAIL]) remains a counsel-owned selection per #5677.";
-    const counselOwned = withPrivacySection("privacy-rights-and-requests", (section) => ({
-      ...section,
-      reviewManifest: {
-        ...section.reviewManifest,
-        openQuestions: [...section.reviewManifest.openQuestions, counselOwnedStatement],
-      },
-    }));
-    const label = counselOwnedStatement.slice(0, 40);
-    expect(noticeEmailOwnershipErrors(counselOwned)).toEqual([
-      `'${label}' lacks 'did not supply a dedicated'`,
-      `'${label}' lacks 'placeholder pending that operator-supplied fact'`,
-      `'${label}' calls [NOTICE-EMAIL] counsel-owned`,
-    ]);
+  it("records the ratified privacy-request email and its operator authority in both manifests", () => {
+    expect(sectionText(privacyPolicyArtifact, "privacy-rights-and-requests")).toContain(
+      "US, or to legal@chasesets.com.",
+    );
+    for (const id of ["privacy-notice-scope", "privacy-rights-and-requests"]) {
+      const section = privacySection(privacyPolicyArtifact, id);
+      expect(section.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([5677, 8668, 10299]));
+      expect(section.reviewManifest.productTruthRefs).toContain(
+        "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+      );
+      expect(section.reviewManifest.productTruthRefs).toContain(
+        "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
+      );
+      expect(JSON.stringify(section.reviewManifest)).not.toContain("[NOTICE-EMAIL]");
+      const emailStatements = [section.reviewManifest.scopeNote, ...section.reviewManifest.openQuestions].filter(
+        (statement) => /notice.{0,20}email|legal@chasesets.com/i.test(statement),
+      );
+      expect(emailStatements.length).toBeGreaterThan(0);
+      for (const statement of emailStatements) expect(statement).not.toMatch(/pending|missing|counsel-owned/);
+      expect(section.reviewStatus).toBe("counsel-required");
+    }
+    expect(
+      privacySection(privacyPolicyArtifact, "privacy-rights-and-requests").reviewManifest.openQuestions.join(" "),
+    ).toContain("are counsel judgments");
   });
 
   it("connector pairing privacy manifest question is draft-preserving", () => {

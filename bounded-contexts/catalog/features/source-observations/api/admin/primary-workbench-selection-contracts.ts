@@ -45,12 +45,17 @@ export type CatalogPrimaryWorkbenchRouteContextKey =
   | "scope"
   | "importScope"
   | "profileVersion"
+  | "aliasType"
+  | "reviewStatuses"
+  | "targetKind"
+  | "targetId"
   | "sourceObservationFilters"
   | "selectedObservationIds"
   | "reviewOffset"
   | "reviewLimit"
   | "jobId"
   | "promotionPreviewId"
+  | "evidenceRef"
   | "returnPath";
 
 export const catalogPrimaryWorkbenchRouteSections = [
@@ -78,6 +83,10 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   scope?: CatalogPrimaryWorkbenchScopeContext;
   importScope: string | null;
   profileVersion: string | null;
+  aliasType?: string | null;
+  reviewStatuses?: readonly string[];
+  targetKind?: string | null;
+  targetId?: string | null;
   sourceObservationFilters: Readonly<Record<string, string>>;
   selectedObservationIds: readonly string[];
   // Source Observation review page window. reviewOffset is the durable, URL-backed
@@ -97,6 +106,8 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   promoteAsDraft?: boolean;
   /** Canonical Scope Record identity for scope-first routes. */
   scopeRecordId?: string | null;
+  /** Untrusted entity reference; membership is resolved by the audit composer. */
+  evidenceRef?: string | null;
   returnPath: string | null;
 }>;
 
@@ -112,6 +123,17 @@ export type CatalogPrimaryWorkbenchScopeContext = Readonly<{
   expansionName: string | null;
   status: string | null;
 }>;
+
+type CatalogPrimaryWorkbenchScopeQueryKey =
+  | "productId"
+  | "languageCode"
+  | "productLineId"
+  | "productLineName"
+  | "seriesId"
+  | "seriesName"
+  | "expansionId"
+  | "expansionName"
+  | "status";
 
 export type CatalogPrimaryWorkbenchProviderScopeReadModel = Readonly<{
   providers: readonly Readonly<{
@@ -210,6 +232,25 @@ export type CatalogPrimaryWorkbenchSourceOptionPageReadModel = Readonly<{
   nextPageHref: string | null;
 }>;
 
+export type CatalogPrimaryWorkbenchGuidedScopeField = Readonly<{
+  queryKind: string;
+  scope: string;
+  label: string;
+  fieldName: CatalogPrimaryWorkbenchScopeQueryKey;
+  labelFieldName: CatalogPrimaryWorkbenchScopeQueryKey | null;
+  options: readonly Readonly<{
+    value: string;
+    label: string;
+    description: string | null;
+    parentValue: string | null;
+  }>[];
+  selectedValue: string;
+  selectedLabel: string;
+  parentMissing: boolean;
+  parentScope: string | null;
+  parentDiagnostic: string | null;
+}>;
+
 export type CatalogPrimaryWorkbenchSourceOptionsReadModel = Readonly<{
   status: CatalogPrimaryWorkbenchSourceOptionsStatus;
   freshness: CatalogAdminControlPlaneFreshnessState;
@@ -217,6 +258,9 @@ export type CatalogPrimaryWorkbenchSourceOptionsReadModel = Readonly<{
   selectedProviderKey: string | null;
   selectedUnitKey: CatalogIntegrationUnitKey | null;
   selectedProfile: CatalogAdminProfileVersionPointer | null;
+  guidedFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
+  freeTextApplicable: boolean;
+  contextSummary: string | null;
   summary: Readonly<{
     declaredKinds: number;
     loadedPages: number;
@@ -303,6 +347,59 @@ export function assertPrimaryWorkbenchSourceOptions(
 ): void {
   if (!value) {
     throw new Error("Primary workbench source options contract is required.");
+  }
+  if (
+    !Array.isArray(value.guidedFields) ||
+    typeof value.freeTextApplicable !== "boolean" ||
+    !(value.contextSummary === null || typeof value.contextSummary === "string")
+  ) {
+    throw new Error("Primary workbench source options must answer guided fields, free text and context summary.");
+  }
+  const queryFields = [
+    "productId",
+    "languageCode",
+    "productLineId",
+    "productLineName",
+    "seriesId",
+    "seriesName",
+    "expansionId",
+    "expansionName",
+    "status",
+  ];
+  for (const field of value.guidedFields) {
+    if (
+      !field ||
+      typeof field !== "object" ||
+      typeof field.queryKind !== "string" ||
+      field.queryKind.length === 0 ||
+      typeof field.scope !== "string" ||
+      field.scope.length === 0 ||
+      typeof field.label !== "string" ||
+      field.label.length === 0 ||
+      typeof field.fieldName !== "string" ||
+      !queryFields.includes(field.fieldName) ||
+      !(
+        field.labelFieldName === null ||
+        (typeof field.labelFieldName === "string" && queryFields.includes(field.labelFieldName))
+      ) ||
+      !Array.isArray(field.options) ||
+      typeof field.selectedValue !== "string" ||
+      typeof field.selectedLabel !== "string" ||
+      typeof field.parentMissing !== "boolean" ||
+      !(field.parentScope === null || typeof field.parentScope === "string") ||
+      !(field.parentDiagnostic === null || typeof field.parentDiagnostic === "string") ||
+      field.options.some(
+        (option: CatalogPrimaryWorkbenchGuidedScopeField["options"][number]) =>
+          !option ||
+          typeof option !== "object" ||
+          typeof option.value !== "string" ||
+          typeof option.label !== "string" ||
+          !(option.description === null || typeof option.description === "string") ||
+          !(option.parentValue === null || typeof option.parentValue === "string"),
+      )
+    ) {
+      throw new Error("Primary workbench guided scope fields must preserve typed selections and parent diagnostics.");
+    }
   }
   if (!["ready", "degraded", "blocked", "unavailable"].includes(value.status)) {
     throw new Error("Primary workbench source options status must be explicit.");

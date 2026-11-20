@@ -25,6 +25,14 @@ import type {
   ProviderImportScope,
   ProviderPayloadEnvelope,
 } from "../../provider-adapters/provider-adapter";
+import { toJsonValue, type JsonObject } from "@chase-sets/primitives/json";
+import type { TcgplayerSealedProductDetail } from "../../../../operator-session/domain/extension/sealed-products/contract";
+import type { CatalogProviderExternalReferenceRule, CatalogProviderSelectedOptionMapping } from "../profile-types";
+import { extractCatalogProviderExternalReferences } from "../../promotion/provider-external-reference-extractor";
+import {
+  resolveCatalogProviderSelectedOptions,
+  type CatalogProviderProductReferenceSchema,
+} from "../provider-selected-option-resolver";
 
 const unit = (productDomain: string, productForm: string) =>
   defineCatalogIntegrationUnitKey({
@@ -610,4 +618,190 @@ export function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConst
     };
   }
   throw new Error(`TCGplayer adapter does not support Catalog integration unit '${unitKey}'.`);
+}
+
+export const tcgplayerExtensionSealedProductUnitKeys = Object.freeze([
+  TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+]);
+
+export function tcgplayerSealedProductUnitKeyForLine(line: string): string | null {
+  const normalized = line.toLowerCase();
+  return (
+    tcgplayerExtensionSealedProductUnitKeys.find((key) =>
+      constraintsForTcgplayerUnit(key).productLineNames.includes(normalized),
+    ) ?? null
+  );
+}
+
+// Pure salvage mapper from e88692696a1fab8a65870c25ba5d64ce6b47eb80. Transport stays retired.
+// Issue: https://github.com/chase-sets/chase-sets/issues/10040
+export function buildTcgplayerAutomationSourceObservationPayload(input: {
+  detail: TcgplayerSealedProductDetail;
+  externalReferenceRules: readonly CatalogProviderExternalReferenceRule[];
+  selectedOptionMapping: CatalogProviderSelectedOptionMapping;
+  sourceUrl?: string;
+  productReferenceSchema?: CatalogProviderProductReferenceSchema | null;
+}): JsonObject {
+  const detail = input.detail;
+  const externalKey = `product:${detail.productId}`;
+  const sourceUrl = input.sourceUrl ?? `https://mp-search-api.tcgplayer.com/v2/product/${detail.productId}/details`;
+  const skuReferences = detail.skus.map((sku) => ({
+    providerKey: "tcgplayer",
+    externalKey: `sku:${sku.sku}`,
+    reviewEvidence: skuReviewEvidence(detail, sku),
+  }));
+  const skus = detail.skus.map((sku) => {
+    const selected = input.productReferenceSchema
+      ? resolveCatalogProviderSelectedOptions({
+          mapping: input.selectedOptionMapping,
+          payload: toJsonValue(detail),
+          record: toJsonValue(sku),
+          productReferenceSchema: input.productReferenceSchema,
+        })
+      : null;
+    return {
+      ...sku,
+      selectedOptions: selected?.resolved ? selected.selectedOptions : undefined,
+      reviewEvidence: skuReviewEvidence(detail, sku, selected ?? undefined),
+    };
+  });
+  const externalReferences = extractCatalogProviderExternalReferences({
+    rules: input.externalReferenceRules,
+    payload: { ...detail, skus },
+  });
+  const collectorNumber = tcgplayerCatalogCollectorNumber(detail);
+  return {
+    ...detail,
+    customAttributes: { ...detail.customAttributes, number: collectorNumber ?? undefined },
+    observationId: `tcgplayer_en_product_${detail.productId}`,
+    externalKey,
+    sourceUrl,
+    sourceUpdatedAt: detail.customAttributes.releaseDate ?? null,
+    sourcePayload: toJsonValue(detail),
+    catalogHashMaterial: tcgplayerCatalogHashMaterial(detail),
+    productForm: "sealed",
+    sealedProductForm: tcgplayerSealedProductForm(detail),
+    packCount: tcgplayerPackCount(detail),
+    releaseYear: tcgplayerReleaseYear(detail),
+    imageUrls: [],
+    barcode: tcgplayerProductBarcode(detail),
+    mergeIdentity: {
+      tcg: normalizeTcgName(detail.productLineName),
+      productLineName: detail.productLineName,
+      setName: detail.setName,
+      printedProductName: detail.productName,
+      collectorNumber,
+      languageCode: "en",
+      productForm: "sealed",
+      barcode: tcgplayerProductBarcode(detail),
+    },
+    externalCatalogItemReferences: externalReferences.externalCatalogItemReferences,
+    externalProductReferences: externalReferences.externalProductReferences,
+    skuReferences,
+  };
+}
+
+function tcgplayerCatalogCollectorNumber(detail: TcgplayerSealedProductDetail): string | null {
+  const number = detail.customAttributes.number?.trim();
+  if (!number) return null;
+  return normalizeTcgName(detail.productLineName) === "pokemon" ? number.replace(/\/\d+$/u, "").trim() : number;
+}
+
+function tcgplayerCatalogHashMaterial(detail: TcgplayerSealedProductDetail): JsonObject {
+  return {
+    productId: detail.productId,
+    productName: detail.productName,
+    productLineId: detail.productLineId,
+    productLineName: detail.productLineName,
+    productTypeName: detail.productTypeName,
+    setId: detail.setId,
+    setCode: detail.setCode,
+    setName: detail.setName,
+    rarityName: detail.rarityName,
+    sealed: detail.sealed,
+    productForm: "sealed",
+    sealedProductForm: tcgplayerSealedProductForm(detail),
+    packCount: tcgplayerPackCount(detail),
+    barcode: tcgplayerProductBarcode(detail),
+    productStatusId: detail.productStatusId,
+    number: detail.customAttributes.number,
+    releaseDate: detail.customAttributes.releaseDate,
+    releaseYear: tcgplayerReleaseYear(detail),
+    cardType: detail.customAttributes.cardType ? [...detail.customAttributes.cardType] : undefined,
+    artist: detail.formattedAttributes?.Artist,
+    skus: detail.skus.map((sku) => ({
+      sku: sku.sku,
+      condition: sku.condition,
+      variant: sku.variant,
+      language: sku.language,
+    })),
+  };
+}
+
+function tcgplayerSealedProductForm(detail: TcgplayerSealedProductDetail) {
+  const normalized = `${detail.productTypeName} ${detail.productName}`.trim().toLowerCase();
+  if (normalized.includes("booster box")) return "booster-box";
+  if (normalized.includes("booster pack") || normalized.includes(" pack")) return "booster-pack";
+  if (normalized.includes("bundle")) {
+    return ["lorcana", "disney lorcana"].includes(normalizeTcgName(detail.productLineName))
+      ? "sealed-product"
+      : "bundle";
+  }
+  if (normalized.includes("deck")) return "deck";
+  return "sealed-product";
+}
+
+function tcgplayerPackCount(detail: TcgplayerSealedProductDetail): number {
+  const value = detail.customAttributes.packCount;
+  const parsed = typeof value === "string" || typeof value === "number" ? Number(String(value).trim()) : null;
+  if (parsed !== null && Number.isInteger(parsed) && parsed > 0) return parsed;
+  const normalized = `${detail.productTypeName} ${detail.productName}`.trim().toLowerCase();
+  const match = normalized.match(/\b(\d+)\s*(?:count|ct|pack|packs)\b/);
+  if (match?.[1]) return Number(match[1]);
+  return normalized.includes("booster box") ? 36 : 1;
+}
+
+function tcgplayerReleaseYear(detail: TcgplayerSealedProductDetail): number | null {
+  const year = detail.customAttributes.releaseDate?.trim().match(/^(\d{4})/)?.[1];
+  return year ? Number(year) : null;
+}
+
+function tcgplayerProductBarcode(detail: TcgplayerSealedProductDetail): string | null {
+  return (
+    [
+      detail.gtin,
+      detail.upc,
+      detail.barcode,
+      detail.customAttributes.gtin,
+      detail.customAttributes.upc,
+      detail.customAttributes.barcode,
+    ]
+      .map((value) => value?.trim())
+      .find(Boolean) ?? null
+  );
+}
+
+function skuReviewEvidence(
+  detail: TcgplayerSealedProductDetail,
+  sku: TcgplayerSealedProductDetail["skus"][number],
+  selected?: ReturnType<typeof resolveCatalogProviderSelectedOptions>,
+): JsonObject {
+  const evidence: JsonObject = {
+    condition: sku.condition,
+    printing: sku.variant,
+    language: sku.language,
+    productForm: detail.sealed ? "unopened" : "single",
+  };
+  if (selected && !selected.resolved && selected.reviewEvidence.length > 0)
+    evidence.selectedOptions = toJsonValue(selected.reviewEvidence);
+  return evidence;
+}
+
+function normalizeTcgName(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (["pokemon", "pokemon tcg", "pokemon trading card game"].includes(normalized)) return "pokemon";
+  if (["magic", "mtg", "magic: the gathering"].includes(normalized)) return "magic";
+  return normalized;
 }

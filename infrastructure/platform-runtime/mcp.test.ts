@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -1944,7 +1945,10 @@ describe("MCP runtime routes", () => {
             accountId: "account_1",
             listingId: "lst_1",
             feeQuoteFingerprint: "fee_1",
-            idempotencyKey: "idem_publish",
+            idempotencyKey: "mcp_publish_attempt_0001",
+            requestHash: createHash("sha256")
+              .update(JSON.stringify({ listingId: "lst_1" }))
+              .digest("hex"),
             confirmationText: "Publish Listing.",
           },
           confirmation: {

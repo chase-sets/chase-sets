@@ -249,6 +249,42 @@ function partitionEntryCallers(files: readonly SourceFile[]) {
 
 let trackedSourcesCache: readonly SourceFile[] | null = null;
 
+const SELL_LIST_CALLERS = [
+  "bounded-contexts/checkout/features/command-attempts/api/sell-list-submission.ts",
+  "bounded-contexts/checkout/features/sell-list/api/route.ts",
+  "bounded-contexts/checkout/features/sell-list/api/runtime.ts",
+  "bounded-contexts/checkout/routes/account-sell-list.tsx",
+  "bounded-contexts/checkout/support/runtime-support/seed.ts",
+  "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
+  "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts",
+];
+
+function partitionSellListCallers(files: readonly SourceFile[]) {
+  const write =
+    /\.(?:addSellListLine|addGuestSellListLine|removeSellListLine|removeGuestSellListLine|removeSellListLines|executeSellListAttempt)\(|(?<!function )\b(?:submitCheckoutSellListAdd|saveSellListLine|saveGuestSelectedOfferToSellList)\(/g;
+  const unclassified: string[] = [];
+  for (const file of files) {
+    const calls = [...file.content.matchAll(write)];
+    const direct = /commandHandler\(\{[\s\S]{0,200}?checkout\.sell-list-/.test(file.content);
+    if (!calls.length && !direct) continue;
+    const exempt = file.path.endsWith("/sell-list/api/runtime.ts") || file.path.endsWith("/runtime-support/seed.ts");
+    if (
+      !SELL_LIST_CALLERS.includes(file.path) ||
+      (!exempt &&
+        calls.some((match) => {
+          const args = callArguments(file.content, match.index! + match[0].lastIndexOf("("));
+          return !/\battemptId\b|\bbody\b|\bsellListLine\b/.test(args);
+        })) ||
+      (!exempt &&
+        !/\b(?:submitCheckoutCartAttempt|submitCheckoutSellListAdd|executeSellListAttempt|saveSellListLine)\(/.test(
+          file.content,
+        ))
+    )
+      unclassified.push(file.path);
+  }
+  return unclassified;
+}
+
 /** The tracked production sources, read once per test file. */
 function trackedSources() {
   trackedSourcesCache ??= listTrackedProductionSources(gitLsFiles, (file) =>
@@ -261,6 +297,46 @@ function trackedSources() {
 const TREE_SCAN_TIMEOUT_MS = 180_000;
 
 describe("checkout attempt caller partition", () => {
+  it(
+    "classifies every tracked Sell List caller, including Discovery action-helpers",
+    { timeout: TREE_SCAN_TIMEOUT_MS },
+    () => {
+      expect(partitionSellListCallers(trackedSources())).toEqual([]);
+    },
+  );
+  it(
+    "rejects a planted tracked Sell List caller and an unkeyed known caller",
+    { timeout: TREE_SCAN_TIMEOUT_MS },
+    () => {
+      expect(
+        partitionSellListCallers([
+          { path: "bounded-contexts/planted/caller.ts", content: "api.removeSellListLine(lineId)" },
+        ]),
+      ).toHaveLength(1);
+      expect(
+        partitionSellListCallers([
+          { path: SELL_LIST_CALLERS.at(-1)!, content: "api.addGuestSellListLine(owner, line)" },
+        ]),
+      ).toHaveLength(1);
+    },
+  );
+  it("names Sell List line, batch and confirmation stream, lookup and replay contracts in the census", () => {
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, "bounded-contexts/checkout/context.json"), "utf8"));
+    const row = manifest.mutationConsistencyInventory.find(
+      (entry: { id: string }) => entry.id === "checkout.sell-list-api-command-snapshots",
+    ).commandAttempt;
+    expect(row.writes.map((write: { kind: string }) => write.kind)).toEqual([
+      "sell-list-line",
+      "sell-list-line",
+      "sell-list-batch",
+      "confirmationIdForSession",
+      "sell-list-handoff-prepared",
+    ]);
+    expect(row.stream).toContain("checkout.sell-list-");
+    expect(row.lookup).toContain("command-attempts/");
+    expect(row.lookup).toContain("confirmations/");
+    expect(row.replay).toContain("checkout_confirmation_changed");
+  });
   it(
     "classifies every tracked cart-write caller as attempt-producing or a proved exemption",
     { timeout: TREE_SCAN_TIMEOUT_MS },
@@ -396,9 +472,9 @@ describe("checkout attempt caller partition", () => {
         for (const field of ["stream", "lookup", "replay"]) {
           expect(typeof row[field] === "string" && (row[field] as string).length > 0, field).toBe(true);
         }
-        return (row.writes as readonly { surface: string; kind: string }[]).map(
-          (write) => `${write.surface} ${write.kind}`,
-        );
+        return (row.writes as readonly { surface: string; kind: string }[])
+          .filter((write) => write.kind.startsWith("cart."))
+          .map((write) => `${write.surface} ${write.kind}`);
       });
 
       expect(writes.sort()).toEqual(

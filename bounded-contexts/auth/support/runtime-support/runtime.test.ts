@@ -385,6 +385,7 @@ describe("Auth request actor resolution", () => {
 
     expect(actor).toEqual({
       sessionId: "guest:tok_guest",
+      sessionProvenance: "guest-checkout",
       tenantId: "tnt_auth",
       userId: AUTH_GUEST_CHECKOUT_USER_ID,
       accountId: "acc_guest",
@@ -431,6 +432,40 @@ describe("Auth request actor resolution", () => {
     });
   });
 
+  it("admits the synthetic linked-platform listings writer whose delegation is enrolled by Identity", async () => {
+    const services = createServices({
+      membership: {
+        membership_id: "mem_synthetic",
+        user_id: "usr_synthetic",
+        account_id: "acc_synthetic",
+        role_key: "owner",
+        role_permissions: ["listings.manage"],
+        status: "active",
+        updated_at: new Date().toISOString(),
+      },
+    });
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://synthetic.invalid/listings", { headers: { authorization: "Bearer ucp_at_synthetic" } }),
+      {
+        linkedPlatformAuthorizations: {
+          resolveAccessToken: async () => ({
+            authorization_id: "synthetic-delegation",
+            platform_profile_url: "https://synthetic.invalid",
+            user_id: "usr_synthetic",
+            account_id: "acc_synthetic",
+            scopes: ["listings:write"],
+          }),
+        },
+      },
+    );
+    expect(actor).toMatchObject({
+      sessionProvenance: "linked-platform",
+      permissions: ["listings.manage"],
+      agentGrant: { grantId: "synthetic-delegation" },
+    });
+  });
+
   it("resolves UCP access-token actors with Auth-owned scope permission policy", async () => {
     const services = createServices({
       membership: {
@@ -463,6 +498,7 @@ describe("Auth request actor resolution", () => {
 
     expect(actor).toEqual({
       sessionId: "ucp:lpa_1",
+      sessionProvenance: "linked-platform",
       tenantId: "tnt_auth",
       userId: "usr_1",
       accountId: "acc_1",
@@ -574,7 +610,7 @@ describe("operator authority reads aggregate", () => {
     })),
   };
 
-  async function resolveOperatorBearer(aggregateRoleKey: "platform-admin" | "owner") {
+  async function resolveOperatorBearer(aggregateRoleKey: "platform-admin" | "owner", aggregateStatus = "active") {
     const services = createServices({
       // The projection is stale: it still says platform-admin after the aggregate changed.
       membership: {
@@ -582,7 +618,9 @@ describe("operator authority reads aggregate", () => {
         user_id: "usr_op",
         account_id: "acc_op",
         role_key: "platform-admin",
-        role_permissions: [...ROLE_PERMISSIONS["platform-admin"]],
+        role_permissions: ROLE_PERMISSIONS["platform-admin"].filter(
+          (key) => key !== "customer-feedback.privacy.export-sensitive-feedback",
+        ),
         status: "active",
         updated_at: new Date().toISOString(),
       },
@@ -592,7 +630,7 @@ describe("operator authority reads aggregate", () => {
       userId: "usr_op",
       accountId: "acc_op",
       roleKey: aggregateRoleKey,
-      status: "active",
+      status: aggregateStatus,
     }));
     const operatorAuthority = createIdentityOperatorAuthority({ getMembershipState } as never);
     const actor = await resolveActorFromRequest(
@@ -642,8 +680,23 @@ describe("operator authority reads aggregate", () => {
     const admitted = await callOfferEconomics(actor, operatorAuthority);
     expect(admitted.handler).toHaveBeenCalledTimes(1);
     expect(admitted.handler.mock.calls[0]![0]).toMatchObject({
-      actor: { permissions: expect.arrayContaining(["insights-dashboards.view"]), roleKey: "platform-admin" },
+      actor: {
+        permissions: expect.arrayContaining([
+          "insights-dashboards.view",
+          "customer-feedback.privacy.export-sensitive-feedback",
+        ]),
+        roleKey: "platform-admin",
+      },
     });
+    expect(actor.permissions).not.toContain("customer-feedback.privacy.export-sensitive-feedback");
+  });
+
+  it("denies a revoked aggregate over a still-active old projection on real MCP requests", async () => {
+    const { actor, operatorAuthority, getMembershipState } = await resolveOperatorBearer("platform-admin", "revoked");
+    const refused = await callOfferEconomics(actor, operatorAuthority);
+    expect(refused.text).toContain("This MCP capability is not available to the authenticated actor.");
+    expect(refused.handler).not.toHaveBeenCalled();
+    expect(getMembershipState).toHaveBeenCalledWith("mem_op");
   });
 
   it("carries the host-supplied operator authority on Auth's identity port", () => {

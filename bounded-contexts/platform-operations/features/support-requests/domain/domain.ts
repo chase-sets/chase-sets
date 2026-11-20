@@ -1,4 +1,5 @@
 import type { AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { ParticipantReceipt } from "./participant-attempt";
 import type { AccountId, OrderId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { compareMoneyAmounts, sumMoneyAmounts } from "@chase-sets/primitives/money";
@@ -84,10 +85,7 @@ import {
   type RetrySupportRemedyEffectCommand,
   type SupportRemedyApprovalEvent,
 } from "./remedy-approval";
-import {
-  createSupportCsatOutcomeFact,
-  supportCsatOutcomeFactEventType,
-} from "../../../support/request-support/csat-outcome-fact";
+const supportCsatOutcomeFactEventType = "platform-operations.csat-outcome-fact.v1" as const;
 
 export type CustomerRemedyRole = "buyer" | "seller";
 export type CustomerRemedyState =
@@ -594,7 +592,7 @@ export type SupportRequestResolvedEvent = DomainEvent<
 
 export type SupportCsatOutcomeFactPublishedEvent = DomainEvent<
   typeof supportCsatOutcomeFactEventType,
-  ReturnType<typeof createSupportCsatOutcomeFact>
+  JsonObject & Readonly<{ subject: Readonly<{ entityType: string; entityId: string }> }>
 >;
 
 export type SupportRequestClosedEvent = DomainEvent<
@@ -958,25 +956,6 @@ function refundAmountForResolution(
   }
 
   return selected.amount ?? selected.capAmount;
-}
-
-function createSupportResolutionOutcomeFact(
-  input: Readonly<{
-    supportRequestId: SupportRequestId;
-    buyerAccountId: AccountId;
-    flowType: SupportFlowType;
-    resolution: SupportResolution;
-  }>,
-) {
-  return createSupportCsatOutcomeFact({
-    outcomeCode: input.flowType === "return-request" ? "return.resolved" : "support.request-resolved",
-    subjectAccountId: input.buyerAccountId,
-    subjectKind: "buyer",
-    subjectEntityType: input.flowType === "return-request" ? "return" : "support-request",
-    subjectEntityId: input.supportRequestId,
-    outcomeOccurredAt: input.resolution.resolvedAt,
-    idempotencyKey: `support-request:${input.supportRequestId}:resolved`,
-  });
 }
 
 function normalizeEvidence(command: SubmitSupportEvidenceCommand): SupportEvidence {
@@ -1389,19 +1368,7 @@ export const decideSupportRequest = (
             autoCloseDueAt: autoCloseDueAtFor(response.submittedAt),
           },
         };
-        return [
-          responseRecorded,
-          resolvedEvent,
-          {
-            type: supportCsatOutcomeFactEventType,
-            data: createSupportResolutionOutcomeFact({
-              supportRequestId: state.supportRequestId,
-              buyerAccountId: state.buyerAccountId!,
-              flowType: state.flowType,
-              resolution,
-            }),
-          },
-        ];
+        return [responseRecorded, resolvedEvent];
       }
 
       return [responseRecorded];
@@ -1452,15 +1419,6 @@ export const decideSupportRequest = (
             resolution,
             autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
           },
-        },
-        {
-          type: supportCsatOutcomeFactEventType,
-          data: createSupportResolutionOutcomeFact({
-            supportRequestId: state.supportRequestId,
-            buyerAccountId: state.buyerAccountId!,
-            flowType: state.flowType!,
-            resolution,
-          }),
         },
       ];
     }
@@ -1593,18 +1551,7 @@ export const decideSupportRequest = (
           autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
         },
       };
-      return [
-        resolvedEvent,
-        {
-          type: supportCsatOutcomeFactEventType,
-          data: createSupportResolutionOutcomeFact({
-            supportRequestId: state.supportRequestId,
-            buyerAccountId: state.buyerAccountId!,
-            flowType: state.flowType,
-            resolution,
-          }),
-        },
-      ];
+      return [resolvedEvent];
     }
     case "ProposeSupportRemedy": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");

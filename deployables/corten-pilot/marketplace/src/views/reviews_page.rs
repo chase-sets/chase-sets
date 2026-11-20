@@ -7,11 +7,20 @@
 //! side and a review's head spreads across its card.
 use corten::prelude::*;
 
+use platform::{
+    theme::gap_2,
+    ui::{
+        meter::Meter,
+        stack::{Gap, Stack as KitStack},
+    },
+};
+
 use super::{account_page::Side, on_marketplace};
 use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice},
     api::{ReviewItem, ReviewSummary},
     app::url,
+    marketplace_attempt::Locked,
     review::{MOST_REPLY, ReviewPlace, ReviewScreen},
     reviews::{ReportInput, ReviewsScreen, Which},
     text::{Pilot, ReviewsMsg},
@@ -208,7 +217,11 @@ fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
 #[component(css = ReviewsPage)]
 fn Distribution<'a>(t: ReviewsMsg, title: &'a str, side: &'a Side) -> impl Render {
     let count = if side.ratings != side.reviews {
-        t.summary_rating_and_review_count(side.ratings, side.reviews).to_string()
+        t.summary_rating_and_review_count(crate::text::reviews_msg::SummaryRatingAndReviewCount {
+            rating_count: side.ratings,
+            review_count: side.reviews,
+        })
+        .to_string()
     } else if side.reviews > 0 {
         side.reviews.to_string()
     } else {
@@ -226,9 +239,9 @@ fn Distribution<'a>(t: ReviewsMsg, title: &'a str, side: &'a Side) -> impl Rende
                 for (n, stars) in side.counts.iter().zip([5, 4, 3, 2, 1]) {
                     <li>
                         <span>{stars}</span>
-                        <progress max="100" value={percent(*n, side.ratings)}>
+                        <meter class={Meter {}} min="0" max="100" value={percent(*n, side.ratings)}>
                             {format!("{}%", percent(*n, side.ratings))}
-                        </progress>
+                        </meter>
                         <span class={Faint}>{format!("{}%", percent(*n, side.ratings))}</span>
                     </li>
                 }
@@ -244,18 +257,18 @@ fn ListItem<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewsScreen, review: &'a 
     let open = url::Review { id: &review.review_id, place: ReviewPlace::default() }.href();
     html! {
         if review.status == "withdrawn" {
-            <li id={ReviewAnchorId(&review.review_id)} class={Stack}>
+            <li id={ReviewAnchorId(&review.review_id)} class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                 <Empty title={t.list_review_withdrawn_title()} description={t.list_review_withdrawn_description()} />
                 if review.withdrawn_by_actor_type.as_deref() == Some("operator") {
                     <p><span class={Badge} data-tone="danger">{t.list_moderated_withdrawn()}</span></p>
                 }
             </li>
         } else if review.held && review.rating.is_none() {
-            <li id={ReviewAnchorId(&review.review_id)} class={Stack}>
+            <li id={ReviewAnchorId(&review.review_id)} class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                 <Empty title={t.list_feedback_on_hold_title()} description={t.list_feedback_on_hold_description()} />
             </li>
         } else if review.rating.is_none() {
-            <li id={ReviewAnchorId(&review.review_id)} class={Stack}>
+            <li id={ReviewAnchorId(&review.review_id)} class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                 <Empty title={t.list_review_pending_title()} description={t.list_review_pending_description()} />
             </li>
         } else {
@@ -299,7 +312,7 @@ fn ReviewCard<'a>(
                 </div>
             </div>
             if list {
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     <p class={Muted}>{t.list_verified_order()}</p>
                     <p class={Muted}>{t.list_reviewed_account()}{subject}</p>
                     <p class={Inline}>
@@ -379,7 +392,7 @@ fn Scoring<'a>(t: ReviewsMsg, review: &'a ReviewItem) -> impl Render {
     };
     html! {
         if review.scoring_disposition.is_some() {
-            <div class={Stack}>
+            <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                 <p class={Inline}>
                     <span class={Badge} data-tone={if included { "success" } else { "neutral" }}>
                         {if included { t.scoring_included() } else { t.scoring_excluded() }}
@@ -426,12 +439,21 @@ fn ReportAction<'a>(
         Some(ReviewNotice::Refused { message, reason, details }) => Some((message.as_str(), reason.as_str(), details.as_str())),
         _ => None,
     };
-    let (reason, details) = refused.map_or(("", ""), |(_, r, d)| (r, d));
+    let locked = match notice {
+        Some(ReviewNotice::Locked { locked: Locked::Conflict, reason, details }) => {
+            Some((t.attempt_conflict(), t.attempt_changed_request(), reason.as_str(), details.as_str()))
+        }
+        Some(ReviewNotice::Locked { locked: Locked::Unconfirmed, reason, details }) => {
+            Some((t.attempt_ambiguous(), t.attempt_unconfirmed(), reason.as_str(), details.as_str()))
+        }
+        _ => None,
+    };
+    let (reason, details) = refused.map(|(_, r, d)| (r, d)).or(locked.map(|(_, _, r, d)| (r, d))).unwrap_or(("", ""));
     let heading = format!("report-review-{review}-title");
     let f = ReportInput::FIELDS;
     let max = MOST_DETAILS.to_string();
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
             if sent {
                 <div class={Banner} data-tone="success" role="status">
                     <p class={Strong}>{title}</p>
@@ -446,7 +468,7 @@ fn ReportAction<'a>(
                     id={ReportReviewDialogId(review)}
                     class={Dialog}
                     aria-labelledby={&heading}
-                    open={refused.is_some()}
+                    open={refused.is_some() || locked.is_some()}
                     on:connect={corten_ui::dialog::modal(target)}
                 >
                     <div class={DialogHead}>
@@ -467,6 +489,13 @@ fn ReportAction<'a>(
                                 <p>{message}</p>
                             </div>
                         }
+                        if let Some((title, description, _, _)) = locked {
+                            <div class={Banner} data-tone="danger" role="alert">
+                                <p class={Strong}>{title}</p>
+                                <p>{description}</p>
+                            </div>
+                        }
+                        {SubmitKey::field(f.attempt)}
                         <label class={Field}>
                             <span>{t.report_reason()}<span class={Required} aria-hidden="true">" *"</span></span>
                             <select
@@ -491,7 +520,9 @@ fn ReportAction<'a>(
                             </textarea>
                             <span class={Faint}>{t.report_details_description()}</span>
                         </label>
-                        <p><button type="submit" class={Secondary}>{t.report_submit()}</button></p>
+                        <p>
+                            <button type="submit" class={Secondary} disabled={locked.is_some()}>{t.report_submit()}</button>
+                        </p>
                     </form>
                 </dialog>
             }
@@ -520,7 +551,7 @@ pub fn ReviewPage<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewScreen) -> impl
             <section class={Section} aria-labelledby="review-summary">
                 <h2 id="review-summary" class={SectionTitle}>{t.detail_summary()}</h2>
                 if review.status == "withdrawn" {
-                    <div class={Stack}>
+                    <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                         <Empty title={t.detail_review_withdrawn_title()} description={t.detail_review_withdrawn_description()} />
                         if review.withdrawn_by_actor_type.as_deref() == Some("operator") {
                             <p><span class={Badge} data-tone="danger">{t.detail_moderated_withdrawn()}</span></p>
@@ -561,7 +592,7 @@ fn DetailCard<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewScreen, action: &'a
                     <span class={Badge} data-tone="success">{p.account_verified_purchase()}</span>
                 </div>
             </div>
-            <div class={Stack}>
+            <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                 <p class={Muted}>{t.detail_author_role()}{&review.author_role}</p>
                 <p class={Muted}>{t.detail_reviewed_account()}{subject}</p>
                 <p class={Inline}>
@@ -603,13 +634,20 @@ fn DetailCard<'a>(t: ReviewsMsg, p: Pilot, screen: &'a ReviewScreen, action: &'a
 
 /// Respond to this review: what a reply is, a refused reply's words (the closed authoring codes as
 /// `AuthoredTextRecoverySummary` with a link to the words, else a banner), the words as typed, and
-/// the community guidelines before Post response.
+/// the community guidelines before Post response, which is off while a reply's result cannot be
+/// confirmed.
 #[component(css = ReviewsPage)]
 fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> impl Render {
     let f = ReportInput::FIELDS;
     let refused = screen.reply.as_ref();
     let draft = refused.map_or("", |r| r.draft.as_str());
     let invalid = refused.is_some_and(|r| r.field).then_some("true");
+    let locked = refused.and_then(|r| r.locked);
+    let title = match locked {
+        Some(Locked::Conflict) => t.attempt_conflict(),
+        Some(Locked::Unconfirmed) => t.attempt_ambiguous(),
+        None => t.detail_reply_title(),
+    };
     let max = MOST_REPLY.to_string();
     html! {
         <div class={Card}>
@@ -624,13 +662,14 @@ fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> im
                             <p><a href={ReplyFeedbackId.fragment()}>{t.detail_reply_feedback()}</a></p>
                         }
                     } else {
-                        <p class={Strong}>{t.detail_reply_title()}</p>
+                        <p class={Strong}>{title}</p>
                         <p>{&refused.message}</p>
                     }
                 </div>
             }
             <form class={Form} method="post" action={action}>
                 <input type="hidden" name={f.intent} value="reply">
+                {SubmitKey::field(f.attempt)}
                 <label class={Field}>
                     <span>{t.detail_reply_feedback()}<span class={Required} aria-hidden="true">" *"</span></span>
                     <textarea
@@ -646,7 +685,7 @@ fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> im
                     </textarea>
                     <span class={Faint}>{t.detail_reply_feedback_description()}</span>
                 </label>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     <p class={Muted}>{t.guidance_description()}</p>
                     <p class={Inline}>
                         <a href={&on_marketplace("/help/buying/community-guidelines-and-enforcement")}>
@@ -655,7 +694,7 @@ fn ReplyForm<'a>(t: ReviewsMsg, screen: &'a ReviewScreen, action: &'a str) -> im
                         <a href={&on_marketplace("/contact")}>{t.guidance_contact_support()}</a>
                     </p>
                 </div>
-                <p><button type="submit" class={Primary}>{t.detail_reply_submit()}</button></p>
+                <p><button type="submit" class={Primary} disabled={locked.is_some()}>{t.detail_reply_submit()}</button></p>
             </form>
         </div>
     }

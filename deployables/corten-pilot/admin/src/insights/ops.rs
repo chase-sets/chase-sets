@@ -10,7 +10,7 @@
 //!
 //! admin-web's range form has no submit control, so its range cannot be applied
 //! (chase-sets/chase-sets#10874); the pilot's has one.
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use jiff::{Timestamp, ToSpan, civil::Date, tz::TimeZone};
 use serde::{Deserialize, Serialize};
 
@@ -34,10 +34,9 @@ const RUNS: u32 = 12;
 #[corten::routes(state = crate::app::Shared, area = crate::insights::ops::url::OpsDashboard, caller = crate::auth::Staff<crate::auth::InsightsView>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     /// The range and granularity, as admin-web's form sends them.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct View {
@@ -173,7 +172,7 @@ async fn ops_dashboard(
 ) -> HtmlResult {
     let range_days = range_days(route.view.range_days.as_deref());
     let granularity = granularity(route.view.granularity.as_deref());
-    let (from, to) = window(Timestamp::now().to_zoned(TimeZone::UTC).date(), range_days);
+    let (from, to) = window(Timestamp::now().to_zoned_datetime(TimeZone::UTC).date(), range_days);
     let (from, to) = (segment(&from.to_string()), segment(&to.to_string()));
     let caller = config.platform.caller(&headers, config.proto, None);
     let (summary_path, series_path, runs_path) = (

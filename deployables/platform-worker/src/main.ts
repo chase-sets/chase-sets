@@ -1,11 +1,12 @@
+import type { CatalogServices } from "@chase-sets/catalog/server";
+import type { InventoryServices } from "@chase-sets/inventory/server";
+import type { SettlementServices } from "@chase-sets/settlement/server";
+
 import "./observability-prelude";
+import { createMarketplaceListingConsumer } from "@chase-sets/marketplace/server";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import {
-  createNoopNotificationAdapter,
-  type NotificationChannelAdapter,
-  type NotificationPreferenceResolver,
-} from "@chase-sets/outbound-messaging";
+import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/outbound-messaging";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
   createBuyerOfferPricing,
@@ -20,25 +21,12 @@ import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import type { GoogleShoppingSyncMode, GoogleShoppingSyncServices } from "@chase-sets/discovery/server";
-import {
-  createGoogleMerchantApiClient,
-  createGoogleMerchantServiceAccountAccessTokenProvider,
-  type GoogleMerchantConfig,
-} from "@chase-sets/google-merchant";
-import type {
-  InventoryAccountSellerSkuItemResolution,
-  InventoryDraftListingCreator,
-} from "@chase-sets/inventory/server";
+
 import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
-import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import { type MarketplaceServices } from "@chase-sets/marketplace/server";
 import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
-import type {
-  BulkRepriceIngestionServices,
-  PricingRecommendationServices,
-  PricingServices,
-} from "@chase-sets/pricing/server";
-import { createIdentityTermsAcceptanceResolver } from "@chase-sets/identity/server";
+import type { PricingServices } from "@chase-sets/pricing/server";
+import { createIdentityTermsAcceptanceResolver, type IdentityServices } from "@chase-sets/identity/server";
 import {
   activateMarketplaceLabelPostage,
   settlementOperationLogFields,
@@ -57,7 +45,6 @@ import {
 import {
   collectProjectionOperationRunners,
   collectWorkerRunners,
-  createDurableJobLaneRunners,
   createProjectionGroupRunnerName,
   createWorkerHost,
   createWorkerRunnerLoop,
@@ -101,8 +88,7 @@ import {
   summarizeRunnerCapacity,
 } from "@chase-sets/platform-runtime/worker-capacity";
 import { attributeProjectionHotLag } from "@chase-sets/platform-runtime/projection-hot-lag-evidence";
-import { createNotificationOutboxDispatcher, createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
-import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notifications";
+
 import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
 import {
   bootstrapPlatformControlPlane,
@@ -140,20 +126,21 @@ import {
   type ProjectionWakeIntentOutcomeSignal,
 } from "@chase-sets/observability";
 import { loadConfig, type PlatformWorkerCatalogAssetStorageConfig } from "./config";
-import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
-import { createChannelsOutboundRunners } from "./channels-outbound-runners";
-import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
 import {
-  createChannelsReconciliationRunners,
-  createPlatformChannelSaleRecorder,
-} from "./channels-reconciliation-runners";
+  createAgentGrantRevocationWorkerPorts,
+  createOrderingAgentWebhookOrderResolvers,
+} from "./agent-webhook-runners";
+
+import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
+import { createPlatformChannelSaleRecorder } from "./channels-reconciliation-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools, createSettlementBootstrapPool } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
-import { workerContextRegistry } from "./generated/worker-context-registry";
-import { createRegisteredScheduledRunners, createSupportEvidenceCleanupHostPort } from "./scheduled-runners";
-import { createInventoryJobRunners } from "./inventory-job-runners";
+import { workerContextRegistry } from "./context-registry";
+import { createPlatformWorkerJobComposition } from "./worker-job-composition";
+import { createSupportEvidenceCleanupHostPort } from "./scheduled-runners";
+
 import { runStartupRetry } from "./startup-retry";
-import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
+
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -273,10 +260,13 @@ const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({
       db: pools["commercial-terms"],
       accountSource: createIdentityCommercialTermsAccountSource(
-        () => runtime?.services.identity as WorkerIdentityServices | undefined,
+        () => runtime?.services.identity as IdentityServices | undefined,
       ),
     })
   : undefined;
+if (pools.checkout && !commercialTermsResolver) {
+  throw new Error("Checkout requires a Commercial Terms resolver backed by the Commercial Terms database.");
+}
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
@@ -299,19 +289,15 @@ const checkoutProcessingFeePolicyResolver = pools["commercial-terms"]
   ? createCheckoutProcessingFeePolicyResolver(pools["commercial-terms"])
   : undefined;
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
-const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-  const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
-  const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
-  if (!createDraft) {
-    throw new Error("Marketplace draft listing service is unavailable.");
-  }
-
-  return createDraft(params, context);
-};
 const inventoryDraftListingConsumer = createPlatformWorkerInventoryDraftListingConsumer(
   () => runtime?.services.marketplace as MarketplaceServices | undefined,
 );
 
+const listingConsumer =
+  config.runtimeProfile !== "landing" && pools.marketplace
+    ? createMarketplaceListingConsumer(pools.marketplace)
+    : undefined;
+await listingConsumer?.initialize();
 const identityHostPorts = {
   capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
 } satisfies Pick<import("@chase-sets/identity/server").IdentityHostPorts, "capabilityAdministrationAuthority">;
@@ -324,7 +310,16 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     hostPorts: {
       inventoryDraftListingConsumer,
       draftListingDelivery: inventoryDraftListingConsumer,
+      ...(pools.marketplace ? { pricingPredicateConsumerPool: pools.marketplace } : {}),
       ...identityHostPorts,
+      ...(listingConsumer
+        ? {
+            identitySourceTopology: listingConsumer.topology,
+            sessionConsumers: listingConsumer.topology,
+            connectionConsumers: listingConsumer.topology,
+            stockReservationConsumerPool: pools.marketplace,
+          }
+        : {}),
       ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
@@ -345,7 +340,6 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
         linkedAuthorizations: pools.identity,
         oauthClients: pools.auth,
       }),
-      draftListingCreator,
       // Ordering's cleanup authority is an API-only read surface: the
       // worker runs projectors, subscriptions, and scheduled runners and never
       // serves N8. The variant is stated explicitly rather than omitted, so an
@@ -353,7 +347,10 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       inventoryCleanupAuthority: { kind: "not-mounted" },
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
-      ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      ebayOAuthConfiguration: config.ebayOAuthConfiguration,
+      ...(pools.inventory
+        ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory, pools.marketplace) }
+        : {}),
       storageLocationAuthority: {
         resolve: pools.inventory
           ? createStorageLocationAuthority(pools.inventory).resolveStorageLocationAuthority
@@ -393,17 +390,6 @@ if (config.runtimeProfile === "landing") {
   runtime = constructWorkerRuntime(marketplaceLabelPostageActivation);
 }
 
-type WorkerIdentityServices = Readonly<{
-  accounts?: Readonly<{
-    getAccountState?: (accountId: string) => Promise<Readonly<{
-      id: string | null;
-      accountType: "personal" | "business" | "enterprise" | null;
-      status: string;
-      foundersWindow?: Readonly<{ startedAt: string; endsAt: string }> | null;
-    }> | null>;
-  }>;
-}>;
-
 function createChannelConnectionIdentityReader(
   getServices: () => ChannelsServices | undefined,
 ): ChannelConnectionIdentityReader {
@@ -429,7 +415,7 @@ function requirePricingCommercialTermsResolver(resolver: CommercialTermsResolver
 }
 
 function createIdentityCommercialTermsAccountSource(
-  getIdentityServices: () => WorkerIdentityServices | undefined,
+  getIdentityServices: () => IdentityServices | undefined,
 ): CommercialTermsAccountSource {
   return {
     getAccount: async (accountId) => {
@@ -470,49 +456,43 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   workSignalStore,
   observer: createWorkerObserver(logger, workerKind, undefined, recordProjectionStatus),
 });
-const inventoryImportJobRunners = platformWorkerGroupsEnabled
-  ? createInventoryJobRunners(runtime.services, config, logger)
-  : [];
-const bulkJobRunners = [
-  ...createCatalogBulkJobRunners(runtime.services, config),
-  ...(platformWorkerGroupsEnabled
-    ? [
-        ...createGoogleShoppingJobRunners(runtime.services, config),
-        ...createPricingJobRunners(runtime.services, config),
-        ...createBulkRepriceIngestionJobRunners(runtime.services, config),
-        ...createSettlementJobRunners(runtime.services, config),
-        ...createChannelsOutboundRunners(runtime.services, config),
-      ]
-    : []),
-];
-const notificationDispatchRunners = platformWorkerGroupsEnabled
-  ? createNotificationDispatchRunners(runtime, config.workerId, emailNotificationAdapter)
-  : [];
-const agentWebhookDispatchRunners = platformWorkerGroupsEnabled
-  ? createAgentWebhookDispatchRunners(runtime, { workerId: config.workerId })
-  : [];
-const scheduledJobRunners = platformWorkerGroupsEnabled
-  ? [
-      ...createRegisteredScheduledRunners({
-        services: runtime.services,
-        config,
-        controlPlane,
-        logger,
-        workSignalCleanup: () => ({
-          workSignalStore,
-          intervalMs: config.projectionWakeScheduler.cleanupIntervalMs,
-          observer: createProjectionWakeSchedulerLogObserver(),
-        }),
-        retentionSweep: () => ({
-          targets: collectRetentionSweepTargets(runtime, pools.control),
-          observer: createRetentionSweepLogObserver(logger),
-        }),
-      }),
-      ...(isChannelsServices(runtime.services.channels)
-        ? createChannelsReconciliationRunners({ services: runtime.services.channels, controlPlane })
-        : []),
-    ]
-  : [];
+const notificationOutboxContextNames = new Set<string>(
+  workerContextRegistry
+    .filter((entry) => entry.manifest.hostPorts?.some((port) => port.portName === "notificationOutbox"))
+    .map((entry) => entry.contextName),
+);
+const jobComposition = createPlatformWorkerJobComposition(
+  {
+    services: runtime.services,
+    runtime,
+    ports: createAgentGrantRevocationWorkerPorts(runtime),
+    config,
+    controlPlane,
+    logger,
+    notification: platformWorkerGroupsEnabled
+      ? {
+          emailAdapter: emailNotificationAdapter,
+          mobileMessageAdapters: () => createMobileMessageAdapters(config),
+          outboxContextNames: notificationOutboxContextNames,
+        }
+      : undefined,
+  },
+  {
+    workSignalCleanup: () => ({
+      workSignalStore,
+      intervalMs: config.projectionWakeScheduler.cleanupIntervalMs,
+      observer: createProjectionWakeSchedulerLogObserver(),
+    }),
+    retentionSweep: () => ({
+      targets: collectRetentionSweepTargets(runtime, pools.control),
+      observer: createRetentionSweepLogObserver(logger),
+    }),
+  },
+);
+const inventoryImportJobRunners = jobComposition["inventory-jobs"];
+const bulkJobRunners = jobComposition.jobs;
+const dispatchRunners = jobComposition.dispatch;
+const scheduledJobRunners = jobComposition.scheduled;
 // Projection-group-level wake kill switch (WORKER_WAKE_DISABLED_PROJECTIONS):
 // disabled `<target-context>:<projection-name>` keys are removed from the wake
 // scheduler's hosted groups and marked disabled in the relay interest index,
@@ -566,11 +546,7 @@ const runnerGroups = [
   createRunnerGroup("operations", projectionOperationRunners, config.projectionOperations.runnerCount),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
   createRunnerGroup("inventory-jobs", inventoryImportJobRunners, config.inventoryImportBatchJobMaxConcurrentRunners),
-  createRunnerGroup(
-    "dispatch",
-    [...notificationDispatchRunners, ...agentWebhookDispatchRunners],
-    config.dispatchMaxConcurrentRunners,
-  ),
+  createRunnerGroup("dispatch", dispatchRunners, config.dispatchMaxConcurrentRunners),
   createRunnerGroup("scheduled", scheduledJobRunners, config.scheduledMaxConcurrentRunners),
   createRunnerGroup(
     "wakes",
@@ -1098,38 +1074,10 @@ async function stopRunnerLoops(loops: readonly WorkerRunnerLoop[]) {
 }
 
 async function collectDurableWorkflowStatuses(services: Readonly<Record<string, unknown>>) {
-  const catalog = services.catalog as
-    | {
-        sourceObservations?: {
-          getBulkReviewWorkUnitSummary?: () => Promise<unknown>;
-          getIntegrationWorkUnitSummary?: () => Promise<unknown>;
-        };
-        authoringBulkJobs?: {
-          getWorkUnitSummary?: () => Promise<unknown>;
-        };
-      }
-    | undefined;
-  const inventory = services.inventory as
-    | {
-        importBatches?: {
-          getImportBatchWorkUnitSummary?: () => Promise<unknown>;
-        };
-      }
-    | undefined;
-  const pricing = services.pricing as
-    | {
-        recommendations?: {
-          getRecommendationWorkUnitSummary?: () => Promise<unknown>;
-        };
-      }
-    | undefined;
-  const settlement = services.settlement as
-    | {
-        payouts?: {
-          getPayoutReconciliationWorkUnitSummary?: () => Promise<unknown>;
-        };
-      }
-    | undefined;
+  const catalog = services.catalog as CatalogServices | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
+  const pricing = services.pricing as PricingServices | undefined;
+  const settlement = services.settlement as SettlementServices | undefined;
   const summaries = await Promise.all([
     catalog?.sourceObservations?.getBulkReviewWorkUnitSummary?.().then((summary) => ({
       workflowName: "catalog.source-observation-bulk-review",
@@ -1423,450 +1371,6 @@ function createProjectionWakeSchedulerLogObserver(
   };
 }
 
-function createCatalogBulkJobRunners(
-  services: Readonly<Record<string, unknown>>,
-  input: Pick<
-    ReturnType<typeof loadConfig>,
-    | "workerId"
-    | "leaseTtlMs"
-    | "sourceObservationBulkJobLaneCount"
-    | "sourceObservationBulkJobWorkflowMaxActiveClaims"
-    | "sourceObservationBulkJobMaxActiveClaimsPerJob"
-    | "catalogAuthoringBulkJobLaneCount"
-    | "catalogAuthoringBulkJobWorkflowMaxActiveClaims"
-    | "catalogAuthoringBulkJobMaxActiveClaimsPerJob"
-    | "sourceObservationIntegrationJobLaneCount"
-    | "sourceObservationIntegrationJobWorkflowMaxActiveClaims"
-    | "sourceObservationIntegrationJobMaxActiveClaimsPerJob"
-  >,
-): readonly WorkerRunner[] {
-  type CatalogSourceObservationJobProcessor = Readonly<{
-    processNextBulkReviewJob?: (input: {
-      claimOwnerId: string;
-      claimTtlMs: number;
-      workflowMaxActiveClaims?: number;
-      jobMaxActiveClaims?: number;
-      laneName?: string | null;
-      signal?: AbortSignal;
-      throwIfLeaseLost?: () => void;
-    }) => Promise<number>;
-    processNextIntegrationJob?: (input: {
-      claimOwnerId: string;
-      claimTtlMs: number;
-      workflowMaxActiveClaims?: number;
-      jobMaxActiveClaims?: number;
-      laneName?: string | null;
-      signal?: AbortSignal;
-      throwIfLeaseLost?: () => void;
-    }) => Promise<number>;
-  }>;
-
-  const catalog = services.catalog as
-    | {
-        sourceObservations?: CatalogSourceObservationJobProcessor;
-        authoringBulkJobs?: {
-          processNext?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            services: never;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<boolean>;
-        };
-      }
-    | undefined;
-  const processNextBulkReviewJob = catalog?.sourceObservations?.processNextBulkReviewJob;
-  const processNextIntegrationJob = catalog?.sourceObservations?.processNextIntegrationJob;
-  const processNextAuthoringBulkJob = catalog?.authoringBulkJobs?.processNext;
-
-  if (!processNextBulkReviewJob && !processNextIntegrationJob && !processNextAuthoringBulkJob) {
-    return [];
-  }
-
-  const runners: WorkerRunner[] = [];
-
-  if (processNextBulkReviewJob) {
-    runners.push(
-      ...createDurableJobLaneRunners({
-        workflowName: "catalog.source-observation-bulk-jobs",
-        laneCount: input.sourceObservationBulkJobLaneCount,
-        runLane: async (lane) => ({
-          processed: await processNextBulkReviewJob({
-            claimOwnerId: `${input.workerId}:${lane.laneName}`,
-            claimTtlMs: input.leaseTtlMs * 4,
-            workflowMaxActiveClaims: input.sourceObservationBulkJobWorkflowMaxActiveClaims,
-            jobMaxActiveClaims: input.sourceObservationBulkJobMaxActiveClaimsPerJob,
-            laneName: lane.laneName,
-            signal: lane.runnerContext?.signal,
-            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-          }),
-          lastGlobalPosition: "0" as never,
-        }),
-      }),
-    );
-  }
-
-  if (processNextIntegrationJob) {
-    runners.push(
-      ...createDurableJobLaneRunners({
-        workflowName: "catalog.source-observation-integration-jobs",
-        laneCount: input.sourceObservationIntegrationJobLaneCount,
-        runLane: async (lane) => ({
-          processed: await processNextIntegrationJob({
-            claimOwnerId: `${input.workerId}:${lane.laneName}`,
-            claimTtlMs: input.leaseTtlMs * 4,
-            workflowMaxActiveClaims: input.sourceObservationIntegrationJobWorkflowMaxActiveClaims,
-            jobMaxActiveClaims: input.sourceObservationIntegrationJobMaxActiveClaimsPerJob,
-            laneName: lane.laneName,
-            signal: lane.runnerContext?.signal,
-            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-          }),
-          lastGlobalPosition: "0" as never,
-        }),
-      }),
-    );
-  }
-
-  if (processNextAuthoringBulkJob && catalog) {
-    runners.push(
-      ...createDurableJobLaneRunners({
-        workflowName: "catalog.authoring-bulk-jobs",
-        laneCount: input.catalogAuthoringBulkJobLaneCount,
-        runLane: async (lane) => ({
-          processed: (await processNextAuthoringBulkJob({
-            claimOwnerId: `${input.workerId}:${lane.laneName}`,
-            claimTtlMs: input.leaseTtlMs * 4,
-            services: catalog as never,
-            workflowMaxActiveClaims: input.catalogAuthoringBulkJobWorkflowMaxActiveClaims,
-            jobMaxActiveClaims: input.catalogAuthoringBulkJobMaxActiveClaimsPerJob,
-            laneName: lane.laneName,
-            signal: lane.runnerContext?.signal,
-            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-          }))
-            ? 1
-            : 0,
-          lastGlobalPosition: "0" as never,
-        }),
-      }),
-    );
-  }
-
-  return runners;
-}
-
-function createGoogleShoppingJobRunners(
-  services: Readonly<Record<string, unknown>>,
-  input: Pick<
-    ReturnType<typeof loadConfig>,
-    "workerId" | "leaseTtlMs" | "googleMerchant" | "googleShoppingDiagnosticsPreviousIssueChunkSize"
-  >,
-): readonly WorkerRunner[] {
-  const discovery = services.discovery as
-    | {
-        googleShoppingSync?: Partial<
-          Pick<
-            GoogleShoppingSyncServices,
-            "processNextFullSyncJob" | "processNextIncrementalSyncJob" | "processNextDiagnosticsRefreshJob"
-          >
-        >;
-      }
-    | undefined;
-  const processNextFullSyncJob = discovery?.googleShoppingSync?.processNextFullSyncJob;
-  const processNextIncrementalSyncJob = discovery?.googleShoppingSync?.processNextIncrementalSyncJob;
-  const processNextDiagnosticsRefreshJob = discovery?.googleShoppingSync?.processNextDiagnosticsRefreshJob;
-
-  if (!processNextFullSyncJob && !processNextIncrementalSyncJob && !processNextDiagnosticsRefreshJob) {
-    return [];
-  }
-
-  return [
-    ...(processNextFullSyncJob
-      ? createDurableJobLaneRunners({
-          workflowName: "discovery.google-shopping-full-sync-jobs",
-          laneCount: 1,
-          runLane: async (lane) => ({
-            processed: await processNextFullSyncJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
-            lastGlobalPosition: "0" as never,
-          }),
-        })
-      : []),
-    ...(processNextIncrementalSyncJob
-      ? createDurableJobLaneRunners({
-          workflowName: "discovery.google-shopping-incremental-sync-jobs",
-          laneCount: 1,
-          runLane: async (lane) => ({
-            processed: await processNextIncrementalSyncJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              mode: input.googleMerchant.syncEnabled && !input.googleMerchant.dryRun ? "live" : "dry-run",
-              merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
-            lastGlobalPosition: "0" as never,
-          }),
-        })
-      : []),
-    ...(processNextDiagnosticsRefreshJob
-      ? createDurableJobLaneRunners({
-          workflowName: "discovery.google-shopping-diagnostics-jobs",
-          laneCount: 1,
-          runLane: async (lane) => ({
-            processed: await processNextDiagnosticsRefreshJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              previousIssueChunkSize: input.googleShoppingDiagnosticsPreviousIssueChunkSize,
-              merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
-            lastGlobalPosition: "0" as never,
-          }),
-        })
-      : []),
-  ];
-}
-
-function createPricingJobRunners(
-  services: Readonly<{
-    pricing?: Partial<Pick<PricingServices, "recommendations" | "repricingEngine">>;
-    marketplace?: Partial<Pick<MarketplaceServices, "listings">>;
-  }>,
-  input: Pick<
-    ReturnType<typeof loadConfig>,
-    | "workerId"
-    | "leaseTtlMs"
-    | "pricingRecommendationJobLaneCount"
-    | "pricingRecommendationJobWorkflowMaxActiveClaims"
-    | "pricingRecommendationJobMaxActiveClaimsPerJob"
-    | "pricingRepricingEvaluationJobLaneCount"
-    | "pricingRepricingDryRunJobLaneCount"
-  >,
-): readonly WorkerRunner[] {
-  const pricing = services.pricing;
-  const marketplace = services.marketplace;
-  const processNextRecommendationJob = pricing?.recommendations?.processNextRecommendationJob;
-  const processNextEvaluationJob = pricing?.repricingEngine?.processNextEvaluationJob;
-  const processNextDryRunJob = pricing?.repricingEngine?.processNextDryRunJob;
-
-  if (!processNextRecommendationJob && !processNextEvaluationJob && !processNextDryRunJob) {
-    return [];
-  }
-
-  return [
-    ...(processNextDryRunJob
-      ? createDurableJobLaneRunners({
-          workflowName: "pricing.repricing-dry-run-jobs",
-          laneCount: input.pricingRepricingDryRunJobLaneCount,
-          runLane: async (lane) => ({
-            processed: await processNextDryRunJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
-            lastGlobalPosition: "0" as never,
-          }),
-        })
-      : []),
-    ...(processNextRecommendationJob && marketplace?.listings
-      ? createDurableJobLaneRunners({
-          workflowName: "pricing.recommendation-jobs",
-          laneCount: input.pricingRecommendationJobLaneCount,
-          runLane: async (lane) => ({
-            processed: await processNextRecommendationJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              workflowMaxActiveClaims: input.pricingRecommendationJobWorkflowMaxActiveClaims,
-              jobMaxActiveClaims: input.pricingRecommendationJobMaxActiveClaimsPerJob,
-              laneName: lane.laneName,
-              marketplaceListingGatewayForAccount: (accountId) => ({
-                applyBulkListingPriceUpdates: async (body) => ({
-                  items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                    { accountId: accountId as never, updates: body.updates },
-                    SYSTEM_CONTEXT,
-                  ),
-                }),
-                createListing: async (body) => {
-                  const result = await marketplace.listings!.createListing!(
-                    {
-                      accountId: accountId as never,
-                      ...body,
-                      listingIdOverride: body.listingIdOverride as never,
-                    },
-                    SYSTEM_CONTEXT,
-                  );
-                  return {
-                    id: result.listingId,
-                    listing_id: result.listingId,
-                  };
-                },
-              }),
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
-            lastGlobalPosition: "0" as never,
-          }),
-        })
-      : []),
-    ...(processNextEvaluationJob && marketplace?.listings
-      ? createDurableJobLaneRunners({
-          workflowName: "pricing.repricing-evaluation-jobs",
-          laneCount: input.pricingRepricingEvaluationJobLaneCount,
-          runLane: async (lane) => ({
-            processed: await processRepricingEvaluationJob(
-              processNextEvaluationJob,
-              {
-                claimOwnerId: `${input.workerId}:${lane.laneName}`,
-                claimTtlMs: input.leaseTtlMs * 4,
-                marketplaceGatewayForAccount: (accountId) => ({
-                  applyBulkListingPriceUpdates: async (body) => ({
-                    items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                      { accountId, updates: body.updates },
-                      SYSTEM_CONTEXT,
-                    ),
-                  }),
-                  pauseListing: (listingId, body) =>
-                    marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
-                  publishListing: (listingId, body) =>
-                    marketplace.listings!.publishListing!(
-                      { accountId, listingId, idempotencyKey: body.idempotencyKey },
-                      SYSTEM_CONTEXT,
-                    ),
-                }),
-                signal: lane.runnerContext?.signal,
-                throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-              },
-              logger,
-            ),
-            lastGlobalPosition: "0" as never,
-          }),
-        })
-      : []),
-  ];
-}
-
-function createBulkRepriceIngestionJobRunners(
-  services: Readonly<Record<string, unknown>>,
-  input: Pick<
-    ReturnType<typeof loadConfig>,
-    | "workerId"
-    | "leaseTtlMs"
-    | "pricingBulkRepriceJobLaneCount"
-    | "pricingBulkRepriceJobWorkflowMaxActiveClaims"
-    | "pricingBulkRepriceJobMaxActiveClaimsPerJob"
-  >,
-): readonly WorkerRunner[] {
-  const pricing = services.pricing as
-    | { bulkRepriceIngestion?: Pick<BulkRepriceIngestionServices, "processNextBulkRepriceJob"> }
-    | undefined;
-  const marketplace = services.marketplace as
-    | {
-        listings?: Pick<MarketplaceListingServices, "applyBulkListingPriceUpdates">;
-      }
-    | undefined;
-  const inventory = services.inventory as
-    | {
-        importBatches?: {
-          resolveAccountSkuMappingsToInventoryItems?: (params: {
-            accountId: string;
-            sellerSkus: readonly string[];
-          }) => Promise<readonly InventoryAccountSellerSkuItemResolution[]>;
-        };
-      }
-    | undefined;
-  const processNextBulkRepriceJob = pricing?.bulkRepriceIngestion?.processNextBulkRepriceJob;
-
-  if (!processNextBulkRepriceJob || !marketplace?.listings || !inventory?.importBatches) {
-    return [];
-  }
-
-  return createDurableJobLaneRunners({
-    workflowName: "pricing.bulk-reprice-jobs",
-    laneCount: input.pricingBulkRepriceJobLaneCount,
-    runLane: async (lane) => ({
-      processed: await processNextBulkRepriceJob({
-        claimOwnerId: `${input.workerId}:${lane.laneName}`,
-        claimTtlMs: input.leaseTtlMs * 4,
-        workflowMaxActiveClaims: input.pricingBulkRepriceJobWorkflowMaxActiveClaims,
-        jobMaxActiveClaims: input.pricingBulkRepriceJobMaxActiveClaimsPerJob,
-        laneName: lane.laneName,
-        marketplaceListingGatewayForAccount: (accountId) => ({
-          applyBulkListingPriceUpdates: async (body) => ({
-            items: await marketplace.listings!.applyBulkListingPriceUpdates!({ accountId, ...body }, SYSTEM_CONTEXT),
-          }),
-        }),
-        inventorySkuGatewayForAccount: (accountId) => ({
-          resolveSellerSkusToInventoryItems: (sellerSkus) =>
-            inventory.importBatches!.resolveAccountSkuMappingsToInventoryItems!({ accountId, sellerSkus }),
-        }),
-        signal: lane.runnerContext?.signal,
-        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-      }),
-      lastGlobalPosition: "0" as never,
-    }),
-  });
-}
-
-function createSettlementJobRunners(
-  services: Readonly<Record<string, unknown>>,
-  input: Pick<
-    ReturnType<typeof loadConfig>,
-    | "workerId"
-    | "leaseTtlMs"
-    | "settlementPayoutReconciliationJobLaneCount"
-    | "settlementPayoutReconciliationJobWorkflowMaxActiveClaims"
-    | "settlementPayoutReconciliationJobMaxActiveClaimsPerJob"
-  >,
-): readonly WorkerRunner[] {
-  const settlement = services.settlement as
-    | {
-        payouts?: {
-          processNextPayoutReconciliationJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-      }
-    | undefined;
-  const processNextPayoutReconciliationJob = settlement?.payouts?.processNextPayoutReconciliationJob;
-
-  if (!processNextPayoutReconciliationJob) {
-    return [];
-  }
-
-  return createDurableJobLaneRunners({
-    workflowName: "settlement.payout-reconciliation-jobs",
-    laneCount: input.settlementPayoutReconciliationJobLaneCount,
-    runLane: async (lane) => ({
-      processed: await processNextPayoutReconciliationJob({
-        claimOwnerId: `${input.workerId}:${lane.laneName}`,
-        claimTtlMs: input.leaseTtlMs * 4,
-        workflowMaxActiveClaims: input.settlementPayoutReconciliationJobWorkflowMaxActiveClaims,
-        jobMaxActiveClaims: input.settlementPayoutReconciliationJobMaxActiveClaimsPerJob,
-        laneName: lane.laneName,
-        signal: lane.runnerContext?.signal,
-        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-      }),
-      lastGlobalPosition: "0" as never,
-    }),
-  });
-}
-
 function createCatalogAssetStorage(storageConfig: PlatformWorkerCatalogAssetStorageConfig): ObjectStorage {
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
@@ -1882,114 +1386,6 @@ function createSourceObservationTelemetry() {
       recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
     recordControlPlaneEvent: recordCatalogControlPlaneEvent,
   };
-}
-
-function createGoogleShoppingMerchantClient(config: GoogleMerchantConfig, mode: GoogleShoppingSyncMode) {
-  if (mode === "live" && config.syncEnabled && config.dryRun) {
-    throw new Error("Google Shopping live sync requested while GOOGLE_MERCHANT_DRY_RUN=true.");
-  }
-
-  const clientConfig = config.syncEnabled && mode === "dry-run" ? { ...config, dryRun: true } : config;
-  const accessTokenProvider =
-    clientConfig.syncEnabled && !clientConfig.dryRun
-      ? createGoogleMerchantServiceAccountAccessTokenProvider({
-          credentialSecretName: clientConfig.credentialSecretName,
-          secretResolver: (secretName) => process.env[secretName],
-        })
-      : async () => {
-          throw new Error("Google Merchant credentials are not required in dry-run mode.");
-        };
-
-  return createGoogleMerchantApiClient({
-    config: clientConfig,
-    accessTokenProvider,
-    logger,
-  });
-}
-
-function createNotificationDispatchRunners(
-  runtime: WorkerHostRuntime,
-  workerId: string,
-  emailAdapter: NotificationChannelAdapter,
-): readonly WorkerRunner[] {
-  const notificationCenterContext = runtime.mountedContexts.find((context) => context.contextName === "notifications");
-  const preferenceResolver = (
-    notificationCenterContext?.services as
-      | { notificationPreferenceResolver?: NotificationPreferenceResolver }
-      | undefined
-  )?.notificationPreferenceResolver;
-  if (!preferenceResolver) {
-    throw new Error("Notifications preference resolver is unavailable for notification dispatch.");
-  }
-  const deliveryOutcomeReporter = (
-    notificationCenterContext?.services as
-      | {
-          notificationDeliveryOutcomeReporter?: Parameters<
-            typeof createNotificationOutboxDispatcher
-          >[0]["deliveryOutcomeReporter"];
-        }
-      | undefined
-  )?.notificationDeliveryOutcomeReporter;
-  const customerFeedbackContext = runtime.mountedContexts.find(
-    (context) => context.contextName === "customer-feedback",
-  );
-  const deliveryGuard = (
-    customerFeedbackContext?.services as
-      | { notificationDeliveryGuard?: Parameters<typeof createNotificationOutboxDispatcher>[0]["deliveryGuard"] }
-      | undefined
-  )?.notificationDeliveryGuard;
-  const mobileMessageAdapters: readonly NotificationChannelAdapter[] =
-    config.mobileMessaging.kind === "twilio"
-      ? [
-          createTwilioMessagingAdapter({
-            accountSid: config.mobileMessaging.accountSid,
-            authToken: config.mobileMessaging.authToken,
-            messagingServiceSid: config.mobileMessaging.messagingServiceSid,
-            channel: "sms",
-            apiBaseUrl: config.mobileMessaging.apiBaseUrl,
-            statusCallbackBaseUrl: config.mobileMessaging.statusCallbackBaseUrl,
-          }),
-          createTwilioMessagingAdapter({
-            accountSid: config.mobileMessaging.accountSid,
-            authToken: config.mobileMessaging.authToken,
-            messagingServiceSid: config.mobileMessaging.messagingServiceSid,
-            channel: "rcs",
-            apiBaseUrl: config.mobileMessaging.apiBaseUrl,
-            statusCallbackBaseUrl: config.mobileMessaging.statusCallbackBaseUrl,
-          }),
-        ]
-      : [createNoopNotificationAdapter("sms"), createNoopNotificationAdapter("rcs")];
-  const notificationOutboxContextNames = new Set<string>(
-    workerContextRegistry
-      .filter((entry) =>
-        entry.manifest.hostPorts?.some((port: { portName: string }) => port.portName === "notificationOutbox"),
-      )
-      .map((entry) => entry.contextName),
-  );
-
-  return runtime.mountedContexts
-    .filter((context) => notificationOutboxContextNames.has(context.contextName))
-    .map((context) => {
-      const webNotificationDb = notificationCenterContext?.pool ?? context.pool;
-      const dispatcher = createNotificationOutboxDispatcher({
-        outbox: createPostgresNotificationOutbox({ db: context.pool }),
-        preferenceResolver,
-        ...(deliveryGuard ? { deliveryGuard } : {}),
-        ...(deliveryOutcomeReporter ? { deliveryOutcomeReporter } : {}),
-        adapters: [
-          emailAdapter,
-          ...mobileMessageAdapters,
-          createPostgresWebNotificationAdapter({ db: webNotificationDb }),
-        ],
-        claimOwnerId: `${workerId}:${context.contextName}:notifications`,
-      });
-
-      return {
-        name: `${context.contextName}.notification-dispatcher`,
-        kind: "job",
-        runOnce: dispatcher.runOnce,
-      };
-    });
 }
 
 function createPlatformEmailNotificationAdapter(
@@ -2064,10 +1460,30 @@ function requireCompleteSesConfig(ses: ReturnType<typeof loadConfig>["notificati
   };
 }
 
-const SYSTEM_CONTEXT = {
-  tenantId: "tnt_identity" as never,
-  audit: {
-    performedByUserId: "usr_identity_system" as never,
-    forAccountId: "acc_identity_system" as never,
-  },
-};
+function createMobileMessageAdapters(
+  config: Pick<ReturnType<typeof loadConfig>, "mobileMessaging">,
+): readonly NotificationChannelAdapter[] {
+  const mobileMessageAdapters: readonly NotificationChannelAdapter[] =
+    config.mobileMessaging.kind === "twilio"
+      ? [
+          createTwilioMessagingAdapter({
+            accountSid: config.mobileMessaging.accountSid,
+            authToken: config.mobileMessaging.authToken,
+            messagingServiceSid: config.mobileMessaging.messagingServiceSid,
+            channel: "sms",
+            apiBaseUrl: config.mobileMessaging.apiBaseUrl,
+            statusCallbackBaseUrl: config.mobileMessaging.statusCallbackBaseUrl,
+          }),
+          createTwilioMessagingAdapter({
+            accountSid: config.mobileMessaging.accountSid,
+            authToken: config.mobileMessaging.authToken,
+            messagingServiceSid: config.mobileMessaging.messagingServiceSid,
+            channel: "rcs",
+            apiBaseUrl: config.mobileMessaging.apiBaseUrl,
+            statusCallbackBaseUrl: config.mobileMessaging.statusCallbackBaseUrl,
+          }),
+        ]
+      : [createNoopNotificationAdapter("sms"), createNoopNotificationAdapter("rcs")];
+
+  return mobileMessageAdapters;
+}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { Heading, NumericValue } from "@chase-sets/design-system";
+import { NumericValue, StatList, StatListItem } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PublicMarketPageData } from "../read-model/queries";
@@ -92,6 +92,32 @@ describe("MarketPriceHistoryPage", () => {
     expect(html).not.toContain("(USD)");
     expect(chart?.querySelector(".surface-border")).toBeNull();
     expect(stats?.querySelector(".surface-border")).toBeNull();
+  });
+
+  it("lists the market stats as terms and values, so the page's headings are only its sections", () => {
+    const rendered = parse(
+      renderToStaticMarkup(
+        <MarketPriceHistoryPage page={page} marketplaceItemUrl="https://example.test/items/charizard-ex" />,
+      ),
+    );
+    const stats = rendered.querySelector('[data-testid="market-price-history-stats-furniture"]');
+    const pairs = [...(stats?.querySelectorAll("dl > div") ?? [])].map((item) => [
+      item.querySelector("dt")?.textContent,
+      item.querySelector("dt + dd")?.textContent,
+    ]);
+
+    expect(pairs).toEqual([
+      ["Last sold", "$22.00"],
+      ["Median (30 days)", "$21.00"],
+      ["Median (90 days)", "$20.00"],
+      ["Active listings", "6"],
+    ]);
+    expect(stats?.querySelector("dl")?.textContent).toContain("Starting at $24.00");
+    expect([...rendered.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
+      "Price history",
+      "Market stats",
+      "Buy or sell this item",
+    ]);
   });
 
   it("renders separate labeled chart and stats blocks with their own denominations", () => {
@@ -226,26 +252,28 @@ describe("MarketPriceHistoryPage mono market-data role carriers", () => {
     expect(numericValueClassName).not.toBe("");
   });
 
-  it("roles the three headline market values inside their level-2 headings without touching the heading classes", () => {
+  it("roles the three headline market values inside their stat values without touching the value classes", () => {
     const stats = renderStats(page);
     const carriers = numericValues(stats);
-    const bareHeadingClassName =
-      renderToStaticMarkup(
-        <Heading level={2} visualSize={4}>
-          0
-        </Heading>,
-      ).match(/class="([^"]*)"/)?.[1] ?? "";
+    const bareValueClassName =
+      parse(
+        renderToStaticMarkup(
+          <StatList>
+            <StatListItem label="Label" value="0" />
+          </StatList>,
+        ),
+      ).querySelector("dd")?.className ?? "";
 
-    expect(bareHeadingClassName).not.toBe("");
+    expect(bareValueClassName).not.toBe("");
     expect(textsOf(carriers)).toEqual(["$20.00", "$21.00", "$22.00"]);
     for (const carrier of carriers) {
-      const heading = carrier.parentElement;
+      const value = carrier.parentElement;
       expect(carrier.tagName).toBe("SPAN");
       expect(carrier.textContent).toMatch(moneyPattern);
-      expect(heading?.tagName).toBe("H2");
-      expect(heading?.className).toBe(bareHeadingClassName);
+      expect(value?.tagName).toBe("DD");
+      expect(value?.className).toBe(bareValueClassName);
       for (const token of numericValueClassName.split(" ")) {
-        expect(heading?.classList.contains(token)).toBe(false);
+        expect(value?.classList.contains(token)).toBe(false);
       }
     }
     // The minimum ask is interpolated into a sentence and stays unroled.

@@ -262,7 +262,7 @@ jobs:
           trap 'rm -f "$plan_json"' EXIT
           terraform show -json tfplan > "$plan_json"
           node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" summarize-plan "$plan_json" --title="DOKS Terraform plan" | tee -a "$GITHUB_STEP_SUMMARY"
-          node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan
+          node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan --environment="${TF_VAR_environment}"
 
       - name: Terraform apply DOKS
         env:

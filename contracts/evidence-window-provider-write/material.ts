@@ -190,8 +190,8 @@ export function validateProviderMaterial(binding: ProviderWriteBinding, envelope
       allow(
         "return_url",
         "customer",
-        "payment_method_types[0]",
-        "payment_method_types[1]",
+        "allowed_payment_method_types[0]",
+        "allowed_payment_method_types[1]",
         "line_items[0][quantity]",
         "line_items[0][price_data][currency]",
         "line_items[0][price_data][unit_amount]",
@@ -220,7 +220,7 @@ export function validateProviderMaterial(binding: ProviderWriteBinding, envelope
       requireValue("ui_mode", "elements");
       requireValue("client_reference_id", binding.logicalOperationId);
       for (const name of [
-        "payment_method_types[0]",
+        "allowed_payment_method_types[0]",
         "line_items[0][quantity]",
         "line_items[0][price_data][currency]",
         "line_items[0][price_data][unit_amount]",
@@ -314,8 +314,11 @@ export function validateProviderMaterial(binding: ProviderWriteBinding, envelope
     )
       refuse();
     if (name.endsWith("[request_three_d_secure]") && value !== "any") refuse();
-    if (name === "payment_method_types[0]" && !["card", "us_bank_account"].includes(value)) refuse();
-    if (name === "payment_method_types[1]" && (value !== "link" || fields.get("payment_method_types[0]") !== "card"))
+    if (name === "allowed_payment_method_types[0]" && !["card", "us_bank_account"].includes(value)) refuse();
+    if (
+      name === "allowed_payment_method_types[1]" &&
+      (value !== "link" || fields.get("allowed_payment_method_types[0]") !== "card")
+    )
       refuse();
   }
   if (seen.size > 96) refuse();

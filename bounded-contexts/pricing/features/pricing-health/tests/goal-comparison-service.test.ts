@@ -76,7 +76,12 @@ function setup(rules = dryRunBody.rules, hasPolicy = true) {
   const services = createPricingHealthServices({
     db,
     policies: { resolvePolicy },
-    repricingPolicies: { loadOwnedRepricingPolicy, getHalt, executeOwnedRepricingPolicy },
+    repricingPolicies: {
+      loadOwnedRepricingPolicy,
+      getHalt,
+      executeOwnedRepricingPolicy,
+      retryPolicyConfiguration: vi.fn<RepricingPolicyServices["retryPolicyConfiguration"]>().mockResolvedValue(null),
+    },
     repricingEngine: { enqueueDryRun, getDryRun },
     forecastLedger: { listGoalAdoptions: async () => [adoption] },
     economics: {

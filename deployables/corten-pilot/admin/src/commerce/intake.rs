@@ -17,14 +17,18 @@
 //! Departures from admin-web:
 //! - The scan and every write's redirect stay under `/commerce`; admin-web's leave it off and land on
 //!   its not-found page (chase-sets/chase-sets#10856).
-//! - The receipt time is read in the operator's time zone (`ClientZone`, UTC when unknown) and a time
-//!   that cannot be read is refused; admin-web reads it in its server's zone and turns an unreadable
-//!   one into now (chase-sets/chase-sets#10857).
+//! - The receipt time is drawn in the operator's time zone (`DrawZone::from(req.zone())`, UTC until
+//!   the browser has said, and named by the field), read in the zone the form sends back
+//!   (`FormZone`), and a time that cannot be read or comes without that zone is refused; admin-web
+//!   reads it in its server's zone and turns an unreadable one into now
+//!   (chase-sets/chase-sets#10857).
 //! - The unidentified-package form shows once a facility is open: without one the API refuses it.
 use bytes::Bytes;
 use corten::{
-    ClientZone, Upload, UploadError,
-    axum::http::{HeaderMap, StatusCode},
+    Upload, UploadError,
+    form::{DrawZone, FormZone},
+    http::{HeaderMap, StatusCode},
+    i18n::LocalDateTime,
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -301,7 +305,9 @@ async fn draw(
         }
     }
     let (t, p): (Com, Pilot) = (req.t(), req.t());
-    let view = html! { <views::IntakePage t={t} p={p} screen={&screen} /> };
+    // No time is drawn again after a refusal, so the forms are always drawn in the request's zone.
+    let zone = DrawZone::from(req.zone());
+    let view = html! { <views::IntakePage t={t} p={p} zone={&zone} screen={&screen} /> };
     req.screen_with_status(
         status,
         &screen,
@@ -314,7 +320,7 @@ async fn draw(
 }
 
 /// An intake action's fields (admin-web's form names); `evidence` is the photo input.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct IntakeForm {
     pub intent: String,
@@ -323,7 +329,9 @@ pub struct IntakeForm {
     pub expected_version: String,
     pub idempotency_key: String,
     pub station_id: String,
-    pub received_at: String,
+    pub received_at: Entry<LocalDateTime>,
+    /// The zone the custody form was drawn in, which its receipt time is read in.
+    pub zone: Option<FormZone>,
     pub package_condition: String,
     pub seal_condition: String,
     pub measured_weight_ounces: String,
@@ -372,11 +380,11 @@ async fn read(mut upload: Upload<IntakeForm>) -> Result<(IntakeForm, Option<Vec<
     Ok((form, (!over).then_some(photos)))
 }
 
-/// A receipt time (`datetime-local`: a wall-clock time without a zone) as the instant it is in
-/// `zone` (chase-sets/chase-sets#10857); `None` when it cannot be read.
-pub fn instant(local: &str, zone: &jiff::tz::TimeZone) -> Option<String> {
-    let civil: jiff::civil::DateTime = local.trim().parse().ok()?;
-    Some(civil.to_zoned(zone.clone()).ok()?.timestamp().to_string())
+/// The receipt time as the instant it is in the zone the form was drawn in
+/// (chase-sets/chase-sets#10857); `None` when it cannot be read or the form sent no zone.
+pub fn instant(form: &IntakeForm) -> Option<String> {
+    let at = form.received_at.at(form.zone.as_ref()?)?;
+    Some(jiff::Timestamp::try_from(at).ok()?.to_string())
 }
 
 /// What the station says when an action is refused, and its status.
@@ -442,14 +450,17 @@ async fn run(
     caller: &ApiCaller<'_>,
     t: Com,
     p: Pilot,
-    zone: &jiff::tz::TimeZone,
     form: &IntakeForm,
     photos: Vec<Photo>,
 ) -> Result<(&'static str, Option<Receipt>), Stop> {
     let facility_id = form.facility_id.trim();
     let received_at = || {
-        instant(&form.received_at, zone)
-            .ok_or_else(|| Stop::Refused(p.check_received_at().to_owned(), StatusCode::UNPROCESSABLE_ENTITY))
+        instant(form).ok_or_else(|| {
+            // A time without the form's zone did not come from this station.
+            let unzoned = form.zone.is_none() && !form.received_at.is_blank();
+            let message = if unzoned { p.check_zone() } else { p.check_received_at() };
+            Stop::Refused(message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY)
+        })
     };
     let expected_version = form.expected_version.trim().parse::<u64>().ok();
     let post = |path: String, body: Value| caller.request(Method::POST, &path, CONTEXT).json(&body);
@@ -535,7 +546,6 @@ async fn act(
     Caller(staff): Caller<Staff<IntakeAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    zone: Option<ClientZone>,
     Params(route): Params<url::Intake>,
     upload: Upload<IntakeForm>,
 ) -> HtmlResult {
@@ -551,9 +561,8 @@ async fn act(
         }
         Err(other) => return Err(other.into()),
     };
-    let zone = zone.and_then(|ClientZone(name)| jiff::tz::TimeZone::get(&name).ok()).unwrap_or(jiff::tz::TimeZone::UTC);
     let caller = config.platform.caller(&headers, config.proto, None);
-    match run(&caller, t, p, &zone, &form, photos).await {
+    match run(&caller, t, p, &form, photos).await {
         Ok((result, receipt)) => {
             // The station again, as admin-web redirects: the facility, without the scan.
             let facility_id = Some(form.facility_id.trim().to_owned()).filter(|f| !f.is_empty());
@@ -577,11 +586,12 @@ mod tests {
 
     #[test]
     fn a_receipt_time_is_read_in_the_operators_zone() {
-        let chicago = jiff::tz::TimeZone::get("America/Chicago").unwrap();
-        assert_eq!(instant("2026-10-30T14:05", &chicago).as_deref(), Some("2026-10-30T19:05:00Z"));
-        assert_eq!(instant("2026-10-30T14:05", &jiff::tz::TimeZone::UTC).as_deref(), Some("2026-10-30T14:05:00Z"));
-        assert_eq!(instant("not a time", &chicago), None);
-        assert_eq!(instant("", &chicago), None);
+        let posted = |form: &[u8]| instant(&corten::form::from_bytes::<IntakeForm>(form).unwrap());
+        assert_eq!(posted(b"receivedAt=2026-10-30T14%3A05&zone=America%2FChicago").as_deref(), Some("2026-10-30T19:05:00Z"));
+        assert_eq!(posted(b"receivedAt=2026-10-30T14%3A05&zone=UTC").as_deref(), Some("2026-10-30T14:05:00Z"));
+        assert_eq!(posted(b"receivedAt=not+a+time&zone=America%2FChicago"), None);
+        assert_eq!(posted(b"receivedAt=&zone=America%2FChicago"), None);
+        assert_eq!(posted(b"receivedAt=2026-10-30T14%3A05"), None, "a time without the form's zone");
     }
 
     #[test]

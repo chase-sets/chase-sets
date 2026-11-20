@@ -15,6 +15,7 @@ import { canonicalManualClaimLeasePolicySnapshotDigest } from "../../tcgplayer-c
 import type { ChannelSyncRun } from "../../tcgplayer-csv/domain/contracts";
 import { channelSyncRunEventCodec } from "../../tcgplayer-csv/domain/codec";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
+import { createConnectionEpochs, createConnectionPersistence } from "../../connections/api/owner-epochs";
 import { evolveChannelConnection, initialChannelConnectionState } from "../../connections/domain/domain";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import type { ClaimedOperationReservation, OutboundSyncServices } from "../../outbound-sync/domain/contracts";
@@ -51,7 +52,8 @@ export async function seedManualSyncScenario(
   const existingConnectionEvents = await eventStore.readStream({ streamId: connectionStreamId, limit: 1 });
   const hasExistingConnection = existingConnectionEvents.length > 0;
   if (!hasExistingConnection) {
-    await eventStore.appendToStream({
+    // Bootstrap uses the same physical Connection enrollment as retained appends.
+    await createConnectionPersistence(eventStore, createConnectionEpochs(pool)).appendToStream({
       streamId: connectionStreamId,
       expectedVersion: "no_stream",
       context,

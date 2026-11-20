@@ -4,6 +4,7 @@ use corten::{
     view::{AttrValue, Id},
 };
 use corten_ui::{ComboBox, Picker, Toast, Toaster};
+use platform::ui::alert::{AlertEmphasis, FailedAlert};
 
 use crate::{
     catalog::api::{ReferenceRow, ReferenceType},
@@ -20,10 +21,14 @@ use crate::{
 /// drawn `open` when its form came back (refused without JavaScript, or a label row added or
 /// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
 /// either way; `corten_ui::dialog::modal` makes a dialog drawn open modal when it joins the page.
+/// A `data-patch` submit in it that gets no answer is said in the dialog (`corten_ui::dialog::failed`
+/// showing the kit's `FailedAlert`, a destructive alert in a live region), as the toaster behind a
+/// modal dialog is covered and inert.
 /// Not `Dialog`: the kit's `platform::ui::dialog::Dialog` would share its style symbol
 /// (todd-skelton/corten#570).
 #[component(css)]
 pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
+    p: Pilot,
     id: I,
     title: &'a str,
     description: Option<&'a str>,
@@ -32,8 +37,16 @@ pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
     children: C,
 ) -> impl Patch {
     let heading = super::id_with(&id, "-title");
+    let said = refs();
     html! {
-        <dialog class={Dialog} id={id} aria-labelledby={&heading} open={open} on:connect={corten_ui::dialog::modal(target)}>
+        <dialog
+            class={Dialog}
+            id={id}
+            aria-labelledby={&heading}
+            open={open}
+            on:connect={corten_ui::dialog::modal(target)}
+            on:corten:error={corten_ui::dialog::failed(event, target, said)}
+        >
             <header class={Head}>
                 <h2 class={Title} id={&heading}>{title}</h2>
                 <button type="button" class={(Small, Secondary)} command="close" commandfor={id}>{close}</button>
@@ -41,6 +54,9 @@ pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
             if let Some(description) = description {
                 <p class={Description}>{description}</p>
             }
+            <FailedAlert said={said} emphasis={AlertEmphasis::Soft}>
+                <p>{p.catalog_not_sent()}</p>
+            </FailedAlert>
             {children}
         </dialog>
     }
@@ -372,6 +388,11 @@ pub fn RefTypeForm<'a, I: Id + AttrValue + Copy>(
         </form>
     }
 }
+
+/// A relationship row's record picker (corten-ui's `ComboBox`), by its form's id and row.
+#[derive(Id)]
+struct ReferenceRowId<'a>(&'a str);
+
 /// A reference record's create form or its edit form. The type is picked from the active types
 /// (typed when there are none); a relationship's record is picked from `records` with
 /// corten-ui's combobox (a select without JavaScript), the record itself left out (`own`).
@@ -388,8 +409,19 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
 ) -> impl Patch {
     let f = RefRecordInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
-    let mut type_labels: Vec<(String, String)> =
-        types.iter().map(|ty| (ty.key.clone(), t.ref_record_reference_type_option(&ty.name, &ty.key).to_string())).collect();
+    let mut type_labels: Vec<(String, String)> = types
+        .iter()
+        .map(|ty| {
+            (
+                ty.key.clone(),
+                t.ref_record_reference_type_option(crate::text::cat::RefRecordReferenceTypeOption {
+                    name: &ty.name,
+                    key: &ty.key,
+                })
+                .to_string(),
+            )
+        })
+        .collect();
     // A record whose type is no longer active keeps it: the select does not change it unasked.
     if !i.type_key.is_empty() && !type_labels.iter().any(|(key, _)| *key == i.type_key) {
         type_labels.insert(0, (i.type_key.clone(), i.type_key.clone()));
@@ -397,7 +429,17 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
     let mut record_labels: Vec<(String, String)> = records
         .iter()
         .filter(|r| r.reference_record_id != own)
-        .map(|r| (r.reference_record_id.clone(), t.ref_record_reference_record_option(&r.name, &r.type_key, &r.key).to_string()))
+        .map(|r| {
+            (
+                r.reference_record_id.clone(),
+                t.ref_record_reference_record_option(crate::text::cat::RefRecordReferenceRecordOption {
+                    name: &r.name,
+                    type_key: &r.type_key,
+                    key: &r.key,
+                })
+                .to_string(),
+            )
+        })
         .collect();
     let rows = i.rows();
     // A row's record that is not among the choices (past the 500 read, or not read yet) is still
@@ -408,18 +450,18 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
             record_labels.push((picked.to_owned(), picked.to_owned()));
         }
     }
-    let row_ids: Vec<String> = (0..rows.len()).map(|row| super::id_with(&id, &format!("-reference-{row}"))).collect();
+    let row_ids: Vec<String> = (0..rows.len()).map(|row| super::id_with(&id, &format!("-{row}"))).collect();
     let (choose, none) = (t.ref_record_choose_reference_record(), t.ref_record_no_reference_records_match());
     html! {
         let type_options: Vec<(&str, &str)> = type_labels.iter().map(|(k, l)| (k.as_str(), l.as_str())).collect();
         let choices: Vec<corten_ui::Choice<&str>> =
             record_labels.iter().map(|(value, label)| corten_ui::Choice::new(value.as_str(), label.as_str())).collect();
-        let pickers: Vec<Picker<&str>> = rows
+        let pickers: Vec<Picker<ReferenceRowId, &str>> = rows
             .iter()
             .zip(&row_ids)
             .map(|((_, value), row_id)| Picker {
                 value: Some(value.trim()).filter(|v| !v.is_empty()),
-                ..Picker::new(row_id, f.reference_id, choose, none, &choices)
+                ..Picker::new(ReferenceRowId(row_id), f.reference_id, choose, none, &choices)
             })
             .collect();
         <form class={Form} id={id} method="post" action={action} data-patch>
@@ -455,7 +497,7 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
                             <input type="text" name={f.relationship_type} value={*kind}>
                         </label>
                         <div class={Field}>
-                            <label class={Label} for={row_id}>{t.ref_record_reference_record()}</label>
+                            <label class={Label} for={ReferenceRowId(row_id)}>{t.ref_record_reference_record()}</label>
                             <ComboBox field={picker} />
                         </div>
                         <button type="submit" class={(Small, Danger)} name={f.rerow} value={row} formnovalidate>
@@ -764,14 +806,16 @@ pub fn ReorderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str,
 }
 
 /// What a write did, after the page it sent the browser to (admin-web's toasts): corten-ui's
-/// toaster, its message gone after five seconds, placed at the corner of the page.
+/// toaster, its message gone after five seconds, placed at the corner of the page. It also says a
+/// `data-patch` submit that got no answer (`corten:error`), which admin-web left to the browser; the
+/// toaster marks that text `data-failed`, and the stylesheet draws it as a failure.
 #[component(css = CatalogDialog)]
 pub fn Toasts<'a>(p: Pilot, notice: Option<&'a String>) -> impl Render {
-    let close = p.catalog_close();
+    let (close, not_sent) = (p.catalog_close(), p.catalog_not_sent());
     let message = notice.map(|n| n as &dyn Render);
     html! {
         <div class={Toasts}>
-            <Toaster close={&close} seconds={5} toast={Toast { message }} />
+            <Toaster close={&close} seconds={5} toast={Toast { message, failed: false }} failed={&not_sent} />
         </div>
     }
 }

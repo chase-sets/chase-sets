@@ -24,7 +24,7 @@
 //! | `GET /checkout/payments/{id}?<place>`, `POST ..`, `../status?<watch>` | a guest checkout's payment, its Retry payment and its status part (see `payment`) |
 //! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
 //! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
-//! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
+//! | `POST /items/{slug}` | Add to List: add the product to a Saved List, or a guest's intent |
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
@@ -40,11 +40,13 @@
 //! | `GET /account/listings/new?<form>`, `POST ..` | Create listing, with its photos (see `listing_new`) |
 //! | `GET /account/listings/{id}?<place>`, `POST ..`, `POST ../photos` | the seller's listing and its writes (see `seller_listing`) |
 //! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication`, `../publication/{id}?<place>`, `POST ..`, `POST ../{id}/manual-sync`, `../ingest`, `../download` | the channel connections, Connect, a connection's writes and manual sync, the publication list and a connection's publication with its writes (see `channels`) |
+//! | `GET /account/channels/ebay?<place>`, `POST ..`, `/channels/ebay/callback`, `/channels/ebay/declined` | Connect eBay Sandbox: consent, Authorize and Disconnect, and eBay's return (see `ebay`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
 //! | `GET /sign-in/magic?token=..` | a magic link's landing |
 //! | `GET /account/select`, `POST ..` | the account a sign-in acts for |
+//! | `GET /api/auth/social/{provider}/start`, `../callback` | a social sign-in's two steps, relayed to Auth where nothing else serves them (see `sign_in`) |
 //! | `POST /sign-out` | signing out |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap index when the site may be indexed (see `site`) |
 //! | `GET /sitemap.xml`, `/sitemap/{kind}/{page}.xml` | the sitemap index and its pages: the home page and search, then Discovery's public pages |
@@ -61,7 +63,7 @@
 use std::sync::Arc;
 
 use corten::{
-    axum::http::{StatusCode, Uri},
+    http::{StatusCode, Uri},
     prelude::*,
 };
 
@@ -133,19 +135,27 @@ pub struct Config {
     /// Whether crawlers may index the site (`CHASE_SETS_MARKETPLACE_INDEXING`, `shouldIndexFromEnv`:
     /// anything but `0`, `false`, `no` or `off`).
     pub indexing: bool,
+    /// Whether a claim link's token is shown on the page to enter by hand, for local work without
+    /// email (`GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED`: `1`, `true`, `yes` or `on`, never where
+    /// `NODE_ENV` or `DEPLOYMENT_ENVIRONMENT` is `production`, as marketplace decides).
+    pub claim_token_entry: bool,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
         Config {
-            platform: Platform::new(&var("PLATFORM_API_ORIGIN", "http://localhost:7762")),
+            platform: Platform::new(&Platform::origin_from_env()).with_internal_auth(platform::api::InternalAuth::from_env()),
             proto: if var("PUBLIC_PROTO", "http") == "https" { "https" } else { "http" },
             stripe_publishable_key: std::env::var("STRIPE_PUBLISHABLE_KEY")
                 .ok()
                 .map(|key| key.trim().to_owned())
                 .filter(|key| !key.is_empty()),
             indexing: indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()),
+            claim_token_entry: claim_token_entry(
+                std::env::var("GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED").ok().as_deref(),
+                [std::env::var("NODE_ENV").ok(), std::env::var("DEPLOYMENT_ENVIRONMENT").ok()],
+            ),
         }
     }
 
@@ -163,6 +173,13 @@ pub fn indexing(value: Option<&str>) -> bool {
     !matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("0" | "false" | "no" | "off"))
 }
 
+/// The guest claim's `localRecoveryEnabled`: on when the variable says so, never where
+/// `NODE_ENV` or `DEPLOYMENT_ENVIRONMENT` (`environments`) says `production`.
+pub fn claim_token_entry(value: Option<&str>, environments: [Option<String>; 2]) -> bool {
+    !environments.iter().flatten().any(|env| env.trim() == "production")
+        && matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("1" | "true" | "yes" | "on"))
+}
+
 /// Marketplace's origin (`MARKETPLACE_WEB_ORIGIN`), for sign-in and the pages the pilot links to.
 pub fn marketplace_origin() -> &'static str {
     static ORIGIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -178,31 +195,32 @@ pub type Shared = Arc<Config>;
 pub mod url {
     pub use account_home::AccountHome;
     pub use account_select::AccountSelect;
-    pub use accounts::{Account, AccountReviewReport};
+    pub use accounts::{Account, AccountLive, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use agent_consent::AgentConsent;
-    pub use agents::{AgentMandate, AgentPage, AgentRevoke, AgentWebhook, AgentWebhookDisable, Agents};
+    pub use agents::{AgentMandate, AgentPage, AgentRevoke, AgentWebhookDisable, Agents};
     pub use bulk_reprice::{BulkReprice, BulkRepriceCancel, BulkRepriceLive, BulkRepriceResults, BulkRepriceTemplate};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
     pub use channels::{
-        ChannelConnection, ChannelManualSync, ChannelManualSyncDownload, ChannelManualSyncIngest, ChannelPublication,
-        ChannelPublications, Channels,
+        ChannelConnection, ChannelManualSync, ChannelManualSyncDownload, ChannelPublication, ChannelPublications, Channels,
     };
     pub use checkout::{BuyCheckout, BuyConfirmation};
     pub use checkout_start::CheckoutStart;
     pub use consents::Consents;
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
+    pub use ebay::EbayConnect;
+    pub use guest_claims::GuestClaim;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
-    pub use home::{Home, Sitemap, SitemapPage};
+    pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
     pub use inventory::{
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
-        OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
+        OfflineSale, Restock, Restocked, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
     };
     pub use invite::Invite;
-    pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
-    pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
+    pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSellList, ItemShipFrom, ItemWatch};
+    pub use listings::{PublicListing, PublicListingBuy, PublicListingLive, PublicListingReport};
     pub use money::Money;
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
@@ -222,7 +240,7 @@ pub mod url {
     pub use sale_reviews::SaleReview;
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingSlips, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
-    pub use search::Search;
+    pub use search::{Search, SearchCart, SearchLive};
     pub use security::Security;
     pub use sell_checkout::{SellCheckout, SellConfirmation};
     pub use sell_list::{SellList, SellListEvidence};
@@ -230,8 +248,11 @@ pub mod url {
     pub use sessions::{SessionPage, SessionRevoke, SessionSwitch, Sessions};
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
-    pub use sign_in::{MagicLink, SignIn};
-    pub use submitted_offers::{SubmittedOffer, SubmittedOffers, SubmittedOffersLive};
+    pub use shipping_setup::ShippingSetup;
+    pub use sign_in::{MagicLink, PasskeyChallenge, SignIn};
+    pub use submitted_offers::{
+        SubmittedOffer, SubmittedOfferFollowing, SubmittedOffers, SubmittedOffersFollowing, SubmittedOffersLive,
+    };
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
 
@@ -241,7 +262,7 @@ pub mod url {
     /// old addresses, which share no prefix and move for good to the Seller Desk's (marketplace's
     /// `account-payouts`, `account-payout`, `account-desk-settings`, `account-settlement` and
     /// `account-wallet-adjustment` redirects, see `money`); the page each moves to asks who it is for.
-    /// And two more that share no prefix: Product alerts' old address and leaving a guest checkout.
+    /// And two more that share no prefix: leaving a guest checkout and a social sign-in's relay.
     #[corten::routes(state = crate::app::Shared)]
     pub mod home {
         /// The search's landing, or the results for the address's terms.
@@ -271,14 +292,19 @@ pub mod url {
             pub reference: &'a str,
         }
 
-        /// Discovery's `account-product-alerts`: the notification center's Product alerts.
-        #[route("/account/product-alerts", get = crate::notifications::product_alerts)]
-        pub struct ProductAlerts;
-
         /// Auth's `guest-checkout-exit`: a guest leaves checkout as Sign out does (it ends the guest
         /// checkout and any session, then the search).
         #[route("/guest-checkout/exit", post = crate::sign_in::sign_out)]
         pub struct GuestCheckoutExit;
+
+        /// A social sign-in's start and the provider's return, relayed to Auth (see
+        /// `platform::auth::social`). The ingress sends `/api` to the API before the pilot sees it;
+        /// locally nothing else serves it. Auth reads the session's cookie itself.
+        #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
+        pub struct SocialSignIn<'a> {
+            pub provider: &'a str,
+            pub step: &'a str,
+        }
 
         /// The site's own files (`crate::site`): the crawler rules, the sitemap index and its
         /// pages, the favicon at both of marketplace-web's addresses, and Chrome's devtools probe.
@@ -301,11 +327,11 @@ pub mod url {
         #[route("/favicon.ico", get = crate::site::favicon)]
         pub struct FaviconIco;
 
-        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
+        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools, no_store)]
         pub struct Devtools;
 
         /// The item page's and search's analytics events (`crate::site::rail_analytics`).
-        #[route("/analytics/item-detail-rail", post = crate::site::rail_analytics)]
+        #[route("/analytics/item-detail-rail", post = crate::site::rail_analytics, no_store)]
         pub struct RailAnalytics;
     }
 
@@ -342,6 +368,19 @@ pub mod url {
         pub struct Search {
             #[route(query)]
             pub terms: crate::search::Terms,
+        }
+
+        /// Add matching products to Buy Cart for the search its form sends: the preview (a `GET`,
+        /// the sheet) and the add (see `bulk_cart`).
+        #[route("/search/cart", get = crate::bulk_cart::preview, post = crate::bulk_cart::commit)]
+        pub struct SearchCart;
+
+        /// The prices and market intents of the results a search page drew, drawn again on each
+        /// change to them (`search::live`).
+        #[route("/search/live", get = crate::search::live)]
+        pub struct SearchLive {
+            #[route(query)]
+            pub shown: crate::search::Shown,
         }
     }
 
@@ -381,6 +420,13 @@ pub mod url {
             pub query: crate::accounts::AccountQuery,
         }
 
+        /// The account's parts on each change to it (`<corten-live>`); `id` is the account's id,
+        /// which names its realtime topic and which the account's read takes as well as its slug.
+        #[route("/accounts/{id}/live", get = crate::accounts::live)]
+        pub struct AccountLive<'a> {
+            pub id: &'a str,
+        }
+
         /// Report a review, from the page with its role and page.
         #[route("/accounts/{slug}/reviews/{review}/report", post = crate::accounts::report_review)]
         pub struct AccountReviewReport<'a> {
@@ -414,6 +460,14 @@ pub mod url {
         #[route("/listings/{slug}/buy", post = crate::public_listing::buy)]
         pub struct PublicListingBuy<'a> {
             pub slug: &'a str,
+        }
+
+        /// The listing's parts on each change to it (`<corten-live>`); `id` is the listing's id,
+        /// which names its realtime topic.
+        #[route("/listings/{slug}/live/{id}", get = crate::public_listing::live)]
+        pub struct PublicListingLive<'a> {
+            pub slug: &'a str,
+            pub id: &'a str,
         }
 
         /// Report the listing.
@@ -451,9 +505,11 @@ pub mod url {
         pub struct ItemsArea;
 
         /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
-        /// slug).
+        /// slug). Add to List posts here, from the item page or a search result: an account's
+        /// first step opens the list form without writing anything, so the page it draws is at the
+        /// item's own address.
         #[derive(Clone, Debug)]
-        #[route("/items/{slug}", get = crate::items::page)]
+        #[route("/items/{slug}", get = crate::items::page, post = crate::saving::save)]
         pub struct Item<'a> {
             pub slug: &'a str,
             #[route(query)]
@@ -504,13 +560,6 @@ pub mod url {
             pub slug: &'a str,
         }
 
-        /// Add the product the item page shows to a Saved List (Add to List): an account's
-        /// addition, or a guest's intent and then marketplace's registration.
-        #[route("/items/{slug}/save", post = crate::saving::save)]
-        pub struct ItemSave<'a> {
-            pub slug: &'a str,
-        }
-
         /// List the product the Sell tab shows at a price: an account's listing, published, or a
         /// guest's draft and then marketplace's registration.
         #[route("/items/{slug}/list", post = crate::listing::list)]
@@ -552,21 +601,16 @@ pub mod url {
         }
 
         /// An inventory item's page: the ledger's filter, what the last sale did, and the write
-        /// to confirm.
+        /// to confirm. Adjust Quantity posts here: an adjustment the API records as a collision
+        /// with orders' holds changes nothing on hand and is drawn at the page's own address.
         #[derive(Clone, Debug)]
-        #[route("/account/inventory/items/{id}", get = crate::inventory_item::open)]
+        #[route("/account/inventory/items/{id}", get = crate::inventory_item::open, post = crate::inventory_item::adjust)]
         pub struct StockItem<'a> {
             pub id: &'a str,
             #[route(query)]
             pub place: crate::inventory_item::ItemPlace,
             #[route(query)]
             pub check: Check,
-        }
-
-        /// Adjust Quantity, from the item's page.
-        #[route("/account/inventory/items/{id}/adjustments", post = crate::inventory_item::adjust)]
-        pub struct StockAdjust<'a> {
-            pub id: &'a str,
         }
 
         /// Create Hold, from the item's page.
@@ -670,9 +714,10 @@ pub mod url {
     #[corten::routes(state = crate::app::Shared, area = Notifications, caller = crate::auth::Member)]
     pub mod notifications {
         /// The feed, or the settings (`view=settings`, at `section`), read after the write whose
-        /// receipt it carries.
+        /// receipt it carries. An alert write's patch reads the alerts' section again from it
+        /// (`ReadAgain::from`), so its `get` answers the runtime with that section, a patch.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/notifications", get = crate::notifications::page)]
+        #[route("/account/notifications", get = crate::notifications::page, patches)]
         pub struct Notifications {
             #[route(query)]
             pub place: crate::notifications::Place,
@@ -742,9 +787,11 @@ pub mod url {
         #[route("/account/agents", get = crate::agents::list)]
         pub struct Agents;
 
-        /// A grant, saying what the last write did.
+        /// A grant, saying what the last write did. Its webhook form posts here: the answer shows
+        /// the webhook's new signing secret once, at the grant's own address, so nothing may keep
+        /// the page (`no_store`).
         #[derive(Clone, Debug)]
-        #[route("/account/agents/{id}", get = crate::agents::page)]
+        #[route("/account/agents/{id}", get = crate::agents::page, post = crate::agents::webhook, no_store)]
         pub struct AgentPage<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -763,12 +810,6 @@ pub mod url {
             pub id: &'a str,
         }
 
-        /// Save the webhook's address; the answer shows its new signing secret.
-        #[route("/account/agents/{id}/webhook", post = crate::agents::webhook)]
-        pub struct AgentWebhook<'a> {
-            pub id: &'a str,
-        }
-
         /// Disable the webhook.
         #[route("/account/agents/{id}/webhook/disable", post = crate::agents::disable_webhook)]
         pub struct AgentWebhookDisable<'a> {
@@ -783,7 +824,7 @@ pub mod url {
     pub mod agent_consent {
         /// The consent request, and answering it as another of the user's accounts.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/agents/consent", get = crate::agents::consent, post = crate::agents::switch_account)]
+        #[route("/account/agents/consent", get = crate::agents::consent, post = crate::agents::switch_account, no_store)]
         pub struct AgentConsent {
             #[route(query)]
             pub ask: crate::agents::ConsentAsk,
@@ -807,7 +848,7 @@ pub mod url {
     pub mod security {
         /// The page, read after the write whose receipt it carries, and its writes.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/security", get = crate::security::page, post = crate::security::write)]
+        #[route("/account/security", get = crate::security::page, post = crate::security::write, no_store(post))]
         pub struct Security {
             #[route(query)]
             pub place: crate::security::Place,
@@ -961,6 +1002,9 @@ pub mod url {
         #[route("/account/listings/{id}/photos", post = crate::seller_listing::photos)]
         pub struct SellerListingPhotos<'a> {
             pub id: &'a str,
+            /// The change the page names (`Place::listing_recovery`).
+            #[route(query)]
+            pub place: crate::seller_listing::Place,
         }
     }
 
@@ -998,6 +1042,16 @@ pub mod url {
             #[route(query)]
             pub place: crate::sell_checkout::ConfirmationPlace,
         }
+    }
+
+    /// Fulfillment's seller shipping setup (`seller-shipping-setup`, see `shipping_setup`): anyone,
+    /// a guest's being the guest sell list's. Its handlers take who is asking, if anyone. Neither
+    /// answer is kept by a cache, as marketplace's are not.
+    #[corten::routes(state = crate::app::Shared, area = ShippingSetup)]
+    pub mod shipping_setup {
+        /// The page; Save shipping setup posts to it.
+        #[route("/sell/shipping-setup", get = crate::shipping_setup::page, post = crate::shipping_setup::write, no_store)]
+        pub struct ShippingSetup;
     }
 
     /// Checkout's Sell List (`account-sell-list`): anyone, a guest's being the browser's guest sell
@@ -1044,6 +1098,15 @@ pub mod url {
         }
     }
 
+    /// Discovery's `account-product-alerts`: the notification center's Product alerts, and its action
+    /// (pause, resume or delete an alert) for a form that still posts here. An area of its own, with
+    /// the notification center's components, since a refused change draws the notification center.
+    #[corten::routes(state = crate::app::Shared, area = ProductAlerts)]
+    pub mod product_alerts {
+        #[route("/account/product-alerts", get = crate::notifications::product_alerts, post = crate::notifications::change_alert_legacy)]
+        pub struct ProductAlerts;
+    }
+
     /// Payout setup (Settlement's `account-desk-settings`, see `payout_setup`): any account may
     /// open it; Refresh and Stripe's sessions need `payouts.setup` (`PayoutSetter`).
     #[corten::routes(state = crate::app::Shared, area = PayoutSetup, caller = crate::auth::PayoutSetter)]
@@ -1058,7 +1121,7 @@ pub mod url {
 
         /// A Stripe Connect session for the page's script, as JSON.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/desk/settings/session", post = crate::payout_setup::session)]
+        #[route("/account/desk/settings/session", post = crate::payout_setup::session, no_store)]
         pub struct PayoutSetupSession {
             #[route(query)]
             pub which: crate::payout_setup::Which,
@@ -1110,9 +1173,10 @@ pub mod url {
             pub place: crate::payment::Place,
         }
 
-        /// The payment's status part, read again while the payment waits for the buyer.
+        /// The payment's status part, read again while the payment waits for the buyer
+        /// (`ReadAgain::from`), so its `get` answers the runtime with a patch.
         #[derive(Clone, Debug)]
-        #[route("/account/payments/{id}/status", get = crate::payment::status)]
+        #[route("/account/payments/{id}/status", get = crate::payment::status, patches)]
         pub struct BuyerPaymentStatus<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -1130,22 +1194,44 @@ pub mod url {
         #[route("/checkout/payments")]
         pub struct GuestPaymentsArea;
 
-        /// The payment, read after the write whose receipt it carries; Retry payment posts to it.
+        /// The payment, read after the write whose receipt it carries, or a claim link's landing;
+        /// Retry payment and Save this order's forms post to it.
         #[derive(Clone, Debug)]
-        #[route("/checkout/payments/{id}", get = crate::payment::guest_page, post = crate::payment::guest_retry)]
+        #[route("/checkout/payments/{id}", get = crate::payment::guest_page, post = crate::payment::guest_write)]
         pub struct GuestPayment<'a> {
             pub id: &'a str,
             #[route(query)]
             pub place: crate::payment::GuestPlace,
         }
 
-        /// The payment's status part, read again while the payment waits for the guest.
+        /// The payment's status part, read again while the payment waits for the guest
+        /// (`ReadAgain::from`), so its `get` answers the runtime with a patch.
         #[derive(Clone, Debug)]
-        #[route("/checkout/payments/{id}/status", get = crate::payment::guest_status)]
+        #[route("/checkout/payments/{id}/status", get = crate::payment::guest_status, patches)]
         pub struct GuestPaymentStatus<'a> {
             pub id: &'a str,
             #[route(query)]
             pub watch: crate::payment::Watch,
+        }
+    }
+
+    /// Save this order (Auth's `guest-payment-claim`, see `guest_claim`): a paid guest checkout's
+    /// claim, which its payment page links to and a claim link lands on. Its handlers take who is
+    /// asking, if anyone, as the guest's payment's do.
+    #[corten::routes(state = crate::app::Shared, area = GuestClaimsArea)]
+    pub mod guest_claims {
+        /// The prefix, with no page: a guest reaches its claim from its payment.
+        #[route("/checkout/claim")]
+        pub struct GuestClaimsArea;
+
+        /// The claim, read after the write whose receipt it carries, or a claim link's landing; its
+        /// forms post to it.
+        #[derive(Clone, Debug)]
+        #[route("/checkout/claim/{id}", get = crate::guest_claim::page, post = crate::guest_claim::write)]
+        pub struct GuestClaim<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::guest_claim::ClaimPlace,
         }
     }
 
@@ -1157,7 +1243,7 @@ pub mod url {
         /// The page, read after a change's receipt or a setup's outcome, and Add, Set default,
         /// Remove and Refresh.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/payment-methods", get = crate::payment_methods::page, post = crate::payment_methods::write)]
+        #[route("/account/payment-methods", get = crate::payment_methods::page, post = crate::payment_methods::write, no_store(post))]
         pub struct PaymentMethods {
             #[route(query)]
             pub place: crate::payment_methods::Place,
@@ -1257,8 +1343,15 @@ pub mod url {
             pub place: crate::channels::PublicationPlace,
         }
 
-        /// A connection, after the write whose receipt the address carries; its writes post to it.
-        #[route("/account/channels/{id}", get = crate::channels::connection, post = crate::channels::command)]
+        /// A connection, after the write whose receipt the address carries; its writes post to it,
+        /// and an export's ingest (`multipart/form-data`) is its `ingest` post, whose answer is the
+        /// connection with Channels' receipt.
+        #[route(
+            "/account/channels/{id}",
+            get = crate::channels::connection,
+            post = crate::channels::command,
+            post(ingest) = crate::channels::manual_sync_ingest
+        )]
         pub struct ChannelConnection<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -1271,17 +1364,44 @@ pub mod url {
             pub id: &'a str,
         }
 
-        /// Ingest a Live or Staged export (`multipart/form-data`).
-        #[route("/account/channels/{id}/manual-sync/ingest", post = crate::channels::manual_sync_ingest)]
-        pub struct ChannelManualSyncIngest<'a> {
-            pub id: &'a str,
-        }
-
         /// Clamp and download CSV: Channels' Staged batch for the composed run.
         #[route("/account/channels/{id}/manual-sync/download", post = crate::channels::manual_sync_download)]
         pub struct ChannelManualSyncDownload<'a> {
             pub id: &'a str,
         }
+    }
+
+    /// Connect eBay Sandbox (Channels' `channels-ebay-connection`): the journey, Authorize and
+    /// Disconnect (see `ebay`). Every handler takes a `ChannelsManager`; nothing keeps an answer.
+    #[corten::routes(state = crate::app::Shared, area = EbayConnect, caller = crate::auth::ChannelsManager)]
+    pub mod ebay {
+        /// The journey at a connection, consent's scopes and its outcome; Authorize and Disconnect
+        /// post to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/channels/ebay", get = crate::ebay::page, post = crate::ebay::write, no_store)]
+        pub struct EbayConnect {
+            #[route(query)]
+            pub place: crate::ebay::EbayPlace,
+        }
+    }
+
+    /// eBay's return with consent given (Channels' `channels-ebay-callback`): it redirects to the
+    /// journey (see `ebay`). Its handler takes an `EbayReturn`; nothing keeps its answer.
+    #[corten::routes(state = crate::app::Shared, area = EbayCallback, caller = crate::auth::EbayReturn)]
+    pub mod ebay_callback {
+        /// eBay's state and one-time code.
+        #[route("/channels/ebay/callback", get = crate::ebay::callback, no_store)]
+        pub struct EbayCallback;
+    }
+
+    /// eBay's return with consent declined (Channels' `channels-ebay-declined`), an area of its own
+    /// beside the callback's: it redirects to the journey. Its handler takes an `EbayReturn`; nothing
+    /// keeps its answer.
+    #[corten::routes(state = crate::app::Shared, area = EbayDeclined, caller = crate::auth::EbayReturn)]
+    pub mod ebay_declined {
+        /// eBay's state.
+        #[route("/channels/ebay/declined", get = crate::ebay::declined, no_store)]
+        pub struct EbayDeclined;
     }
 
     /// Pricing health (marketplace's `account-desk-pricing-health`): the verdict for a policy,
@@ -1380,7 +1500,8 @@ pub mod url {
     }
 
     /// The buyer's submitted offers (marketplace's `account-offers-submitted`): the list in a
-    /// status, drawn again live, and its Pause, Resume and Withdraw (see `submitted_offers`). Every
+    /// status, drawn again live, its Pause, Resume and Withdraw, and market following's steps (see
+    /// `submitted_offers` and `market_following`). Every
     /// handler takes an `OfferBuyer`.
     #[corten::routes(state = crate::app::Shared, area = SubmittedOffers, caller = crate::auth::OfferBuyer)]
     pub mod submitted_offers {
@@ -1392,9 +1513,8 @@ pub mod url {
             pub place: crate::submitted_offers::Place,
         }
 
-        /// The status counts and the rows, drawn again on each change to the account's offers.
-        #[derive(Clone, Debug, Default)]
         /// One offer: its overview, and Pause, Resume and Withdraw for it.
+        #[derive(Clone, Debug, Default)]
         #[route("/account/offers/submitted/{id}", get = crate::submitted_offers::detail, post = crate::submitted_offers::change_one)]
         pub struct SubmittedOffer<'a> {
             pub id: &'a str,
@@ -1402,10 +1522,26 @@ pub mod url {
             pub place: crate::submitted_offers::OfferPlace,
         }
 
+        /// The status counts and the rows, drawn again on each change to the account's offers.
         #[route("/account/offers/submitted/live", get = crate::submitted_offers::live)]
         pub struct SubmittedOffersLive {
             #[route(query)]
             pub place: crate::submitted_offers::Place,
+        }
+
+        /// A market-following step for the list's offers: the list with its policy opened (303), or
+        /// again with a refused or unconfirmed step.
+        #[route("/account/offers/submitted/following", post = crate::submitted_offers::follow)]
+        pub struct SubmittedOffersFollowing {
+            #[route(query)]
+            pub place: crate::submitted_offers::Place,
+        }
+
+        /// A market-following step for one offer: its page with its policy opened (303), or again
+        /// with a refused or unconfirmed step.
+        #[route("/account/offers/submitted/{id}/following", post = crate::submitted_offers::follow_one)]
+        pub struct SubmittedOfferFollowing<'a> {
+            pub id: &'a str,
         }
     }
 
@@ -1507,14 +1643,17 @@ pub mod url {
     }
 
     /// The seller's shipments (Fulfillment's `account-sale-shipments` and
-    /// `account-sale-shipment`), an area inside the sales'. The list is marketplace's command
-    /// center, which the API does not serve yet (chase-sets/chase-sets#10638), so the pilot sends
-    /// it there; a shipment's page is the pilot's.
+    /// `account-sale-shipment`), an area inside the sales': the command center, each shipment's
+    /// page, packing and the packing slips.
     #[corten::routes(state = crate::app::Shared, area = SaleShipments, caller = crate::auth::Shipper)]
     pub mod sale_shipments {
-        /// The command center, on marketplace.
-        #[route("/account/sales/shipments", get = crate::shipments::command_center)]
-        pub struct SaleShipments;
+        /// The command center (see `command_center`); its actions post to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/sales/shipments", get = crate::command_center::page, post = crate::command_center::act)]
+        pub struct SaleShipments {
+            #[route(query)]
+            pub place: crate::command_center::Place,
+        }
 
         /// Packing slips to print (Fulfillment's `account-sale-shipment-packing-slips`): the
         /// shipments `shipmentIds` names (each value may be a comma-separated list), in `format`.
@@ -1525,12 +1664,13 @@ pub mod url {
             pub format: Option<&'a str>,
         }
 
-        /// A shipment the seller sends, read after the write whose receipt it carries.
-        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale)]
+        /// A shipment the seller sends, read after the write whose receipt it carries; its
+        /// actions post to it.
+        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale, post = crate::shipments::act)]
         pub struct SaleShipment<'a> {
             pub id: &'a str,
             #[route(query)]
-            pub after: crate::cart::AfterWrite,
+            pub place: crate::shipments::SalePlace,
         }
 
         /// Packing the shipment (see `packing`).
@@ -1624,6 +1764,11 @@ pub mod url {
             #[route(query)]
             pub link: crate::sign_in::Link,
         }
+
+        /// A passkey's challenge for the passkey step (JSON) of the sign-in, registration and
+        /// invitation pages, kept by no cache.
+        #[route("/sign-in/passkey", post = crate::sign_in::challenge, no_store)]
+        pub struct PasskeyChallenge;
     }
 
     /// Creating an account (see `register`): the page and its writes. Public: no handler reads who
@@ -1683,7 +1828,7 @@ pub mod url {
     pub mod cart {
         /// The cart, after the write whose receipt it carries.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/cart", get = crate::cart::page)]
+        #[route("/account/cart", get = crate::cart::page, gives(crate::chrome::CartCount))]
         pub struct Cart {
             #[route(query)]
             pub after: crate::cart::AfterWrite,
@@ -1723,9 +1868,17 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
 /// Where Stripe.js loads from, and the origin of the payment fields' frames.
 pub const STRIPE_JS: &str = "https://js.stripe.com";
 
-/// What Stripe.js and its fields need: its script, its frames and the APIs they call.
+/// What Stripe.js and its fields need: its script, its frames and the APIs they call. These
+/// pages make their own `default` Trusted Types policy (`views/stripe.js`), so `<Corten />` makes
+/// none: like Corten's, it lets `views/stripe.js` and Stripe.js itself load Stripe's scripts, and
+/// it also passes the one SVG filter the Payment Element parses as it mounts, which Corten leaves
+/// to the app (corten-run/corten#1488). The Payment Element's wallets (Apple Pay and Google Pay,
+/// `wallets: auto`) run the Payment Request API in Stripe's frames, which ask for
+/// `allow="payment *"`, so these pages allow the feature Corten denies elsewhere.
 fn stripe(p: corten::security::Sources) -> corten::security::Sources {
     p.script_src(STRIPE_JS)
+        .trusted_types_policy("default")
+        .allow_feature(corten::security::Feature::Payment)
         .frame_src(STRIPE_JS)
         .frame_src("https://hooks.stripe.com")
         .connect_src("https://api.stripe.com")
@@ -1772,17 +1925,17 @@ const NETWORK_ONLY: [&str; 10] = [
 
 /// marketplace-web's web app manifest (`routes/manifest.ts`), and its service worker as Corten's
 /// (`corten::pwa`): pages from the network, the offline page when there is none, and the static
-/// files from the cache. Marketplace's `orientation` (`any`, the default) and `categories`
-/// (`shopping`, `productivity`) are not written: Corten's manifest has neither
-/// (todd-skelton/corten#515). The description is in English, as marketplace's is.
+/// files from the cache. The description is in English, as marketplace's is.
 fn pwa() -> corten::pwa::Pwa {
     use corten::{
         i18n::Messages as _,
-        pwa::{Manifest, Pwa},
+        pwa::{Manifest, Orientation, Pwa},
     };
     let t = crate::text::SiteMsg::for_locale("en");
     let manifest = Manifest::new("Chase Sets", "Chase Sets")
         .description(t.manifest_description())
+        .orientation(Orientation::Any)
+        .categories(&["shopping", "productivity"])
         .theme_color("#4845c6")
         .background_color("#f7f5f1")
         .icon(Static::ICONS_CHASE_SETS_192_PNG, "192x192")
@@ -1794,25 +1947,25 @@ fn pwa() -> corten::pwa::Pwa {
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
-pub fn app(config: Config) -> App<crate::auth::OneLookup> {
+pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
+    // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
+    // which are plain http locally (the default policy takes any https image), and Check out
+    // redirects to marketplace's checkout.
+    let policy = corten::security::Policy::new()
+        .img_src(marketplace_origin())
+        .img_src(shared.platform.origin())
+        .form_action(marketplace_origin());
     App::new(url::home::router(shared.clone()))
-        // One look at whose the request is, for every caller type and the layout's cart count.
-        .middleware(crate::auth::OneLookup)
         .assets(Static)
         .pwa(pwa())
-        // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
-        // which are plain http locally (the default policy takes any https image), and Check out
-        // redirects to marketplace's checkout.
-        .policy(
-            corten::security::Policy::new()
-                .img_src(marketplace_origin())
-                .img_src(shared.platform.origin())
-                .form_action(marketplace_origin()),
-        )
+        .policy(if shared.proto == "https" { policy.hsts() } else { policy })
+        .access_log(true)
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
         .client_zone()
+        // The cart's count in the shell, read beside each whole page (`crate::chrome`).
+        .layout_read(crate::chrome::CartCount(shared.clone()))
         .components(views::COMPONENTS)
         // Search is the home page too, outside every area, and at two prefixes, and a set's page
         // shows its cards: its components are in `components.css`, about 2.2 KB brotli, which a
@@ -1838,6 +1991,7 @@ pub fn app(config: Config) -> App<crate::auth::OneLookup> {
         .area(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
         .area(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
         .area(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
+        .area(|area| url::product_alerts::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .area(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         .area(|area| url::security::area(area, shared.clone()).components(views::SECURITY))
         .area(|area| url::team::area(area, shared.clone()).components(views::TEAM))
@@ -1867,12 +2021,13 @@ pub fn app(config: Config) -> App<crate::auth::OneLookup> {
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
         .area(|area| url::desk_offers::area(area, shared.clone()).components(views::SELL_LIST))
         .area(|area| url::sell_checkout::area(area, shared.clone()).components(views::SELL_CHECKOUT))
+        .area(|area| url::shipping_setup::area(area, shared.clone()).components(views::SHIPPING_SETUP))
         // A photo is up to 10 MB, as Create listing's are.
         .area(|area| {
             url::sell_list::area(area, shared.clone()).components(views::SELL_LIST).deadline(crate::listing_new::DEADLINE)
         })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
-        .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
+        .area(|area| url::payout::area(area, shared.clone()).components(views::PAYOUT))
         // Stripe's Connect sign-in reports back through a popup, which `same-origin` cuts off
         // (todd-skelton/corten#318); the rest of the app keeps `same-origin`.
         .area(|area| {
@@ -1883,13 +2038,28 @@ pub fn app(config: Config) -> App<crate::auth::OneLookup> {
         // Stripe.js and its fields are allowed on the payment pages and the saved payment methods
         // only (todd-skelton/corten#275).
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
-        .area(|area| url::guest_payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
+        .area(|area| url::guest_payments::area(area, shared.clone()).components(views::GUEST_PAYMENT).policy(stripe))
+        .area(|area| url::guest_claims::area(area, shared.clone()).components(views::GUEST_CLAIM))
         .area(|area| url::payment_methods::area(area, shared.clone()).components(views::PAYMENT_METHODS).policy(stripe))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))
         .area(|area| url::recommendations::area(area, shared.clone()).components(views::RECOMMENDATIONS))
         .area(|area| url::pricing_health::area(area, shared.clone()).components(views::PRICING_HEALTH))
         .area(|area| url::channels::area(area, shared.clone()).components(views::CHANNELS))
+        // Authorize redirects to eBay Sandbox's consent, which redirects on through eBay Sandbox's
+        // hosts, and browsers check each hop against `form-action`; no address here, which may carry
+        // eBay's one-time code, goes to another site as a referrer.
+        .area(|area| {
+            url::ebay::area(area, shared.clone())
+                .components(views::CHANNELS)
+                .policy(|p| p.form_action(crate::ebay::EBAY_SANDBOX_HOSTS).referrer(corten::security::Referrer::NoReferrer))
+        })
+        .area(|area| {
+            url::ebay_callback::area(area, shared.clone()).policy(|p| p.referrer(corten::security::Referrer::NoReferrer))
+        })
+        .area(|area| {
+            url::ebay_declined::area(area, shared.clone()).policy(|p| p.referrer(corten::security::Referrer::NoReferrer))
+        })
         // A CSV is up to 16 MB, so a slow connection has a listing's photos' time.
         .area(|area| {
             url::bulk_reprice::area(area, shared.clone()).components(views::BULK_REPRICE).deadline(crate::bulk_reprice::DEADLINE)
@@ -1917,19 +2087,21 @@ pub fn sign_in(req: &Req) -> HtmlResult {
     }
 }
 
+/// The platform API refused the viewer (403): a refusal, answered as an extractor's is, so the error
+/// page draws the layout's reads (the cart's count) as for any page the request is at fault for. The
+/// API's reason is logged.
+pub fn api_refused(error: ApiError) -> corten::Error {
+    tracing::info!("the platform API refused the request: {error}");
+    Refused::forbidden().into()
+}
+
 /// A list's read that failed, as the page's answer. After a write, a read that failed for good is
 /// marketplace's "could not be verified" (409), in the screen's words (`unverified`): the error
 /// page knows only the status, so the screen draws it.
-pub fn read_failed(
-    req: &Req,
-    viewer: Option<&Viewer>,
-    error: ApiError,
-    after_write: Option<&str>,
-    cart: Option<u64>,
-) -> HtmlResult {
+pub fn read_failed(req: &Req, viewer: Option<&Viewer>, error: ApiError, after_write: Option<&str>) -> HtmlResult {
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
-        Some(StatusCode::FORBIDDEN) => StatusCode::FORBIDDEN,
+        Some(StatusCode::FORBIDDEN) => return Err(api_refused(error)),
         _ => match after_write {
             Some(unverified) => {
                 tracing::warn!("the read after a write failed: {error}");
@@ -1939,7 +2111,7 @@ pub fn read_failed(
                 return req.page_with_status(
                     StatusCode::CONFLICT,
                     html! {
-                        <views::Layout req={req} viewer={viewer} cart={cart} title={title} head={head}>{view}</views::Layout>
+                        <views::Layout req={req} viewer={viewer} title={title} head={head}>{view}</views::Layout>
                     },
                 );
             }

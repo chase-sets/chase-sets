@@ -3,7 +3,7 @@
 //! Types hold only the fields the screen reads; they are also the screen's JSON for data clients.
 use std::collections::BTreeMap;
 
-use corten::axum::http::StatusCode;
+use corten::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 pub use platform::api::{ApiError, Caller, Identity, Method, Platform, segment};
@@ -503,6 +503,31 @@ pub struct Snapshot {
     /// What the buyer may be told about a cart that is not ready.
     #[serde(default)]
     pub customer_safe_facts: Vec<String>,
+    /// How each line is drawn (`linePresentations`), so the page keeps no seller-option rules.
+    #[serde(default)]
+    pub line_presentations: Vec<LinePresentation>,
+}
+
+/// `CartReadinessLinePresentation`: a line's outcome, whether it has a way to be fulfilled, the
+/// listing it would check out with and its price.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinePresentation {
+    pub line_id: String,
+    /// A `LineOutcome` reason.
+    pub reason: String,
+    pub fulfillment_available: bool,
+    pub listing_id: Option<String>,
+    pub price: Option<LinePrice>,
+}
+
+/// A line's price for its whole quantity: `exact` for a locked listing, `indicative` for Smart
+/// Match's chosen listing, `deferred` when it is priced at checkout.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct LinePrice {
+    pub state: String,
+    pub amount: String,
+    pub currency: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -597,8 +622,14 @@ pub struct CartAttempt {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandOutcome {
+    /// The command's place in what was sent (a bulk add's line).
+    #[serde(default)]
+    pub index: usize,
     /// `succeeded`, `conflict` or `error`.
     pub outcome: String,
+    /// What it did to the cart: `added` or `merged` for an add, among others.
+    #[serde(default)]
+    pub status: Option<String>,
     pub message: Option<String>,
 }
 
@@ -629,32 +660,100 @@ struct ErrorMessage {
     message: Option<String>,
 }
 
+/// What a cart attempt's lookup names as its target: the whole cart.
 const CART_ATTEMPT_TARGET: &str = "cart";
 
-/// One cart write the Checkout API keeps as a command attempt (`submitCheckoutCartAttempt`): the
-/// cart's line commands, or an item page's new line, for the account's cart or a guest's. `body`
-/// is what is sent less the attempt id, which the lookup names by its hash.
+/// What a Sell List add's or batch's lookup names as its target: the whole list.
+const SELL_LIST_ATTEMPT_TARGET: &str = "sell-list";
+
+/// The lines a write changes: the buy cart's or the Sell List's. Both are Checkout's command
+/// attempts, sent and looked up the same way (marketplace sends both with
+/// `submitCheckoutCartAttempt`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lines {
+    Cart,
+    SellList,
+}
+
+impl Lines {
+    fn path(self) -> &'static str {
+        match self {
+            Lines::Cart => "/cart",
+            Lines::SellList => "/sell-list",
+        }
+    }
+
+    /// The header a guest's lines are named by.
+    fn guest_header(self) -> &'static str {
+        match self {
+            Lines::Cart => ANONYMOUS_CART_HEADER,
+            Lines::SellList => ANONYMOUS_SELL_LIST_HEADER,
+        }
+    }
+}
+
+/// One write the Checkout API keeps as a command attempt (`submitCheckoutCartAttempt`): the
+/// cart's line commands or an item page's new line, or a Sell List line added or removed, for the
+/// account's lines or a guest's. `body` is what is sent less the attempt id, which the lookup
+/// names by its hash.
 #[derive(Clone, Debug)]
 pub struct CartWrite {
-    /// After the cart's path: `/commands`, or nothing for a new line.
-    path: &'static str,
+    lines: Lines,
+    /// After the lines' path: `/commands`, a line's `/{id}/remove`, or nothing for a new line.
+    path: String,
     /// `CheckoutCommandAttemptKind`.
     kind: &'static str,
+    /// What the lookup names: the cart, the Sell List, or the Sell List line removed.
+    target: String,
     pub body: serde_json::Value,
-    /// A guest cart (`anon_...`), written through the guest routes.
+    /// A guest cart or guest Sell List (`anon_...`), written through the guest routes.
     guest: Option<String>,
 }
 
 impl CartWrite {
+    fn cart(path: &str, kind: &'static str, body: serde_json::Value, guest: Option<String>) -> Self {
+        CartWrite { lines: Lines::Cart, path: path.to_owned(), kind, target: CART_ATTEMPT_TARGET.to_owned(), body, guest }
+    }
+
+    fn sell_list(path: String, kind: &'static str, target: &str, body: serde_json::Value, guest: Option<String>) -> Self {
+        CartWrite { lines: Lines::SellList, path, kind, target: target.to_owned(), body, guest }
+    }
+
     /// The cart page's commands, applied all or nothing per command (`POST /account/cart/commands`).
     pub fn commands(commands: &[CartCommand]) -> Self {
-        CartWrite { path: "/commands", kind: "cart.commands", body: serde_json::json!({ "commands": commands }), guest: None }
+        CartWrite::cart("/commands", "cart.commands", serde_json::json!({ "commands": commands }), None)
     }
 
     /// A new line (`POST /account/cart`, or `/guest/cart` for a guest cart).
     pub fn add_line(line: &impl Serialize, guest: Option<String>) -> Self {
+        CartWrite::cart("", "cart.add-line", serde_json::to_value(line).unwrap_or_default(), guest)
+    }
+
+    /// Many new lines in one attempt (`POST /account/cart/bulk`, or `/guest/cart/bulk`), each
+    /// line's outcome in the attempt's vector at its index.
+    pub fn add_lines(lines: &[serde_json::Value], guest: Option<String>) -> Self {
+        CartWrite::cart("/bulk", "cart.add-lines", serde_json::json!({ "lines": lines }), guest)
+    }
+
+    /// A Sell List line (`POST /account/sell-list`, or `/guest/sell-list` for the guest Sell List
+    /// `guest`; `submitCheckoutSellListAdd`): a `sell-list-line` attempt for the list, so a line
+    /// sent twice is added once.
+    pub fn sell_list_add(line: &impl Serialize, guest: Option<String>) -> Self {
         let body = serde_json::to_value(line).unwrap_or_default();
-        CartWrite { path: "", kind: "cart.add-line", body, guest }
+        CartWrite::sell_list(String::new(), "sell-list-line", SELL_LIST_ATTEMPT_TARGET, body, guest)
+    }
+
+    /// A Sell List line removed (`POST /account/sell-list/{line}/remove`): a `sell-list-line`
+    /// attempt for that line.
+    pub fn sell_list_remove(line: &str, guest: Option<String>) -> Self {
+        CartWrite::sell_list(format!("/{}/remove", segment(line)), "sell-list-line", line, serde_json::json!({}), guest)
+    }
+
+    /// The account's Sell List lines removed in one attempt (`POST /account/sell-list/commands`, a
+    /// `sell-list-batch`), as Decline selected removes the declined offers' lines.
+    pub fn sell_list_remove_lines(lines: &[String]) -> Self {
+        let body = serde_json::json!({ "lineIds": lines });
+        CartWrite::sell_list("/commands".to_owned(), "sell-list-batch", SELL_LIST_ATTEMPT_TARGET, body, None)
     }
 
     /// The same write to the guest cart `guest` (`/guest/cart/commands`), or the account's.
@@ -674,43 +773,129 @@ const ANONYMOUS_CART_HEADER: &str = "x-checkout-anonymous-cart-id";
 const ANONYMOUS_SELL_LIST_HEADER: &str = "x-checkout-anonymous-sell-list-id";
 
 /// The sell list's calls (`/account/sell-list`, `/guest/sell-list` for a guest's). `guest` is
-/// the guest sell list a browser presents; `None` is the account's.
+/// the guest sell list a browser presents; `None` is the account's. A line added or removed is a
+/// command attempt, sent as a [`CartWrite`] (`cart_attempt::submit`).
 pub trait SellList {
-    /// Adds a line (`AddCheckoutSellListLineRequest`) to the account's sell list, or to the guest
-    /// sell list `guest`. The API takes no attempt id: a product line sent again adds its
-    /// quantity again (chase-sets/chase-sets#9995). The answer is the write's receipt.
-    async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
     /// The sell list's lines, their quantity and (the account's) latest seller confirmation.
     async fn sell_list(&self, guest: Option<&str>) -> Result<SellListRead, ApiError>;
-    /// The account's offer and Smart Match reviews and the inventory a fallback listing ships
-    /// from (`getSellListCompositeReview`), with the standard terms beside the final ones when
-    /// `standard` (back from registration).
-    async fn sell_list_review(&self, standard: bool) -> Result<CompositeReview, ApiError>;
-    /// A guest sell list's offer reviews (the public standard terms).
-    async fn guest_offer_reviews(&self, guest: &str) -> Result<Vec<OfferReview>, ApiError>;
+    /// The account's offer and Smart Match reviews, the inventory a fallback listing ships from,
+    /// and the screen Checkout works out from them: each line's readiness, the totals and the way
+    /// forward (`getSellListCompositeReview`), with the standard terms beside the final ones when
+    /// `standard` (back from registration). `path` is the page the payout setup link comes back
+    /// to (the Sell List's or the Desk's).
+    async fn sell_list_review(&self, standard: bool, path: &str) -> Result<CompositeReview, ApiError>;
+    /// A guest sell list's review (`getGuestSellListCompositeReview`): the public standard
+    /// terms and the screen Checkout works out from them.
+    async fn guest_sell_list_review(&self, guest: &str) -> Result<CompositeReview, ApiError>;
     /// Whether the account's payouts are set up (`getSellListPayoutReadiness`).
     async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError>;
-    /// The sell list's readiness with the seller's `decisions`, as a snapshot seller checkout starts
-    /// from, and the write's receipt.
-    async fn sell_list_readiness(
+    /// The account's Sell List reviewed with what the seller chose on the page (Continue's
+    /// `selections`): Checkout builds the review plan and its readiness decisions from the lines as
+    /// they are now and keeps them with the snapshot. The review, and the write's receipt.
+    async fn review_sell_list(&self, selections: &ReviewSelections) -> Result<(SellListReview, Option<Receipt>), ApiError>;
+    /// The review Continue kept for the snapshot `snapshot` at `revision`, for seller checkout's
+    /// `confirmation` (chase-sets/chase-sets#9995). Refused (`checkout_readiness_stale`) when the
+    /// Sell List changed since.
+    async fn stored_sell_list_review(
         &self,
-        decisions: &ReadinessDecisions,
-        guest: Option<&str>,
-    ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
-    /// The account's readiness with the seller's `decisions` and the seller confirmation evidence
-    /// seller checkout sends before its handoff.
+        snapshot: &str,
+        revision: &str,
+        confirmation: &str,
+    ) -> Result<SellListReview, ApiError>;
+    /// The guest sell list `guest`'s readiness, and the write's receipt.
+    async fn guest_sell_list_readiness(&self, guest: &str) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
+    /// The account's readiness with the seller's `decisions` (the kept review's) and the ship-from
+    /// and label `choices` Checkout works seller readiness out from, for the confirmation and the
+    /// snapshot it started from (`entry`). Checkout reads payout, risk and fulfillment from their
+    /// owners; one that finds the seller not ready refuses with why
+    /// ([chase-sets/chase-sets#10765 [checkout] Work out seller readiness in the Checkout API from
+    /// owner reads and stop trusting page-posted evidence](https://github.com/chase-sets/chase-sets/issues/10765)).
     async fn seller_readiness(
         &self,
         decisions: &ReadinessDecisions,
-        evidence: &SellerEvidence,
-    ) -> Result<SellListSnapshot, ApiError>;
+        choices: &SellerChoices,
+        entry: &ReadinessEntry<'_>,
+    ) -> Result<SellListSnapshot, ReadinessError>;
     /// A seller confirmation (`GET /sell-list/confirmations/{id}`); 404 while it is not saved.
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError>;
-    /// Confirms seller checkout (`POST /sell-list/confirm`): the write's receipt.
-    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
-    async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
+    /// Confirms seller checkout (`POST /sell-list/confirm`), which runs the Marketplace handoff in
+    /// Checkout: the receipt the next read waits for, the later of the confirm's and the
+    /// handoff's writes' (`sourceReceipts`).
+    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ConfirmError>;
     /// Moves the guest sell list's lines into the account's: how many moved, and the receipt.
     async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError>;
+}
+
+/// What seller checkout's readiness names (`confirmationId`, `entryReadinessSnapshotId`,
+/// `entryReadinessSourceRevision`): the confirmation it is for, and the snapshot the page started
+/// from, whose kept review Checkout reads the plan from. Checkout refuses one that no longer
+/// matches (409, `checkout_confirmation_changed` or `checkout_readiness_stale`).
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessEntry<'a> {
+    pub confirmation_id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub entry_readiness_snapshot_id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub entry_readiness_source_revision: &'a str,
+}
+
+/// Why seller checkout's confirm saved no confirmation.
+#[derive(Debug)]
+pub enum ConfirmError {
+    /// Checkout's Marketplace handoff stopped part way (409 `checkout_handoff_interrupted`): its
+    /// message, each line's result, and why when what the seller reviewed changed (its
+    /// `readiness-stale` recovery's detail).
+    Interrupted {
+        message: String,
+        lines: Vec<HandoffLine>,
+        stale: Option<String>,
+    },
+    Api(ApiError),
+}
+
+impl From<ApiError> for ConfirmError {
+    fn from(error: ApiError) -> Self {
+        ConfirmError::Api(error)
+    }
+}
+
+/// Why seller checkout's readiness gave no snapshot to confirm from.
+#[derive(Debug)]
+pub enum ReadinessError {
+    /// Checkout found the seller not ready (400 `checkout_seller_not_ready`): its reasons
+    /// (`SellListPreparationRefusalReason`), such as `payout-setup-required` or `risk-hold`.
+    NotReady(Vec<String>),
+    Api(ApiError),
+}
+
+impl From<ApiError> for ReadinessError {
+    fn from(error: ApiError) -> Self {
+        ReadinessError::Api(error)
+    }
+}
+
+/// A line's result when the handoff stopped (`SellListHandoffLineResult`): `completed`,
+/// `partial`, `conflict` (its offer accepted, but not as this sale), `ambiguous` or
+/// `not-attempted`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HandoffLine {
+    pub line_id: String,
+    pub status: String,
+}
+
+/// A confirm's answer: the receipts of the handoff's Marketplace writes.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct SellConfirmed {
+    source_receipts: Vec<SourceReceipt>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceReceipt {
+    command_receipt: CommandReceipt,
 }
 
 fn sell_list_path(guest: Option<&str>, rest: &str) -> String {
@@ -728,46 +913,52 @@ fn sell_list_request(caller: &Caller<'_>, method: Method, guest: Option<&str>, r
 }
 
 impl SellList for Caller<'_> {
-    async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
-        let req = sell_list_request(self, Method::POST, guest, "").json(line);
-        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
-    }
-
     async fn sell_list(&self, guest: Option<&str>) -> Result<SellListRead, ApiError> {
         // A read, sent as `write` sends a request (its answer checked, then its JSON).
         Ok(self.write(sell_list_request(self, Method::GET, guest, "")).await?.0)
     }
 
-    async fn sell_list_review(&self, standard: bool) -> Result<CompositeReview, ApiError> {
-        let rest = if standard { "/composite-review?includeStandardComparison=true" } else { "/composite-review" };
-        self.read(&sell_list_path(None, rest), CHECKOUT).await
+    async fn sell_list_review(&self, standard: bool, path: &str) -> Result<CompositeReview, ApiError> {
+        let mut rest = format!("/composite-review?sellListPath={}", segment(path));
+        if standard {
+            rest.push_str("&includeStandardComparison=true");
+        }
+        self.read(&sell_list_path(None, &rest), CHECKOUT).await
     }
 
-    async fn guest_offer_reviews(&self, guest: &str) -> Result<Vec<OfferReview>, ApiError> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Body {
-            #[serde(default)]
-            offer_reviews: Vec<OfferReview>,
-        }
-        let (body, _): (Body, _) = self.write(sell_list_request(self, Method::GET, Some(guest), "/offer-reviews")).await?;
-        Ok(body.offer_reviews)
+    async fn guest_sell_list_review(&self, guest: &str) -> Result<CompositeReview, ApiError> {
+        // A read, sent as `write` sends a request, to name the guest's list in its header.
+        Ok(self.write(sell_list_request(self, Method::GET, Some(guest), "/composite-review")).await?.0)
     }
 
     async fn sell_payout_readiness(&self) -> Result<SellPayoutReadiness, ApiError> {
         self.read(&sell_list_path(None, "/payout-readiness"), CHECKOUT).await
     }
 
-    async fn sell_list_readiness(
+    async fn review_sell_list(&self, selections: &ReviewSelections) -> Result<(SellListReview, Option<Receipt>), ApiError> {
+        let req =
+            sell_list_request(self, Method::POST, None, "/readiness").json(&serde_json::json!({ "selections": selections }));
+        self.write(req).await
+    }
+
+    async fn stored_sell_list_review(
         &self,
-        decisions: &ReadinessDecisions,
-        guest: Option<&str>,
-    ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError> {
+        snapshot: &str,
+        revision: &str,
+        confirmation: &str,
+    ) -> Result<SellListReview, ApiError> {
+        let sent = serde_json::json!({
+            "readinessSnapshotId": snapshot, "readinessSourceRevision": revision, "confirmationId": confirmation,
+        });
+        Ok(self.write(sell_list_request(self, Method::POST, None, "/readiness").json(&sent)).await?.0)
+    }
+
+    async fn guest_sell_list_readiness(&self, guest: &str) -> Result<(SellListSnapshot, Option<Receipt>), ApiError> {
         #[derive(Deserialize)]
         struct Body {
             readiness: SellListSnapshot,
         }
-        let req = sell_list_request(self, Method::POST, guest, "/readiness").json(decisions);
+        let req = sell_list_request(self, Method::POST, Some(guest), "/readiness").json(&serde_json::json!({}));
         let (body, receipt): (Body, _) = self.write(req).await?;
         Ok((body.readiness, receipt))
     }
@@ -775,36 +966,69 @@ impl SellList for Caller<'_> {
     async fn seller_readiness(
         &self,
         decisions: &ReadinessDecisions,
-        evidence: &SellerEvidence,
-    ) -> Result<SellListSnapshot, ApiError> {
+        choices: &SellerChoices,
+        entry: &ReadinessEntry<'_>,
+    ) -> Result<SellListSnapshot, ReadinessError> {
         #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
         struct Sent<'a> {
             #[serde(flatten)]
             decisions: &'a ReadinessDecisions,
-            seller_evidence: &'a SellerEvidence,
+            #[serde(flatten)]
+            choices: &'a SellerChoices,
+            #[serde(flatten)]
+            entry: &'a ReadinessEntry<'a>,
         }
         #[derive(Deserialize)]
         struct Body {
             readiness: SellListSnapshot,
         }
-        let req = sell_list_request(self, Method::POST, None, "/readiness").json(&Sent { decisions, seller_evidence: evidence });
-        Ok(self.write::<Body>(req).await?.0.readiness)
+        let sent = Sent { decisions, choices, entry };
+        let res = sell_list_request(self, Method::POST, None, "/readiness").json(&sent).send().await.map_err(ApiError::from)?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        if status.is_success() {
+            return Ok(res.json::<Body>().await.map_err(ApiError::from)?.readiness);
+        }
+        let body: serde_json::Value = res.json().await.unwrap_or_default();
+        let error = &body["error"];
+        let message = error["message"].as_str().unwrap_or_default().to_owned();
+        let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
+        if status == StatusCode::BAD_REQUEST && code.as_deref() == Some("checkout_seller_not_ready") {
+            let reasons = error["reasons"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).map(str::to_owned);
+            return Err(ReadinessError::NotReady(reasons.collect()));
+        }
+        Err(ApiError::Status { status, code, message }.into())
     }
 
     async fn sell_list_confirmation(&self, id: &str) -> Result<SellListConfirmation, ApiError> {
         self.read(&sell_list_path(None, &format!("/confirmations/{}", segment(id))), CHECKOUT).await
     }
 
-    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
-        let req = sell_list_request(self, Method::POST, None, "/confirm").json(body);
-        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
-    }
-
-    async fn remove_sell_list_line(&self, line: &str, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
-        let req =
-            sell_list_request(self, Method::POST, guest, &format!("/{}/remove", segment(line))).json(&serde_json::json!({}));
-        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    async fn confirm_sell_list(&self, body: &serde_json::Value) -> Result<Option<Receipt>, ConfirmError> {
+        let res = sell_list_request(self, Method::POST, None, "/confirm").json(body).send().await.map_err(ApiError::from)?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        if status.is_success() {
+            let receipt = Receipt::from_response(res.headers());
+            // The confirmation is saved: an answer without its source receipts still is.
+            let confirmed: SellConfirmed = res.json().await.unwrap_or_default();
+            let sources = confirmed.source_receipts.into_iter().filter_map(|source| {
+                let receipt = source.command_receipt;
+                Receipt::of_metadata(receipt.commit_position.as_deref(), &receipt.commit_positions)
+            });
+            return Ok(receipt.into_iter().chain(sources).reduce(Receipt::later));
+        }
+        let body: serde_json::Value = res.json().await.unwrap_or_default();
+        let error = &body["error"];
+        let message = error["message"].as_str().unwrap_or_default().to_owned();
+        let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
+        if status == StatusCode::CONFLICT && code.as_deref() == Some("checkout_handoff_interrupted") {
+            let lines = serde_json::from_value(error["lines"].clone()).unwrap_or_default();
+            let recovery = &error["recovery"];
+            let stale = (recovery["kind"] == "readiness-stale")
+                .then(|| recovery["detail"].as_str().unwrap_or_default().to_owned())
+                .filter(|detail| !detail.is_empty());
+            return Err(ConfirmError::Interrupted { message, lines, stale });
+        }
+        Err(ConfirmError::Api(ApiError::Status { status, code, message }))
     }
 
     async fn merge_guest_sell_list(&self, guest: &str) -> Result<(u64, Option<Receipt>), ApiError> {
@@ -928,11 +1152,8 @@ impl SellTerms {
 #[serde(rename_all = "camelCase", default)]
 pub struct OfferReview {
     pub line_id: String,
-    /// `ready` or `unavailable`.
-    pub status: String,
     pub terms: Option<SellTerms>,
     pub comparison: Option<TermsComparison>,
-    pub message: Option<String>,
     #[serde(deserialize_with = "present")]
     pub evidence: Option<Option<ListingEvidence>>,
 }
@@ -952,9 +1173,7 @@ pub struct TermsComparison {
 #[serde(rename_all = "camelCase", default)]
 pub struct ProductOfferReview {
     pub line_id: String,
-    pub status: String,
     pub offers: Vec<ProductOffer>,
-    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -984,6 +1203,56 @@ pub struct CompositeReview {
     pub offer_reviews: Vec<OfferReview>,
     pub product_offer_reviews: Vec<ProductOfferReview>,
     pub inventory_items: Vec<InventoryOption>,
+    /// What Checkout works out for the page from the lines and their reviews (`screen`).
+    pub screen: Option<SellListScreenReview>,
+}
+
+/// The Sell List as Checkout reviews it for the page (`SellListScreenReview`): each line's
+/// readiness by its id, the list's counts and totals (money as the API's amounts), and the way
+/// forward. A hint for the page; Continue's review is what decides.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListScreenReview {
+    pub lines: std::collections::HashMap<String, SellListLineReview>,
+    pub total_quantity: u64,
+    pub ready_line_count: u64,
+    pub blocked_line_count: u64,
+    pub can_continue: bool,
+    pub payout_is_ready: bool,
+    pub payout_readiness: Option<SellPayoutReadiness>,
+    pub payout_setup_href: String,
+    pub recovery_href: String,
+    /// `set-up-payouts`, `resolve-items` or `keep-selling`.
+    pub recovery_code: String,
+    pub has_multiple_offers: bool,
+    pub selected_offer_gross: String,
+    pub future_listing_gross: String,
+    /// None while a line is not quoted.
+    pub estimated_sales_fees: Option<String>,
+    pub expected_seller_payout: Option<String>,
+}
+
+/// A line's readiness as Checkout reviews it (`SellListLineScreenReview`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListLineReview {
+    pub ready: bool,
+    /// `ready`, `needs-refresh`, `needs-action` or `evidence-needs-action`.
+    pub label_code: String,
+    /// What the line needs or why it is ready, which the page puts in words.
+    pub detail_code: String,
+    pub parameters: LineReviewParameters,
+    pub unmet_evidence_codes: Vec<String>,
+    /// The API's own words for a line that needs a refresh or an action.
+    pub message: Option<String>,
+    pub setup_href: String,
+    pub inventory_href: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct LineReviewParameters {
+    pub count: Option<u64>,
 }
 
 /// `CheckoutSellPayoutReadinessRow`.
@@ -1049,28 +1318,77 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Resul
     Option::<T>::deserialize(d).map(Some)
 }
 
-/// What the seller decided for each line before seller checkout (`SellListReadinessDecisionInput`).
+/// What the seller chose on the Sell List, as Continue sends it (`SellListReviewSelections`):
+/// the offers checked, and for each line its selected offer's fee quote, its Smart Match offers
+/// with theirs, and the listing for the rest when the seller chose one. Checkout plans from these.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReviewSelections {
+    pub bulk_offer_ids: Vec<String>,
+    pub lines: Vec<LineSelection>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineSelection {
+    pub line_id: String,
+    pub selected_offer_fee_quote_fingerprint: String,
+    pub product_offers: Vec<OfferSelection>,
+    pub fallback_listing: Option<ListingSelection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfferSelection {
+    pub offer_id: String,
+    pub fee_quote_fingerprint: String,
+}
+
+/// A fallback listing as the form has it; the quantity cap is the form's text, empty for "the rest".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingSelection {
+    pub inventory_item_id: String,
+    pub price_amount: String,
+    pub price_currency_code: String,
+    pub quantity_cap: String,
+}
+
+/// A Sell List review as Checkout keeps it (`SellListReviewReadiness`): the snapshot, the review
+/// plan and the readiness decisions it made. A plan or decisions missing is a review seller
+/// checkout cannot go on from. The plan itself is Checkout's: its confirm checks it against the
+/// snapshot and runs it.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SellListReview {
+    pub readiness: SellListSnapshot,
+    pub review_plan: Option<serde::de::IgnoredAny>,
+    pub decisions: Option<ReadinessDecisions>,
+}
+
+/// What readiness decided for each line before seller checkout (`SellListReadinessDecisionInput`),
+/// as Checkout keeps it with a review and seller checkout sends it back.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct ReadinessDecisions {
     pub line_actions: Vec<LineAction>,
     pub line_outcomes: Vec<LineKept>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineAction {
     pub line_id: String,
     /// `selected-offer`, `smart-match` or `fallback-listing`.
-    pub action: &'static str,
+    pub action: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineKept {
     pub line_id: String,
     /// `keep-in-list`.
-    pub outcome: &'static str,
+    pub outcome: String,
 }
 
 /// The readiness snapshot seller checkout starts from (`SellListReadinessSnapshot`), the fields
@@ -1085,7 +1403,6 @@ pub struct SellListSnapshot {
     pub unresolved_line_ids: Vec<String>,
     /// The lines seller checkout takes.
     pub included_line_ids: Vec<String>,
-    pub line_outcomes: Vec<SnapshotLine>,
     pub seller_readiness: SnapshotSeller,
 }
 
@@ -1094,24 +1411,6 @@ impl SellListSnapshot {
     pub fn ready(&self) -> bool {
         self.status == "ready" && self.unresolved_line_ids.is_empty() && !self.included_line_ids.is_empty()
     }
-
-    /// The sale action readiness decided for an included line.
-    pub fn action(&self, line: &str) -> Option<&str> {
-        if !self.included_line_ids.iter().any(|id| id == line) {
-            return None;
-        }
-        self.line_outcomes.iter().filter(|o| o.line_id == line).find_map(|o| o.action.as_deref())
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct SnapshotLine {
-    pub line_id: String,
-    /// `checkout`, `keep-in-list` or `removed`.
-    pub outcome: String,
-    /// `selected-offer`, `smart-match` or `fallback-listing`.
-    pub action: Option<String>,
 }
 
 /// The seller's readiness in a snapshot; the page reads only whether it is ready.
@@ -1121,49 +1420,40 @@ pub struct SnapshotSeller {
     pub status: String,
 }
 
-/// The seller confirmation evidence seller checkout sends (`SellListSellerConfirmationEvidence`), as
-/// marketplace's route builds it (`buildSellerEvidence`): every dimension said to be ready, the
-/// ship-from's place and the payout readiness read
-/// ([chase-sets/chase-sets#10753](https://github.com/chase-sets/chase-sets/issues/10753)).
+/// What the seller chose that Checkout reads seller readiness from (`SellerCheckoutChoices`): the
+/// ship-from, a saved address by its id or the address typed, and the label preference. Checkout
+/// resolves the origin and reads risk, fulfillment and the payout estimate from their owners with
+/// it, at readiness and again before it confirms
+/// ([chase-sets/chase-sets#10764 Give seller checkout typed owner reads for risk, label, payout
+/// estimate and freshness](https://github.com/chase-sets/chase-sets/issues/10764)).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SellerEvidence {
-    pub ship_from: EvidenceShipFrom,
-    pub payout: EvidencePayout,
-    pub label: EvidenceLabel,
-    pub risk: EvidenceStatus,
-    pub provider: EvidenceStatus,
-    pub freshness: EvidenceStatus,
+pub struct SellerChoices {
+    pub ship_from: ShipFromChoice,
+    pub label: LabelChoice,
+}
+
+/// The ship-from chosen: a saved address (`addressId`) or the one typed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum ShipFromChoice {
+    #[serde(rename_all = "camelCase")]
+    Saved { address_id: String },
+    #[serde(rename_all = "camelCase")]
+    Typed {
+        name: String,
+        line1: String,
+        line2: Option<String>,
+        city: String,
+        state: String,
+        postal_code: String,
+        country: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EvidenceShipFrom {
-    pub status: &'static str,
-    pub address_id: Option<String>,
-    pub country: String,
-    pub region: String,
-    pub postal_code: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EvidencePayout {
-    pub status: &'static str,
-    pub method: &'static str,
-    pub readiness_status: String,
-    pub last_checked_at: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EvidenceLabel {
-    pub status: &'static str,
+pub struct LabelChoice {
     pub preference: &'static str,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EvidenceStatus {
-    pub status: &'static str,
 }
 
 /// The header a guest's Product Alert intent names its owner in (the anonymous alert cookie's
@@ -1180,9 +1470,9 @@ pub struct AlertIntent {
 /// The Discovery API's Product Alert calls (`/account/product-alerts`,
 /// `/guest/product-alert-intents`).
 pub trait ProductAlerts {
-    /// Creates the account's alert (`CreateProductAlertRequest`). The API checks nothing against
-    /// the catalog (chase-sets/chase-sets#10595) and creates a new alert for each call
-    /// (chase-sets/chase-sets#10596). The answer is the write's receipt.
+    /// Creates the account's alert (`CreateProductAlertRequest`), once per `attemptId` and
+    /// request. The API checks nothing against the catalog (chase-sets/chase-sets#10595). The
+    /// answer is the write's receipt.
     async fn create_product_alert(&self, alert: &impl Serialize) -> Result<Option<Receipt>, ApiError>;
     /// Saves a guest's alert as an intent owned by `guest` (the same fields and `sourcePath`).
     async fn product_alert_intent(&self, guest: &str, alert: &impl Serialize) -> Result<AlertIntent, ApiError>;
@@ -1295,19 +1585,24 @@ pub trait Marketplace {
     async fn standard_terms(&self, price: &str) -> Result<StandardTerms, ApiError>;
     /// Report a listing (`POST /listings/{id}/report`): as the account signed in, else as the
     /// visitor `anonymous` (`anon_..`, marketplace's report cookie). A second report from the
-    /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429.
+    /// same reporter is a 409 `report_already_submitted`; too many in ten minutes a 429. The
+    /// report's `attemptId` makes it one report however often it is sent (a 409
+    /// `attempt_conflict` for the same attempt with other words).
     async fn report_listing(&self, listing: &str, anonymous: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
     /// Report a review (`POST /reviews/{id}/report`), as the account signed in only: a visitor is
-    /// a 401. A second report from the same account is a 409 `report_already_submitted`.
+    /// a 401. A second report from the same account is a 409 `report_already_submitted`. Its
+    /// `attemptId` makes it one report, as a listing's.
     async fn report_review(&self, review: &str, report: &ListingReport<'_>) -> Result<(), ApiError>;
     /// A seller's buyer-facing chips (`GET /accounts/{id}/behavioral-metrics-chips`).
     async fn metrics_chips(&self, account: &str) -> Result<MetricsChips, ApiError>;
 }
 
-/// A listing report's body (`ReportListingRequest`).
+/// A listing report's body (`ReportListingRequest`), and a review report's: the attempt (the
+/// form's `SubmitKey`), the reason, the explanation and the page it was sent from.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListingReport<'a> {
+    pub attempt_id: &'a str,
     pub reason: &'a str,
     pub details: Option<&'a str>,
     pub source_route_path: &'a str,
@@ -1448,9 +1743,10 @@ impl Checkout for Caller<'_> {
         if let Some(fields) = body.as_object_mut() {
             fields.insert("attemptId".to_owned(), attempt.into());
         }
-        let mut req = self.request(Method::POST, &format!("{}/cart{}", write.owner(), write.path), CHECKOUT).json(&body);
+        let path = format!("{}{}{}", write.owner(), write.lines.path(), write.path);
+        let mut req = self.request(Method::POST, &path, CHECKOUT).json(&body);
         if let Some(id) = &write.guest {
-            req = req.header(ANONYMOUS_CART_HEADER, id);
+            req = req.header(write.lines.guest_header(), id);
         }
         let sent = req.send().await;
         let Ok(res) = sent else { return CartAnswer::Lost };
@@ -1472,10 +1768,11 @@ impl Checkout for Caller<'_> {
     async fn cart_attempt(&self, attempt: &str, write: &CartWrite) -> Option<CartAttempt> {
         let hash = crate::cart_attempt::request_hash(&write.body);
         let path = format!(
-            "{}/command-attempts/{}?kind={}&target={CART_ATTEMPT_TARGET}&requestHash={hash}",
+            "{}/command-attempts/{}?kind={}&target={}&requestHash={hash}",
             write.owner(),
             segment(attempt),
             write.kind,
+            segment(&write.target),
         );
         #[derive(Deserialize)]
         struct Found {
@@ -1483,7 +1780,7 @@ impl Checkout for Caller<'_> {
         }
         let mut req = self.request(Method::GET, &path, CHECKOUT);
         if let Some(id) = &write.guest {
-            req = req.header(ANONYMOUS_CART_HEADER, id);
+            req = req.header(write.lines.guest_header(), id);
         }
         match self.write::<Found>(req).await {
             Ok((found, _)) => Some(found.attempt),
@@ -1632,6 +1929,14 @@ pub struct CheckoutSession {
     pub split_group_handoff: Option<serde_json::Value>,
     #[serde(default)]
     pub cart_readiness_snapshot: Option<serde_json::Value>,
+    /// The quote the session last recorded, present while its orders wait for payment: confirm's
+    /// address write cleared the live preview (`last_recorded_quote`).
+    #[serde(default)]
+    pub last_recorded_quote: Option<FulfillmentPreview>,
+    /// The material-change acknowledgement the orders were bound to, in the same window; none for
+    /// orders recorded before it was kept (`order_acknowledged_material_changes`).
+    #[serde(default)]
+    pub order_acknowledged_material_changes: Option<bool>,
 }
 
 /// The address a session keeps (`CheckoutShippingAddressInput`), and the one a write sends.
@@ -2353,8 +2658,9 @@ pub struct Offer {
 pub trait Discovery {
     /// The item by its slug or its id; `None` when the API has no such item.
     async fn item(&self, id: &str) -> Result<Option<Item>, ApiError>;
-    /// What the page shows a seller who may list (`SellerOverlay`).
-    async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError>;
+    /// What the page shows a seller who may list (`SellerOverlay`), with the seller's own listing
+    /// `selected` when the address names one (`selectedListingId`).
+    async fn seller_overlay(&self, id: &str, selected: Option<&str>) -> Result<SellerOverlay, ApiError>;
     /// Items like the item, by its slug or its id (`GET /api/marketplace/items/{id}/similar`).
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError>;
     /// A listing's public page by its slug (or an old one); `None` when there is none.
@@ -2549,8 +2855,9 @@ impl Discovery for Caller<'_> {
         }
     }
 
-    async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError> {
-        self.read(&format!("{ITEMS}/{}/seller-overlay", segment(id)), DISCOVERY).await
+    async fn seller_overlay(&self, id: &str, selected: Option<&str>) -> Result<SellerOverlay, ApiError> {
+        let query = selected.map(|listing| format!("?selectedListingId={}", segment(listing))).unwrap_or_default();
+        self.read(&format!("{ITEMS}/{}/seller-overlay{query}", segment(id)), DISCOVERY).await
     }
 
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError> {
@@ -2683,6 +2990,11 @@ pub struct PublicListing {
     pub seller_listing_availability_status: Option<String>,
     /// When an away seller's listings return; `None` for an indefinite away.
     pub seller_available_again_at: Option<String>,
+    /// The listing's eligible, live Google Shopping feed row
+    /// (`DiscoveryGoogleShoppingStructuredDataPayload`), which its Product JSON-LD is written
+    /// from. Kept as JSON: a payload of an unexpected shape writes no structured data rather than
+    /// failing the page.
+    pub google_shopping_structured_data_payload: Option<serde_json::Value>,
 }
 
 /// A page of search results (`GET /api/marketplace/items?..`, `DiscoverySearchResponse`), the
@@ -2817,6 +3129,47 @@ struct Categories {
     items: Vec<SearchCategory>,
 }
 
+/// What adding a search's results to the buy cart would add (`DiscoveryBulkCartPreview`): the
+/// lines it can add, each a product the result names in full, and the results it skips until
+/// their options are chosen. Over `limit` matches, nothing is added.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkCartPreview {
+    pub total_matches: Option<u64>,
+    pub eligible_count: u64,
+    pub skipped_count: u64,
+    pub over_limit: bool,
+    pub limit: u64,
+    #[serde(default)]
+    pub lines: Vec<BulkCartLine>,
+    #[serde(default)]
+    pub skipped_items: Vec<BulkCartSkipped>,
+}
+
+/// A line the bulk add sends, as the preview gives it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BulkCartLine {
+    pub catalog_item_id: String,
+    pub product_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub image_url: Option<String>,
+    pub image_srcset: Option<String>,
+    pub image_loading_url: Option<String>,
+    pub image_loading_alt: Option<String>,
+    pub image_loading_srcset: Option<String>,
+    pub product_summary: Option<String>,
+    pub quantity: u64,
+    #[serde(default)]
+    pub selected_options: Vec<serde_json::Value>,
+}
+
+/// A result the bulk add leaves out: why, in a sentence that names it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BulkCartSkipped {
+    pub message: String,
+}
+
 /// Marketplace search's calls.
 pub trait Search {
     /// A page of results; `query` is the API's query string, without the `?`.
@@ -2827,11 +3180,18 @@ pub trait Search {
     async fn category(&self, slug: &str) -> Result<Option<SearchCategory>, ApiError>;
     /// The set with the slug (or an old one) and its first items; `None` when there is none.
     async fn set(&self, slug: &str) -> Result<Option<SetPage>, ApiError>;
+    /// What adding every result of `query` (a search's query string) to the buy cart would add
+    /// (`previewBulkAddSearchResults`).
+    async fn bulk_cart_preview(&self, query: &str) -> Result<BulkCartPreview, ApiError>;
 }
 
 impl Search for Caller<'_> {
     async fn search(&self, query: &str) -> Result<SearchResults, ApiError> {
         self.read(&format!("{ITEMS}?{query}"), DISCOVERY).await
+    }
+
+    async fn bulk_cart_preview(&self, query: &str) -> Result<BulkCartPreview, ApiError> {
+        self.read(&format!("{ITEMS}/bulk-cart-preview?{query}"), DISCOVERY).await
     }
 
     async fn categories(&self) -> Result<Vec<SearchCategory>, ApiError> {
@@ -2874,13 +3234,42 @@ pub struct SetPage {
 }
 
 /// What the item page reads for a seller (`GET /api/marketplace/items/{id}/seller-overlay`,
-/// `DiscoveryItemDetailSellerOverlay`), the field the pilot reads: whether the account has the
-/// Listing stock location quick listings ship from. Its offer matches and inventory are not
-/// ported.
+/// `DiscoveryItemDetailSellerOverlay`), the fields the pilot reads: whether the account has the
+/// Listing stock location quick listings ship from, and the item's offers it could fill. The API
+/// answers each part only to an actor allowed it (no matches without `offers.view` and
+/// `listings.view`, no stock location or selected listing without `listings.manage`). Its
+/// `sellerInventoryItems` are not read: marketplace's loader passes them on, but no part of its
+/// page draws them.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SellerOverlay {
     pub has_listing_stock_location: bool,
+    #[serde(default)]
+    pub account_offer_matches: Vec<AccountOfferMatch>,
+    /// The account's own listing of the item the address names (`selectedSellerListing`): a
+    /// draft, active or paused one, which the item's own read lists only once buyers can see it.
+    #[serde(default)]
+    pub selected_seller_listing: Option<Listing>,
+}
+
+/// An offer of the item that one of the account's listings of its product could fill
+/// (`DiscoveryAccountOfferMatch`), the fields the Sell rail reads. The API sorts them for review:
+/// those it can fill first, then by price.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AccountOfferMatch {
+    pub offer_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
+    /// `submitted`, or what it became.
+    pub status: String,
+    pub quantity_requested: u64,
+    /// What the account's listing has for it.
+    pub seller_available_quantity: u64,
+    pub can_fulfill: bool,
+    /// The offer is already a line of the account's Sell List.
+    pub in_sell_list: bool,
 }
 
 /// The stock an account's quick listing sells (`POST /api/inventory/items/listing-stock/ensure`,
@@ -2934,7 +3323,8 @@ pub trait Listings {
     /// Creates the listing, a draft. With `listingIdOverride` in `body`, the same id sent again is
     /// the same listing.
     async fn create_listing(&self, body: &serde_json::Value) -> Result<(CreatedListing, Option<Receipt>), ApiError>;
-    /// Publishes a draft with the fee quote it was created with.
+    /// Publishes a draft with the fee quote it was created with, as the attempt the listing's id
+    /// makes: the same create sent again publishes once.
     async fn publish_listing(&self, id: &str, fee_quote_fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError>;
     /// Saves a guest's listing as a draft intent owned by `guest`.
     async fn listing_draft_intent(&self, guest: &str, body: &serde_json::Value) -> Result<DraftIntent, ApiError>;
@@ -2950,14 +3340,21 @@ impl Listings for Caller<'_> {
     }
 
     async fn create_listing(&self, body: &serde_json::Value) -> Result<(CreatedListing, Option<Receipt>), ApiError> {
-        let req = self.request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE).json(body);
+        let attempt = listing_attempt(body["listingIdOverride"].as_str(), "create");
+        let req = self
+            .request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE)
+            .header(IDEMPOTENCY_KEY, attempt)
+            .json(body);
         self.write(req).await
     }
 
     async fn publish_listing(&self, id: &str, fee_quote_fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError> {
         let body = serde_json::json!({ "feeQuoteFingerprint": fee_quote_fingerprint });
         let path = format!("/api/marketplace/account/listings/{}/publish", segment(id));
-        let req = self.request(Method::POST, &path, MARKETPLACE).json(&body);
+        let req = self
+            .request(Method::POST, &path, MARKETPLACE)
+            .header(IDEMPOTENCY_KEY, listing_attempt(Some(id), "publish"))
+            .json(&body);
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
@@ -3272,8 +3669,12 @@ impl ListingCreate for Caller<'_> {
                 .mime_str(&photo.content_type)?;
             form = form.part("evidence", part);
         }
-        let req =
-            self.request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE).timeout(UPLOAD_TIMEOUT).multipart(form);
+        let id = fields.iter().find(|(name, _)| *name == "listingIdOverride").map(|(_, id)| id.as_str());
+        let req = self
+            .request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE)
+            .header(IDEMPOTENCY_KEY, listing_attempt(id, "create"))
+            .timeout(UPLOAD_TIMEOUT)
+            .multipart(form);
         self.write(req).await
     }
 }
@@ -3546,6 +3947,9 @@ pub struct AddressSnapshot {
     pub state: Option<String>,
     pub postal_code: Option<String>,
     pub country: Option<String>,
+    /// The label form's contact fields.
+    pub phone: Option<String>,
+    pub email: Option<String>,
 }
 
 /// An order's line (`OrderingOrderProjectionLine`, the fields shown).
@@ -3714,9 +4118,102 @@ pub struct PackingSlipBatch {
     pub items: Vec<ShipmentDetail>,
 }
 
+/// A seller's shipping origin (Fulfillment's `SellerShippingOrigin`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingOrigin {
+    pub name: String,
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+}
+
+/// A seller's saved shipping setup: where they ship from and how they want labels.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingSetup {
+    pub origin: ShippingOrigin,
+    /// `prepaid-label` or `seller-label-later`.
+    pub label_preference: String,
+    pub ship_from_location_id: String,
+}
+
+/// The seller's shipping setup as Fulfillment reads it (`SellerShippingSetupResult`): the setup, if
+/// any, and whether the platform supports its label preference.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingSetupRead {
+    pub setup: Option<ShippingSetup>,
+    pub revision: Option<u64>,
+    pub recorded_at: Option<String>,
+    /// `enabled`, `missing`, `revoked` or `invalidated` (a guest setup merged into an account).
+    pub support_status: String,
+}
+
+/// What a save sends (`SellerShippingSetupInput`).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShippingSetupInput {
+    pub origin: ShippingOrigin,
+    pub label_preference: String,
+}
+
+/// The seller's shipping setup (Fulfillment's `/account/seller-shipping-setup`, or
+/// `/guest/seller-shipping-setup` for the guest sell list `guest`, named in its header). The API
+/// refuses any query.
+pub trait ShippingSetupCalls {
+    async fn shipping_setup(&self, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError>;
+    /// Saves the setup (`PUT`): the setup as saved. A save of the setup already there changes
+    /// nothing.
+    async fn save_shipping_setup(&self, input: &ShippingSetupInput, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError>;
+}
+
+fn shipping_setup_request(caller: &Caller<'_>, method: Method, guest: Option<&str>) -> reqwest::RequestBuilder {
+    let owner = if guest.is_some() { "guest" } else { "account" };
+    let req = caller.request(method, &format!("/api/marketplace/{owner}/seller-shipping-setup"), FULFILLMENT);
+    match guest {
+        Some(id) => req.header(ANONYMOUS_SELL_LIST_HEADER, id),
+        None => req,
+    }
+}
+
+impl ShippingSetupCalls for Caller<'_> {
+    async fn shipping_setup(&self, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError> {
+        // A read, sent as `write` sends a request (its answer checked, then its JSON).
+        Ok(self.write(shipping_setup_request(self, Method::GET, guest)).await?.0)
+    }
+
+    async fn save_shipping_setup(&self, input: &ShippingSetupInput, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError> {
+        Ok(self.write(shipping_setup_request(self, Method::PUT, guest).json(input)).await?.0)
+    }
+}
+
 /// The header that names a Fulfillment write's attempt (`Idempotency-Key`, a UUID v4): the API
 /// applies an attempt once, answers a repeat with its first result, and says later what came of it.
 const IDEMPOTENCY_KEY: &str = "idempotency-key";
+
+/// A Listing command's attempt (Marketplace's `listingAttemptInput`, sent as `Idempotency-Key`):
+/// Marketplace applies a key once and answers it again with its first result, and refuses a
+/// command without one. A create's key is made from the listing id it names
+/// (`listingIdOverride`) and the command's name, for the create and the publish that follows it,
+/// so sent again it is the same attempt; without one, the command is an attempt of its own. A
+/// seller's change to a listing or to the account's listing settings is sent under the batch id
+/// Marketplace prepared it as (`listing_recovery`).
+pub fn listing_attempt(made_from: Option<&str>, command: &str) -> String {
+    match made_from.map(|from| format!("{from}_{command}")) {
+        Some(key) if valid_listing_attempt(&key) => key,
+        _ => format!("browser_{}", uuid::Uuid::new_v4().simple()),
+    }
+}
+
+/// A key Marketplace takes as a Listing attempt (`marketplaceAttemptIdSchema`): 22 to 128 letters,
+/// digits, `_` and `-`.
+pub fn valid_listing_attempt(key: &str) -> bool {
+    (22..=128).contains(&key.len()) && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
 
 /// The seller's packing commands on a shipment (Fulfillment's `account/sales/shipments/{id}/..`),
 /// each sent as `attempt`.
@@ -3784,6 +4281,211 @@ impl Packing for Caller<'_> {
     }
 }
 
+/// The seller's command center (Fulfillment's `GET account/sales/shipments/command-center`,
+/// `FulfillmentCommandCenter`): the shipments that need the seller now, in their buckets, each
+/// bucket ordered by the Seller Desk attention policy and each shipment with the action plan its
+/// stored state allows. The API decides all of it; the page draws it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenter {
+    /// In the API's order (exceptions, ready to dispatch, needs a label, needs packing), empty
+    /// buckets too.
+    pub buckets: Vec<CommandCenterBucket>,
+    pub total_needing_attention: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenterBucket {
+    /// `exceptions`, `ready-to-dispatch`, `needs-label` or `needs-packing`.
+    pub id: String,
+    pub items: Vec<CommandCenterItem>,
+    pub count: u64,
+}
+
+/// A shipment in the command center (`FulfillmentCommandCenterItem`), as far as the page draws it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenterItem {
+    pub shipment_id: String,
+    pub display_reference: String,
+    pub status: String,
+    pub tracking_identifier: Option<String>,
+    pub buyer_display_name: Option<String>,
+    pub current_exception_type: Option<String>,
+    pub current_exception_notes: Option<String>,
+    pub line_count: u64,
+    pub total_quantity: u64,
+    pub plan: ActionPlan,
+}
+
+/// What a shipment's state allows (`ShipmentActionPlan`): the one next action, if any, and the
+/// others under More actions.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ActionPlan {
+    pub primary: Option<ShipmentAction>,
+    pub disclosed: Vec<ShipmentAction>,
+}
+
+/// A seller's shipment action (`ShipmentActionName`). An action the pilot does not know is kept
+/// as `Other`, drawn as nothing, so a new one in the API does not fail the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShipmentAction {
+    StartPacking,
+    CompletePacking,
+    BuyLabel,
+    VoidLabel,
+    CancelShipment,
+    Dispatch,
+    RecordDelivery,
+    Return,
+    RaiseException,
+    #[serde(other)]
+    Other,
+}
+
+/// The seller's shipment actions beside packing (Fulfillment's `account/sales/shipments/{id}/..`),
+/// each sent as `attempt` (`Idempotency-Key`); what came of an attempt is `Packing::packing_attempt`.
+pub trait ShipmentCommands {
+    async fn command_center(&self) -> Result<CommandCenter, ApiError>;
+    /// `action` on the shipment, with the exception's or the return's fields. Packing's two are
+    /// the packing page's (`Packing`); `Other` is refused before it is sent.
+    async fn shipment_action(
+        &self,
+        id: &str,
+        action: ShipmentAction,
+        fields: &ActionFields,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError>;
+}
+
+/// What an action sends beyond the shipment: Raise exception's type and notes, Record return's
+/// reason, and Buy label's label. Empty notes and an empty reason are sent as `null` and an empty
+/// type as `other`, as marketplace's adapter sends them; the command center sends no reason and
+/// no label (Ground Advantage, the API's addresses and package), as marketplace's does.
+#[derive(Clone, Debug, Default)]
+pub struct ActionFields {
+    pub exception_type: String,
+    pub notes: String,
+    pub reason: String,
+    pub label: Option<LabelPurchase>,
+}
+
+/// A label bought from the shipment's page (marketplace's `purchase-label` intent): the service,
+/// the sender's and recipient's addresses as the seller left them, why they changed, and the
+/// package. A letter sends only its service. The API decides whether the addresses changed and
+/// whether the reason is needed.
+#[derive(Clone, Debug, Default)]
+pub struct LabelPurchase {
+    pub service_level: String,
+    pub sender: Option<LabelAddress>,
+    pub recipient: Option<LabelAddress>,
+    pub override_reason: String,
+    /// Length, width and height in inches and weight in ounces, as typed.
+    pub package: Option<[String; 4]>,
+}
+
+/// An address on the label form, as typed.
+#[derive(Clone, Debug, Default)]
+pub struct LabelAddress {
+    pub name: String,
+    pub company: String,
+    pub street1: String,
+    pub street2: String,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+    pub phone: String,
+    pub email: String,
+}
+
+impl LabelPurchase {
+    /// The body marketplace's route sends (`account-sale-shipment.tsx`): every address field as a
+    /// string (an empty country is `US`), the reason as typed (empty too), and each size as `Number()` reads
+    /// it, an empty one as the form's default (7, 5, 1 and 4) and one that is not a number as
+    /// `null`.
+    pub fn body(&self) -> serde_json::Value {
+        use serde_json::{Value, json};
+        let mut body = serde_json::Map::new();
+        body.insert("serviceLevel".into(), json!(self.service_level));
+        for (prefix, address) in [("sender", &self.sender), ("recipient", &self.recipient)] {
+            let Some(a) = address else { continue };
+            let country = if a.country.is_empty() { "US" } else { a.country.as_str() };
+            let fields = [
+                ("Name", a.name.as_str()),
+                ("Company", &a.company),
+                ("Street1", &a.street1),
+                ("Street2", &a.street2),
+                ("City", &a.city),
+                ("State", &a.state),
+                ("PostalCode", &a.postal_code),
+                ("Country", country),
+                ("Phone", &a.phone),
+                ("Email", &a.email),
+            ];
+            for (field, value) in fields {
+                body.insert(format!("{prefix}{field}"), json!(value));
+            }
+        }
+        body.insert("overrideReason".into(), json!(self.override_reason));
+        if let Some(sizes) = &self.package {
+            let names = ["packageLengthInches", "packageWidthInches", "packageHeightInches", "packageWeightOunces"];
+            for ((name, default), value) in names.into_iter().zip([7.0, 5.0, 1.0, 4.0]).zip(sizes) {
+                let value = value.trim();
+                let number = if value.is_empty() { Some(default) } else { value.parse::<f64>().ok().filter(|n| n.is_finite()) };
+                body.insert(name.into(), number.map_or(Value::Null, |n| json!(n)));
+            }
+        }
+        Value::Object(body)
+    }
+}
+
+impl ShipmentCommands for Caller<'_> {
+    async fn command_center(&self) -> Result<CommandCenter, ApiError> {
+        self.read(&format!("{}/command-center", Side::Seller.shipments()), FULFILLMENT).await
+    }
+
+    async fn shipment_action(
+        &self,
+        id: &str,
+        action: ShipmentAction,
+        fields: &ActionFields,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError> {
+        use serde_json::json;
+        let text = |value: &str| if value.trim().is_empty() { serde_json::Value::Null } else { json!(value.trim()) };
+        let (path, body) = match action {
+            // The label marketplace's command center buys (`runShipmentCommandCenterAction`).
+            ShipmentAction::BuyLabel => match &fields.label {
+                Some(label) => ("label/purchase", label.body()),
+                None => ("label/purchase", json!({ "serviceLevel": "USPS_GROUND_ADVANTAGE" })),
+            },
+            ShipmentAction::VoidLabel => ("label/void", json!({})),
+            ShipmentAction::CancelShipment => ("cancel", json!({})),
+            ShipmentAction::Dispatch => ("dispatch", json!({})),
+            ShipmentAction::RecordDelivery => ("deliver", json!({})),
+            ShipmentAction::Return => ("return", json!({ "reason": text(&fields.reason) })),
+            ShipmentAction::RaiseException => {
+                let kind = if fields.exception_type.trim().is_empty() { "other" } else { fields.exception_type.trim() };
+                ("exception", json!({ "exceptionType": kind, "notes": text(&fields.notes) }))
+            }
+            ShipmentAction::StartPacking | ShipmentAction::CompletePacking | ShipmentAction::Other => {
+                return Err(ApiError::Status {
+                    status: StatusCode::BAD_REQUEST,
+                    code: Some("unknown_action".into()),
+                    message: String::new(),
+                });
+            }
+        };
+        let path = format!("{}/{}/{path}", Side::Seller.shipments(), segment(id));
+        let req = self.request(Method::POST, &path, FULFILLMENT).header(IDEMPOTENCY_KEY, attempt).json(&body);
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+}
+
 /// A page of shipments (`ListResponse<FulfillmentShipmentListItem>`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -3834,6 +4536,9 @@ pub struct ShipmentDetail {
     pub label_refund_status: Option<String>,
     pub label_refund_reference: Option<String>,
     pub delivered_at: Option<String>,
+    /// The exception the shipment is in, if any (Raise exception's defaults).
+    pub current_exception_type: Option<String>,
+    pub current_exception_notes: Option<String>,
     /// When packing started (the packing page's lock), and when the shipment last changed.
     pub packing_started_at: Option<String>,
     pub updated_at: String,
@@ -3847,6 +4552,8 @@ pub struct ShipmentDetail {
     pub exceptions: Vec<ShipmentException>,
     pub postage_label_operations: Vec<PostageOperation>,
     pub postage_provider_events: Vec<PostageProviderEvent>,
+    /// What the shipment's state lets its seller do next; only the seller's read carries it.
+    pub action_plan: Option<ActionPlan>,
 }
 
 /// The order's package plan, the part the page shows (`PackagePlan`): its postage policy.
@@ -3854,6 +4561,21 @@ pub struct ShipmentDetail {
 #[serde(default, rename_all = "camelCase")]
 pub struct PackagePlanSnapshot {
     pub postage_policy_snapshot: Option<PostagePolicySnapshot>,
+    pub packages: Vec<PlannedPackage>,
+}
+
+impl PackagePlanSnapshot {
+    /// Every package is a letter (`isLetterMailpiece`): the label is bought as letter mail.
+    pub fn letter(&self) -> bool {
+        !self.packages.is_empty() && self.packages.iter().all(|p| p.mailpiece_class.as_deref() == Some("letter"))
+    }
+}
+
+/// A package the order planned, the part the page reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PlannedPackage {
+    pub mailpiece_class: Option<String>,
 }
 
 /// What the postage policy required when the order was placed.
@@ -4012,7 +4734,7 @@ pub struct SuggestedAddress {
 /// An Identity account-management write the pilot sends (`MutationAction`): the address book's
 /// four, the account's profile, the security page's user profile and API key writes, the team
 /// page's invitation and membership writes, and a consent's withdrawal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum AccountAction {
     Create,
@@ -4396,10 +5118,9 @@ struct CommittedOwner {
 /// The account's team (Identity's `memberships` and `invitations`), as the signed-in member. Each
 /// write is an account-management attempt, as the address book's are.
 pub trait TeamCalls {
-    /// The account's members and invitations. Workaround for chase-sets/chase-sets#10704: Identity
-    /// scopes these lists by a substring match on the account's id, so only the rows whose
-    /// `account_id` is `account` are kept.
-    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError>;
+    /// The signed-in account's members and invitations: Identity lists only the caller's account
+    /// to a member.
+    async fn team(&self) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError>;
     /// Send `action` on `target` as `attempt` with `body` (a create's fields, or a role); with
     /// the invitation a committed create recorded.
     async fn write_team(
@@ -4415,17 +5136,12 @@ pub trait TeamCalls {
 }
 
 impl TeamCalls for Caller<'_> {
-    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError> {
-        let scope = segment(account);
-        let (members_at, invitations_at) =
-            (format!("/api/identity/memberships?search={scope}"), format!("/api/identity/invitations?search={scope}"));
+    async fn team(&self) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError> {
         let (members, invitations) = tokio::join!(
-            self.read::<TeamList<Membership>>(&members_at, IDENTITY),
-            self.read::<TeamList<Invitation>>(&invitations_at, IDENTITY),
+            self.read::<TeamList<Membership>>("/api/identity/memberships", IDENTITY),
+            self.read::<TeamList<Invitation>>("/api/identity/invitations", IDENTITY),
         );
-        let members = members?.items.into_iter().filter(|m| m.account_id == account).collect();
-        let invitations = invitations?.items.into_iter().filter(|i| i.account_id == account).collect();
-        Ok((members, invitations))
+        Ok((members?.items, invitations?.items))
     }
 
     async fn write_team(
@@ -4542,15 +5258,17 @@ pub trait ReviewCalls {
     /// A review the account wrote or received (`GET /reviews/{id}`).
     async fn review(&self, review: &str) -> Result<ReviewItem, ApiError>;
     /// The account's one public response to a review it received (`POST /reviews/{id}/reply`). The
-    /// answer is the write's receipt.
-    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
+    /// answer is the write's receipt. Sent as `attempt` (`attemptId`), which Marketplace applies
+    /// once.
+    async fn reply_to_review(&self, review: &str, attempt: &str, feedback: &str) -> Result<Option<Receipt>, ApiError>;
     /// Whether the account may review the other side of `order`
     /// (`GET /reviews/opportunities/orders/{id}`); `None` when it has no such order.
     async fn review_opportunity(&self, order: &str) -> Result<Option<ReviewOpportunity>, ApiError>;
     /// Submit a review of the order's other side (`POST /reviews`): the review's id and the
-    /// write's receipt.
+    /// write's receipt. Sent as `attempt` (`attemptId`), which Marketplace applies once.
     async fn submit_review(
         &self,
+        attempt: &str,
         order: &str,
         subject: &str,
         rating: i64,
@@ -4580,9 +5298,10 @@ impl ReviewCalls for Caller<'_> {
         self.read(&format!("/api/marketplace/reviews/{}", segment(review)), MARKETPLACE).await
     }
 
-    async fn reply_to_review(&self, review: &str, feedback: &str) -> Result<Option<Receipt>, ApiError> {
+    async fn reply_to_review(&self, review: &str, attempt: &str, feedback: &str) -> Result<Option<Receipt>, ApiError> {
         let path = format!("/api/marketplace/reviews/{}/reply", segment(review));
-        let req = self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "feedback": feedback }));
+        let body = serde_json::json!({ "attemptId": attempt, "feedback": feedback });
+        let req = self.request(Method::POST, &path, MARKETPLACE).json(&body);
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
@@ -4597,6 +5316,7 @@ impl ReviewCalls for Caller<'_> {
 
     async fn submit_review(
         &self,
+        attempt: &str,
         order: &str,
         subject: &str,
         rating: i64,
@@ -4606,7 +5326,9 @@ impl ReviewCalls for Caller<'_> {
         struct Submitted {
             id: String,
         }
-        let body = serde_json::json!({ "orderId": order, "subjectAccountId": subject, "rating": rating, "feedback": feedback });
+        let body = serde_json::json!({
+            "attemptId": attempt, "orderId": order, "subjectAccountId": subject, "rating": rating, "feedback": feedback,
+        });
         let req = self.request(Method::POST, "/api/marketplace/reviews", MARKETPLACE).json(&body);
         let (submitted, receipt) = self.write::<Submitted>(req).await?;
         Ok((submitted.id, receipt))
@@ -4630,25 +5352,11 @@ pub struct Consent {
     pub is_current: bool,
 }
 
-impl Consent {
-    /// Whether the consent is the user's own: a user consent of `user`, or an account consent
-    /// `user` gave for `account` (Identity's withdraw rule, `subjectMatchesActor`).
-    pub fn is_of(&self, user: &str, account: &str) -> bool {
-        let by_user = self.user_id.as_deref() == Some(user);
-        match self.subject_type.as_str() {
-            "user" => by_user,
-            "account" => by_user && self.account_id.as_deref() == Some(account),
-            _ => false,
-        }
-    }
-}
-
 /// The user's consent history (Identity's `consents`), as the signed-in user. A withdrawal is an
 /// account-management attempt, as the address book's writes are.
 pub trait ConsentCalls {
-    /// The user's consents for the account, newest first, as marketplace's loader asks (the first
-    /// 50). Workaround for chase-sets/chase-sets#10707: Identity takes the user and account from the
-    /// query for an actor with `security.manage`, so only the user's own consents are kept.
+    /// The user's consents, newest first, as marketplace's loader asks (the first 50). Identity
+    /// lists only the signed-in user's own, whatever the query names.
     async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError>;
     /// Withdraw `consent` as `attempt`.
     async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError>;
@@ -4658,7 +5366,7 @@ impl ConsentCalls for Caller<'_> {
     async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError> {
         let path = format!("/api/identity/consents?limit=50&offset=0&userId={}&accountId={}", segment(user), segment(account));
         let list: TeamList<Consent> = self.read(&path, IDENTITY).await?;
-        Ok(list.items.into_iter().filter(|c| c.is_of(user, account)).collect())
+        Ok(list.items)
     }
 
     async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError> {
@@ -4784,9 +5492,8 @@ fn key_secret(action: AccountAction, answer: AccountAnswer, body: &str, lookup: 
 /// writes, account-management attempts like the address book's.
 pub trait SecurityCalls {
     async fn user(&self, user: &str) -> Result<SecurityUser, ApiError>;
-    /// The user's keys. Identity filters the list by `search`, which it matches against the key's
-    /// name too, so only the keys whose `user_id` is `user` are kept (chase-sets/chase-sets#10695).
-    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError>;
+    /// The signed-in user's keys: Identity lists only the caller's own keys to a user.
+    async fn api_keys(&self) -> Result<Vec<ApiKey>, ApiError>;
     /// Send the user's profile as `attempt`. A call with no answer is `Err(ApiError::Transport)`.
     async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError>;
     /// Create a key named `name` for `user` (`target` none), or rotate or revoke `target`, as
@@ -4813,9 +5520,9 @@ impl SecurityCalls for Caller<'_> {
         self.read(&format!("/api/identity/users/{}", segment(user)), IDENTITY).await
     }
 
-    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError> {
-        let list: ApiKeyList = self.read(&format!("/api/identity/api-keys?search={}", segment(user)), IDENTITY).await?;
-        Ok(list.items.into_iter().filter(|key| key.user_id == user).collect())
+    async fn api_keys(&self) -> Result<Vec<ApiKey>, ApiError> {
+        let list: ApiKeyList = self.read("/api/identity/api-keys", IDENTITY).await?;
+        Ok(list.items)
     }
 
     async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError> {
@@ -4931,8 +5638,7 @@ struct ErrorCode {
 }
 
 /// The signed-in user's sessions (Auth's `sessions`) and their two writes. Neither write is an
-/// attempt: Auth takes no `Idempotency-Key` for them, and answers every refusal (already revoked,
-/// already that account) with a 500 (chase-sets/chase-sets#10698).
+/// attempt: Auth takes no `Idempotency-Key` for them, and names a refusal by its error code.
 pub trait SessionCalls {
     /// A page of `user`'s sessions, newest first, and how many there are. Auth filters the list
     /// by `search`, which it matches against names and emails too, so only the sessions whose
@@ -5399,6 +6105,119 @@ pub enum ListingCommand {
     Withdraw,
 }
 
+/// A prepared Listing change (`ListingRecoveryReference`): the batch Marketplace keeps its
+/// outcomes under (its id is the change's Listing attempt), its mutation family, and whether it
+/// is a bulk Pause or Withdraw. A page's address carries it as JSON (`listingRecovery`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListingReference {
+    pub batch_id: String,
+    pub mutation_kind: String,
+    pub bulk: bool,
+}
+
+/// A Listing change to prepare before it is sent (`ListingRecoveryPreparation`): the form's
+/// intent and attempt, the listing or the checked listings, the fields it sends in the form's
+/// names (`listingRecoveryFields`), and the reference the page's address carries. Marketplace
+/// works out each target's request hash from them.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingPreparation<'a> {
+    pub intent: &'a str,
+    pub idempotency_key: &'a str,
+    pub listing_id: Option<&'a str>,
+    pub listing_ids: &'a [String],
+    pub fields: BTreeMap<&'static str, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retained: Option<&'a ListingReference>,
+}
+
+/// What a preparation answers (`ListingRecoveryPreparationResult`): the reference to send the
+/// change under (none for an intent Marketplace does not prepare), or what Marketplace already
+/// recorded for the reference the address carries, when the change is not to be sent.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum Prepared {
+    Recovery { recovery: ListingRecovery },
+    Reference { reference: Option<ListingReference> },
+}
+
+/// What came of a prepared change (`ListingRecovery`), as Marketplace classifies it from its
+/// recorded outcomes and each target's owner history.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ListingRecovery {
+    /// None when Marketplace could not bind the reference to a recorded change.
+    pub identity: Option<ListingReference>,
+    pub phase: RecoveryPhase,
+    pub items: Vec<RecoveredTarget>,
+    /// A bulk change's listings whose outcome is unknown: what Retry sends.
+    pub retry_target_ids: Vec<String>,
+    /// The form to enter again, with the attempt to send it under, while nothing is recorded.
+    pub reentry: Option<Reentry>,
+}
+
+impl ListingRecovery {
+    /// Nothing could be confirmed (`ambiguousListingRecovery`).
+    pub fn ambiguous() -> Self {
+        ListingRecovery::default()
+    }
+
+    /// The change was not sent (`failedListingPreparation`).
+    pub fn failed_safe() -> Self {
+        ListingRecovery { phase: RecoveryPhase::FailedSafe, ..ListingRecovery::default() }
+    }
+
+    /// Whether the page's changes are off while it shows this (`ListingRecoveryScope`'s
+    /// `blocked`): nothing is confirmed, or a recorded change has no form to enter again.
+    pub fn blocks(&self) -> bool {
+        self.phase == RecoveryPhase::Ambiguous || (self.identity.is_some() && self.reentry.is_none())
+    }
+}
+
+/// A recovery's phase. One Marketplace adds later reads as unconfirmed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecoveryPhase {
+    Confirming,
+    Succeeded,
+    Partial,
+    Conflict,
+    FailedSafe,
+    #[default]
+    #[serde(other)]
+    Ambiguous,
+}
+
+/// One target of a prepared change and its outcome.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveredTarget {
+    pub target_id: String,
+    pub outcome: TargetOutcome,
+}
+
+/// A target's outcome: `unknown` is the only one Marketplace sends again. One it adds later reads
+/// as unconfirmed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TargetOutcome {
+    Succeeded,
+    Conflict,
+    Error,
+    Unknown,
+    #[serde(other)]
+    Ambiguous,
+}
+
+/// The form a change with nothing recorded is entered again with, and its attempt.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reentry {
+    pub intent: String,
+    pub idempotency_key: String,
+}
+
 /// Why a listing command was not applied.
 #[derive(Debug)]
 pub enum CommandError {
@@ -5422,7 +6241,24 @@ impl From<ApiError> for CommandError {
 pub trait SellerListings {
     async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError>;
     async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError>;
-    async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError>;
+    /// Sends `command` under `attempt`, the batch id of the reference Marketplace prepared it as.
+    /// The photo commands take no attempt.
+    async fn listing_command(
+        &self,
+        id: &str,
+        command: &ListingCommand,
+        attempt: Option<&str>,
+    ) -> Result<Option<Receipt>, CommandError>;
+    /// Prepares a change to a listing, to many, or to the account's listing settings before it is
+    /// sent (`POST /account/listings/batch/prepare`).
+    async fn prepare_listing(&self, change: &ListingPreparation<'_>) -> Result<Prepared, ApiError>;
+    /// What came of a prepared change (`GET /account/listings/batch/{batchId}`). A read: it never
+    /// sends anything.
+    async fn recover_listing(&self, reference: &ListingReference) -> Result<ListingRecovery, ApiError>;
+    /// Sends a prepared bulk Pause or Withdraw's listings whose outcome is unknown, all of them the
+    /// first time (`POST /account/listings/batch/retry`): Marketplace checks each one's history
+    /// again and sends only those still unknown. The receipt the next read waits for.
+    async fn retry_listing_batch(&self, reference: &ListingReference) -> Result<Option<Receipt>, ApiError>;
     /// Adds photos to a draft, each with `alt_text` when there is one.
     async fn add_listing_photos(
         &self,
@@ -5477,7 +6313,12 @@ impl SellerListings for Caller<'_> {
         Ok(self.read::<FeeHistory>(&path, MARKETPLACE).await?.items)
     }
 
-    async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError> {
+    async fn listing_command(
+        &self,
+        id: &str,
+        command: &ListingCommand,
+        attempt: Option<&str>,
+    ) -> Result<Option<Receipt>, CommandError> {
         use serde_json::json;
         let base = format!("/api/marketplace/account/listings/{}", segment(id));
         let (method, path, body) = match command {
@@ -5516,10 +6357,33 @@ impl SellerListings for Caller<'_> {
             ListingCommand::Withdraw => (Method::POST, format!("{base}/withdraw"), json!({})),
         };
         let mut req = self.request(method, &path, MARKETPLACE);
+        if let Some(attempt) = attempt {
+            req = req.header(IDEMPOTENCY_KEY, attempt);
+        }
         if !body.is_null() {
             req = req.json(&body);
         }
         answer(req).await
+    }
+
+    async fn prepare_listing(&self, change: &ListingPreparation<'_>) -> Result<Prepared, ApiError> {
+        let path = "/api/marketplace/account/listings/batch/prepare";
+        Ok(self.write(self.request(Method::POST, path, MARKETPLACE).json(change)).await?.0)
+    }
+
+    async fn recover_listing(&self, reference: &ListingReference) -> Result<ListingRecovery, ApiError> {
+        let path = format!(
+            "/api/marketplace/account/listings/batch/{}?family={}&bulk={}",
+            segment(&reference.batch_id),
+            segment(&reference.mutation_kind),
+            reference.bulk
+        );
+        self.read(&path, MARKETPLACE).await
+    }
+
+    async fn retry_listing_batch(&self, reference: &ListingReference) -> Result<Option<Receipt>, ApiError> {
+        let path = "/api/marketplace/account/listings/batch/retry";
+        Ok(self.write::<serde::de::IgnoredAny>(self.request(Method::POST, path, MARKETPLACE).json(reference)).await?.1)
     }
 
     async fn add_listing_photos(
@@ -5718,7 +6582,8 @@ pub trait SellerListingList {
     async fn seller_metrics(&self) -> Result<SellerMetrics, ApiError>;
     /// Ordering's count of the account's open orders (the "N" of "N of M").
     async fn open_order_count(&self) -> Result<u64, ApiError>;
-    async fn seller_setting(&self, setting: &SellerSetting) -> Result<Option<Receipt>, CommandError>;
+    /// Sends `setting` under `attempt`, the batch id of the reference Marketplace prepared it as.
+    async fn seller_setting(&self, setting: &SellerSetting, attempt: &str) -> Result<Option<Receipt>, CommandError>;
 }
 
 const ACCOUNT: &str = "/api/marketplace/account";
@@ -5751,7 +6616,7 @@ impl SellerListingList for Caller<'_> {
         Ok(self.read::<OpenOrders>(&format!("{ACCOUNT}/sales/order-capacity"), ORDERING).await?.open_order_count)
     }
 
-    async fn seller_setting(&self, setting: &SellerSetting) -> Result<Option<Receipt>, CommandError> {
+    async fn seller_setting(&self, setting: &SellerSetting, attempt: &str) -> Result<Option<Receipt>, CommandError> {
         use serde_json::json;
         let availability = format!("{ACCOUNT}/listing-availability");
         let capacity = format!("{ACCOUNT}/order-capacity");
@@ -5771,7 +6636,7 @@ impl SellerListingList for Caller<'_> {
             SellerSetting::Capacity(max) => (Method::POST, capacity, json!({ "maxOpenOrders": max })),
             SellerSetting::ClearCapacity => (Method::DELETE, capacity, serde_json::Value::Null),
         };
-        let mut req = self.request(method, &path, MARKETPLACE);
+        let mut req = self.request(method, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, attempt);
         if !body.is_null() {
             req = req.json(&body);
         }
@@ -5852,9 +6717,6 @@ pub trait OfferMatchCalls {
     async fn sell_list_offer(&self, id: &str) -> Result<Option<OfferMatch>, ApiError>;
     /// Declines the offer as `attempt` (`attemptId`): Marketplace applies an attempt once.
     async fn decline_offer_match(&self, id: &str, attempt: &str) -> Result<Option<Receipt>, CommandError>;
-    /// Accepts the offer at its exact listing (`listingId`, `feeQuoteFingerprint`,
-    /// `sourceActionKey` and a Smart Match's batch): the write's receipt.
-    async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError>;
 }
 
 impl OfferMatchCalls for Caller<'_> {
@@ -5887,11 +6749,6 @@ impl OfferMatchCalls for Caller<'_> {
         let path = format!("{ACCOUNT}/offers/matches/{}/decline", segment(id));
         answer(self.request(Method::POST, &path, MARKETPLACE).json(&serde_json::json!({ "attemptId": attempt }))).await
     }
-
-    async fn accept_offer_match(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, ApiError> {
-        let path = format!("{ACCOUNT}/offers/matches/{}/accept", segment(id));
-        Ok(self.write::<serde::de::IgnoredAny>(self.request(Method::POST, &path, MARKETPLACE).json(body)).await?.1)
-    }
 }
 
 /// An offer the account submitted (`SubmittedOfferListItem`).
@@ -5900,6 +6757,9 @@ impl OfferMatchCalls for Caller<'_> {
 pub struct SubmittedOffer {
     pub offer_id: String,
     pub catalog_catalog_item_id: String,
+    /// The product it is for and the options that name it, which market following binds.
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
     pub item_title: String,
     pub item_subtitle: Option<String>,
     pub product_summary: Option<String>,
@@ -6012,6 +6872,139 @@ impl SubmittedOfferCalls for Caller<'_> {
         let (answer, receipt) =
             self.write::<BulkLifecycleAnswer>(self.request(Method::POST, &path, MARKETPLACE).json(&body)).await?;
         Ok((answer.items, receipt))
+    }
+}
+
+/// A buyer's market-following policy for submitted offers (`BuyerOfferPolicySnapshot`): its
+/// status (`draft`, `active`, `paused` or `stopped`), its version, the terms it is authorized
+/// for, the preview waiting for consent, and the offer versions it read.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OfferPolicy {
+    pub policy_id: Option<String>,
+    pub status: String,
+    pub version: u64,
+    pub currency: Option<String>,
+    pub authority: Option<PolicyTerms>,
+    pub preview: Option<PolicyPreview>,
+    pub offer_versions: BTreeMap<String, u64>,
+}
+
+impl OfferPolicy {
+    /// Its status, `draft` until the API says otherwise.
+    pub fn status(&self) -> &str {
+        if self.status.is_empty() { "draft" } else { &self.status }
+    }
+}
+
+/// What a policy may do (`BuyerOfferPolicyTerms`): the currency, the adjustment to the Market
+/// Price in basis points (0 to -2500), and each offer it may reprice, up to its cap.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyTerms {
+    pub currency: String,
+    pub adjustment_bps: i64,
+    pub offers: Vec<PolicySelection>,
+}
+
+/// One offer of the terms (`BuyerOfferPolicySelection`), as the command sends it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicySelection {
+    pub offer_id: String,
+    pub offer_version: u64,
+    pub catalog_item_id: String,
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
+    pub quantity: u64,
+    pub maximum_unit_item_amount: String,
+}
+
+/// A preview of terms (`BuyerOfferPolicyPreview`): the id consent names, and what each offer
+/// would do now.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyPreview {
+    pub preview_id: String,
+    pub terms: PolicyTerms,
+    pub outcomes: Option<Vec<PolicyOutcome>>,
+}
+
+/// What a preview found for one offer (`BuyerOfferPolicyOutcome`): a `target` amount, or
+/// `held` with why, and the evidence it read (the Market Price among it).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyOutcome {
+    pub offer_id: String,
+    pub result: PolicyResult,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyResult {
+    pub status: String,
+    pub unit_item_amount: Option<String>,
+    pub reason: Option<String>,
+    pub evidence: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The account's policies for some offers (`GET /account/offer-policies?offerId=..`), with the
+/// offers' versions as the API read them.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OfferPolicies {
+    pub items: Vec<OfferPolicy>,
+    pub offer_versions: BTreeMap<String, u64>,
+}
+
+/// Market following's calls (marketplace's offer-policy client).
+pub trait OfferPolicyCalls {
+    /// The account's policies that name any of `offer_ids`, in an authority or a preview.
+    async fn offer_policies(&self, offer_ids: &[&str]) -> Result<OfferPolicies, ApiError>;
+    /// One of the account's policies.
+    async fn offer_policy(&self, id: &str) -> Result<OfferPolicy, ApiError>;
+    /// A command to a policy (`POST /account/offer-policies/{id}/commands`), as sent.
+    async fn command_offer_policy(&self, id: &str, command: &serde_json::Value) -> Result<OfferPolicy, ApiError>;
+    /// What became of a marketplace command's attempt (`GET /mutation-attempts/{id}`), unparsed.
+    async fn marketplace_attempt(
+        &self,
+        attempt: &str,
+        kind: &str,
+        target: &str,
+        request_hash: &str,
+    ) -> Result<serde_json::Value, ApiError>;
+}
+
+impl OfferPolicyCalls for Caller<'_> {
+    async fn offer_policies(&self, offer_ids: &[&str]) -> Result<OfferPolicies, ApiError> {
+        let query: Vec<String> = offer_ids.iter().map(|id| format!("offerId={}", segment(id))).collect();
+        self.read(&format!("{ACCOUNT}/offer-policies?{}", query.join("&")), MARKETPLACE).await
+    }
+
+    async fn offer_policy(&self, id: &str) -> Result<OfferPolicy, ApiError> {
+        self.read(&format!("{ACCOUNT}/offer-policies/{}", segment(id)), MARKETPLACE).await
+    }
+
+    async fn command_offer_policy(&self, id: &str, command: &serde_json::Value) -> Result<OfferPolicy, ApiError> {
+        let path = format!("{ACCOUNT}/offer-policies/{}/commands", segment(id));
+        Ok(self.write(self.request(Method::POST, &path, MARKETPLACE).json(command)).await?.0)
+    }
+
+    async fn marketplace_attempt(
+        &self,
+        attempt: &str,
+        kind: &str,
+        target: &str,
+        request_hash: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        let path = format!(
+            "/api/marketplace/mutation-attempts/{}?kind={}&target={}&requestHash={}",
+            segment(attempt),
+            segment(kind),
+            segment(target),
+            segment(request_hash)
+        );
+        self.read(&path, MARKETPLACE).await
     }
 }
 
@@ -6149,6 +7142,80 @@ pub struct RepricingHalt {
     pub engaged: bool,
     pub engaged_at: Option<String>,
     pub released_at: Option<String>,
+    /// The halt's last request, when Pricing says (`configuration`).
+    #[serde(default)]
+    pub configuration: ConfigurationStatus,
+}
+
+/// What came of a repricing configuration write, a policy's or the halt's
+/// (`RepricingConfigurationReceipt`): the request's key and revision, and whether it is installed,
+/// still pending (nothing changed yet), or replaced by a later request before it was installed.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+pub enum ConfigurationReceipt {
+    Applied { request_key: String, requested_revision: u64, installed_revision: u64 },
+    AcceptedPending { request_key: String, requested_revision: u64 },
+    SupersededByRevision { request_key: String, requested_revision: u64, replacing_revision: u64 },
+}
+
+impl ConfigurationReceipt {
+    pub fn request_key(&self) -> &str {
+        match self {
+            Self::Applied { request_key, .. }
+            | Self::AcceptedPending { request_key, .. }
+            | Self::SupersededByRevision { request_key, .. } => request_key,
+        }
+    }
+
+    pub fn requested_revision(&self) -> u64 {
+        match self {
+            Self::Applied { requested_revision, .. }
+            | Self::AcceptedPending { requested_revision, .. }
+            | Self::SupersededByRevision { requested_revision, .. } => *requested_revision,
+        }
+    }
+
+    pub fn applied(&self) -> bool {
+        matches!(self, Self::Applied { .. })
+    }
+
+    /// A receipt as `parseRepricingConfigurationReceipt` takes one: a key of 1 to 200 characters, a
+    /// first revision of 1, an installed revision that is the request's, a later replacing one.
+    fn valid(&self) -> bool {
+        let key = self.request_key();
+        let revision = self.requested_revision();
+        !key.is_empty()
+            && key.chars().count() <= 200
+            && revision > 0
+            && match self {
+                Self::Applied { installed_revision, .. } => *installed_revision == revision,
+                Self::AcceptedPending { .. } => true,
+                Self::SupersededByRevision { replacing_revision, .. } => *replacing_revision > revision,
+            }
+    }
+}
+
+/// A policy's or the halt's configuration as its read carries it (`RepricingConfigurationStatus`):
+/// the pilot reads only its last request.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ConfigurationStatus {
+    pub request: Option<ConfigurationReceipt>,
+}
+
+impl ConfigurationStatus {
+    /// The last request, while it is not installed.
+    pub fn unsettled(&self) -> Option<&ConfigurationReceipt> {
+        self.request.as_ref().filter(|request| !request.applied())
+    }
+}
+
+/// A configuration write's answer: its receipt, and the commit receipt an installed write carries
+/// for the read after it.
+#[derive(Debug)]
+pub struct Configured {
+    pub receipt: ConfigurationReceipt,
+    pub after: Option<Receipt>,
 }
 
 /// A dry run's counts (`RepricingDryRunSummary`).
@@ -6252,6 +7319,24 @@ pub struct RepricingScopePreview {
 pub struct RepricingPrerequisites {
     pub listing_currency_codes: Vec<String>,
     pub has_cost_basis: bool,
+    /// Which Pricing Goal versions a seller may choose (the Adoption Gate's `goalAdoption`).
+    pub goal_adoption: Vec<GoalAdoption>,
+}
+
+impl RepricingPrerequisites {
+    /// A seller may choose this Pricing Goal version now.
+    pub fn selectable(&self, goal_id: &str, goal_version: f64) -> bool {
+        self.goal_adoption.iter().any(|goal| goal.goal_id == goal_id && goal.goal_version == goal_version && goal.selectable)
+    }
+}
+
+/// A registered Pricing Goal version and whether a seller may choose it (`GoalAdoption`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GoalAdoption {
+    pub goal_id: String,
+    pub goal_version: f64,
+    pub selectable: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -6275,6 +7360,9 @@ pub struct RepricingPolicy {
     /// `active`, `paused` or `deleted`.
     pub status: String,
     pub updated_at: Option<String>,
+    /// The policy's last request, when Pricing says (`configuration`).
+    #[serde(default)]
+    pub configuration: ConfigurationStatus,
 }
 
 /// A rule: the conditions a listing must meet, and how it is priced (`RepricingRule`). The first
@@ -6503,6 +7591,11 @@ async fn pricing_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Val
     if status.is_success() {
         return Ok((body, receipt));
     }
+    Err(pricing_refusal(status, &body))
+}
+
+/// What Pricing refused a write for (`status`, and its body's `error`).
+fn pricing_refusal(status: StatusCode, body: &serde_json::Value) -> PricingRefusal {
     let error = &body["error"];
     let details = error["details"]
         .as_array()
@@ -6513,13 +7606,53 @@ async fn pricing_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Val
         code: error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned),
         message: error["message"].as_str().unwrap_or_default().to_owned(),
     };
-    Err(PricingRefusal { error, details })
+    PricingRefusal { error, details }
+}
+
+/// A configuration write's answer, as `parseConfigurationResponse` reads it: 200 or 201 with an
+/// installed request's receipt, 202 with a pending one's, 409 with the receipt of one a later
+/// request replaced. Any other pairing, or a body that is not a receipt, is a 502; a 409 without a
+/// receipt (`concurrency_conflict`, `goal_apply_refused`) and any other error are refusals.
+async fn configuration_answer(req: reqwest::RequestBuilder) -> Result<(serde_json::Value, Configured), PricingRefusal> {
+    let res = req.send().await.map_err(ApiError::from)?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let after = Receipt::from_response(res.headers());
+    let body: serde_json::Value = res.json().await.unwrap_or_default();
+    let answered = status.is_success() || (status == StatusCode::CONFLICT && body["status"].is_string());
+    if !answered {
+        return Err(pricing_refusal(status, &body));
+    }
+    let unreadable =
+        |message: String| PricingRefusal::from(ApiError::Status { status: StatusCode::BAD_GATEWAY, code: None, message });
+    let receipt: ConfigurationReceipt = serde_json::from_value(body.clone())
+        .map_err(|error| unreadable(format!("a configuration receipt the page cannot read: {error}")))?;
+    let paired = match &receipt {
+        ConfigurationReceipt::Applied { .. } => matches!(status, StatusCode::OK | StatusCode::CREATED),
+        ConfigurationReceipt::AcceptedPending { .. } => status == StatusCode::ACCEPTED,
+        ConfigurationReceipt::SupersededByRevision { .. } => status == StatusCode::CONFLICT,
+    };
+    if !receipt.valid() || !paired {
+        return Err(unreadable(format!("a configuration receipt the page cannot read ({status})")));
+    }
+    Ok((body, Configured { receipt, after }))
+}
+
+/// `req` sent as `attempt` (Pricing's `Idempotency-Key`), when the form drew one; without it,
+/// Pricing makes one up, as for marketplace's request without a key.
+fn attempted(req: reqwest::RequestBuilder, attempt: Option<&str>) -> reqwest::RequestBuilder {
+    match attempt {
+        Some(attempt) => req.header(IDEMPOTENCY_KEY, attempt),
+        None => req,
+    }
 }
 
 /// The Seller Desk repricing page's calls (Pricing's `repricing-policies` routes).
 pub trait RepricingCalls {
     async fn repricing_policies(&self) -> Result<Vec<RepricingPolicyRow>, ApiError>;
     async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError>;
+    /// The account's requests not installed yet, the policies' and the halt's
+    /// (`configuration-requests`, at most 100).
+    async fn repricing_configuration_requests(&self) -> Result<Vec<ConfigurationReceipt>, ApiError>;
     async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError>;
     async fn repricing_prerequisites(&self) -> Result<RepricingPrerequisites, ApiError>;
     async fn repricing_categories(&self) -> Result<Vec<RepricingCategory>, ApiError>;
@@ -6528,11 +7661,31 @@ pub trait RepricingCalls {
     async fn repricing_dry_run(&self, id: &str) -> Result<RepricingDryRun, ApiError>;
     async fn repricing_dry_run_traces(&self, id: &str, after: Option<&str>) -> Result<Vec<RepricingTrace>, ApiError>;
     async fn start_repricing_dry_run(&self, body: &serde_json::Value) -> Result<RepricingDryRun, PricingRefusal>;
-    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal>;
-    /// `pause` or `resume` a policy.
-    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
-    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError>;
+    /// Each write is sent as the form's `attempt`, when it drew one, and answers its request's
+    /// receipt: the same attempt sent again answers the same request.
+    async fn create_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        dry_run_id: &str,
+        name: &str,
+    ) -> Result<Configured, PricingRefusal>;
+    /// `pause`, `resume` or `delete` a policy.
+    async fn repricing_lifecycle(
+        &self,
+        attempt: Option<&str>,
+        policy_id: &str,
+        change: &str,
+    ) -> Result<Configured, PricingRefusal>;
+    async fn set_repricing_halt(&self, attempt: Option<&str>, engaged: bool) -> Result<Configured, PricingRefusal>;
+    /// The policy, and its JSON as Pricing answered it, which a revise edits.
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError>;
+    /// Replaces the policy's body (`revise`).
+    async fn revise_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        id: &str,
+        body: &serde_json::Value,
+    ) -> Result<Configured, PricingRefusal>;
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError>;
     /// A page of the policy's activity under `filter`, after the listing `after`.
     async fn repricing_activity(
@@ -6550,6 +7703,10 @@ impl RepricingCalls for Caller<'_> {
 
     async fn repricing_halt(&self) -> Result<RepricingHalt, ApiError> {
         self.read(&format!("{REPRICING}/halt"), PRICING).await
+    }
+
+    async fn repricing_configuration_requests(&self) -> Result<Vec<ConfigurationReceipt>, ApiError> {
+        self.read(&format!("{REPRICING}/configuration-requests"), PRICING).await
     }
 
     async fn repricing_dry_runs(&self, limit: u32) -> Result<Vec<RepricingDryRun>, ApiError> {
@@ -6590,25 +7747,51 @@ impl RepricingCalls for Caller<'_> {
         })
     }
 
-    async fn create_repricing_policy(&self, dry_run_id: &str, name: &str) -> Result<Option<Receipt>, PricingRefusal> {
+    async fn create_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        dry_run_id: &str,
+        name: &str,
+    ) -> Result<Configured, PricingRefusal> {
         let body = serde_json::json!({ "dryRunId": dry_run_id, "name": name });
-        let req = self.request(Method::POST, REPRICING, PRICING).json(&body);
-        Ok(pricing_answer(req).await?.1)
+        let req = attempted(self.request(Method::POST, REPRICING, PRICING), attempt).json(&body);
+        Ok(configuration_answer(req).await?.1)
     }
 
-    async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal> {
+    async fn repricing_lifecycle(
+        &self,
+        attempt: Option<&str>,
+        policy_id: &str,
+        change: &str,
+    ) -> Result<Configured, PricingRefusal> {
         let req = self.request(Method::POST, &format!("{REPRICING}/{}/{change}", segment(policy_id)), PRICING);
-        Ok(pricing_answer(req).await?.1)
+        Ok(configuration_answer(attempted(req, attempt)).await?.1)
     }
 
-    async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal> {
-        let req =
-            self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING).json(&serde_json::json!({ "engaged": engaged }));
-        Ok(pricing_answer(req).await?.1)
+    async fn set_repricing_halt(&self, attempt: Option<&str>, engaged: bool) -> Result<Configured, PricingRefusal> {
+        let req = attempted(self.request(Method::POST, &format!("{REPRICING}/halt"), PRICING), attempt)
+            .json(&serde_json::json!({ "engaged": engaged }));
+        Ok(configuration_answer(req).await?.1)
     }
 
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError> {
-        self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError> {
+        let raw: serde_json::Value = self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await?;
+        let policy = serde_json::from_value(raw.clone()).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("a repricing policy the page cannot read: {error}"),
+        })?;
+        Ok((policy, raw))
+    }
+
+    async fn revise_repricing_policy(
+        &self,
+        attempt: Option<&str>,
+        id: &str,
+        body: &serde_json::Value,
+    ) -> Result<Configured, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING);
+        Ok(configuration_answer(attempted(req, attempt).json(body)).await?.1)
     }
 
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError> {
@@ -6668,24 +7851,43 @@ pub struct BulkRepriceResult {
 }
 
 /// Bulk reprice's calls (Pricing's `bulk-reprice` routes). While Pricing has bulk reprice switched
-/// off, every one answers 404 (chase-sets/chase-sets#10772).
+/// off, every one answers 404.
 pub trait BulkRepriceCalls {
+    /// Whether Pricing has bulk reprice on: its tree answers `GET /` only while it is, 404
+    /// otherwise.
+    async fn bulk_reprice_available(&self) -> Result<bool, ApiError>;
     async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
-    /// Start a job for `csv_text` (a file's text and name, or pasted rows).
-    async fn start_bulk_reprice(&self, csv_text: &str, filename: Option<&str>) -> Result<BulkRepriceJob, ApiError>;
+    /// Start a job for `csv_text` (a file's text and name, or pasted rows) as `attempt` (Pricing's
+    /// `Idempotency-Key`): the same attempt sent again answers its first job, and different rows
+    /// under it are refused (409 `attempt_conflict`).
+    async fn start_bulk_reprice(&self, attempt: &str, csv_text: &str, filename: Option<&str>)
+    -> Result<BulkRepriceJob, ApiError>;
     async fn cancel_bulk_reprice(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
     /// The template (`template.csv`) or a job's results (`jobs/{id}/results.csv`), as Pricing sends it.
     async fn bulk_reprice_csv(&self, path: &str) -> Result<reqwest::Response, ApiError>;
 }
 
 impl BulkRepriceCalls for Caller<'_> {
+    async fn bulk_reprice_available(&self) -> Result<bool, ApiError> {
+        match self.read::<serde::de::IgnoredAny>(BULK_REPRICE, PRICING).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError> {
         self.read(&format!("{BULK_REPRICE}/jobs/{}", segment(id)), PRICING).await
     }
 
-    async fn start_bulk_reprice(&self, csv_text: &str, filename: Option<&str>) -> Result<BulkRepriceJob, ApiError> {
+    async fn start_bulk_reprice(
+        &self,
+        attempt: &str,
+        csv_text: &str,
+        filename: Option<&str>,
+    ) -> Result<BulkRepriceJob, ApiError> {
         let body = serde_json::json!({ "csvText": csv_text, "sourceFilename": filename });
-        let req = self.request(Method::POST, BULK_REPRICE, PRICING).json(&body);
+        let req = self.request(Method::POST, BULK_REPRICE, PRICING).header(IDEMPOTENCY_KEY, attempt).json(&body);
         let (job, _) = pricing_answer(req).await.map_err(|refusal| refusal.error)?;
         serde_json::from_value(job).map_err(|error| ApiError::Status {
             status: StatusCode::BAD_GATEWAY,
@@ -8093,6 +9295,9 @@ pub struct ImportRow {
     pub status: String,
     pub external_reference: Option<ExternalReference>,
     pub row_fingerprint: String,
+    /// The row's version as Inventory last wrote it (opaque): with `row_fingerprint`, the facts a
+    /// fix is sent against, so a row changed since it was read refuses the fix.
+    pub row_version: String,
     pub quantity_mode: String,
     pub quantity_delta: Option<i64>,
     pub set_quantity: Option<i64>,
@@ -8186,13 +9391,16 @@ pub struct NewImport {
     pub source_filename: Option<String>,
 }
 
-/// A row's fix (`resolveRow`'s body): the catalog item, its options and where the stock is.
+/// A row's fix (`resolveRow`'s body, exactly these five members): the catalog item, its options,
+/// where the stock is, and the row's version and fingerprint as the drawer read them.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RowFix {
     pub catalog_item_id: String,
     pub selected_options: Vec<Selected>,
     pub storage_location_id: String,
+    pub expected_row_version: String,
+    pub expected_row_fingerprint: String,
 }
 
 /// The import screen's calls.
@@ -8208,9 +9416,16 @@ pub trait Imports {
     /// Start committing a batch's accepted rows, as `attempt` (`Inventory-Mutation-Attempt`, which
     /// the API requires).
     async fn commit_import(&self, id: &str, attempt: &str) -> Result<ImportJob, ApiError>;
-    /// Resolve a rejected row to a catalog item, its options and a storage location: the batch
-    /// as it now is, or the API's refusal (400).
-    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportResolution, ApiError>;
+    /// Resolve a rejected row to a catalog item, its options and a storage location, as `attempt`
+    /// (`Inventory-Mutation-Attempt`, which the API requires): the batch as it now is, or the API's
+    /// refusal (400, or 409 when the row changed since it was read).
+    async fn resolve_import_row(
+        &self,
+        batch: &str,
+        row: &str,
+        attempt: &str,
+        body: &RowFix,
+    ) -> Result<ImportResolution, ApiError>;
     /// The storage locations a row or a batch may name (`limit=100&offset=0`, not archived).
     async fn import_locations(&self) -> Result<LocationList, ApiError>;
     /// The native template or the account's inventory as CSV (`templates/native-csv`,
@@ -8246,9 +9461,16 @@ impl Imports for Caller<'_> {
         Ok(self.write(req).await?.0)
     }
 
-    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportResolution, ApiError> {
+    async fn resolve_import_row(
+        &self,
+        batch: &str,
+        row: &str,
+        attempt: &str,
+        body: &RowFix,
+    ) -> Result<ImportResolution, ApiError> {
         let path = format!("{IMPORTS}/{}/rows/{}/resolve", segment(batch), segment(row));
-        Ok(self.write(self.request(Method::POST, &path, INVENTORY).json(body)).await?.0)
+        let req = self.request(Method::POST, &path, INVENTORY).header(ATTEMPT_HEADER, attempt).json(body);
+        Ok(self.write(req).await?.0)
     }
 
     async fn import_locations(&self) -> Result<LocationList, ApiError> {
@@ -8519,13 +9741,21 @@ pub struct AppliedAlerts {
     pub floor_binding: u64,
 }
 
+/// What a goal's apply came to: applied, or a request not installed (pending, or replaced by a later
+/// one), which changed nothing yet.
+#[derive(Clone, Debug)]
+pub enum GoalAnswer {
+    Applied(AppliedGoal),
+    Requested(ConfigurationReceipt),
+}
+
 /// Pricing health's calls.
 pub trait PricingHealthCalls {
     /// The verdict for `policy`, or Pricing's choice of policy without one.
     async fn pricing_health(&self, policy: Option<&str>) -> Result<PricingHealth, ApiError>;
     /// Compute a verdict, or compare the goals, for `policy` (`compute` or `compare`).
     async fn pricing_health_command(&self, policy: &str, command: &str) -> Result<(), ApiError>;
-    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError>;
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<GoalAnswer, ApiError>;
 }
 
 impl PricingHealthCalls for Caller<'_> {
@@ -8541,11 +9771,14 @@ impl PricingHealthCalls for Caller<'_> {
         pricing_answer(req).await.map(|_| ()).map_err(|refusal| refusal.error)
     }
 
-    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<AppliedGoal, ApiError> {
+    async fn apply_pricing_goal(&self, policy: &str, goal: &ApplyGoal) -> Result<GoalAnswer, ApiError> {
         let path = format!("{PRICING_HEALTH}/{}/apply-goal", segment(policy));
-        let (body, _) =
-            pricing_answer(self.request(Method::POST, &path, PRICING).json(goal)).await.map_err(|refusal| refusal.error)?;
-        serde_json::from_value(body).map_err(|error| ApiError::Status {
+        let req = self.request(Method::POST, &path, PRICING).json(goal);
+        let (body, configured) = configuration_answer(req).await.map_err(|refusal| refusal.error)?;
+        if !configured.receipt.applied() {
+            return Ok(GoalAnswer::Requested(configured.receipt));
+        }
+        serde_json::from_value(body).map(GoalAnswer::Applied).map_err(|error| ApiError::Status {
             status: StatusCode::BAD_GATEWAY,
             code: None,
             message: format!("an applied goal the page cannot read: {error}"),
@@ -8569,6 +9802,22 @@ pub struct ChannelConnection {
     /// `pending-setup`, `active`, `paused` or `disconnected`.
     pub status: String,
     pub created_at: String,
+    /// What the connection allows now: `pause`, `resume` or `disconnect`, in Channels' order.
+    pub allowed_actions: Vec<String>,
+}
+
+/// A provider this seller may connect (`ChannelProviderIdentity`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelProvider {
+    pub provider_key: String,
+    /// `sandbox` or `production`.
+    pub environment: String,
+}
+
+#[derive(Deserialize)]
+struct ChannelProviderList {
+    items: Vec<ChannelProvider>,
 }
 
 /// A page of connections (`ChannelConnectionPage`).
@@ -8690,12 +9939,219 @@ pub struct ChannelCommandAnswer {
     pub code: Option<String>,
 }
 
+/// Channels' eBay Sandbox connection (`/api/channels/ebay`, marketplace's `createEbayConnectionClient`):
+/// its consent, start, callback and declined calls and a connection's detail. Channels answers
+/// every refusal 409 with only a code, and 404 from consent while eBay is not configured.
+const EBAY: &str = "/api/channels/ebay";
+
+/// What eBay is asked for (`GET /consent`): the OAuth scopes the consent lists.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayConsent {
+    pub scopes: Vec<String>,
+}
+
+/// An eBay connection as the journey reads it (`GET /connections/{id}`): its status, and
+/// whether eBay is configured here so it can be authorized again.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayConnection {
+    /// `pending-setup`, `active`, `paused` or `disconnected`.
+    pub status: String,
+    pub authorization_available: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EbayStarted {
+    authorization_url: String,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct EbayCallbackAnswer {
+    connection_id: Option<String>,
+}
+
+/// One of eBay's seller lists as Channels read it (`SetupList`): `complete` with its items, or
+/// `incomplete` with none when eBay's answer could not be read whole.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetupList {
+    pub status: String,
+    /// eBay's items as Channels captured them; the page reads an item's id, name and key.
+    pub items: Vec<serde_json::Value>,
+}
+
+impl EbaySetupList {
+    pub fn complete(&self) -> bool {
+        self.status == "complete"
+    }
+}
+
+/// eBay's three policy lists and its inventory locations (`SetupLists`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetupLists {
+    pub fulfillment: EbaySetupList,
+    pub payment: EbaySetupList,
+    #[serde(rename = "return")]
+    pub return_: EbaySetupList,
+    pub locations: EbaySetupList,
+}
+
+/// A policy the seller chose (`SetupSelection.policies`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayPolicyChoice {
+    /// `fulfillment`, `payment` or `return`.
+    pub policy_type: String,
+    pub policy_id: String,
+}
+
+/// A Chase storage location paired with an eBay inventory location (`SetupSelection.locationPairs`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbayLocationPair {
+    pub storage_location_id: String,
+    pub merchant_location_key: String,
+}
+
+/// The seller's current setup (`SetupSelection`): its generation, which a new selection names as
+/// the one it replaces, its policies and its location pairs.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EbaySetupSelection {
+    pub setup_generation: u64,
+    pub policies: Vec<EbayPolicyChoice>,
+    pub location_pairs: Vec<EbayLocationPair>,
+}
+
+/// A connection's seller setup (`GET /connections/{id}/setup`): what was chosen, if anything,
+/// and eBay's lists to choose from.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetup {
+    pub selection: Option<EbaySetupSelection>,
+    pub lists: EbaySetupLists,
+}
+
+/// A selection to save (`SelectEbaySellerSetup`), as marketplace's action builds it.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EbaySetupCommand {
+    pub expected_setup_generation: u64,
+    pub policies: Vec<EbaySetupPolicy>,
+    pub location_pairs: Vec<EbaySetupPair>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EbaySetupPolicy {
+    pub policy_type: &'static str,
+    pub policy_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EbaySetupPair {
+    pub storage_location_id: String,
+    pub merchant_location_key: String,
+}
+
+/// What saving a selection answered: the connection's status after it (`active` once activated).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EbaySetupSaved {
+    pub status: String,
+}
+
+/// A storage location a pair may name (marketplace's `readConnectionSetupLocations`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SetupLocation {
+    pub storage_location_id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct SetupLocations {
+    items: Vec<SetupLocation>,
+}
+
+/// The eBay Sandbox connection's calls.
+pub trait EbayCalls {
+    /// The scopes eBay is asked for, with `publication` or without.
+    async fn ebay_consent(&self, publication: bool) -> Result<EbayConsent, ApiError>;
+    /// The account's eBay connection `id`; `None` when it is not one of the account's.
+    async fn ebay_connection(&self, id: &str) -> Result<Option<EbayConnection>, ApiError>;
+    /// Start consent, again for `connection` or for a new one: eBay's authorization address.
+    async fn start_ebay(&self, connection: Option<&str>, publication: bool) -> Result<String, ApiError>;
+    /// eBay's answer to consent: the connection it committed.
+    async fn ebay_callback(&self, state: &str, code: &str) -> Result<Option<String>, ApiError>;
+    /// eBay's answer that consent was declined: the state is used up.
+    async fn ebay_declined(&self, state: &str) -> Result<(), ApiError>;
+    /// Connection `id`'s seller setup and eBay's lists, read with the connection's credential.
+    async fn ebay_setup(&self, id: &str) -> Result<EbaySetup, ApiError>;
+    /// Save a selection for connection `id`, which activates it.
+    async fn select_ebay_setup(&self, id: &str, command: &EbaySetupCommand) -> Result<EbaySetupSaved, ApiError>;
+    /// The seller's active storage locations, the first 200, as marketplace reads them for pairing.
+    async fn setup_locations(&self) -> Result<Vec<SetupLocation>, ApiError>;
+}
+
+impl EbayCalls for Caller<'_> {
+    async fn ebay_consent(&self, publication: bool) -> Result<EbayConsent, ApiError> {
+        self.read(&format!("{EBAY}/consent?publication={publication}"), CHANNELS).await
+    }
+
+    async fn ebay_connection(&self, id: &str) -> Result<Option<EbayConnection>, ApiError> {
+        self.read(&format!("{EBAY}/connections/{}", segment(id)), CHANNELS).await
+    }
+
+    async fn start_ebay(&self, connection: Option<&str>, publication: bool) -> Result<String, ApiError> {
+        let body = serde_json::json!({ "connectionId": connection, "publication": publication });
+        let (started, _) =
+            self.write::<EbayStarted>(self.request(Method::POST, &format!("{EBAY}/start"), CHANNELS).json(&body)).await?;
+        Ok(started.authorization_url)
+    }
+
+    async fn ebay_callback(&self, state: &str, code: &str) -> Result<Option<String>, ApiError> {
+        let body = serde_json::json!({ "state": state, "code": code });
+        let req = self.request(Method::POST, &format!("{EBAY}/callback"), CHANNELS).json(&body);
+        Ok(self.write::<EbayCallbackAnswer>(req).await?.0.connection_id)
+    }
+
+    async fn ebay_declined(&self, state: &str) -> Result<(), ApiError> {
+        let body = serde_json::json!({ "state": state });
+        let req = self.request(Method::POST, &format!("{EBAY}/declined"), CHANNELS).json(&body);
+        self.write::<serde::de::IgnoredAny>(req).await.map(|_| ())
+    }
+
+    async fn ebay_setup(&self, id: &str) -> Result<EbaySetup, ApiError> {
+        self.read(&format!("{EBAY}/connections/{}/setup", segment(id)), CHANNELS).await
+    }
+
+    async fn select_ebay_setup(&self, id: &str, command: &EbaySetupCommand) -> Result<EbaySetupSaved, ApiError> {
+        let req = self.request(Method::POST, &format!("{EBAY}/connections/{}/setup", segment(id)), CHANNELS).json(command);
+        Ok(self.write::<EbaySetupSaved>(req).await?.0)
+    }
+
+    async fn setup_locations(&self) -> Result<Vec<SetupLocation>, ApiError> {
+        let list: SetupLocations = self.read(&format!("{LOCATIONS}?includeArchived=false&limit=200"), INVENTORY).await?;
+        Ok(list.items)
+    }
+}
+
 /// The channel screens' calls.
 pub trait ChannelCalls {
     /// A page of connections, of one status (`None`: Channels' default, every one not
     /// disconnected), from `cursor`.
     async fn channel_connections(&self, status: Option<&str>, cursor: Option<&str>) -> Result<ChannelConnectionPage, ApiError>;
     async fn channel_connection(&self, id: &str) -> Result<ChannelConnection, ApiError>;
+    /// The providers this seller may connect in this deployment's environment (none without
+    /// `channels.manage`).
+    async fn channel_providers(&self) -> Result<Vec<ChannelProvider>, ApiError>;
     /// Connect a provider: the new connection, pending setup.
     async fn connect_channel(&self, provider: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError>;
     /// `pause`, `resume` or `disconnect` a connection.
@@ -8737,6 +10193,10 @@ impl ChannelCalls for Caller<'_> {
 
     async fn channel_connection(&self, id: &str) -> Result<ChannelConnection, ApiError> {
         self.read(&format!("{CHANNEL_CONNECTIONS}/{}", segment(id)), CHANNELS).await
+    }
+
+    async fn channel_providers(&self) -> Result<Vec<ChannelProvider>, ApiError> {
+        Ok(self.read::<ChannelProviderList>(&format!("{CHANNEL_CONNECTIONS}/providers"), CHANNELS).await?.items)
     }
 
     async fn connect_channel(&self, provider: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError> {

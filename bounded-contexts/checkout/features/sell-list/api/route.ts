@@ -1,7 +1,13 @@
+import { createMarketplaceRequestApiClient } from "../integrations/marketplace/request-support/api-client";
+import { SellListHandoffInterruptedError } from "./marketplace-handoff";
+import { SellListPreparationRefusedError, SellListReviewPlanStaleError } from "./handoff-contracts";
+import { parseSellListReviewSelections } from "./review-plan-selections";
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { computeCheckoutCommandAttemptRequestHash } from "../../command-attempts/api/contracts";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
-import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { parseTypedIdBoundary, TypedIdBoundaryDomainError } from "@chase-sets/http/typed-id";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
 import {
@@ -10,8 +16,8 @@ import {
   createCheckoutAccessGuard,
   createGuestCheckoutContext,
 } from "../../../support/request-support/checkout-route-guard";
-import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
+import { parseSellerCheckoutChoices } from "../read-model/seller-checkout-owner-reads";
 import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import type { CheckoutSellListServices } from "./runtime";
 import { recordSellListConfirmationActivity } from "./sell-list-confirmation-observability";
@@ -52,6 +58,66 @@ function parseVersionSelection(value: unknown) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("checkout.features.sellList.api.route.sell.list.request.failed");
+}
+
+function writeError(c: Context<CheckoutApiEnv>, error: unknown) {
+  if (error instanceof SellListHandoffInterruptedError) {
+    return c.json(
+      {
+        error: {
+          code: "checkout_handoff_interrupted",
+          message: error.message,
+          lines: error.lines,
+          ...(error.reason instanceof SellListReviewPlanStaleError ? { recovery: error.reason.recovery } : {}),
+        },
+      },
+      409,
+    );
+  }
+  if (error instanceof SellListPreparationRefusedError) {
+    return c.json({ error: { code: error.code, message: error.message, reasons: error.reasons } }, 400);
+  }
+  if (error instanceof TypedIdBoundaryDomainError) return c.json(error.body, 400);
+  if (!(error instanceof CheckoutDomainError)) throw error;
+  const code = error instanceof CheckoutDomainError ? error.code : "validation_failed";
+  return c.json(
+    { error: { code, message: errorMessage(error) } },
+    code === "checkout_attempt_conflict" || code === "checkout_confirmation_changed" ? 409 : 400,
+  );
+}
+
+function batchRoutes(services: CheckoutSellListServices, guest = false) {
+  return new Hono<CheckoutApiEnv>().post("/sell-list/commands", async (c) => {
+    const access = guest ? null : requireSellListAccess(c);
+    if (access?.response) return access.response;
+    const ownerKey = guest ? requireAnonymousSellListId(c) : access?.actor?.accountId;
+    const context = c.get("context") ?? (guest ? createGuestSellListContext() : null);
+    if (!ownerKey || !context) return c.json({ error: { code: "authentication_required" } }, 401);
+    const body = await c.req.json<Record<string, unknown>>();
+    try {
+      const lineIds = Array.isArray(body.lineIds) ? body.lineIds : [];
+      const attempt = await services.executeSellListAttempt(
+        {
+          ownerKey,
+          attemptId: String(body.attemptId ?? ""),
+          kind: "sell-list-batch",
+          target: "sell-list",
+          requestHash: await computeCheckoutCommandAttemptRequestHash(body),
+          commands: lineIds.map((id) => ({
+            type: "remove" as const,
+            lineId: parseTypedIdBoundary(String(id), "sll", "lineId"),
+          })),
+        },
+        context,
+      );
+      return c.json(
+        { id: ownerKey, version: attempt.vector?.[0]?.version ?? 0, status: attempt.ownerStatus, attempt },
+        attempt.ownerStatus === "conflict" ? 409 : 200,
+      );
+    } catch (error) {
+      return writeError(c, error);
+    }
+  });
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {
@@ -125,212 +191,29 @@ function isExistingSellListLine(
   );
 }
 
-function parseLineOutcomeStatus(value: unknown): "completed" | "partial" | "skipped" {
-  return value === "completed" || value === "partial" || value === "skipped" ? value : "skipped";
-}
-
-function parseLineOutcomeAction(
-  value: unknown,
-): "accepted-offer" | "accepted-smart-match" | "published-listing" | "mixed" | "kept-in-sell-list" {
-  return value === "accepted-offer" ||
-    value === "accepted-smart-match" ||
-    value === "published-listing" ||
-    value === "mixed" ||
-    value === "kept-in-sell-list"
-    ? value
-    : "kept-in-sell-list";
-}
-
-function parseLineOutcomeReferences(value: unknown) {
-  const source = objectValue(value);
-  if (!source) {
-    return undefined;
-  }
-
-  const offerIds = Array.isArray(source.offerIds)
-    ? source.offerIds
-        .map(String)
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-    : undefined;
-  const listingId = source.listingId === null || source.listingId === undefined ? null : stringValue(source.listingId);
-  return {
-    ...(offerIds && offerIds.length > 0 ? { offerIds } : {}),
-    ...(listingId ? { listingId } : listingId === null ? { listingId: null } : {}),
-  };
-}
-
-function parseSideEffectStatus(value: unknown): SellListConfirmationSummary["sideEffects"]["sale"] | null {
-  return value === "not-attempted" ||
-    value === "not-applicable" ||
-    value === "handoff-recorded" ||
-    value === "pending-downstream" ||
-    value === "failed"
-    ? value
-    : null;
-}
-
-function parseSideEffects(value: unknown): SellListConfirmationSummary["sideEffects"] | null {
-  const source = objectValue(value);
-  if (!source) {
-    return null;
-  }
-
-  const sale = parseSideEffectStatus(source.sale);
-  const label = parseSideEffectStatus(source.label);
-  const payout = parseSideEffectStatus(source.payout);
-  const settlement = parseSideEffectStatus(source.settlement);
-  const notification = parseSideEffectStatus(source.notification);
-  const accountHistory = parseSideEffectStatus(source.accountHistory);
-  if (!sale || !label || !payout || !settlement || !notification || !accountHistory) {
-    return null;
-  }
-
-  return { sale, label, payout, settlement, notification, accountHistory };
-}
-
-function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence | null {
-  const source = objectValue(value);
-  const shipFrom = objectValue(source?.shipFrom);
-  const payout = objectValue(source?.payout);
-  const label = objectValue(source?.label);
-  const risk = objectValue(source?.risk);
-  const provider = objectValue(source?.provider);
-  const freshness = objectValue(source?.freshness);
-  if (!shipFrom || !payout || !label || !risk || !provider || !freshness) {
-    return null;
-  }
-  if (
-    shipFrom.status !== "ready" ||
-    payout.status !== "ready" ||
-    payout.method !== "saved-payout" ||
-    label.status !== "ready" ||
-    (label.preference !== "prepaid-label" && label.preference !== "seller-label-later") ||
-    risk.status !== "clear" ||
-    provider.status !== "ready" ||
-    freshness.status !== "current"
-  ) {
-    return null;
-  }
-  const shipFromCountry = stringValue(shipFrom.country);
-  const shipFromRegion = stringValue(shipFrom.region);
-  const shipFromPostalCode = stringValue(shipFrom.postalCode);
-  const payoutReadinessStatus = stringValue(payout.readinessStatus);
-  if (!shipFromCountry || !shipFromRegion || !shipFromPostalCode || payoutReadinessStatus !== "ready") {
-    return null;
-  }
-
-  return {
-    shipFrom: {
-      status: "ready",
-      addressId:
-        shipFrom.addressId === null || shipFrom.addressId === undefined ? null : stringValue(shipFrom.addressId),
-      country: shipFromCountry,
-      region: shipFromRegion,
-      postalCode: shipFromPostalCode,
-    },
-    payout: {
-      status: "ready",
-      method: "saved-payout",
-      readinessStatus: payoutReadinessStatus,
-      lastCheckedAt:
-        payout.lastCheckedAt === null || payout.lastCheckedAt === undefined ? null : stringValue(payout.lastCheckedAt),
-    },
-    label: {
-      status: "ready",
-      preference: label.preference,
-    },
-    risk: { status: "clear" },
-    provider: { status: "ready" },
-    freshness: { status: "current" },
-  };
-}
-
-function parseHandoffSummary(value: unknown): SellListConfirmationSummary | null {
-  const source = objectValue(value);
-  if (!source) {
-    return null;
-  }
-
-  const sideEffects = parseSideEffects(source.sideEffects);
-  if (!sideEffects) {
-    return null;
-  }
-
-  const lineOutcomes = Array.isArray(source.lineOutcomes)
-    ? source.lineOutcomes
-        .map(objectValue)
-        .filter((entry): entry is Record<string, unknown> => entry !== null)
-        .map((entry) => ({
-          lineId: stringValue(entry.lineId) as SellListLineId,
-          itemTitle: stringValue(entry.itemTitle),
-          status: parseLineOutcomeStatus(entry.status),
-          action: parseLineOutcomeAction(entry.action),
-          quantity: Number(entry.quantity ?? 0),
-          remainingQuantity: Number(entry.remainingQuantity ?? 0),
-          detail: stringValue(entry.detail),
-          references: parseLineOutcomeReferences(entry.references),
-        }))
-        .filter((entry) => entry.lineId && entry.itemTitle)
-    : [];
-
-  return {
-    acceptedOfferCount: Number(source.acceptedOfferCount ?? 0),
-    publishedListingCount: Number(source.publishedListingCount ?? 0),
-    skippedLineCount: Number(source.skippedLineCount ?? 0),
-    skippedReasons: Array.isArray(source.skippedReasons) ? source.skippedReasons.map(String).filter(Boolean) : [],
-    lineOutcomes,
-    sideEffects,
-  };
-}
-
 function parseSellListConfirmationBody(body: Record<string, unknown>) {
   const confirmationId = String(body.confirmationId ?? body.confirmation_id ?? "").trim();
   const readinessSnapshotId = String(body.readinessSnapshotId ?? body.readiness_snapshot_id ?? "").trim();
   const readinessSourceRevision = String(body.readinessSourceRevision ?? body.readiness_source_revision ?? "").trim();
   const readinessDecisions = parseSellListReadinessDecisionInput(body.readinessDecisions ?? body.readiness_decisions);
-  const completedLineIds = Array.isArray(body.completedLineIds)
-    ? body.completedLineIds.map(String).filter(Boolean)
-    : [];
-  const remainingLineQuantities = Array.isArray(body.remainingLineQuantities)
-    ? body.remainingLineQuantities
-        .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
-        .map((entry) => ({
-          lineId: String(entry.lineId ?? ""),
-          quantity: Number(entry.quantity ?? 0),
-        }))
-        .filter((entry) => entry.lineId && Number.isFinite(entry.quantity) && entry.quantity > 0)
-    : [];
-  const sellerEvidence = parseSellerEvidence(body.sellerEvidence ?? body.seller_evidence);
-  const handoffSummary = parseHandoffSummary(body.handoffSummary ?? body.handoff_summary);
 
   return {
     confirmationId,
     readinessSnapshotId,
     readinessSourceRevision,
     readinessDecisions,
-    completedLineIds,
-    remainingLineQuantities,
-    sellerEvidence,
-    handoffSummary,
   };
 }
 
 function hasSellListConfirmationEvidence(body: ReturnType<typeof parseSellListConfirmationBody>) {
-  return Boolean(
-    body.confirmationId &&
-    body.readinessSnapshotId &&
-    body.readinessSourceRevision &&
-    body.sellerEvidence &&
-    body.handoffSummary,
-  );
+  return Boolean(body.confirmationId && body.readinessSnapshotId && body.readinessSourceRevision);
 }
 
 export function createAccountSellListRoutes(
   services: CheckoutSellListServices,
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
 ) {
-  const app = new Hono<CheckoutApiEnv>();
+  const app = new Hono<CheckoutApiEnv>().route("/", batchRoutes(services));
 
   app.get("/sell-list", async (c) => {
     const access = requireSellListAccess(c);
@@ -376,6 +259,8 @@ export function createAccountSellListRoutes(
     return c.json(
       await services.loadCompositeReview(access.actor.accountId, {
         includeStandardComparison: c.req.query("includeStandardComparison") === "true",
+        sellListPath:
+          c.req.query("sellListPath") === "/account/desk/offers" ? "/account/desk/offers" : "/account/sell-list",
       }),
     );
   });
@@ -409,13 +294,53 @@ export function createAccountSellListRoutes(
     }
 
     const body = await c.req.json().catch(() => ({}));
-    const snapshot = await services.createReadinessSnapshot({
-      sellerAccountId: access.actor.accountId,
-      decisions: parseSellListReadinessDecisionInput(body),
-      sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
-    });
+    try {
+      if (body.selections !== undefined) {
+        const context = c.get("context");
+        if (!context) throw new CheckoutDomainError("Sell List review requires authenticated context.");
+        return c.json(
+          await services.createReviewReadiness(
+            {
+              sellerAccountId: access.actor.accountId,
+              selections: parseSellListReviewSelections(body.selections),
+            },
+            context,
+          ),
+        );
+      }
+      if (body.readinessSnapshotId !== undefined || body.readinessSourceRevision !== undefined) {
+        return c.json(
+          await services.getReviewReadiness({
+            sellerAccountId: access.actor.accountId,
+            snapshotId: String(body.readinessSnapshotId ?? ""),
+            sourceRevision: String(body.readinessSourceRevision ?? ""),
+            ...(body.confirmationId ? { confirmationId: String(body.confirmationId) } : {}),
+          }),
+        );
+      }
 
-    return c.json({ readiness: snapshot });
+      const snapshot = await services.createReadinessSnapshot(
+        {
+          sellerAccountId: access.actor.accountId,
+          decisions: parseSellListReadinessDecisionInput(body),
+          ...((body as Record<string, unknown>).confirmationId
+            ? { confirmationId: String((body as Record<string, unknown>).confirmationId) }
+            : {}),
+          ...((body as Record<string, unknown>).entryReadinessSnapshotId
+            ? { entryReadinessSnapshotId: String((body as Record<string, unknown>).entryReadinessSnapshotId) }
+            : {}),
+          ...((body as Record<string, unknown>).entryReadinessSourceRevision
+            ? { entryReadinessSourceRevision: String((body as Record<string, unknown>).entryReadinessSourceRevision) }
+            : {}),
+          ...parseSellerCheckoutChoices(body),
+        },
+        c.get("context") ?? undefined,
+      );
+
+      return c.json({ readiness: snapshot });
+    } catch (error) {
+      return writeError(c, error);
+    }
   });
 
   app.post("/sell-list", async (c) => {
@@ -443,6 +368,8 @@ export function createAccountSellListRoutes(
       const result = await services.addLine(
         {
           sellerAccountId: access.actor.accountId as AccountId,
+          attemptId: String(body.attemptId ?? ""),
+          requestHash: await computeCheckoutCommandAttemptRequestHash(body),
           ...parseSellListLineBody(body),
         },
         context,
@@ -453,12 +380,13 @@ export function createAccountSellListRoutes(
           id: result.lineId,
           version: result.version,
           status: result.status,
+          attempt: result.attempt,
           ...(result.commandReceipt ? { commandReceipt: result.commandReceipt } : {}),
         },
         201,
       );
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return writeError(c, error);
     }
   });
 
@@ -506,17 +434,20 @@ export function createAccountSellListRoutes(
     }
 
     try {
+      const body = await c.req.json<Record<string, unknown>>().catch((): Record<string, unknown> => ({}));
       const result = await services.removeLine(
         {
           sellerAccountId: access.actor.accountId as AccountId,
           lineId: parseTypedIdBoundary(c.req.param("lineId"), "sll", "lineId"),
+          attemptId: String(body.attemptId ?? ""),
+          requestHash: await computeCheckoutCommandAttemptRequestHash(body),
         },
         context,
       );
 
-      return c.json({ id: result.lineId, version: result.version, status: "removed" });
+      return c.json({ id: result.lineId, version: result.version, status: "removed", attempt: result.attempt });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return writeError(c, error);
     }
   });
 
@@ -554,24 +485,6 @@ export function createAccountSellListRoutes(
           400,
         );
       }
-      const sellerEvidence = confirmationBody.sellerEvidence!;
-      const handoffSummary = confirmationBody.handoffSummary!;
-
-      const existingConfirmation = await services.getConfirmation(
-        access.actor.accountId,
-        confirmationBody.confirmationId,
-      );
-      if (existingConfirmation) {
-        return c.json({
-          id: access.actor.accountId,
-          confirmationId: confirmationBody.confirmationId,
-          version: 0,
-          status: "confirmed",
-          completedLineIds: [],
-          confirmation: existingConfirmation,
-        });
-      }
-
       const result = await services.confirmSellListCheckout(
         {
           sellerAccountId: access.actor.accountId as AccountId,
@@ -579,15 +492,10 @@ export function createAccountSellListRoutes(
           readinessSnapshotId: confirmationBody.readinessSnapshotId,
           readinessSourceRevision: confirmationBody.readinessSourceRevision,
           readinessDecisions: confirmationBody.readinessDecisions,
-          completedLineIds: confirmationBody.completedLineIds as readonly SellListLineId[],
-          remainingLineQuantities: confirmationBody.remainingLineQuantities as readonly {
-            lineId: SellListLineId;
-            quantity: number;
-          }[],
-          sellerEvidence,
-          handoffSummary,
+          ...parseSellerCheckoutChoices(body),
         },
         context,
+        createMarketplaceRequestApiClient(c.req.raw),
       );
 
       return c.json({
@@ -597,9 +505,10 @@ export function createAccountSellListRoutes(
         status: result.status,
         completedLineIds: result.completedLineIds,
         confirmation: result.confirmation,
+        sourceReceipts: result.sourceReceipts,
       });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return writeError(c, error);
     }
   });
 
@@ -610,7 +519,7 @@ export function createGuestSellListRoutes(
   services: CheckoutSellListServices,
   resolveRateLimitRule?: RateLimitRuleResolver,
 ) {
-  const app = new Hono<CheckoutApiEnv>();
+  const app = new Hono<CheckoutApiEnv>().route("/", batchRoutes(services, true));
   const anonymousSellListCaptureRateLimiter = createAnonymousRailCaptureRateLimiter(
     "checkout:anonymous-sell-list-capture",
     resolveRateLimitRule,
@@ -627,6 +536,10 @@ export function createGuestSellListRoutes(
       items,
       count: items.reduce((sum, item) => sum + item.quantity, 0),
     });
+  });
+
+  app.get("/sell-list/composite-review", async (c) => {
+    return c.json(await services.loadGuestCompositeReview(requireAnonymousSellListId(c)));
   });
 
   app.get("/sell-list/offer-reviews", async (c) => {
@@ -656,7 +569,7 @@ export function createGuestSellListRoutes(
     const snapshot = await services.createReadinessSnapshot({
       sellerAccountId: ownerId,
       decisions: parseSellListReadinessDecisionInput(body),
-      sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
+      ...parseSellerCheckoutChoices(body),
     });
 
     return c.json({ readiness: snapshot });
@@ -690,27 +603,12 @@ export function createGuestSellListRoutes(
     const line = parseSellListLineBody(body);
 
     try {
-      const existingLines = await services.listLines(ownerId);
-      if (
-        existingLines.length >= MAX_ANONYMOUS_SELL_LIST_LINES &&
-        !existingLines.some((existingLine) => isExistingSellListLine(existingLine, line))
-      ) {
-        return c.json(
-          {
-            error: {
-              code: "anonymous_sell_list_limit_exceeded",
-              message: t("checkout.features.sellList.api.route.anonymous.sell.list.limit.exceeded", {
-                limit: MAX_ANONYMOUS_SELL_LIST_LINES,
-              }),
-            },
-          },
-          400,
-        );
-      }
-
       const result = await services.addLine(
         {
           sellerAccountId: ownerId as AccountId,
+          attemptId: String(body.attemptId ?? ""),
+          requestHash: await computeCheckoutCommandAttemptRequestHash(body),
+          newLineLimit: MAX_ANONYMOUS_SELL_LIST_LINES,
           ...line,
         },
         context,
@@ -721,12 +619,13 @@ export function createGuestSellListRoutes(
           id: result.lineId,
           version: result.version,
           status: result.status,
+          attempt: result.attempt,
           ...(result.commandReceipt ? { commandReceipt: result.commandReceipt } : {}),
         },
         201,
       );
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return writeError(c, error);
     }
   });
 
@@ -747,17 +646,20 @@ export function createGuestSellListRoutes(
     const context = c.get("context") ?? createGuestSellListContext();
 
     try {
+      const body = await c.req.json<Record<string, unknown>>().catch((): Record<string, unknown> => ({}));
       const result = await services.removeLine(
         {
           sellerAccountId: ownerId as AccountId,
           lineId: parseTypedIdBoundary(c.req.param("lineId"), "sll", "lineId"),
+          attemptId: String(body.attemptId ?? ""),
+          requestHash: await computeCheckoutCommandAttemptRequestHash(body),
         },
         context,
       );
 
-      return c.json({ id: result.lineId, version: result.version, status: "removed" });
+      return c.json({ id: result.lineId, version: result.version, status: "removed", attempt: result.attempt });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return writeError(c, error);
     }
   });
 

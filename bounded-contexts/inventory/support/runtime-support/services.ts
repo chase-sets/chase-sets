@@ -23,10 +23,12 @@ import {
 import type { RecordExternalChannelSale } from "../../features/channel-sales/api/contracts";
 import {
   createInventoryImportBatchRuntime,
-  type InventoryDraftListingCreator,
   type InventoryDraftListingDelivery,
 } from "../../features/import-batches/api/runtime";
 import { createInventoryItemRuntime } from "../../features/inventory-items/api/runtime";
+import { createInventoryStockReservations } from "../../features/inventory-items/api/stock-reservations";
+import { createInventoryStockAuthority } from "../../features/inventory-items/api/stock-authority";
+import type { RecordExternalChannelSaleCommand } from "../../features/channel-sales/api/contracts";
 import { createInventoryReservationRuntime } from "../../features/reservations/api/runtime";
 import { createRestockDecisionRuntime } from "../../features/restock-decisions/api/runtime";
 import { createRecoveredItemRuntime } from "../../features/recovered-items/api/runtime";
@@ -69,8 +71,8 @@ export type InventoryServices = Readonly<{
 }>;
 
 export type InventoryHostPorts = Readonly<{
+  stockReservationConsumerPool?: PgTransactionalPool;
   checkoutReservationAuthority?: InventoryCheckoutReservationAuthority;
-  draftListingCreator?: InventoryDraftListingCreator;
   draftListingDelivery?: InventoryDraftListingDelivery;
   importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
 }>;
@@ -95,13 +97,16 @@ export function createInventoryHoldCleanupAuthorityForPool(
 export function createInventoryExternalChannelSaleRecorderForPool(
   pool: PgTransactionalPool,
   context: EventStoreContext,
+  consumerPool?: PgTransactionalPool,
 ): RecordExternalChannelSale {
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
+  const stockReservations = createInventoryStockReservations(pool, eventStore, consumerPool);
   const deps = {
-    eventStore,
+    eventStore: stockReservations.persistence,
+    stockReservations,
     checkpointStore: createPostgresProjectionStore({ db: pool }),
     db: pool,
   } as const;
@@ -118,7 +123,12 @@ export function createInventoryServices(
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
-  const mutations = createInventoryMutationRuntime(pool, postgresEventStore);
+  const stockReservations = createInventoryStockReservations(
+    pool,
+    postgresEventStore,
+    ports.stockReservationConsumerPool,
+  );
+  const mutations = createInventoryMutationRuntime(pool, postgresEventStore, stockReservations);
   const { eventStore } = mutations;
   const appendToStreams = eventStore.appendToStreams;
   if (!appendToStreams) {
@@ -126,7 +136,7 @@ export function createInventoryServices(
   }
   const checkpointStore = createPostgresProjectionStore({ db: mutations.db });
   const db: PgQueryable = mutations.db;
-  const deps = { eventStore, checkpointStore, db, mutationChild: mutations.child } as const;
+  const deps = { eventStore, checkpointStore, db, mutationChild: mutations.child, stockReservations } as const;
 
   const catalogItems = createInventoryCatalogItemRuntime(deps);
   const storageLocations = recoverStorageLocations(createStorageLocationRuntime(deps), mutations);
@@ -140,7 +150,6 @@ export function createInventoryServices(
       items: pendingItems,
       rowItems: items,
       catalogItems,
-      draftListingCreator: ports.draftListingCreator,
       draftListingDelivery: ports.draftListingDelivery,
       importProductRollout: ports.importProductRollout,
       executeMutation: mutations.execute,
@@ -186,5 +195,25 @@ export function createInventoryServices(
     ],
     pool,
     db,
+  };
+}
+
+/** Owner capability only. Marketplace abort-port and host wiring are composed separately. */
+export function createInventoryStockAuthorityForPool(pool: PgTransactionalPool, consumerPool?: PgTransactionalPool) {
+  const store = createPostgresEventStore({ pool });
+  const reservations = createInventoryStockReservations(pool, store, consumerPool);
+  return {
+    ...createInventoryStockAuthority(pool, store, reservations),
+    status: reservations.status,
+    invalidateStock: reservations.invalidateStock,
+    async settleInboundSale(evidenceId: string) {
+      const result = await pool.query<{
+        payload: { command: RecordExternalChannelSaleCommand; context: EventStoreContext };
+      }>("SELECT payload FROM event_owner_stream_inbound_evidence WHERE evidence_id = $1", [evidenceId]);
+      if (result.rows.length !== 1) throw new Error("Inventory inbound sale evidence unavailable.");
+      const { command, context } = result.rows[0].payload;
+      const services = createInventoryServices(pool, { stockReservationConsumerPool: consumerPool });
+      return services.channelSales.record(command, context);
+    },
   };
 }

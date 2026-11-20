@@ -1,8 +1,10 @@
-import { Hono, type Context, type Next } from "hono";
+import { Hono } from "hono";
+import { createPlatformListingTargetAuthority } from "./listing-target-authority";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
 import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
+import type { module as checkoutModule } from "@chase-sets/checkout";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
@@ -11,14 +13,17 @@ import {
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
   type ReceiptLookupActorOptions,
+  type RevokeAgentGrantPaymentInstruments,
 } from "@chase-sets/auth/server";
 import {
   createCheckoutUcpHandlers,
   createCheckoutInventoryReservationAuthority,
   lookupCheckoutSupportReference,
+  type CheckoutOfferAcceptanceTermsSource,
   type CheckoutSupportLookupResult,
 } from "@chase-sets/checkout/server";
 import type { SavedListInventoryImportBatchCreator } from "@chase-sets/collections/server";
+import type { TcgplayerMarketObservationRequestSource } from "@chase-sets/tcgplayer-market-observations";
 import {
   authenticityFeePolicy,
   checkoutProcessingFeePolicy,
@@ -36,9 +41,11 @@ import {
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
 import {
+  catalogApiPermissionMiddleware,
   catalogRealtimeManifest,
   createCatalogProviderConnectionsReadSource,
   type CatalogServices,
+  type CatalogOperatorAuthority,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
@@ -66,7 +73,6 @@ import {
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
   type RecordExternalChannelSale,
-  type InventoryDraftListingCreator,
   type InventoryServices,
 } from "@chase-sets/inventory/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -79,6 +85,8 @@ import {
 } from "@chase-sets/ordering/server";
 import {
   createShipByAttentionSourceFromReadModel,
+  createSellerShippingSetupServices,
+  createSellerCheckoutReadinessReader,
   lookupShipmentBySupportId,
   lookupShipmentBySupportReference,
   type FulfillmentSupportLookupRow,
@@ -133,6 +141,7 @@ import {
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
+  createSellerCheckoutRiskReader,
   createSettlementBalanceCreditResolver,
   createSettlementWalletSpendHoldPort,
   getProtectionReserveSummary,
@@ -222,12 +231,12 @@ import {
 } from "./middleware/auth-context";
 import type { PlatformApiRuntimeProfile } from "@chase-sets/platform-runtime/runtime-profiles";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
-import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
+import { apiContextRegistry } from "./context-registry";
 import {
   createChannelActionAttentionSourceFromReadModel,
   createChannelConnectionsOperatorReadSourceFromReadModel,
@@ -330,8 +339,9 @@ export function createPlatformApiHost(
       runtimeProfile?: PlatformApiRuntimeProfile;
       controlPlane?: PlatformControlPlane;
       workSignalStore?: ProjectionWakeStatusWorkSignalStore;
+      catalogMarketObservationRequests?: TcgplayerMarketObservationRequestSource;
     }>,
-): ApiHostRuntime {
+): ApiHostRuntime & Readonly<{ initializeListingAuthority: () => Promise<void> }> {
   let runtime: ApiHostRuntime | null = null;
   const inventoryDraftListingConsumer = createPlatformApiInventoryDraftListingConsumer(
     () => runtime?.services.marketplace as MarketplaceServices | undefined,
@@ -351,6 +361,30 @@ export function createPlatformApiHost(
   const pricingPool = getPlatformApiPool(options.pools.pricing);
   const publicPresencePool = getPlatformApiPool(options.pools["public-presence"]);
   const channelsPool = getPlatformApiPool(options.pools.channels);
+  const listingTargets =
+    runtimeProfile !== "landing" &&
+    marketplacePool &&
+    inventoryPool &&
+    identityPool &&
+    channelsPool &&
+    options.pools.auth
+      ? createPlatformListingTargetAuthority({
+          marketplace: marketplacePool,
+          inventory: inventoryPool,
+          auth: () => {
+            if (!runtime) throw new Error("Auth runtime is unavailable.");
+            return runtime.services.auth as ReturnType<typeof authModule.createServices>;
+          },
+          identity: () => {
+            if (!runtime) throw new Error("Identity runtime is unavailable.");
+            return runtime.services.identity as ReturnType<typeof identityModule.createServices>;
+          },
+          channels: () => {
+            if (!runtime) throw new Error("Channels runtime is unavailable.");
+            return runtime.services.channels as import("@chase-sets/channels/server").ChannelsServices;
+          },
+        })
+      : undefined;
   const sellerAttentionSources = [
     ...(fulfillmentPool ? [createShipByAttentionSourceFromReadModel(fulfillmentPool)] : []),
     ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
@@ -390,6 +424,9 @@ export function createPlatformApiHost(
         ),
       })
     : undefined;
+  if (checkoutPool && !commercialTermsResolver) {
+    throw new Error("Checkout requires a Commercial Terms resolver backed by the Commercial Terms database.");
+  }
   const standardScheduleResolver = commercialTermsPool
     ? createStandardScheduleResolver(commercialTermsPool)
     : undefined;
@@ -421,6 +458,10 @@ export function createPlatformApiHost(
       return identity.memberships.getMembershipState(membershipId);
     },
   });
+  const catalogOperatorAuthority: CatalogOperatorAuthority = {
+    forActor: operatorAuthority,
+    forGrantCreator: operatorAuthority.forGrantCreator,
+  };
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
   const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
     ? createIdentityWalletFundingEligibilityResolver(identityPool)
@@ -632,15 +673,6 @@ export function createPlatformApiHost(
     supportReferenceLookupCrossContextSources.length > 0
       ? { sources: supportReferenceLookupCrossContextSources }
       : undefined;
-  const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-    const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
-    const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
-    if (!createDraft) {
-      throw new Error("Marketplace draft listing service is unavailable.");
-    }
-
-    return createDraft(params, context);
-  };
   /**
    * Ordering's required cleanup-authority capability.
    *
@@ -654,7 +686,9 @@ export function createPlatformApiHost(
   const inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability = inventoryPool
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
-  const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const channelSaleRecorder = inventoryPool
+    ? createPlatformApiChannelSaleRecorder(inventoryPool, marketplacePool)
+    : undefined;
   const admissionAuthority = (): ShipmentGroupAdmissionAuthority => {
     const services = runtime?.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices> | undefined;
     if (!services) throw new Error("Shipment Group admission authority is unavailable.");
@@ -698,6 +732,16 @@ export function createPlatformApiHost(
       inventoryDraftListingConsumer,
       draftListingDelivery: inventoryDraftListingConsumer,
       ...options.hostPorts,
+      ...(marketplacePool ? { pricingPredicateConsumerPool: marketplacePool } : {}),
+      ...(listingTargets
+        ? {
+            listingTargetAuthority: listingTargets.authority,
+            identitySourceTopology: listingTargets.consumer.topology,
+            sessionConsumers: listingTargets.consumer.topology,
+            connectionConsumers: listingTargets.consumer.topology,
+            stockReservationConsumerPool: marketplacePool,
+          }
+        : {}),
       operationsAttentionRuntimeReads: {
         loadBlockedProjections: async () => {
           if (!runtime) {
@@ -716,6 +760,12 @@ export function createPlatformApiHost(
       },
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      ...(fulfillmentPool && settlementPool
+        ? { sellerCheckoutOwners: createPlatformSellerCheckoutOwners(fulfillmentPool, settlementPool) }
+        : {}),
+      offerAcceptanceTermsSource: createMarketplaceOfferAcceptanceTermsSource(
+        () => runtime?.services.marketplace as MarketplaceServices | undefined,
+      ),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
@@ -725,6 +775,8 @@ export function createPlatformApiHost(
       savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
       operatorAuthority,
+      catalogOperatorAuthority,
+      catalogMarketObservationRequests: options.catalogMarketObservationRequests,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
@@ -732,7 +784,6 @@ export function createPlatformApiHost(
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
-      draftListingCreator,
       ...(checkoutPool
         ? { checkoutReservationAuthority: createCheckoutInventoryReservationAuthority(checkoutPool) }
         : {}),
@@ -746,6 +797,7 @@ export function createPlatformApiHost(
       },
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
+      readyToShipCanaryOwnerUserId: process.env.CHANNELS_READY_TO_SHIP_CANARY_OWNER_USER_ID,
       connectorOAuth: createConnectorOAuthService(
         () => {
           const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;
@@ -757,7 +809,11 @@ export function createPlatformApiHost(
       ...(pricingHostPorts ?? {}),
     },
   });
-  return runtime;
+  return Object.assign(runtime, {
+    initializeListingAuthority: async () => {
+      await listingTargets?.consumer.initialize();
+    },
+  });
 }
 
 function createPublicPolicySource<Value>(
@@ -785,11 +841,24 @@ function createPublicPolicySource<Value>(
   };
 }
 
+function createPlatformSellerCheckoutOwners(fulfillmentPool: PgTransactionalPool, settlementPool: PgTransactionalPool) {
+  const shipping = createSellerShippingSetupServices({ pool: fulfillmentPool });
+  return {
+    readRisk: createSellerCheckoutRiskReader(settlementPool),
+    readFulfillment: createSellerCheckoutReadinessReader(fulfillmentPool),
+    resolveOrigin: shipping.resolveOrigin,
+    invalidateAnonymousOwner: shipping.invalidateAnonymousOwner,
+  } satisfies NonNullable<NonNullable<Parameters<typeof checkoutModule.createServices>[1]>["sellerCheckoutOwners"]>;
+}
+
 function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
 }
 
-function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): RecordExternalChannelSale {
+function createPlatformApiChannelSaleRecorder(
+  pool: PgTransactionalPool,
+  consumerPool?: PgTransactionalPool,
+): RecordExternalChannelSale {
   return async (command) => {
     const context: EventStoreContext = {
       tenantId: "tnt_channels_api" as never,
@@ -798,7 +867,7 @@ function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): Record
         forAccountId: command.accountId as never,
       },
     };
-    return createInventoryExternalChannelSaleRecorderForPool(pool, context)(command);
+    return createInventoryExternalChannelSaleRecorderForPool(pool, context, consumerPool)(command);
   };
 }
 
@@ -843,6 +912,24 @@ function createChannelConnectionIdentityReader(
             environment: connection.environment,
           }
         : null;
+    },
+  };
+}
+
+export function createMarketplaceOfferAcceptanceTermsSource(
+  getMarketplaceServices: () => MarketplaceServices | undefined,
+): CheckoutOfferAcceptanceTermsSource {
+  return {
+    previewOfferAcceptanceTerms: async ({ offerId, sellerAccountId, listingId }) => {
+      const offers = getMarketplaceServices()?.offers;
+      if (!offers) {
+        throw new Error("Marketplace Offer acceptance terms are unavailable.");
+      }
+      return offers.previewOfferAcceptanceTerms({
+        offerId: offerId as OfferId,
+        sellerAccountId: sellerAccountId as AccountId,
+        listingId,
+      });
     },
   };
 }
@@ -1177,8 +1264,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           db: identityServices.auth.db,
           withActiveGrants: identityServices.identity.agentGrantRevocations?.withActiveGrants,
         }),
-        revokeStoredPaymentMethodsForAgentGrant:
-          paymentsServices?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant,
+        revokeStoredPaymentMethodsForAgentGrant: paymentsServices?.payments
+          ?.revokeSavedCheckoutInstrumentsForAgentGrant satisfies RevokeAgentGrantPaymentInstruments | undefined,
       }),
     );
     app.use("/ucp/v1/*", platformActorMiddleware);
@@ -1333,22 +1420,6 @@ function resolveAuthIdentityAnonymousRoutes(runtime: ApiHostRuntime): readonly A
       const module = entry.module as Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }>;
       return module.anonymousRoutes ?? [];
     });
-}
-
-async function catalogApiPermissionMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
-  const actor = c.get("actor");
-  if (!actor) {
-    return c.json(authenticationRequiredResponse(), 401);
-  }
-
-  const method = c.req.method.toUpperCase();
-  const requiredPermission =
-    method === "GET" || method === "HEAD" || method === "OPTIONS" ? "catalog.view" : "catalog.manage";
-  if (!actor.permissions.includes(requiredPermission)) {
-    return c.json(forbiddenResponse(), 403);
-  }
-
-  await next();
 }
 
 function isPaymentProcessorPublicConfig(value: unknown): value is Parameters<typeof createPaymentsUcpHandoff>[0] {

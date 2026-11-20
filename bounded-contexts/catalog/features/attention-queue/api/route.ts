@@ -2,14 +2,17 @@ import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { requireCatalogIntegrationControlPlanePermission } from "../../source-observations/api/admin-control-plane-rbac";
-import { CATALOG_ATTENTION_ITEM_KINDS, type CatalogAttentionItemKind } from "../read-model/attention-item";
+import { isCatalogAttentionItemKind } from "../read-model/attention-item";
 import { catalogAttentionDismissalStreamId } from "../domain/dismissal";
+import { parseCatalogAttentionQueueWindow } from "./contracts";
 import type { CatalogAttentionQueueServices } from "./runtime";
 
 // ---------------------------------------------------------------------------
 // Catalog attention queue HTTP API
 //
-//   GET  /attention-queue          → the unified needs-you read model.
+//   GET  /attention-queue          → the unified needs-you read model: every
+//        kind's cohort counts plus a window (`kind`, `limit` 1..200 default 20,
+//        `offset` >= 0; an unknown kind is a 400).
 //   POST /attention-queue/commands → park (dismiss / defer) or restore an item.
 //
 // Reads require catalog.view; park/restore require catalog.manage. Every command
@@ -30,10 +33,6 @@ function isAttentionCommandIntent(value: string): value is AttentionCommandInten
   return ATTENTION_COMMAND_INTENTS.has(value);
 }
 
-function isAttentionItemKind(value: unknown): value is CatalogAttentionItemKind {
-  return typeof value === "string" && (CATALOG_ATTENTION_ITEM_KINDS as readonly string[]).includes(value);
-}
-
 export function catalogAttentionQueueRoutes(services: CatalogAttentionQueueRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -43,10 +42,24 @@ export function catalogAttentionQueueRoutes(services: CatalogAttentionQueueRoute
       return permissionError;
     }
 
+    const window = parseCatalogAttentionQueueWindow({
+      kind: c.req.query("kind"),
+      limit: c.req.query("limit"),
+      offset: c.req.query("offset"),
+    });
+    if (!window) {
+      return invalidRequest(
+        c,
+        "attention_queue_unknown_kind",
+        t("catalog.features.attentionQueue.api.route.unknownKind"),
+      );
+    }
+
     const context = c.get("context");
     const readModel = await services.getCatalogAttentionQueueReadModel({
       context,
       generatedAt: new Date().toISOString(),
+      window,
     });
 
     return c.json(readModel);
@@ -93,7 +106,7 @@ export function catalogAttentionQueueRoutes(services: CatalogAttentionQueueRoute
       return c.json({ intent, itemKey, disposition: result.state.disposition, version: result.version });
     }
 
-    if (!isAttentionItemKind(body.kind)) {
+    if (!isCatalogAttentionItemKind(body.kind)) {
       return invalidRequest(
         c,
         "attention_queue_invalid_kind",

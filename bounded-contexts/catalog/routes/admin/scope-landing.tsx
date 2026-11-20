@@ -25,6 +25,8 @@ export default function ScopeLandingRoute() {
     generalAliasReview,
     generalAliasReviewFailed,
     canManage,
+    auditEvidence,
+    evidenceFailed,
   } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const actionData = useActionData<typeof action>();
@@ -38,6 +40,8 @@ export default function ScopeLandingRoute() {
       error={error}
       actionHref="/catalog/scopes"
       canManage={canManage}
+      auditEvidence={auditEvidence}
+      evidenceFailed={evidenceFailed}
       attentionQueue={attentionQueue}
       generalAliasReview={generalAliasReview}
       generalAliasReviewFailed={generalAliasReviewFailed}

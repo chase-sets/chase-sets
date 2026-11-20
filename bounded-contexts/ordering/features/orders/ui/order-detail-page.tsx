@@ -29,6 +29,7 @@ import {
 import { useRef, type ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
 import { OrderMoneyTimeline } from "./order-money-timeline";
+import { inventoryHoldStatusWords, orderStatusWords, shippingOptionWords } from "./order-words";
 
 function destinationLines(order: PurchaseDetail | SaleDetail) {
   const address = order.shipping_destination_snapshot;
@@ -169,7 +170,7 @@ export function OrderingOrderDetailPage({
     label: t("ordering.features.orders.ui.orderDetailPage.status"),
     value: (
       <Badge tone={fullyDelivered ? "success" : statusTone(order.status)}>
-        {fullyDelivered ? t("ordering.features.orders.ui.orderDetailPage.delivered") : order.status}
+        {fullyDelivered ? t("ordering.features.orders.ui.orderDetailPage.delivered") : orderStatusWords(order.status)}
       </Badge>
     ),
   };
@@ -299,7 +300,7 @@ export function OrderingOrderDetailPage({
                 },
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.shipping.preference"),
-                  description: order.shipping_option,
+                  description: shippingOptionWords(order.shipping_option),
                 },
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.payment.state"),
@@ -307,7 +308,7 @@ export function OrderingOrderDetailPage({
                     ? t("ordering.features.orders.ui.orderDetailPage.payment.deadline.description", {
                         deadline: formatDateTime(paymentDeadlineAt),
                       })
-                    : order.status,
+                    : orderStatusWords(order.status),
                 },
               ]}
             />
@@ -531,7 +532,7 @@ export function OrderingOrderDetailPage({
                         <Text size="sm" tone="secondary">
                           {t("ordering.features.orders.ui.orderDetailPage.status.2")}
                         </Text>
-                        <Badge tone="accent">{hold.status}</Badge>
+                        <Badge tone="accent">{inventoryHoldStatusWords(hold.status)}</Badge>
                       </Stack>
                     </Grid>
                   </Surface>

@@ -14,7 +14,14 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSupportRequestRuntime } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
-import { actorContext, operationsResponseFixture, responseCases } from "./participant-attempt.test-support";
+import {
+  actorContext,
+  operationsResponseFixture,
+  responseCases,
+  legacyCsatResolutionFixture,
+  attemptId,
+  responseSeller,
+} from "./participant-attempt.test-support";
 import {
   attachmentManifestReferences,
   attachmentOperationStreamId,
@@ -321,6 +328,17 @@ describe("operations response preservation", () => {
 });
 
 describe("support request runtime", () => {
+  it("platform-operations replays a stream with legacy CSAT events through the runtime visibility reader", async () => {
+    const f = await legacyCsatResolutionFixture();
+    await expect(f.lookup("record-response", f.body, f.id, attemptId, responseSeller)).resolves.toEqual({
+      outcome: "committed",
+      actionKind: "record-response",
+      result: f.result,
+    });
+    expect(f.allEvents.filter((event) => event.eventType === "platform-operations.csat-outcome-fact.v1")).toHaveLength(
+      1,
+    );
+  });
   it("opens, evidences, and resolves an Honor Offline case idempotently", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {

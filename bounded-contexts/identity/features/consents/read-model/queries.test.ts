@@ -58,13 +58,28 @@ describe("findCurrentConsent", () => {
     const query = vi.fn(async (sql: string) => (sql.includes("COUNT(*)") ? { rows: [{ count: "2" }] } : { rows }));
     const db = { query } as unknown as PgQueryable;
 
-    const result = await listConsents(db, { userId: "usr_1" });
+    const result = await listConsents(db, { subject: { userId: "usr_1", accountId: "acc_1" } });
 
     expect(result).toEqual({ items: rows, total: 2 });
     const listSql = query.mock.calls.map(([sql]) => sql).find((sql) => !sql.includes("COUNT(*)"));
     expect(listSql).toContain("FROM identity_consents h");
     expect(listSql).toContain("FROM identity_consent_current_states c");
     expect(listSql).toContain("AS is_current");
+  });
+
+  it("keeps only the subject's own consents, whatever else the caller filters by", async () => {
+    const query = vi.fn(async (sql: string, _values?: readonly unknown[]) =>
+      sql.includes("COUNT(*)") ? { rows: [{ count: "0" }] } : { rows: [] },
+    );
+    const db = { query } as unknown as PgQueryable;
+
+    await listConsents(db, { subject: { userId: "usr_1", accountId: "acc_1" }, status: "recorded", search: "terms" });
+
+    const [countSql, countValues] = query.mock.calls.find(([sql]) => sql.includes("COUNT(*)"))!;
+    expect(countSql).toContain(
+      "WHERE ((subject_type = 'user' AND user_id = $1) OR (subject_type = 'account' AND user_id = $1 AND account_id = $2)) AND status = $3",
+    );
+    expect(countValues).toEqual(["usr_1", "acc_1", "recorded", "%terms%"]);
   });
 });
 

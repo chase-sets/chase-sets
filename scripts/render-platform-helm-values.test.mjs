@@ -318,27 +318,40 @@ describe("render platform Helm values", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
-  it("generates only the seven interim memory requests and required preview stack isolation", () => {
-    const expected = {
-      global: { previewStackIsolation: true },
-      components: {
-        "public-web": { resources: { requests: { memory: "1024Mi" } } },
-        marketplace: { resources: { requests: { memory: "1152Mi" } } },
-        "admin-web": { resources: { requests: { memory: "832Mi" } } },
-        "platform-api": { resources: { requests: { memory: "640Mi" } } },
-        "platform-worker": { resources: { requests: { memory: "832Mi" } } },
-        "platform-bootstrap": { resources: { requests: { memory: "1152Mi" } } },
-      },
-      previewPostgres: { resources: { requests: { memory: "448Mi" } } },
+  it("reserves the D5-R measured peaks with equal memory limits for all seven preview workloads", () => {
+    const values = buildPlatformHelmPreviewValues();
+    const rendered = readFileSync(path.join(repoRoot, chartPreviewValuesRelativePath), "utf8");
+    expect(values.global).toEqual({ previewStackIsolation: true });
+    expect(parseYaml(rendered)).toEqual(values);
+    expect(rendered).toContain("43338035023");
+    const measuredBytes = {
+      "public-web": 1063137280,
+      marketplace: 1142210560,
+      "admin-web": 871866368,
+      "platform-api": 1248432128,
+      "platform-worker": 840187904,
+      "platform-bootstrap": 793718784,
+      previewPostgres: 407904256,
     };
-    expect(buildPlatformHelmPreviewValues()).toEqual(expected);
-    expect(parseYaml(readFileSync(path.join(repoRoot, chartPreviewValuesRelativePath), "utf8"))).toEqual(expected);
-    const runtimeRequest = Object.entries(expected.components)
+    const expectedMi = [1216, 1280, 960, 1408, 960, 896, 512];
+    for (const [index, [name, bytes]] of Object.entries(measuredBytes).entries()) {
+      const resources = (values.components[name] ?? values[name]).resources;
+      const floor = ["public-web", "marketplace", "admin-web"].includes(name) ? 256 : 512;
+      const memoryMi = Math.max(floor, Math.ceil((1.15 * bytes) / (1024 * 1024 * 64)) * 64);
+      expect(memoryMi).toBe(expectedMi[index]);
+      expect(resources).toEqual({
+        requests: { cpu: name === "platform-bootstrap" ? "250m" : "100m", memory: `${memoryMi}Mi` },
+        limits: { memory: `${memoryMi}Mi` },
+      });
+      expect(memoryMi % 64).toBe(0);
+      expect(memoryMi).toBeGreaterThanOrEqual(floor);
+    }
+    expect(Object.keys(values.components)).toEqual(Object.keys(measuredBytes).slice(0, 6));
+    const runtimeRequest = Object.entries(values.components)
       .filter(([name]) => name !== "platform-bootstrap")
-      .reduce((sum, [, component]) => sum + mebibytes(component.resources.requests.memory), 448);
-    expect(runtimeRequest).toBe(4928);
-    expect(448 + mebibytes(expected.components["platform-bootstrap"].resources.requests.memory)).toBe(1600);
-    expect(runtimeRequest).toBeLessThanOrEqual(6002);
+      .reduce((sum, [, component]) => sum + mebibytes(component.resources.requests.memory), 512);
+    expect(runtimeRequest).toBe(6336);
+    expect(512 + mebibytes(values.components["platform-bootstrap"].resources.requests.memory)).toBe(1408);
   });
 
   it("checks both missing and stale generated preview values", () => {
@@ -676,11 +689,21 @@ describe("render platform Helm values", () => {
     expect(stagingValues.components["platform-api"]).toEqual({
       ...doksStagingApiOverrides,
       env: [
-        ...baselineValues.components["platform-api"].env,
+        ...baselineValues.components["platform-api"].env.map((entry) => ({
+          ...entry,
+          ...(entry.name === "EBAY_APPLICATION_CLIENT_ID" ? { secretKey: "EBAY_SANDBOX_APP_ID" } : {}),
+          ...(entry.name === "EBAY_APPLICATION_CLIENT_SECRET" ? { secretKey: "EBAY_SANDBOX_CERT_ID" } : {}),
+        })),
+        { name: "EBAY_OAUTH_RUNAME", secret: true, secretKey: "EBAY_SANDBOX_RUNAME" },
         {
           name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
           secret: true,
           secretKey: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+        },
+        {
+          name: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+          secret: true,
+          secretKey: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
         },
       ],
     });
@@ -939,12 +962,14 @@ spec:
       "www.staging.chasesets.com",
       "marketplace.staging.chasesets.com",
       "admin.staging.chasesets.com",
+      "admin-corten.staging.chasesets.com",
     ]);
     expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
       "staging.chasesets.com": { path: "/", service: "marketplace" },
       "www.staging.chasesets.com": { path: "/", service: "public-web" },
       "marketplace.staging.chasesets.com": { path: "/", service: "marketplace" },
       "admin.staging.chasesets.com": { path: "/", service: "admin-web" },
+      "admin-corten.staging.chasesets.com": { path: "/", service: "admin-corten" },
     });
     expect(doksIngress.hosts[0].paths.map((route) => route.path)).toEqual([
       "/.well-known",
@@ -1014,10 +1039,10 @@ spec:
       "www.staging.chasesets.com",
       "marketplace.staging.chasesets.com",
       "admin.staging.chasesets.com",
+      "admin-corten.staging.chasesets.com",
     ]);
 
-    // #5564: this is the canonical DOKS-served staging topology — exactly 4
-    // hosts, none of them the legacy landing-/marketplace-/admin-staging
+    // The staging pilot adds a fifth host, none of them the legacy landing-/marketplace-/admin-staging
     // redirect hostnames (those were retired outright, not rewired to DOKS;
     // see #5568). The deploy-blocking ingress-wait gate in
     // .github/workflows/platform-production.yml probes exactly this host set
@@ -1269,7 +1294,7 @@ spec:
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 132,
+      "platform-api": 133,
       "platform-bootstrap": 59,
       "platform-worker": 134,
       "public-web": 13,

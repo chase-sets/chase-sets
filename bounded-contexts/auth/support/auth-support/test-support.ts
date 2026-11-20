@@ -1,6 +1,17 @@
 import { vi } from "vitest";
 import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import type { AuthServices, AuthSessionMembership } from "../runtime-support/services";
+import type { AuthSessionEpochs } from "../../features/sessions/api/owner-epochs";
+
+/** Unit orchestration only; SQL closure and receipts are exercised by the DB proof. */
+export function createAuthSessionEpochsFake(db: AuthServices["db"]): AuthSessionEpochs {
+  return {
+    transaction: (_keys, work) => work(db),
+    source: async () => {
+      throw new Error("Canonical epoch capture requires the DB fixture");
+    },
+  };
+}
 
 const DEFAULT_MEMBERSHIP: AuthSessionMembership = {
   membershipId: "mbr_test",
@@ -55,9 +66,12 @@ export function createAuthServicesFake(overrides: AuthServicesFakeOverrides = {}
   const { db, auth, identity, sessions, registrationAdmission, session, memberships, ...rest } = overrides;
   const resolvedSession = { ...DEFAULT_SESSION, ...session };
   const resolvedMemberships = memberships ?? [DEFAULT_MEMBERSHIP];
+  const resolvedDb = (db ?? { query: vi.fn(async () => ({ rows: [] })) }) as AuthServices["db"];
 
   return {
-    db: db ?? { query: vi.fn(async () => ({ rows: [] })) },
+    db: resolvedDb,
+    pool: { query: resolvedDb.query, connect: vi.fn(async () => ({ query: resolvedDb.query, release: vi.fn() })) },
+    sessionEpochs: createAuthSessionEpochsFake(resolvedDb),
     eventStore: { appendToStream: vi.fn(async () => ({ version: 1 })) },
     auth: {
       issueOpaqueToken: vi.fn((prefix: string) => `${prefix}_token`),
@@ -73,7 +87,6 @@ export function createAuthServicesFake(overrides: AuthServicesFakeOverrides = {}
       getUser: vi.fn(async () => ({ user_id: resolvedSession.user_id, status: "active" })),
       getUserByEmail: vi.fn(async () => null),
       getUserByPhone: vi.fn(async () => null),
-      getUserBySocialLogin: vi.fn(async () => null),
       findPendingInvitationByEmail: vi.fn(async () => null),
       listActiveMembershipsForUser: vi.fn(async () => resolvedMemberships),
       getActiveMembershipForUserAccount: vi.fn(async () => resolvedMemberships[0] ?? null),

@@ -1,3 +1,6 @@
+import type { SellListReviewPlan, SellListReadinessDecisionInput } from "../support/request-support/api-client";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
@@ -6,8 +9,9 @@ import {
   expectNoSellerCommitSideEffects,
   guestSellListLine,
   mockAcceptOfferMatch,
+  mockGetOfferAcceptanceAttempt,
   MockCheckoutApiError,
-  mockConfirmSellListCheckout,
+  mockConfirmSellListCheckout as mockRecordSellListConfirmation,
   mockCreateAuthRequestApiClient,
   mockCreateCheckoutRequestApiClient,
   mockCreateGuestSellListReadiness,
@@ -82,7 +86,8 @@ vi.mock("@chase-sets/payments/server", async () => {
   };
 });
 
-vi.mock("@chase-sets/marketplace/server", () => ({
+vi.mock("@chase-sets/marketplace/server", async () => ({
+  ...(await vi.importActual<typeof import("@chase-sets/marketplace/server")>("@chase-sets/marketplace/server")),
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
   MarketplaceApiError: MockMarketplaceApiError,
 }));
@@ -94,6 +99,72 @@ async function readResolvedFreshWriteToken(url: URL) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
   return readFreshWriteToken(resolvedRequest.url);
 }
+
+import {
+  performMarketplaceHandoff,
+  marketplaceSourceReceipts,
+  SellListHandoffInterruptedError,
+} from "../features/sell-list/api/marketplace-handoff";
+import { reviewedLinesForConfirmation } from "../features/sell-list/api/reviewed-lines";
+import { SellListReviewPlanStaleError } from "../features/sell-list/api/handoff-contracts";
+import { SignedInSellCheckoutPage } from "../features/sell-list/ui/signed-in-sell-checkout-page";
+import type { createCheckoutRequestApiClient } from "../support/request-support/api-client";
+
+// The fake confirm endpoint exercises the relocated API helper; the record spy is its persistence boundary.
+const confirmThroughApi = vi.fn(
+  async (body: Parameters<ReturnType<typeof createCheckoutRequestApiClient>["confirmSellListCheckout"]>[0]) => {
+    expect(body).not.toHaveProperty("handoffSummary");
+    expect(body).not.toHaveProperty("completedLineIds");
+    expect(body).not.toHaveProperty("remainingLineQuantities");
+    expect(body).not.toHaveProperty("sellerEvidence");
+    const api = mockCreateCheckoutRequestApiClient.mock.results.at(-1)!.value;
+    const lines = (await api.getSellList()).items;
+    const stored = await mockCreateSellListReadiness.mock.results.at(-1)!.value;
+    let reviewed;
+    try {
+      reviewed = reviewedLinesForConfirmation(lines, stored.readiness, stored.reviewPlan);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid plan";
+      throw Object.assign(new MockCheckoutApiError(400, { error: { message } }), { message });
+    }
+    try {
+      const handoff = await performMarketplaceHandoff(
+        {
+          acceptOfferMatch: mockAcceptOfferMatch,
+          getOfferAcceptanceAttempt: mockGetOfferAcceptanceAttempt,
+          createListing: mockCreateListing,
+          publishListing: mockPublishListing,
+        },
+        body.confirmationId,
+        reviewed,
+        "acc_seller",
+      );
+      const result = await mockRecordSellListConfirmation({
+        ...body,
+        completedLineIds: handoff.completedLineIds,
+        remainingLineQuantities: handoff.remainingLineQuantities,
+        handoffSummary: handoff.summary,
+      });
+      return {
+        ...result,
+        sourceReceipts: marketplaceSourceReceipts(handoff.writeResults),
+      };
+    } catch (error) {
+      if (!(error instanceof SellListHandoffInterruptedError)) throw error;
+      throw Object.assign(
+        new MockCheckoutApiError(409, {
+          error: {
+            code: "checkout_handoff_interrupted",
+            message: error.message,
+            lines: error.lines,
+            ...(error.reason instanceof SellListReviewPlanStaleError ? { recovery: error.reason.recovery } : {}),
+          },
+        }),
+        { message: error.message },
+      );
+    }
+  },
+);
 
 describe("checkout web routes: sell checkout session", () => {
   it.each(["selected", "match"])(
@@ -219,11 +290,6 @@ describe("checkout web routes: sell checkout session", () => {
     const params = new URLSearchParams({
       readinessSnapshotId: "slr_ready",
       readinessSourceRevision: "slr_source",
-      readinessDecisions: JSON.stringify({
-        lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-        lineOutcomes: [],
-      }),
-      sellListReviewPlan: JSON.stringify({ version: 1, lines: [{ lineId: "sll_1", lineType: "selected-offer" }] }),
       ...overrides,
     });
     return `http://localhost/checkout/sell/session/chk_sell_1?${params.toString()}`;
@@ -246,8 +312,9 @@ describe("checkout web routes: sell checkout session", () => {
 
     expect(result.mode).toBe("signed-in");
     expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-      lineOutcomes: [],
+      confirmationId: "slc_chk_sell_1",
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
     });
     expect(result.recovery).toBeNull();
     expect(result.readiness?.snapshotId).toBe("slr_ready");
@@ -255,12 +322,13 @@ describe("checkout web routes: sell checkout session", () => {
     expect(result.mode === "signed-in" ? result.defaultValues.email : "").toBe("seller@example.com");
     expect(result.mode === "signed-in" ? result.defaultValues.shipFromLine1 : "").toBe("100 Market Street");
     expect(result.mode === "signed-in" ? result.payoutSummary?.status : "").toBe("ready");
-    expect(result.mode === "signed-in" ? result.sellListReviewPlan : "").toContain('"version":1');
+    expect(result.mode === "signed-in" ? result.reviewPlan : null).toEqual(readySellListReadinessResponse().reviewPlan);
   });
 
   it("fails signed-in seller checkout closed when Sell List readiness is stale", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         snapshotId: "slr_new",
@@ -303,39 +371,32 @@ describe("checkout web routes: sell checkout session", () => {
       payoutHandoff: "create-account",
       labelPreference: "prepaid-label",
       termsAccepted: "accepted",
-      payoutState: "ready",
-      payoutEstimateState: "current",
-      riskState: "clear",
-      labelState: "ready",
       ...overrides,
     });
     return form;
   }
 
+  function mockStoredReview(
+    plan: SellListReviewPlan,
+    decisions: SellListReadinessDecisionInput = readySellListReadinessResponse().decisions,
+  ) {
+    const prior = mockCreateSellListReadiness.getMockImplementation();
+    mockCreateSellListReadiness.mockImplementation(async (...args) => ({
+      ...(await prior?.(...args)),
+      reviewPlan: plan,
+      decisions,
+    }));
+  }
+
   function signedInSellCheckoutForm(overrides: Record<string, string> = {}) {
+    const { storedReviewPlan, storedReadinessDecisions, ...fields } = overrides;
+    mockStoredReview(
+      storedReviewPlan ? JSON.parse(storedReviewPlan) : readySellListReadinessResponse().reviewPlan,
+      storedReadinessDecisions ? JSON.parse(storedReadinessDecisions) : readySellListReadinessResponse().decisions,
+    );
     const form = new URLSearchParams({
       readinessSnapshotId: "slr_ready",
       readinessSourceRevision: "slr_source",
-      readinessDecisions: JSON.stringify({
-        lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
-        lineOutcomes: [],
-      }),
-      sellListReviewPlan: JSON.stringify({
-        version: 1,
-        lines: [
-          {
-            lineId: "sll_1",
-            lineType: "selected-offer",
-            itemTitle: "Mewtwo",
-            productId: "prod_1",
-            quantity: 1,
-            selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
-            productOfferTargets: [],
-            fallbackListing: null,
-            skippedReasons: [],
-          },
-        ],
-      }),
       sellerName: "Jane Seller",
       email: "jane@example.com",
       phone: "555-0100",
@@ -351,12 +412,7 @@ describe("checkout web routes: sell checkout session", () => {
       payoutMethod: "saved-payout",
       labelPreference: "prepaid-label",
       termsAccepted: "accepted",
-      payoutState: "ready",
-      payoutEstimateState: "current",
-      riskState: "clear",
-      labelState: "ready",
-      sellerReadinessState: "ready",
-      ...overrides,
+      ...fields,
     });
     return form;
   }
@@ -372,7 +428,7 @@ describe("checkout web routes: sell checkout session", () => {
       })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
-      confirmSellListCheckout: mockConfirmSellListCheckout,
+      confirmSellListCheckout: confirmThroughApi,
       removeSellListLine: mockRemoveSellListLine,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
@@ -380,6 +436,7 @@ describe("checkout web routes: sell checkout session", () => {
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
+      getOfferAcceptanceAttempt: mockGetOfferAcceptanceAttempt,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
     });
@@ -447,6 +504,7 @@ describe("checkout web routes: sell checkout session", () => {
 
   it("uses the selected saved ship-from address before signed-in validation", async () => {
     mockSignedInSellCheckoutState();
+    mockGetPayoutReadiness.mockRejectedValueOnce(new Error("Display-only payout summary unavailable"));
 
     const result = await sellCheckoutSessionAction({
       request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
@@ -457,6 +515,11 @@ describe("checkout web routes: sell checkout session", () => {
           shipFromLine1: "",
           shipFromCity: "",
           shipFromPostalCode: "",
+          payoutState: "failed",
+          payoutEstimateState: "changed",
+          riskState: "block",
+          labelState: "failed",
+          sellerReadinessState: "blocked",
         }).toString(),
       }),
       params: { sessionId: "chk_sell_1" },
@@ -469,52 +532,79 @@ describe("checkout web routes: sell checkout session", () => {
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
-    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+    expect(mockCreateSellListReadiness).toHaveBeenLastCalledWith(
       expect.objectContaining({
         confirmationId: "slc_chk_sell_1",
-        sellerEvidence: expect.objectContaining({
-          shipFrom: expect.objectContaining({
-            addressId: "adr_seller",
-            country: "US",
-            region: "KS",
-            postalCode: "67202",
-          }),
-        }),
+        shipFrom: { addressId: "adr_seller" },
+        label: { preference: "prepaid-label" },
       }),
     );
+    expect(mockCreateSellListReadiness.mock.calls.at(-1)![0]).not.toHaveProperty("sellerEvidence");
   });
 
-  it.each([
-    [
-      "unsupported ship-from",
-      { shipFromAddressId: "__manual", shipFromState: "PR" },
-      "shipFromState",
-      "This ship-from region is not supported",
-    ],
-    ["payout setup required", { payoutState: "setup-required" }, "payoutMethod", "Payout setup is required"],
-    ["payout setup failure", { payoutState: "failed" }, "payoutMethod", "Payout setup is temporarily unavailable"],
-    ["changed payout", { payoutEstimateState: "changed" }, "form", "The payout estimate changed"],
-    ["risk hold", { riskState: "hold" }, "form", "This sale review needs support review"],
-    ["risk block", { riskState: "block" }, "form", "This sale review cannot continue"],
-    ["label failure", { labelState: "failed" }, "labelPreference", "Label readiness is unavailable"],
-    ["seller readiness failure", { sellerReadinessState: "blocked" }, "form", "Seller readiness needs review"],
-  ])("blocks signed-in seller checkout on %s without side effects", async (_label, overrides, fieldName, message) => {
+  it("validates an unsupported signed-in ship-from region without side effects", async () => {
     mockSignedInSellCheckoutState();
 
     const result = await sellCheckoutSessionAction({
       request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: signedInSellCheckoutForm(overrides).toString(),
+        body: signedInSellCheckoutForm({ shipFromAddressId: "__manual", shipFromState: "PR" }).toString(),
       }),
       params: { sessionId: "chk_sell_1" },
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("error");
-    expect(result.status === "error" ? result.fieldErrors[fieldName as keyof typeof result.fieldErrors] : "").toContain(
-      message,
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { shipFromState: expect.stringContaining("This ship-from region is not supported") },
+    });
+    expectNoSellerCommitSideEffects();
+  });
+
+  it.each([
+    ["payout-setup-required", "payoutMethod", "Payout setup is required"],
+    ["payout-unavailable", "payoutMethod", "Payout setup is temporarily unavailable"],
+    ["risk-hold", "form", "This sale review needs support review"],
+    ["risk-block", "form", "This sale review cannot continue"],
+    ["label-not-ready", "labelPreference", "Label readiness is unavailable"],
+    ["provider-not-ready", "form", "Seller readiness needs review"],
+  ])("renders the signed-in preparation refusal %s before any sale write", async (reason, field, message) => {
+    mockSignedInSellCheckoutState();
+    const form = signedInSellCheckoutForm({
+      payoutState: "ready",
+      riskState: "clear",
+      labelState: "ready",
+      sellerReadinessState: "ready",
+    });
+    const loadReview = mockCreateSellListReadiness.getMockImplementation()!;
+    mockCreateSellListReadiness.mockImplementation(async (body) => {
+      if (body.entryReadinessSnapshotId) {
+        throw new MockCheckoutApiError(400, { error: { code: "checkout_seller_not_ready", reasons: [reason] } });
+      }
+      return loadReview(body);
+    });
+
+    const entry = await sellCheckoutSessionLoader({
+      request: new Request(signedInSellCheckoutUrl()),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({ status: "error", fieldErrors: { [field]: expect.stringContaining(message) } });
+    if (entry.mode !== "signed-in" || result.status !== "error" || !("payoutMethod" in result.values)) {
+      throw new Error("Expected a signed-in refusal");
+    }
+    const markup = renderToString(
+      createElement(SignedInSellCheckoutPage, { ...entry, actionState: { ...result, values: result.values } }),
     );
+    expect(markup).toContain(message);
+    expect(markup).not.toContain("Not yet assessed");
     expectNoSellerCommitSideEffects();
   });
 
@@ -539,7 +629,7 @@ describe("checkout web routes: sell checkout session", () => {
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
-    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+    expect(mockRecordSellListConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({
         confirmationId: "slc_chk_sell_1",
         readinessSnapshotId: "slr_ready",
@@ -612,6 +702,7 @@ describe("checkout web routes: sell checkout session", () => {
       minimum_listing_price_amount: null,
     });
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 1,
@@ -642,11 +733,11 @@ describe("checkout web routes: sell checkout session", () => {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: signedInSellCheckoutForm({
-          readinessDecisions: JSON.stringify({
+          storedReadinessDecisions: JSON.stringify({
             lineActions: [{ lineId: "sll_product", action: "smart-match" }],
             lineOutcomes: [],
           }),
-          sellListReviewPlan: JSON.stringify({
+          storedReviewPlan: JSON.stringify({
             version: 1,
             lines: [
               {
@@ -697,7 +788,7 @@ describe("checkout web routes: sell checkout session", () => {
     });
   });
 
-  it("treats an already-accepted Offer as an idempotent replay and still records the confirmation", async () => {
+  it("renders another acceptance as a conflict, never this line's completion", async () => {
     mockSignedInSellCheckoutState();
     mockAcceptOfferMatch.mockRejectedValueOnce(
       new MockMarketplaceApiError(409, { error: { code: "offer_already_accepted" } }),
@@ -713,16 +804,12 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    await expectSellConfirmationRedirect(result);
+    expect(result).toMatchObject({
+      status: "error",
+      attempt: { state: "partial", lines: [{ id: "sll_1", status: "conflict" }] },
+    });
     expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
-    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({
-        confirmationId: "slc_chk_sell_1",
-        completedLineIds: ["sll_1"],
-        remainingLineQuantities: [],
-        handoffSummary: expect.objectContaining({ acceptedOfferCount: 1 }),
-      }),
-    );
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
   });
 
   it.each(["managed_offer_held", "managed_offer_refresh_required", "managed_offer_conflict"])(
@@ -745,7 +832,7 @@ describe("checkout web routes: sell checkout session", () => {
       expect(result).toMatchObject({ fieldErrors: { form: detail }, recovery: { detail } });
       expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
       expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
-      expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+      expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
       expect(mockRemoveSellListLine).not.toHaveBeenCalled();
       expect(mockRemoveGuestSellListLine).not.toHaveBeenCalled();
       for (const key of [
@@ -784,7 +871,7 @@ describe("checkout web routes: sell checkout session", () => {
       recovery: { kind: "readiness-stale", detail },
     });
     expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
-    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
     expect(mockRemoveSellListLine).not.toHaveBeenCalled();
   });
 
@@ -809,7 +896,7 @@ describe("checkout web routes: sell checkout session", () => {
       recovery: { kind: "readiness-stale", detail },
     });
     expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
-    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
     expect(mockRemoveSellListLine).not.toHaveBeenCalled();
   });
 
@@ -835,7 +922,7 @@ describe("checkout web routes: sell checkout session", () => {
       recovery: { kind: "readiness-stale" },
     });
     expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
-    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
   });
 
   it("redirects duplicate seller confirmation posts to the existing confirmation without replaying handoff", async () => {
@@ -878,25 +965,261 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
     expect(mockPublishListing).not.toHaveBeenCalled();
-    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("a successful same-seller response and an unrelated receipt do not prove this line consumed its acceptance key", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockResolvedValue({
+      id: "off_1",
+      version: 2,
+      commandReceipt: {
+        commitPositions: [{ sourceContextName: "marketplace", maxGlobalPosition: "88", eventIds: ["evt_unrelated"] }],
+      },
+    });
+    mockGetOfferAcceptanceAttempt.mockResolvedValue({
+      schemaVersion: 1,
+      mutationKind: "offer.accept",
+      ownerStatus: "not-observed",
+      actorBinding: { accountId: "acc_seller" },
+      target: { kind: "offer", id: "off_1" },
+      attemptKeyFingerprint: "a".repeat(64),
+      canonicalRequestHash: "b".repeat(64),
+    });
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        body: signedInSellCheckoutForm(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    expect(result).toMatchObject({ attempt: { state: "partial", lines: [{ id: "sll_1", status: "conflict" }] } });
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
+    expect(mockGetOfferAcceptanceAttempt).toHaveBeenCalledExactlyOnceWith(
+      "off_1",
+      expect.objectContaining({ sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1" }),
+    );
+  });
+
+  it.each([
+    { actorBinding: { accountId: "acc_other" } },
+    { target: { kind: "offer", id: "off_other" } },
+    { attemptKeyFingerprint: "c".repeat(64) },
+    { canonicalRequestHash: "d".repeat(64) },
+    { ownerReceipt: { id: "off_other", version: 2 } },
+  ])("refuses acceptance proof with a foreign owner, target, key, hash or receipt: %j", async (changed) => {
+    mockSignedInSellCheckoutState();
+    const proof = await mockGetOfferAcceptanceAttempt("off_1", {
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
+      listingId: "lst_1",
+      feeQuoteFingerprint: "quote_1",
+    });
+    mockGetOfferAcceptanceAttempt.mockResolvedValue({ ...proof, ...changed });
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        body: signedInSellCheckoutForm(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    expect(result).toMatchObject({ attempt: { state: "partial", lines: [{ id: "sll_1", status: "conflict" }] } });
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("reads Marketplace's closed acceptance attempt over the existing owner lookup, with the canonical request hash", async () => {
+    const actual = await vi.importActual<typeof import("@chase-sets/marketplace/server")>(
+      "@chase-sets/marketplace/server",
+    );
+    const body = {
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
+      listingId: "lst_1",
+      feeQuoteFingerprint: "quote_1",
+    };
+    const expected = await mockGetOfferAcceptanceAttempt("off_1", body);
+    const transport = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(expected));
+    const client = actual.createMarketplaceApiClient({ baseUrl: "http://localhost/api/marketplace", fetch: transport });
+    expect(await client.getOfferAcceptanceAttempt("off_1", body)).toEqual(expected);
+    expect(transport).toHaveBeenCalledOnce();
+    const url = new URL(String(transport.mock.calls[0][0]));
+    expect(url.pathname).toContain(encodeURIComponent(body.sourceActionKey));
+    expect(url.searchParams.get("requestHash")).toBe(expected.canonicalRequestHash);
+    expect(url.searchParams.get("kind")).toBe("offer.accept");
+  });
+  it("a lost acceptance uses its one Marketplace owner read as consumed-key proof, never a second lookup or resend", async () => {
+    const actual = await vi.importActual<typeof import("@chase-sets/marketplace/server")>(
+      "@chase-sets/marketplace/server",
+    );
+    const body = {
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
+      listingId: "lst_1",
+      feeQuoteFingerprint: "quote_1",
+    };
+    const expected = await mockGetOfferAcceptanceAttempt("off_1", body);
+    const transport = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") throw new TypeError("synthetic acknowledgement loss");
+      return Response.json(expected);
+    });
+    const client = actual.createMarketplaceApiClient({ baseUrl: "http://localhost/api/marketplace", fetch: transport });
+    expect(await client.acceptOfferMatch("off_1", body)).toEqual(expected.ownerReceipt);
+    expect(await client.getOfferAcceptanceAttempt("off_1", body)).toEqual(expected);
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(transport.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("loss after k of n acceptances renders partial; explicit retry replays first receipts and day-after confirmed fallback never republishes a paused Listing", async () => {
+    mockSignedInSellCheckoutState();
+    const api = mockCreateCheckoutRequestApiClient();
+    const lines = [
+      guestSellListLine({ seller_account_id: "acc_seller" }),
+      guestSellListLine({ seller_account_id: "acc_seller", line_id: "sll_2", offer_id: "off_2", listing_id: "lst_2" }),
+      guestSellListLine({
+        seller_account_id: "acc_seller",
+        line_id: "sll_fallback",
+        line_type: "product",
+        offer_id: null,
+        listing_id: null,
+        fallback_mode: "create-listing",
+      }),
+    ];
+    api.getSellList.mockResolvedValue({ items: lines, count: 3 });
+    const readiness = readySellListReadinessResponse().readiness;
+    mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
+      readiness: {
+        ...readiness,
+        includedLineIds: lines.map((line) => line.line_id),
+        lineOutcomes: lines.map((line) => ({
+          lineId: line.line_id,
+          outcome: "checkout",
+          reason: "ready",
+          action: line.line_type === "product" ? "fallback-listing" : "selected-offer",
+        })),
+      },
+    });
+    const form = signedInSellCheckoutForm();
+    const plan = structuredClone(readySellListReadinessResponse().reviewPlan) as {
+      version: 1;
+      lines: SellListReviewPlan["lines"][number][];
+    };
+    plan.lines.push(
+      {
+        ...plan.lines[0],
+        lineId: "sll_2",
+        selectedOffer: { offerId: "off_2", listingId: "lst_2", feeQuoteFingerprint: "quote_2" },
+      },
+      {
+        ...plan.lines[0],
+        lineId: "sll_fallback",
+        lineType: "product",
+        selectedOffer: null,
+        fallbackListing: {
+          inventoryItemId: "inv_fallback",
+          priceAmount: "40.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
+      },
+    );
+    mockStoredReview(plan, {
+      lineActions: lines.map((line) => ({
+        lineId: line.line_id,
+        action: line.line_type === "product" ? "fallback-listing" : "selected-offer",
+      })),
+      lineOutcomes: [],
+    });
+    const receipts = new Map<string, { id: string; version: number }>();
+    const writes: string[] = [];
+    let lose = true;
+    mockAcceptOfferMatch.mockImplementation(async (id, body) => {
+      if (!receipts.has(body.sourceActionKey)) {
+        writes.push(id);
+        receipts.set(body.sourceActionKey, { id, version: 2 });
+      }
+      if (id === "off_2" && lose) {
+        lose = false;
+        throw new TypeError("synthetic lost acceptance acknowledgement and unresolved lookup");
+      }
+      return receipts.get(body.sourceActionKey);
+    });
+    const post = () =>
+      sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+    expect(await post()).toMatchObject({
+      status: "error",
+      attempt: {
+        state: "partial",
+        lines: [
+          { id: "sll_1", status: "completed" },
+          { id: "sll_2", status: "ambiguous" },
+          { id: "sll_fallback", status: "not-attempted" },
+        ],
+      },
+    });
+    expect(mockRecordSellListConfirmation).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(writes).toEqual(["off_1", "off_2"]);
+    const firstReceipt = receipts.get("sell-confirm:slc_chk_sell_1:sll_1:selected:off_1");
+    mockCreateListing.mockResolvedValue({ id: "lst_fallback", feeQuoteFingerprint: "fallback_quote" });
+    mockPublishListing.mockResolvedValue({ id: "lst_fallback", version: 2 });
+    await expectSellConfirmationRedirect(await post());
+    expect(writes).toEqual(["off_1", "off_2"]);
+    expect(await mockAcceptOfferMatch.mock.results[2].value).toBe(firstReceipt);
+    expect(mockRecordSellListConfirmation).toHaveBeenCalledOnce();
+    expect(mockCreateListing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: expect.any(String),
+        listingIdOverride: "lst_slc_chk_sell_1_sll_fallback",
+      }),
+    );
+    const marketplaceCalls = [
+      mockAcceptOfferMatch.mock.calls.length,
+      mockCreateListing.mock.calls.length,
+      mockPublishListing.mock.calls.length,
+    ];
+    const confirmBody = mockRecordSellListConfirmation.mock.calls[0][0];
+    mockGetSellListConfirmation.mockResolvedValue({
+      confirmation_id: confirmBody.confirmationId,
+      handoff_summary: confirmBody.handoffSummary,
+    });
+    api.getSellList.mockRejectedValue(new Error("day-after list unavailable"));
+    mockPublishListing.mockRejectedValue(new MockMarketplaceApiError(409, { error: { code: "listing_paused" } }));
+    await expectSellConfirmationRedirect(await post(), { freshWrite: "absent" });
+    expect([
+      mockAcceptOfferMatch.mock.calls.length,
+      mockCreateListing.mock.calls.length,
+      mockPublishListing.mock.calls.length,
+    ]).toEqual(marketplaceCalls);
+    expect(mockRecordSellListConfirmation).toHaveBeenCalledOnce();
   });
 
   it("does not replay seller handoff when duplicate confirmation lookup is unavailable", async () => {
     const failure = new MockCheckoutApiError(503, { error: { code: "checkout_unavailable" } });
     mockSignedInSellCheckoutState();
     mockGetSellListConfirmation.mockRejectedValue(failure);
+    const form = signedInSellCheckoutForm({ riskState: "clear", sellerEvidence: "{}" });
 
     await expect(
       sellCheckoutSessionAction({
         request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: signedInSellCheckoutForm().toString(),
+          body: form.toString(),
         }),
         params: { sessionId: "chk_sell_1" },
         context: undefined,
       } as never),
-    ).rejects.toBe(failure);
+    ).resolves.toMatchObject({
+      status: "error",
+      attempt: {
+        state: "ambiguous",
+        fields: [...form.entries()].filter(([name]) => name !== "riskState" && name !== "sellerEvidence"),
+      },
+    });
 
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expectNoSellerCommitSideEffects();
@@ -958,11 +1281,11 @@ describe("checkout web routes: sell checkout session", () => {
     });
   });
 
-  it("rejects hidden fallback listing facts on selected-offer confirmation before side effects", async () => {
+  it("rejects inconsistent stored fallback listing facts before side effects", async () => {
     mockSignedInSellCheckoutState();
 
     const form = signedInSellCheckoutForm({
-      sellListReviewPlan: JSON.stringify({
+      storedReviewPlan: JSON.stringify({
         version: 1,
         lines: [
           {
@@ -1005,6 +1328,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("records fallback-only listing work without claiming sale or payout side effects", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 1,
@@ -1029,13 +1353,14 @@ describe("checkout web routes: sell checkout session", () => {
       })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
-      confirmSellListCheckout: mockConfirmSellListCheckout,
+      confirmSellListCheckout: confirmThroughApi,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
+      getOfferAcceptanceAttempt: mockGetOfferAcceptanceAttempt,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
     });
@@ -1045,11 +1370,11 @@ describe("checkout web routes: sell checkout session", () => {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: signedInSellCheckoutForm({
-          readinessDecisions: JSON.stringify({
+          storedReadinessDecisions: JSON.stringify({
             lineActions: [{ lineId: "sll_product", action: "fallback-listing" }],
             lineOutcomes: [],
           }),
-          sellListReviewPlan: JSON.stringify({
+          storedReviewPlan: JSON.stringify({
             version: 1,
             lines: [
               {
@@ -1079,13 +1404,18 @@ describe("checkout web routes: sell checkout session", () => {
     await expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).toHaveBeenCalledWith({
+      idempotencyKey: "2e4bc1139f2861897100cf5ba6be36bf3bd4274891e7343eb89496c72f6c1160",
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
       priceCurrencyCode: "USD",
       quantityCap: 1,
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
     });
-    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+    expect(mockPublishListing).toHaveBeenCalledWith("lst_slc_chk_sell_1_sll_1", {
+      idempotencyKey: "1ba4296cdaed440502c5a4d940095ab8606746d838dccee9c3108340b1814913",
+      feeQuoteFingerprint: "listing_quote_1",
+    });
+    expect(mockRecordSellListConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({
         completedLineIds: ["sll_product"],
         remainingLineQuantities: [],
@@ -1108,6 +1438,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("performs Smart Match handoff without re-reading Marketplace offer terms", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 2,
@@ -1132,7 +1463,7 @@ describe("checkout web routes: sell checkout session", () => {
       })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
-      confirmSellListCheckout: mockConfirmSellListCheckout,
+      confirmSellListCheckout: confirmThroughApi,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
@@ -1150,6 +1481,7 @@ describe("checkout web routes: sell checkout session", () => {
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
+      getOfferAcceptanceAttempt: mockGetOfferAcceptanceAttempt,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
     });
@@ -1159,11 +1491,11 @@ describe("checkout web routes: sell checkout session", () => {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: signedInSellCheckoutForm({
-          readinessDecisions: JSON.stringify({
+          storedReadinessDecisions: JSON.stringify({
             lineActions: [{ lineId: "sll_product", action: "smart-match" }],
             lineOutcomes: [],
           }),
-          sellListReviewPlan: JSON.stringify({
+          storedReviewPlan: JSON.stringify({
             version: 1,
             lines: [
               {
@@ -1206,6 +1538,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("records Smart Match and fallback listing work with remaining Sell List quantity on publish replay", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         lineCount: 4,
@@ -1230,7 +1563,7 @@ describe("checkout web routes: sell checkout session", () => {
       })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
-      confirmSellListCheckout: mockConfirmSellListCheckout,
+      confirmSellListCheckout: confirmThroughApi,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
@@ -1245,16 +1578,17 @@ describe("checkout web routes: sell checkout session", () => {
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
+      getOfferAcceptanceAttempt: mockGetOfferAcceptanceAttempt,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
     });
 
     const form = signedInSellCheckoutForm({
-      readinessDecisions: JSON.stringify({
+      storedReadinessDecisions: JSON.stringify({
         lineActions: [{ lineId: "sll_product", action: "smart-match" }],
         lineOutcomes: [],
       }),
-      sellListReviewPlan: JSON.stringify({
+      storedReviewPlan: JSON.stringify({
         version: 1,
         lines: [
           {
@@ -1303,6 +1637,7 @@ describe("checkout web routes: sell checkout session", () => {
       acceptanceBatchSize: 1,
     });
     expect(mockCreateListing).toHaveBeenCalledWith({
+      idempotencyKey: "2e4bc1139f2861897100cf5ba6be36bf3bd4274891e7343eb89496c72f6c1160",
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
       priceCurrencyCode: "USD",
@@ -1310,9 +1645,10 @@ describe("checkout web routes: sell checkout session", () => {
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
     });
     expect(mockPublishListing).toHaveBeenCalledWith("lst_slc_chk_sell_1_sll_product", {
+      idempotencyKey: "1ba4296cdaed440502c5a4d940095ab8606746d838dccee9c3108340b1814913",
       feeQuoteFingerprint: "listing_quote_1",
     });
-    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+    expect(mockRecordSellListConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({
         completedLineIds: [],
         remainingLineQuantities: [{ lineId: "sll_product", quantity: 2 }],
@@ -1339,6 +1675,7 @@ describe("checkout web routes: sell checkout session", () => {
   it("rejects signed-in seller confirmation when the reviewed plan exceeds current line quantity", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
+      ...readySellListReadinessResponse(),
       readiness: {
         ...readySellListReadinessResponse().readiness,
         includedLineIds: ["sll_product"],
@@ -1362,22 +1699,23 @@ describe("checkout web routes: sell checkout session", () => {
       })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
-      confirmSellListCheckout: mockConfirmSellListCheckout,
+      confirmSellListCheckout: confirmThroughApi,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
+      getOfferAcceptanceAttempt: mockGetOfferAcceptanceAttempt,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
     });
 
     const form = signedInSellCheckoutForm({
-      readinessDecisions: JSON.stringify({
+      storedReadinessDecisions: JSON.stringify({
         lineActions: [{ lineId: "sll_product", action: "smart-match" }],
         lineOutcomes: [],
       }),
-      sellListReviewPlan: JSON.stringify({
+      storedReviewPlan: JSON.stringify({
         version: 1,
         lines: [
           {
@@ -1455,15 +1793,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateListing).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["unsupported ship-from", { shipFromState: "PR" }, "shipFromState", "This ship-from region is not supported"],
-    ["payout setup required", { payoutState: "setup-required" }, "payoutHandoff", "Payout setup is required"],
-    ["payout setup failure", { payoutState: "failed" }, "payoutHandoff", "Payout setup is temporarily unavailable"],
-    ["changed payout", { payoutEstimateState: "changed" }, "form", "The payout estimate changed"],
-    ["risk hold", { riskState: "hold" }, "form", "This sale review needs support review"],
-    ["risk block", { riskState: "block" }, "form", "This sale review cannot continue"],
-    ["label failure", { labelState: "failed" }, "labelPreference", "Label readiness is unavailable"],
-  ])("blocks guest seller checkout on %s without side effects", async (_label, overrides, fieldName, message) => {
+  it("validates an unsupported guest ship-from region without side effects", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -1478,48 +1808,164 @@ describe("checkout web routes: sell checkout session", () => {
           "Content-Type": "application/x-www-form-urlencoded",
           cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
         },
-        body: guestSellCheckoutForm(overrides).toString(),
+        body: guestSellCheckoutForm({ shipFromState: "PR" }).toString(),
       }),
       params: { sessionId: "chk_sell_1" },
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("error");
-    expect(result.status === "error" ? result.fieldErrors[fieldName as keyof typeof result.fieldErrors] : "").toContain(
-      message,
-    );
-    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
-    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { shipFromState: expect.stringContaining("This ship-from region is not supported") },
+    });
+    expectNoSellerCommitSideEffects();
   });
 
-  it("routes guest seller checkout through registration before seller-committing side effects", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getGuestSellList: mockGetGuestSellList,
-      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
-    });
-
-    const result = await sellCheckoutSessionAction({
-      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+  it.each([false, true])(
+    "routes valid guest checkout through registration without seller side effects (posted statuses: %s)",
+    async (includePostedStatuses) => {
+      mockResolveActorFromAuthApi.mockResolvedValue(null);
+      mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+      const { readiness } = readySellListReadinessResponse();
+      mockCreateGuestSellListReadiness.mockResolvedValue({
+        readiness: {
+          ...readiness,
+          sellerReadiness: { ...readiness.sellerReadiness, status: "blocked", payout: "blocked" },
         },
-        body: guestSellCheckoutForm().toString(),
-      }),
+      });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getGuestSellList: mockGetGuestSellList,
+        createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+      });
+
+      const result = await sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+          },
+          body: guestSellCheckoutForm(
+            includePostedStatuses
+              ? { payoutState: "failed", payoutEstimateState: "changed", riskState: "block", labelState: "failed" }
+              : undefined,
+          ).toString(),
+        }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("Location")).toBe(
+        "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
+      );
+      expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+      expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
+      expectNoSellerCommitSideEffects();
+    },
+  );
+
+  it("stored review plan survives reload and preparation", async () => {
+    mockSignedInSellCheckoutState();
+    const first = await sellCheckoutSessionLoader({
+      request: new Request(signedInSellCheckoutUrl()),
       params: { sessionId: "chk_sell_1" },
       context: undefined,
     } as never);
-
-    expect(result).toBeInstanceOf(Response);
-    expect((result as Response).status).toBe(302);
-    expect((result as Response).headers.get("Location")).toBe(
-      "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
+    const second = await sellCheckoutSessionLoader({
+      request: new Request(signedInSellCheckoutUrl({ sellListReviewPlan: '{"version":1,"lines":[]}' })),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    expect(first.mode === "signed-in" ? first.reviewPlan : null).toEqual(readySellListReadinessResponse().reviewPlan);
+    expect(second).toEqual(first);
+    const form = signedInSellCheckoutForm();
+    expect(form.has("sellListReviewPlan")).toBe(false);
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    await expectSellConfirmationRedirect(result);
+    expect(mockCreateSellListReadiness).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        entryReadinessSnapshotId: "slr_ready",
+        entryReadinessSourceRevision: "slr_source",
+      }),
     );
-    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
-    expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockCreateSellListReadiness.mock.calls.at(-1)![0]).not.toHaveProperty("reviewPlan");
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", expect.objectContaining({ listingId: "lst_1" }));
+  });
+
+  it.each(["missing", "foreign", "stale", "mismatched"])(
+    "stale or foreign review plan refuses before handoff: %s",
+    async () => {
+      mockSignedInSellCheckoutState();
+      const form = signedInSellCheckoutForm();
+      mockCreateSellListReadiness.mockRejectedValue(
+        new MockCheckoutApiError(400, {
+          error: { code: "checkout_readiness_stale" },
+        }),
+      );
+      const result = await sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+      expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
+      expectNoSellerCommitSideEffects();
+    },
+  );
+
+  it("posted review plan cannot change confirmation", async () => {
+    mockSignedInSellCheckoutState();
+    const form = signedInSellCheckoutForm();
+    form.set(
+      "sellListReviewPlan",
+      JSON.stringify({
+        version: 1,
+        lines: [{ lineId: "sll_1", selectedOffer: { offerId: "off_attacker", listingId: "lst_attacker" } }],
+      }),
+    );
+    form.set("readinessDecisions", JSON.stringify({ lineActions: [], lineOutcomes: [] }));
+    const post = () =>
+      sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+    await expectSellConfirmationRedirect(await post());
+    expect(mockAcceptOfferMatch).toHaveBeenCalledExactlyOnceWith(
+      "off_1",
+      expect.objectContaining({
+        listingId: "lst_1",
+        feeQuoteFingerprint: "quote_1",
+      }),
+    );
+    expect(mockRecordSellListConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        readinessDecisions: readySellListReadinessResponse().decisions,
+      }),
+    );
+    mockGetSellListConfirmation.mockResolvedValue({ confirmation_id: "slc_chk_sell_1" });
+    await expectSellConfirmationRedirect(await post(), { freshWrite: "absent" });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledOnce();
+    expect(mockRecordSellListConfirmation).toHaveBeenCalledOnce();
+  });
+  it("recovers a review that becomes stale during preparation before handoff", async () => {
+    mockSignedInSellCheckoutState();
+    const form = signedInSellCheckoutForm();
+    const stored = readySellListReadinessResponse();
+    mockCreateSellListReadiness
+      .mockResolvedValueOnce(stored)
+      .mockRejectedValueOnce(new MockCheckoutApiError(400, { error: { code: "checkout_readiness_stale" } }));
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
     expectNoSellerCommitSideEffects();
   });
 });

@@ -123,6 +123,7 @@ export type PromotionAliasAction = PromotionAliasProposeAction | PromotionAliasR
 
 export type PromotionAliasPlan = Readonly<{
   actions: readonly PromotionAliasAction[];
+  candidates: readonly CatalogAliasCandidate[];
 }>;
 
 export type PlanPromotionAliasesInput = Readonly<{
@@ -191,7 +192,7 @@ export function planPromotionAliases(input: PlanPromotionAliasesInput): Promotio
     publishedReferenceRecordAliasesByRecordId: input.publishedReferenceRecordAliasesByRecordId ?? {},
   });
 
-  return { actions: [...proposeActions, ...retractActions] };
+  return { actions: [...proposeActions, ...retractActions], candidates: resolved.map((entry) => entry.candidate) };
 }
 
 type ResolvedPromotionAliasCandidate = Readonly<{

@@ -2,13 +2,16 @@ import { vi } from "vitest";
 import { canonicalJson } from "../../listing-composition/domain/canonical-json";
 import { syntheticAuthority, syntheticPage, syntheticPayload } from "../../outbound-sync/tests/order-pull-fixtures";
 import type { ClaimedOperationReservation, ClaimedOrderPullOperation } from "../../outbound-sync/domain/contracts";
-import { composeTcgplayerOrderInbound } from "../../tcgplayer-orders/domain/contracts";
+import { composeTcgplayerOrderInbound, type TcgplayerOrderObservation } from "../../tcgplayer-orders/domain/contracts";
 import { browserPayloadDigest, type ConnectorExecutor } from "../domain/operation-protocol";
 import type { OrderPullHandoff } from "../domain/order-pull-handoff";
 import { coordinatorFixture } from "./coordinator-test-support";
 
-export async function pullFixture() {
-  const f = await coordinatorFixture();
+export async function pullFixture(canary?: {
+  target: NonNullable<Parameters<typeof coordinatorFixture>[1]>;
+  sales: readonly Pick<TcgplayerOrderObservation, "orderNumber" | "soldAt" | "lines">[];
+}) {
+  const f = await coordinatorFixture("operation", canary?.target);
   const payload = syntheticPayload({ connectionId: f.input.connectionId });
   const claim: ClaimedOperationReservation<ClaimedOrderPullOperation> = {
     ...f.claim,
@@ -30,21 +33,44 @@ export async function pullFixture() {
     ],
   };
   f.claims[0] = claim;
-  const sale = await composeTcgplayerOrderInbound({
-    version: 1,
-    kind: "order",
-    pullId: payload.pullId,
-    orderNumber: "SYNTHETIC-ORDER-1",
-    soldAt: "2026-10-09T00:00:00.000Z",
-    cancelled: false,
-    lines: [{ productId: "1", skuId: "2", quantity: 1, unitPriceAmount: "1.00" }],
-  });
+  const sales = canary?.sales ?? [
+    {
+      orderNumber: "SYNTHETIC-ORDER-1",
+      soldAt: "2026-10-09T00:00:00.000Z",
+      lines: [{ productId: "1", skuId: "2", quantity: 1, unitPriceAmount: "1.00" }],
+    },
+  ];
+  const bundles = await Promise.all(
+    sales.map(async ({ orderNumber, soldAt, lines }) => {
+      const sale = await composeTcgplayerOrderInbound({
+        version: 1,
+        kind: "order",
+        pullId: payload.pullId,
+        orderNumber,
+        soldAt,
+        lines,
+        cancelled: false,
+      });
+      return {
+        reference: orderNumber,
+        source: "intake" as const,
+        posts: [
+          {
+            kind: "sale" as const,
+            externalReference: sale.externalReference,
+            bytes: canonicalJson(sale),
+            state: "planned" as const,
+          },
+        ],
+      };
+    }),
+  );
   const summary = await composeTcgplayerOrderInbound({
     version: 1,
     kind: "summary",
     pullId: payload.pullId,
-    totalOrders: 1,
-    pages: [{ offset: 0, count: 1, totalOrders: 1 }],
+    totalOrders: bundles.length,
+    pages: [{ offset: 0, count: bundles.length, totalOrders: bundles.length }],
     range: { from: "2026-10-09T00:00:00.000Z", to: "2026-10-09T00:01:00.000Z" },
     filter: "unshipped",
     completion: "unknown",
@@ -54,20 +80,12 @@ export async function pullFixture() {
     authority: syntheticAuthority,
     progress: {
       previousDigest: payload.checkpointDigest,
-      pages: [syntheticPage(["SYNTHETIC-ORDER-1"])],
+      pages: [syntheticPage(bundles.map((bundle) => bundle.reference))],
       postedReferences: [],
       gaps: [],
       followUpTail: false,
     },
-    bundles: [
-      {
-        reference: "SYNTHETIC-ORDER-1",
-        source: "intake",
-        posts: [
-          { kind: "sale", externalReference: sale.externalReference, bytes: canonicalJson(sale), state: "planned" },
-        ],
-      },
-    ],
+    bundles,
     summary: {
       kind: "sale",
       externalReference: summary.externalReference,
@@ -84,7 +102,7 @@ export async function pullFixture() {
   const dispatch = vi.fn<ConnectorExecutor["dispatchOnce"]>(async (_unit, _signal, pull) => {
     if (!pull) throw new Error("missing pull journal");
     await pull.save(handoff);
-    await pull.sale("SYNTHETIC-ORDER-1", 0, post);
+    for (const bundle of bundles) await pull.sale(bundle.reference, 0, post);
     await pull.sale(null, 0, post);
     return pull.result();
   });

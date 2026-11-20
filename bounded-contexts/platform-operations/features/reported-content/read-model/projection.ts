@@ -8,6 +8,8 @@ import {
   parsePlatformOperationsReportedContentActionRecordedPayload,
 } from "@chase-sets/event-core";
 import { REPORTED_CONTENT_STATUS_BY_ACTION, type ReportedContentTargetType } from "../api/contracts";
+import { refreshReportedContentResponses } from "./response-state";
+import { parseReportedContentAcknowledgement } from "../api/acknowledgement";
 
 type ReportSummary = {
   reportId: string;
@@ -20,8 +22,8 @@ type ReportSummary = {
 };
 
 /**
- * Queues one report against its target. Redelivery of a known report id changes nothing but
- * the update time, and a re-report never changes the queue status. A row that so far holds
+ * Queues one report against its target. Redelivery of a known report id is a no-op.
+ * A row that so far holds
  * only an early-delivered action takes its report times from its first report.
  */
 async function projectReport(
@@ -44,6 +46,7 @@ async function projectReport(
        updated_at
      ) VALUES ($1, $2, $3, 'needs-review', 1, $4::jsonb, $5::jsonb, $6, $6, $7)
      ON CONFLICT (target_type, target_id) DO UPDATE SET
+       response_version = platform_operations_reported_content_queue_pages.response_version + 1,
        target_owner_account_id = COALESCE(EXCLUDED.target_owner_account_id, platform_operations_reported_content_queue_pages.target_owner_account_id),
        report_count = CASE
          WHEN EXISTS (
@@ -87,13 +90,15 @@ async function projectReport(
        END,
        first_reported_at = CASE
          WHEN platform_operations_reported_content_queue_pages.report_count = 0 THEN EXCLUDED.first_reported_at
-         ELSE platform_operations_reported_content_queue_pages.first_reported_at
+         ELSE LEAST(platform_operations_reported_content_queue_pages.first_reported_at, EXCLUDED.first_reported_at)
        END,
        last_reported_at = CASE
          WHEN platform_operations_reported_content_queue_pages.report_count = 0 THEN EXCLUDED.last_reported_at
          ELSE GREATEST(platform_operations_reported_content_queue_pages.last_reported_at, EXCLUDED.last_reported_at)
        END,
-       updated_at = GREATEST(platform_operations_reported_content_queue_pages.updated_at, EXCLUDED.updated_at)`,
+       updated_at = GREATEST(platform_operations_reported_content_queue_pages.updated_at, EXCLUDED.updated_at)
+       WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(platform_operations_reported_content_queue_pages.reports) r
+         WHERE r->>'reportId' = EXCLUDED.reports->0->>'reportId') RETURNING 1`,
     [
       target.targetType,
       target.targetId,
@@ -104,6 +109,9 @@ async function projectReport(
       recordedAt,
     ],
   );
+  // Retry derivation even after report redelivery: the previous application may
+  // have persisted the report and failed before completing its response state.
+  await refreshReportedContentResponses(db, target.targetType, target.targetId);
 }
 
 export function buildMarketplaceReportedContentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -130,11 +138,15 @@ export function buildMarketplaceReportedContentProjectionHandlers(db: PgQueryabl
       const { listingEnforcement } = parseMarketplaceListingOperatorUnlistedPayload(event.data);
       await db.query(
         `UPDATE platform_operations_reported_content_queue_pages
-         SET status = 'manually-unlisted',
+         SET status = CASE WHEN last_action_at IS NULL OR last_action_at <= $2::timestamptz THEN 'manually-unlisted' ELSE status END,
+             response_open = CASE WHEN last_action_at IS NULL OR last_action_at <= $2::timestamptz THEN false ELSE response_open END,
+             response_removed_at = GREATEST(response_removed_at, $2::timestamptz),
+             acknowledge_due_at = CASE WHEN last_action_at IS NULL OR last_action_at <= $2::timestamptz THEN NULL ELSE acknowledge_due_at END,
+             disposition_due_at = CASE WHEN last_action_at IS NULL OR last_action_at <= $2::timestamptz THEN NULL ELSE disposition_due_at END,
+             response_version = response_version + 1,
              updated_at = GREATEST(updated_at, $2::timestamptz)
          WHERE target_type = 'listing'
-           AND target_id = $1
-           AND (last_action_at IS NULL OR last_action_at <= $2::timestamptz)`,
+           AND target_id = $1`,
         [listingId, listingEnforcement.occurredAt],
       );
     },
@@ -152,6 +164,7 @@ export function buildMarketplaceReportedContentProjectionHandlers(db: PgQueryabl
              auto_unlisted_at = $2,
              auto_unlist_report_id = $3,
              auto_unlist_threshold = $4,
+             response_version = response_version + 1,
              updated_at = GREATEST(updated_at, $5::timestamptz)
          WHERE target_type = 'listing'
            AND target_id = $1`,
@@ -185,6 +198,28 @@ export function buildIdentityReportedContentProjectionHandlers(db: PgQueryable):
 
 export function buildPlatformOperationsReportedContentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    "platform-operations.reported-content.acknowledged": async (event) => {
+      const data = parseReportedContentAcknowledgement(event.data);
+      await db.query(
+        `INSERT INTO platform_operations_reported_content_queue_pages
+        (target_type, target_id, status, report_count, first_reported_at, last_reported_at, updated_at, response_acknowledgements)
+        VALUES ($1, $2, 'needs-review', 0, $3, $3, $3, $4::jsonb)
+        ON CONFLICT (target_type, target_id) DO UPDATE SET
+          response_acknowledgements = platform_operations_reported_content_queue_pages.response_acknowledgements || EXCLUDED.response_acknowledgements,
+          updated_at = GREATEST(platform_operations_reported_content_queue_pages.updated_at, EXCLUDED.updated_at),
+          response_version = platform_operations_reported_content_queue_pages.response_version + 1
+        WHERE NOT platform_operations_reported_content_queue_pages.response_acknowledgements @> EXCLUDED.response_acknowledgements`,
+        [
+          data.targetType,
+          data.targetId,
+          data.acknowledgedAt,
+          JSON.stringify([
+            { startedAt: data.startedAt, acknowledgedAt: data.acknowledgedAt, operatorUserId: data.operatorUserId },
+          ]),
+        ],
+      );
+      await refreshReportedContentResponses(db, data.targetType, data.targetId);
+    },
     "platform-operations.reported-content.action-recorded": async (event) => {
       const data = parsePlatformOperationsReportedContentActionRecordedPayload(event.data);
 
@@ -206,6 +241,7 @@ export function buildPlatformOperationsReportedContentProjectionHandlers(db: PgQ
            updated_at
          ) VALUES ($1, $2, $3, 0, $5, $5, $4, $5, $6, $7, $5)
          ON CONFLICT (target_type, target_id) DO UPDATE SET
+           response_version = platform_operations_reported_content_queue_pages.response_version + 1,
            status = CASE
              WHEN platform_operations_reported_content_queue_pages.auto_unlisted_at IS NULL
                OR platform_operations_reported_content_queue_pages.auto_unlisted_at <= EXCLUDED.last_action_at
@@ -229,6 +265,18 @@ export function buildPlatformOperationsReportedContentProjectionHandlers(db: PgQ
           data.operatorUserId,
         ],
       );
+      await db.query(
+        `UPDATE platform_operations_reported_content_queue_pages SET
+        response_actions = (SELECT jsonb_agg(a ORDER BY a->>'recordedAt', a->>'actionId')
+          FROM jsonb_array_elements(response_actions || $3::jsonb) a), response_version = response_version + 1
+        WHERE target_type = $1 AND target_id = $2 AND NOT response_actions @> $3::jsonb`,
+        [
+          data.targetType,
+          data.targetId,
+          JSON.stringify([{ actionId: data.actionId, action: data.action, recordedAt: data.recordedAt }]),
+        ],
+      );
+      await refreshReportedContentResponses(db, data.targetType, data.targetId);
     },
   };
 }

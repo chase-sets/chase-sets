@@ -156,6 +156,7 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   const sessions = {
     ...writes,
     resolveEntryAttempt,
+    firstPreviewShippingAddress: vi.fn<CheckoutSessionServices["firstPreviewShippingAddress"]>(async () => null),
     getLastRecordedQuote: vi.fn(async () => ({
       revision: "retained_quote_revision",
       readyLineKeys: ["lst_1:0"],
@@ -267,6 +268,29 @@ describe("UCP buy-now readiness AC1", () => {
       context,
     );
     expect(ports.previewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledTimes(1);
+  });
+  // The buyer confirms on the web checkout, which preselects this address (#10798).
+  it("previews the create for the buyer's first saved address", async () => {
+    const f = fixture();
+    const saved = {
+      shippingAddressId: "adr_home" as never,
+      name: "Demo Collector",
+      line1: "42 Binder Lane",
+      line2: null,
+      city: "Evanston",
+      state: "IL",
+      postalCode: "60201",
+      country: "US",
+    };
+    vi.mocked(f.sessions.firstPreviewShippingAddress).mockResolvedValueOnce(saved);
+    const request = input(dto());
+    request.request.headers.set("Idempotency-Key", "retry_saved_address");
+    expect((await f.restHandlers.create_checkout(request)).ucp.status).toBe("success");
+    expect(f.sessions.firstPreviewShippingAddress).toHaveBeenCalledExactlyOnceWith(request.actor!.accountId);
+    expect(ports.previewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      expect.objectContaining({ shippingAddress: saved }),
+    );
   });
   it.each([
     ["unknown", dto(), "item_unavailable"],
@@ -408,6 +432,30 @@ describe("UCP 2026-08-25 Checkout resource", () => {
 });
 
 describe("UCP state lifecycle AC2 and expiry AC6", () => {
+  it("reads the session payment summary for the UCP actor account", async () => {
+    const f = fixture({ order_ids: ["ord_1"], payment_id: "pay_1" });
+    f.getOrderFacts.mockResolvedValue([{ id: "ord_1", status: "pending-payment" }]);
+    const getPaymentSummary = vi.mocked(f.sessions.getPaymentSummary);
+    getPaymentSummary.mockResolvedValue({
+      payment_id: "pay_1",
+      amount: "20.00",
+      currency_code: "usd",
+      status: "pending-confirmation",
+    });
+    expect(await f.restHandlers.get_checkout(input())).toMatchObject({ status: "requires_escalation" });
+    expect(getPaymentSummary).toHaveBeenLastCalledWith("pay_1", actor.accountId);
+    getPaymentSummary.mockResolvedValue({
+      payment_id: "pay_1",
+      amount: "20.00",
+      currency_code: "usd",
+      status: "captured",
+    });
+    expect(await f.restHandlers.get_checkout(input())).toMatchObject({ status: "complete_in_progress" });
+    expect(getPaymentSummary).toHaveBeenLastCalledWith("pay_1", actor.accountId);
+    expect(getPaymentSummary).toHaveBeenCalledTimes(2);
+    noWrites(f);
+  });
+
   it("uses fresh availability after create, but never previews committed orders", async () => {
     const f = fixture();
     await f.restHandlers.create_checkout(input(dto()));

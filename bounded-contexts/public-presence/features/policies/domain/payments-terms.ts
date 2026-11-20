@@ -89,7 +89,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "infrastructure/stripe-connect/index.ts:1100-1160",
           "infrastructure/stripe-connect/index.ts:879-917 (embedded Account Session onboarding surface)",
           "infrastructure/stripe-connect/index.ts:991-1010 (hosted Account Link onboarding surface)",
-          "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:62-109",
+          "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:56-102",
         ],
         openQuestions: [
           agreementSpecificGateOpenQuestion,

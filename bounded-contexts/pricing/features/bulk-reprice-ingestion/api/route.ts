@@ -3,7 +3,7 @@ import { Hono, type Context } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { PricingApiEnv } from "../../../api";
 import { buildBulkRepriceCsvTemplate } from "../domain/csv";
-import { toBulkRepriceJobStatus, type BulkRepriceIngestionServices } from "./runtime";
+import { BulkRepriceAttemptConflictError, toBulkRepriceJobStatus, type BulkRepriceIngestionServices } from "./runtime";
 
 function requireBulkRepriceAccess(c: { get(key: "actor"): PricingApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -87,6 +87,23 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
     await next();
   });
 
+  // Whether bulk reprice is on: the tree answers this only while the flag is on (404 otherwise),
+  // so a surface can hide its links and its page instead of offering a form that fails.
+  app.get("/", (c) => {
+    if (!c.get("actor")) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("pricing.features.bulkRepriceIngestion.api.route.authentication.required"),
+          },
+        },
+        401,
+      );
+    }
+    return c.json({ enabled: true });
+  });
+
   app.get("/template.csv", (c) =>
     c.body(buildBulkRepriceCsvTemplate(), 200, {
       "Content-Type": "text/csv; charset=utf-8",
@@ -135,11 +152,15 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
           csvText: body.csvText,
           rows: body.rows,
           sourceFilename: body.sourceFilename,
+          idempotencyKey: c.req.header("Idempotency-Key") || undefined,
         },
         context,
       );
       return c.json(toBulkRepriceJobStatus(job), 202);
     } catch (error) {
+      if (error instanceof BulkRepriceAttemptConflictError) {
+        return c.json({ error: { code: "attempt_conflict", message: errorMessage(error) } }, 409);
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });

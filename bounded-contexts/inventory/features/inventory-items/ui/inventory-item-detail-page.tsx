@@ -86,6 +86,8 @@ function ledgerKindLabel(kind: InventoryItemDetail["ledger"][number]["kind"]) {
       return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.created");
     case "adjusted":
       return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.adjusted");
+    case "offline-sale":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.sold-offline");
     case "hold-placed":
       return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.placed");
     case "hold-converted":
@@ -98,8 +100,10 @@ function ledgerKindLabel(kind: InventoryItemDetail["ledger"][number]["kind"]) {
       return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.expired");
     case "restock-decision":
       return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.restock.decision");
-    default:
-      return kind;
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
   }
 }
 

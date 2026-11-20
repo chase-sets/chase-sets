@@ -18,6 +18,9 @@ import {
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { useState, type ReactNode } from "react";
 import type { ChannelConnectionStatus, PublicChannelConnection } from "../domain/contracts";
+import type { ChannelConnectionAllowedAction } from "../domain/domain";
+
+export type { ChannelConnectionAllowedAction } from "../domain/domain";
 
 const listFilters: readonly Readonly<{ status: ChannelConnectionStatus | "default"; labelKey: string }>[] = [
   { status: "default", labelKey: "channels.connections.filter.default" },
@@ -203,7 +206,14 @@ function renderListState(state: ChannelConnectionListPageState) {
                   <Badge tone={statusTones[connection.status]}>{t(statusLabelKeys[connection.status])}</Badge>
                   <Badge tone="neutral">{connection.environment}</Badge>
                 </Stack>
-                <LinkButton href={connectionHref(connection.connectionId)} tone="secondary">
+                <LinkButton
+                  href={
+                    connection.providerKey === "ebay"
+                      ? `/account/channels/ebay?connectionId=${encodeURIComponent(connection.connectionId)}`
+                      : connectionHref(connection.connectionId)
+                  }
+                  tone="secondary"
+                >
                   {t("channels.connections.open")}
                 </LinkButton>
               </Stack>
@@ -216,23 +226,6 @@ function renderListState(state: ChannelConnectionListPageState) {
           ) : null}
         </Stack>
       );
-  }
-}
-
-export type ChannelConnectionAllowedAction = "pause" | "resume" | "disconnect";
-
-export function allowedChannelConnectionActions(
-  status: ChannelConnectionStatus,
-): readonly ChannelConnectionAllowedAction[] {
-  switch (status) {
-    case "pending-setup":
-      return ["disconnect"];
-    case "active":
-      return ["pause", "disconnect"];
-    case "paused":
-      return ["resume", "disconnect"];
-    case "disconnected":
-      return [];
   }
 }
 
@@ -302,7 +295,12 @@ function ConnectionDetailSections({
   connection: PublicChannelConnection;
   pendingIntent: ChannelConnectionAllowedAction | null;
 }) {
-  const allowedActions = allowedChannelConnectionActions(connection.status);
+  const allowedActions = Array.isArray(connection.allowedActions)
+    ? connection.allowedActions.filter(
+        (action): action is ChannelConnectionAllowedAction =>
+          action === "pause" || action === "resume" || action === "disconnect",
+      )
+    : [];
   return (
     <PageSection title={t("channels.connections.status.title")}>
       <Card elevation="tinted" data-elevation-role="furniture">

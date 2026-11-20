@@ -851,9 +851,19 @@ async function upsertCircuitIssue(options, issue, record) {
     body: {
       title: circuitTitle(record),
       body: renderCircuitSummary(record),
+      type: "Bug",
       labels: ["kind:ops", "area:infrastructure", "priority:p1"],
     },
+  }).catch((cause) => {
+    const error = new Error("ISSUE_CREATION_FAILED: native Bug create request failed.", { cause });
+    error.code = "ISSUE_CREATION_FAILED";
+    throw error;
   });
+  if (created?.type?.name !== "Bug" || created.type.is_enabled !== true) {
+    const error = new Error("ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response.");
+    error.code = "ISSUE_CREATION_TYPE_MISMATCH";
+    throw error;
+  }
   return created;
 }
 
@@ -1326,7 +1336,7 @@ async function main(argv, env = process.env) {
         `## Delivery failure signatures\n\nAdvisory evaluation unavailable: ${message}\n`,
       );
     }
-    return advisory ? 0 : 2;
+    return advisory && !["ISSUE_CREATION_TYPE_MISMATCH", "ISSUE_CREATION_FAILED"].includes(error?.code) ? 0 : 2;
   }
 }
 

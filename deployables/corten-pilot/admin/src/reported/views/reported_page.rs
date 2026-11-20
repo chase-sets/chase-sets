@@ -1,17 +1,22 @@
 //! Reported Content's and Risk Alerts' pages, which share this stylesheet. The moderation queue
-//! (`ReportedContentAdminListPage`): its three counts, the status and target filters, and the queue as a table that scrolls on its own on a phone; and a target's page
-//! (`ReportedContentAdminDetailPage`): its queue facts and moderation form beside its report
-//! history from 64rem, stacked below that. The form's buttons each send their action, as
-//! admin-web's do, so it works without a script.
+//! (`ReportedContentAdminListPage`): its three counts, the status and target filters, and the queue
+//! as a table that stacks on a phone; and a target's page (`ReportedContentAdminDetailPage`): its
+//! queue facts and moderation form beside its report history from 64rem, stacked below that. The
+//! form's buttons each send their action, as admin-web's do, so it works without a script. Both
+//! show the target's response: its severity, its two deadlines, who answers for it and its state.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
 };
 use serde_json::{Map, Value};
 
 use crate::{
     reported::{
-        ActionForm, ItemScreen, QueueItem, QueueScreen, STATUSES, TARGET_TYPES, actions,
+        ACKNOWLEDGE, ActionForm, ItemScreen, QueueItem, QueueScreen, STATUSES, TARGET_TYPES, actions,
         risk::{self, AlertScreen, KINDS, RiskAlert, RisksScreen, url as risk_url},
         url,
     },
@@ -75,6 +80,36 @@ fn when(t: Ops, at: Option<&str>) -> String {
         .map_or_else(|| t.reported_not_set().to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string())
 }
 
+/// A severity's words, else the severity as it is.
+fn severity(t: Ops, value: &str) -> String {
+    match value {
+        "critical" => t.reported_severity_critical(),
+        "high" => t.reported_severity_high(),
+        "standard" => t.reported_severity_standard(),
+        other => return other.to_owned(),
+    }
+    .to_owned()
+}
+
+/// The response's state (admin-web's `responseLabel`): disposed once it is closed, else overdue,
+/// else acknowledged, else open.
+fn response(t: Ops, item: &QueueItem) -> &'static str {
+    if !item.response_open {
+        t.reported_response_disposed()
+    } else if item.overdue {
+        t.reported_response_overdue()
+    } else if item.acknowledged_at.is_some() {
+        t.reported_response_acknowledged()
+    } else {
+        t.reported_response_open()
+    }
+}
+
+/// The policy that set the response's deadlines, as admin-web shows it.
+fn policy(item: &QueueItem) -> &str {
+    item.policy_code.as_deref().or(item.policy_revision.as_deref()).unwrap_or("policy-incomplete")
+}
+
 fn reasons(item: &QueueItem) -> String {
     item.reasons.iter().map(|r| format!("{} ({})", r.reason, r.count)).collect::<Vec<_>>().join(", ")
 }
@@ -106,19 +141,10 @@ pub fn ReportedPage<'a>(t: Ops, screen: &'a QueueScreen) -> impl Render {
             title={t.reported_title()}
             description={t.reported_description()}
         />
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.reported_total()}</dt>
-                <dd>{m.total_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.reported_needs_review()}</dt>
-                <dd>{m.needs_review_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.reported_auto_unlisted()}</dt>
-                <dd>{m.auto_unlisted_count}</dd>
-            </div>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
+            <Stat label={t.reported_total()} value={m.total_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.reported_needs_review()} value={m.needs_review_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.reported_auto_unlisted()} value={m.auto_unlisted_count} note="" tone={StatTone::Neutral} />
         </dl>
         <section class={Part}>
             <h2 class={Heading}>{t.reported_filters()}</h2>
@@ -153,40 +179,85 @@ pub fn ReportedPage<'a>(t: Ops, screen: &'a QueueScreen) -> impl Render {
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.reported_queue()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.reported_status()}</th>
-                                <th scope="col">{t.reported_target()}</th>
-                                <th scope="col">{t.reported_reports()}</th>
-                                <th scope="col">{t.reported_reasons()}</th>
-                                <th scope="col">{t.reported_last_reported()}</th>
-                                <th scope="col">{t.reported_action()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for item in &screen.queue.items {
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.reported_queue()}>
+                            <thead>
                                 <tr>
-                                    <td><StatusPill t={t} value={&item.status} /></td>
-                                    <td class={Words}>{format!("{} {}", target_type(t, &item.target_type), item.target_id)}</td>
-                                    <td>{item.report_count}</td>
-                                    <td class={Words}>{reasons(item)}</td>
-                                    <td>{when(t, item.last_reported_at.as_deref())}</td>
-                                    <td>
-                                        <a
-                                            class={Open}
-                                            href={url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None, recorded: None }}
-                                        >
-                                            {t.reported_open()}
-                                        </a>
-                                    </td>
+                                    <th scope="col">{t.reported_severity()}</th>
+                                    <th scope="col">{t.reported_acknowledge_due()}</th>
+                                    <th scope="col">{t.reported_disposition_due()}</th>
+                                    <th scope="col">{t.reported_accountable_role()}</th>
+                                    <th scope="col">{t.reported_response_state()}</th>
+                                    <th scope="col">{t.reported_status()}</th>
+                                    <th scope="col">{t.reported_target()}</th>
+                                    <th scope="col">{t.reported_reports()}</th>
+                                    <th scope="col">{t.reported_reasons()}</th>
+                                    <th scope="col">{t.reported_last_reported()}</th>
+                                    <th scope="col">{t.reported_action()}</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                for item in &screen.queue.items {
+                                    <tr>
+                                        <td>
+                                            <CellLabel>{t.reported_severity()}</CellLabel>
+                                            {severity(t, &item.severity)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_acknowledge_due()}</CellLabel>
+                                            {when(t, item.acknowledge_due_at.as_deref())}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_disposition_due()}</CellLabel>
+                                            {when(t, item.disposition_due_at.as_deref())}
+                                        </td>
+                                        <td class={Words}>
+                                            <CellLabel>{t.reported_accountable_role()}</CellLabel>
+                                            {&item.accountable_role}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_response_state()}</CellLabel>
+                                            {response(t, item)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_status()}</CellLabel>
+                                            <StatusPill t={t} value={&item.status} />
+                                        </td>
+                                        <td class={Words}>
+                                            <CellLabel>{t.reported_target()}</CellLabel>
+                                            {format!("{} {}", target_type(t, &item.target_type), item.target_id)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_reports()}</CellLabel>
+                                            {item.report_count}
+                                        </td>
+                                        <td class={Words}>
+                                            <CellLabel>{t.reported_reasons()}</CellLabel>
+                                            {reasons(item)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_last_reported()}</CellLabel>
+                                            {when(t, item.last_reported_at.as_deref())}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_action()}</CellLabel>
+                                            <a
+                                                class={Open}
+                                                href={url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None, recorded: None }}
+                                            >
+                                                {t.reported_open()}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
-            <p class={Muted}>{t.reported_count_summary(screen.queue.count, screen.queue.total)}</p>
+            <p class={Muted}>
+                {t.reported_count_summary(crate::text::ops::ReportedCountSummary { count: screen.queue.count, total: screen.queue.total })}
+            </p>
         </section>
     }
 }
@@ -209,9 +280,9 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
     let f = ActionForm::FIELDS;
     let here = url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None, recorded: None };
     html! {
-        let title = t.reported_detail_title(&kind, &item.target_id).to_string();
+        let title = t.reported_detail_title(crate::text::ops::ReportedDetailTitle { target_type: &kind, target_id: &item.target_id }).to_string();
         let owner = item.target_owner_account_id.clone().unwrap_or_else(|| t.reported_not_set().to_owned());
-        let last = item.last_action.as_deref().map(|a| t.reported_last_action(action(t, a).1, &when(t, item.last_action_at.as_deref())).to_string());
+        let last = item.last_action.as_deref().map(|a| t.reported_last_action(crate::text::ops::ReportedLastAction { action: action(t, a).1, timestamp: &when(t, item.last_action_at.as_deref()) }).to_string());
         <crate::views::PageHeader eyebrow={t.reported_eyebrow()} title={&title} description={t.reported_detail_description()} />
         <div class={Links}>
             <a class={(Button, Secondary)} href={url::Reported::default()}>{t.reported_back()}</a>
@@ -229,6 +300,12 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
             <section class={Panel}>
                 <h2 class={Heading}>{t.reported_queue_item()}</h2>
                 <dl class={Facts}>
+                    <Fact label={t.reported_severity()} value={&severity(t, &item.severity)} />
+                    <Fact label={t.reported_acknowledge_due()} value={&when(t, item.acknowledge_due_at.as_deref())} />
+                    <Fact label={t.reported_disposition_due()} value={&when(t, item.disposition_due_at.as_deref())} />
+                    <Fact label={t.reported_accountable_role()} value={&item.accountable_role} />
+                    <Fact label={t.reported_response_state()} value={response(t, item)} />
+                    <Fact label={t.reported_response_policy()} value={policy(item)} />
                     <Fact label={t.reported_status()} value={&status(t, &item.status)} />
                     <Fact label={t.reported_target_type()} value={&kind} />
                     <Fact label={t.reported_target_id()} value={&item.target_id} />
@@ -240,6 +317,13 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
                     <Fact label={t.reported_auto_unlisted_at()} value={&when(t, item.auto_unlisted_at.as_deref())} />
                 </dl>
                 <form class={Moderate} method="post" action={&here}>
+                    if item.acknowledgeable() {
+                        <div class={Actions}>
+                            <button type="submit" class={Button} name={f.action} value={ACKNOWLEDGE}>
+                                {t.reported_acknowledge()}
+                            </button>
+                        </div>
+                    }
                     <label class={Field}>
                         <span>{t.reported_action_note()}</span>
                         <textarea name={f.note} rows="3" maxlength="1000"></textarea>
@@ -276,7 +360,9 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
                         <li class={ReportCard}>
                             <p class={Strong}>{&report.reason}</p>
                             <p class={Words}>{report.details.as_deref().unwrap_or(t.reported_no_details())}</p>
-                            <p class={Muted}>{t.reported_report_attribution(who, &when(t, Some(&report.submitted_at)))}</p>
+                            <p class={Muted}>
+                                {t.reported_report_attribution(crate::text::ops::ReportedReportAttribution { reporter_kind: who, timestamp: &when(t, Some(&report.submitted_at)) })}
+                            </p>
                         </li>
                     }
                 </ul>
@@ -363,19 +449,15 @@ pub fn RisksPage<'a>(t: Ops, screen: &'a RisksScreen) -> impl Render {
     let m = &screen.metrics;
     html! {
         <crate::views::PageHeader eyebrow={t.risk_eyebrow()} title={t.risk_title()} description={t.risk_description()} />
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.risk_total()}</dt>
-                <dd>{m.total_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.risk_needs_review()}</dt>
-                <dd>{m.needs_review_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.risk_manual_payout_review_candidates()}</dt>
-                <dd>{m.manual_payout_review_candidate_count}</dd>
-            </div>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
+            <Stat label={t.risk_total()} value={m.total_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.risk_needs_review()} value={m.needs_review_count} note="" tone={StatTone::Neutral} />
+            <Stat
+                label={t.risk_manual_payout_review_candidates()}
+                value={m.manual_payout_review_candidate_count}
+                note=""
+                tone={StatTone::Neutral}
+            />
         </dl>
         <section class={Part}>
             <h2 class={Heading}>{t.risk_filters()}</h2>
@@ -410,42 +492,65 @@ pub fn RisksPage<'a>(t: Ops, screen: &'a RisksScreen) -> impl Render {
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.risk_queue()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.risk_status()}</th>
-                                <th scope="col">{t.risk_alert_kind()}</th>
-                                <th scope="col">{t.risk_account()}</th>
-                                <th scope="col">{t.risk_manual_payout_review_candidate()}</th>
-                                <th scope="col">{t.risk_evidence()}</th>
-                                <th scope="col">{t.risk_last_triggered()}</th>
-                                <th scope="col">{t.risk_action()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for alert in &screen.queue.items {
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.risk_queue()}>
+                            <thead>
                                 <tr>
-                                    <td><RiskPill t={t} value={&alert.status} /></td>
-                                    <td>{alert_kind(t, &alert.alert_kind)}</td>
-                                    <td class={Words}>{&alert.account_id}</td>
-                                    <td>{yes_no(t, alert.manual_payout_review_candidate)}</td>
-                                    <td class={Words}>{evidence(alert)}</td>
-                                    <td>{risk_when(t, alert.last_triggered_at.as_deref())}</td>
-                                    <td>
-                                        <a
-                                            class={Open}
-                                            href={risk_url::Alert { alert_id: &alert.alert_id, after_write: None, recorded: None }}
-                                        >
-                                            {t.risk_open()}
-                                        </a>
-                                    </td>
+                                    <th scope="col">{t.risk_status()}</th>
+                                    <th scope="col">{t.risk_alert_kind()}</th>
+                                    <th scope="col">{t.risk_account()}</th>
+                                    <th scope="col">{t.risk_manual_payout_review_candidate()}</th>
+                                    <th scope="col">{t.risk_evidence()}</th>
+                                    <th scope="col">{t.risk_last_triggered()}</th>
+                                    <th scope="col">{t.risk_action()}</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                for alert in &screen.queue.items {
+                                    <tr>
+                                        <td>
+                                            <CellLabel>{t.risk_status()}</CellLabel>
+                                            <RiskPill t={t} value={&alert.status} />
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.risk_alert_kind()}</CellLabel>
+                                            {alert_kind(t, &alert.alert_kind)}
+                                        </td>
+                                        <td class={Words}>
+                                            <CellLabel>{t.risk_account()}</CellLabel>
+                                            {&alert.account_id}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.risk_manual_payout_review_candidate()}</CellLabel>
+                                            {yes_no(t, alert.manual_payout_review_candidate)}
+                                        </td>
+                                        <td class={Words}>
+                                            <CellLabel>{t.risk_evidence()}</CellLabel>
+                                            {evidence(alert)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.risk_last_triggered()}</CellLabel>
+                                            {risk_when(t, alert.last_triggered_at.as_deref())}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.risk_action()}</CellLabel>
+                                            <a
+                                                class={Open}
+                                                href={risk_url::Alert { alert_id: &alert.alert_id, after_write: None, recorded: None }}
+                                            >
+                                                {t.risk_open()}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
-            <p class={Muted}>{t.risk_count_summary(screen.queue.count, screen.queue.total)}</p>
+            <p class={Muted}>
+                {t.risk_count_summary(crate::text::ops::RiskCountSummary { count: screen.queue.count, total: screen.queue.total })}
+            </p>
         </section>
     }
 }
@@ -484,7 +589,7 @@ pub fn AlertPage<'a>(t: Ops, p: Pilot, screen: &'a AlertScreen) -> impl Render {
     let here = risk_url::Alert { alert_id: &alert.alert_id, after_write: None, recorded: None };
     html! {
         let title = t.risk_detail_title(&kind).to_string();
-        let last = alert.last_action.as_deref().map(|a| t.risk_last_action(&risk_action(t, a), &risk_when(t, alert.last_action_at.as_deref())).to_string());
+        let last = alert.last_action.as_deref().map(|a| t.risk_last_action(crate::text::ops::RiskLastAction { action: &risk_action(t, a), timestamp: &risk_when(t, alert.last_action_at.as_deref()) }).to_string());
         <crate::views::PageHeader eyebrow={t.risk_eyebrow()} title={&title} description={t.risk_detail_description()} />
         <div class={Links}>
             <a class={(Button, Secondary)} href={risk_url::Risks::default()}>{t.risk_back()}</a>

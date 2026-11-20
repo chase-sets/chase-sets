@@ -2,18 +2,14 @@ import { Hono } from "hono";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { loadDeploymentEnvironment, type DeploymentEnvironment } from "@chase-sets/platform-runtime/config-schema";
 import type { ChannelsApiEnv } from "../../../api";
-import {
-  ChannelConnectionError,
-  type ChannelConnectionServices,
-  type ChannelStorageLocationAuthorityResolver,
-} from "../domain/contracts";
-import { assertClosedRecord, assertOpaqueId, assertProviderKey, assertSafeInteger } from "../domain/validation";
+import { ChannelConnectionError, type ChannelConnectionServices } from "../domain/contracts";
+import { assertClosedRecord, assertProviderKey, assertStorageLocationIds } from "../domain/validation";
 import { closePublicChannelConnection, toPublicChannelConnection } from "../read-model/queries";
-import { resolveConnectionStorageLocation, withConnectionAuthoritySnapshot } from "./runtime";
+import { listConnectableChannelProviders } from "./providers";
 
 export type ChannelConnectionRouteOptions = Readonly<{
   deploymentEnvironment?: DeploymentEnvironment;
-  storageLocationAuthority?: ChannelStorageLocationAuthorityResolver;
+  ebaySandboxEnabled?: boolean;
 }>;
 
 export function channelConnectionRoutes(
@@ -39,49 +35,24 @@ export function channelConnectionRoutes(
     }
   });
 
-  app.post("/:id/activate", (c) =>
-    withConnectionAuthoritySnapshot(async () => {
-      try {
-        const body: unknown = await c.req.json().catch(() => null);
-        assertClosedRecord(body, ["storageLocationIds"], "activate request");
-        if (!Array.isArray(body.storageLocationIds) || body.storageLocationIds.length > 200) {
-          throw new ChannelConnectionError("invalid-input");
-        }
-        const ids: string[] = [];
-        for (const id of body.storageLocationIds) {
-          assertOpaqueId(id, "storageLocationId");
-          if (ids.includes(id)) throw new ChannelConnectionError("invalid-input");
-          ids.push(id);
-        }
-        const input = { accountId: c.get("actor").accountId, connectionId: c.req.param("id") };
-        if (!(await services.getConnection(input))) throw new ChannelConnectionError("connection-not-found");
-        const bindings = [];
-        for (const storageLocationId of ids) {
-          const current = options.storageLocationAuthority
-            ? await resolveConnectionStorageLocation(options.storageLocationAuthority, {
-                accountId: input.accountId,
-                storageLocationId,
-              }).catch(() => null)
-            : null;
-          if (!current) throw new ChannelConnectionError("binding-not-current");
-          assertClosedRecord(current, ["accountId", "storageLocationId", "revision", "status"], "storage authority");
-          assertSafeInteger(current.revision, "storage revision");
-          if (
-            current.accountId !== input.accountId ||
-            current.storageLocationId !== storageLocationId ||
-            current.status !== "active"
-          ) {
-            throw new ChannelConnectionError("binding-not-current");
-          }
-          bindings.push({ storageLocationId, revision: current.revision });
-        }
-        const result = await services.activateChannelConnection({ ...input, bindings }, c.get("context"));
-        return c.json(toPublicChannelConnection(result.state));
-      } catch (error) {
-        return routeError(error);
-      }
-    }),
-  );
+  app.post("/:id/activate", async (c) => {
+    try {
+      const body: unknown = await c.req.json().catch(() => null);
+      assertClosedRecord(body, ["storageLocationIds"], "activate request");
+      assertStorageLocationIds(body.storageLocationIds);
+      const result = await services.activateChannelConnection(
+        {
+          accountId: c.get("actor").accountId,
+          connectionId: c.req.param("id"),
+          storageLocationIds: body.storageLocationIds,
+        },
+        c.get("context"),
+      );
+      return c.json(toPublicChannelConnection(result.state));
+    } catch (error) {
+      return routeError(error);
+    }
+  });
 
   app.get("/", async (c) => {
     try {
@@ -104,12 +75,31 @@ export function channelConnectionRoutes(
     }
   });
 
+  app.get("/providers", async (c) => {
+    if (new URL(c.req.url).searchParams.size > 0) return c.json(errorBody("invalid-request"), 400);
+    if (!c.get("actor").permissions.includes("channels.manage")) return c.json({ items: [] });
+    try {
+      const items = await listConnectableChannelProviders(deploymentEnvironment);
+      return c.json({
+        items: [
+          ...items,
+          ...(options.ebaySandboxEnabled && deploymentEnvironment !== "production"
+            ? [{ providerKey: "ebay", environment: "sandbox" }]
+            : []),
+        ],
+      });
+    } catch {
+      return c.json(errorBody("invalid-request"), 400);
+    }
+  });
+
   app.get("/:id", async (c) => {
     try {
-      const item = await services.getConnection({
-        accountId: c.get("actor").accountId,
-        connectionId: c.req.param("id"),
-      });
+      // This detail can be opened immediately after a connection transition.
+      const item = await services.getConnection(
+        { accountId: c.get("actor").accountId, connectionId: c.req.param("id") },
+        "committed",
+      );
       return item ? c.json(closePublicChannelConnection(item)) : c.json(errorBody("connection-not-found"), 404);
     } catch (error) {
       return routeError(error);

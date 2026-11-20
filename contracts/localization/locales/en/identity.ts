@@ -102,6 +102,8 @@ export const identityEnglishTranslations = {
   "identity.features.accounts.api.route.account.not.found": "Account not found.",
   "identity.features.accounts.api.route.account.badge.not.supported": "Account badge is not supported.",
   "identity.features.accounts.api.route.forbidden": "Forbidden.",
+  "identity.features.accounts.errors.name.required": "Legal name is required.",
+  "identity.features.accounts.errors.displayName.required": "Marketplace name is required.",
   "identity.api.display.name.already.taken": "Display name is already taken.",
   "identity.features.accounts.readModel.schema.create.table.if.not.exists.identity":
     "CREATE TABLE IF NOT EXISTS identity_accounts (\n  account_id text PRIMARY KEY,\n  name text NOT NULL,\n  display_name text NOT NULL,\n  account_type text NOT NULL,\n  status text NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
@@ -403,6 +405,7 @@ export const identityEnglishTranslations = {
   "identity.features.users.api.route.forbidden": "Forbidden.",
   "identity.features.users.api.route.auth.method.invalid": "Auth method is invalid.",
   "identity.features.users.api.route.user.not.found": "User not found.",
+  "identity.features.users.errors.displayName.required": "Display name is required.",
   "identity.features.users.readModel.schema.create.table.if.not.exists.identity":
     "\nCREATE TABLE IF NOT EXISTS identity_users (\n  user_id text PRIMARY KEY,\n  display_name text NOT NULL,\n  given_name text NOT NULL,\n  family_name text NOT NULL,\n  primary_email text NOT NULL,\n  status text NOT NULL,\n  contact_methods jsonb NOT NULL DEFAULT '[]'::jsonb,\n  auth_methods jsonb NOT NULL DEFAULT '[]'::jsonb,\n  password_credential_id text NULL,\n  passkey_credential_ids jsonb NOT NULL DEFAULT '[]'::jsonb,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE TABLE IF NOT EXISTS identity_user_emails (\n  email text PRIMARY KEY,\n  user_id text NOT NULL,\n  contact_method_id text NOT NULL,\n  is_verified boolean NOT NULL DEFAULT false,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
   "identity.features.users.ui.userDetailPage.auth.methods": "Auth Methods",

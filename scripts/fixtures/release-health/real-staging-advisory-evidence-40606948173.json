@@ -1,0 +1,589 @@
+{
+  "urls": {
+    "job": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706/job/122546722492",
+    "artifact": "https://api.github.com/repos/chase-sets/chase-sets/actions/artifacts/12781768528",
+    "deploy": "https://github.com/chase-sets/chase-sets/actions/runs/40605810706",
+    "evidence": "https://github.com/chase-sets/chase-sets/actions/runs/40606948173"
+  },
+  "deployJob": {
+    "id": 122546722492,
+    "run_id": 40605810706,
+    "name": "Deploy Staging",
+    "status": "completed",
+    "conclusion": "success",
+    "started_at": "2026-10-28T00:04:22Z",
+    "completed_at": "2026-10-28T00:12:14Z",
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 1,
+        "started_at": "2026-10-28T00:04:23Z",
+        "completed_at": "2026-10-28T00:04:25Z"
+      },
+      {
+        "name": "Record staging start",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 2,
+        "started_at": "2026-10-28T00:04:25Z",
+        "completed_at": "2026-10-28T00:04:25Z"
+      },
+      {
+        "name": "Configure Git defaults",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 3,
+        "started_at": "2026-10-28T00:04:25Z",
+        "completed_at": "2026-10-28T00:04:25Z"
+      },
+      {
+        "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4,
+        "started_at": "2026-10-28T00:04:25Z",
+        "completed_at": "2026-10-28T00:04:32Z"
+      },
+      {
+        "name": "Check out release commit",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 5,
+        "started_at": "2026-10-28T00:04:32Z",
+        "completed_at": "2026-10-28T00:04:33Z"
+      },
+      {
+        "name": "Validate staging configuration",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 6,
+        "started_at": "2026-10-28T00:04:33Z",
+        "completed_at": "2026-10-28T00:04:36Z"
+      },
+      {
+        "name": "Run ./.github/actions/setup-pnpm-workspace",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 7,
+        "started_at": "2026-10-28T00:04:36Z",
+        "completed_at": "2026-10-28T00:04:48Z"
+      },
+      {
+        "name": "Install dependencies",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 8,
+        "started_at": "2026-10-28T00:04:48Z",
+        "completed_at": "2026-10-28T00:04:53Z"
+      },
+      {
+        "name": "Run hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 9,
+        "started_at": "2026-10-28T00:04:53Z",
+        "completed_at": "2026-10-28T00:04:55Z"
+      },
+      {
+        "name": "Run digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 10,
+        "started_at": "2026-10-28T00:04:55Z",
+        "completed_at": "2026-10-28T00:04:56Z"
+      },
+      {
+        "name": "Package staged doctl binary",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 11,
+        "started_at": "2026-10-28T00:04:56Z",
+        "completed_at": "2026-10-28T00:04:57Z"
+      },
+      {
+        "name": "Upload staged doctl binary",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 12,
+        "started_at": "2026-10-28T00:04:57Z",
+        "completed_at": "2026-10-28T00:04:59Z"
+      },
+      {
+        "name": "Terraform init staging environment DNS",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 13,
+        "started_at": "2026-10-28T00:04:59Z",
+        "completed_at": "2026-10-28T00:05:01Z"
+      },
+      {
+        "name": "Terraform format staging environment DNS",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 14,
+        "started_at": "2026-10-28T00:05:01Z",
+        "completed_at": "2026-10-28T00:05:01Z"
+      },
+      {
+        "name": "Terraform validate staging environment DNS",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 15,
+        "started_at": "2026-10-28T00:05:01Z",
+        "completed_at": "2026-10-28T00:05:01Z"
+      },
+      {
+        "name": "Activate immutable release before staging mutation",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 16,
+        "started_at": "2026-10-28T00:05:01Z",
+        "completed_at": "2026-10-28T00:05:02Z"
+      },
+      {
+        "name": "Terraform apply staging environment DNS",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 17,
+        "started_at": "2026-10-28T00:05:02Z",
+        "completed_at": "2026-10-28T00:05:03Z"
+      },
+      {
+        "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 18,
+        "started_at": "2026-10-28T00:05:03Z",
+        "completed_at": "2026-10-28T00:05:16Z"
+      },
+      {
+        "name": "Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 19,
+        "started_at": "2026-10-28T00:05:16Z",
+        "completed_at": "2026-10-28T00:05:16Z"
+      },
+      {
+        "name": "Verify immutable active release image",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 20,
+        "started_at": "2026-10-28T00:05:16Z",
+        "completed_at": "2026-10-28T00:05:19Z"
+      },
+      {
+        "name": "Terraform init",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 21,
+        "started_at": "2026-10-28T00:05:19Z",
+        "completed_at": "2026-10-28T00:05:21Z"
+      },
+      {
+        "name": "Terraform format",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 22,
+        "started_at": "2026-10-28T00:05:21Z",
+        "completed_at": "2026-10-28T00:05:21Z"
+      },
+      {
+        "name": "Terraform plan",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 23,
+        "started_at": "2026-10-28T00:05:21Z",
+        "completed_at": "2026-10-28T00:05:27Z"
+      },
+      {
+        "name": "Upload staging Terraform plan",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 24,
+        "started_at": "2026-10-28T00:05:27Z",
+        "completed_at": "2026-10-28T00:05:28Z"
+      },
+      {
+        "name": "Terraform apply",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 25,
+        "started_at": "2026-10-28T00:05:28Z",
+        "completed_at": "2026-10-28T00:05:29Z"
+      },
+      {
+        "name": "Capture staging Terraform errored state",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 26,
+        "started_at": "2026-10-28T00:05:29Z",
+        "completed_at": "2026-10-28T00:05:29Z"
+      },
+      {
+        "name": "Upload staging Terraform errored state",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 27,
+        "started_at": "2026-10-28T00:05:29Z",
+        "completed_at": "2026-10-28T00:05:29Z"
+      },
+      {
+        "name": "Configure staging Kubernetes context",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 28,
+        "started_at": "2026-10-28T00:05:29Z",
+        "completed_at": "2026-10-28T00:05:35Z"
+      },
+      {
+        "name": "Apply staging ingress-nginx forwarded-header policy",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 29,
+        "started_at": "2026-10-28T00:05:35Z",
+        "completed_at": "2026-10-28T00:06:00Z"
+      },
+      {
+        "name": "Converge staging preview DNS-01 token and renewal",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 30,
+        "started_at": "2026-10-28T00:06:00Z",
+        "completed_at": "2026-10-28T00:06:01Z"
+      },
+      {
+        "name": "Install Argo Rollouts kubectl plugin for staging",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 31,
+        "started_at": "2026-10-28T00:06:01Z",
+        "completed_at": "2026-10-28T00:06:01Z"
+      },
+      {
+        "name": "Install Argo Rollouts controller and CRDs for staging",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 32,
+        "started_at": "2026-10-28T00:06:01Z",
+        "completed_at": "2026-10-28T00:06:01Z"
+      },
+      {
+        "name": "Export staging Kubernetes database URLs",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 33,
+        "started_at": "2026-10-28T00:06:01Z",
+        "completed_at": "2026-10-28T00:06:02Z"
+      },
+      {
+        "name": "Apply staging Kubernetes runtime secrets",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 34,
+        "started_at": "2026-10-28T00:06:02Z",
+        "completed_at": "2026-10-28T00:06:03Z"
+      },
+      {
+        "name": "Reconcile staging managed Postgres CA trust",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 35,
+        "started_at": "2026-10-28T00:06:03Z",
+        "completed_at": "2026-10-28T00:06:05Z"
+      },
+      {
+        "name": "Deploy staging Kubernetes release",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 36,
+        "started_at": "2026-10-28T00:06:05Z",
+        "completed_at": "2026-10-28T00:09:31Z"
+      },
+      {
+        "name": "Capture staging Kubernetes deploy diagnostics",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 37,
+        "started_at": "2026-10-28T00:09:31Z",
+        "completed_at": "2026-10-28T00:09:31Z"
+      },
+      {
+        "name": "Upload staging Kubernetes deploy diagnostics",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 38,
+        "started_at": "2026-10-28T00:09:31Z",
+        "completed_at": "2026-10-28T00:09:31Z"
+      },
+      {
+        "name": "Wait for staging ingress URLs",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 39,
+        "started_at": "2026-10-28T00:09:31Z",
+        "completed_at": "2026-10-28T00:09:33Z"
+      },
+      {
+        "name": "Dispatch advisory staging evidence",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 40,
+        "started_at": "2026-10-28T00:09:33Z",
+        "completed_at": "2026-10-28T00:09:35Z"
+      },
+      {
+        "name": "Smoke check",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 41,
+        "started_at": "2026-10-28T00:09:35Z",
+        "completed_at": "2026-10-28T00:09:54Z"
+      },
+      {
+        "name": "Resolve Playwright Chromium version",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 42,
+        "started_at": "2026-10-28T00:09:54Z",
+        "completed_at": "2026-10-28T00:09:54Z"
+      },
+      {
+        "name": "Cache Playwright Chromium for staging critical flows",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 43,
+        "started_at": "2026-10-28T00:09:54Z",
+        "completed_at": "2026-10-28T00:09:57Z"
+      },
+      {
+        "name": "Install Playwright Chromium for staging critical flows",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 44,
+        "started_at": "2026-10-28T00:09:57Z",
+        "completed_at": "2026-10-28T00:10:12Z"
+      },
+      {
+        "name": "Await staging projection convergence",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 45,
+        "started_at": "2026-10-28T00:10:12Z",
+        "completed_at": "2026-10-28T00:11:32Z"
+      },
+      {
+        "name": "Staging Buy Now freshness probes",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 46,
+        "started_at": "2026-10-28T00:11:32Z",
+        "completed_at": "2026-10-28T00:11:54Z"
+      },
+      {
+        "name": "Upload staging blocking probe release-health evidence",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 47,
+        "started_at": "2026-10-28T00:11:54Z",
+        "completed_at": "2026-10-28T00:11:54Z"
+      },
+      {
+        "name": "Upload staging Buy Now probe evidence",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 48,
+        "started_at": "2026-10-28T00:11:54Z",
+        "completed_at": "2026-10-28T00:11:55Z"
+      },
+      {
+        "name": "Staging account-cart freshness canary",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 49,
+        "started_at": "2026-10-28T00:11:55Z",
+        "completed_at": "2026-10-28T00:11:55Z"
+      },
+      {
+        "name": "Upload staging account-cart canary evidence",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 50,
+        "started_at": "2026-10-28T00:11:55Z",
+        "completed_at": "2026-10-28T00:11:55Z"
+      },
+      {
+        "name": "Staging Stripe money smoke",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 51,
+        "started_at": "2026-10-28T00:11:55Z",
+        "completed_at": "2026-10-28T00:12:08Z"
+      },
+      {
+        "name": "Promote staging Argo Rollouts",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 52,
+        "started_at": "2026-10-28T00:12:08Z",
+        "completed_at": "2026-10-28T00:12:08Z"
+      },
+      {
+        "name": "Abort staging Argo Rollouts",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 53,
+        "started_at": "2026-10-28T00:12:08Z",
+        "completed_at": "2026-10-28T00:12:08Z"
+      },
+      {
+        "name": "Verify staging preview wildcard certificate",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 54,
+        "started_at": "2026-10-28T00:12:08Z",
+        "completed_at": "2026-10-28T00:12:08Z"
+      },
+      {
+        "name": "Activate Agent Grant revocation in staging",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 55,
+        "started_at": "2026-10-28T00:12:08Z",
+        "completed_at": "2026-10-28T00:12:08Z"
+      },
+      {
+        "name": "Upload staging Agent Grant revocation status",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 56,
+        "started_at": "2026-10-28T00:12:08Z",
+        "completed_at": "2026-10-28T00:12:09Z"
+      },
+      {
+        "name": "Classify staging deployment failure",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 57,
+        "started_at": "2026-10-28T00:12:09Z",
+        "completed_at": "2026-10-28T00:12:09Z"
+      },
+      {
+        "name": "Upload staging deployment root cause",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 58,
+        "started_at": "2026-10-28T00:12:09Z",
+        "completed_at": "2026-10-28T00:12:09Z"
+      },
+      {
+        "name": "Mark staging applied",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 59,
+        "started_at": "2026-10-28T00:12:09Z",
+        "completed_at": "2026-10-28T00:12:09Z"
+      },
+      {
+        "name": "Record staging completion",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 60,
+        "started_at": "2026-10-28T00:12:09Z",
+        "completed_at": "2026-10-28T00:12:09Z"
+      },
+      {
+        "name": "Post Cache Playwright Chromium for staging critical flows",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 117,
+        "started_at": "2026-10-28T00:12:09Z",
+        "completed_at": "2026-10-28T00:12:09Z"
+      },
+      {
+        "name": "Post Run docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 118,
+        "started_at": "2026-10-28T00:12:09Z",
+        "completed_at": "2026-10-28T00:12:10Z"
+      },
+      {
+        "name": "Post Run ./.github/actions/setup-pnpm-workspace",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 119,
+        "started_at": "2026-10-28T00:12:10Z",
+        "completed_at": "2026-10-28T00:12:10Z"
+      },
+      {
+        "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 120,
+        "started_at": "2026-10-28T00:12:10Z",
+        "completed_at": "2026-10-28T00:12:10Z"
+      },
+      {
+        "name": "Complete job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 121,
+        "started_at": "2026-10-28T00:12:10Z",
+        "completed_at": "2026-10-28T00:12:10Z"
+      }
+    ]
+  },
+  "archiveSha256": "799101632f8f08cf318c63c2d95872de033884cb7e02137c411e3f9e1a4cbc71",
+  "summarySha256": "6a3e1dee8f0660c168c9e88644c9208ad9947d72e0c14a225132bd150f97d8d8",
+  "description": "Real historical transport and orphan control; no qualification record exists for this input.",
+  "artifact": {
+    "id": 12781768528,
+    "name": "staging-advisory-evidence-40606948173-1",
+    "expired": false,
+    "expires_at": "2026-11-27T00:28:25Z",
+    "size_in_bytes": 654,
+    "digest": "sha256:799101632f8f08cf318c63c2d95872de033884cb7e02137c411e3f9e1a4cbc71",
+    "created_at": "2026-10-28T00:28:26Z",
+    "workflow_run": {
+      "id": 40606948173,
+      "repository_id": 1151866225,
+      "head_repository_id": 1151866225,
+      "head_branch": "main",
+      "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e"
+    }
+  },
+  "summaryJson": "{\n  \"schemaVersion\": \"staging-advisory-evidence/v2\",\n  \"checkedAt\": \"2026-10-28T00:28:25Z\",\n  \"releaseCommit\": \"ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e\",\n  \"platformImage\": \"registry.digitalocean.com/chase-sets/chase-sets-platform:ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e\",\n  \"platformImageDigest\": \"sha256:053ea5cc75fb22d233bda8cb7f6cc47f68267a7fe7565d755a13fd748a605c00\",\n  \"admission\": {\n    \"outcome\": \"admitted\",\n    \"error\": \"none captured\"\n  },\n  \"freshness\": {\n    \"status\": \"unknown\",\n    \"reason\": \"advisory post-window authority unknown: GitHub authority read failed\",\n    \"requested\": {\n      \"releaseCommit\": \"ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e\",\n      \"platformImage\": \"registry.digitalocean.com/chase-sets/chase-sets-platform:ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e\",\n      \"platformImageDigest\": \"sha256:053ea5cc75fb22d233bda8cb7f6cc47f68267a7fe7565d755a13fd748a605c00\"\n    },\n    \"observed\": {\n      \"releaseCommit\": \"ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e\",\n      \"platformImage\": \"registry.digitalocean.com/chase-sets/chase-sets-platform:ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e\",\n      \"platformImageDigest\": \"sha256:053ea5cc75fb22d233bda8cb7f6cc47f68267a7fe7565d755a13fd748a605c00\",\n      \"supersedingIdentity\": false\n    },\n    \"publicationAt\": \"2026-10-28T00:27:50.846Z\",\n    \"windowCensus\": {}\n  },\n  \"postWindow\": {\n    \"outcome\": \"failure\",\n    \"error\": \"advisory post-window authority unknown: GitHub authority read failed\"\n  },\n  \"scenarioSeed\": {\n    \"outcome\": \"success\"\n  },\n  \"marketplaceE2e\": {\n    \"outcome\": \"failure\"\n  },\n  \"failedPhases\": [\n    \"marketplace-e2e\"\n  ]\n}\n",
+  "archiveBase64": "UEsDBBQACAAIAIwDXF0AAAAAAAAAAAAAAAAMAAAAc3VtbWFyeS5qc29u7VRNi9swEL3nVwif66yjRLbjW9mWdm+Flha29DCWRraILbkaOSGE/PdiO19ll0LZhV56s5mZN08z781hxlhEssYWvqIn42xUsIgCVMZWMaitIef3MW6NQivxbsujN0OJrFFuUL0NQzpPeBovkpjnX5Kk4HnBxeOU5rFBILx3bWvGVFSLFZRKSLFIdCl0usRkvYIMpeZrmS5ksi5TWONU3jUQtPPtQwsVDuUeK0PB7+fKVCZA4ySCnUvX3skaCGPCQDef8RmgeEHfd6ZCGslTDVykRSKWCELKTOiSc8WXy1JBLstMp1KuMp3mPM0g05iJVKhMCFgstcpWOaSJkEky9QDVGjoN/DBjjLHI9UG6dnzoEA0B1ZjLWITeOz8ErLPIJHSh96iiGWPHEU17pNoi0RWNAoR++I96u7FuZ89YHoGmPZ/3yzpHId4Zq9yOQR9q503Ys1NdwT6Y8LEvbyIeQTENprky9PizRxoonxm8eP8jxD/SwNPer6+Dsc3xND9XEvrt//H9nY0mpfcdekJlbPWg0AYT9lHBNDSEv42468vGSAjG2WcPV1aIZJ6v0sezpidH3KOl0UiH48Vvg2G+jdFn7TtYo/f4xL2vYrgLCZJowRv3GW9kc0uDeimHm3CpaMFvMHQNSHzP8Y/Ur6dl7PppUMQwhO9TxQ1SjHxM/zE7zn4BUEsHCPuURFoEAgAAUAYAAFBLAQItAxQACAAIAIwDXF37lERaBAIAAFAGAAAMAAAAAAAAAAAAIACkgQAAAABzdW1tYXJ5Lmpzb25QSwUGAAAAAAEAAQA6AAAAPgIAAAAA",
+  "capturedAt": "2026-11-05T07:28:18.7210463Z",
+  "deployRun": {
+    "id": 40605810706,
+    "run_attempt": 1,
+    "workflow_id": 274293633,
+    "path": ".github/workflows/platform-production.yml",
+    "event": "workflow_dispatch",
+    "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+    "status": "completed",
+    "conclusion": "success",
+    "repository": {
+      "full_name": "chase-sets/chase-sets"
+    }
+  },
+  "evidenceRun": {
+    "id": 40606948173,
+    "run_attempt": 1,
+    "workflow_id": 313472214,
+    "path": ".github/workflows/platform-staging-advisory-evidence.yml",
+    "event": "workflow_dispatch",
+    "head_sha": "ed14abd5c510fb5f63e094a7ecf29c61c09b6a9e",
+    "status": "completed",
+    "conclusion": "failure",
+    "created_at": "2026-10-28T00:09:34Z",
+    "updated_at": "2026-10-28T00:28:41Z",
+    "repository": {
+      "full_name": "chase-sets/chase-sets"
+    }
+  }
+}

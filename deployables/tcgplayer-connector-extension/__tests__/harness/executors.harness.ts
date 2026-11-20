@@ -26,6 +26,7 @@ export const settlement = {
   uploadAttemptedAt: null,
   uploadFileName: null,
   importSummary: null,
+  stagedReadback: null,
 } as const;
 
 export function syntheticExecutor(unit: ConnectorExecutor["unit"]): ConnectorExecutor {

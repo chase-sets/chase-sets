@@ -9,6 +9,8 @@ export type AuthSessionStartedPayload = Readonly<{
   availableAccountIds: readonly string[];
   authenticationMethod: string;
   expiresAt: string;
+  /** The User Session Authority generation the Session started in. Absent on starts recorded before it existed, which mean 0. */
+  sessionGeneration?: number;
 }>;
 
 export type AuthSessionAccountSwitchedPayload = Readonly<{

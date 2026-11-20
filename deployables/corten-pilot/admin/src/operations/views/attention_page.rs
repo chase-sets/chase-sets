@@ -8,6 +8,8 @@ use corten::{
     prelude::*,
 };
 
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
+
 use super::ids;
 use crate::{
     operations::{
@@ -62,6 +64,7 @@ fn source(t: Ops, id: &str) -> &str {
         "wake-stalled-job" => t.attention_source_wake_stalled_job(),
         "support-request-deadline" => t.attention_source_support_request_deadline(),
         "platform-feedback-unreviewed" => t.attention_source_platform_feedback_unreviewed(),
+        "reported-content-response" => t.attention_source_reported_content_response(),
         other => other,
     }
 }
@@ -104,12 +107,9 @@ fn QueueParts<'a>(t: Ops, queue: &'a Queue) -> impl Render {
         t.attention_column_action(),
     ];
     html! {
-        <dl class={Stats}>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
             for (label, value) in &stats {
-                <div class={Stat}>
-                    <dt>{*label}</dt>
-                    <dd>{*value}</dd>
-                </div>
+                <Stat label={label} value={*value} note="" tone={StatTone::Neutral} />
             }
         </dl>
         if !unavailable.is_empty() {
@@ -119,7 +119,7 @@ fn QueueParts<'a>(t: Ops, queue: &'a Queue) -> impl Render {
                     <p class={Muted}>{t.attention_degraded_description()}</p>
                     for health in &unavailable {
                         <p class={Unavailable}>
-                            {t.attention_source_unavailable(source(t, &health.id), health.reason.as_deref().unwrap_or(""))}
+                            {t.attention_source_unavailable(crate::text::ops::AttentionSourceUnavailable { source: source(t, &health.id), reason: health.reason.as_deref().unwrap_or("") })}
                         </p>
                     }
                 </div>

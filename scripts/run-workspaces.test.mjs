@@ -6,7 +6,7 @@ import { createVitest, parseCLI } from "vitest/node";
 import {
   bootstrapDbEnrollmentManifest,
   derivePlatformApiDbTestCensus,
-  platformApiNonBootstrapDbCensus,
+  platformApiProductDbProofCensus,
 } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
@@ -263,6 +263,101 @@ describe("run-workspaces", () => {
     });
 
     expect(maxActive).toBe(2);
+  });
+
+  it.each([false, true])("runs exclusive packages alone and settles every selected task (failure=%s)", async (fail) => {
+    const catalog = "@chase-sets/catalog";
+    const solo = "@chase-sets/solo";
+    const peers = ["alpha", "bravo", "charlie", "delta"].map((name) => `@chase-sets/${name}`);
+    const active = new Set();
+    const events = [];
+    let maxPeerConcurrency = 0;
+    const output = await captureConsole(() =>
+      runWorkspaceScripts({
+        argv: [
+          "test:unit",
+          "--test-profile=db",
+          "--concurrency=4",
+          `--exclusive-workspace-list=${catalog},${solo},${catalog}`,
+          "--",
+          "--coverage",
+        ],
+        buildInvocation,
+        listWorkspaces: () => [...peers, solo, catalog].map((name) => workspace(name, { "test:unit": "vitest" }, "db")),
+        durationHintRegistry: durationRegistry([durationEntry(solo, "test:unit", 10)]),
+        loadEnvironment: () => {},
+        run: async (_command, args, options) => {
+          const name = args[1];
+          active.add(name);
+          events.push(`start ${name}`);
+          if (name === catalog || name === solo) expect([...active]).toEqual([name]);
+          else {
+            expect(active.has(catalog) || active.has(solo)).toBe(false);
+            maxPeerConcurrency = Math.max(maxPeerConcurrency, active.size);
+          }
+          expect(args).toEqual(["--filter", name, "run", "test:unit", "--coverage"]);
+          expect(options.timeoutMs).toBe(600_000);
+          await delay(5);
+          active.delete(name);
+          events.push(`end ${name}`);
+          if (fail && (name === catalog || name === peers[0])) throw new Error(`synthetic failure ${name}`);
+        },
+      }).catch((error) => error),
+    );
+
+    expect(output.result instanceof Error).toBe(fail);
+    if (fail) expect(output.result.message).toBe("2 workspace script run(s) failed.");
+    expect(events.slice(0, 4)).toEqual([`start ${catalog}`, `end ${catalog}`, `start ${solo}`, `end ${solo}`]);
+    expect(events.filter((event) => event.startsWith("start ")).sort()).toEqual(
+      [...peers, solo, catalog].map((name) => `start ${name}`).sort(),
+    );
+    expect(maxPeerConcurrency).toBe(4);
+    const summary = JSON.parse(
+      output.stdout.find((line) => line.startsWith("RUN_WORKSPACES_SUMMARY ")).slice("RUN_WORKSPACES_SUMMARY ".length),
+    );
+    expect(validateRunWorkspacesSummary(summary)).toBe(summary);
+    expect(summary.completedCount).toBe(6);
+    expect(summary.failedCount).toBe(fail ? 2 : 0);
+  });
+
+  it("does not add exclusive workspaces excluded by selection or profile", async () => {
+    const invoked = [];
+    await runWorkspaceScripts({
+      argv: [
+        "test:unit",
+        "--test-profile=db",
+        "--workspace-list=@chase-sets/alpha,@chase-sets/solo",
+        "--exclusive-workspace-list=@chase-sets/catalog,@chase-sets/solo",
+      ],
+      buildInvocation,
+      listWorkspaces: () => [
+        workspace("@chase-sets/catalog", { "test:unit": "vitest" }, "db"),
+        workspace("@chase-sets/solo", { "test:unit": "vitest" }),
+        workspace("@chase-sets/alpha", { "test:unit": "vitest" }, "db"),
+      ],
+      durationHintRegistry: durationRegistry([durationEntry("@chase-sets/catalog", "test:unit", 10)]),
+      loadEnvironment: () => {},
+      run: async (_command, args) => invoked.push(args[1]),
+    });
+    expect(invoked).toEqual(["@chase-sets/alpha"]);
+  });
+
+  it("parses only runner-side exclusive workspace lists and rejects malformed lists", () => {
+    expect(
+      parseRunWorkspacesArgs(["test:unit", "--exclusive-workspace-list= @chase-sets/catalog ,@chase-sets/catalog"])
+        .exclusiveWorkspaceNames,
+    ).toEqual(new Set(["@chase-sets/catalog"]));
+    expect(parseRunWorkspacesArgs(["test", "--", "--exclusive-workspace-list=invalid"]).passthroughArgs).toEqual([
+      "--exclusive-workspace-list=invalid",
+    ]);
+    for (const args of [
+      ["--exclusive-workspace-list="],
+      ["--exclusive-workspace-list=invalid"],
+      ["--exclusive-workspace-list=@chase-sets/catalog,"],
+      ["--exclusive-workspace-list=@chase-sets/catalog", "--exclusive-workspace-list=@chase-sets/catalog"],
+    ]) {
+      expect(() => parseRunWorkspacesArgs(["test:unit", ...args])).toThrow("--exclusive-workspace-list");
+    }
   });
 
   it("runs DB partition siblings serially while preserving global workspace concurrency", async () => {
@@ -841,7 +936,7 @@ describe("DB duration scheduling", () => {
       eligible.map((entry) => entry.name).sort(),
     );
     for (const [name, scripts] of [
-      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3"]],
+      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3", "test:db:4"]],
       ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
@@ -870,9 +965,10 @@ describe("DB duration scheduling", () => {
       const partitions = await Promise.all(output.invocations.map((args) => discover(scripts[args[3]])));
       const assertCompleteDisjoint = (groups) => expect(groups.flat().sort()).toEqual(aggregate);
       assertCompleteDisjoint(partitions);
-      expect(partitions.map((files) => files.length)).toEqual([1, 3, 1]);
+      expect(partitions.map((files) => files.length)).toEqual([1, 2, 1, 1]);
+      expect(partitions[3].map((file) => path.basename(file))).toEqual(["marketplace-seed.test.ts"]);
       const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
-      expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
+      expect(() => assertCompleteDisjoint([partitions[0], omittedFile, ...partitions.slice(2)])).toThrow();
       expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
     } finally {
       await vitest.close();
@@ -917,14 +1013,14 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    // Named members, never a moving total: the bootstrap manifest and the frozen non-bootstrap census each declare
+    // Named members, never a moving total: the bootstrap manifest and the live non-bootstrap census each declare
     // their DB entries and execution units, and the Vitest include rule declares the complete discovered set.
     const declaredUnits = [
       ...Object.entries(bootstrapDbEnrollmentManifest).map(([file, { executionUnit }]) => [
         `__tests__/${file}`,
         executionUnit,
       ]),
-      ...Object.entries(platformApiNonBootstrapDbCensus.entries),
+      ...Object.entries(platformApiProductDbProofCensus.entries),
     ];
     const declaredBootstrap = Object.keys(bootstrapDbEnrollmentManifest)
       .map((file) => `__tests__/${file}`)
@@ -1356,8 +1452,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(69);
-    expect(replay.observations).toHaveLength(93);
+    expect(unitEntries).toHaveLength(68);
+    expect(replay.observations).toHaveLength(92);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {
@@ -1617,6 +1713,26 @@ describe("closed duration scheduling contracts", () => {
           expect(positions).toEqual([...positions].sort((left, right) => left - right));
         }
       }
+    }
+  });
+
+  it("keeps shard membership unchanged when Catalog runs exclusively", async () => {
+    for (const index of [1, 2]) {
+      const memberships = [];
+      for (const exclusive of [[], ["--exclusive-workspace-list=@chase-sets/catalog"]]) {
+        const invoked = [];
+        await captureConsole(() =>
+          runWorkspaceScripts({
+            argv: ["test:unit", "--test-profile=db", `--shard=${index}/2`, ...exclusive],
+            buildInvocation,
+            listWorkspaces: listWorkspacePackages,
+            loadEnvironment: () => {},
+            run: async (_command, args) => invoked.push(args[1]),
+          }),
+        );
+        memberships.push(invoked.sort());
+      }
+      expect(memberships[1]).toEqual(memberships[0]);
     }
   });
 

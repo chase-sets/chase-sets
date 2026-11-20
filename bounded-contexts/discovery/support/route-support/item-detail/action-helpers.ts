@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
-import { redirect } from "react-router";
+import { data, redirect } from "react-router";
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import {
@@ -8,6 +8,8 @@ import {
   appendAnonymousSellListCookie,
   createCheckoutRequestApiClient,
   ensureAnonymousSellListId,
+  checkoutCartAttemptCommitSource,
+  submitCheckoutSellListAdd,
 } from "@chase-sets/checkout/server";
 
 export function parseSelectedOptions(value: FormDataEntryValue | null) {
@@ -180,19 +182,46 @@ export async function saveGuestSelectedOfferToSellList(
   checkoutApi: ReturnType<typeof createCheckoutRequestApiClient>,
   item: DiscoveryItemDetail,
   offerId: string,
+  attemptId: string,
 ) {
   const offer = getPublicSelectedOfferForSellList(item, offerId);
   const anonymousSellListId = ensureAnonymousSellListId(request);
-  const result = await checkoutApi.addGuestSellListLine(
+  return saveSellListLine(
+    request,
+    checkoutApi,
+    { ...selectedOfferSellListLineFromPublicOffer(item, offer), attemptId },
     anonymousSellListId,
-    selectedOfferSellListLineFromPublicOffer(item, offer),
   );
+}
+
+export async function saveSellListLine(
+  request: Request,
+  checkoutApi: ReturnType<typeof createCheckoutRequestApiClient>,
+  body: Parameters<typeof submitCheckoutSellListAdd>[1],
+  anonymousSellListId?: string,
+) {
+  const submission = await submitCheckoutSellListAdd(checkoutApi, body, anonymousSellListId);
+  if (submission.state !== "succeeded") {
+    const headers = new Headers();
+    if (anonymousSellListId) appendAnonymousSellListCookie(headers, anonymousSellListId, request);
+    return data(
+      {
+        error: submission.message ?? t("checkout.routes.accountSellList.sell.list.request.failed"),
+        sellListAttempt: { state: submission.state, attemptId: body.attemptId },
+      },
+      { headers },
+    );
+  }
   const response = redirect(
-    await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
-      handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-    }),
+    await navigateAfterWriteWithPlatformPostWriteToken(
+      checkoutCartAttemptCommitSource(submission),
+      "/account/sell-list",
+      {
+        handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+      },
+    ),
   );
-  appendAnonymousSellListCookie(response.headers, anonymousSellListId, request);
+  if (anonymousSellListId) appendAnonymousSellListCookie(response.headers, anonymousSellListId, request);
   return response;
 }
 

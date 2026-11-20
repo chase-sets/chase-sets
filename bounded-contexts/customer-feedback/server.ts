@@ -17,3 +17,7 @@ export * from "./features/cases/domain";
 export * from "./features/attention/domain";
 export * from "./features/attention/api";
 export * from "./features/privacy/domain/policy";
+
+export type { CustomerFeedbackServices } from "./support/runtime-support/services";
+
+export { createCustomerFeedbackAttentionDigestRunners } from "./support/runtime-support/worker-jobs";

@@ -82,6 +82,8 @@ export async function seedProductContentScenario(
     return false;
   }
 
+  const authoring = await services.productContents.readProductContentsAuthoringState(scenarioContainerCatalogItemId);
+
   await services.productContents.replaceProductContents(
     {
       containerCatalogItemId: scenarioContainerCatalogItemId,
@@ -97,6 +99,7 @@ export async function seedProductContentScenario(
           },
         },
       ],
+      expectedVersion: authoring.version,
     },
     seedContext,
   );

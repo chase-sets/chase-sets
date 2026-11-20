@@ -1,6 +1,7 @@
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
+  ownerPredicateKey,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -14,9 +15,11 @@ import { createMarketEstimatesRuntime } from "../../features/market-estimates/ap
 import { createDemandCurveCloser } from "../../features/market-estimates/api/demand-curve-closer";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
 import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
+import { createRepricingConfigurationWriter } from "../../features/repricing-policies/api/configuration";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
+import { repricingEnginePolicy } from "../../features/repricing-engine/domain/policy";
 import { createRepricingActivityDigestRunner } from "../../features/repricing-engine/api/activity-digest";
 import { createForecastLedgerRuntime } from "../../features/forecast-ledger/api/runtime";
 import { pricingGoalDefinitions } from "../../features/repricing-policies/domain/domain";
@@ -25,6 +28,7 @@ import type { ChannelConnectionIdentityReader } from "../../features/economics/d
 import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
 
 export type PricingHostPorts = Readonly<{
+  pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
   commercialTermsResolver: CommercialTermsResolver;
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
 }>;
@@ -65,6 +69,20 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   }
   const eventStore = createPostgresEventStore({
     pool,
+    ownerPredicates: {
+      ...(ports.pricingPredicateConsumerPool ? { consumerPool: ports.pricingPredicateConsumerPool } : {}),
+      keys: (inputs) =>
+        inputs.some(({ events }) =>
+          events.some(
+            (event) =>
+              (event.eventType === "platform-policy.document.created" ||
+                event.eventType === "platform-policy.document.revised") &&
+              event.payload.policyKey === repricingEnginePolicy.policyKey,
+          ),
+        )
+          ? [ownerPredicateKey("repricing-platform-policy", repricingEnginePolicy.policyKey)]
+          : [],
+    },
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
@@ -86,7 +104,13 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
   const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
   const demandCurves = createDemandCurveCloser({ pool, eventStore, policies });
-  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool, economics });
+  const pricingPredicateConsumerPool = ports.pricingPredicateConsumerPool;
+  const repricingEngine = createRepricingEngineRuntime({
+    eventStore,
+    db: pool,
+    economics,
+    pricingPredicateConsumerPool,
+  });
   const runRepricingActivityDigest = createRepricingActivityDigestRunner({ pool, eventStore, policies });
   const forecastLedger = createForecastLedgerRuntime({
     pool,
@@ -117,9 +141,15 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
       return result;
     },
   };
+  const configuration = createRepricingConfigurationWriter({ pool, eventStore, pricingPredicateConsumerPool });
   const repricingPolicies = {
-    ...createRepricingPolicyRuntime({ eventStore, db, goalAdoptions: () => forecastLedger.listGoalAdoptions() }),
-    ...createRepricingPolicyActivationServices({ eventStore, pool }),
+    ...createRepricingPolicyRuntime({
+      eventStore,
+      db,
+      configuration,
+      goalAdoptions: () => forecastLedger.listGoalAdoptions(),
+    }),
+    ...createRepricingPolicyActivationServices({ eventStore, pool, configuration }),
   };
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
   const bulkRepriceIngestion = createBulkRepriceIngestionRuntime({ db });

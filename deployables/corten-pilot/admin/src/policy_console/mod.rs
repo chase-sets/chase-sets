@@ -14,17 +14,21 @@
 //! | `POST /platform/policy-console/{policy_key}` | a revision (`value`, `status`, `effectiveFrom`, `effectiveUntil`), then the page |
 //!
 //! The effective times are `datetime-local` fields. admin-web reads them in its server's time zone
-//! (chase-sets/chase-sets#10875); the pilot reads and writes them in the operator's
-//! (`ClientZone`, UTC when unknown) and sends the instant. A blank effective-from is now, as in
-//! admin-web.
+//! (chase-sets/chase-sets#10875). The pilot draws the form in the operator's zone
+//! (`DrawZone::from(req.zone())`, UTC until the browser has said, and named by each field), the
+//! form sends that zone back (`FormZone`), and the post reads the times in it and sends the
+//! instant. A blank effective-from is now, as in admin-web. Times sent without the form's zone (not
+//! from this page) are refused.
 use std::collections::BTreeMap;
 
 use corten::{
     ClientZone,
-    axum::http::{HeaderMap, StatusCode},
+    form::{DrawZone, FormZone},
+    http::{HeaderMap, StatusCode},
+    i18n::LocalDateTime,
     prelude::*,
 };
-use jiff::{Timestamp, tz::TimeZone};
+use jiff::Timestamp;
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -35,8 +39,8 @@ use crate::{
     api::{Method, segment},
     app::{Refusal, Shared, read_failed, refusal, refusal_answer as answer},
     auth::{PolicyAccess, Staff, Viewer},
-    growth::promo::{sent_time, zone_of},
-    text::Ops,
+    growth::promo::{sent, zone_of},
+    text::{Ops, Pilot},
     views::Here,
 };
 
@@ -201,7 +205,7 @@ async fn draw_console(
 }
 
 /// A review's confirmation, as admin-web's form names it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ConfirmForm {
     pub locale: String,
@@ -294,13 +298,28 @@ struct Document {
 }
 
 /// A revision as the form sends it (admin-web's names).
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RevisionForm {
     pub value: String,
     pub status: String,
-    pub effective_from: String,
-    pub effective_until: String,
+    /// Not in the screen's data: the times in effect are the overview's.
+    #[serde(skip_serializing)]
+    pub effective_from: corten::Entry<LocalDateTime>,
+    #[serde(skip_serializing)]
+    pub effective_until: corten::Entry<LocalDateTime>,
+    /// The zone the form was drawn in, which its times are read in.
+    #[serde(skip_serializing)]
+    pub zone: Option<FormZone>,
+}
+
+/// Why a revision was not sent.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Unsent {
+    /// The value does not read as JSON.
+    Value,
+    /// It has a time but not the zone the form was drawn in.
+    Zone,
 }
 
 impl RevisionForm {
@@ -309,24 +328,25 @@ impl RevisionForm {
         RevisionForm {
             value: serde_json::to_string_pretty(&current.value).unwrap_or_default(),
             status: current.status.clone().unwrap_or_else(|| "active".into()),
-            effective_from: String::new(),
-            effective_until: String::new(),
+            ..RevisionForm::default()
         }
     }
 
-    /// The API's body: the value read as JSON (None when it is not JSON), active unless inactive,
-    /// and the times as instants in `zone` (effective-from now when blank, as admin-web does).
-    pub fn body(&self, zone: &TimeZone, now: Timestamp) -> Option<Value> {
-        let value: Value = serde_json::from_str(&self.value).ok()?;
-        let from = match sent_time(&self.effective_from, zone) {
+    /// The API's body: the value read as JSON, active unless inactive, and the times as instants in
+    /// the form's zone (effective-from now when blank, as admin-web does).
+    pub fn body(&self, now: Timestamp) -> Result<Value, Unsent> {
+        let value: Value = serde_json::from_str(&self.value).map_err(|_| Unsent::Value)?;
+        let zone = self.zone.as_ref();
+        let from = match sent(&self.effective_from, zone).ok_or(Unsent::Zone)? {
             Value::Null => json!(now.to_string()),
             from => from,
         };
-        Some(json!({
+        let until = sent(&self.effective_until, zone).ok_or(Unsent::Zone)?;
+        Ok(json!({
             "value": value,
             "status": if self.status == "inactive" { "inactive" } else { "active" },
             "effectiveFrom": from,
-            "effectiveUntil": sent_time(&self.effective_until, zone),
+            "effectiveUntil": until,
         }))
     }
 }
@@ -351,17 +371,31 @@ async fn policy(
     Params(route): Params<url::Policy<'_>>,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(route.after_write.as_deref());
-    let zone = zone_of(zone);
-    draw_policy(&req, &staff.viewer, &config, &headers, &zone, &route.policy_key, receipt.as_ref(), None, StatusCode::OK).await
+    let here = Here(zone_of(zone));
+    let drawn_in = DrawZone::from(req.zone());
+    draw_policy(
+        &req,
+        &staff.viewer,
+        &config,
+        &headers,
+        (&here, &drawn_in),
+        &route.policy_key,
+        receipt.as_ref(),
+        None,
+        StatusCode::OK,
+    )
+    .await
 }
 
+/// The page's dates are written in the operator's zone (`Here`); the revision form's times are
+/// drawn in its `DrawZone`, the posted one when a revision is drawn again.
 #[allow(clippy::too_many_arguments)]
 async fn draw_policy(
     req: &Req,
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
-    zone: &TimeZone,
+    (here, drawn_in): (&Here, &DrawZone),
     policy_key: &str,
     receipt: Option<&Receipt>,
     refused: Option<(RevisionForm, String)>,
@@ -385,7 +419,7 @@ async fn draw_policy(
         None => (RevisionForm::of(&overview.current), None),
     };
     let screen = PolicyScreen { overview, history, can_manage: viewer.can(MANAGE), form, refusal };
-    let view = html! { <views::PolicyDetailPage o={req.t()} here={&Here(zone.clone())} screen={&screen} /> };
+    let view = html! { <views::PolicyDetailPage o={req.t()} here={here} zone={drawn_in} screen={&screen} /> };
     req.screen_with_status(
         status,
         &screen,
@@ -406,15 +440,23 @@ async fn revise(
     Params(route): Params<url::Policy<'_>>,
     Form(form): Form<RevisionForm>,
 ) -> HtmlResult {
-    let zone = zone_of(zone);
+    let here = Here(zone_of(zone));
+    let drawn_in = form.zone.as_ref().map_or_else(|| DrawZone::from(req.zone()), DrawZone::from);
     let key = route.policy_key.as_str();
     let again = |form: RevisionForm, message: String, status: StatusCode| {
-        let (req, viewer, config, headers, zone) = (&req, &staff.viewer, &config, &headers, &zone);
-        async move { draw_policy(req, viewer, config, headers, zone, key, None, Some((form, message)), status).await }
+        let (req, viewer, config, headers, here, drawn_in) = (&req, &staff.viewer, &config, &headers, &here, &drawn_in);
+        async move { draw_policy(req, viewer, config, headers, (here, drawn_in), key, None, Some((form, message)), status).await }
     };
-    let Some(body) = form.body(&zone, Timestamp::now()) else {
-        let o: Ops = req.t();
-        return again(form, o.policy_detail_invalid_json().to_owned(), StatusCode::UNPROCESSABLE_ENTITY).await;
+    let body = match form.body(Timestamp::now()) {
+        Ok(body) => body,
+        Err(unsent) => {
+            let (o, p): (Ops, Pilot) = (req.t(), req.t());
+            let message = match unsent {
+                Unsent::Value => o.policy_detail_invalid_json(),
+                Unsent::Zone => p.check_zone(),
+            };
+            return again(form, message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY).await;
+        }
     };
     let path = format!("{CONSOLE}/{}/revisions", segment(key));
     let caller = config.platform.caller(&headers, config.proto, None);
@@ -435,26 +477,23 @@ mod tests {
     fn a_context_reads_as_a_title_and_a_revision_as_the_apis_body() {
         assert_eq!(context_label("platform-operations"), "Platform Operations");
         assert_eq!(context_label("pricing"), "Pricing");
-        let chicago = TimeZone::get("America/Chicago").unwrap();
         let now: Timestamp = "2026-10-31T12:00:00Z".parse().unwrap();
-        let form = RevisionForm {
-            value: r#"{ "a": 1 }"#.into(),
-            status: "inactive".into(),
-            effective_from: "2026-11-02T09:00".into(),
-            effective_until: String::new(),
-        };
+        let posted = |form: &[u8]| corten::form::from_bytes::<RevisionForm>(form).unwrap();
+        let form = posted(
+            b"value=%7B%22a%22%3A1%7D&status=inactive&effectiveFrom=2026-11-02T09%3A00&effectiveUntil=&zone=America%2FChicago",
+        );
         assert_eq!(
-            form.body(&chicago, now),
-            Some(json!({ "value": { "a": 1 }, "status": "inactive",
+            form.body(now),
+            Ok(json!({ "value": { "a": 1 }, "status": "inactive",
                 "effectiveFrom": "2026-11-02T15:00:00Z", "effectiveUntil": null })),
             "9:00 in Chicago, after its clocks go back, is 15:00 UTC"
         );
-        let blank = RevisionForm { value: "1".into(), status: "anything".into(), ..RevisionForm::default() };
         assert_eq!(
-            blank.body(&chicago, now),
-            Some(json!({ "value": 1, "status": "active", "effectiveFrom": "2026-10-31T12:00:00Z", "effectiveUntil": null })),
+            posted(b"value=1&status=anything").body(now),
+            Ok(json!({ "value": 1, "status": "active", "effectiveFrom": "2026-10-31T12:00:00Z", "effectiveUntil": null })),
             "a blank effective-from is now, and any status but inactive is active"
         );
-        assert_eq!(RevisionForm { value: "{nope".into(), ..RevisionForm::default() }.body(&chicago, now), None);
+        assert_eq!(posted(b"value=%7Bnope").body(now), Err(Unsent::Value));
+        assert_eq!(posted(b"value=1&effectiveUntil=2026-11-02T09%3A00").body(now), Err(Unsent::Zone), "a time without the zone");
     }
 }

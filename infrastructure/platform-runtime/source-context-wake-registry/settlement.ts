@@ -10,6 +10,7 @@ export const settlementWakeRegistryEntry = registryEntry({
   expectedEventVolume: "medium",
   wakeStoreLoadEstimate: "low",
   affectedProjectionNames: [
+    "customer-feedback:customer-feedback-csat-outcome-fact-projection",
     "checkout:checkout.sell-list-projection",
     "marketplace:marketplace-settlement-negative-balance-projection",
     "notifications:notifications-source-facts-outbox-projection",

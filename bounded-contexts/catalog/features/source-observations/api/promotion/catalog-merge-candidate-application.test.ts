@@ -58,7 +58,6 @@ import {
   shouldBlockDuplicatePrevention,
   type CatalogMergeCandidateApplicationPorts,
 } from "./catalog-merge-candidate-application";
-import { applyCatalogMergeCandidateEdit } from "./catalog-merge-candidate-edit";
 import type { CatalogProviderSourceObservationInput } from "./provider-source-observation-normalizer";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -302,6 +301,30 @@ describe("retained application checkpoint replay", () => {
     expect(loaded.state).toMatchObject({ status: "promoted", promotionPlan: null, promotionApplication: null });
   });
 
+  it("loads the choices from the recorded approval for application planning", async () => {
+    const { created } = lifecycle();
+    const resolution = {
+      conflictCode: "name-mismatch",
+      fieldPath: "catalogItem.name",
+      chosenValue: "Kept catalog name",
+      reason: "Keep the reviewed Catalog value.",
+      observationIds: ["obs_synthetic"],
+    };
+    const approved = decideCatalogMergeCandidate(
+      evolveCatalogMergeCandidate(initialCatalogMergeCandidateState, created),
+      {
+        type: "PromoteCatalogMergeCandidate",
+        reason: "Resolved the name.",
+        actor: { userId: "usr_synthetic", accountId: "acc_synthetic" },
+        promotedAt: at,
+        conflictResolutions: [resolution],
+      },
+    )[0]!;
+    const loaded = await loadCandidateApplication(retained([created, approved]), candidateId);
+    expect(loaded.resolvedConflicts).toEqual([resolution]);
+    expect(loaded.state.snapshot?.proposedCatalogItemFacts.name).toBe("Synthetic review card");
+  });
+
   it("recovers one valid plan and completion for its initiating unit only, with no writes", async () => {
     const { created, approved, planned, applied } = lifecycle();
     const eventStore = retained([created, approved, planned, applied]);
@@ -529,17 +552,14 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
     expect(error).toMatchObject({ message: "unexpected-database" });
   });
 
-  const withoutScryfallReference = (snapshot: CatalogMergeCandidateReviewSnapshot) =>
-    applyCatalogMergeCandidateEdit(snapshot, {
-      promotionIntent: snapshot.promotionIntent,
-      catalogItemId: null,
-      productIds: [],
-      factOverrides: [],
-      droppedExternalCatalogItemReferenceIndexes: snapshot.proposedExternalCatalogItemReferences.flatMap(
-        (entry, index) => (entry.providerKey === "scryfall" ? [index] : []),
-      ),
-      droppedExternalProductReferenceIndexes: [],
-    });
+  // The snapshot a reviewer's edit that dropped the Scryfall external reference leaves.
+  const withoutScryfallReference = (snapshot: CatalogMergeCandidateReviewSnapshot) => ({
+    ...snapshot,
+    matches: { catalogItemId: null, productIds: [] },
+    proposedExternalCatalogItemReferences: snapshot.proposedExternalCatalogItemReferences.filter(
+      (entry) => entry.providerKey !== "scryfall",
+    ),
+  });
 
   it.each([
     ["with its reviewed Scryfall external reference", true],
@@ -733,16 +753,29 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
   });
 
   it("AC3: a reviewer's correction is reviewed authority, not reference facts", async () => {
-    const arranged = arrange(mixed({ scryfallRarity: null }), (snapshot) =>
-      applyCatalogMergeCandidateEdit(snapshot, {
-        promotionIntent: snapshot.promotionIntent,
-        catalogItemId: null,
-        productIds: [],
-        factOverrides: [{ key: "rarity", value: "uncommon" }],
-        droppedExternalCatalogItemReferenceIndexes: [],
-        droppedExternalProductReferenceIndexes: [],
-      }),
-    );
+    // The snapshot a reviewer's rarity correction leaves: the value with manual provenance on the
+    // first member, as the merge-candidate runtime records an edit.
+    const arranged = arrange(mixed({ scryfallRarity: null }), (snapshot) => {
+      const anchor = snapshot.membership[0]!;
+      return {
+        ...snapshot,
+        matches: { catalogItemId: null, productIds: [] },
+        proposedCatalogItemFacts: { ...snapshot.proposedCatalogItemFacts, rarity: "uncommon" },
+        fieldProvenance: [
+          ...snapshot.fieldProvenance.filter((entry) => entry.fieldPath !== "catalogItem.rarity"),
+          {
+            fieldPath: "catalogItem.rarity",
+            value: "uncommon",
+            observationId: anchor.observationId,
+            providerKey: anchor.providerKey,
+            sourceProfileKey: anchor.sourceProfileKey,
+            sourceProfileVersion: anchor.sourceProfileVersion,
+            confidence: "manual",
+            evidence: { operatorCorrection: true },
+          },
+        ],
+      };
+    });
 
     const { error, touched } = await apply(arranged);
 
@@ -934,6 +967,93 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     });
     expect(await itemCreations()).toBe(0);
   });
+
+  it.each(["uncommon", "rare", ["uncommon"], ["uncommon", "mythic"]].map((chosenValue) => ({ chosenValue })))(
+    "applies or refuses a retained approval's chosen rarity $chosenValue before writing the existing Item",
+    async ({ chosenValue }) => {
+      const original = await candidateFrom([magicObservation("scryfall-card-print")]);
+      const first = await apply(original.candidateId);
+      const target = first.appliedCatalogItemId!;
+      const candidateId = `${original.candidateId}_resolved`;
+      const resolution = {
+        conflictCode: "rarity-mismatch",
+        fieldPath: "catalogItem.rarity",
+        chosenValue,
+        reason: "Use the operator's choice.",
+        observationIds: original.snapshot.membership.map((member) => member.observationId),
+      };
+      const commandHandler = candidateCommands();
+      await commandHandler({
+        streamId: catalogMergeCandidateStreamId(candidateId),
+        command: {
+          type: "CreateCatalogMergeCandidate",
+          candidateId,
+          createdAt: new Date().toISOString(),
+          snapshot: {
+            ...original.snapshot,
+            matches: { catalogItemId: target, productIds: [] },
+            promotionIntent: "update-catalog-item",
+            proposedCatalogItemFacts: { ...original.snapshot.proposedCatalogItemFacts, rarity: "rare" },
+            conflicts: [
+              {
+                code: resolution.conflictCode,
+                fieldPath: resolution.fieldPath,
+                severity: "blocking",
+                message: "Rarity differs.",
+                observationIds: resolution.observationIds,
+                existingValue: Array.isArray(chosenValue) ? chosenValue : ["uncommon"],
+                proposedValue: "rare",
+              },
+            ],
+          },
+        },
+        context,
+      });
+      await commandHandler({
+        streamId: catalogMergeCandidateStreamId(candidateId),
+        command: {
+          type: "PromoteCatalogMergeCandidate",
+          reason: resolution.reason,
+          actor: { userId: null, accountId: null },
+          promotedAt: new Date().toISOString(),
+          conflictResolutions: [resolution],
+        },
+        context,
+      });
+
+      if (Array.isArray(chosenValue) && chosenValue.length > 1) {
+        const events = await eventCount();
+        await expect(apply(candidateId)).rejects.toMatchObject({
+          code: "promotion-plan-blocked:ambiguous-conflict-resolution",
+        });
+        expect(await eventCount()).toBe(events);
+        expect((await loadCandidateApplication(store, candidateId)).state.promotionPlan).toBeNull();
+        return;
+      }
+      const expectedValue = Array.isArray(chosenValue) ? chosenValue[0] : chosenValue;
+      const result = await apply(candidateId);
+
+      expect(result).toMatchObject({ status: "promoted", appliedCatalogItemId: target, appliedMode: "refresh" });
+      const itemHistory = await readCompleteStream(store, { streamId: `catalog.item-${target}` });
+      const item = itemHistory
+        .map(createPassthroughDomainEventCodec<CatalogItemEvent>().decode)
+        .reduce(evolveCatalogItem, initialCatalogItemState);
+      const mapping = await loadCatalogItemPromotionProfile(
+        ports().deps,
+        registeredMagicProfile("scryfall-card-print").profile,
+      );
+      expect(item.fieldValues).toContainEqual(
+        expect.objectContaining({ fieldId: mapping.fieldIds.rarity, value: expectedValue }),
+      );
+      const { state } = await loadCandidateApplication(store, candidateId);
+      expect(state.promotionPlan?.commands).toContainEqual({
+        type: "SetCatalogItemFieldValue",
+        fieldId: mapping.fieldIds.rarity,
+        value: expectedValue,
+      });
+      await expect(apply(candidateId)).resolves.toEqual(result);
+    },
+  );
 
   it("AC2: an MTGJSON-only candidate with a Scryfall reference is reference-only with zero Item, Reference Record or candidate writes", async () => {
     const { candidateId, snapshot } = await candidateFrom([magicObservation("mtgjson-card")]);

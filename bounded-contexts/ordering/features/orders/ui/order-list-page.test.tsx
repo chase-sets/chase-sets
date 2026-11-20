@@ -100,6 +100,8 @@ describe("ordering order list page", () => {
     expect(markup).toContain("Charizard");
     expect(markup).toContain("Purchase");
     expect(markup).toContain("ORD-TESTREF1");
+    expect(markup).toContain("Pending payment");
+    expect(markup).not.toContain("pending-payment");
     expect(markup).not.toContain("Seller payout");
     expect(markup).not.toContain("$22.99");
   });

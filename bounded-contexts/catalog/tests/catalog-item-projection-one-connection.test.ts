@@ -153,7 +153,10 @@ describe("Catalog Item projections", () => {
         }
         return { rows: [] };
       }
-      if (sql.trimStart().startsWith("SELECT *") && sql.includes("FROM catalog_admin_catalog_item_detail_pages")) {
+      if (
+        sql.trimStart().startsWith("SELECT") &&
+        sql.replace(/\s+/g, " ").includes("FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1")
+      ) {
         const page = pages.detail.get(String(params?.[0]));
         return { rows: page ? [{ catalog_item_id: params?.[0], ...page }] : [] };
       }

@@ -1,9 +1,15 @@
 //! Inventory import, after Inventory's `import-batch-page.tsx`: the header with Inventory, Listings
-//! and Pricing; what the last import said (its refusal, a batch still updating, a running job);
-//! Resume an import, and Import expired for an expired batch; a batch's summary; Upload CSV (the
-//! source, the quantity mode, the default location, a file or pasted rows); then a batch's review
-//! (the rows that need the seller, Commit accepted rows, the rows and their pages) or the recent
-//! imports.
+//! and Pricing; what the last import said (its refusal, a batch still updating, a running or failed
+//! job) and which of the page's reads it is without (the storage locations, the recent imports),
+//! each with Check again; Resume an import, and Import expired for an expired batch; a batch's
+//! summary; Upload CSV (the source, the quantity mode, the default location, a file or pasted
+//! rows); then a batch's review (the rows that need the seller, Commit accepted rows, the rows and
+//! their pages) or the recent imports, unless they could not be read or the batch is catching up.
+//!
+//! The writes' buttons are disabled while they wait (`ImportsScreen::writes_wait`). The row
+//! resolution drawer stays modal: marketplace made its `SideSheet` non-modal so the shared
+//! submission recovery outside it stays reachable, and here a submit the drawer gets no answer for
+//! is said inside it (`corten_ui::dialog::failed`).
 //!
 //! One column on a phone, where each row and each batch is a card with its facts labelled; from
 //! 64rem a table. The summary's figures are two across on a phone, three from 40rem and six from
@@ -96,8 +102,23 @@ pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, m: InventoryMsg, screen: &'a Imp
                 }
                 if let Some(job) = &screen.job {
                     <div class={Notice} data-tone={if job.failed { "danger" } else { "info" }}>
-                        <p class={Strong}>{t.page_import_job_running()}</p>
+                        <p class={Strong}>{if job.failed { t.page_import_failed() } else { t.page_import_job_running() }}</p>
                         <p class={Muted}>{job.message.as_deref().unwrap_or(t.page_import_job_waiting())}</p>
+                        <p><a class={(Button, Secondary, Small)} href={&screen.here}>{t.recovery_check()}</a></p>
+                    </div>
+                }
+                if screen.locations_unavailable {
+                    <div class={Notice} data-tone="warning">
+                        <p class={Strong}>{m.list_storage_location()}</p>
+                        <p class={Muted}>{p.imports_locations_unavailable()}</p>
+                        <p><a class={(Button, Secondary, Small)} href={&screen.here}>{t.recovery_check()}</a></p>
+                    </div>
+                }
+                if screen.batches_unavailable {
+                    <div class={Notice} data-tone="warning">
+                        <p class={Strong}>{t.page_recent_imports()}</p>
+                        <p class={Muted}>{p.imports_batches_unavailable()}</p>
+                        <p><a class={(Button, Secondary, Small)} href={&screen.here}>{t.recovery_check()}</a></p>
                     </div>
                 }
             </div>
@@ -123,7 +144,9 @@ pub fn ImportsPage<'a>(t: ImportsMsg, p: Pilot, m: InventoryMsg, screen: &'a Imp
                     }
                 }
                 None => {
-                    <Recent t={t} batches={&screen.batches} />
+                    if !screen.pending && !screen.batches_unavailable {
+                        <Recent t={t} batches={&screen.batches} />
+                    }
                 }
             }
         </div>
@@ -219,7 +242,9 @@ fn UploadForm<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen) -> impl Re
                 </label>
                 <p id="import-csv-hint" class={Hint}>{t.page_csv_description()}</p>
                 <div class={Actions}>
-                    <button type="submit" class={Button}>{t.page_validate_import()}</button>
+                    <button type="submit" class={Button} disabled={screen.location_writes_wait()}>
+                        {t.page_validate_import()}
+                    </button>
                     if let Some(latest) = screen.latest() {
                         <a class={(Button, Ghost)} href={batch_href(latest, 0)}>{t.page_latest_batch()}</a>
                     }
@@ -259,7 +284,7 @@ fn Review<'a>(t: ImportsMsg, p: Pilot, screen: &'a ImportsScreen, detail: &'a cr
                 <form class={(Card, Commit)} method="post" action={url::ImportCommit { batch: &batch.batch_id }}>
                     {SubmitKey::field(CommitFields::FIELDS.attempt)}
                     <p class={Strong}>{t.page_accepted_rows_ready(count)}</p>
-                    <button type="submit" class={Button}>{t.page_commit_accepted_rows()}</button>
+                    <button type="submit" class={Button} disabled={screen.writes_wait()}>{t.page_commit_accepted_rows()}</button>
                 </form>
             }
             if detail.rows.is_empty() {
@@ -313,7 +338,12 @@ fn Row<'a>(t: ImportsMsg, row: &'a ImportRow, batch: &'a str, offset: u64, resol
     let reference = row.external_reference.as_ref();
     let name = reference.and_then(|r| r.display_name.as_deref().or(Some(r.external_key.as_str()))).unwrap_or(t.page_native_row());
     let detail = match reference {
-        Some(r) => t.page_external_reference(&r.provider_key, &r.external_key).to_string(),
+        Some(r) => t
+            .page_external_reference(crate::text::imports_msg::PageExternalReference {
+                provider: &r.provider_key,
+                key: &r.external_key,
+            })
+            .to_string(),
         None => row.row_fingerprint.clone(),
     };
     let quantity = row
@@ -441,7 +471,8 @@ fn when(t: ImportsMsg, at: &str) -> String {
 /// page and modal once it joins the page; Close and Escape go back to the batch. One form whose
 /// action is the batch page with the drawer open on the row: the picker's steps (its buttons are
 /// `formmethod="get"`) read it again, as a page without a script and in place with one, and Apply
-/// alone posts, to the resolve route (its `formaction`).
+/// alone posts, to the resolve route (its `formaction`). A submit that gets no answer is said in
+/// the drawer (`corten_ui::dialog::failed`), where the page's toaster is covered.
 #[component(css = ImportsPage)]
 fn FixDialog<'a>(
     t: ImportsMsg,
@@ -456,8 +487,11 @@ fn FixDialog<'a>(
     let row = &fixing.row;
     let close = resolve_href(batch, screen.offset, None);
     let here = resolve_href(batch, screen.offset, Some(&row.row_id));
-    let back = refs();
-    let ready = fixing.ready().is_some();
+    let (back, said) = refs();
+    // Only a location still in use can take a row (`canApplyRowFix`): an archived one is not
+    // offered, so a row kept there asks for another.
+    let live: Vec<_> = screen.locations.iter().filter(|location| !location.is_archived).collect();
+    let ready = fixing.ready().is_some() && !screen.location_writes_wait();
     html! {
         <dialog
             id={FixDialogId}
@@ -466,12 +500,15 @@ fn FixDialog<'a>(
             aria-describedby="import-fix-progress"
             open
             on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
+            on:corten:error={corten_ui::dialog::failed(event, target, said)}
         >
             <div class={DialogHead}>
                 <h2 id="import-fix-title" class={PartTitle}>{t.page_resolve_import_row(row.row_number)}</h2>
                 <a ref={back} class={(Button, Ghost, Small)} href={&close}>{t.page_close()}</a>
             </div>
-            <p id="import-fix-progress" class={Muted}>{t.page_resolve_progress(fixing.position, fixing.total)}</p>
+            <p id="import-fix-progress" class={Muted}>
+                {t.page_resolve_progress(crate::text::imports_msg::PageResolveProgress { position: fixing.position, total: fixing.total })}
+            </p>
             if !row.validation_errors.is_empty() {
                 <ul class={Errors}>
                     for message in &row.validation_errors {
@@ -482,6 +519,9 @@ fn FixDialog<'a>(
             if let Some(error) = &fixing.error {
                 <p class={ErrorText} role="alert">{error}</p>
             }
+            <div role="alert">
+                <p class={ErrorText} ref={said} hidden>{p.shell_not_sent()}</p>
+            </div>
             <form
                 id={FixFormId}
                 class={Fix}
@@ -493,12 +533,20 @@ fn FixDialog<'a>(
             >
                 <input type="hidden" name={f.offset} value={screen.offset.to_string()}>
                 <input type="hidden" name="resolveRowId" value={&row.row_id}>
+                <input type="hidden" name={f.expected_row_version} value={&row.row_version}>
+                <input type="hidden" name={f.expected_row_fingerprint} value={&row.row_fingerprint}>
+                {SubmitKey::field(f.attempt)}
                 <Picker t={m} p={p} draft={&fixing.draft} catalog={&fixing.catalog} />
                 <label class={Field}>
                     <span class={Label}>{m.list_storage_location()}</span>
                     <select name={f.storage_location_id} required>
-                        <option value="" selected={fixing.storage_location_id.is_empty()}>{t.page_choose_location()}</option>
-                        for location in &screen.locations {
+                        <option
+                            value=""
+                            selected={!live.iter().any(|location| location.storage_location_id == fixing.storage_location_id)}
+                        >
+                            {t.page_choose_location()}
+                        </option>
+                        for location in &live {
                             <option
                                 value={&location.storage_location_id}
                                 selected={location.storage_location_id == fixing.storage_location_id}

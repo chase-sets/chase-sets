@@ -9,7 +9,9 @@
       "targetContextName": "customer-feedback",
       "subscriptionVersion": 1,
       "checkpointKey": "customer-feedback-csat-outcome-fact-projection:auth:v1",
-      "handlers": { "auth.session.started": "<function>" },
+      "handlers": {
+        "auth.session.started": "<function>"
+      },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
       "checkpointBatchSize": 100,
@@ -28,7 +30,10 @@
       "targetContextName": "customer-feedback",
       "subscriptionVersion": 1,
       "checkpointKey": "customer-feedback-csat-outcome-fact-projection:identity:v1",
-      "handlers": { "identity.registration.completed": "<function>", "identity.onboarding.completed": "<function>" },
+      "handlers": {
+        "identity.registration.completed": "<function>",
+        "identity.onboarding.completed": "<function>"
+      },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
       "checkpointBatchSize": 100,
@@ -47,7 +52,9 @@
       "targetContextName": "customer-feedback",
       "subscriptionVersion": 1,
       "checkpointKey": "customer-feedback-csat-outcome-fact-projection:discovery:v1",
-      "handlers": { "discovery.search-session.started": "<function>" },
+      "handlers": {
+        "discovery.search-session.started": "<function>"
+      },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
       "checkpointBatchSize": 100,
@@ -320,6 +327,135 @@
       "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
       "streamPrefixes": ["platform-policy.document-"],
       "order": 4
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:fulfillment:v1",
+      "handlers": {
+        "fulfillment.shipment.delivered": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["fulfillment.shipment.delivered"],
+      "streamPrefixes": "<undefined>",
+      "order": 4
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:payments:v1",
+      "handlers": {
+        "payments.payment-captured": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["payments.payment-captured"],
+      "streamPrefixes": "<undefined>",
+      "order": 5
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "settlement",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:settlement:v1",
+      "handlers": {
+        "settlement.payout.completed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["settlement.payout.completed"],
+      "streamPrefixes": "<undefined>",
+      "order": 6
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:platform-operations:v1",
+      "handlers": {
+        "support.support-request.resolved": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["support.support-request.resolved"],
+      "streamPrefixes": "<undefined>",
+      "order": 7
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:marketplace:v1",
+      "handlers": {
+        "marketplace.listing.published": "<function>",
+        "marketplace.offer.accepted": "<function>",
+        "marketplace.review.submitted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["marketplace.listing.published", "marketplace.offer.accepted", "marketplace.review.submitted"],
+      "streamPrefixes": "<undefined>",
+      "order": 8
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextName": "inventory",
+      "targetContextName": "customer-feedback",
+      "subscriptionVersion": 1,
+      "checkpointKey": "customer-feedback-csat-outcome-fact-projection:inventory:v1",
+      "handlers": {
+        "inventory.item.created": "<function>",
+        "inventory.item.adjusted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["inventory.item.created", "inventory.item.adjusted"],
+      "streamPrefixes": "<undefined>",
+      "order": 9
     }
   ],
   "subscriptions": [
@@ -329,7 +465,9 @@
       "sourceContextName": "auth",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
       "subscriptionVersion": 1,
-      "handlers": { "auth.session.started": "<function>" },
+      "handlers": {
+        "auth.session.started": "<function>"
+      },
       "eventTypes": ["auth.session.started"],
       "streamPrefixes": "<undefined>",
       "batchSize": "<undefined>",
@@ -347,7 +485,10 @@
       "sourceContextName": "identity",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
       "subscriptionVersion": 1,
-      "handlers": { "identity.registration.completed": "<function>", "identity.onboarding.completed": "<function>" },
+      "handlers": {
+        "identity.registration.completed": "<function>",
+        "identity.onboarding.completed": "<function>"
+      },
       "eventTypes": ["identity.registration.completed", "identity.onboarding.completed"],
       "streamPrefixes": "<undefined>",
       "batchSize": "<undefined>",
@@ -365,7 +506,9 @@
       "sourceContextName": "discovery",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
       "subscriptionVersion": 1,
-      "handlers": { "discovery.search-session.started": "<function>" },
+      "handlers": {
+        "discovery.search-session.started": "<function>"
+      },
       "eventTypes": ["discovery.search-session.started"],
       "streamPrefixes": "<undefined>",
       "batchSize": "<undefined>",
@@ -413,6 +556,129 @@
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 20
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "fulfillment",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "fulfillment.shipment.delivered": "<function>"
+      },
+      "eventTypes": ["fulfillment.shipment.delivered"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 4
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "payments",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.payment-captured": "<function>"
+      },
+      "eventTypes": ["payments.payment-captured"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 5
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "settlement",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "settlement.payout.completed": "<function>"
+      },
+      "eventTypes": ["settlement.payout.completed"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 6
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "platform-operations",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "support.support-request.resolved": "<function>"
+      },
+      "eventTypes": ["support.support-request.resolved"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 7
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.listing.published": "<function>",
+        "marketplace.offer.accepted": "<function>",
+        "marketplace.review.submitted": "<function>"
+      },
+      "eventTypes": ["marketplace.listing.published", "marketplace.offer.accepted", "marketplace.review.submitted"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 8
+    },
+    {
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "inventory",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "inventory.item.created": "<function>",
+        "inventory.item.adjusted": "<function>"
+      },
+      "eventTypes": ["inventory.item.created", "inventory.item.adjusted"],
+      "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 9
     }
   ]
 }

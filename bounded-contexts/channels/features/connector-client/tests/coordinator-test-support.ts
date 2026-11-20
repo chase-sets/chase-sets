@@ -10,9 +10,12 @@ import {
 import { createOperationJournal } from "../integrations/connector-indexeddb";
 import type { ClaimedOperationOutcome, ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
 
-export async function coordinatorFixture(unit: "operation" | "reservation" = "operation") {
+export async function coordinatorFixture(
+  unit: "operation" | "reservation" = "operation",
+  target = { connectionId: "connection-1", pairingId: "pairing-1", at: Date.parse("2026-10-09T00:00:00.000Z") },
+) {
   const indexedDB = new IDBFactory();
-  let now = Date.parse("2026-10-09T00:00:00.000Z");
+  let now = target.at;
   let authority: "paired-idle" | "report-only" | "absent" = "paired-idle";
   const fixtureTitle = "Synthetic";
   const payload = {
@@ -31,9 +34,9 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
   } as const;
   const claim: ClaimedOperationReservation = {
     reservationId: "reservation-1",
-    connectionId: "connection-1",
+    connectionId: target.connectionId,
     providerIdentity: { providerKey: "tcgplayer", environment: "sandbox" },
-    claimant: { claimantKind: "connector", claimantId: "pairing-1" },
+    claimant: { claimantKind: "connector", claimantId: target.pairingId },
     reservedAt: new Date(now).toISOString(),
     leaseExpiresAt: new Date(now + 1800000).toISOString(),
     operations: [
@@ -41,7 +44,7 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
         operationId: "operation-1",
         attemptId: "attempt-1",
         claimGeneration: 1,
-        connectionId: "connection-1",
+        connectionId: target.connectionId,
         providerIdentity: { providerKey: "tcgplayer", environment: "sandbox" },
         channelListingId: "link-1",
         listingId: "listing-1",
@@ -60,6 +63,7 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
   const settlement: NonNullable<ExecutorResult["runSettlement"]> = {
     runId: "synthetic-run",
     expectedRunRevision: 1,
+    stagedReadback: null,
     fromState: "claimed",
     toState: "applied",
     verificationSnapshotId: null,

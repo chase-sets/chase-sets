@@ -216,4 +216,32 @@ describe("FeedbackAttentionSurface", () => {
     expect(source).not.toMatch(/new Date\(|Date\.now\(/);
     expect(source).toContain("formatDateTime(sla.effectiveDueAt ?? sla.triageDueAt)");
   });
+
+  it("says which case a deep link shows and links back to the full queue", async () => {
+    const items = (await apiItems()).filter((item) => item.caseId === "fbcase_closed");
+    render(<FeedbackAttentionSurface items={items} metrics={metrics} caseId="fbcase_closed" />);
+
+    expect(screen.getByText(t("customer-feedback.attention.caseFocus", { caseId: "fbcase_closed" }))).toBeTruthy();
+    expect(screen.getByRole("link", { name: t("customer-feedback.attention.showAll") }).getAttribute("href")).toBe(
+      "/support/customer-feedback/attention",
+    );
+    expect(
+      within(screen.getByRole("table"))
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["fbcase_closed"]);
+  });
+
+  it("says a linked case has no active attention instead of the empty queue message", () => {
+    render(<FeedbackAttentionSurface items={[]} metrics={metrics} caseId="fbcase_gone" />);
+
+    expect(screen.getByText(t("customer-feedback.attention.caseEmpty", { caseId: "fbcase_gone" }))).toBeTruthy();
+    expect(screen.queryByText(t("customer-feedback.attention.empty"))).toBeNull();
+  });
+
+  it("shows no case note on the full queue", async () => {
+    render(<FeedbackAttentionSurface items={await apiItems()} metrics={metrics} />);
+
+    expect(screen.queryByRole("link", { name: t("customer-feedback.attention.showAll") })).toBeNull();
+  });
 });

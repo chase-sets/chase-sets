@@ -3,6 +3,11 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as channels } from "../../../index";
 import { createChannelCredentialRuntime } from "../api/runtime";
 import { channelCredentialSchemaMigrations, channelCredentialSchemaSql } from "../read-model/schema";
+import { ebayConnectionSchemaMigrations, ebayConnectionSchemaSql } from "../../ebay-connection/read-model/schema";
+import {
+  ebayDeletionConsumerSchemaMigrations,
+  ebayDeletionConsumerSchemaSql,
+} from "../../ebay-account-deletion/read-model/consumer-schema";
 import { credentialDatabase } from "./db-support";
 import { at, binding, payload, keyring } from "./fixtures";
 
@@ -12,17 +17,36 @@ describe("Channel credential schema convergence", () => {
   it("converges empty and predecessor schemas; two boots preserve custody bytes", async () => {
     const predecessor = {
       ...channels,
-      schemaSql: channels.schemaSql.replace(channelCredentialSchemaSql, ""),
+      schemaSql: channels.schemaSql
+        .replace(ebayDeletionConsumerSchemaSql, "")
+        .replace(channelCredentialSchemaSql, "")
+        .replace(ebayConnectionSchemaSql, ""),
       schemaMigrations: channels.schemaMigrations?.filter(
-        (migration) => !channelCredentialSchemaMigrations.some((next) => next.migrationId === migration.migrationId),
+        (migration) =>
+          ![
+            ...channelCredentialSchemaMigrations,
+            ...ebayConnectionSchemaMigrations,
+            ...ebayDeletionConsumerSchemaMigrations,
+          ].some((next) => next.migrationId === migration.migrationId),
       ),
     };
     await bootstrapContextDatabase(predecessor, upgrade());
     expect((await upgrade().query("SELECT to_regclass('channels_connection_credentials') AS name")).rows).toEqual([
       { name: null },
     ]);
+    expect((await upgrade().query("SELECT to_regclass('channels_ebay_seller_bindings') AS name")).rows).toEqual([
+      { name: null },
+    ]);
+    expect(
+      (await upgrade().query("SELECT to_regclass('channels_ebay_account_deletion_completions') AS name")).rows,
+    ).toEqual([{ name: null }]);
     await bootstrapContextDatabase(channels, fresh());
     await bootstrapContextDatabase(channels, upgrade());
+    for (const db of [fresh(), upgrade()]) {
+      expect((await db.query("SELECT to_regclass('channels_ebay_single_credential_idx') AS name")).rows).toEqual([
+        { name: "channels_ebay_single_credential_idx" },
+      ]);
+    }
     const schema = (db: ReturnType<typeof fresh>) =>
       db.query(
         "SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_name='channels_connection_credentials' ORDER BY ordinal_position",

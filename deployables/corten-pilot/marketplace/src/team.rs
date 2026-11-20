@@ -22,15 +22,14 @@
 use crate::recovery::attempt_text;
 use corten::{
     ClientIp,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
-use crate::chrome::Chrome;
 use crate::{
     addresses::Said,
     api::{AccountAction, AccountAnswer, Addresses as _, ApiError, Invitation, Membership, TeamCalls as _},
@@ -48,8 +47,7 @@ pub const ROLES: [&str; 4] = ["owner", "manager", "fulfillment", "viewer"];
 const INVITATION_DAYS: i64 = 7;
 
 /// An instant as Identity's `isInstant` takes it: RFC 3339 to the millisecond. A finer one is
-/// refused as an indeterminate attempt (503 `INDETERMINATE`), so no invitation is created: a request
-/// refused while it is validated should be a 4xx refusal (chase-sets/chase-sets#10793).
+/// refused (400 `validation-failed`), and no invitation is created.
 fn instant(at: OffsetDateTime) -> String {
     let at = at.replace_nanosecond(u32::from(at.millisecond()) * 1_000_000).unwrap_or(at);
     at.format(&Rfc3339).unwrap_or_default()
@@ -58,7 +56,7 @@ fn instant(at: OffsetDateTime) -> String {
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
 /// answer settles (`saved`), and an attempt to ask the API about (`check`, its `action` and
 /// `target`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -70,7 +68,7 @@ pub struct Place {
 
 /// Every form's fields: which write (`intent`, marketplace's), the attempt it was drawn with, an
 /// invitation's email, the role, and the member or invitation a write is for.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct TeamInput {
     pub intent: String,
@@ -133,7 +131,6 @@ impl TeamScreen {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(TeamOwner(viewer)): Caller<TeamOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -149,7 +146,7 @@ pub(crate) async fn page(
         (None, _) if place.saved.is_some() => Said::Saved,
         (None, _) => Said::Editing,
     };
-    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK).await
 }
 
 /// What the API says came of `attempt`, for the page.
@@ -180,22 +177,20 @@ async fn render(
     said: Said,
     posted: Option<Draft>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
-    let account = viewer.actor.account_id.as_str();
-    let ((memberships, invitations), pending) = match caller.team(account).await {
+    let ((memberships, invitations), pending) = match caller.team().await {
         Ok(team) => (team, false),
         // The write's projection is not readable yet: the team as it was, marked as updating.
         Err(error) if receipt.is_some() && error.catching_up() => {
             let plain = config.platform.caller(headers, config.proto, None);
-            match plain.team(account).await {
+            match plain.team().await {
                 Ok(team) => (team, true),
-                Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+                Err(error) => return read_failed(req, Some(viewer), error, None),
             }
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let screen = TeamScreen { memberships, invitations, pending, said, posted };
     let t: TeamMsg = req.t();
@@ -205,9 +200,8 @@ async fn render(
         }
     };
     let view = html! { <views::TeamPage t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_title()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_title()} head={head}>{view}</Layout>
     };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
@@ -215,7 +209,6 @@ async fn render(
 /// A write.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(TeamOwner(viewer)): Caller<TeamOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -232,7 +225,7 @@ pub(crate) async fn write(
         // Only the invite form is drawn again; any other refusal is the page's banner, with its words.
         let said = if action == Some(AccountAction::CreateInvitation) { Said::Editing } else { Said::NotSaved };
         let posted = Some(Draft { input: input.clone(), errors });
-        render(req, viewer, config, headers, None, said, posted, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
+        render(req, viewer, config, headers, None, said, posted, StatusCode::UNPROCESSABLE_ENTITY)
     };
     let Some(action) = action else { return refuse(t.manage_state_failed_safe()).await };
     if !valid_attempt(&attempt) {
@@ -270,7 +263,7 @@ pub(crate) async fn write(
             tracing::warn!("a team write had no answer: {error}");
             (AccountAnswer::Indeterminate, None)
         }
-        Err(error) => return failed(req, viewer, config, headers, error, &chrome).await,
+        Err(error) => return failed(req, viewer, config, headers, error).await,
     };
     // No answer that says what happened: ask what came of the attempt, as marketplace does. A
     // create found this way is not emailed: the lookup cannot say whether this call recorded it.
@@ -298,9 +291,7 @@ pub(crate) async fn write(
         }
         AccountAnswer::NotRecorded { code, .. } if code == "validation-failed" => refuse(t.action_validation()).await,
         AccountAnswer::NotRecorded { .. } => refuse(t.manage_state_failed_safe()).await,
-        AccountAnswer::Conflict => {
-            render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT, &chrome).await
-        }
+        AccountAnswer::Conflict => render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT).await,
         AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
 }
@@ -308,21 +299,14 @@ pub(crate) async fn write(
 /// A write the API refused for who is asking: sign in again, or the page saying they may not. Any
 /// other refusal (the last owner, a role that may not be granted) is a rule the API keeps, and the
 /// page says nothing was recorded.
-async fn failed(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    error: ApiError,
-    chrome: &Chrome,
-) -> HtmlResult {
+async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
         Some(StatusCode::FORBIDDEN) => {
-            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN, chrome).await
+            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN).await
         }
         Some(status) if status.is_client_error() => {
-            render(req, viewer, config, headers, None, Said::NotSaved, None, StatusCode::UNPROCESSABLE_ENTITY, chrome).await
+            render(req, viewer, config, headers, None, Said::NotSaved, None, StatusCode::UNPROCESSABLE_ENTITY).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

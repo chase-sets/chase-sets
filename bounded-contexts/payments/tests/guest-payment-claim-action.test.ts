@@ -3,55 +3,21 @@ import { appendFreshWriteToken, readCompactPostWriteToken, readFreshWriteToken }
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 
 const {
-  mockClaimGuestCheckoutWithClaimContinuation,
-  mockClaimGuestCheckoutWithPasskey,
-  mockClaimGuestCheckoutWithMagicLink,
-  mockClearGuestCheckoutCookie,
-  mockCompleteBrowserAuthentication,
-  mockCreateInternalAuthRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockGetAccountPayment,
   mockGetCheckoutStatus,
   mockListAccountOrderInputs,
   mockRecoverCheckoutPayment,
   mockRequireActorFromAuthApi,
-  mockRequestGuestCheckoutClaimLink,
   mockResolveActorFromAuthApi,
 } = vi.hoisted(() => ({
-  mockClaimGuestCheckoutWithClaimContinuation: vi.fn(),
-  mockClaimGuestCheckoutWithPasskey: vi.fn(),
-  mockClaimGuestCheckoutWithMagicLink: vi.fn(),
-  mockClearGuestCheckoutCookie: vi.fn(),
-  mockCompleteBrowserAuthentication: vi.fn(
-    () =>
-      new Response(null, {
-        status: 302,
-        headers: { Location: "/account/payments/pay_1" },
-      }),
-  ),
-  mockCreateInternalAuthRequestApiClient: vi.fn(),
   mockCreatePaymentsRequestApiClient: vi.fn(),
   mockGetAccountPayment: vi.fn(),
   mockGetCheckoutStatus: vi.fn(),
   mockListAccountOrderInputs: vi.fn(),
   mockRecoverCheckoutPayment: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
-  mockRequestGuestCheckoutClaimLink: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
-}));
-
-vi.mock("@chase-sets/auth/server", () => ({
-  AuthApiError: class AuthApiError extends Error {
-    constructor(
-      public readonly status: number,
-      public readonly body: unknown,
-    ) {
-      super("Auth API error");
-    }
-  },
-  clearGuestCheckoutCookie: mockClearGuestCheckoutCookie,
-  completeBrowserAuthentication: mockCompleteBrowserAuthentication,
-  createInternalAuthRequestApiClient: mockCreateInternalAuthRequestApiClient,
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -152,13 +118,6 @@ describe("guest payment claim action", () => {
   });
 
   it("loads a captured guest checkout payment without requiring a signed-in account", async () => {
-    const getGuestCheckoutClaimContext = vi.fn(async () => ({
-      contactName: "Jane Smith",
-      contactEmail: "jane@example.com",
-    }));
-    mockCreateInternalAuthRequestApiClient.mockReturnValue({
-      getGuestCheckoutClaimContext,
-    });
     mockGetAccountPayment.mockResolvedValue({
       payment_id: "pay_guest_1",
       order_ids: ["ord_guest_1"],
@@ -192,7 +151,6 @@ describe("guest payment claim action", () => {
     expect(mockResolveActorFromAuthApi).toHaveBeenCalled();
     expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_guest_1");
     expect(mockListAccountOrderInputs).toHaveBeenCalledWith({ orderIds: ["ord_guest_1"] });
-    expect(getGuestCheckoutClaimContext).toHaveBeenCalledWith({ paymentId: "pay_guest_1" });
     expect(result).toEqual(
       expect.objectContaining({
         isGuestCheckoutPayment: true,
@@ -210,54 +168,10 @@ describe("guest payment claim action", () => {
             seller_payout_amount: "25.00",
           }),
         ],
-        guestClaimContext: {
-          contactName: "Jane Smith",
-          contactEmail: "jane@example.com",
-        },
       }),
     );
     expect(JSON.stringify(result.orders)).not.toContain("100 Market Street");
     expect(JSON.stringify(result.orders)).not.toContain("jane@example.com");
-  });
-
-  it("consumes an emailed claim continuation before loading the guest payment", async () => {
-    const authResult = {
-      type: "session-started",
-      userId: "usr_1",
-      sessionId: "ses_1",
-      sessionToken: "session_token",
-      session: { session_id: "ses_1" },
-      memberships: [],
-    };
-    mockClaimGuestCheckoutWithClaimContinuation.mockResolvedValue(authResult);
-    mockCreateInternalAuthRequestApiClient.mockReturnValue({
-      claimGuestCheckoutWithClaimContinuation: mockClaimGuestCheckoutWithClaimContinuation,
-    });
-
-    let result: Response | null = null;
-    try {
-      await loader({
-        request: new Request("http://localhost/checkout/payments/pay_1?claimContinuation=continuation_token", {
-          headers: { cookie: "chase_sets_guest_checkout=guest_token" },
-        }),
-        params: { paymentId: "pay_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      result = error as Response;
-    }
-
-    expect(mockClaimGuestCheckoutWithClaimContinuation).toHaveBeenCalledWith({
-      continuation: "continuation_token",
-      paymentId: "pay_1",
-    });
-    expect(mockCompleteBrowserAuthentication).toHaveBeenCalledWith(expect.any(Request), authResult, {
-      defaultSuccessPath: "/account/payments/pay_1",
-      accountSelectionPath: "/account/select",
-    });
-    expect(mockClearGuestCheckoutCookie).toHaveBeenCalledWith(result?.headers, expect.any(Request));
-    expect(mockGetAccountPayment).not.toHaveBeenCalled();
-    expect(result?.status).toBe(302);
   });
 
   it("loads a signed-in account payment without customer-visible support diagnostics", async () => {
@@ -312,11 +226,9 @@ describe("guest payment claim action", () => {
     expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
     expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_signed_in_1");
     expect(mockListAccountOrderInputs).toHaveBeenCalledWith({ orderIds: ["ord_signed_in_1"] });
-    expect(mockCreateInternalAuthRequestApiClient).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
         isGuestCheckoutPayment: false,
-        guestClaimContext: null,
         showSupportDetails: false,
         paymentElementDefaultValues: null,
         payment: expect.objectContaining({
@@ -455,225 +367,6 @@ describe("guest payment claim action", () => {
       }),
     );
     expect(JSON.stringify(result.orders)).not.toContain("100 Market Street");
-  });
-
-  it("requests an email claim link without exposing the claim token by default", async () => {
-    mockRequestGuestCheckoutClaimLink.mockResolvedValue({
-      token: "magic_token",
-      expiresAt: "2026-05-04T16:00:00.000Z",
-    });
-    mockCreateInternalAuthRequestApiClient.mockReturnValue({
-      requestGuestCheckoutClaimLink: mockRequestGuestCheckoutClaimLink,
-    });
-
-    const form = new URLSearchParams();
-    form.set("intent", "claim-link-request");
-    form.set("displayName", "Jane Smith");
-    form.set("email", "jane@example.com");
-
-    const result = await action({
-      request: new Request("http://localhost/checkout/payments/pay_1", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: { paymentId: "pay_1" },
-      context: undefined,
-    } as never);
-
-    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_1");
-    expect(mockRequestGuestCheckoutClaimLink).toHaveBeenCalledWith({
-      paymentId: "pay_1",
-      origin: "http://localhost",
-    });
-    expect(result).toEqual({
-      status: "claim-link-sent",
-      token: null,
-      expiresAt: "2026-05-04T16:00:00.000Z",
-      displayName: "Jane Smith",
-    });
-  });
-
-  it("exposes the guest claim token only for explicitly enabled local recovery outside production", async () => {
-    process.env.GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED = "true";
-    mockRequestGuestCheckoutClaimLink.mockResolvedValue({
-      token: "magic_token",
-      expiresAt: "2026-05-04T16:00:00.000Z",
-    });
-    mockCreateInternalAuthRequestApiClient.mockReturnValue({
-      requestGuestCheckoutClaimLink: mockRequestGuestCheckoutClaimLink,
-    });
-
-    const form = new URLSearchParams();
-    form.set("intent", "claim-link-request");
-    form.set("displayName", "Jane Smith");
-
-    const result = await action({
-      request: new Request("http://localhost/checkout/payments/pay_1", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: { paymentId: "pay_1" },
-      context: undefined,
-    } as never);
-
-    expect(result).toEqual({
-      status: "claim-link-sent",
-      token: "magic_token",
-      expiresAt: "2026-05-04T16:00:00.000Z",
-      displayName: "Jane Smith",
-    });
-  });
-
-  it("does not expose the guest claim token in production even when local recovery is configured", async () => {
-    process.env.NODE_ENV = "production";
-    process.env.GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED = "true";
-    mockRequestGuestCheckoutClaimLink.mockResolvedValue({
-      token: "magic_token",
-      expiresAt: "2026-05-04T16:00:00.000Z",
-    });
-    mockCreateInternalAuthRequestApiClient.mockReturnValue({
-      requestGuestCheckoutClaimLink: mockRequestGuestCheckoutClaimLink,
-    });
-
-    const form = new URLSearchParams();
-    form.set("intent", "claim-link-request");
-    form.set("displayName", "Jane Smith");
-
-    const result = await action({
-      request: new Request("http://localhost/checkout/payments/pay_1", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: { paymentId: "pay_1" },
-      context: undefined,
-    } as never);
-
-    expect(result).toEqual({
-      status: "claim-link-sent",
-      token: null,
-      expiresAt: "2026-05-04T16:00:00.000Z",
-      displayName: "Jane Smith",
-    });
-  });
-
-  it("claims the guest account with passkey proof and starts a browser session", async () => {
-    const authResult = {
-      type: "session-started",
-      userId: "usr_1",
-      sessionId: "ses_1",
-      sessionToken: "session_token",
-      session: { session_id: "ses_1" },
-      memberships: [],
-    };
-    mockClaimGuestCheckoutWithPasskey.mockResolvedValue(authResult);
-    mockCreateInternalAuthRequestApiClient.mockReturnValue({
-      claimGuestCheckoutWithPasskey: mockClaimGuestCheckoutWithPasskey,
-    });
-
-    const form = new URLSearchParams();
-    form.set("intent", "claim-passkey");
-    form.set("displayName", "Jane Smith");
-    form.set("email", "jane@example.com");
-    form.set("challengeId", "cmd_challenge");
-    form.set("challenge", "challenge");
-    form.set("externalCredentialId", "cred_external");
-    form.set("label", "Passkey");
-    form.set("webauthnResponse", "webauthn_response");
-
-    const result = await action({
-      request: new Request("http://localhost/checkout/payments/pay_1", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: { paymentId: "pay_1" },
-      context: undefined,
-    } as never);
-
-    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_1");
-    expect(mockClaimGuestCheckoutWithPasskey).toHaveBeenCalledWith({
-      displayName: "Jane Smith",
-      email: "jane@example.com",
-      paymentId: "pay_1",
-      challengeId: "cmd_challenge",
-      challenge: "challenge",
-      externalCredentialId: "cred_external",
-      label: "Passkey",
-      webauthnResponse: "webauthn_response",
-    });
-    expect(mockCompleteBrowserAuthentication).toHaveBeenCalledWith(expect.any(Request), authResult, {
-      defaultSuccessPath: "/account/payments/pay_1",
-      accountSelectionPath: "/account/select",
-    });
-    expect(mockClearGuestCheckoutCookie).toHaveBeenCalledWith((result as Response).headers, expect.any(Request));
-    expect((result as Response).status).toBe(302);
-  });
-
-  it("rejects manual guest claim token entry when local recovery is disabled", async () => {
-    const form = new URLSearchParams();
-    form.set("intent", "claim-link-consume");
-    form.set("displayName", "Jane Smith");
-    form.set("token", "magic_token");
-
-    const result = await action({
-      request: new Request("http://localhost/checkout/payments/pay_1", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: { paymentId: "pay_1" },
-      context: undefined,
-    } as never);
-
-    expect(result).toEqual({
-      scope: "claim",
-      error: "Claim token entry is not available here. Use the emailed link or request a new one.",
-    });
-    expect(mockClaimGuestCheckoutWithMagicLink).not.toHaveBeenCalled();
-    expect(mockClearGuestCheckoutCookie).not.toHaveBeenCalled();
-  });
-
-  it("consumes a local recovery claim token only when explicitly enabled", async () => {
-    process.env.GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED = "true";
-    const authResult = {
-      type: "session-started",
-      userId: "usr_1",
-      sessionId: "ses_1",
-      sessionToken: "session_token",
-      session: { session_id: "ses_1" },
-      memberships: [],
-    };
-    mockClaimGuestCheckoutWithMagicLink.mockResolvedValue(authResult);
-    mockCreateInternalAuthRequestApiClient.mockReturnValue({
-      claimGuestCheckoutWithMagicLink: mockClaimGuestCheckoutWithMagicLink,
-    });
-
-    const form = new URLSearchParams();
-    form.set("intent", "claim-link-consume");
-    form.set("displayName", "Jane Smith");
-    form.set("token", "magic_token");
-
-    const result = await action({
-      request: new Request("http://localhost/checkout/payments/pay_1", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: { paymentId: "pay_1" },
-      context: undefined,
-    } as never);
-
-    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_1");
-    expect(mockClaimGuestCheckoutWithMagicLink).toHaveBeenCalledWith({
-      token: "magic_token",
-      paymentId: "pay_1",
-      displayName: "Jane Smith",
-    });
-    expect(mockClearGuestCheckoutCookie).toHaveBeenCalledWith((result as Response).headers, expect.any(Request));
-    expect((result as Response).status).toBe(302);
   });
 
   it("recovers failed guest payments without leaving guest checkout", async () => {

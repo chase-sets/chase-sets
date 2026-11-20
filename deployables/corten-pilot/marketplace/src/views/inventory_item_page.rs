@@ -65,17 +65,17 @@ fn reason(t: InventoryMsg, code: &str) -> String {
         "correction" => t.item_adjustment_reason_correction().to_owned(),
         "intake" => t.item_adjustment_reason_intake().to_owned(),
         "return-restocked" => t.item_adjustment_reason_return_restocked().to_owned(),
+        "sale-consumed" => t.item_adjustment_reason_sale_consumed().to_owned(),
         other => other.to_owned(),
     }
 }
 
-/// A movement's kind (`ledgerKindLabel`). Marketplace has no words for an offline sale and shows
-/// its code (chase-sets/chase-sets#10673); the pilot says the adjustment reason's "Sold offline".
-fn kind(t: InventoryMsg, p: Pilot, kind: &str) -> String {
+/// A movement's kind (`ledgerKindLabel`).
+fn kind(t: InventoryMsg, kind: &str) -> String {
     match kind {
         "created" => t.item_ledger_created().to_owned(),
         "adjusted" => t.item_ledger_adjusted().to_owned(),
-        "offline-sale" => p.inventory_ledger_offline_sale().to_owned(),
+        "offline-sale" => t.item_adjustment_reason_sold_offline().to_owned(),
         "hold-placed" => t.item_ledger_hold_placed().to_owned(),
         "hold-converted" => t.item_ledger_hold_converted().to_owned(),
         "hold-consumed" => t.item_ledger_hold_consumed().to_owned(),
@@ -221,7 +221,7 @@ pub fn InventoryItemPage<'a>(
                         </ul>
                     }
                 </section>
-                <Ledger t={t} p={p} screen={screen} />
+                <Ledger t={t} screen={screen} />
             </div>
             if screen.can_manage {
                 <div class={Aside}>
@@ -267,7 +267,7 @@ pub fn AdjustForm<'a>(t: InventoryMsg, m: Msg, viewer: &'a Viewer, screen: &'a I
         <WriteForm
             t={m}
             id={AdjustFormId}
-            action={url::StockAdjust { id }}
+            action={url::StockItem { id, place: Default::default(), check: Default::default() }}
             viewer={viewer}
             family={Family::ItemAdjust}
             target={id}
@@ -449,7 +449,7 @@ pub fn ReleaseForm<'a>(
 
 /// The stock ledger: its kinds as links (All movements first), and the movements.
 #[component(css = InventoryItemPage)]
-fn Ledger<'a>(t: InventoryMsg, p: Pilot, screen: &'a ItemScreen) -> impl Render {
+fn Ledger<'a>(t: InventoryMsg, screen: &'a ItemScreen) -> impl Render {
     let id = screen.item.item.item_id.as_str();
     let selected = screen.place.kind();
     let link = |kind: Option<&str>| url::StockItem { id, place: screen.place.filtered(kind), check: Check::default() };
@@ -471,7 +471,7 @@ fn Ledger<'a>(t: InventoryMsg, p: Pilot, screen: &'a ItemScreen) -> impl Render 
                         href={link(Some(k))}
                         aria-current={(selected == Some(k)).then_some("page")}
                     >
-                        {kind(t, p, k)}
+                        {kind(t, k)}
                     </a>
                 }
             </nav>
@@ -484,7 +484,7 @@ fn Ledger<'a>(t: InventoryMsg, p: Pilot, screen: &'a ItemScreen) -> impl Render 
                             class={Step}
                             data-status={if entry.kind == "hold-expired" || entry.reason == "written-off" { "issue" } else { "complete" }}
                         >
-                            <p class={Strong}>{kind(t, p, &entry.kind)}</p>
+                            <p class={Strong}>{kind(t, &entry.kind)}</p>
                             <p class={Hint}>{facts(t, entry)}</p>
                             if let Some(order) = source_order(entry.source_ref.as_ref()) {
                                 <a class={(Button, Secondary, Small)} href={url::Sale { id: order, after: Default::default() }}>

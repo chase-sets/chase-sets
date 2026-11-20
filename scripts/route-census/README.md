@@ -23,7 +23,9 @@ Exit codes are closed:
 
 Each evaluation child runs with the target root as `cwd`, its `tsconfig.json` in `TSX_TSCONFIG_PATH`, `NODE_ENV=test`, and the app call `buildPlatformApiApp(runtime, { runtimeProfile: "public" })`. The two profile facts remain separate artifact fields: `nodeEnvironment:"test"` and `appRuntimeProfile:"public"`.
 
-All absolute Windows module paths are converted with `pathToFileURL`. The generated API registry, `infrastructure/bounded-context-runtime/api-mounts.ts`, and `deployables/platform-api/src/app.ts` are imported from the evaluated tree. A bare-specifier probe and effective-tsconfig evidence must realpath below that same root.
+All absolute Windows module paths are converted with `pathToFileURL`. The API context registry, `infrastructure/bounded-context-runtime/api-mounts.ts`, and `deployables/platform-api/src/app.ts` are imported from the evaluated tree. A bare-specifier probe and effective-tsconfig evidence must realpath below that same root.
+
+`registry-source.mts` owns the closed API registry source list: `LEGACY_API_REGISTRY_SOURCE`, the generated module that only pre-move trees carry, and the current `deployables/platform-api/src/context-registry.ts`. Capture resolves it independently under each target root and does not know which side it captures: exactly one listed path must exist with exact on-disk segment spelling, be Git-tracked with that spelling, and realpath to itself inside the root; both, neither, or a differently cased path fails `E_PROVENANCE`. Validation admits the legacy or current path on the base capture and only the current path on the candidate, and live validation (including the pre-publication check) re-resolves each recorded path under its recorded root.
 
 The evaluator obtains `mergePath`, `checkOptionalParameter`, `splitRoutingPath`, and `getPattern` from one target package-export namespace for `hono/utils/url`. The module realpath, package version, module SHA-256, and four-member helper surface are retained and revalidated. No host-tree helper or recalled Hono grammar participates.
 

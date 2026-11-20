@@ -460,6 +460,9 @@ function collectCapabilityRequirements(
   return statusDetailsArray(statusDetails).flatMap((detail) => {
     const resolution = detail.resolution?.trim();
     const code = detail.code?.trim();
+    if (code === "rejected" || code?.startsWith("rejected_")) {
+      return [];
+    }
     if (resolution !== "provide_info" && code !== "requirements_past_due") {
       return [];
     }

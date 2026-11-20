@@ -11,6 +11,7 @@ use corten::{
     prelude::*,
     view::{AttrValue, Id},
 };
+use platform::ui::table::TableLayout;
 use serde_json::Value;
 
 use super::{
@@ -26,21 +27,24 @@ use crate::{
         api::{ContentChoice, ContentLine, Field, ItemDetail, ItemRow, Readiness, Reference, ReferenceRow, SelectedOption},
         form::{
             ContentLineInput, FallbackInput, FieldValueInput, IdInput, ListInput, MetadataInput, PublishInput, ReferenceInput,
+            VersionInput,
         },
         url::{self, item as at},
     },
     text::{Cat, Pilot},
-    views::admin_web,
+    views::link_to,
 };
 
 const DASH: &str = "\u{2014}";
 
-/// The item page's view model: the item, what it contains and what contains it (none when the
-/// API could not say), and the names the content lines are shown with.
+/// The item page's view model: the item, what it contains and the version of its contents' stream
+/// they were read at, what contains it (none when the API could not say), and the names the content
+/// lines are shown with.
 #[derive(serde::Serialize, ToJson)]
 pub struct ItemScreen {
     pub item: ItemDetail,
     pub contents: Option<Vec<ContentLine>>,
+    pub contents_version: Option<u64>,
     pub containers: Option<Vec<ContentLine>>,
     pub labels: Labels,
 }
@@ -111,6 +115,9 @@ pub enum ItemBack {
     CatalogRef(Draft<ReferenceInput>),
     ProductRef(Draft<ReferenceInput>),
     Content(Draft<ContentLineInput>, ContentChoices),
+    /// Contents that changed since the page read them: drawn open with the message, and Add
+    /// content line's form that came back, when that was the write.
+    ContentsChanged(Option<(Draft<ContentLineInput>, ContentChoices)>),
     /// A row's form, by its id, and its refusal.
     Row(String, Errors),
 }
@@ -243,7 +250,13 @@ fn options_label(t: Cat, options: Option<&Vec<SelectedOption>>) -> String {
     match options {
         Some(options) if !options.is_empty() => options
             .iter()
-            .map(|o| t.item_selected_option_reference(&o.dimension_id, &o.option_id).to_string())
+            .map(|o| {
+                t.item_selected_option_reference(crate::text::cat::ItemSelectedOptionReference {
+                    dimension_id: &o.dimension_id,
+                    option_id: &o.option_id,
+                })
+                .to_string()
+            })
             .collect::<Vec<_>>()
             .join(", "),
         _ => t.item_all_product_options().to_owned(),
@@ -276,6 +289,7 @@ pub fn item_transitions(t: Cat, status: &str) -> Vec<Transition> {
 
 /// The page.
 pub fn item_page<'a>(
+    req: &'a Req,
     t: Cat,
     p: Pilot,
     screen: &'a ItemScreen,
@@ -295,6 +309,7 @@ pub fn item_page<'a>(
         ItemBack::Row(form, errors) => Some((form.clone(), errors.clone())),
         _ => None,
     };
+    let changed = matches!(back, ItemBack::ContentsChanged(_));
     let lifecycle = at::Lifecycle { id }.href();
     let steps = item_transitions(t, &item.status);
     let items = [
@@ -329,7 +344,7 @@ pub fn item_page<'a>(
             <KeyValues items={&items} />
             <PartList>
                 if !origin.is_empty() {
-                    <Origin t={t} providers={&origin} />
+                    <Origin t={t} req={req} providers={&origin} />
                 }
                 if item.status == "draft" && item.blueprint.is_none() {
                     <ItemPage title={t.item_blueprint()}>
@@ -338,12 +353,12 @@ pub fn item_page<'a>(
                 }
                 <FieldValues t={t} id={id} rows={&rows} editable={editable} refused={row_errors.as_ref()} />
                 <Categories t={t} id={id} item={item} editable={editable} refused={row_errors.as_ref()} />
-                <Contents
+                <ContentsPart
                     t={t}
                     p={p}
                     screen={screen}
-                    editable={editable}
-                    open={open == Some(Fold::Contents)}
+                    open={changed || open == Some(Fold::Contents)}
+                    changed={changed}
                     refused={row_errors.as_ref()}
                 />
                 <Tags t={t} item={item} editable={editable} open={open == Some(Fold::Tags)} />
@@ -373,16 +388,17 @@ pub fn item_page<'a>(
                 />
             </PartList>
         </DetailPage>
-        <ReferenceDialogs t={t} rows={&rows} />
+        <ReferenceDialogs t={t} p={p} rows={&rows} />
         if editable {
-            {dialogs(t, p, item, back)}
+            {dialogs(t, p, item, screen.contents_version, back)}
         }
         <Toasts p={p} notice={notice.as_ref()} />
     }
 }
 
-/// The page's dialogs, each with its default form or the one that came back.
-fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl Render + 'a {
+/// The page's dialogs, each with its default form or the one that came back (Add content line's at
+/// the contents version the page shows).
+fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, version: Option<u64>, back: ItemBack) -> impl Render + 'a {
     let id = item.catalog_item_id.as_str();
     let close = p.catalog_close();
     let mut publish = (Draft::new(PublishInput::default()), false);
@@ -408,12 +424,17 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
         ItemBack::ProductRef(d) => product_ref = (d, true),
         ItemBack::Field(d, choices) => field = Some((d, choices)),
         ItemBack::Content(d, choices) => content = Some((d, choices)),
-        ItemBack::Nothing | ItemBack::Lifecycle(_) | ItemBack::Row(..) => {}
+        ItemBack::ContentsChanged(Some((mut d, choices))) => {
+            d.input.expected_version = version.map(|v| v.to_string()).unwrap_or_default();
+            content = Some((d, choices));
+        }
+        ItemBack::Nothing | ItemBack::Lifecycle(_) | ItemBack::Row(..) | ItemBack::ContentsChanged(None) => {}
     }
     let readiness = item.display_identity_publication.clone().unwrap_or_else(Readiness::unavailable);
     html! {
         if item.status == "draft" {
             <CatalogDialog
+                p={p}
                 id={ids::PUBLISH_DIALOG}
                 title={t.item_publish_catalog_item()}
                 description={Some(t.item_confirm_that_the_blueprint_is_active())}
@@ -425,6 +446,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
         }
         if item.status == "draft" && item.blueprint.is_none() {
             <CatalogDialog
+                p={p}
                 id={ids::BLUEPRINT_DIALOG}
                 title={t.item_assign_blueprint_2()}
                 description={None}
@@ -446,6 +468,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <dialog id={ids::FIELD_DIALOG}></dialog>
         }
         <CatalogDialog
+            p={p}
             id={ids::CATEGORY_DIALOG}
             title={t.item_assign_category_2()}
             description={None}
@@ -461,6 +484,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::METADATA_DIALOG}
             title={t.item_edit_description_2()}
             description={None}
@@ -470,6 +494,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <MetadataForm t={t} id={id} form={&metadata.0} />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::TAGS_DIALOG}
             title={t.item_set_tags_2()}
             description={Some(t.item_enter_tags_separated_by_commas())}
@@ -486,6 +511,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::URLS_DIALOG}
             title={t.item_set_image_urls_2()}
             description={Some(t.item_enter_one_url_per_line())}
@@ -502,6 +528,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::FALLBACK_DIALOG}
             title={t.item_set_image_fallback_2()}
             description={Some(t.item_image_fallback_description())}
@@ -511,6 +538,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <FallbackForm t={t} id={id} form={&fallback.0} />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::CATALOG_REF_DIALOG}
             title={t.item_link_external_catalog_item_reference_2()}
             description={Some(t.item_external_catalog_item_reference_description())}
@@ -520,6 +548,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <ReferenceForm t={t} id={id} form_id={ids::CATALOG_REF} product={false} form={&catalog_ref.0} />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::PRODUCT_REF_DIALOG}
             title={t.item_link_external_reference_2()}
             description={Some(t.item_external_reference_description())}
@@ -589,16 +618,17 @@ pub fn RowForm<'a>(
     }
 }
 
-/// The imports that made the item, by provider (admin-web's Originating import).
+/// The imports that made the item, by provider (admin-web's Originating import): each opens the
+/// integrations workbench for its provider, the pilot's own page when it serves one.
 #[component(css = ItemPage)]
-fn Origin<'a>(t: Cat, providers: &'a BTreeSet<&'a str>) -> impl Render {
+fn Origin<'a>(t: Cat, req: &'a Req, providers: &'a BTreeSet<&'a str>) -> impl Render {
     html! {
         <ItemPage title={t.item_origin_title()}>
             <p class={Muted}>{t.item_origin_description()}</p>
             <div class={Buttons}>
                 for provider in providers {
                     let query = format!("/catalog/integrations?providerKey={}", crate::api::segment(provider));
-                    let href = admin_web(&query).map(|u| u.to_string()).unwrap_or_default();
+                    let href = link_to(req, &query).unwrap_or_default();
                     <a class={Link} href={&href}>{t.item_view_source_observations()} " (" {*provider} ")"</a>
                 }
             </div>
@@ -627,13 +657,13 @@ fn FieldValues<'a>(
             if rows.is_empty() {
                 <Empty title={t.item_no_field_values()} description="" />
             } else {
-                <Table label={t.item_field_values()} head={&head} all={None}>
+                <Table label={t.item_field_values()} head={&head} all={None} layout={TableLayout::Scroll}>
                     for row in rows {
                         <tr>
                             <td>{&row.label}</td>
                             <td>
                                 if let Some(reference) = row.reference {
-                                    let label = t.item_reference_value_aria(&row.label, &reference.name).to_string();
+                                    let label = t.item_reference_value_aria(crate::text::cat::ItemReferenceValueAria { label: &row.label, value: &reference.name }).to_string();
                                     <button
                                         type="button"
                                         class={Cue}
@@ -665,7 +695,7 @@ fn FieldValues<'a>(
 
 /// A dialog for each reference record the field values name (each once).
 #[component(css = ItemPage)]
-fn ReferenceDialogs<'a>(t: Cat, rows: &'a [DetailRow<'a>]) -> impl Render {
+fn ReferenceDialogs<'a>(t: Cat, p: Pilot, rows: &'a [DetailRow<'a>]) -> impl Render {
     let mut seen = HashSet::new();
     let references: Vec<&Reference> =
         rows.iter().filter_map(|r| r.reference).filter(|r| seen.insert(r.reference_id.as_str())).collect();
@@ -689,6 +719,7 @@ fn ReferenceDialogs<'a>(t: Cat, rows: &'a [DetailRow<'a>]) -> impl Render {
                 .map(|r| (relationship_label(&r.relationship_type), r.reference.as_ref().map_or_else(|| r.reference_id.clone(), |x| x.name.clone())))
                 .collect();
             <CatalogDialog
+                p={p}
                 id={ids::ItemId(&dialog)}
                 title={&reference.name}
                 description={Some(&kind)}
@@ -740,7 +771,7 @@ fn Categories<'a>(
             if item.categories.is_empty() {
                 <p class={Muted}>{t.item_no_categories_assigned()}</p>
             } else {
-                <Table label={t.item_categories()} head={&head} all={None}>
+                <Table label={t.item_categories()} head={&head} all={None} layout={TableLayout::Scroll}>
                     for category in &item.categories {
                         <tr>
                             <td>{&category.name}</td>
@@ -759,17 +790,21 @@ fn Categories<'a>(
     }
 }
 
-/// What the item contains, its unresolved provider evidence, and what contains it.
+/// What the item contains, its unresolved provider evidence, and what contains it: a part a write's
+/// refusal redraws (\`changed\`: the contents changed since the page read them, so here they are now).
+/// Add and Remove send the contents version the part shows.
 #[component(css = ItemPage)]
-fn Contents<'a>(
+pub fn ContentsPart<'a>(
     t: Cat,
     p: Pilot,
     screen: &'a ItemScreen,
-    editable: bool,
     open: bool,
+    changed: bool,
     refused: Option<&'a (String, Errors)>,
-) -> impl Render {
+) -> impl Patch {
     let id = screen.item.catalog_item_id.as_str();
+    let editable = screen.item.status != "archived";
+    let version = screen.contents_version.map(|v| v.to_string()).unwrap_or_default();
     let lines = screen.contents.as_deref().unwrap_or_default();
     let containers = screen.containers.as_deref().unwrap_or_default();
     let resolved: Vec<&ContentLine> = lines.iter().filter(|l| l.resolution_status == "resolved").collect();
@@ -792,63 +827,69 @@ fn Contents<'a>(
     let add = at::Contents::of(id).href();
     let tone = |any: bool, on: &'static str| if any { on } else { "neutral" };
     html! {
-        <ItemPage title={t.item_product_contents()}>
-            if screen.contents.is_none() || screen.containers.is_none() {
-                <p class={Alert} role="alert">{p.item_contents_unavailable()}</p>
-            }
-            <Disclosure title={t.item_contents()} summary={&summary} tone={tone(!lines.is_empty(), "info")} open={open}>
-                if editable && screen.contents.is_some() {
-                    <form class={Opener} method="get" action={&add} data-patch>
-                        <button type="submit" class={Small}>{t.item_add_content_line()}</button>
-                    </form>
+        <div id={ids::CONTENTS}>
+            <ItemPage title={t.item_product_contents()}>
+                if screen.contents.is_none() || screen.containers.is_none() {
+                    <p class={Alert} role="alert">{p.item_contents_unavailable()}</p>
                 }
-                <LineTable
-                    t={t}
-                    screen={screen}
-                    lines={&resolved}
-                    empty={t.item_no_resolved_contents()}
-                    editable={editable}
-                    refused={refused}
-                />
-            </Disclosure>
-            <Disclosure
-                title={t.item_unresolved_provider_evidence()}
-                summary={&evidence}
-                tone={tone(!unresolved.is_empty(), "warning")}
-                open={open && !unresolved.is_empty()}
-            >
-                <LineTable
-                    t={t}
-                    screen={screen}
-                    lines={&unresolved}
-                    empty={t.item_no_unresolved_provider_evidence()}
-                    editable={editable}
-                    refused={refused}
-                />
-            </Disclosure>
-            <Disclosure
-                title={t.item_included_in()}
-                summary={&contained_in}
-                tone={tone(!containers.is_empty(), "info")}
-                open={false}
-            >
-                if containers.is_empty() {
-                    <p class={Muted}>{t.item_no_product_containers()}</p>
-                } else {
-                    let head = [t.item_container_catalog_item(), t.item_content_type(), t.item_quantity(), t.item_selected_options()];
-                    <Table label={t.item_included_in()} head={&head} all={None}>
-                        for line in containers {
-                            <tr>
-                                <td>{screen.labels.item(&line.container_catalog_item_id)}</td>
-                                <td>{screen.labels.content_type(&line.content_type_id)}</td>
-                                <td>{quantity(t, line.quantity)}</td>
-                                <td>{options_label(t, line.container_selected_options.as_ref())}</td>
-                            </tr>
-                        }
-                    </Table>
+                if changed {
+                    <p class={Alert} role="alert">{p.item_contents_changed()}</p>
                 }
-            </Disclosure>
-        </ItemPage>
+                <Disclosure title={t.item_contents()} summary={&summary} tone={tone(!lines.is_empty(), "info")} open={open}>
+                    if editable && screen.contents.is_some() {
+                        <form class={Opener} method="get" action={&add} data-patch>
+                            <input type="hidden" name={VersionInput::FIELDS.expected_version} value={&version}>
+                            <button type="submit" class={Small}>{t.item_add_content_line()}</button>
+                        </form>
+                    }
+                    <LineTable
+                        t={t}
+                        screen={screen}
+                        lines={&resolved}
+                        empty={t.item_no_resolved_contents()}
+                        editable={editable}
+                        refused={refused}
+                    />
+                </Disclosure>
+                <Disclosure
+                    title={t.item_unresolved_provider_evidence()}
+                    summary={&evidence}
+                    tone={tone(!unresolved.is_empty(), "warning")}
+                    open={open && !unresolved.is_empty()}
+                >
+                    <LineTable
+                        t={t}
+                        screen={screen}
+                        lines={&unresolved}
+                        empty={t.item_no_unresolved_provider_evidence()}
+                        editable={editable}
+                        refused={refused}
+                    />
+                </Disclosure>
+                <Disclosure
+                    title={t.item_included_in()}
+                    summary={&contained_in}
+                    tone={tone(!containers.is_empty(), "info")}
+                    open={false}
+                >
+                    if containers.is_empty() {
+                        <p class={Muted}>{t.item_no_product_containers()}</p>
+                    } else {
+                        let head = [t.item_container_catalog_item(), t.item_content_type(), t.item_quantity(), t.item_selected_options()];
+                        <Table label={t.item_included_in()} head={&head} all={None} layout={TableLayout::Scroll}>
+                            for line in containers {
+                                <tr>
+                                    <td>{screen.labels.item(&line.container_catalog_item_id)}</td>
+                                    <td>{screen.labels.content_type(&line.content_type_id)}</td>
+                                    <td>{quantity(t, line.quantity)}</td>
+                                    <td>{options_label(t, line.container_selected_options.as_ref())}</td>
+                                </tr>
+                            }
+                        </Table>
+                    }
+                </Disclosure>
+            </ItemPage>
+        </div>
     }
 }
 
@@ -863,6 +904,7 @@ fn LineTable<'a>(
     refused: Option<&'a (String, Errors)>,
 ) -> impl Render {
     let id = screen.item.catalog_item_id.as_str();
+    let version = screen.contents_version.map(|v| v.to_string()).unwrap_or_default();
     let head = [
         t.item_contained_catalog_item(),
         t.item_content_type(),
@@ -875,7 +917,7 @@ fn LineTable<'a>(
         if lines.is_empty() {
             <p class={Muted}>{empty}</p>
         } else {
-            <Table label={t.item_contents()} head={&head} all={None}>
+            <Table label={t.item_contents()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for line in lines {
                     <tr>
                         <td>
@@ -894,7 +936,8 @@ fn LineTable<'a>(
                             if editable && screen.contents.is_some() {
                                 let form = ids::row("line", &line.line_id);
                                 let action = at::ContentRemove { id, line_id: &line.line_id }.href();
-                                <RowForm id={&form} action={&action} label={t.item_remove()} hidden={&[]} refused={refused} />
+                                let hidden = [(VersionInput::FIELDS.expected_version.untyped(), version.as_str())];
+                                <RowForm id={&form} action={&action} label={t.item_remove()} hidden={&hidden} refused={refused} />
                             }
                         </td>
                     </tr>
@@ -1048,7 +1091,7 @@ fn References<'a>(
                 if refs.is_empty() {
                     <p class={Muted}>{none}</p>
                 } else {
-                    <Table label={title} head={&head} all={None}>
+                    <Table label={title} head={&head} all={None} layout={TableLayout::Scroll}>
                         for r in refs {
                             <tr>
                                 <td>{&r.provider_key}</td>
@@ -1163,6 +1206,7 @@ pub fn IdForm<'a, I: Id + AttrValue + Copy>(
 pub fn FieldDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: &'a Draft<FieldValueInput>, choices: &'a FieldChoices) -> impl Patch {
     html! {
         <CatalogDialog
+            p={p}
             id={ids::FIELD_DIALOG}
             title={t.item_set_field_value_2()}
             description={None}
@@ -1185,13 +1229,28 @@ pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>,
         .fields
         .iter()
         .map(|field| {
-            (field.field_id.clone(), t.item_field_option(&field.name, &field.key).to_string(), field.value_type == "reference")
+            (
+                field.field_id.clone(),
+                t.item_field_option(crate::text::cat::ItemFieldOption { name: &field.name, key: &field.key }).to_string(),
+                field.value_type == "reference",
+            )
         })
         .collect();
     let references: Vec<(String, String, bool)> = choices
         .references
         .iter()
-        .map(|r| (r.reference_record_id.clone(), t.item_reference_record_option(&r.name, &r.type_key, &r.key).to_string(), false))
+        .map(|r| {
+            (
+                r.reference_record_id.clone(),
+                t.item_reference_record_option(crate::text::cat::ItemReferenceRecordOption {
+                    name: &r.name,
+                    type_key: &r.type_key,
+                    key: &r.key,
+                })
+                .to_string(),
+                false,
+            )
+        })
         .collect();
     html! {
         <form class={(Form, FieldValue)} id={ids::FIELD} method="post" action={&action} data-patch>
@@ -1350,6 +1409,7 @@ pub fn ContentDialog<'a>(
 ) -> impl Patch {
     html! {
         <CatalogDialog
+            p={p}
             id={ids::CONTENT_DIALOG}
             title={t.item_add_content_line()}
             description={None}
@@ -1374,7 +1434,15 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
         .items
         .iter()
         .map(|item| {
-            (item.catalog_item_id.clone(), t.item_catalog_item_option(&item.title, &item.catalog_item_id).to_string(), false)
+            (
+                item.catalog_item_id.clone(),
+                t.item_catalog_item_option(crate::text::cat::ItemCatalogItemOption {
+                    title: &item.title,
+                    id: &item.catalog_item_id,
+                })
+                .to_string(),
+                false,
+            )
         })
         .collect();
     html! {
@@ -1414,6 +1482,7 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
                 >
             </label>
             <Input label={t.item_quantity()} name={f.quantity} value={&i.quantity} errors={&e} />
+            <input type="hidden" name={f.expected_version} value={&i.expected_version}>
             <div class={Footer}><button type="submit">{t.item_add_content_line()}</button></div>
         </form>
     }

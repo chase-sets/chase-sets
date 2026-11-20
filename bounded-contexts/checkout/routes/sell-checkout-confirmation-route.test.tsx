@@ -1,4 +1,7 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { appendFreshWriteToken, readCompactPostWriteToken } from "@chase-sets/http/responses";
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
@@ -8,6 +11,15 @@ import {
   mockCreateCheckoutRequestApiClient,
   mockGetSellListConfirmation,
   mockResolveActorFromAuthApi,
+  guestSellListLine,
+  mockAcceptOfferMatch,
+  mockGetOfferAcceptanceAttempt,
+  mockConfirmSellListCheckout,
+  mockCreateMarketplaceRequestApiClient,
+  mockCreateSellListReadiness,
+  mockGetPayoutReadiness,
+  mockListSellListShipFromAddresses,
+  MockMarketplaceApiError,
 } from "../tests/support/checkout-route-test-harness";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -33,7 +45,17 @@ vi.mock("../support/request-support/api-client", async () => {
   };
 });
 
-import { loader as sellCheckoutConfirmationLoader } from "./sell-checkout-confirmation";
+vi.mock("@chase-sets/marketplace/server", async () => ({
+  ...(await vi.importActual<typeof import("@chase-sets/marketplace/server")>("@chase-sets/marketplace/server")),
+  createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
+  MarketplaceApiError: MockMarketplaceApiError,
+}));
+import ConfirmationRoute, {
+  loader as sellCheckoutConfirmationLoader,
+  HydrateFallback,
+  ErrorBoundary,
+} from "./sell-checkout-confirmation";
+import SessionRoute, { action as sessionAction, loader as sessionLoader } from "./sell-checkout-session";
 
 function confirmationRow() {
   return {
@@ -61,13 +83,218 @@ function confirmationRow() {
 }
 
 describe("checkout web routes: sell checkout confirmation loader", () => {
+  let router: ReturnType<typeof createMemoryRouter> | undefined;
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
   });
 
   afterEach(() => {
+    cleanup();
+    router?.dispose();
     vi.resetAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  async function settle() {
+    if (router!.state.initialized && router!.state.navigation.state === "idle") return;
+    await new Promise<void>((resolve) => {
+      const unsubscribe = router!.subscribe((state) => {
+        if (state.initialized && state.navigation.state === "idle") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  }
+  function start(path: string) {
+    router = createMemoryRouter(
+      [
+        {
+          path: "/checkout/sell/session/:sessionId",
+          Component: SessionRoute,
+          action: sessionAction,
+          loader: sessionLoader,
+        },
+        {
+          path: "/checkout/sell/session/:sessionId/confirmation",
+          Component: ConfirmationRoute,
+          loader: sellCheckoutConfirmationLoader,
+          HydrateFallback,
+          ErrorBoundary,
+        },
+      ],
+      { initialEntries: [path] },
+    );
+    render(<RouterProvider router={router} />);
+  }
+  async function mount(path: string) {
+    start(path);
+    await act(settle);
+  }
+  function sellerSession() {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: ["accounts.view"] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi
+        .fn()
+        .mockResolvedValue({ items: [guestSellListLine({ seller_account_id: "acc_seller" })], count: 1 }),
+      createSellListReadiness: mockCreateSellListReadiness,
+      getSellListConfirmation: mockGetSellListConfirmation,
+      confirmSellListCheckout: mockConfirmSellListCheckout,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+      getOfferAcceptanceAttempt: mockGetOfferAcceptanceAttempt,
+    });
+    return new URLSearchParams({
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
+      readinessDecisions: JSON.stringify({
+        lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
+        lineOutcomes: [],
+      }),
+      sellListReviewPlan: JSON.stringify({
+        version: 1,
+        lines: [
+          {
+            lineId: "sll_1",
+            lineType: "selected-offer",
+            itemTitle: "Synthetic sale",
+            productId: "prod_1",
+            quantity: 1,
+            selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+            productOfferTargets: [],
+            fallbackListing: null,
+            skippedReasons: [],
+          },
+        ],
+      }),
+      sellerName: "Jane Seller",
+      email: "jane@example.com",
+      phone: "555-0100",
+      shipFromAddressId: "adr_seller",
+      shipFromName: "Jane Seller",
+      shipFromLine1: "100 Market St",
+      shipFromCity: "Wichita",
+      shipFromState: "KS",
+      shipFromPostalCode: "67202",
+      shipFromCountry: "US",
+      payoutMethod: "saved-payout",
+      labelPreference: "prepaid-label",
+      termsAccepted: "accepted",
+    });
+  }
+  const sessionPath = "/checkout/sell/session/chk_sell_1";
+  async function postSession(fields: URLSearchParams) {
+    const formData = new FormData();
+    for (const [name, value] of fields) formData.append(name, value);
+    await router!.navigate(`${sessionPath}${router!.state.location.search}`, { formMethod: "post", formData });
+  }
+
+  it("real session router refuses invalid input before any command, not injected action props", async () => {
+    const fields = sellerSession();
+    await mount(`${sessionPath}?${fields}`);
+    fields.delete("termsAccepted");
+    await act(async () => {
+      await postSession(fields);
+    });
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(router!.state.actionData).toMatchObject({
+      "0": { status: "error", fieldErrors: { termsAccepted: expect.any(String) } },
+    });
+  });
+
+  it("real session router keeps confirming for the single confirmation lookup after loss, then announces and focuses ambiguous without resend", async () => {
+    const fields = sellerSession();
+    await mount(`${sessionPath}?${fields}`);
+    let finish!: () => void;
+    mockConfirmSellListCheckout.mockRejectedValue(new TypeError("synthetic response loss"));
+    mockGetSellListConfirmation.mockRejectedValueOnce(new MockCheckoutApiError(404, {})).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          finish = () => reject(new TypeError("synthetic lookup loss"));
+        }),
+    );
+    let submission!: Promise<void>;
+    await act(async () => {
+      submission = postSession(fields);
+    });
+    await waitFor(() => expect(mockGetSellListConfirmation).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("alert").textContent).toContain("Confirming");
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledOnce();
+    expect(mockGetSellListConfirmation).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finish();
+      await submission;
+    });
+    const notice = screen
+      .getAllByRole("alert")
+      .find((element) => element.textContent?.includes("could not be confirmed"))!;
+    expect(document.activeElement).toBe(notice.parentElement);
+    expect(screen.getAllByRole("group").some((element) => element.hasAttribute("disabled"))).toBe(true);
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledOnce();
+    expect(mockCreateMarketplaceRequestApiClient).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+  });
+
+  it("real session router lists the API's foreign acceptance conflict without web Marketplace writes", async () => {
+    const fields = sellerSession();
+    await mount(`${sessionPath}?${fields}`);
+    mockConfirmSellListCheckout.mockRejectedValue(
+      new MockCheckoutApiError(409, {
+        error: {
+          code: "checkout_handoff_interrupted",
+          message: "Offer already accepted.",
+          lines: [{ lineId: "sll_1", status: "conflict", detail: "Offer already accepted." }],
+        },
+      }),
+    );
+    await act(async () => {
+      await postSession(fields);
+    });
+    expect(screen.getByText("sll_1: conflict")).toBeTruthy();
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledOnce();
+    expect(mockCreateMarketplaceRequestApiClient).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+  });
+
+  it("real confirmation router announces pending, converges to the first snapshot, and performs no command", async () => {
+    sellerSession();
+    let finish!: (value: ReturnType<typeof confirmationRow>) => void;
+    mockGetSellListConfirmation.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    start(`${sessionPath}/confirmation`);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Confirming");
+    await act(async () => {
+      finish(confirmationRow());
+      await settle();
+    });
+    expect(router!.state.loaderData["1"].confirmation).toEqual(confirmationRow());
+    expect(mockGetSellListConfirmation).toHaveBeenCalledOnce();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+  });
+
+  it("real confirmation router preserves an unknown owner read as focused ambiguous with a read-only retry", async () => {
+    sellerSession();
+    mockGetSellListConfirmation.mockRejectedValue(new TypeError("synthetic lookup loss"));
+    await mount(`${sessionPath}/confirmation`);
+    expect(screen.getByRole("alert").textContent).toContain("could not be confirmed");
+    expect(document.activeElement).toBe(screen.getByRole("alert").parentElement);
+    expect(screen.getByRole("link", { name: "Retry the same action" }).getAttribute("href")).toBe(
+      `${sessionPath}/confirmation`,
+    );
+    expect(mockGetSellListConfirmation).toHaveBeenCalledOnce();
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
   });
 
   it("routes guests through seller registration before showing a seller confirmation", async () => {

@@ -8,7 +8,7 @@
 //! | `GET /growth/campaign-analytics` | the page |
 use std::collections::BTreeMap;
 
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use super::views;

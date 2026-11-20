@@ -112,6 +112,43 @@ describe("worktree sandbox", () => {
     ).toThrow("Missing or invalid pool maximum");
   });
 
+  it("counts all three recovery pools and refuses unaccounted holdings", () => {
+    const recoveryPath = "bounded-contexts/channels/support/seed-support/manual-sync-browser.ts";
+    const readSource = (file) => readFileSync(path.join(repoRoot, file), "utf8");
+    const baseline = browserE2ePostgresDemand();
+    const pools = baseline.inventory.filter((row) => row.source?.startsWith(`${recoveryPath}:`));
+    expect(pools).toHaveLength(3);
+    expect(pools.map((row) => row.max)).toEqual([2, 2, 2]);
+    expect(pools.every((row) => row.phase === "runtime/test/teardown" && row.process === "playwright")).toBe(true);
+    const larger = browserE2ePostgresDemand({
+      readSource: (file) => (file === recoveryPath ? readSource(file).replace("max: 2,", "max: 3,") : readSource(file)),
+    });
+    expect(larger.demand).toBe(baseline.demand + 3);
+    for (const edit of [
+      (source) =>
+        source.replace(
+          "channels: acquire(urls.channels),",
+          "channels: acquire(urls.channels), extra: acquire(urls.channels),",
+        ),
+      (source) => source.replace("inventory: acquire(urls.inventory),", ""),
+      (source) => `${source}\nconst extra = createPgPool("postgresql://synthetic@localhost/extra", { max: 1 });`,
+    ]) {
+      expect(() =>
+        browserE2ePostgresDemand({
+          readSource: (file) => (file === recoveryPath ? edit(readSource(file)) : readSource(file)),
+        }),
+      ).toThrow("Re-inventory browser recovery pool holdings");
+    }
+    expect(() =>
+      browserE2ePostgresDemand({
+        readSource: (file) =>
+          file === "infrastructure/platform-runtime/health.ts"
+            ? `${readSource(file)}\nconst extra = new Pool({ max: 1 });`
+            : readSource(file),
+      }),
+    ).toThrow("Unaccounted browser E2E client constructor");
+  });
+
   it("captures owned startup SHOW settings without ambient libpq routing", () => {
     const execute = vi.fn(() => ({ status: 0, stdout: "500\n3\n0\n" }));
     const effective = readSandboxPostgresSettings({
@@ -300,18 +337,18 @@ describe("worktree sandbox", () => {
     expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", "catalog", "marketplace"]);
   });
 
-  it("sandbox-platform-api-database-owner-parity matches the generated registry and rejects a deletion mutant", () => {
+  it("sandbox-platform-api-database-owner-parity matches the API context registry and rejects a deletion mutant", () => {
     const registrySource = readFileSync(
-      path.join(repoRoot, "deployables", "platform-api", "src", "generated", "api-context-registry.ts"),
+      path.join(repoRoot, "deployables", "platform-api", "src", "context-registry.ts"),
       "utf8",
     );
-    const generatedContextNames = [...registrySource.matchAll(/^\s+contextName: "([^"]+)",$/gmu)].map(
+    const registryContextNames = [...registrySource.matchAll(/^\s+contextName: "([^"]+)",$/gmu)].map(
       ([, contextName]) => contextName,
     );
     const sandbox = resolveWorktreeSandbox({ rootDir: repoRoot, env: {}, contextNames: undefined });
 
-    expect(sandbox.contextNames).toEqual(generatedContextNames);
-    expect(sandbox.contextNames).not.toEqual(generatedContextNames.slice(1));
+    expect(sandbox.contextNames).toEqual(registryContextNames);
+    expect(sandbox.contextNames).not.toEqual(registryContextNames.slice(1));
 
     const injected = resolveWorktreeSandbox({ rootDir: repoRoot, env: {}, contextNames: ["neutral-injected"] });
     expect(injected.contextNames).toEqual(["neutral-injected"]);

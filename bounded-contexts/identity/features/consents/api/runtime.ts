@@ -40,7 +40,7 @@ export type ConsentServices = Readonly<{
   recordTermsConsent: (input: RecordTermsConsentInput) => Promise<CommandExecutionResult<ConsentState, ConsentEvent>>;
   getConsent: (consentId: string) => ReturnType<typeof getConsent>;
   getConsentState: (consentId: string) => Promise<ConsentState | null>;
-  listConsents: (params?: ConsentListParams) => ReturnType<typeof listConsents>;
+  listConsents: (params: ConsentListParams) => ReturnType<typeof listConsents>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 

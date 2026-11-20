@@ -105,6 +105,7 @@ export interface PlatformApiNonBootstrapDbCensus {
 }
 
 export const platformApiNonBootstrapDbCensus: PlatformApiNonBootstrapDbCensus;
+export const platformApiProductDbProofCensus: PlatformApiNonBootstrapDbCensus;
 
 export function derivePlatformApiDbTestCensus(options?: Readonly<{ platformApiRoot?: string }>): Readonly<{
   entries: readonly string[];

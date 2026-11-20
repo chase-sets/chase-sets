@@ -34,7 +34,7 @@ function trackedPaths() {
 
 export function partitionFailures(paths, contents, generated) {
   const problems = [];
-  const permitted = new Set([layout, primitive, schema, index]);
+  const permitted = new Set([layout, primitive, index]);
   for (const path of paths) {
     if (/stripe/i.test(path)) problems.push(`matching path: ${path}`);
     const source = contents[path] ?? "";
@@ -51,7 +51,7 @@ export function partitionFailures(paths, contents, generated) {
   )
     problems.push("primitive role/count");
   const schemaSource = contents[schema] ?? "";
-  if (count(schemaSource) !== 1 || !String(JSON.parse(schemaSource).description).includes("Stripe"))
+  if (count(schemaSource) !== 0 || !String(JSON.parse(schemaSource).description).includes("application tokens"))
     problems.push("schema /description");
   const actualIndex = contents[index] ?? "";
   if (actualIndex !== generated.content) problems.push("stale generated index");
@@ -75,7 +75,7 @@ export function partitionFailures(paths, contents, generated) {
     observedCount += count(line);
   }
   if (observedCount !== expectedCount || count(actualIndex) !== expectedCount) problems.push("index caller count");
-  if (count(layoutSource) + count(primitiveSource) + count(schemaSource) !== 14) problems.push("hand-owned count");
+  if (count(layoutSource) + count(primitiveSource) + count(schemaSource) !== 13) problems.push("hand-owned count");
   return problems;
 }
 

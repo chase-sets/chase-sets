@@ -10,6 +10,9 @@ export type CatalogScopeRecordKind = (typeof catalogScopeRecordKinds)[number];
 
 export type CatalogScopeLeafRecordKind = "expansion" | "set";
 
+/** The language edition a Scope Record that records no language edition stands for. */
+export const catalogScopeUnqualifiedLanguageCode = "en";
+
 export type CatalogScopeRecordAttributes = Readonly<{
   releaseDate: string | null;
   officialSetCode: string | null;
@@ -22,7 +25,20 @@ export type CatalogScopeProductDomainContract = Readonly<{
   seriesReferenceTypeKey: "series";
   leafReferenceTypeKey: CatalogScopeLeafRecordKind;
   selectLeavesByLanguageEdition: boolean;
+  /** The languages provider scope discovery observes, the unqualified language first. */
+  discoveryLanguageCodes: readonly [typeof catalogScopeUnqualifiedLanguageCode, ...string[]];
   requiredLeafAttributeKeys: readonly ["release-date", "official-set-code", "language-editions"];
+}>;
+
+/**
+ * The language edition a Scope Record or proposal must hold to match an
+ * observation in `languageCode`: it records that language, or it records none
+ * and the language is unqualified. Null where the domain does not keep one
+ * Scope Record per language edition.
+ */
+export type CatalogScopeLanguageEditionFilter = Readonly<{
+  languageCode: string;
+  includesUnrecorded: boolean;
 }>;
 
 export type CatalogScopeRecordContractFixture = Readonly<{
@@ -44,6 +60,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "expansion",
     selectLeavesByLanguageEdition: true,
+    discoveryLanguageCodes: ["en", "ja"],
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   magic: {
@@ -52,6 +69,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
     selectLeavesByLanguageEdition: false,
+    discoveryLanguageCodes: ["en"],
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   yugioh: {
@@ -60,6 +78,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
     selectLeavesByLanguageEdition: false,
+    discoveryLanguageCodes: ["en"],
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   "one-piece": {
@@ -68,6 +87,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
     selectLeavesByLanguageEdition: false,
+    discoveryLanguageCodes: ["en"],
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   lorcana: {
@@ -76,9 +96,21 @@ export const catalogScopeProductDomainContracts: Readonly<
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
     selectLeavesByLanguageEdition: false,
+    discoveryLanguageCodes: ["en"],
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
 };
+
+export function catalogScopeLanguageEditionFilter(
+  productDomain: CatalogScopeProductDomain,
+  languageCode: string,
+): CatalogScopeLanguageEditionFilter | null {
+  if (!catalogScopeProductDomainContracts[productDomain].selectLeavesByLanguageEdition) {
+    return null;
+  }
+  const normalized = languageCode.trim().toLowerCase();
+  return { languageCode: normalized, includesUnrecorded: normalized === catalogScopeUnqualifiedLanguageCode };
+}
 
 const productDomainByProductLineReferenceRecordKey = new Map<string, CatalogScopeProductDomain>(
   Object.values(catalogScopeProductDomainContracts).map((contract) => [

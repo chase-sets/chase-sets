@@ -9,6 +9,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import type { AccountId, CheckoutSessionId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
+import {
+  checkoutShippingAddressFromSavedAddress,
+  listCheckoutShipFromAddresses,
+} from "../../cart/integrations/identity/identity-queries";
 import type { CartReadinessDecisionInput } from "../../cart/domain/readiness";
 import { CheckoutDomainError, normalizeShippingOption } from "../../../support/runtime-support/common";
 import {
@@ -186,6 +190,12 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  /**
+   * The address a session's first preview is computed for while the session has none: the buyer's
+   * default saved address, else their most recently updated one (the address book's order), which is
+   * the address the checkout page preselects. Null when the buyer has no saved address.
+   */
+  firstPreviewShippingAddress: (accountId: AccountId) => Promise<CheckoutShippingAddress | null>;
   verifyShippingAddress: (
     address: CheckoutShippingAddress,
     decision?: AddressVerificationDecision,
@@ -202,6 +212,8 @@ export type CheckoutSessionServices = Readonly<{
       fulfilledLineKeys?: readonly string[];
       orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
       orderHash?: string | null;
+      fulfillmentPreviewRevision?: string | null;
+      acknowledgedMaterialChanges?: boolean | null;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
@@ -240,7 +252,7 @@ export type CheckoutSessionServices = Readonly<{
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   /** The buyer's session's last recorded quote, read from its stream; null when unknown or never quoted. */
   getLastRecordedQuote: (sessionId: string, accountId: string) => Promise<CheckoutFulfillmentPreview | null>;
-  getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
+  getPaymentSummary: (paymentId: string, buyerAccountId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   getPaymentConfirmation: (sessionId: string, accountId: string) => Promise<CheckoutPaymentConfirmation | null>;
   listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
   projectors: readonly ProjectionHandlerSet[];
@@ -380,6 +392,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         context,
       );
     },
+    firstPreviewShippingAddress: async (accountId) => {
+      const [address] = await listCheckoutShipFromAddresses(deps.db, accountId);
+      return address ? checkoutShippingAddressFromSavedAddress(address) : null;
+    },
     verifyShippingAddress: (address, decision) =>
       verifyCheckoutShippingAddress(deps.addressVerificationProvider, address, decision ?? null),
     selectAuthenticityCheckOptIn: (params, context) =>
@@ -456,7 +472,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       }
       return { status: "cancellable", session };
     },
-    getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
+    getPaymentSummary: (paymentId, buyerAccountId) => getCheckoutPaymentSummary(deps.db, paymentId, buyerAccountId),
     getPaymentConfirmation: async (sessionId, accountId) => {
       const payment = await getCheckoutPaymentConfirmationProjection(deps.db, sessionId, accountId);
       return payment ? exposeCheckoutPaymentConfirmation(payment, deps.paymentProcessorPublicConfiguration) : null;

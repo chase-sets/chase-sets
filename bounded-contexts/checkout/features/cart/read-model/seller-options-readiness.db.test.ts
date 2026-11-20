@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   createPgPool,
   createPostgresEventStore,
+  createPostgresProjectionStore,
   withPgTransaction,
   type PgQueryable,
   type PgTransactionalPool,
@@ -2546,7 +2547,29 @@ describeDb("seller-options revision rebuild from source history", () => {
       await databases.checkout.query("DROP TRIGGER reject_seller_option ON checkout_marketplace_seller_options");
       await databases.checkout.query("DROP FUNCTION reject_seller_option()");
     }
-    await run(caller);
+    if (caller === "worker") {
+      const beforeRetry = await persistedState();
+      await expect(run(caller)).rejects.toThrow("seller-options replay blocked");
+      expect((await persistedState()).generation).toEqual(beforeRetry.generation);
+      const group = createGroup();
+      const store = createPostgresProjectionStore({ db: databases.checkout });
+      let retriedStreams = 0;
+      for (const runner of group.subscriptionRunners) {
+        for (const blocked of await store.listBlockedStreams!(runner.checkpointKey)) {
+          await expect(runner.retryBlockedStream(blocked.streamId)).resolves.toMatchObject({ state: "resolved" });
+          retriedStreams += 1;
+        }
+      }
+      expect(retriedStreams).toBeGreaterThan(0);
+      await run(caller, group);
+      expect((await persistedState()).generation).toMatchObject({
+        activeGeneration: beforeRetry.generation!.rebuildingGeneration,
+        rebuildingGeneration: null,
+        state: "active",
+      });
+    } else {
+      await run(caller);
+    }
     expect(await ownedRows()).toEqual(clean);
   });
 

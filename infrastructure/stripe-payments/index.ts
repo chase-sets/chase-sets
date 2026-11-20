@@ -518,6 +518,7 @@ function liabilityStatusFromThreeDSecureResult(result: string | null): Processor
       return "authentication-failed";
     case "not_supported":
     case "processing_error":
+    case "data_share_only":
       return "not-shifted";
     default:
       return null;
@@ -721,6 +722,13 @@ async function parseStripeResponse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (response.status === 400 && body?.error?.code === "dispute_evidence_page_limit_exceeded") {
+      throw new ProviderAdapterError(
+        "provider_declined",
+        "dispute_evidence_page_limit_exceeded: Stripe rejected oversized dispute evidence.",
+        response.status,
+      );
+    }
     const message =
       typeof body === "object" &&
       body !== null &&
@@ -1643,7 +1651,7 @@ export function createStripePaymentProcessorGateway(
             body: toFormBody({
               amount: String(amount),
               currency: input.currencyCode,
-              "payment_method_types[0]": "card",
+              "allowed_payment_method_types[0]": "card",
               description: input.description,
               ...stripeCustomerEntry(
                 input.savedCheckoutInstrument?.providerCustomerReference ?? input.providerCustomerReference,
@@ -1737,7 +1745,7 @@ export function createStripePaymentProcessorGateway(
             return_url: paymentReturnUrl,
             ...Object.fromEntries(
               paymentMethodTypes.map((paymentMethodType, index) => [
-                `payment_method_types[${index}]`,
+                `allowed_payment_method_types[${index}]`,
                 paymentMethodType,
               ]),
             ),

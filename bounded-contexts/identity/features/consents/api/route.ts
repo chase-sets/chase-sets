@@ -39,13 +39,11 @@ export function consentRoutes(services: ConsentServices, accountManagement?: Acc
       return c.json(authenticationRequired(), 401);
     }
 
-    const canManageSecurity = hasPermission(actor, "security.manage");
-    const { search, status, limit, offset, userId, accountId } = c.req.query();
+    const { search, status, limit, offset } = c.req.query();
     const result = await services.listConsents({
       search,
       status,
-      userId: canManageSecurity ? userId : actor.userId,
-      accountId: canManageSecurity ? accountId : actor.accountId,
+      subject: { userId: actor.userId, accountId: actor.accountId },
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
     });

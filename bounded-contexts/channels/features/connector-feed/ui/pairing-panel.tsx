@@ -2,7 +2,7 @@ import { Button, Card, HiddenInput, MarketplaceNotice, Stack, Text } from "@chas
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import type { ConnectorPairingDetail, GeneratedPairingCode } from "../domain/contracts";
-export type { GeneratedPairingCode } from "../domain/contracts";
+export type PairingCodeNotice = Pick<GeneratedPairingCode, "pairingId" | "expiresAt">;
 
 export type PairingPanelState =
   | Readonly<{ kind: "loaded"; data: ConnectorPairingDetail }>
@@ -15,7 +15,7 @@ export function ConnectorPairingPanel({
   available = true,
 }: {
   state: PairingPanelState;
-  generated?: GeneratedPairingCode;
+  generated?: PairingCodeNotice;
   pending?: boolean;
   available?: boolean;
 }) {
@@ -61,7 +61,7 @@ export function ConnectorPairingPanel({
         ) : (
           <Text>{t("channels.connector.unavailable")}</Text>
         )}
-        {pairing && (pairing.state === "code" || pairing.state === "paired") ? (
+        {available && pairing && (pairing.state === "code" || pairing.state === "paired") ? (
           <RouterForm method="post" spacing="none">
             <HiddenInput type="hidden" name="intent" value="connector-unpair" />
             <HiddenInput type="hidden" name="pairingId" value={pairing.pairingId ?? ""} />

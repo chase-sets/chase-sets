@@ -6,6 +6,7 @@ import type { CartReadinessRead } from "../domain/readiness";
 export type { CheckoutCartLine } from "../ui/contracts";
 export type {
   CartReadinessDecisionInput,
+  CartReadinessLinePresentation,
   CartReadinessMoney,
   CartReadinessRead,
   CartReadinessSnapshot,

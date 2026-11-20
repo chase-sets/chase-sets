@@ -36,6 +36,7 @@ type ProjectionGroupRevisionAndGenerationRow = ProjectionGroupRevisionRow &
     generation_rebuilding_generation: unknown;
     generation_state: unknown;
     generation_started_at: unknown;
+    generation_target_projection_revision: unknown;
   }>;
 
 type ProjectionGroupGenerationRow = Readonly<{
@@ -93,6 +94,7 @@ export type ContextProjectionGroupStatus = Readonly<{
 export type RefreshedContextProjectionGroupStatus = ContextProjectionGroupStatus &
   Readonly<{
     revisionSyncToken?: ProjectionGroupRevisionSyncCapture;
+    rebuildingProjectionRevision?: number | null;
   }>;
 
 export type ProjectionReplayContextSummary = Readonly<{
@@ -161,6 +163,13 @@ export type ContextProjectionGroup = Readonly<{
   ) => Promise<void>;
 }>;
 
+/** Runs projection work while the caller-owned group lease is held. */
+export type ProjectionGroupLeaseRunner = <T>(
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  signal: AbortSignal | undefined,
+  work: (context: ProjectionRunContext) => Promise<T>,
+) => Promise<T>;
+
 type ProjectionResetOptions = Readonly<{
   db?: PgQueryable;
   ownedTablesAlreadyTruncated?: boolean;
@@ -194,6 +203,7 @@ async function loadProjectionGroupRevision(
     revision: number | null;
     revisionSyncToken: ProjectionGroupRevisionSyncCapture;
     resetRequired: boolean;
+    rebuildingProjectionRevision: number | null | undefined;
   }>
 > {
   const result = captureRevisionSyncToken
@@ -202,6 +212,7 @@ async function loadProjectionGroupRevision(
                 generation.active_generation AS generation_active_generation,
                 generation.rebuilding_generation AS generation_rebuilding_generation,
                 generation.state AS generation_state,
+                generation.target_projection_revision AS generation_target_projection_revision,
                 generation.started_at::text AS generation_started_at
          FROM (VALUES ($1::text, $2::text)) AS requested(target_context_name, projection_name)
          LEFT JOIN ${PROJECTION_GROUP_REVISIONS_TABLE} AS revision
@@ -223,7 +234,7 @@ async function loadProjectionGroupRevision(
   const row = result.rows[0];
   const revision = row?.projection_revision == null ? null : assertProjectionRevision(Number(row.projection_revision));
   if (!captureRevisionSyncToken || !row) {
-    return { revision, revisionSyncToken: undefined, resetRequired: false };
+    return { revision, revisionSyncToken: undefined, resetRequired: false, rebuildingProjectionRevision: undefined };
   }
 
   const generationRow = row as ProjectionGroupRevisionAndGenerationRow;
@@ -236,6 +247,12 @@ async function loadProjectionGroupRevision(
   return {
     revision,
     resetRequired: generation?.state === "failed",
+    rebuildingProjectionRevision:
+      generation?.state === "rebuilding"
+        ? generationRow.generation_target_projection_revision == null
+          ? null
+          : assertProjectionRevision(Number(generationRow.generation_target_projection_revision))
+        : undefined,
     revisionSyncToken:
       generationRow.generation_active_generation === null &&
       generationRow.generation_rebuilding_generation === null &&
@@ -357,7 +374,7 @@ async function saveProjectionGroupRevision(
 
 async function startProjectionGroupGenerationRebuild(
   db: PgQueryable,
-  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName" | "projectionRevision">,
   context?: ProjectionRunContext,
 ): Promise<ProjectionGroupRevisionSyncToken> {
   context?.throwIfLeaseLost?.();
@@ -367,6 +384,7 @@ async function startProjectionGroupGenerationRebuild(
        projection_name,
        active_generation,
        rebuilding_generation,
+       target_projection_revision,
        previous_generation,
        previous_generation_retain_until,
        state,
@@ -374,7 +392,7 @@ async function startProjectionGroupGenerationRebuild(
        started_at,
        cutover_at,
        updated_at
-     ) VALUES ($1, $2, 1, 2, NULL, NULL, 'rebuilding', $3, clock_timestamp(), NULL, now())
+     ) VALUES ($1, $2, 1, 2, $4, NULL, NULL, 'rebuilding', $3, clock_timestamp(), NULL, now())
      ON CONFLICT (target_context_name, projection_name)
      DO UPDATE SET
        rebuilding_generation = GREATEST(
@@ -382,12 +400,13 @@ async function startProjectionGroupGenerationRebuild(
          COALESCE(generation.rebuilding_generation, generation.active_generation)
        ) + 1,
        state = 'rebuilding',
+       target_projection_revision = EXCLUDED.target_projection_revision,
        operation_id = EXCLUDED.operation_id,
        started_at = GREATEST(EXCLUDED.started_at, generation.started_at + interval '1 microsecond'),
        cutover_at = NULL,
        updated_at = EXCLUDED.updated_at
      RETURNING rebuilding_generation, started_at::text`,
-    [group.targetContextName, group.projectionName, context?.operationId ?? null],
+    [group.targetContextName, group.projectionName, context?.operationId ?? null, group.projectionRevision],
   );
   return assertProjectionGroupRevisionSyncToken({
     generation: String(result.rows[0]?.rebuilding_generation),
@@ -397,7 +416,7 @@ async function startProjectionGroupGenerationRebuild(
 
 async function completeProjectionGroupGenerationRebuild(
   db: PgQueryable,
-  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName" | "projectionRevision">,
   expectedToken: ProjectionGroupRevisionSyncToken,
   context?: ProjectionRunContext,
 ): Promise<boolean> {
@@ -416,13 +435,15 @@ async function completeProjectionGroupGenerationRebuild(
        AND generation.projection_name = $2
        AND generation.state = 'rebuilding'
        AND generation.rebuilding_generation = $3::bigint
-       AND generation.started_at = $4::timestamptz`,
+       AND generation.started_at = $4::timestamptz
+       AND generation.target_projection_revision = $6`,
     [
       group.targetContextName,
       group.projectionName,
       assertProjectionGroupRevisionSyncToken(expectedToken).generation,
       expectedToken.startedAt,
       context?.operationId ?? null,
+      group.projectionRevision,
     ],
   );
   return result.rowCount === 1;
@@ -457,7 +478,7 @@ async function failProjectionGroupGenerationRebuild(
 
 async function markProjectionGroupRebuilding(
   db: PgQueryable,
-  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName" | "projectionRevision">,
   context: ProjectionRunContext | undefined,
   expectedToken?: ProjectionGroupRevisionSyncToken,
 ): Promise<ProjectionGroupRevisionSyncToken> {
@@ -472,8 +493,9 @@ async function markProjectionGroupRebuilding(
          AND generation.state = 'rebuilding'
          AND generation.rebuilding_generation = $3::bigint
          AND generation.started_at = $4::timestamptz
+         AND generation.target_projection_revision = $5
        FOR UPDATE`,
-      [group.targetContextName, group.projectionName, token.generation, token.startedAt],
+      [group.targetContextName, group.projectionName, token.generation, token.startedAt, group.projectionRevision],
     );
     if (!result.rows[0]) {
       throw new Error(
@@ -488,7 +510,7 @@ async function markProjectionGroupRebuilding(
 
 async function settleProjectionGroupGeneration(
   db: PgQueryable,
-  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName" | "projectionRevision">,
   expectedToken: ProjectionGroupRevisionSyncCapture,
 ): Promise<boolean> {
   if (expectedToken === undefined) {
@@ -537,12 +559,14 @@ async function settleProjectionGroupGeneration(
        AND generation.projection_name = $2
        AND generation.state = 'rebuilding'
        AND generation.rebuilding_generation = $3::bigint
-       AND generation.started_at = $4::timestamptz`,
+       AND generation.started_at = $4::timestamptz
+       AND generation.target_projection_revision = $5`,
     [
       group.targetContextName,
       group.projectionName,
       assertProjectionGroupRevisionSyncToken(expectedToken).generation,
       expectedToken.startedAt,
+      group.projectionRevision,
     ],
   );
   return result.rowCount === 1;
@@ -810,13 +834,17 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           subscriptions: [],
         };
         return options?.captureRevisionSyncToken
-          ? { ...status, revisionSyncToken: revision.revisionSyncToken }
+          ? {
+              ...status,
+              revisionSyncToken: revision.revisionSyncToken,
+              rebuildingProjectionRevision: revision.rebuildingProjectionRevision,
+            }
           : status;
       },
       startGenerationRebuild: (context) =>
         startProjectionGroupGenerationRebuild(
           entry.pool,
-          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          { targetContextName: entry.contextName, projectionName: group.projectionName, projectionRevision },
           context,
         ),
       completeGenerationRebuild: async (expectedToken, context) => {
@@ -1199,6 +1227,7 @@ async function resolveTruncateResetGroups(
 export async function syncLocalProjectionGroups(
   entry: MountedContextRuntimeEntry,
   context?: ProjectionRunContext,
+  runWithLease?: ProjectionGroupLeaseRunner,
 ): Promise<void> {
   const localNames = new Set(entry.projectionHandlerSets.map((set) => set.projectionName));
   const declaredGroups = entry.module.buildProjectionGroups?.(entry.services) ?? entry.module.projectionGroups ?? [];
@@ -1215,7 +1244,11 @@ export async function syncLocalProjectionGroups(
   };
   const runners = resolveModuleSubscriptions([localEntry]);
   for (const group of resolveModuleProjectionGroups([localEntry], runners)) {
-    await syncProjectionGroup(group, context);
+    if (runWithLease) {
+      await runWithLease(group, context?.signal, (leaseContext) => syncProjectionGroup(group, leaseContext));
+    } else {
+      await syncProjectionGroup(group, context);
+    }
   }
 }
 
@@ -1267,10 +1300,13 @@ export async function syncContextProjectionGroups(
   runtime: Readonly<{
     mountedContexts: readonly MountedContextRuntimeEntry[];
     projectionGroups: readonly ContextProjectionGroup[];
+    subscriptionRunners?: readonly ContextSubscriptionRunner[];
   }>,
   contextName: string,
   options: Readonly<{
     requiredOnly?: boolean;
+    context?: ProjectionRunContext;
+    runWithLease?: ProjectionGroupLeaseRunner;
   }> = {},
 ): Promise<void> {
   const targetContext = runtime.mountedContexts.find((entry) => entry.contextName === contextName);
@@ -1285,17 +1321,93 @@ export async function syncContextProjectionGroups(
   );
 
   if (groups.length === 0) {
-    await drainContextProcesses({
-      subscriptionRunners: runtime.projectionGroups
-        .filter((group) => group.targetContextName === contextName)
-        .flatMap((group) => group.subscriptionRunners),
-    });
+    const allContextGroups = sortProjectionGroups(
+      runtime.projectionGroups.filter((group) => group.targetContextName === contextName),
+    );
+    if (options.runWithLease && allContextGroups.length === 0) {
+      const ungroupedRunners =
+        runtime.subscriptionRunners?.filter((runner) => runner.targetContextName === contextName) ?? [];
+      if (ungroupedRunners.length > 0) {
+        throw new Error(`Runtime has ungrouped subscriptions for '${contextName}'; refusing an unleased seed drain.`);
+      }
+    }
+    let processed: number;
+    do {
+      processed = 0;
+      for (const group of allContextGroups) {
+        if (options.runWithLease) {
+          processed += await options.runWithLease(group, options.context?.signal, (leaseContext) =>
+            drainContextProcesses(
+              { subscriptionRunners: group.subscriptionRunners },
+              mergeProjectionRunContexts(options.context, leaseContext),
+            ),
+          );
+        } else {
+          processed += await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, options.context);
+        }
+      }
+    } while (processed > 0);
     return;
   }
 
   for (const group of groups) {
-    await syncProjectionGroup(group);
+    if (options.runWithLease) {
+      await options.runWithLease(group, options.context?.signal, (leaseContext) =>
+        syncProjectionGroup(group, leaseContext),
+      );
+    } else {
+      await syncProjectionGroup(group, options.context);
+    }
   }
+}
+
+/** Drain every declared projection group, optionally fencing each group. */
+export async function drainProjectionGroups(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+    subscriptionRunners?: readonly ContextSubscriptionRunner[];
+  }>,
+  context?: ProjectionRunContext,
+  runWithLease?: ProjectionGroupLeaseRunner,
+): Promise<void> {
+  if (runWithLease && runtime.subscriptionRunners) {
+    const groupedRunnerKeys = new Set(
+      runtime.projectionGroups.flatMap((group) => group.subscriptionRunners.map((runner) => runner.checkpointKey)),
+    );
+    const ungroupedRunners = runtime.subscriptionRunners.filter(
+      (runner) => !groupedRunnerKeys.has(runner.checkpointKey),
+    );
+    if (ungroupedRunners.length > 0) {
+      throw new Error("Runtime has ungrouped subscriptions; refusing an unleased seed drain.");
+    }
+  }
+  let processed: number;
+  do {
+    processed = 0;
+    for (const group of sortProjectionGroups(runtime.projectionGroups)) {
+      const drain = (leaseContext: ProjectionRunContext) =>
+        drainContextProcesses(
+          { subscriptionRunners: group.subscriptionRunners },
+          mergeProjectionRunContexts(context, leaseContext),
+        );
+      if (runWithLease) {
+        processed += await runWithLease(group, context?.signal, drain);
+      } else {
+        processed += await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+      }
+    }
+  } while (processed > 0);
+}
+
+function mergeProjectionRunContexts(
+  outer: ProjectionRunContext | undefined,
+  leased: ProjectionRunContext,
+): ProjectionRunContext {
+  return {
+    ...outer,
+    ...leased,
+    settleIdleCheckpoints: outer?.settleIdleCheckpoints,
+  };
 }
 
 export function getProjectionGroup(

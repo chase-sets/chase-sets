@@ -385,6 +385,22 @@
     "consumer": "not Inventory",
     "status": "unrelated"
   },
+  "deployables/corten-pilot/marketplace/src/views/order_review_draft.js": {
+    "families": ["item-read"],
+    "authority": "not Inventory: browser storage",
+    "attempt": "not applicable",
+    "read": "browser storage.getItem",
+    "consumer": "not Inventory",
+    "status": "unrelated"
+  },
+  "deployables/corten-pilot/marketplace/src/views/register_analytics.js": {
+    "families": ["item-read"],
+    "authority": "not Inventory: browser storage",
+    "attempt": "not applicable",
+    "read": "browser storage.getItem",
+    "consumer": "not Inventory",
+    "status": "unrelated"
+  },
   "deployables/corten-pilot/scripts/smoke-marketplace.mjs": {
     "families": ["item-read"],
     "authority": "not Inventory: browser storage",
@@ -401,7 +417,7 @@
     "consumer": "Collections to Inventory host port",
     "status": "cutover"
   },
-  "deployables/platform-worker/src/main.ts": {
+  "bounded-contexts/pricing/support/runtime-support/worker-jobs.ts": {
     "families": ["item-read"],
     "authority": "trusted account-scoped reader",
     "attempt": "no mutation",

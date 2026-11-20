@@ -24,6 +24,7 @@ function createInventoryDb(
     itemRows?: Record<string, unknown>[];
     aggregateHoldRows?: Record<string, unknown>[];
     holdRows?: Record<string, unknown>[];
+    holdStreamRows?: Record<string, unknown>[];
   }> = {},
 ) {
   const itemRows = options.itemRows ?? [
@@ -56,9 +57,14 @@ function createInventoryDb(
   ];
   const aggregateHoldRows = options.aggregateHoldRows ?? [];
   const holdRows = options.holdRows ?? [];
+  const holdStreamRows = options.holdStreamRows ?? [];
 
   return {
     query: vi.fn(async (sql: string) => {
+      if (sql.includes("WITH candidates AS") && holdStreamRows.length > 0) {
+        return { rows: holdStreamRows };
+      }
+
       if (sql.includes("FROM inventory_items AS item")) {
         return {
           rows: itemRows,
@@ -248,6 +254,128 @@ describe("inventory hold runtime", () => {
     expect(stockQuery).toContain("FROM event_store_events");
     expect(stockQuery).toContain("stream_category = 'inventory.hold'");
     expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
+  });
+
+  it("atomically consumes an order hold with one paired stock adjustment", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    await seedInventoryItem(eventStore);
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: createInventoryDb({
+        holdRows: [
+          {
+            hold_id: "hld_consume_atomic",
+            account_id: "acc_seller",
+            item_id: "inv_1",
+            quantity: 1,
+            status: "active",
+            purpose: "order",
+          },
+        ],
+        holdStreamRows: [{ stream_id: "inventory.hold-hld_consume_atomic", total: "1", current_version: "1" }],
+      }),
+    });
+    const holdId = "hld_consume_atomic" as InventoryHoldId;
+    await eventStore.appendToStream({
+      streamId: `inventory.hold-${holdId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId,
+            accountId: "acc_seller",
+            itemId: "inv_1",
+            quantity: 1,
+            reason: "Ordering commitment",
+            notes: null,
+            purpose: "order",
+            sourceRef: { orderId: "ord_1", reservationRequestId: "rsv_1" },
+            expiresAt: null,
+          },
+        },
+      ],
+    });
+    const result = await services.commandHandler({
+      streamId: `inventory.hold-${holdId}`,
+      command: {
+        type: "ConsumeInventoryHold",
+        consumedAt: "2026-07-06T01:00:00.000Z",
+        consumptionReason: " dispatch ",
+      },
+      context,
+    });
+    const events = readAllEvents();
+    const consumed = events.find((event) => event.eventType === "inventory.hold.consumed");
+    const adjusted = events.find((event) => event.eventType === "inventory.item.adjusted");
+    expect(result.newEvents).toHaveLength(1);
+    expect(consumed).toMatchObject({ payload: { consumptionReason: "dispatch" } });
+    expect(adjusted).toMatchObject({ payload: { quantityDelta: -1, reasonCode: "sale-consumed" } });
+    expect(consumed?.metadata).toMatchObject({
+      inventoryConsumptionPair: { pairedStreamId: adjusted?.streamId, pairedStreamVersion: adjusted?.streamVersion },
+    });
+    expect(adjusted?.metadata).toMatchObject({
+      inventoryConsumptionPair: { pairedStreamId: consumed?.streamId, pairedStreamVersion: consumed?.streamVersion },
+    });
+  });
+
+  it("refuses a consumed hold command with a stale expected version", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    await seedInventoryItem(eventStore);
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: createInventoryDb({
+        holdRows: [
+          {
+            hold_id: "hld_consume_stale",
+            account_id: "acc_seller",
+            item_id: "inv_1",
+            quantity: 1,
+            status: "active",
+            purpose: "order",
+          },
+        ],
+        holdStreamRows: [{ stream_id: "inventory.hold-hld_consume_stale", total: "1", current_version: "1" }],
+      }),
+    });
+    const holdId = "hld_consume_stale" as InventoryHoldId;
+    await eventStore.appendToStream({
+      streamId: `inventory.hold-${holdId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId,
+            accountId: "acc_seller",
+            itemId: "inv_1",
+            quantity: 1,
+            reason: "Ordering commitment",
+            notes: null,
+            purpose: "order",
+            sourceRef: { orderId: "ord_stale", reservationRequestId: "rsv_stale" },
+            expiresAt: null,
+          },
+        },
+      ],
+    });
+    await expect(
+      services.commandHandler({
+        streamId: `inventory.hold-${holdId}`,
+        expectedVersion: 0,
+        command: {
+          type: "ConsumeInventoryHold",
+          consumedAt: "2026-07-06T01:00:00.000Z",
+          consumptionReason: "dispatch",
+        },
+        context,
+      }),
+    ).rejects.toThrow("Consumed inventory hold version is stale");
+    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.consumed")).toHaveLength(0);
   });
 
   it("reports missing item aggregates with a typed hold placement failure", async () => {

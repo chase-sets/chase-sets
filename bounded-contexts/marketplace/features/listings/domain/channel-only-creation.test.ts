@@ -49,6 +49,8 @@ function created() {
 
 const classification = {
   CreateListing: "creation",
+  AcceptListingTargetPrice: "target",
+  ActivateListingForChannel: "target",
   UpdateListingPrice: "native",
   UpdateListingQuantityCap: "native",
   UpdateListingPurchaseLimits: "native",

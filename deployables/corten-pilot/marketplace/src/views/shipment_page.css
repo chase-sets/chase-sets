@@ -35,13 +35,6 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.stack {
-  display: grid;
-  gap: var(--space-1);
-  align-content: start;
-  justify-items: start;
-  min-width: 0;
-}
 .list {
   display: grid;
   gap: var(--space-3);
@@ -328,8 +321,93 @@
   font-weight: 600;
 }
 
-@media (min-width: 48rem) {
+/* The seller's actions: each a form. The label form's fields are a column on a phone and two to a
+   row from 48rem; while an action is unconfirmed every control is off. */
+.danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.banner:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.status {
+  display: grid;
+  gap: var(--space-3);
+}
+.status:has(> form:only-child) {
+  display: none;
+}
+.write {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.controls {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.controls > .banner,
+.controls > .fields,
+.controls > .field {
+  justify-self: stretch;
+}
+.controls .primary,
+.controls .secondary {
+  cursor: pointer;
+}
+.controls:disabled .primary,
+.controls:disabled .secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+.fields {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: 0.9375rem/1.4 var(--font-body);
+}
+.input[readonly] {
+  background: var(--color-surface-2);
+}
+.unavailable {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+@media (--md) {
   .fact-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .cover-list {

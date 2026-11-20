@@ -353,6 +353,19 @@ export function parseRunWorkspacesArgs(argv) {
       .map((value) => value.trim())
       .filter(Boolean),
   );
+  const exclusiveWorkspaceArgs = runnerArgs.filter((arg) => arg.startsWith("--exclusive-workspace-list="));
+  if (exclusiveWorkspaceArgs.length > 1) {
+    throw new Error("--exclusive-workspace-list may be provided only once.");
+  }
+  const exclusiveWorkspaceNames = new Set(
+    exclusiveWorkspaceArgs[0]
+      ?.slice("--exclusive-workspace-list=".length)
+      .split(",")
+      .map((name) => name.trim()) ?? [],
+  );
+  for (const name of exclusiveWorkspaceNames) {
+    assertWorkspaceIdentity(name, "--exclusive-workspace-list entry");
+  }
 
   return {
     scriptName,
@@ -361,6 +374,7 @@ export function parseRunWorkspacesArgs(argv) {
     excludeTestProfile,
     ...(dbWorkspaceGroup === undefined ? {} : { dbWorkspaceGroup }),
     workspaceNames,
+    ...(exclusiveWorkspaceNames.size === 0 ? {} : { exclusiveWorkspaceNames }),
     concurrency,
     commandTimeoutMs,
     ...(shard === undefined ? {} : { shard }),
@@ -476,7 +490,7 @@ async function runWorkspace(workspace, options) {
 
 async function runConcurrent(tasks, options) {
   const failures = [];
-  const pending = tasks.slice();
+  const pending = [];
   const waitingWorkers = new Set();
   let seedOrApiDbActive = false;
 
@@ -546,6 +560,11 @@ async function runConcurrent(tasks, options) {
     return;
   }
 
+  // Run exclusive packages alone before admitting the concurrent pool.
+  const isExclusive = (task) => options.exclusiveWorkspaceNames?.has(task.workspace.name) ?? false;
+  pending.push(...tasks.filter(isExclusive));
+  await worker();
+  pending.push(...tasks.filter((task) => !isExclusive(task)));
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   if (failures.length > 0) {
@@ -687,7 +706,12 @@ export async function runWorkspaceScripts(options) {
         workspace,
         scriptNames: workspaceScriptNames(workspace, parsed.scriptName),
       }));
-  const tasks = parsed.shard === undefined ? scheduledTasks : selectShardTasks(scheduledTasks, parsed.shard);
+  const selectedTasks = parsed.shard === undefined ? scheduledTasks : selectShardTasks(scheduledTasks, parsed.shard);
+  const tasks = selectedTasks.toSorted(
+    (left, right) =>
+      Number(parsed.exclusiveWorkspaceNames?.has(right.workspace.name) ?? false) -
+      Number(parsed.exclusiveWorkspaceNames?.has(left.workspace.name) ?? false),
+  );
 
   if (durationScheduled && (parsed.concurrency > 64 || tasks.length > 256)) {
     throw new Error("Duration-scheduled invocations require concurrency at most 64 and at most 256 eligible tasks.");

@@ -4,11 +4,12 @@ import { Hono } from "hono";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { transactionalCsatV1 } from "../domain/survey";
 import { normalizePrivacyReason, privacyPermission } from "../../privacy/domain/policy";
-import type {
-  CsatAdminExportAudit,
-  CsatAdminQueueFilters,
-  CsatAdminQueueQuery,
-  CsatAnalyticsQuery,
+import {
+  CsatQueryRefusal,
+  type CsatAdminExportAudit,
+  type CsatAdminQueueFilters,
+  type CsatAdminQueueQuery,
+  type CsatAnalyticsQuery,
 } from "./analytics-contract";
 import type { CsatAdminReadPort } from "./runtime";
 
@@ -27,6 +28,14 @@ function accessFor(c: { get(key: "actor"): CustomerFeedbackApiEnv["Variables"]["
     );
   }
   return actor;
+}
+
+function refusal(error: unknown): Response {
+  if (!(error instanceof CsatQueryRefusal)) throw error;
+  return new Response(
+    JSON.stringify({ error: { code: "validation_failed", reason: error.reason, message: error.message } }),
+    { status: 400, headers: { "Content-Type": "application/json" } },
+  );
 }
 
 function listParam(value: string | undefined): string[] | undefined {
@@ -101,11 +110,15 @@ export function buildCustomerFeedbackApi(port: CsatAdminReadPort) {
     const access = accessFor(c, "platform-feedback.view");
     if (access instanceof Response) return access;
     const filters = filtersFromQuery(c);
-    const [analytics, queue] = await Promise.all([
-      port.readAdminAnalytics(analyticsQuery(c, filters)),
-      port.listAdminQueue(queueQuery(c, filters)),
-    ]);
-    return c.json({ analytics, queue, filters });
+    try {
+      const [analytics, queue] = await Promise.all([
+        port.readAdminAnalytics(analyticsQuery(c, filters)),
+        port.listAdminQueue(queueQuery(c, filters)),
+      ]);
+      return c.json({ analytics, queue, filters });
+    } catch (error) {
+      return refusal(error);
+    }
   });
 
   app.get("/export", async (c) => {
@@ -116,8 +129,12 @@ export function buildCustomerFeedbackApi(port: CsatAdminReadPort) {
     const filters = normalizeFilters(filtersFromQuery(c));
     const startedAt = new Date().toISOString();
     const query = { ...filters, cursor: null, direction: "next" as const, limit: 100 };
-    const artifact = await createExportArtifact(port, access.userId, filters, query, reason, startedAt);
-    return c.json(artifact, 201, { "Cache-Control": "no-store" });
+    try {
+      const artifact = await createExportArtifact(port, access.userId, filters, query, reason, startedAt);
+      return c.json(artifact, 201, { "Cache-Control": "no-store" });
+    } catch (error) {
+      return refusal(error);
+    }
   });
 
   app.get("/export/:exportId", async (c) => {

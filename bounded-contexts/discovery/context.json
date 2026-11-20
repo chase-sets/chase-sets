@@ -1,4 +1,21 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "discovery.search-embedding-enrichment",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "discoverySearchEmbeddings.intervalMs"
+      },
+      "runnerExport": "createDiscoverySearchEmbeddingEnrichmentRunners",
+      "group": "scheduled",
+      "order": 128,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:discovery.search-embedding-enrichment"
+    }
+  ],
   "contextName": "discovery",
   "packageName": "@chase-sets/discovery",
   "localeCatalogs": ["contracts/localization/locales/en/discovery.ts"],
@@ -1036,6 +1053,12 @@
     },
     {
       "id": "discovery.item-detail-command-receipt-handoffs",
+      "sellListAttempt": {
+        "writes": [{ "surface": "Item Detail sell-now, add-to-sell-list and add-product-to-sell-list; account and anonymous", "kind": "sell-list-line", "target": "sell-list" }],
+        "stream": "checkout.command-attempt-v1-<fingerprint> atomically with checkout.sell-list-<owner>",
+        "lookup": "GET /account|/guest/command-attempts/:attemptId?kind=sell-list-line&target=sell-list&requestHash=",
+        "replay": "One caller-created id per deliberate submission; possible-send loss performs one owner lookup, zero resends; exact retry returns the first result."
+      },
       "owner": "discovery",
       "risk": "critical",
       "strategy": "snapshot-return",
@@ -1108,12 +1131,15 @@
       "owner": "discovery",
       "risk": "informational",
       "strategy": "non-user-visible",
-      "surfaces": ["route-action:deployables/marketplace/app/routes/item-detail-rail-analytics.ts"],
+      "surfaces": [
+        "route-action:bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx",
+        "route-action:bounded-contexts/discovery/support/route-support/item-detail/rail-analytics.ts"
+      ],
       "exception": {
         "owner": "discovery",
         "reviewBy": "2026-09-30",
         "issue": "#1819",
-        "reason": "Discovery owns the item-detail rail analytics vocabulary and documents the marketplace deployable bridge as observability-only capture in bounded-contexts/discovery/docs/item-detail-rail-analytics.md. deployables/marketplace/app/root.test.tsx proves the route accepts only bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
+        "reason": "Discovery owns the item-detail rail analytics vocabulary and route, documented as observability-only capture in bounded-contexts/discovery/docs/item-detail-rail-analytics.md. bounded-contexts/discovery/routes/item-detail-rail-analytics.test.ts proves the route accepts only bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
       }
     },
     {
@@ -1152,7 +1178,7 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/discovery/routes/public-listing.tsx:H14b7ab8ab869#1",
         "route-action:bounded-contexts/discovery/routes/public-listing.tsx"
       ],
       "visibleDestination": {
@@ -1275,6 +1301,23 @@
                 "values": ["sell", "buy"]
               }
             }
+          }
+        },
+        {
+          "routeId": "item-detail-rail-analytics",
+          "routePath": "analytics/item-detail-rail",
+          "fileExport": "./routes/item-detail-rail-analytics",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "discovery",
+          "delivery": "web-resource-only",
+          "authorization": { "kind": "public" },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Analytics ingestion is not a canonical document." },
+          "availability": { "web": true, "mobile": false },
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "The route ingests browser bridge analytics rather than a portable page."
           }
         },
         {

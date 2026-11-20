@@ -232,6 +232,19 @@ export function assertNoDestructiveChanges(plan, options = {}) {
     return destructiveChanges;
   }
 
+  if (
+    options.environment === "staging" &&
+    destructiveChanges.every(
+      (change) =>
+        change.address === "digitalocean_kubernetes_node_pool.preview[0]" &&
+        change.actions.length === 2 &&
+        change.actions.includes("create"),
+    )
+  ) {
+    console.warn("Staging Terraform plan replaces only the disposable preview node pool.");
+    return destructiveChanges;
+  }
+
   const durableDatabaseChanges = destructiveChanges.filter(durableDatabaseDestructiveResource);
   const approval = options.destructiveChangeApproval;
   const allowedDestructiveAddresses = approval?.addresses ?? options.allowedDestructiveAddresses ?? [];
@@ -307,7 +320,7 @@ async function main(argv) {
     const [tfplanPath, ...options] = args;
     if (!tfplanPath) {
       throw new Error(
-        "Usage: node ./scripts/terraform-plan-inspection.mjs assert-no-destructive-changes <tfplan> [--allow-file=<path>]",
+        "Usage: node ./scripts/terraform-plan-inspection.mjs assert-no-destructive-changes <tfplan> [--allow-file=<path>] [--environment=<environment>]",
       );
     }
 
@@ -315,7 +328,10 @@ async function main(argv) {
     const destructiveChangeApproval =
       allowFilePath && existsSync(allowFilePath) ? readDestructiveChangeAllowFile(allowFilePath) : undefined;
 
-    await assertTerraformPlanSafe(tfplanPath, { destructiveChangeApproval });
+    await assertTerraformPlanSafe(tfplanPath, {
+      destructiveChangeApproval,
+      environment: readStringOption(options, "--environment"),
+    });
     return;
   }
 

@@ -344,6 +344,14 @@ Production Lorcana sealed products stay on the
 `tcgplayer:lorcana:sealed-product:source-observation-import` unit for this
 milestone.
 
+Version `2026.11.15` of that TCGplayer unit promotes operator-extension Source
+Observations to draft `lorcana-sealed-product` Catalog Items in
+`lorcana-sealed-products`, retaining the TCGplayer `product:` reference. The
+shared sealed mapper maps Lorcana bundles to `sealed-product`, not a new form.
+Version `2026.06.23` is deprecated and remains readable for replay, without
+promotion capability. This does not enrol either version in Scope Sync or
+restore server transport.
+
 The importer shell must discover these units through generic provider,
 product-line, source-scope, and import-purpose metadata. Do not add a Disney
 Lorcana-specific importer page, route, panel, operator workaround, or hidden

@@ -228,7 +228,7 @@ export const connectorClaimCapabilities = ["tcgplayer-order-pull", "tcgplayer-li
 export type ConnectorClaimCapability = (typeof connectorClaimCapabilities)[number];
 
 export type ReserveConnectorClaimedOperationsInput = ReserveClaimedOutboundOperationsInput &
-  Readonly<{ capabilities: readonly ConnectorClaimCapability[] }>;
+  Readonly<{ capabilities: readonly ConnectorClaimCapability[]; canaryGrantId?: string }>;
 
 export type ClaimedOperationOutcome = Readonly<{
   operationId: string;
@@ -270,6 +270,9 @@ export type ClaimedReservationRunSettlement = Readonly<{
   verificationSnapshotGeneration: number | null;
   uploadAttemptedAt: string | null;
   uploadFileName: string | null;
+  stagedReadback:
+    | import("../../connector-client/domain/tcgplayer-staged-import-readback-verdict").TcgplayerStagedImportReadbackVerdict
+    | null;
   importSummary: Readonly<{
     fileName: string;
     dateImportedText: string;

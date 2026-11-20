@@ -18,6 +18,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { OrderListSummary, PurchaseListItem, SaleListItem } from "./contracts";
+import { orderStatusWords } from "./order-words";
 
 export type OrderListKind = "purchase" | "sale";
 
@@ -157,7 +158,7 @@ export function OrderingOrderListPage({
                         <Text size="sm" tone="secondary">
                           {caption}
                         </Text>
-                        <Badge tone={statusTone(order.status)}>{order.status}</Badge>
+                        <Badge tone={statusTone(order.status)}>{orderStatusWords(order.status)}</Badge>
                       </Stack>
                     </Inline>
                     <Grid columns={{ base: 1, sm: kind === "sale" ? 3 : 2 }} gap={3}>

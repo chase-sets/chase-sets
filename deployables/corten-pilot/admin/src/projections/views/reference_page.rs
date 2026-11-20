@@ -105,7 +105,7 @@ fn groups<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters) -> impl 
             <Rows label={t.projections_projection_groups()} head={&head}>
                 for group in &rows {
                     let details = filters.select(Some(&group.id())).on(VIA);
-                    let issues = t.projections_issue_summary(group.blocked_stream_count, group.poison_event_count).to_string();
+                    let issues = t.projections_issue_summary(crate::text::ops::ProjectionsIssueSummary { blocked: group.blocked_stream_count, poison: group.poison_event_count }).to_string();
                     <tr>
                         <td data-label={head[0]}><Named name={&group.projection_name} detail={&group.target_context_name} /></td>
                         <td data-label={head[1]}><Pill hue={state_hue(&group.state)} label={&group.state} /></td>
@@ -180,7 +180,7 @@ fn subscriptions<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters) -
                     let s = w.subscription;
                     let details = filters.select(Some(&s.checkpoint_key)).on(VIA);
                     let positions = t
-                        .projections_position_range(count(t, &s.last_global_position), count(t, &s.source_head_global_position))
+                        .projections_position_range(crate::text::ops::ProjectionsPositionRange { current: count(t, &s.last_global_position), next: count(t, &s.source_head_global_position) })
                         .to_string();
                     <tr>
                         <td data-label={head[0]}><Named name={&w.group.projection_name} detail={&s.checkpoint_key} /></td>

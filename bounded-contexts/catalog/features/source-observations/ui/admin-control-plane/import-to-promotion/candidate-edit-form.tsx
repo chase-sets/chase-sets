@@ -21,10 +21,11 @@ import { CommandHiddenInputs } from "./command-controls";
 import { useCatalogIntegrationCommandHref } from "./command-action-context";
 
 // Candidate edit form. Renders inline in the candidate review drawer. It
-// submits the typed `candidate.edit` intent carrying the base snapshot
-// plus the operator's overrides; the command handler applies them onto the base
-// snapshot and calls UpdateCatalogMergeCandidate, so field corrections land as
-// `manual` provenance and promotion carries the edited value. The row-level
+// submits the typed `candidate.edit` intent carrying the candidate version it
+// read and the operator's changes; the Catalog API applies them to the
+// candidate's stored snapshot (refusing a version it has moved on from), so
+// field corrections land as `manual` provenance and promotion carries the
+// edited value. The row-level
 // promote action stays available beside it — the operator edits then promotes.
 export function CatalogMergeCandidateEditForm({
   row,
@@ -33,7 +34,7 @@ export function CatalogMergeCandidateEditForm({
   const editForm = row.editForm;
   const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
 
-  if (editForm.state !== "available" || !editForm.baseSnapshotJson) {
+  if (editForm.state !== "available" || editForm.candidateVersion === null) {
     return (
       <OperationalStatusBanner
         tone="warning"
@@ -53,8 +54,12 @@ export function CatalogMergeCandidateEditForm({
       density="compact"
     >
       <WorkbenchForm variant="surface" method="post" action={actionHref} data-catalog-merge-candidate-edit-form="true">
-        <CommandHiddenInputs readModel={readModel} intent="candidate.edit" candidateId={row.candidateId} />
-        <HiddenInput name="candidateEditBaseSnapshot" value={editForm.baseSnapshotJson} />
+        <CommandHiddenInputs
+          readModel={readModel}
+          intent="candidate.edit"
+          candidateId={row.candidateId}
+          candidateCommand={{ version: editForm.candidateVersion }}
+        />
         <RadioGroup
           name="candidateEditPromotionIntent"
           label={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.promotionIntent")}
@@ -93,12 +98,11 @@ export function CatalogMergeCandidateEditForm({
           </WorkbenchText>
           {editForm.editableFacts.length > 0 ? (
             editForm.editableFacts.map((fact) => (
-              <TextInput
-                key={fact.key}
-                name={`candidateEditFact.${fact.key}`}
-                label={fact.label}
-                defaultValue={fact.value}
-              />
+              <WorkbenchStack key={fact.key} gap="sm">
+                <TextInput name={`candidateEditFact.${fact.key}`} label={fact.label} defaultValue={fact.value} />
+                {/* The value shown, so only a fact the operator changed becomes an override. */}
+                <HiddenInput name={`candidateEditFactShown.${fact.key}`} value={fact.value} />
+              </WorkbenchStack>
             ))
           ) : (
             <WorkbenchText size="xs">

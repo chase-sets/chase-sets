@@ -8,6 +8,9 @@
 //! A sent report redirects to the page at the review, saying it was received (`?reported={id}`),
 //! where marketplace draws the page again from its action. A refused one is the page again with
 //! the dialog open and what was sent; a second report of the same review says it was sent before.
+//! A report is sent as its form's attempt: an answer lost on the way is settled as
+//! `marketplace_attempt` says, and one that cannot be confirmed keeps the dialog open without its
+//! send until the page is opened again.
 //! Open review goes to the review's own page (`review`).
 //!
 //! | Route | Answers |
@@ -16,17 +19,18 @@
 //! | `GET /account/reviews/received?<place>`, `.../written?<place>` | a list, by `role` |
 //! | `POST` any of them | Report review |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice, Role},
     api::{ApiError, Caller as ApiCaller, ListingReport, Marketplace as _, ReviewCalls as _, ReviewItem, ReviewSummary},
     app::{Shared, read_failed, sign_in, url},
     auth::{ReviewMember, Viewer},
+    marketplace_attempt,
+    recovery::attempt_text,
     text::{Pilot, ReviewsMsg},
     views::{self, Layout, ReviewAnchorId},
 };
@@ -51,7 +55,7 @@ impl Which {
 }
 
 /// What the address carries: the lists' role, and the review a report was just received for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub role: Option<String>,
@@ -59,11 +63,13 @@ pub struct Place {
 }
 
 /// Report review's fields: what the form is for (the review's own page also posts its reply), the
-/// review (marketplace's `reviewId`), the reason and the explanation; and the reply's words.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+/// attempt (the form's `SubmitKey`), the review (marketplace's `reviewId`), the reason and the
+/// explanation; and the reply's words.
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReportInput {
     pub intent: String,
+    pub attempt: Option<SubmitKey>,
     pub review_id: String,
     pub reason: String,
     pub details: String,
@@ -103,38 +109,35 @@ impl ReviewsScreen {
 
 pub(crate) async fn summary(
     req: Req,
-    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::reviews::Reviews>,
 ) -> HtmlResult {
     let place = route.place;
-    show(&req, &viewer, &config, &headers, Which::Summary, place, &chrome).await
+    show(&req, &viewer, &config, &headers, Which::Summary, place).await
 }
 
 pub(crate) async fn received(
     req: Req,
-    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::reviews::ReceivedReviews>,
 ) -> HtmlResult {
     let place = route.place;
-    show(&req, &viewer, &config, &headers, Which::Received, place, &chrome).await
+    show(&req, &viewer, &config, &headers, Which::Received, place).await
 }
 
 pub(crate) async fn written(
     req: Req,
-    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::reviews::WrittenReviews>,
 ) -> HtmlResult {
     let place = route.place;
-    show(&req, &viewer, &config, &headers, Which::Written, place, &chrome).await
+    show(&req, &viewer, &config, &headers, Which::Written, place).await
 }
 
 /// The lists' role: none on the summary, else the address's `seller` or `buyer`.
@@ -142,22 +145,14 @@ fn role(which: Which, place: &Place) -> Option<Role> {
     if which == Which::Summary { None } else { Role::read(place.role.as_deref()) }
 }
 
-async fn show(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    which: Which,
-    place: Place,
-    chrome: &Chrome,
-) -> HtmlResult {
+async fn show(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, which: Which, place: Place) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     match read(&caller, viewer, which, role(which, &place)).await {
         Ok(mut screen) => {
             screen.notice = place.reported.map(|review| (review, ReviewNotice::Submitted));
-            render(req, viewer, &screen, StatusCode::OK, chrome.cart().await)
+            render(req, viewer, &screen, StatusCode::OK)
         }
-        Err(error) => read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => read_failed(req, Some(viewer), error, None),
     }
 }
 
@@ -175,7 +170,7 @@ async fn read(caller: &ApiCaller<'_>, viewer: &Viewer, which: Which, role: Optio
     Ok(ReviewsScreen { which, role, summary, reviews, notice: None })
 }
 
-fn render(req: &Req, viewer: &Viewer, screen: &ReviewsScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
+fn render(req: &Req, viewer: &Viewer, screen: &ReviewsScreen, status: StatusCode) -> HtmlResult {
     let t: ReviewsMsg = req.t();
     let title = match screen.which {
         Which::Summary => t.route_summary_reviews_marketplace(),
@@ -183,13 +178,12 @@ fn render(req: &Req, viewer: &Viewer, screen: &ReviewsScreen, status: StatusCode
         Which::Written => t.route_written_written_reviews_marketplace(),
     };
     let view = html! { <views::ReviewsPage t={t} p={req.t()} screen={screen} /> };
-    let page = html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={()}>{view}</Layout> };
+    let page = html! { <Layout req={req} viewer={Some(viewer)} title={title} head={()}>{view}</Layout> };
     if status == StatusCode::OK { req.screen(screen, page) } else { req.page_with_status(status, page) }
 }
 
 pub(crate) async fn report_on_summary(
     req: Req,
-    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -197,12 +191,11 @@ pub(crate) async fn report_on_summary(
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
     let place = route.place;
-    report(&req, &viewer, &config, &headers, Which::Summary, place, input, &chrome).await
+    report(&req, &viewer, &config, &headers, Which::Summary, place, input).await
 }
 
 pub(crate) async fn report_on_received(
     req: Req,
-    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -210,12 +203,11 @@ pub(crate) async fn report_on_received(
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
     let place = route.place;
-    report(&req, &viewer, &config, &headers, Which::Received, place, input, &chrome).await
+    report(&req, &viewer, &config, &headers, Which::Received, place, input).await
 }
 
 pub(crate) async fn report_on_written(
     req: Req,
-    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -223,7 +215,7 @@ pub(crate) async fn report_on_written(
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
     let place = route.place;
-    report(&req, &viewer, &config, &headers, Which::Written, place, input, &chrome).await
+    report(&req, &viewer, &config, &headers, Which::Written, place, input).await
 }
 
 /// Report review from a list or the summary (`send_report`): a sent report goes back to the review
@@ -237,12 +229,11 @@ async fn report(
     which: Which,
     place: Place,
     input: ReportInput,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let role = role(which, &place);
     let review = input.review_id.trim().to_owned();
-    match send_report(req.t(), &caller, &review, &input, which.path()).await {
+    match send_report(req.t(), req.t(), &caller, &review, &input, which.path()).await {
         Reported::Sent => {
             let place = Place { role: role.map(|r| r.as_str().to_owned()), reported: Some(review.clone()) };
             let anchor = ReviewAnchorId(&review);
@@ -255,9 +246,9 @@ async fn report(
         Reported::Again(notice, status) => match read(&caller, viewer, which, role).await {
             Ok(mut screen) => {
                 screen.notice = Some((review, notice));
-                render(req, viewer, &screen, status, chrome.cart().await)
+                render(req, viewer, &screen, status)
             }
-            Err(error) => read_failed(req, Some(viewer), error, None, chrome.cart().await),
+            Err(error) => read_failed(req, Some(viewer), error, None),
         },
         Reported::SignIn => sign_in(req),
         Reported::Failed(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
@@ -275,8 +266,16 @@ pub(crate) enum Reported {
 
 /// Report review's checks and its send, from the page at `from`: the reason must be one of the
 /// form's, the explanation at most 1,000 characters (as the form's `maxLength` counts them), and the
-/// API decides the rest. A refusal keeps what was sent.
-pub(crate) async fn send_report(p: Pilot, caller: &ApiCaller<'_>, review: &str, input: &ReportInput, from: &str) -> Reported {
+/// API decides the rest. A refusal keeps what was sent. The report is its form's attempt, sent once
+/// more when the answer was lost (`marketplace_attempt::report`).
+pub(crate) async fn send_report(
+    p: Pilot,
+    t: ReviewsMsg,
+    caller: &ApiCaller<'_>,
+    review: &str,
+    input: &ReportInput,
+    from: &str,
+) -> Reported {
     let (reason, details) = (input.reason.trim(), input.details.trim());
     let refused = |message: &str| ReviewNotice::Refused {
         message: message.to_owned(),
@@ -289,10 +288,18 @@ pub(crate) async fn send_report(p: Pilot, caller: &ApiCaller<'_>, review: &str, 
     if details.encode_utf16().count() > MOST_DETAILS {
         return Reported::Again(refused(p.account_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: from };
-    match caller.report_review(review, &body).await {
-        Ok(()) => Reported::Sent,
-        Err(error) => match (error.status(), error.code()) {
+    let Some(attempt) = marketplace_attempt::presented(attempt_text(&input.attempt)) else {
+        return Reported::Again(refused(t.attempt_report_not_sent()), StatusCode::UNPROCESSABLE_ENTITY);
+    };
+    let body =
+        ListingReport { attempt_id: attempt, reason, details: (!details.is_empty()).then_some(details), source_route_path: from };
+    match marketplace_attempt::report(|| caller.report_review(review, &body)).await {
+        marketplace_attempt::Reported::Sent => Reported::Sent,
+        marketplace_attempt::Reported::Locked(locked) => {
+            let notice = ReviewNotice::Locked { locked, reason: reason.to_owned(), details: details.to_owned() };
+            Reported::Again(notice, ReviewNotice::locked_status(locked))
+        }
+        marketplace_attempt::Reported::Refused(error) => match (error.status(), error.code()) {
             (_, Some("report_already_submitted")) => Reported::Again(ReviewNotice::Already, StatusCode::CONFLICT),
             (Some(StatusCode::UNAUTHORIZED), _) => Reported::SignIn,
             (Some(StatusCode::TOO_MANY_REQUESTS), _) => {

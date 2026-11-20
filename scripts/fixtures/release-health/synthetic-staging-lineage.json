@@ -1,0 +1,33 @@
+{
+  "description": "Synthetic-only qualification and staging lineage control; no live identities or authority.",
+  "repository": "synthetic-owner/staging-lineage-fixture",
+  "candidateInput": {
+    "repository": "synthetic-owner/staging-lineage-fixture",
+    "workflowId": "11",
+    "workflowPath": ".github/workflows/platform-pr.yml",
+    "runId": "4000",
+    "runAttempt": "1",
+    "queueBaseSha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "pullRequests": [{ "number": 1, "headSha": "ffffffffffffffffffffffffffffffffffffffff" }],
+    "candidateSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "candidateTreeSha": "cccccccccccccccccccccccccccccccccccccccc",
+    "builtImageDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "policyRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "capturedAt": "2026-07-21T10:00:00.000Z"
+  },
+  "releaseCommit": "1111111111111111111111111111111111111111",
+  "queuedAt": "2026-07-21T09:55:00.000Z",
+  "mergedAt": "2026-07-21T10:12:00.000Z",
+  "deployRunId": "6000",
+  "deployRunAttempt": "1",
+  "deployWorkflowId": "88",
+  "deployJobId": "6100",
+  "evidenceRunId": "7000",
+  "evidenceRunAttempt": "1",
+  "evidenceWorkflowId": "99",
+  "artifactId": "701",
+  "deployStartedAt": "2026-07-21T10:15:00.000Z",
+  "deployAppliedAt": "2026-07-21T10:20:00.000Z",
+  "deployCompletedAt": "2026-07-21T10:25:00.000Z",
+  "checkedAt": "2026-07-21T11:00:00.000Z"
+}

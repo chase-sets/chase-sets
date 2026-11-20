@@ -3,18 +3,28 @@
 //! window has, or the form (the rating, the words with the community guidelines, and for a buyer
 //! the problems), with Resolve this order first? in place of its buttons when the page asks it.
 //!
-//! No script. The rating is five radio buttons drawn as stars, filled up to the one chosen by
-//! CSS `:has`. Resolve this order first? is drawn by the server after a submit that needs it, its
-//! heading focused; Continue with feedback only needs its acknowledgement (`required`) and Go
-//! back does not (`formnovalidate`). Marketplace's order protection module, which repeats the
-//! verified order's three facts, is left out. One column; from 48rem the facts sit in a row.
+//! The rating is five radio buttons drawn as stars, filled up to the one chosen by CSS `:has`.
+//! Resolve this order first? is drawn by the server after a submit that needs it, its heading
+//! focused; Continue with feedback only needs its acknowledgement (`required`) and Go back does
+//! not (`formnovalidate`). The page's one script (`draft`) keeps the form in the tab's session
+//! storage when Open an order issue is followed and fills it again the next time the form opens,
+//! and counts marketplace's resolution funnel events; without it the page works the same.
+//! Marketplace's order protection module, which repeats the verified order's three facts, is left
+//! out. One column; from 48rem the facts sit in a row.
 use corten::prelude::*;
+use platform::{
+    theme::gap_2,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::on_marketplace;
 use crate::{
+    marketplace_attempt::Locked,
     order_review::{OrderReviewScreen, PROBLEMS, ReviewInput},
     text::{Pilot, ReviewsMsg},
 };
+
+corten::script::script!(pub mod draft = "order_review_draft.js");
 
 /// The words' field, which a refusal links to (marketplace's `review-feedback`).
 #[derive(Id)]
@@ -46,7 +56,12 @@ pub fn OrderReviewPage<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScree
     let o = &screen.opportunity;
     let counterparty = o.subject_display_name.as_deref().unwrap_or(&o.subject_account_id);
     let role = if o.author_role == "buyer" { "seller" } else { "buyer" };
-    let description = t.write_feedback_description(role, &o.order_id).to_string();
+    let description = t
+        .write_feedback_description(crate::text::reviews_msg::WriteFeedbackDescription {
+            counterparty_role: role,
+            order_id: &o.order_id,
+        })
+        .to_string();
     html! {
         <div class={Page}>
             <header class={Header}>
@@ -83,7 +98,15 @@ pub fn OrderReviewPage<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScree
                             <p class={Strong}>{t.write_feedback_on_hold_title()}</p>
                             <p class={Muted}>{t.write_feedback_on_hold_description()}</p>
                         </div>
-                        <p><a class={Primary} href={&screen.support()}>{t.write_resolution_track_action()}</a></p>
+                        <p>
+                            <a
+                                class={Primary}
+                                href={&screen.support()}
+                                on:click={draft::existingCase(screen.buyer())}
+                            >
+                                {t.write_resolution_track_action()}
+                            </a>
+                        </p>
                     </div>
                 } else if o.window_expired {
                     <div class={Empty}>
@@ -98,11 +121,17 @@ pub fn OrderReviewPage<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScree
     }
 }
 
-/// Your review's form.
+/// Your review's form, with its attempt. Submit is off while a review's result cannot be confirmed.
 #[component(css = OrderReviewPage)]
 fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> impl Render {
     let f = ReviewInput::FIELDS;
     let invalid = screen.refused.as_ref().is_some_and(|r| r.field).then_some("true");
+    let locked = screen.locked();
+    let title = match locked {
+        Some(Locked::Conflict) => t.attempt_conflict(),
+        Some(Locked::Unconfirmed) => t.attempt_ambiguous(),
+        None => t.write_your_review(),
+    };
     html! {
         <div class={Card}>
             if let Some(refused) = &screen.refused {
@@ -115,12 +144,19 @@ fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> imp
                             <p><a href={ReviewFeedbackId.fragment()}>{t.write_feedback()}</a></p>
                         }
                     } else {
-                        <p class={Strong}>{t.write_your_review()}</p>
+                        <p class={Strong}>{title}</p>
                         <p>{&refused.message}</p>
                     }
                 </div>
             }
-            <form class={Form} method="post" action={&screen.action}>
+            <form
+                class={Form}
+                method="post"
+                action={&screen.action}
+                on:connect={draft::resume(target, &screen.opportunity.order_id)}
+                on:submit={draft::submitted(event)}
+            >
+                {SubmitKey::field(f.attempt)}
                 <fieldset class={Stars}>
                     <legend class={Strong}>{t.write_rating()}</legend>
                     for n in 1..=5_i64 {
@@ -150,7 +186,7 @@ fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> imp
                     </textarea>
                     <span class={Faint}>{t.write_tell_the_account_what_went_well()}</span>
                 </label>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     <p class={Muted}>{t.guidance_description()}</p>
                     <p class={Inline}>
                         <a href={&on_marketplace("/help/buying/community-guidelines-and-enforcement")}>
@@ -180,7 +216,9 @@ fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> imp
                     <Resolve t={t} screen={screen} />
                 } else {
                     <div class={Actions}>
-                        <button type="submit" class={Primary}>{t.write_submit_account_review()}</button>
+                        <button type="submit" class={Primary} disabled={locked.is_some()}>
+                            {t.write_submit_account_review()}
+                        </button>
                         <button type="submit" class={Secondary} name={f.intent} value="resolve" formnovalidate>
                             {t.write_problem_action()}
                         </button>
@@ -199,7 +237,12 @@ fn Resolve<'a>(t: ReviewsMsg, screen: &'a OrderReviewScreen) -> impl Render {
     let f = ReviewInput::FIELDS;
     let buyer = screen.buyer();
     html! {
-        <div class={(Card, Tinted)} role="group" aria-labelledby={ResolveTitleId}>
+        <div
+            class={(Card, Tinted)}
+            role="group"
+            aria-labelledby={ResolveTitleId}
+            on:connect={draft::shown(target, buyer, screen.intake_available)}
+        >
             <h3 id={ResolveTitleId} class={CardTitle} tabindex="-1" autofocus>{t.write_resolution_title()}</h3>
             <p class={Muted}>
                 {if buyer { t.write_resolution_buyer_description() } else { t.write_resolution_general_description() }}
@@ -214,7 +257,15 @@ fn Resolve<'a>(t: ReviewsMsg, screen: &'a OrderReviewScreen) -> impl Render {
                             t.write_resolution_general_primary_description()
                         }}
                     </p>
-                    <p><a class={Primary} href={&screen.resolve()}>{t.write_resolution_primary_action()}</a></p>
+                    <p>
+                        <a
+                            class={Primary}
+                            href={&screen.resolve()}
+                            on:click={draft::resolveFirst(target, &screen.opportunity.order_id)}
+                        >
+                            {t.write_resolution_primary_action()}
+                        </a>
+                    </p>
                 </div>
             } else {
                 <div class={Banner} data-tone="warning">
@@ -231,7 +282,13 @@ fn Resolve<'a>(t: ReviewsMsg, screen: &'a OrderReviewScreen) -> impl Render {
                         <span>{t.write_resolution_secondary_acknowledge()}</span>
                     </label>
                     <p>
-                        <button type="submit" class={Secondary} name={f.intent} value="feedback-only">
+                        <button
+                            type="submit"
+                            class={Secondary}
+                            name={f.intent}
+                            value="feedback-only"
+                            disabled={screen.locked().is_some()}
+                        >
                             {t.write_resolution_secondary_action()}
                         </button>
                     </p>

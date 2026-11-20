@@ -1,8 +1,10 @@
 import { formatDateTime, t } from "@chase-sets/localization";
+import { useRef, useState } from "react";
 import { useMatches } from "react-router";
 import {
   ActionBar,
   Badge,
+  Banner,
   Button,
   DataTable,
   DateInput,
@@ -24,7 +26,9 @@ import type {
   CsatAdminQueueFilters,
   CsatAdminQueuePage,
   CsatAnalyticsSnapshot,
+  CsatQueryRefusalReason,
 } from "../../../support/request-support/customer-feedback-csat";
+import { createExperienceApiClient } from "../../../support/request-support/platform-feedback-client";
 
 type DashboardData = Readonly<{
   analytics: CsatAnalyticsSnapshot;
@@ -55,7 +59,7 @@ const consentItems = [
   { value: "granted", label: t("experience.csatAdmin.granted") },
   { value: "not-granted", label: t("experience.csatAdmin.notGranted") },
 ];
-const surveyItems = [...allItem, { value: "v1", label: t("experience.csatAdmin.versionV1") }];
+const surveyItems = [...allItem, { value: "csat.v1", label: t("experience.csatAdmin.versionV1") }];
 const outcomeItems = [
   ...allItem,
   { value: "checkout.completed", label: t("experience.csatAdmin.outcome.checkoutCompleted") },
@@ -129,13 +133,128 @@ function queueSurveyVersion(item: CsatAdminQueueItem) {
     : item.surveyVersion.surveyVersion;
 }
 
-export function CsatAdminPage({ data }: { data: DashboardData }) {
+/** What the dashboard shows when the API refused its filters: the filters, and why. */
+export type RefusedCsatDashboard = Readonly<{
+  refusal: CsatQueryRefusalReason;
+  filters: CsatAdminQueueFilters;
+}>;
+
+function CsatFilterForm({ filters, asOf }: { filters: CsatAdminQueueFilters; asOf: string | null }) {
+  return (
+    <Form method="get" spacing="none">
+      <Stack gap={3}>
+        <FilterBar sticky={false}>
+          {asOf ? <HiddenInput type="hidden" name="asOf" value={asOf} readOnly /> : null}
+          <DateInput label={t("experience.csatAdmin.from")} name="from" defaultValue={filters.from?.slice(0, 10)} />
+          <DateInput label={t("experience.csatAdmin.to")} name="to" defaultValue={filters.to?.slice(0, 10)} />
+          <NativeSelect
+            label={t("experience.csatAdmin.surveyVersion")}
+            name="surveyVersion"
+            items={surveyItems}
+            defaultValue={filters.surveyVersion?.surveyVersion ?? ""}
+          />
+          <NativeSelect
+            label={t("experience.csatAdmin.outcome")}
+            name="outcomeCodes"
+            items={outcomeItems}
+            defaultValue={filters.outcomeCodes?.[0] ?? ""}
+          />
+          <NativeSelect
+            label={t("experience.csatAdmin.role")}
+            name="customerRoles"
+            items={roleItems}
+            defaultValue={filters.customerRoles?.[0] ?? ""}
+          />
+          <NativeSelect
+            label={t("experience.csatAdmin.state")}
+            name="states"
+            items={stateItems}
+            defaultValue={filters.states?.[0] ?? ""}
+          />
+          <NativeSelect
+            label={t("experience.csatAdmin.rating")}
+            name="ratings"
+            items={ratingItems}
+            defaultValue={filters.ratings?.[0] ? String(filters.ratings[0]) : ""}
+          />
+          <NativeSelect
+            label={t("experience.csatAdmin.consent")}
+            name="followUpConsent"
+            items={consentItems}
+            defaultValue={filters.followUpConsent ?? ""}
+          />
+        </FilterBar>
+        <ActionBar>
+          <Button type="submit" leadingIcon="filter">
+            {t("experience.csatAdmin.apply")}
+          </Button>
+        </ActionBar>
+      </Stack>
+    </Form>
+  );
+}
+
+function RefusedCsatAdminPage({ data }: { data: RefusedCsatDashboard }) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("experience.csatAdmin.eyebrow")}
+        title={t("experience.csatAdmin.title")}
+        description={t("experience.csatAdmin.description")}
+      />
+      <PageSection title={t("experience.csatAdmin.filters")}>
+        <Stack gap={3}>
+          <Banner
+            tone="danger"
+            title={t("experience.csatAdmin.refused.title")}
+            description={t(`experience.csatAdmin.refused.${data.refusal}`)}
+          />
+          <CsatFilterForm filters={data.filters} asOf={null} />
+        </Stack>
+      </PageSection>
+    </Page>
+  );
+}
+
+export function CsatAdminPage({ data }: { data: DashboardData | RefusedCsatDashboard }) {
+  return "refusal" in data ? <RefusedCsatAdminPage data={data} /> : <CsatDashboard data={data} />;
+}
+
+function CsatDashboard({ data }: { data: DashboardData }) {
   const matches = useMatches();
-  const canExport = actorHasPermission(matches, "platform-feedback.export");
+  const canExport = actorHasPermission(matches, "customer-feedback.privacy.export-sensitive-feedback");
+  const [reason, setReason] = useState("");
+  const [exportState, setExportState] = useState<"idle" | "pending" | "completed" | "failed">("idle");
+  const exportPending = useRef(false);
   const seven = data.analytics.windows["trailing-7d"];
   const thirty = data.analytics.windows["trailing-30d"];
   const distribution = Object.entries(thirty.ratingDistribution).map(([rating, count]) => ({ rating, count }));
-  const exportHref = `/api/customer-feedback/export${queryWith(data, {})}`;
+  async function exportCsv() {
+    if (!reason || exportPending.current) return;
+    exportPending.current = true;
+    setExportState("pending");
+    try {
+      const api = createExperienceApiClient();
+      const created = await api.createCsatExport(queryWith(data, { reason }).slice(1));
+      const csv = await api.downloadCsatExport(created.exportId);
+      const href = URL.createObjectURL(csv);
+      try {
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = "customer-feedback-export.csv";
+        document.body.append(link);
+        link.click();
+        link.remove();
+      } finally {
+        URL.revokeObjectURL(href);
+      }
+      setExportState("completed");
+    } catch {
+      setExportState("failed");
+    } finally {
+      exportPending.current = false;
+    }
+  }
 
   return (
     <Page>
@@ -162,65 +281,36 @@ export function CsatAdminPage({ data }: { data: DashboardData }) {
       </StatGrid>
 
       <PageSection title={t("experience.csatAdmin.filters")}>
-        <Form method="get" spacing="none">
+        <CsatFilterForm filters={data.filters} asOf={data.analytics.asOf} />
+        {canExport ? (
           <Stack gap={3}>
-            <FilterBar sticky={false}>
-              <HiddenInput type="hidden" name="asOf" value={data.analytics.asOf} readOnly />
-              <DateInput
-                label={t("experience.csatAdmin.from")}
-                name="from"
-                defaultValue={data.filters.from?.slice(0, 10)}
-              />
-              <DateInput label={t("experience.csatAdmin.to")} name="to" defaultValue={data.filters.to?.slice(0, 10)} />
-              <NativeSelect
-                label={t("experience.csatAdmin.surveyVersion")}
-                name="surveyVersion"
-                items={surveyItems}
-                defaultValue={data.filters.surveyVersion?.surveyVersion ?? ""}
-              />
-              <NativeSelect
-                label={t("experience.csatAdmin.outcome")}
-                name="outcomeCodes"
-                items={outcomeItems}
-                defaultValue={data.filters.outcomeCodes?.[0] ?? ""}
-              />
-              <NativeSelect
-                label={t("experience.csatAdmin.role")}
-                name="customerRoles"
-                items={roleItems}
-                defaultValue={data.filters.customerRoles?.[0] ?? ""}
-              />
-              <NativeSelect
-                label={t("experience.csatAdmin.state")}
-                name="states"
-                items={stateItems}
-                defaultValue={data.filters.states?.[0] ?? ""}
-              />
-              <NativeSelect
-                label={t("experience.csatAdmin.rating")}
-                name="ratings"
-                items={ratingItems}
-                defaultValue={data.filters.ratings?.[0] ? String(data.filters.ratings[0]) : ""}
-              />
-              <NativeSelect
-                label={t("experience.csatAdmin.consent")}
-                name="followUpConsent"
-                items={consentItems}
-                defaultValue={data.filters.followUpConsent ?? ""}
-              />
-            </FilterBar>
+            <NativeSelect
+              label={t("experience.csatAdmin.exportReason")}
+              value={reason}
+              onChange={(event) => setReason(event.currentTarget.value)}
+              disabled={exportState === "pending"}
+              items={[
+                { value: "", label: t("experience.csatAdmin.chooseExportReason") },
+                { value: "case-review", label: t("experience.csatAdmin.caseReview") },
+                { value: "quality-review", label: t("experience.csatAdmin.qualityReview") },
+              ]}
+            />
             <ActionBar>
-              <Button type="submit" leadingIcon="filter">
-                {t("experience.csatAdmin.apply")}
+              <Button
+                type="button"
+                tone="secondary"
+                leadingIcon="externalLink"
+                disabled={!reason || exportState === "pending"}
+                onClick={() => void exportCsv()}
+              >
+                {t("experience.csatAdmin.export")}
               </Button>
-              {canExport ? (
-                <LinkButton href={exportHref} tone="secondary" leadingIcon="externalLink">
-                  {t("experience.csatAdmin.export")}
-                </LinkButton>
-              ) : null}
+              <Text role="status" aria-label={t("experience.csatAdmin.export")} aria-live="polite">
+                {exportState === "idle" ? "" : t(`experience.csatAdmin.exportState.${exportState}`)}
+              </Text>
             </ActionBar>
           </Stack>
-        </Form>
+        ) : null}
       </PageSection>
 
       <PageSection title={t("experience.csatAdmin.trend")}>

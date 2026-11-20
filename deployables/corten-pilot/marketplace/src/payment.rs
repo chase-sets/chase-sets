@@ -28,25 +28,24 @@
 //! it. An account there is sent to its own payment page, and a request with no guest checkout, or
 //! one Payments refuses, is told the link is no longer good (a 401, as marketplace answers).
 //!
-//! Saving a paid guest order to an account (the claim: a passkey, or a claim link by email) is
-//! marketplace's page at the same address, linked from the page: each of Auth's claim calls needs
-//! the platform's internal capability, which only marketplace's server holds, and the passkey
-//! needs the browser's WebAuthn, which the pilot's sign-in leaves to marketplace too. A claim
-//! link's landing (`?claimContinuation=`) goes on to marketplace's page with it.
+//! A paid guest order offers Save this order, a link to Auth's claim (`/checkout/claim/{id}`, see
+//! `guest_claim`) that carries the receipt the page was read after. A claim link opens this page's
+//! address with its continuation (`?claimContinuation=`), which goes on to the claim with the same
+//! query.
 //!
 //! Starting a payment again (`/account/payments/new`, where Retry payment goes) is `payment_start`.
 //!
-//! Not ported: restyling Stripe's fields when the color mode changes while the page is open.
+//! Stripe's fields keep Stripe's own appearance, as marketplace's do since chase-sets/chase-sets#11187
+//! removed its custom appearance (and with it the restyle when the color mode changes).
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{AccountPayment, PaymentCalls as _, PaymentOrder},
     app::{Shared, read_failed, url},
@@ -61,7 +60,7 @@ const WATCH_FOR: Duration = Duration::from_secs(5 * 60);
 const WATCH_EVERY: Duration = Duration::from_secs(2);
 
 /// A payment's address: the receipt of the write it reads after (Pay now's).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -69,8 +68,8 @@ pub struct Place {
 }
 
 /// A guest's payment's address: the receipt of the write it reads after, and a claim link's
-/// continuation, which marketplace's page consumes.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+/// continuation, which the page sends on to the claim.
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct GuestPlace {
@@ -78,16 +77,16 @@ pub struct GuestPlace {
     pub claim_continuation: Option<String>,
 }
 
-/// Retry payment's form (`intent=retry-payment`, as marketplace's form names it).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
-#[serde(default)]
-pub struct RetryForm {
+/// The guest page's form, named as marketplace's names it: Retry payment's (`intent=retry-payment`).
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GuestForm {
     pub intent: String,
 }
 
 /// The status part's address: the status the page was drawn with and when the watch ends (Unix
 /// seconds).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Watch {
     pub since: Option<String>,
@@ -135,6 +134,9 @@ pub struct PaymentScreen {
     pub guest: bool,
     /// Why Retry payment did not start a payment.
     pub retry_error: Option<String>,
+    /// The receipt the page was read after, which Save this order's link carries
+    /// (`preserveFreshWriteMetadata`).
+    pub after_write: Option<String>,
     /// The status part to read while the payment waits for the buyer.
     #[serde(skip)]
     pub watch: Option<Watching>,
@@ -145,8 +147,6 @@ pub struct Watching {
     pub id: String,
     pub watch: Watch,
     pub guest: bool,
-    /// The address, for the step's script once Stripe confirms.
-    pub href: String,
 }
 
 /// A status part's address: an account's payment's, or a guest's.
@@ -180,6 +180,12 @@ impl Watching {
 }
 
 impl PaymentScreen {
+    /// The status part's address without its query, which the secure step's status form sends
+    /// once Stripe confirms.
+    pub fn status_action(&self) -> String {
+        WatchRoute::new(&self.payment.payment_id, Watch::default(), self.guest).href()
+    }
+
     /// Waiting for the buyer: the secure payment step is on the page.
     pub fn pending(&self) -> bool {
         self.payment.status == "pending-confirmation"
@@ -237,7 +243,7 @@ fn now() -> u64 {
 
 /// Whose payment page it is: an account's, or a guest checkout's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Payer {
+pub(crate) enum Payer {
     Account,
     Guest,
 }
@@ -249,7 +255,7 @@ impl Payer {
 }
 
 /// A refusal that means a guest's access is gone (`isAuthOrAuthorizationStatus` 401 or 403).
-fn refused_access(error: &crate::api::ApiError) -> bool {
+pub(crate) fn refused_access(error: &crate::api::ApiError) -> bool {
     matches!(error.status(), Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN))
 }
 
@@ -264,35 +270,34 @@ async fn read(
     id: &str,
     receipt: Option<&Receipt>,
     until: u64,
-    chrome: &Chrome,
 ) -> Result<PaymentScreen, Box<HtmlResult>> {
     let guest = payer.guest();
     let caller = config.platform.caller(headers, config.proto, receipt);
     let payment = match caller.account_payment(id).await {
         Ok(Some(payment)) => payment,
-        Ok(None) if receipt.is_some() => return Err(Box::new(preparing(req, viewer, payer, chrome.cart().await))),
-        Ok(None) => return Err(Box::new(not_found(req, viewer, payer, chrome.cart().await))),
+        Ok(None) if receipt.is_some() => return Err(Box::new(preparing(req, viewer, payer))),
+        Ok(None) => return Err(Box::new(not_found(req, viewer, payer))),
         Err(error) if receipt.is_some() && error.catching_up() => {
-            return Err(Box::new(preparing(req, viewer, payer, chrome.cart().await)));
+            return Err(Box::new(preparing(req, viewer, payer)));
         }
-        Err(error) if guest && refused_access(&error) => return Err(Box::new(expired(req, Some(viewer), chrome.cart().await))),
-        Err(error) => return Err(Box::new(read_failed(req, Some(viewer), error, None, chrome.cart().await))),
+        Err(error) if guest && refused_access(&error) => return Err(Box::new(expired(req, Some(viewer)))),
+        Err(error) => return Err(Box::new(read_failed(req, Some(viewer), error, None))),
     };
     let orders = match config.platform.caller(headers, config.proto, None).payment_orders(&payment.order_ids).await {
         Ok(orders) => orders,
-        Err(error) if guest && refused_access(&error) => return Err(Box::new(expired(req, Some(viewer), chrome.cart().await))),
-        Err(error) => return Err(Box::new(read_failed(req, Some(viewer), error, None, chrome.cart().await))),
+        Err(error) if guest && refused_access(&error) => return Err(Box::new(expired(req, Some(viewer)))),
+        Err(error) => return Err(Box::new(read_failed(req, Some(viewer), error, None))),
     };
     let watch = (payment.status == "pending-confirmation" && now() < until).then(|| {
         let watch = Watch { since: Some(payment.status.clone()), until: Some(until) };
-        let href = WatchRoute::new(id, watch.clone(), guest).href();
-        Watching { id: id.to_owned(), watch, guest, href }
+        Watching { id: id.to_owned(), watch, guest }
     });
     Ok(PaymentScreen {
         defaults: defaults(&payment, &orders),
         support_details: support_details(viewer),
         guest,
         retry_error: None,
+        after_write: receipt.map(Receipt::param),
         payment,
         orders,
         watch,
@@ -300,19 +305,17 @@ async fn read(
 }
 
 /// The page, drawn from the screen, with `status`.
-fn draw(req: &Req, viewer: &Viewer, screen: &PaymentScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
+fn draw(req: &Req, viewer: &Viewer, screen: &PaymentScreen, status: StatusCode) -> HtmlResult {
     let t: PaymentMsg = req.t();
     let view = html! { <views::PaymentPage t={t} screen={screen} /> };
     let head = html! { <meta name="robots" content="noindex"> };
-    let page =
-        html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.payment_marketplace()} head={head}>{view}</Layout> };
+    let page = html! { <Layout req={req} viewer={Some(viewer)} title={t.payment_marketplace()} head={head}>{view}</Layout> };
     if status == StatusCode::OK { req.screen(screen, page) } else { req.page_with_status(status, page) }
 }
 
 /// The payment's page, read after the write whose receipt it carries.
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -321,15 +324,16 @@ pub(crate) async fn page(
     let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let until = now() + WATCH_FOR.as_secs();
-    match read(&req, &viewer, Payer::Account, &config, &headers, &id, receipt.as_ref(), until, &chrome).await {
-        Ok(screen) => draw(&req, &viewer, &screen, StatusCode::OK, chrome.cart().await),
+    match read(&req, &viewer, Payer::Account, &config, &headers, &id, receipt.as_ref(), until).await {
+        Ok(screen) => draw(&req, &viewer, &screen, StatusCode::OK),
         Err(page) => *page,
     }
 }
 
 /// The status part (see the module): while the payment's status is the one the page was drawn
 /// with and the watch has time left, an empty part read again shortly; once it changed, the page's
-/// content drawn again. Without JavaScript, the page.
+/// content drawn again. A read that answers with a page instead (the payment gone, a session that
+/// ended) ends the watch with an empty part. Without JavaScript, the page.
 #[allow(clippy::too_many_arguments)]
 async fn watch_part<P: corten::Href>(
     req: &Req,
@@ -340,8 +344,7 @@ async fn watch_part<P: corten::Href>(
     id: &str,
     watch: Watch,
     page: P,
-    chrome: &Chrome,
-) -> HtmlResult {
+) -> HtmlResult<Patches> {
     let caller = config.platform.caller(headers, config.proto, None);
     let until = watch.until.unwrap_or_default();
     // A read that fails ends the watch: the part stays as it is and the buyer can reload.
@@ -359,9 +362,9 @@ async fn watch_part<P: corten::Href>(
         let again = (now() < until).then_some(&from);
         return req.patch_or(views::PaymentWatch { again }, back).await;
     }
-    let screen = match read(req, viewer, payer, config, headers, id, None, until, chrome).await {
+    let screen = match read(req, viewer, payer, config, headers, id, None, until).await {
         Ok(screen) => screen,
-        Err(page) => return *page,
+        Err(page) => return req.patch_or(views::PaymentWatch { again: None }, || async { *page }).await,
     };
     let t: PaymentMsg = req.t();
     req.patch_or(views::PaymentContent { t, screen: &screen }, back).await
@@ -369,99 +372,111 @@ async fn watch_part<P: corten::Href>(
 
 pub(crate) async fn status(
     req: Req,
-    chrome: Chrome,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::payments::BuyerPaymentStatus<'_>>,
-) -> HtmlResult {
+) -> HtmlResult<Patches> {
     let page = url::BuyerPayment { id: &route.id, place: Place::default() };
-    watch_part(&req, &viewer, Payer::Account, &config, &headers, &route.id, route.watch, page, &chrome).await
+    watch_part(&req, &viewer, Payer::Account, &config, &headers, &route.id, route.watch, page).await
 }
 
 /// Who is on a guest's payment page: the guest, or what to answer instead (an account goes to its
 /// own payment page; anyone else is told the link is no longer good).
-fn guest_payer(req: &Req, session: Option<Caller<Session>>, id: &str, cart: Option<u64>) -> Result<Viewer, Box<HtmlResult>> {
+pub(crate) fn guest_payer(req: &Req, session: Option<Caller<Session>>, id: &str) -> Result<Viewer, Box<HtmlResult>> {
     match session.map(|Caller(session)| session) {
         Some(Session::Account(viewer)) if viewer.guest() => Ok(viewer),
         Some(Session::Account(_)) => Err(Box::new(req.redirect(&url::BuyerPayment { id, place: Place::default() }))),
         Some(Session::Unavailable) => Err(Box::new(Err(corten::Error::status(StatusCode::SERVICE_UNAVAILABLE)))),
-        None => Err(Box::new(expired(req, None, cart))),
+        None => Err(Box::new(expired(req, None))),
     }
 }
 
 /// A guest checkout's payment page (`checkout-payment`), read after the write whose receipt it
-/// carries. A claim link's landing goes on to marketplace's page, which consumes it.
+/// carries. A claim link's landing goes on to the claim with the same query (see the module).
 pub(crate) async fn guest_page(
     req: Req,
-    chrome: Chrome,
     session: Option<Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    uri: Uri,
     Params(route): Params<crate::app::url::guest_payments::GuestPayment<'_>>,
 ) -> HtmlResult {
     let (id, place) = (route.id, route.place);
     if place.claim_continuation.as_deref().is_some_and(|c| !c.trim().is_empty()) {
-        return on_marketplace(&req, uri.path_and_query().map_or(uri.path(), |p| p.as_str()));
+        let GuestPlace { after_write, claim_continuation } = place;
+        let place = crate::guest_claim::ClaimPlace { after_write, claim_continuation };
+        return req.redirect(&url::GuestClaim { id: &id, place });
     }
-    let viewer = match guest_payer(&req, session, &id, chrome.cart().await) {
+    let viewer = match guest_payer(&req, session, &id) {
         Ok(viewer) => viewer,
         Err(answer) => return *answer,
     };
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let until = now() + WATCH_FOR.as_secs();
-    match read(&req, &viewer, Payer::Guest, &config, &headers, &id, receipt.as_ref(), until, &chrome).await {
-        Ok(screen) => draw(&req, &viewer, &screen, StatusCode::OK, chrome.cart().await),
+    match read(&req, &viewer, Payer::Guest, &config, &headers, &id, receipt.as_ref(), until).await {
+        Ok(screen) => draw(&req, &viewer, &screen, StatusCode::OK),
         Err(page) => *page,
     }
 }
 
-/// Retry payment (the action's `retry-payment`): for a failed or closed payment, Payments' quote
-/// for its orders again and a new payment at it, then the new payment's page, read after it.
-/// Anything else, or a refusal, is the page with why.
-pub(crate) async fn guest_retry(
+/// The guest page drawn again after Retry payment, `change`d (why it did not go through), with
+/// `status`.
+async fn redraw(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    status: StatusCode,
+    change: impl FnOnce(&mut PaymentScreen),
+) -> HtmlResult {
+    let until = now() + WATCH_FOR.as_secs();
+    match read(req, viewer, Payer::Guest, config, headers, id, None, until).await {
+        Ok(mut screen) => {
+            change(&mut screen);
+            draw(req, viewer, &screen, status)
+        }
+        Err(page) => *page,
+    }
+}
+
+/// The guest page's form (the action's intent): Retry payment, which for a failed or closed
+/// payment asks Payments for its orders' quote again and a new payment at it, then goes to the new
+/// payment's page, read after it. A refusal is the page with why; an intent the page does not draw,
+/// Save this order's among them (they post to the claim now), goes back to the page.
+pub(crate) async fn guest_write(
     req: Req,
-    chrome: Chrome,
     session: Option<Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::guest_payments::GuestPayment<'_>>,
-    Form(form): Form<RetryForm>,
+    Form(form): Form<GuestForm>,
 ) -> HtmlResult {
     // Lent to each answer that draws the page, the refusals' closures among them.
-    let chrome = &chrome;
     let id = route.id;
-    let viewer = match guest_payer(&req, session, &id, chrome.cart().await) {
+    let viewer = match guest_payer(&req, session, &id) {
         Ok(viewer) => viewer,
         Err(answer) => return *answer,
-    };
-    let t: PaymentMsg = req.t();
-    let caller = config.platform.caller(&headers, config.proto, None);
-    let until = now() + WATCH_FOR.as_secs();
-    let again = |message: String| {
-        let (req, viewer, config, headers, id) = (&req, &viewer, &config, &headers, &id);
-        async move {
-            match read(req, viewer, Payer::Guest, config, headers, id, None, until, chrome).await {
-                Ok(mut screen) => {
-                    screen.retry_error = Some(message);
-                    draw(req, viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await)
-                }
-                Err(page) => *page,
-            }
-        }
     };
     if form.intent != "retry-payment" {
         return req.redirect(&url::GuestPayment { id: &id, place: GuestPlace::default() });
     }
+    let t: PaymentMsg = req.t();
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let failed = |message: String| {
+        let (req, viewer, config, headers, id) = (&req, &viewer, &config, &headers, &id);
+        redraw(req, viewer, config, headers, id, StatusCode::UNPROCESSABLE_ENTITY, move |screen| {
+            screen.retry_error = Some(message)
+        })
+    };
     let payment = match caller.account_payment(&id).await {
         Ok(Some(payment)) => payment,
-        Ok(None) => return not_found(&req, &viewer, Payer::Guest, chrome.cart().await),
-        Err(error) if refused_access(&error) => return expired(&req, Some(&viewer), chrome.cart().await),
-        Err(error) => return again(error.refusal().unwrap_or(t.could_not_retry_this_payment()).to_owned()).await,
+        Ok(None) => return not_found(&req, &viewer, Payer::Guest),
+        Err(error) if refused_access(&error) => return expired(&req, Some(&viewer)),
+        Err(error) => return failed(error.refusal().unwrap_or(t.could_not_retry_this_payment()).to_owned()).await,
     };
     if !matches!(payment.status.as_str(), "failed" | "cancelled") {
-        return again(t.this_payment_cannot_be_retried().to_owned()).await;
+        return failed(t.this_payment_cannot_be_retried().to_owned()).await;
     }
     let recovered = async {
         let quote = caller.checkout_status(&payment).await?;
@@ -473,47 +488,39 @@ pub(crate) async fn guest_retry(
             let place = GuestPlace { after_write: receipt.as_ref().map(Receipt::param), ..GuestPlace::default() };
             req.redirect(&url::GuestPayment { id: &new.payment_id, place })
         }
-        Err(error) if refused_access(&error) => expired(&req, Some(&viewer), chrome.cart().await),
+        Err(error) if refused_access(&error) => expired(&req, Some(&viewer)),
         Err(error) => {
             tracing::warn!("Retry payment was refused: {error}");
-            again(error.refusal().unwrap_or(t.could_not_retry_this_payment()).to_owned()).await
+            failed(error.refusal().unwrap_or(t.could_not_retry_this_payment()).to_owned()).await
         }
     }
 }
 
-/// A guest's status part (see `status`).
+/// A guest's status part (see `status`). Someone who is not the guest ends the watch with an empty
+/// part; without JavaScript, they get the payment page's answer.
 pub(crate) async fn guest_status(
     req: Req,
-    chrome: Chrome,
     session: Option<Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::guest_payments::GuestPaymentStatus<'_>>,
-) -> HtmlResult {
-    let viewer = match guest_payer(&req, session, &route.id, chrome.cart().await) {
+) -> HtmlResult<Patches> {
+    let viewer = match guest_payer(&req, session, &route.id) {
         Ok(viewer) => viewer,
-        Err(answer) => return *answer,
+        Err(answer) => return req.patch_or(views::PaymentWatch { again: None }, || async { *answer }).await,
     };
     let page = url::GuestPayment { id: &route.id, place: GuestPlace::default() };
-    watch_part(&req, &viewer, Payer::Guest, &config, &headers, &route.id, route.watch, page, &chrome).await
-}
-
-/// Marketplace's own page at `path`.
-fn on_marketplace(req: &Req, path: &str) -> HtmlResult {
-    match views::marketplace(path) {
-        Some(to) => req.redirect(&to),
-        None => Err(corten::Error::status(StatusCode::NOT_FOUND)),
-    }
+    watch_part(&req, &viewer, Payer::Guest, &config, &headers, &route.id, route.watch, page).await
 }
 
 /// A payment the account does not have (marketplace's 404 with `payment.not.found`).
-fn not_found(req: &Req, viewer: &Viewer, payer: Payer, cart: Option<u64>) -> HtmlResult {
+pub(crate) fn not_found(req: &Req, viewer: &Viewer, payer: Payer) -> HtmlResult {
     let t: PaymentMsg = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page_with_status(
         StatusCode::NOT_FOUND,
         html! {
-            <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.payment_not_found()} head={head}>
+            <Layout req={req} viewer={Some(viewer)} title={t.payment_not_found()} head={head}>
                 <views::PaymentNotice
                     t={t}
                     title={t.payment_not_found()}
@@ -527,7 +534,7 @@ fn not_found(req: &Req, viewer: &Viewer, payer: Payer, cart: Option<u64>) -> Htm
 
 /// A payment Payments has not caught up to after the write (marketplace's 503 Preparing payment):
 /// a 202 the page reads again.
-fn preparing(req: &Req, viewer: &Viewer, payer: Payer, cart: Option<u64>) -> HtmlResult {
+pub(crate) fn preparing(req: &Req, viewer: &Viewer, payer: Payer) -> HtmlResult {
     let t: PaymentMsg = req.t();
     let head = html! {
         <meta name="robots" content="noindex">
@@ -536,7 +543,7 @@ fn preparing(req: &Req, viewer: &Viewer, payer: Payer, cart: Option<u64>) -> Htm
     req.page_with_status(
         StatusCode::ACCEPTED,
         html! {
-            <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.payment_preparing()} head={head}>
+            <Layout req={req} viewer={Some(viewer)} title={t.payment_preparing()} head={head}>
                 <views::PaymentNotice
                     t={t}
                     title={t.payment_preparing()}
@@ -550,14 +557,14 @@ fn preparing(req: &Req, viewer: &Viewer, payer: Payer, cart: Option<u64>) -> Htm
 
 /// A guest's payment link that is no longer good: no guest checkout, or one Payments refuses
 /// (marketplace's 401 Guest checkout link expired).
-fn expired(req: &Req, viewer: Option<&Viewer>, cart: Option<u64>) -> HtmlResult {
+pub(crate) fn expired(req: &Req, viewer: Option<&Viewer>) -> HtmlResult {
     let t: PaymentMsg = req.t();
     let p: Pilot = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page_with_status(
         StatusCode::UNAUTHORIZED,
         html! {
-            <Layout req={req} viewer={viewer} cart={cart} title={p.guest_payment_link_expired_title()} head={head}>
+            <Layout req={req} viewer={viewer} title={p.guest_payment_link_expired_title()} head={head}>
                 <views::PaymentNotice
                     t={t}
                     title={p.guest_payment_link_expired_title()}

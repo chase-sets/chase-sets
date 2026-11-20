@@ -3,7 +3,8 @@ import {
   marketplaceAcceptanceKeySchema,
   marketplaceAttemptIdSchema,
   marketplaceMutationRecoveryResultSchema,
-  marketplaceOfferCanonicalRequest,
+  marketplaceCanonicalRequest,
+  marketplaceRecoveryTargetKind,
   type MarketplaceMutationKind,
   type MarketplaceMutationRecoveryResult,
 } from "../domain/contracts";
@@ -49,6 +50,7 @@ export async function recoverMarketplaceCommand<T>(input: {
   isCommandResponse: (error: unknown) => boolean;
   resolveReceipt?: (receipt: { id: string; version: number }) => Promise<T>;
   onPhase?: (phase: MarketplaceCommandPhase) => void;
+  onRecovered?: (recovery: MarketplaceMutationRecoveryResult, observed: unknown) => void;
 }): Promise<T | { id: string; version: number }> {
   const parser = input.mutationKind === "offer.accept" ? marketplaceAcceptanceKeySchema : marketplaceAttemptIdSchema;
   if (!parser.safeParse(input.attemptId).success) {
@@ -57,11 +59,7 @@ export async function recoverMarketplaceCommand<T>(input: {
   }
   let requestHash: string;
   try {
-    requestHash = await marketplaceRequestHash(
-      input.mutationKind === "offer-policy.command"
-        ? input.request
-        : marketplaceOfferCanonicalRequest(input.mutationKind, input.request),
-    );
+    requestHash = await marketplaceRequestHash(marketplaceCanonicalRequest(input.mutationKind, input.request));
   } catch (error) {
     input.onPhase?.("failed-safe");
     throw new MarketplaceCommandRecoveryError("failed-safe", error);
@@ -101,12 +99,7 @@ export async function recoverMarketplaceCommand<T>(input: {
       recovery.mutationKind === input.mutationKind &&
       recovery.attemptKeyFingerprint === fingerprint &&
       recovery.target.id === input.target &&
-      recovery.target.kind ===
-        (input.mutationKind === "offer.submit"
-          ? "product"
-          : input.mutationKind === "offer-policy.command"
-            ? "offer-policy"
-            : "offer") &&
+      recovery.target.kind === marketplaceRecoveryTargetKind(input.mutationKind) &&
       recovery.canonicalRequestHash === requestHash
     ) {
       const metadata = getMutationResultCommandReceipt(observed);
@@ -121,6 +114,7 @@ export async function recoverMarketplaceCommand<T>(input: {
           })
         : recovery.ownerReceipt;
       input.onPhase?.("succeeded");
+      input.onRecovered?.(recovery, observed);
       return input.resolveReceipt ? input.resolveReceipt(receipt) : receipt;
     }
     input.onPhase?.("ambiguous");

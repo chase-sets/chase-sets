@@ -151,6 +151,37 @@ publishes when it completes an outcome it owns. Customer Feedback consumes Outco
 Facts to decide whether to issue an invitation; it never reaches into another
 context's aggregate or database.
 
+## CSAT Outcome Fact
+
+A **CSAT Outcome Fact** is Customer Feedback's immutable projection of a native
+source occurrence into `customer_feedback_csat_outcome_facts`. The source owns
+the occurrence; Customer Feedback owns its outcome code, subject, and byte-stable
+idempotency key. Redelivery inserts no duplicate row and changes no existing row.
+
+Auth, Identity, and Discovery facts retain the source envelope's `recordedAt`,
+event identifier, and performing User without classifying customer versus seed
+activity. Auth retains its authentication method; absent historical methods are
+stored as null. Recording a fact does not issue an invitation or apply sampling.
+The optional version-1 subscriptions recover from position zero through the
+standard bounded, checkpointed runner, not a separate backfill process.
+
+Fulfillment delivery, Payments capture, Settlement payout completion, and Support
+resolution retain their native payload occurrence timestamps and source envelope
+event identifier and performing User. Capture facts use source `checkout`:
+`checkout-recovery` yields recovery; any other present source, including null,
+yields completion. Historical captures without a source field are not classified.
+Support remains sourced from Platform Operations; return requests yield return
+resolution. Legacy CSAT sibling events and nested payout facts are not projected.
+
+Marketplace publication, acceptance and review facts retain payload occurrence times.
+Reviews describe the author account and role. Historical nested-only listing publications
+retain their usable legacy identity and time; empty publications yield no fact. Native
+listing fields take precedence. Other nested facts and review siblings are ignored.
+Inventory creation and adjustment facts use the envelope occurrence time and event id
+(`inventory:item.adjusted:<eventId>`), including seed, external-channel and sale-consumed
+occurrences. Creation uses its payload account; adjustment uses the envelope account.
+Raw adjustment reason codes remain unchanged, with absent reasons stored as null.
+
 ## Sampling Policy
 
 A **Sampling Policy** decides which eligible outcomes receive a survey and records

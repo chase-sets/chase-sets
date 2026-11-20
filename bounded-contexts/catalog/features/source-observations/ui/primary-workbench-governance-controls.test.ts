@@ -22,6 +22,17 @@ import {
 } from "./primary-workbench-read-model-test-support";
 
 describe("Catalog primary workbench read model - governance controls", () => {
+  it("resolves Settings control-plane evidence without a standalone workspace detour", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations/settings?evidenceRef=control-plane/settings",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profileReview()], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+    expect(readModel.auditEvidence.selection).toMatchObject({ state: "resolved", deepLinkOpen: true });
+    expect(readModel.auditEvidence.returnToPrimaryHref).toBe("/catalog/integrations/settings");
+  });
   it("models governance controls for view-only RBAC while preserving deletion evidence", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

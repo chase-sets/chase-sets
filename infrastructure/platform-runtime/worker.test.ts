@@ -2888,6 +2888,7 @@ describe("worker runner loop", () => {
     const processedByRun = [1, 1, 0];
     const resets: string[] = [];
     let markedRevision = false;
+    let rebuilding = false;
     const subscriptionRunner = {
       targetContextName: "inventory",
       checkpointKey: "inventory-catalog-item-projection:catalog:v1",
@@ -2903,12 +2904,15 @@ describe("worker runner loop", () => {
       subscriptionRunners: [subscriptionRunner],
       refreshStatus: async () => ({
         revisionStale: !markedRevision,
+        rebuildingProjectionRevision: rebuilding ? 2 : undefined,
+        revisionSyncToken: rebuilding ? { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" } : null,
       }),
       markRevisionSynced: async () => {
         markedRevision = true;
       },
       reset: async () => {
         resets.push("group");
+        rebuilding = true;
       },
     });
     const [runner] = collectWorkerRunners({
@@ -2926,6 +2930,76 @@ describe("worker runner loop", () => {
     expect(resets).toEqual(["group", "subscription"]);
     expect(markedRevision).toBe(true);
   });
+
+  it.each([false, true])(
+    "projection-group-recovery-marker resumes a durable stale rebuild after a drain error (restart=%s)",
+    async (restart) => {
+      const token = Object.freeze({ generation: "9007199254740993", startedAt: "2026-01-01T00:00:00.000Z" });
+      const reset = vi.fn(async () => undefined);
+      const markRevisionSynced = vi.fn(async () => undefined);
+      const runOnce = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("injected drain failure"))
+        .mockResolvedValueOnce({ processed: 1, lastGlobalPosition: "1" })
+        .mockResolvedValue({ processed: 0, lastGlobalPosition: "1" });
+      const makeGroup = () =>
+        createProjectionGroup({
+          subscriptionRunners: [{ runOnce, reset: async () => undefined }],
+          reset,
+          markRevisionSynced,
+          refreshStatus: async () => ({
+            revisionStale: true,
+            rebuildingProjectionRevision: 2,
+            revisionSyncToken: token,
+          }),
+        });
+      const makeWorker = () =>
+        collectWorkerRunners({
+          mountedContexts: [],
+          services: {},
+          projectionGroups: [makeGroup()],
+          subscriptionRunners: [],
+        } as never)[0];
+      let worker = makeWorker();
+      await expect(worker.runOnce()).rejects.toThrow("injected drain failure");
+      if (restart) worker = makeWorker();
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 1 });
+      expect(markRevisionSynced).not.toHaveBeenCalled();
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0 });
+      expect(reset).not.toHaveBeenCalled();
+      expect(markRevisionSynced).toHaveBeenCalledExactlyOnceWith(token, expect.anything());
+    },
+  );
+
+  it.each([
+    { target: 1, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" } },
+    { target: null, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" } },
+    { target: 2, token: null },
+    { target: 2, token: { activeGeneration: "2" } },
+    { target: 1, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" }, revisionStale: false },
+    { target: null, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" }, revisionStale: false },
+  ])(
+    "projection-group-revision-mismatch resets a non-resumable capture $target / $token",
+    async ({ target, token, revisionStale = true }) => {
+      const reset = vi.fn(async () => undefined);
+      const group = createProjectionGroup({
+        reset,
+        refreshStatus: async () => ({
+          revisionStale,
+          rebuildingProjectionRevision: target,
+          revisionSyncToken: token,
+        }),
+      });
+      const [worker] = collectWorkerRunners({
+        mountedContexts: [],
+        services: {},
+        projectionGroups: [group],
+        subscriptionRunners: [],
+      } as never);
+      await worker.runOnce();
+      expect(reset).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("projection-group-recovery-marker retains its captured token across busy and blocked passes", async () => {
     const passResults = [
@@ -3082,6 +3156,65 @@ describe("worker runner loop", () => {
     (releaseSlowRunner as (() => void) | null)?.();
     await expect(run).resolves.toMatchObject({ processed: 3, lastGlobalPosition: "4" });
     expect(calls).toEqual(["slow-start", "same-order", "slow-end", "later-order"]);
+  });
+
+  it.each([0, 1])("keeps later subscription orders behind blocked streams (processed=%s)", async (processed) => {
+    let blocked = true;
+    const runOnce = vi.fn(async () => ({
+      processed: blocked ? processed : 0,
+      lastGlobalPosition: "2" as never,
+      blockedStreams: blocked ? 1 : 0,
+      poisonEvents: blocked ? 1 : 0,
+    }));
+    const peerRun = vi.fn(async () => ({ processed: 0, lastGlobalPosition: "3" as never }));
+    const laterRun = vi.fn(async () => ({ processed: 0, lastGlobalPosition: "4" as never }));
+    const subscriptions = [
+      { order: 10, sourceContextName: "catalog", runOnce },
+      { order: 10, sourceContextName: "marketplace", runOnce: peerRun },
+      { order: 20, sourceContextName: "ordering", runOnce: laterRun },
+    ];
+    const token = { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" };
+    const reset = vi.fn(async () => undefined);
+    const markRevisionSynced = vi.fn(async () => undefined);
+    const makeWorker = () =>
+      collectWorkerRunners({
+        mountedContexts: [],
+        services: {},
+        subscriptionRunners: [],
+        projectionGroups: [
+          createProjectionGroup({
+            subscriptionRunners: subscriptions,
+            reset,
+            markRevisionSynced,
+            refreshStatus: async () => ({
+              revisionStale: true,
+              rebuildingProjectionRevision: 2,
+              revisionSyncToken: token,
+            }),
+          }),
+        ],
+      } as never)[0];
+
+    const worker = makeWorker();
+    for (const runner of [worker, worker, makeWorker()]) {
+      await expect(runner.runOnce()).resolves.toMatchObject({
+        processed,
+        blockedStreams: 1,
+        poisonEvents: 1,
+        state: "degraded",
+        lastGlobalPosition: "3",
+      });
+    }
+    expect(peerRun).toHaveBeenCalledTimes(3);
+    expect(laterRun).not.toHaveBeenCalled();
+    expect(markRevisionSynced).not.toHaveBeenCalled();
+    expect(reset).not.toHaveBeenCalled();
+
+    blocked = false;
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0, state: "caught-up" });
+    expect(laterRun).toHaveBeenCalledTimes(1);
+    expect(markRevisionSynced).toHaveBeenCalledWith(token, expect.any(Object));
+    expect(reset).not.toHaveBeenCalled();
   });
 
   it("shares source-head cache across subscription runners in one projection group pass", async () => {
@@ -3778,7 +3911,10 @@ function createProjectionGroup(
     refreshStatus?: (
       ...args: Parameters<ContextProjectionGroup["refreshStatus"]>
     ) => Promise<
-      Pick<Awaited<ReturnType<ContextProjectionGroup["refreshStatus"]>>, "revisionStale" | "revisionSyncToken">
+      Pick<
+        Awaited<ReturnType<ContextProjectionGroup["refreshStatus"]>>,
+        "revisionStale" | "revisionSyncToken" | "rebuildingProjectionRevision"
+      >
     >;
     recoveryRequired?: () => boolean;
     markRevisionSynced?: ContextProjectionGroup["markRevisionSynced"];

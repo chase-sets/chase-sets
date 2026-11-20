@@ -11,7 +11,8 @@ vi.mock("../support/request-support/api-client", async (importOriginal) => ({
   createDiscoveryRequestApiClient: vi.fn(() => ({ getSetBySlug })),
 }));
 
-import DiscoverySetRoute, { loader as setLoader } from "./set";
+import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
+import DiscoverySetRoute, { loader as setLoader, meta as setMeta } from "./set";
 
 afterEach(cleanup);
 beforeEach(() => getSetBySlug.mockReset());
@@ -109,5 +110,56 @@ describe("Discovery set route card count", () => {
     renderSet(page({ item_count: 0, items: [], reference_card_count: null }));
 
     expect(await screen.findByText("Cataloged items: 0")).toBeTruthy();
+  });
+});
+
+/** The set read answers `status`; a plain function, since a spy reports the rejection it returned as the test's failure. */
+function failRead(status: number) {
+  vi.mocked(createDiscoveryRequestApiClient).mockReturnValueOnce({
+    getSetBySlug: async () => {
+      throw new DiscoveryApiError(status, { error: { code: "failed", message: "Failed" } });
+    },
+  } as never);
+}
+
+function load(slug = "no-such-set") {
+  return setLoader({
+    request: new Request(`http://localhost/sets/${slug}`),
+    params: { setSlug: slug },
+    context: {},
+  } as never);
+}
+
+describe("Discovery set route status", () => {
+  it("answers a set the API does not have with 404, noindex and no canonical link", async () => {
+    failRead(404);
+
+    const result = (await load()) as unknown as {
+      data: { setPage: null; canonicalUrl: null };
+      init: { status: number };
+    };
+    expect(result.init.status).toBe(404);
+    expect(result.data).toEqual({ setPage: null, notFound: true, canonicalUrl: null });
+    const tags = setMeta({ data: result.data } as never) ?? [];
+
+    expect(tags).toContainEqual({ name: "robots", content: "noindex" });
+    expect(tags.some((tag) => "rel" in tag && tag.rel === "canonical")).toBe(false);
+  });
+
+  it.each([
+    [500, 502],
+    [503, 503],
+    [400, 502],
+  ])("answers a set read the API fails with %i as %i, not as a missing set", async (status, expected) => {
+    failRead(status);
+
+    await expect(load()).rejects.toMatchObject({ init: { status: expected } });
+  });
+
+  it("keeps a found set indexable", async () => {
+    getSetBySlug.mockResolvedValue(page());
+
+    const result = await load("base-set");
+    expect(setMeta({ data: result } as never)).not.toContainEqual({ name: "robots", content: "noindex" });
   });
 });

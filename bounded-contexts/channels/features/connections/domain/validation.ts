@@ -81,6 +81,16 @@ export function assertSafeInteger(value: unknown, label: string): asserts value 
   if (!Number.isSafeInteger(value) || Number(value) < 0) invalid(`${label} must be a non-negative safe integer.`);
 }
 
+export function assertStorageLocationIds(value: unknown): asserts value is readonly string[] {
+  if (!Array.isArray(value) || value.length > 200) invalid("storageLocationIds must be an array of at most 200 IDs.");
+  const ids = new Set<string>();
+  for (const id of value) {
+    assertOpaqueId(id, "storageLocationId");
+    if (ids.has(id)) invalid("storageLocationIds must be unique.");
+    ids.add(id);
+  }
+}
+
 export function assertBindingsShape(value: unknown): asserts value is readonly ChannelConnectionBinding[] {
   if (!Array.isArray(value)) invalid("bindings must be an array.");
   if (value.length > 200) invalid("bindings may contain at most 200 entries.");

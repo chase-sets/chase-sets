@@ -2,7 +2,8 @@ import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useLocation } from "react-router";
+import { SellListAttemptBoundary } from "../features/sell-list/ui/sell-list-attempt-boundary";
 import {
   loadFreshlyWrittenResource,
   preserveFreshWriteMetadata,
@@ -92,6 +93,22 @@ export const meta: MetaFunction = () =>
     title: t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title"),
     description: t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description"),
   });
+
+export function HydrateFallback() {
+  return <SellListAttemptBoundary pending>{null}</SellListAttemptBoundary>;
+}
+
+export function ErrorBoundary() {
+  const location = useLocation();
+  return (
+    <SellListAttemptBoundary
+      attempt={{ state: "ambiguous", fields: [], lines: [] }}
+      retryHref={`${location.pathname}${location.search}`}
+    >
+      {null}
+    </SellListAttemptBoundary>
+  );
+}
 
 export default function SellCheckoutConfirmationRoute() {
   const data = useLoaderData<typeof loader>();

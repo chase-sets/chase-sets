@@ -373,7 +373,14 @@ describe("marketplace account payment start route", () => {
         orders: [{ ...buildPurchase("ord_1"), total_amount: "10.30" }],
         autostart: false,
         wallet: { available_balance_amount: available, currency_code: "usd" },
-        checkoutStatus,
+        checkoutStatus: {
+          ...checkoutStatus,
+          wallet_credit: {
+            requested_amount: expected,
+            applied_amount: expected,
+            external_amount: disabled ? (available === "4.25" ? "6.05" : "10.30") : "0.00",
+          },
+        },
       });
       render(
         <ChaseRoot>
@@ -384,10 +391,7 @@ describe("marketplace account payment start route", () => {
         disabled,
       );
       expect(screen.getByRole("option", { name: `Use up to $${expected}` })).toBeTruthy();
-      expect(compareMoneyAmounts).toHaveBeenCalledWith(
-        disabled ? (available === "4.25" ? "6.05" : "10.30") : "0.00",
-        "0.00",
-      );
+      expect(screen.getByText("Wallet credit applied").parentElement?.textContent).toContain(`$${expected}`);
     },
   );
 

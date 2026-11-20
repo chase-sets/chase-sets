@@ -203,7 +203,6 @@ export type UpdateOfferPriceCommand = Readonly<{
 
 export type AcceptOfferCommand = Readonly<{
   type: "AcceptOffer";
-  csatOutcomeFact?: JsonObject;
   sellerAccountId: AccountId;
   listingId: string;
   inventoryItemId: string;
@@ -547,7 +546,6 @@ function decideOffer(
                     command.acceptanceBatchSize ?? 1,
                     "Offer acceptance batch size must be a positive whole number.",
                   ),
-            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];

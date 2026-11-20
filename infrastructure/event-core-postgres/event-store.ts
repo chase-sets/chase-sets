@@ -42,6 +42,12 @@ import {
 } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 import { buildStreamPrefixFilterSql, streamCategory, streamContextName } from "./stream-prefix-filter";
+import { lockAndCommitRequestTerminalInTransaction } from "./owner-stream-reservation";
+import {
+  enrollOwnerPredicateWriteInTransaction,
+  withOwnerPredicateWrite,
+  type OwnerPredicateAppendEnrollment,
+} from "./owner-predicate-enrollment";
 
 type DbEventRow = Readonly<{
   event_id: string;
@@ -158,9 +164,11 @@ export type PostgresEventStoreConfig = Readonly<{
   now?: () => IsoUtcTimestamp;
   createEventId?: () => EventId;
   wakeNotifications?: PostgresEventStoreWakeNotificationConfig;
+  ownerPredicates?: OwnerPredicateAppendEnrollment;
 }>;
 
 export interface PostgresEventStore extends EventStore {
+  withOwnerPredicateWrite?<T>(work: (client: PgPoolClient) => Promise<T>): Promise<T>;
   appendToStreamInTransaction(client: PgQueryable, input: AppendToStreamInput): Promise<readonly StoredEvent[]>;
   /**
    * The all-or-nothing multi-stream append (`appendToStreams`) on a
@@ -218,6 +226,11 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
   const now = config.now ?? nowIsoUtcTimestamp;
   const createEventId = config.createEventId ?? createDefaultEventId;
   const wakeNotifications = normalizeEventStoreWakeNotificationConfig(config.wakeNotifications);
+  const predicateKeys = (inputs: readonly AppendToStreamInput[]) => config.ownerPredicates?.keys(inputs) ?? [];
+  const predicateTransaction: typeof withConfigurationEpochTransaction = (pool, work, options) =>
+    withOwnerPredicateWrite(pool, config.ownerPredicates?.consumerPool, work, options);
+  const enrollPredicates = (client: PgQueryable, inputs: readonly AppendToStreamInput[]) =>
+    enrollOwnerPredicateWriteInTransaction(client, predicateKeys(inputs));
 
   const upsertStreamSql = `
     INSERT INTO ${streamsTable} (stream_id, current_version, updated_at)
@@ -267,8 +280,13 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
   };
 
   return {
+    ...(config.ownerPredicates
+      ? { withOwnerPredicateWrite: <T>(work: (client: PgPoolClient) => Promise<T>) => predicateTransaction(pool, work) }
+      : {}),
     readStreamInTransaction: readStream,
     appendToStreamInTransaction: async (client, input) => {
+      if (input.requestTerminal)
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       if (input.configurationGrants?.length)
         throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       if (input.events.length === 0) return [];
@@ -280,6 +298,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
           event_type: input.events.length === 1 ? input.events[0].eventType : "multiple",
         },
         async () => {
+          await enrollPredicates(client, [input]);
           try {
             const storedEvents = await appendEventsToStream({
               client,
@@ -323,6 +342,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
           event_type: "multiple",
         },
         async () => {
+          await enrollPredicates(client, inputs);
           try {
             const results = await appendEventsToStreams({
               client,
@@ -358,6 +378,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStream: async (input) => {
+      if (input.requestTerminal)
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       if (input.configurationGrants?.length)
         throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       if (input.events.length === 0) {
@@ -374,10 +396,12 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
         },
         async () => {
           try {
-            return await withPgTransaction(
+            const transaction = predicateKeys([input]).length ? predicateTransaction : withPgTransaction;
+            return await transaction(
               pool,
-              async (client) =>
-                appendEventsToStream({
+              async (client) => {
+                await enrollPredicates(client, [input]);
+                return appendEventsToStream({
                   client,
                   input,
                   now,
@@ -387,7 +411,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   eventsTable,
                   readEventsByIdsSql,
                   updateStreamVersionSql,
-                }),
+                });
+              },
               {
                 afterCommit: wakeNotifications
                   ? (client, storedEvents) =>
@@ -408,9 +433,11 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreams: async (inputs) => {
-      const appendTransaction = inputs.some((input) => input.configurationGrants?.length)
-        ? withConfigurationEpochTransaction
-        : withPgTransaction;
+      const appendTransaction = predicateKeys(inputs).length
+        ? predicateTransaction
+        : inputs.some((input) => input.configurationGrants?.length || input.requestTerminal)
+          ? withConfigurationEpochTransaction
+          : withPgTransaction;
       const appendInputs = inputs.filter((input) => input.events.length > 0);
       // A zero-event input is a version guard, not a skipped no-op: the
       // transaction still opens so its expected version is enforced.
@@ -430,8 +457,9 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
           try {
             return await appendTransaction(
               pool,
-              async (client) =>
-                appendEventsToStreams({
+              async (client) => {
+                await enrollPredicates(client, inputs);
+                return appendEventsToStreams({
                   client,
                   inputs,
                   now,
@@ -441,7 +469,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   eventsTable,
                   readEventsByIdsSql,
                   updateStreamVersionSql,
-                }),
+                });
+              },
               {
                 afterCommit: wakeNotifications
                   ? async (client, results) => {
@@ -470,6 +499,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreamsIndependently: async (inputs, options) => {
+      if (inputs.some((input) => input.requestTerminal))
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       if (inputs.some((input) => input.configurationGrants?.length))
         throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       const appendInputs = inputs.filter((input) => input.events.length > 0);
@@ -500,10 +531,12 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
           let transactionOutcome: "committed" | "rolled_back" = "rolled_back";
 
           try {
-            const results = await withPgTransaction(
+            const transaction = predicateKeys(appendInputs).length ? predicateTransaction : withPgTransaction;
+            const results = await transaction(
               pool,
-              async (client) =>
-                appendEventsToStreamsIndependently({
+              async (client) => {
+                await enrollPredicates(client, appendInputs);
+                return appendEventsToStreamsIndependently({
                   client,
                   inputs,
                   now,
@@ -516,7 +549,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   onAdvisoryLockAcquired: () => {
                     lockTiming.acquiredAtMs ??= Date.now();
                   },
-                }),
+                });
+              },
               {
                 afterCommit: wakeNotifications
                   ? async (client, committedResults) => {
@@ -864,6 +898,18 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 
 async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
   const results: AppendToStreamsResult[] = [];
+  const terminals = args.inputs.flatMap((input) => (input.requestTerminal ? [input.requestTerminal] : []));
+  if (terminals.length) {
+    const keys = terminals.map((binding) => JSON.stringify([binding.consumerStoreId, binding.requestId]));
+    if (new Set(keys).size !== keys.length)
+      throw createEventStoreError("concurrency_conflict", "Each request terminal may participate once per append.");
+    // Request-terminal locks are the first lock in the class-C append order.
+    // The CAS is consumer-local and therefore never reads an owner database.
+    for (const binding of [...terminals].sort((a, b) =>
+      JSON.stringify([a.consumerStoreId, a.requestId]).localeCompare(JSON.stringify([b.consumerStoreId, b.requestId])),
+    ))
+      await lockAndCommitRequestTerminalInTransaction(args.client, binding);
+  }
   const grants = args.inputs.flatMap((input) => input.configurationGrants ?? []);
   if (grants.length) {
     assertUniqueStreamIds("appendToStreams", args.inputs);

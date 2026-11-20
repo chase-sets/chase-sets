@@ -38,6 +38,9 @@ describe("reported-content HTTP authorization", () => {
           auto_unlisted_count: 0,
         }),
       recordModerationAction: vi.fn<ReportedContentServices["recordModerationAction"]>().mockResolvedValue(recorded),
+      acknowledge: vi
+        .fn<ReportedContentServices["acknowledge"]>()
+        .mockResolvedValue({ acknowledgedAt: recorded.recordedAt }),
       projectors: [],
     } satisfies ReportedContentServices;
     const actions = Object.entries(REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE).flatMap(([targetType, targetActions]) =>
@@ -62,6 +65,9 @@ describe("reported-content HTTP authorization", () => {
         await next();
       });
       app.route("/", createReportedContentRoutes(services));
+      const ack = await app.request("/listing/listing_synthetic/acknowledge", { method: "POST" });
+      expect(ack.status).toBe(granted ? 200 : 403);
+      expect(services.acknowledge).toHaveBeenCalledTimes(granted ? 1 : 0);
       for (const read of reads) {
         const response = await app.request(read.path);
         expect(response.status).toBe(granted ? read.status : 403);

@@ -1,7 +1,7 @@
 //! The session both web hosts sign in (the `chase_sets_session` cookie, resolved by
 //! `GET /api/auth/session`) and the color mode the user chose (`chase_sets_color_mode`).
 use corten::{
-    axum::http::{HeaderMap, header},
+    http::{HeaderMap, header},
     security::cookie,
 };
 

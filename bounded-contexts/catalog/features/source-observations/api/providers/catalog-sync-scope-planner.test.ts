@@ -166,6 +166,49 @@ describe("Pokemon mapping language coordinates", () => {
 });
 
 describe("server-unplannable provider units", () => {
+  it.each([false, true])(
+    "excludes real TCGplayer Lorcana units from a set preview (explicit selection: %s)",
+    async (selected) => {
+      const profiles = catalogProviderIntegrationProfileVersions.filter(
+        (version) => version.providerKey === "tcgplayer" && version.ingestionUnitIdentity?.productDomain === "lorcana",
+      );
+      expect(
+        profiles.find((version) => version.active && version.profileKey === "lorcana-sealed-product-sku")?.profile
+          .capabilities,
+      ).toContain("catalog-item-promotion");
+      const tcgplayer = realTcgplayerAdapter();
+      const scopeRecordId = "scope_synthetic_lorcana_first_chapter";
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope: {
+          scopeVersion: "catalog-sync-scope-v2",
+          productDomain: "lorcana",
+          reference: { kind: "set", scopeRecordId },
+          providerParticipation: selected
+            ? { selectedUnitKeys: profiles.map(unitKeyForCatalogProviderProfileVersion) }
+            : undefined,
+        },
+        acceptedScopeMappings: profiles
+          .filter((version) => version.active)
+          .map((version) =>
+            acceptedMapping({
+              scopeRecordId,
+              providerKey: "tcgplayer",
+              unitKey: unitKeyForCatalogProviderProfileVersion(version),
+              productLineId: "82",
+              setId: "1001",
+              setName: "The First Chapter",
+            }),
+          ),
+        providerProfileVersions: profiles,
+        providerAdapterRegistry: new ProviderAdapterRegistry([tcgplayer.adapter]),
+        includeOperationalGates: true,
+      });
+      expect(preview.units).toEqual([]);
+      expect(preview.blockers).toEqual([]);
+      expectNoAdapterCalls(tcgplayer.calls);
+    },
+  );
+
   const magicScopeRecordId = "scope_synthetic_magic_tsp";
   const magicProfiles = catalogProviderIntegrationProfileVersions.filter((version) =>
     [
@@ -358,6 +401,39 @@ describe("server-unplannable provider units", () => {
 });
 
 describe("Catalog sync scope planner", () => {
+  it("plans a mapped set unit once using its active profile rather than superseded versions", async () => {
+    const active = activeProfile("ygojson", "yugioh-set-reference-data");
+    const deprecated = { ...active, profileVersion: "2026.01.01", active: false, lifecycle: "deprecated" as const };
+    const unitKey = unitKeyForCatalogProviderProfileVersion(active);
+    const scopeRecordId = "scope_synthetic_yugioh_set";
+    const adapter = fakeAdapter("ygojson", fakePlanImport(1));
+
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v2",
+        productDomain: "yugioh",
+        reference: { kind: "set", scopeRecordId },
+        providerParticipation: { selectedUnitKeys: [unitKey] },
+      },
+      acceptedScopeMappings: [
+        acceptedMapping({ scopeRecordId, providerKey: "ygojson", unitKey, setName: "Synthetic Set" }),
+      ],
+      providerProfileVersions: [deprecated, active],
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+    });
+
+    expect(preview).toMatchObject({ status: "ready", startAllowed: true, blockers: [] });
+    expect(preview.units).toEqual([
+      expect.objectContaining({
+        unitKey,
+        profileVersion: active.profileVersion,
+        eligibility: "eligible",
+        selected: true,
+        blockers: [],
+      }),
+    ]);
+  });
+
   describe("inactive participation", () => {
     const inactive = requireProfile("scrydex", "lorcana-sealed-product-source-observation");
     const active = requireProfile("scrydex", "lorcana-card-print-source-observation");
@@ -380,8 +456,9 @@ describe("Catalog sync scope planner", () => {
       }),
     );
     const registry = new ProviderAdapterRegistry(
-      [...new Set(catalogProviderIntegrationProfileVersions.map((version) => version.providerKey))].map((providerKey) =>
-        fakeAdapter(providerKey, fakePlanImport(1)),
+      [...new Set(catalogProviderIntegrationProfileVersions.map((version) => version.providerKey))].map(
+        (providerKey) =>
+          providerKey === "tcgplayer" ? realTcgplayerAdapter().adapter : fakeAdapter(providerKey, fakePlanImport(1)),
       ),
     );
 

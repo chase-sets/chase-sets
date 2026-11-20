@@ -58,6 +58,21 @@
   "page.report.reason.pricing_scam": "Pricing scam",
   "page.report.reason.prohibited": "Prohibited item",
   "page.report.reason.stolen_photos": "Stolen photos",
+  "page.report.received": "Thanks. We received your report, and we will review this listing.",
+  "page.report.repeat": "You have already reported this listing. We will review it.",
   "page.report.submit": "Report listing",
-  "page.report.title": "Report Listing"
+  "page.report.title": "Report Listing",
+  "attempt.submitting": "Submitting",
+  "attempt.confirming": "Confirming the first result",
+  "attempt.succeeded": "Submitted",
+  "attempt.failed_safe": "Not submitted",
+  "attempt.ambiguous": "Result not confirmed. Do not submit again.",
+  "attempt.conflict": "This attempt conflicts with the first request.",
+  "attempt.not_sent": "The request was not sent. Reload the form before submitting.",
+  "attempt.not_observed": "No committed result was found. Your work is still here.",
+  "attempt.unconfirmed": "The first result could not be confirmed. Do not submit again.",
+  "attempt.changed_request": "This attempt was used for a different request.",
+  "attempt.report_not_sent": "The report was not sent. Reload the form before submitting.",
+  "attempt.report_failed": "The report could not be submitted.",
+  "attempt.report_limited": "You have sent several reports in a short time. Try again in a few minutes."
 }

@@ -11,6 +11,11 @@ import type { AccountCapabilityCatalog } from "../../features/account-capabiliti
 import type { CapabilityAdministrationAuthority } from "../../features/account-capabilities/api/authority";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createAccountRuntime } from "../../features/accounts/api/runtime";
+import {
+  createIdentityOwnerEpochs,
+  type IdentityOwnerEpochs,
+  type IdentitySourceTopology,
+} from "../../features/accounts/api/owner-epochs";
 import { createAccessHubRuntime } from "../../features/access-hub/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
 import { createConsentRuntime } from "../../features/consents/api/runtime";
@@ -28,7 +33,10 @@ import { createShippingAddressRuntime } from "../../features/shipping-addresses/
 import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
 import { createAgentGrantRevocations, type AgentGrantRevocations } from "../../features/agent-grants/api/revocation";
-import { createIdentityMutationPersistence } from "../../features/account-management/api/fences";
+import {
+  createIdentityMutationPersistence,
+  type IdentityMutationPersistence,
+} from "../../features/account-management/api/fences";
 import {
   createAccountManagementRuntime,
   type AccountManagementServices,
@@ -36,6 +44,9 @@ import {
 
 export type IdentityServices = Readonly<{
   eventStore?: EventStore;
+  /** Transactional Identity persistence; every Social Login Link and ownership claim commits through it. */
+  mutationPersistence: IdentityMutationPersistence;
+  ownerEpochs: IdentityOwnerEpochs;
   accountManagement?: AccountManagementServices;
   accessHub: ReturnType<typeof createAccessHubRuntime>;
   accounts: ReturnType<typeof createAccountRuntime>;
@@ -63,6 +74,7 @@ export type IdentityHostPorts = Readonly<{
   capabilityAdministrationAuthority: CapabilityAdministrationAuthority;
   accountCapabilityRegistry?: AccountCapabilityCatalog;
   addressVerificationProvider?: PostageLabelProvider | null;
+  identitySourceTopology?: IdentitySourceTopology;
 }>;
 
 export function createIdentityServices(pool: PgTransactionalPool, ports: IdentityHostPorts): IdentityServices {
@@ -77,7 +89,13 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "identity" }),
   });
   let projectors: readonly ProjectionHandlerSet[] = [];
-  const mutationPersistence = createIdentityMutationPersistence(pool, postgresEventStore, () => projectors);
+  const ownerEpochs = createIdentityOwnerEpochs(pool, ports.identitySourceTopology);
+  const mutationPersistence = createIdentityMutationPersistence(
+    pool,
+    postgresEventStore,
+    () => projectors,
+    ownerEpochs,
+  );
   const eventStore = mutationPersistence.eventStore;
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
@@ -120,7 +138,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
   const preferences = createUserPreferencesRuntime(deps);
-  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(pool);
+  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(pool, ownerEpochs);
   const shippingAddresses = createShippingAddressRuntime(deps);
   const accountManagement = createAccountManagementRuntime(mutationPersistence, { auth, shippingAddresses });
 
@@ -139,7 +157,9 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
 
   return {
     eventStore,
-    agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore),
+    mutationPersistence,
+    ownerEpochs,
+    agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore, undefined, ownerEpochs),
     accountManagement,
     accessHub,
     accounts,

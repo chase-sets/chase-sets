@@ -14,10 +14,8 @@ import {
   type CommitResult,
   type AbortResult,
 } from "@chase-sets/order-groups";
-import {
-  createFulfillmentCsatOutcomeFact,
-  fulfillmentCsatOutcomeFactEventType,
-} from "../../../support/request-support/csat-outcome-fact";
+import type { JsonObject } from "@chase-sets/primitives/json";
+
 import {
   assert,
   assertNever,
@@ -569,9 +567,11 @@ export type ShipmentExceptionRaisedEvent = DomainEvent<
   }>
 >;
 
+const fulfillmentCsatOutcomeFactEventType = "fulfillment.csat-outcome-fact.v1" as const;
+
 export type FulfillmentCsatOutcomeFactPublishedEvent = DomainEvent<
   typeof fulfillmentCsatOutcomeFactEventType,
-  ReturnType<typeof createFulfillmentCsatOutcomeFact>
+  JsonObject
 >;
 
 export type ShipmentAdmissionEvent = {
@@ -1182,18 +1182,6 @@ export const decideFulfillmentShipment: AggregateDecider<
             deliveredAt,
           },
         },
-        {
-          type: fulfillmentCsatOutcomeFactEventType,
-          data: createFulfillmentCsatOutcomeFact({
-            outcomeCode: "order.delivered",
-            subjectAccountId: state.buyerAccountId,
-            subjectKind: "buyer",
-            subjectEntityType: "order",
-            subjectEntityId: state.orderId,
-            outcomeOccurredAt: deliveredAt,
-            idempotencyKey: `order:${state.orderId}:delivered`,
-          }),
-        },
       ];
     case "ReturnShipment":
       assert(state.shipmentId !== null, "Shipment must be created first.");
@@ -1220,6 +1208,7 @@ export const decideFulfillmentShipment: AggregateDecider<
         state.status !== "delivered" && state.status !== "returned",
         "Delivered or returned shipments cannot enter exception state.",
       );
+      assert(state.status !== "cancelled", "Cancelled shipments cannot enter exception state.");
       return [
         {
           type: "fulfillment.shipment.exception-raised",

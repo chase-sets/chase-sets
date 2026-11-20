@@ -236,7 +236,24 @@ describe("ordering order detail page", () => {
     expect(screen.queryByText(formatDateTime(latestDelivery))).toBeNull();
     expect(screen.getByText(/The seller has started packing/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Ask to cancel" })).toBeTruthy();
-    expect(screen.getAllByText("ready-for-fulfillment").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Ready for fulfillment").length).toBeGreaterThan(0);
+  });
+
+  it("writes the status, shipping option and hold status in words, never their codes", () => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="seller"
+        backHref="/account/sales"
+        order={{ ...packedOrder, shipping_option: "expedited" } as never}
+      />,
+    );
+
+    expect(markup).toContain("Ready for fulfillment");
+    expect(markup).toContain("Expedited");
+    expect(markup).toContain(">Active<");
+    expect(markup).not.toContain("ready-for-fulfillment");
+    expect(markup).not.toContain(">expedited<");
+    expect(markup).not.toContain(">active<");
   });
 
   it("leaves the seller sale unchanged even when given the same delivered purchase summary", () => {

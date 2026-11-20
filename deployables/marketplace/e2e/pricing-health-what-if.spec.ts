@@ -47,7 +47,9 @@ async function createPolicy(request: APIRequestContext, pool: PgTransactionalPoo
     .toBe("completed");
   const created = await request.post(policiesApi, { data: { dryRunId, name: policyName } });
   expect(created.status()).toBe(201);
-  const { policyId, accountId } = await created.json();
+  const receipt = await created.json();
+  expect(receipt.status).toBe("applied");
+  const { policyId, accountId } = receipt.state;
   expect(typeof policyId).toBe("string");
   await projectSyntheticPricingHealthPolicy(pool, { accountId, policyId });
   return { policyId: policyId as string, accountId: accountId as string };

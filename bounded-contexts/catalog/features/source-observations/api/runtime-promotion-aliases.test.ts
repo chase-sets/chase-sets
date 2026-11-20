@@ -1,10 +1,89 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSourceObservationRuntime } from "./runtime";
 import { context, createChangedObservationRefreshHarness } from "./seeding/runtime-test-harness";
 import { buildCatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
-import { catalogAliasStreamId, type CatalogAliasCommand } from "../../alias-equivalence/domain/domain";
+import {
+  catalogAliasStreamId,
+  decideCatalogAlias,
+  evolveCatalogAlias,
+  initialCatalogAliasState,
+  type CatalogAliasState,
+  type CatalogAliasCommand,
+} from "../../alias-equivalence/domain/domain";
 import type { PromotionAliasCandidate, PromotionPublishedAlias } from "./promotion/provider-promotion-alias-planner";
-import type { PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
+import { writePromotionAliases, type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
+
+describe("promotion replay review authority", () => {
+  it.each(["accepted", "rejected", "revoked"] as const)(
+    "reconciles the resolved %s identity even without a new proposal event",
+    async (status) => {
+      let candidate = itemAliasCandidate({ reviewStatus: "pending" });
+      let state: CatalogAliasState = initialCatalogAliasState;
+      let version = 0;
+      const dispatch: PromotionAliasServices["catalogAliasCommandHandler"] = vi.fn(async ({ streamId, command }) => {
+        const newEvents = decideCatalogAlias(state, command);
+        for (const event of newEvents) state = evolveCatalogAlias(state, event);
+        version += newEvents.length;
+        expect(streamId).toBe(catalogAliasStreamId(state.aliasHash!));
+        return { state, version, newEvents, storedEvents: [] };
+      });
+      const persist = vi.fn(async () => {});
+      const services: PromotionAliasServices = {
+        catalogAliasCommandHandler: dispatch,
+        upsertSourceObservationAliasCandidates: persist,
+        listCandidatesForObservation: async () => [candidate],
+        listPublishedCatalogItemAliases: async () => [],
+        listPublishedReferenceRecordAliases: async () => [],
+      };
+      const promote = () =>
+        writePromotionAliases({
+          services,
+          observationId: "obs_changed",
+          resolution: { catalogItemId: "cat_1", referenceRecordIdsByTypeKey: {} },
+          context,
+        });
+      await promote();
+      const hash = state.aliasHash!;
+      if (status !== "rejected")
+        await dispatch({
+          streamId: catalogAliasStreamId(hash),
+          command: { type: "AcceptCatalogAlias", actor: "reviewer", reason: "Reviewed" },
+          context,
+        });
+      if (status !== "accepted")
+        await dispatch({
+          streamId: catalogAliasStreamId(hash),
+          command: {
+            type: status === "rejected" ? "RejectCatalogAlias" : "RevokeCatalogAlias",
+            actor: "reviewer",
+            reason: "Reviewed",
+          },
+          context,
+        });
+      candidate = { ...candidate, reviewStatus: "auto-accepted" };
+      const settled = state.reviewStatus;
+      expect(settled).toBe(status);
+      const settledVersion = version;
+      await promote();
+      expect(version).toBe(settledVersion);
+      expect(state.reviewStatus).toBe(settled);
+      expect(persist).toHaveBeenLastCalledWith(
+        [
+          expect.objectContaining({
+            aliasHash: hash,
+            target: { kind: "catalog-item", targetId: "cat_1", targetKey: "card-name" },
+          }),
+        ],
+        expect.any(String),
+      );
+      candidate = { ...candidate, evidence: { sharedId: "me02.5-136", changed: true } };
+      await promote();
+      expect(state.reviewStatus).toBe("pending");
+      expect(version).toBe(settledVersion + 1);
+      expect(state.aliasHash).toBe(hash);
+    },
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Promotion alias wiring (#1909): exercises the full runtime path that turns an
@@ -22,6 +101,7 @@ function createAliasPromotionDouble(input: {
   return {
     commands,
     services: {
+      upsertSourceObservationAliasCandidates: async () => {},
       listCandidatesForObservation: async () => input.candidates ?? [],
       listPublishedCatalogItemAliases: async () => input.publishedCatalogItemAliases ?? [],
       listPublishedReferenceRecordAliases: async (recordId) => input.publishedReferenceRecordAliases?.[recordId] ?? [],

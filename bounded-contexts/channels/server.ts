@@ -1,4 +1,8 @@
 export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
+export {
+  parseEbayOAuthConfiguration,
+  type EbayOAuthConfiguration,
+} from "./features/ebay-connection/domain/configuration";
 export { readAcceptedReadyToShipMembership } from "./features/order-fulfillment-observations/api/runtime";
 export {
   acceptedReadyToShipReferenceLimit,
@@ -7,6 +11,13 @@ export {
 } from "./features/order-fulfillment-observations/domain/contracts";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export type { ChannelStorageLocationAuthorityResolver } from "./features/connections/domain/contracts";
+export type {
+  VersionedConnectionAuthority,
+  ConnectionAuthorityInput,
+  ConnectionAuthorityResult,
+} from "./features/connections/domain/contracts";
+export { createVersionedConnectionAuthority } from "./features/connections/api/versioned-connection-authority";
+export { createConnectionEpochs, type ConnectionConsumerTopology } from "./features/connections/api/owner-epochs";
 export {
   composeTcgplayerOrderInbound,
   assertTcgplayerOrderRecord,
@@ -184,3 +195,25 @@ export {
   lookupEbayReceiptsAsService,
   EbayReceiptClientError,
 } from "./features/ebay-account-deletion/api/receipt-actor-client";
+
+export {
+  createChannelsEbayAccountDeletionReceiptExpiryRunners,
+  createChannelsEbayAccountDeletionConsumerRunners,
+  createChannelsConnectorLivenessSweepRunners,
+  createChannelsEbayCredentialRefreshRunners,
+  createChannelsOutboundRunners,
+  createChannelsReconciliationRunners,
+  accountScopedWorkerContext,
+  createChannelsScheduledReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";
+export {
+  materialFingerprint,
+  parsePolicyItem,
+  parseLocationItem,
+} from "./features/ebay-connection/domain/setup-material";
+export {
+  ebaySellerSetupSelectedCodec,
+  parseSetupSelection,
+  type SetupSelection,
+  type EbaySellerSetupSelectedV1,
+} from "./features/ebay-connection/domain/setup-selection";

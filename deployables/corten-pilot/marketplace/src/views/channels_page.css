@@ -118,10 +118,17 @@
   padding: 0;
   list-style: none;
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+/* The eBay consent's scopes are long URLs: they wrap on a phone, not past its edge. */
+.scopes {
+  min-width: 0;
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  overflow-wrap: anywhere;
 }
 .card {
   display: grid;
@@ -132,6 +139,11 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
+}
+/* Furniture on the page (the design system's Card elevation="tinted"): a fill, no border. */
+.tinted {
+  border-color: transparent;
+  background: var(--color-surface-2);
 }
 .banner {
   display: grid;
@@ -249,4 +261,34 @@
 .control[type="file"] {
   width: 100%;
   min-width: 0;
+}
+
+/* eBay seller setup: a select takes its field's width, however long eBay's policy names are, and a
+   location pair's two selects sit side by side once there is room. */
+.setup {
+  max-width: 48rem;
+}
+.setup .control {
+  width: 100%;
+  min-width: 0;
+}
+.pairs {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pair {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+@media (--md) {
+  .pair {
+    grid-template-columns: 1fr 1fr;
+  }
 }

@@ -10,6 +10,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import {
   EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS,
   isSocialLoginProviderKey,
+  isSyntheticAuthSessionId,
   ROLE_PERMISSIONS,
   type OperatorAuthority,
   type ResolvedActor,
@@ -32,7 +33,6 @@ import {
   getAuthIdentityUser,
   getAuthIdentityUserByEmail,
   getAuthIdentityUserByPhone,
-  getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
   listActiveAuthAccountIds,
   listActiveAuthMembershipsForUser,
@@ -46,6 +46,13 @@ import {
   upsertSessionToken,
 } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
+import {
+  createAuthSessionEpochs,
+  createAuthSessionPersistence,
+  type AuthSessionEpochs,
+  type AuthSessionTopology,
+} from "../../features/sessions/api/owner-epochs";
+import { createAuthSessionAuthority } from "../../features/sessions/api/session-authority";
 import type { SessionRow } from "../../features/sessions/read-model/queries";
 import type { SessionState } from "../../features/sessions/domain/domain";
 import type { SocialLoginProvider } from "../social-login-support/providers";
@@ -70,9 +77,6 @@ type AuthIdentityReadServices = Readonly<{
   getUser: (userId: string) => ReturnType<typeof getAuthIdentityUser>;
   getUserByEmail: (email: string) => ReturnType<typeof getAuthIdentityUserByEmail>;
   getUserByPhone: (phone: string) => ReturnType<typeof getAuthIdentityUserByPhone>;
-  getUserBySocialLogin: (
-    params: Parameters<typeof getAuthIdentityUserBySocialLogin>[1],
-  ) => ReturnType<typeof getAuthIdentityUserBySocialLogin>;
   listActiveMembershipsForUser: (userId: string) => ReturnType<typeof listActiveAuthMembershipsForUser>;
   getActiveMembershipForUserAccount: (
     userId: string,
@@ -126,12 +130,16 @@ export type AuthServices = Readonly<{
    */
   awaitInvitationProjectionFreshness?: InvitationProjectionFreshnessWaiter;
   sessions: ReturnType<typeof createSessionRuntime>;
+  sessionEpochs?: AuthSessionEpochs;
+  sessionAuthority?: ReturnType<typeof createAuthSessionAuthority>;
   notificationOutbox: NotificationOutbox;
   agentWebhookOutbox: AgentWebhookOutbox;
   agentWebhookOrderResolvers: AgentWebhookOrderResolvers;
   socialLoginProviders: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso: AdminGoogleWorkspaceSsoConfig | null;
   registrationAdmission: RegistrationAdmissionHostConfig;
+  /** Staging-only SHA-256 verifier for the connector persona sign-in route. */
+  stagingPersonaMagicLinkVerifierSha256?: string;
   projectors: readonly ProjectionHandlerSet[];
   /**
    * Bounds-validated session/token lifetimes. Always populated by
@@ -147,6 +155,7 @@ export type AdminGoogleWorkspaceSsoConfig = Readonly<{
 }>;
 
 export type AuthHostPorts = Readonly<{
+  sessionConsumers?: AuthSessionTopology;
   notificationOutbox?: NotificationOutbox;
   agentWebhookOrderResolvers?: AgentWebhookOrderResolvers;
   socialLoginProviders?: readonly SocialLoginProvider[];
@@ -161,6 +170,8 @@ export type AuthHostPorts = Readonly<{
    */
   securityLifetimes?: Partial<AuthSecurityLifetimesMs>;
   operatorAuthority?: OperatorAuthority;
+  /** Staging-only SHA-256 verifier; never the raw bearer secret. */
+  stagingPersonaMagicLinkVerifierSha256?: string;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
@@ -196,10 +207,12 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   // Bounds-validated at host boot -- fails closed before any request is
   // served if a deployable's env override is out of range.
   const securityLifetimes = resolveAuthSecurityLifetimesMs(ports.securityLifetimes);
-  const eventStore = createPostgresEventStore({
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "auth" }),
   });
+  const sessionEpochs = createAuthSessionEpochs(pool, ports.sessionConsumers);
+  const eventStore = createAuthSessionPersistence(rawEventStore, sessionEpochs);
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
@@ -229,7 +242,6 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
       getUser: (userId) => getAuthIdentityUser(db, userId),
       getUserByEmail: (email) => getAuthIdentityUserByEmail(db, email),
       getUserByPhone: (phone) => getAuthIdentityUserByPhone(db, phone),
-      getUserBySocialLogin: (params) => getAuthIdentityUserBySocialLogin(db, params),
       listActiveMembershipsForUser: (userId) => listActiveAuthMembershipsForUser(db, userId),
       getActiveMembershipForUserAccount: (userId, accountId) =>
         getActiveAuthMembershipForUserAccount(db, userId, accountId),
@@ -243,12 +255,15 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
     }),
     sessions,
+    sessionEpochs,
+    sessionAuthority: createAuthSessionAuthority(pool, rawEventStore, sessionEpochs),
     notificationOutbox,
     agentWebhookOutbox,
     agentWebhookOrderResolvers: ports.agentWebhookOrderResolvers ?? noopAgentWebhookOrderResolvers,
     socialLoginProviders: ports.socialLoginProviders ?? [],
     adminGoogleWorkspaceSso: ports.adminGoogleWorkspaceSso ?? null,
     registrationAdmission: resolveRegistrationAdmissionConfig(ports.registrationAdmission),
+    stagingPersonaMagicLinkVerifierSha256: ports.stagingPersonaMagicLinkVerifierSha256,
     projectors: [...sessions.projectors],
     securityLifetimes,
   };
@@ -353,7 +368,7 @@ export type InteractiveAuthResult =
  * `updated_at` may still be approximated: nothing gates on it.
  */
 function toSessionRowFromState(
-  state: SessionState,
+  state: Omit<SessionState, "sessionGeneration"> & Readonly<{ sessionGeneration?: SessionState["sessionGeneration"] }>,
   timestamps: Readonly<{ startedAt: string | null; updatedAt: string }>,
 ): SessionRow | null {
   if (
@@ -401,10 +416,14 @@ function isAuthMethod(value: unknown): value is AuthMethod {
 }
 
 async function getSessionForAuth(services: AuthServices, sessionId: string): Promise<SessionRow | null> {
+  // A guest-checkout or linked-platform handle never names a Session stream.
+  if (isSyntheticAuthSessionId(sessionId)) {
+    return null;
+  }
   // The Session stream is the lifecycle and account authority. Consult it
   // before an active projection can grant an actor, and fail closed before
   // identity resolution when the aggregate is absent, malformed, inactive,
-  // or elapsed.
+  // elapsed, or outside its User's current Session Generation.
   const authenticatedSession = await services.sessions.readAuthenticatedSession(sessionId);
   if (!authenticatedSession || authenticatedSession.state.status !== "active") {
     return null;
@@ -523,11 +542,15 @@ async function issueSessionToken(
   }>,
 ) {
   const sessionToken = services.auth.issueOpaqueToken("session");
-  await upsertSessionToken(services.db, {
-    sessionId: params.sessionId,
-    tokenHash: services.auth.hashSecret(sessionToken),
-    expiresAt: params.expiresAt,
-  });
+  await upsertSessionToken(
+    services.pool,
+    {
+      sessionId: params.sessionId,
+      tokenHash: services.auth.hashSecret(sessionToken),
+      expiresAt: params.expiresAt,
+    },
+    services.sessionEpochs,
+  );
 
   return sessionToken;
 }
@@ -601,7 +624,7 @@ export async function startInteractiveAuth(
 }
 
 export async function revokeSession(
-  services: AuthServices,
+  services: Pick<AuthServices, "sessions">,
   params: Readonly<{
     sessionId: string;
     context: EventStoreContext;
@@ -652,6 +675,7 @@ export async function resolveActorFromSessionId(
 
   return {
     sessionId: session.session_id,
+    sessionProvenance: "auth-session",
     tenantId: AUTH_BOOTSTRAP_TENANT_ID,
     userId: session.user_id,
     accountId: session.account_id,

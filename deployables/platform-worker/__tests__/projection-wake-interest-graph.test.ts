@@ -20,7 +20,7 @@ import {
   type WorkerHostRuntimeProfile,
 } from "@chase-sets/platform-runtime/worker";
 import { describe, expect, it } from "vitest";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import {
   assertWorkerAssembly,
   assertWorkerMembership,
@@ -947,7 +947,6 @@ function createPlatformWorkerHost(
       moneyMovementGateway: createFakeMoneyMovementGateway(),
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
-      draftListingCreator: { createDraftListings: async () => [] },
       // Real-registry composition: the worker states the Ordering
       // cleanup-authority capability explicitly as not-mounted (#7222).
       inventoryCleanupAuthority: { kind: "not-mounted" },

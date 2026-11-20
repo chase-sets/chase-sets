@@ -295,15 +295,24 @@ function isIdenticalProposal(state: ProviderScopeMappingState, candidate: Provid
 
   const proposalMatches =
     state.confidence === candidate.confidence &&
-    JSON.stringify(state.coordinates) === JSON.stringify(candidate.coordinates) &&
-    JSON.stringify(state.provenance) === JSON.stringify(candidate.provenance) &&
-    JSON.stringify(state.evidence) === JSON.stringify(candidate.evidence);
+    stableJsonStringify(state.coordinates) === stableJsonStringify(candidate.coordinates) &&
+    stableJsonStringify(state.provenance) === stableJsonStringify(candidate.provenance) &&
+    stableJsonStringify(state.evidence) === stableJsonStringify(candidate.evidence);
 
   if (!proposalMatches) {
     return false;
   }
 
   return state.reviewStatus === candidate.reviewStatus;
+}
+
+// PostgreSQL JSONB can reorder object keys without changing a proposal's values.
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, entry: unknown) =>
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)))
+      : entry,
+  );
 }
 
 function requireProposed(

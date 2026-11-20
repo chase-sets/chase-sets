@@ -23,6 +23,7 @@ static environment-topology guard verifies that the rendered block below is exac
 | `www.chasesets.com` | current | production | application | A3 |
 | `www.doks.chasesets.com` | current | production | diagnostic | A6 |
 | `api.chasesets.com` | reserved | production | application | Future public API and provider callbacks; docs/architecture/environment-domain-names.md#api-hosts |
+| `admin-corten.staging.chasesets.com` | current | staging | application | A3 |
 | `admin.doks.staging.chasesets.com` | current | staging | diagnostic | A6 |
 | `admin.staging.chasesets.com` | current | staging | application | A3 |
 | `assets.staging.chasesets.com` | current | staging | service | A9 |
@@ -92,7 +93,7 @@ The Gmail-compatible environment-root record shape is:
 - Child zone apex: platform Terraform-managed A routing for `staging.chasesets.com` to the DOKS ingress load balancer.
 - Child zone apex: `MX @` to Google Workspace and `TXT @` for Google Workspace SPF.
 - Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, and the catalog asset CDN CNAME.
-- Child zone nested hosts: platform Terraform-managed A records for `www`, `marketplace`, and `admin`, targeting the same DOKS ingress load balancer.
+- Child zone nested hosts: platform Terraform-managed A records for `www`, `marketplace`, `admin`, and the staging-only `admin-corten` pilot, targeting the same DOKS ingress load balancer.
 - No `CNAME @` in the child zone and no `CNAME staging` in the parent zone.
 
 Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`. DNS incident history and DigitalOcean recovery steps live in the [DigitalOcean Platform Deployment runbook](../runbooks/digitalocean-platform-deployment.md#staging-dns-operations).
@@ -103,6 +104,7 @@ Staging application hosts are:
 - `staging.chasesets.com`
 - `marketplace.staging.chasesets.com`
 - `admin.staging.chasesets.com`
+- `admin-corten.staging.chasesets.com`, the staging-only Corten admin pilot
 - `api.staging.chasesets.com`, only if a public staging API host is needed later
 
 During migration, legacy dash-based hosts should redirect to their nested equivalents when the hosting platform supports those redirects.

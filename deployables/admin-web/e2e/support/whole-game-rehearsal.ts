@@ -11,7 +11,12 @@ type CatalogMergeCandidateBulkJob = NonNullable<
 type CatalogMergeCandidateBulkJobResult = NonNullable<CatalogMergeCandidateBulkJob["result"]>;
 type CatalogMergeCandidateBulkUnitResult = CatalogMergeCandidateBulkJobResult["outcomes"][number];
 
-export const wholeGameJourneyScopes = ["full-game-start", "full-game-settle"] as const;
+export const wholeGameJourneyScopes = [
+  "full-game-start",
+  "full-game-preview",
+  "full-game-confirm",
+  "full-game-settle",
+] as const;
 export type WholeGameJourneyScope = (typeof wholeGameJourneyScopes)[number];
 
 export const wholeGameReceiptPath = "artifacts/catalog-whole-game-rehearsal/receipt.json";
@@ -97,6 +102,7 @@ type Env = Readonly<Record<string, string | undefined>>;
 const budgetKeys = Object.keys(defaultWholeGameBudget) as (keyof WholeGameBudget)[];
 const tokenPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const batchIdPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const paidPreviewFingerprintPattern = /^[0-9a-f]{64}$/;
 
 export function parseWholeGameStartInput(env: Env): WholeGameStartInput {
   const productDomain = env.CATALOG_WHOLE_GAME_PRODUCT_DOMAIN?.trim() ?? "";
@@ -106,6 +112,14 @@ export function parseWholeGameStartInput(env: Env): WholeGameStartInput {
     throw new WholeGameRehearsalRefusal("language-code-invalid");
   }
   return { productDomain, languageCode, budget: parseWholeGameBudget(env.CATALOG_WHOLE_GAME_BUDGET ?? "") };
+}
+
+export function parseApprovedWholeGameFingerprint(env: Env): string {
+  const fingerprint = env.CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT?.trim() ?? "";
+  if (!paidPreviewFingerprintPattern.test(fingerprint)) {
+    throw new WholeGameRehearsalRefusal("scrydex-approved-fingerprint-required");
+  }
+  return fingerprint;
 }
 
 /** Budget input is `key=value` pairs separated by commas; omitted keys keep the Admin form defaults. */
@@ -179,9 +193,45 @@ export function startConfirmationRefusal(preview: WholeGamePreviewRecord, budget
   if (!Number.isInteger(preview.scopeCount)) return "preview-scope-count-unreadable";
   if (preview.scopeCount <= 0) return "preview-empty";
   const scrydex = preview.providers.find((provider) => provider.providerKey === "scrydex");
-  if (scrydex && scrydex.units > 0 && budget.scrydexRequestLimit === 0) return "scrydex-credit-limit-zero";
+  if (scrydex && scrydex.units > 0) {
+    return budget.scrydexRequestLimit === 0 ? "scrydex-credit-limit-zero" : "scrydex-host-decision-required";
+  }
   if (!preview.confirmAllowed) return "preview-not-confirmable";
   return null;
+}
+
+export function assertPaidWholeGamePreview(preview: WholeGamePreviewRecord): number {
+  if (!paidPreviewFingerprintPattern.test(preview.planFingerprint)) {
+    throw new WholeGameRehearsalRefusal("preview-fingerprint-unreadable");
+  }
+  if (!Number.isSafeInteger(preview.scopeCount) || preview.scopeCount <= 0) {
+    throw new WholeGameRehearsalRefusal("paid-preview-no-scopes");
+  }
+  const [scrydex, ...duplicates] = preview.providers.filter(({ providerKey }) => providerKey === "scrydex");
+  if (!scrydex || duplicates.length > 0 || !Number.isSafeInteger(scrydex.units) || scrydex.units <= 0) {
+    throw new WholeGameRehearsalRefusal("scrydex-participation-required");
+  }
+  const estimate = scrydex.plannedRequests;
+  if (estimate === null || !Number.isSafeInteger(estimate) || estimate <= 0) {
+    throw new WholeGameRehearsalRefusal("scrydex-estimate-unavailable");
+  }
+  return estimate;
+}
+
+export function assertPaidWholeGameConfirmation(
+  preview: WholeGamePreviewRecord,
+  approvedFingerprint: string,
+  approvedLimit: number,
+): void {
+  const estimate = assertPaidWholeGamePreview(preview);
+  if (preview.planFingerprint !== approvedFingerprint) {
+    throw new WholeGameRehearsalRefusal("scrydex-approved-fingerprint-mismatch");
+  }
+  const requiredLimit = estimate + Math.ceil(estimate / 4);
+  if (!Number.isSafeInteger(requiredLimit) || approvedLimit !== requiredLimit) {
+    throw new WholeGameRehearsalRefusal("scrydex-approved-limit-mismatch");
+  }
+  if (!preview.confirmAllowed) throw new WholeGameRehearsalRefusal("preview-not-confirmable");
 }
 
 // AC2 — one batch per settle, decided from that batch's own snapshot.
@@ -227,6 +277,7 @@ export function planWholeGameSettle(batch: WholeGameBatchView, input: WholeGameS
 // AC3 — promotion and publication progress is read back from the server, never remembered.
 export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "kind" | "scopeRecordId" | "status"> &
   Readonly<{
+    createdAt?: CatalogMergeCandidateBulkJob["createdAt"];
     // The landed API serializes an absent stored discriminator as null.
     promotionApplicationVersion?: CatalogMergeCandidateBulkJob["promotionApplicationVersion"];
     result:
@@ -237,7 +288,13 @@ export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "
               Partial<
                 Pick<
                   CatalogMergeCandidateBulkUnitResult,
-                  "candidateId" | "appliedCatalogItemId" | "appliedMode" | "approvalVersion" | "planFingerprint"
+                  | "candidateId"
+                  | "disposition"
+                  | "appliedCatalogItemId"
+                  | "appliedMode"
+                  | "approvalVersion"
+                  | "planFingerprint"
+                  | "diagnosticCode"
                 >
               >)[];
           }>)
@@ -248,17 +305,41 @@ export type WholeGameJobPage = Readonly<{ items: readonly WholeGamePromoteJob[];
 
 export type WholeGameScopePromotionStep =
   | Readonly<{ kind: "adopt-active-job"; jobIds: readonly string[] }>
+  | Readonly<{ kind: "reuse-completed-job"; jobIds: readonly string[] }>
   | Readonly<{ kind: "submit-promote-all-ready" }>;
 
-/** A killed dispatch leaves its job running server-side; adopting it instead of resubmitting prevents double promotion. */
+/** A zero pass is reusable only while both ready and approved candidates remain unchanged. */
+export function scopePromotionCheckpoint(
+  scopeRecordId: string,
+  completedJobs: readonly WholeGamePromoteJob[],
+): WholeGamePromoteJob | null {
+  const jobs = completedJobs.filter(
+    (job) =>
+      job.scopeRecordId === scopeRecordId && job.kind === "merge-candidate-promote" && job.status === "completed",
+  );
+  if (jobs.some((job) => !Number.isFinite(Date.parse(job.createdAt ?? "")))) return null;
+  const latest = [...jobs].sort((a, b) => Date.parse(b.createdAt!) - Date.parse(a.createdAt!))[0];
+  return latest?.promotionApplicationVersion === 1 &&
+    latest.result?.promoted === 0 &&
+    !latest.result.failed &&
+    !latest.result.outcomes.some((outcome) => outcome.status === "failed")
+    ? latest
+    : null;
+}
+
+/** Recover active AND completed work before deciding whether another scope job is necessary. */
 export function planScopePromotion(
   scopeRecordId: string,
   activeJobs: readonly WholeGamePromoteJob[],
+  completedJobs: readonly WholeGamePromoteJob[] = [],
+  changedCandidates = 1,
 ): WholeGameScopePromotionStep {
   const active = activeJobs.filter(
     (job) => job.scopeRecordId === scopeRecordId && job.kind === "merge-candidate-promote",
   );
   if (active.length > 0) return { kind: "adopt-active-job", jobIds: active.map((job) => job.jobId) };
+  const checkpoint = scopePromotionCheckpoint(scopeRecordId, completedJobs);
+  if (checkpoint && changedCandidates === 0) return { kind: "reuse-completed-job", jobIds: [checkpoint.jobId] };
   // The scope job also catches up approved-but-unapplied candidates, which
   // the ready projection cannot count. Its zero result proves convergence.
   return { kind: "submit-promote-all-ready" };
@@ -420,18 +501,67 @@ export function assertPublishPreviewGuard(
 }
 
 // AC5 — support-safe receipt: counts, states and opaque ids only.
+export type WholeGamePromotionFailure = Readonly<{
+  code: "scope-promotion-failed";
+  scopeRecordId: string;
+  jobId: string;
+  jobStatus: WholeGamePromoteJob["status"];
+  failedOutcomes: readonly Readonly<{
+    candidateId: string;
+    reasonCode: "asset-processing-failed" | "unclassified";
+  }>[];
+}>;
+
+export function wholeGamePromotionFailure(job: WholeGamePromoteJob): WholeGamePromotionFailure {
+  // `reason` is free text; only the API's classified diagnostic code is support-safe.
+  return {
+    code: "scope-promotion-failed",
+    scopeRecordId: job.scopeRecordId,
+    jobId: job.jobId,
+    jobStatus: job.status,
+    failedOutcomes: (job.result?.outcomes ?? []).flatMap((outcome) =>
+      outcome.status === "failed"
+        ? [
+            {
+              candidateId: outcome.candidateId ?? "unavailable",
+              reasonCode:
+                outcome.diagnosticCode === "asset-processing-failed" ? "asset-processing-failed" : "unclassified",
+            },
+          ]
+        : [],
+    ),
+  };
+}
+
+export type WholeGameScopeProgress = {
+  scopeRecordId: string;
+  state: "pending" | "promotion-running" | "converged";
+  completedJobsObserved: number;
+  promotedOutcomes: number;
+  jobIds: readonly string[];
+  startedAt: string;
+  waitStartedAt: string | null;
+  finishedAt: string | null;
+  deadlineAt: string;
+  readyRemaining: number | null;
+  changedPromotedRemaining: number | null;
+};
+
 export type WholeGameReceipt = Readonly<{
   schemaVersion: typeof wholeGameReceiptSchemaVersion;
   journeyScope: WholeGameJourneyScope;
   sha: string;
   runId: string;
   runAttempt: string;
-  batchId: string;
-  state: "confirmed" | "running" | "cancelled" | "settled";
+  batchId: string | null;
+  state: "previewed" | "confirmed" | "running" | "cancelled" | "settled" | "failed";
+  promotionFailure?: WholeGamePromotionFailure;
   preview: Readonly<{
     planFingerprint: string;
     scopeCount: number;
     providers: readonly WholeGameProviderParticipation[];
+    confirmAllowed?: boolean;
+    scrydexRequestLimit?: number;
   }> | null;
   settle: Readonly<{
     batchStatus: WholeGameBatchStatus;
@@ -450,6 +580,7 @@ export type WholeGameReceipt = Readonly<{
     published: number;
     readyRemaining: number;
     draftsRemaining: number;
+    scopeProgress?: readonly WholeGameScopeProgress[];
   }> | null;
 }>;
 
@@ -482,6 +613,19 @@ const settleCountKeys = [
   "draftsRemaining",
 ];
 const settleKeys = ["batchStatus", "units", "resumed", ...settleCountKeys];
+const scopeProgressKeys = [
+  "scopeRecordId",
+  "state",
+  "completedJobsObserved",
+  "promotedOutcomes",
+  "jobIds",
+  "startedAt",
+  "waitStartedAt",
+  "finishedAt",
+  "deadlineAt",
+  "readyRemaining",
+  "changedPromotedRemaining",
+];
 const unitStates: readonly WholeGameUnitState[] = ["queued", "running", "completed", "failed", "cancelled"];
 const batchStatuses: readonly WholeGameBatchStatus[] = [
   "queued",
@@ -491,12 +635,13 @@ const batchStatuses: readonly WholeGameBatchStatus[] = [
   "partial",
   "failed",
 ];
-const receiptStates = ["confirmed", "running", "cancelled", "settled"];
+const receiptStates = ["previewed", "confirmed", "running", "cancelled", "settled", "failed"];
 
 /** Returns every schema violation; an empty list is the only publishable receipt. */
 export function validateWholeGameReceipt(value: unknown): readonly string[] {
   const errors: string[] = [];
-  const receipt = record(value, "receipt", receiptKeys, errors);
+  const hasFailure = value !== null && typeof value === "object" && Object.hasOwn(value, "promotionFailure");
+  const receipt = record(value, "receipt", hasFailure ? [...receiptKeys, "promotionFailure"] : receiptKeys, errors);
   if (!receipt) return errors;
   if (receipt.schemaVersion !== wholeGameReceiptSchemaVersion) errors.push("schemaVersion");
   if (!wholeGameJourneyScopes.includes(receipt.journeyScope as WholeGameJourneyScope)) errors.push("journeyScope");
@@ -505,15 +650,73 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
   if (typeof receipt.runAttempt !== "string" || !/^\d{1,4}$/.test(receipt.runAttempt)) errors.push("runAttempt");
   if (typeof receipt.batchId === "string" && !batchIdPattern.test(receipt.batchId)) errors.push("batchId");
   if (!receiptStates.includes(receipt.state as string)) errors.push("state");
-  if (typeof receipt.batchId !== "string") errors.push("batchId-required");
+  const previewOnly = receipt.journeyScope === "full-game-preview";
+  const paid = previewOnly || receipt.journeyScope === "full-game-confirm";
+  if (previewOnly) {
+    if (receipt.batchId !== null) errors.push("preview-only-batch-id");
+  } else if (typeof receipt.batchId !== "string") errors.push("batchId-required");
+  if (previewOnly !== (receipt.state === "previewed")) errors.push("preview-only-state");
+  if (
+    paid &&
+    (receipt.preview === null || receipt.settle !== null || (!previewOnly && receipt.state !== "confirmed"))
+  ) {
+    errors.push("paid-preview-receipt");
+  }
+  if (hasFailure !== (receipt.state === "failed")) errors.push("promotionFailure.state");
+  if (hasFailure) {
+    if (receipt.journeyScope !== "full-game-settle" || receipt.settle === null) errors.push("promotionFailure.settle");
+    const failure = record(
+      receipt.promotionFailure,
+      "promotionFailure",
+      ["code", "scopeRecordId", "jobId", "jobStatus", "failedOutcomes"],
+      errors,
+    );
+    if (failure) {
+      if (failure.code !== "scope-promotion-failed") errors.push("promotionFailure.code");
+      for (const key of ["scopeRecordId", "jobId"])
+        if (typeof failure[key] !== "string" || !batchIdPattern.test(failure[key]))
+          errors.push(`promotionFailure.${key}`);
+      if (!["completed", "failed"].includes(failure.jobStatus as string)) errors.push("promotionFailure.jobStatus");
+      if (!Array.isArray(failure.failedOutcomes)) errors.push("promotionFailure.failedOutcomes");
+      else
+        failure.failedOutcomes.forEach((entry, index) => {
+          const path = `promotionFailure.failedOutcomes.${index}`;
+          const outcome = record(entry, path, ["candidateId", "reasonCode"], errors);
+          if (!outcome) return;
+          if (typeof outcome.candidateId !== "string" || !batchIdPattern.test(outcome.candidateId))
+            errors.push(`${path}.candidateId`);
+          if (!["asset-processing-failed", "unclassified"].includes(outcome.reasonCode as string))
+            errors.push(`${path}.reasonCode`);
+        });
+    }
+  }
 
   if (receipt.preview !== null) {
-    const preview = record(receipt.preview, "preview", previewKeys, errors);
+    const preview = record(
+      receipt.preview,
+      "preview",
+      paid ? [...previewKeys, "confirmAllowed", "scrydexRequestLimit"] : previewKeys,
+      errors,
+    );
     if (preview) {
       if (typeof preview.planFingerprint !== "string" || !/^[A-Za-z0-9:_-]{8,200}$/.test(preview.planFingerprint)) {
         errors.push("preview.planFingerprint");
       }
       if (!count(preview.scopeCount)) errors.push("preview.scopeCount");
+      if (paid) {
+        if (
+          typeof preview.planFingerprint !== "string" ||
+          !paidPreviewFingerprintPattern.test(preview.planFingerprint)
+        ) {
+          errors.push("preview.paidFingerprint");
+        }
+        if (typeof preview.confirmAllowed !== "boolean" || (!previewOnly && !preview.confirmAllowed)) {
+          errors.push("preview.confirmAllowed");
+        }
+        if (!Number.isSafeInteger(preview.scrydexRequestLimit) || !count(preview.scrydexRequestLimit)) {
+          errors.push("preview.scrydexRequestLimit");
+        }
+      }
       if (!Array.isArray(preview.providers)) errors.push("preview.providers");
       else {
         preview.providers.forEach((entry, index) => {
@@ -532,13 +735,46 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
   }
 
   if (receipt.settle !== null) {
-    const settle = record(receipt.settle, "settle", settleKeys, errors);
+    const hasProgress = typeof receipt.settle === "object" && Object.hasOwn(receipt.settle, "scopeProgress");
+    const settle = record(
+      receipt.settle,
+      "settle",
+      hasProgress ? [...settleKeys, "scopeProgress"] : settleKeys,
+      errors,
+    );
     if (settle) {
       if (!batchStatuses.includes(settle.batchStatus as WholeGameBatchStatus)) errors.push("settle.batchStatus");
       if (typeof settle.resumed !== "boolean") errors.push("settle.resumed");
       const units = record(settle.units, "settle.units", unitStates, errors);
       if (units) for (const state of unitStates) if (!count(units[state])) errors.push(`settle.units.${state}`);
       for (const key of settleCountKeys) if (!count(settle[key])) errors.push(`settle.${key}`);
+      if (hasProgress) {
+        if (!Array.isArray(settle.scopeProgress)) errors.push("settle.scopeProgress");
+        else
+          settle.scopeProgress.forEach((entry, index) => {
+            const path = `settle.scopeProgress.${index}`;
+            const progress = record(entry, path, scopeProgressKeys, errors);
+            if (!progress) return;
+            if (typeof progress.scopeRecordId !== "string" || !batchIdPattern.test(progress.scopeRecordId))
+              errors.push(`${path}.scopeRecordId`);
+            if (!["pending", "promotion-running", "converged"].includes(progress.state as string))
+              errors.push(`${path}.state`);
+            for (const key of ["completedJobsObserved", "promotedOutcomes"])
+              if (!count(progress[key])) errors.push(`${path}.${key}`);
+            for (const key of ["readyRemaining", "changedPromotedRemaining"])
+              if (progress[key] !== null && !count(progress[key])) errors.push(`${path}.${key}`);
+            if (
+              !Array.isArray(progress.jobIds) ||
+              progress.jobIds.some((id) => typeof id !== "string" || !batchIdPattern.test(id))
+            )
+              errors.push(`${path}.jobIds`);
+            for (const key of ["startedAt", "waitStartedAt", "finishedAt", "deadlineAt"]) {
+              if ((key === "waitStartedAt" || key === "finishedAt") && progress[key] === null) continue;
+              if (typeof progress[key] !== "string" || !Number.isFinite(Date.parse(progress[key] as string)))
+                errors.push(`${path}.${key}`);
+            }
+          });
+      }
     }
   }
   if (receipt.state === "settled") {

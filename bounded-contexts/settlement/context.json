@@ -1,12 +1,113 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "settlement.account-linkage-closer",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "settlementAccountLinkageCloserIntervalMs"
+      },
+      "runnerExport": "createSettlementAccountLinkageCloserRunners",
+      "group": "scheduled",
+      "order": 115,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.account-linkage-closer"
+    },
+    {
+      "id": "settlement.seller-funds-release",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "sellerFundsReleaseIntervalMs"
+      },
+      "runnerExport": "createSettlementSellerFundsReleaseRunners",
+      "group": "scheduled",
+      "order": 118,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.seller-funds-release"
+    },
+    {
+      "id": "settlement.spend-hold-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "spendHoldSweepIntervalMs"
+      },
+      "runnerExport": "createSettlementSpendHoldSweepRunners",
+      "group": "scheduled",
+      "order": 119,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.spend-hold-sweep"
+    },
+    {
+      "id": "settlement.payout-reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "payoutReconciliationIntervalMs"
+      },
+      "runnerExport": "createSettlementPayoutReconciliationRunners",
+      "group": "scheduled",
+      "order": 120,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.payout-reconciliation"
+    },
+    {
+      "id": "settlement.liability-reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "liabilityReconciliationIntervalMs"
+      },
+      "runnerExport": "createSettlementLiabilityReconciliationRunners",
+      "group": "scheduled",
+      "order": 121,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.liability-reconciliation"
+    },
+    {
+      "id": "settlement.payout-reconciliation-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "settlementPayoutReconciliationJobLaneCount"
+      },
+      "runnerExport": "createSettlementJobRunners",
+      "group": "jobs",
+      "order": 50,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:settlement.payout-reconciliation-jobs.lane-{lane}"
+    }
+  ],
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
+  "requiredProofSets": [
+    {
+      "version": 1,
+      "ownerContext": "marketplace",
+      "proofSetId": "marketplace.offer-match-seller-control-fresh-read-forms",
+      "reason": "Settlement checkout risk changes must retain Marketplace seller-control fresh-read proof."
+    }
+  ],
   "localeCatalogs": ["contracts/localization/locales/en/settlement.ts"],
   "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
   "slices": [
     "wallets",
+    "seller-checkout-risk",
     "payout-readiness",
     "payouts",
     "money-dashboard",
@@ -16,7 +117,7 @@
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
+  "allowedContextDependencies": ["@chase-sets/identity"],
   "seedRequirements": ["identity", "payments"],
   "eventSubscriptions": [
     {
@@ -729,6 +830,11 @@
     }
   ],
   "directoryIntent": {
+    "seller-checkout-risk": {
+      "classification": "slice",
+      "purpose": "Publish Settlement-owned seller checkout risk reads and their revision-backed authority contract.",
+      "expectedConsumers": ["Internal settlement module composition", "Checkout owner-read adapters"]
+    },
     "wallets": {
       "classification": "slice",
       "purpose": "Own wallets feature behavior, read models, and UI contracts for the settlement context.",

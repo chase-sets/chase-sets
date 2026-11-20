@@ -35,9 +35,42 @@ describe("managed Offer durable Product work", () => {
     workId = String(requested[0]!.payload.workId);
     expect(await worker.run(context)).toBe(100);
     expect(await make().run(context)).toBe(1);
+    const progressed = (await eventStore.readAll()).filter(
+      (event) => event.eventType === "marketplace.offer.work-progressed",
+    );
+    expect(progressed.map((event) => event.payload.page)).toEqual([
+      { claimVersion: 2, afterOfferId: "", offerIds: ids.slice(0, 100) },
+      { claimVersion: 4, afterOfferId: "off_099", offerIds: ["off_100"] },
+    ]);
+    expect(
+      (await eventStore.readAll())
+        .filter((event) => event.eventType === "marketplace.offer.work-claimed")
+        .map((event) => event.payload.page),
+    ).toEqual([null, null]);
     expect(applyManagedOfferPage.mock.calls.flatMap((call) => call[0].map((item) => item.offerId))).toEqual(ids);
     expect((await eventStore.readAll()).at(-1)?.payload.status).toBe("completed");
     expect(await make().run(context)).toBe(0);
+  });
+
+  it("records an empty selected page instead of implying that a Product's Offer was evaluated", async () => {
+    const eventStore = createInMemoryEventStore().eventStore;
+    let workId = "";
+    const db = {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("FROM marketplace_managed_offer_work") ? [{ work_id: workId, last_stream_version: 1 }] : [],
+      })),
+    };
+    const worker = createManagedOfferWork({
+      eventStore,
+      db: db as never,
+      offers: { applyManagedOfferPage: vi.fn(async () => {}) },
+    });
+    workId = await worker.enqueue({ catalogItemId: "cat_one", productId: "cat_one::" }, "signal", context);
+    expect(await worker.run(context)).toBe(0);
+    expect((await eventStore.readAll()).at(-1)?.payload).toMatchObject({
+      status: "completed",
+      page: { claimVersion: 2, afterOfferId: "", offerIds: [] },
+    });
   });
 
   it("persists recovery continuation and visits the tail instead of rescanning the first page", async () => {

@@ -125,9 +125,13 @@ export async function monitorReleaseLock(options, dependencies = {}) {
       body: JSON.stringify({
         title: RELEASE_LOCK_MONITOR_ISSUE_TITLE,
         body,
+        type: "Bug",
         labels: ["kind:ops", "area:infrastructure"],
       }),
     });
+    if (issue?.type?.name !== "Bug" || issue.type.is_enabled !== true) {
+      throw new Error("ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response.");
+    }
   }
   if (
     !Number.isInteger(issue.number) ||

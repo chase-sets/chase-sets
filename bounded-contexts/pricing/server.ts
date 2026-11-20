@@ -140,3 +140,10 @@ export {
   latestProviderMarketCapture,
 } from "./features/price-signals/read-model/provider-observation-queries";
 export type { ProductMarketStatsSnapshotResponse } from "./features/market-rollups/api/runtime";
+
+export {
+  createPricingMarketRollupsCloserRunners,
+  createPricingJobRunners,
+  createBulkRepriceIngestionJobRunners,
+  processRepricingEvaluationJob,
+} from "./support/runtime-support/worker-jobs";

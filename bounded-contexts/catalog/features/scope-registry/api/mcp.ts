@@ -16,8 +16,9 @@ export function createScopeRegistryMcpHandlers(services: CatalogScopeRegistryRou
   const list: McpToolHandler = async ({ actor, arguments: args }) => {
     operator(actor, "catalog.view");
     const result = await services.listScopeRecords(scopeRecordListParamsFromRecord(args));
-    const items = result.items.map(scopeRecordDetailFromRow);
-    return { items, total: result.total, count: items.length };
+    const generatedAt = new Date().toISOString();
+    const items = result.items.map((row) => scopeRecordDetailFromRow(row, generatedAt));
+    return { generatedAt, items, total: result.total, count: items.length };
   };
   const get: McpToolHandler = async ({ actor, arguments: args }) => {
     operator(actor, "catalog.view");
@@ -25,7 +26,7 @@ export function createScopeRegistryMcpHandlers(services: CatalogScopeRegistryRou
     if (!id) throw new Error("scopeRecordId is required.");
     const row = await services.getScopeRecord(id);
     if (!row) throw new Error("Scope Record not found.");
-    return scopeRecordDetailFromRow(row);
+    return scopeRecordDetailFromRow(row, new Date().toISOString());
   };
   return { toolHandlers: { "catalog.list-scope-records": list, "catalog.get-scope-record": get } };
 }

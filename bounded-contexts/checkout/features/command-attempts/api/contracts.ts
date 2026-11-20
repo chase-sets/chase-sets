@@ -37,7 +37,9 @@ export const CHECKOUT_ENTRY_ATTEMPT_KIND = "checkout-entry";
 /** The target every entry attempt names, so a reused key with any changed source addresses the same stream. */
 export const CHECKOUT_ENTRY_ATTEMPT_TARGET = "session";
 
-export type CheckoutCommandAttemptKind = CheckoutCartAttemptKind | typeof CHECKOUT_ENTRY_ATTEMPT_KIND;
+export type CheckoutSellListAttemptKind = "sell-list-line" | "sell-list-batch";
+export type CheckoutLineAttemptKind = CheckoutCartAttemptKind | CheckoutSellListAttemptKind;
+export type CheckoutCommandAttemptKind = CheckoutLineAttemptKind | typeof CHECKOUT_ENTRY_ATTEMPT_KIND;
 
 /** The target every cart-wide attempt names; line attempts name their cart line id instead. */
 export const CHECKOUT_CART_ATTEMPT_CART_TARGET = "cart";
@@ -96,7 +98,11 @@ export function isCheckoutCartAttemptKind(value: unknown): value is CheckoutCart
 }
 
 export function isCheckoutCommandAttemptKind(value: unknown): value is CheckoutCommandAttemptKind {
-  return value === CHECKOUT_ENTRY_ATTEMPT_KIND || isCheckoutCartAttemptKind(value);
+  return value === CHECKOUT_ENTRY_ATTEMPT_KIND || isCheckoutLineAttemptKind(value);
+}
+
+export function isCheckoutLineAttemptKind(value: unknown): value is CheckoutLineAttemptKind {
+  return value === "sell-list-line" || value === "sell-list-batch" || isCheckoutCartAttemptKind(value);
 }
 
 function base64Url(bytes: Uint8Array) {

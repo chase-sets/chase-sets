@@ -28,7 +28,7 @@ describe("marketplace label postage worker startup", () => {
   ) {
     const mainSource = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
     const compositionStart = mainSource.indexOf('if (config.runtimeProfile === "landing") {');
-    const compositionEnd = mainSource.indexOf("\ntype WorkerIdentityServices", compositionStart);
+    const compositionEnd = mainSource.indexOf("\nfunction createChannelConnectionIdentityReader", compositionStart);
     expect(compositionStart).toBeGreaterThan(-1);
     expect(compositionEnd).toBeGreaterThan(compositionStart);
 

@@ -5,8 +5,16 @@
 //! each table scrolling on its own on a phone. Every form is a plain post or get; the script only
 //! says when the station is offline (and disables its submits, as admin-web does) and prints.
 use corten::{
+    form::DrawZone,
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::{
+    search::SearchGlyph,
+    ui::{
+        input_group::InputGroup,
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    },
 };
 
 use crate::{
@@ -80,18 +88,21 @@ fn Select<'a>(label: &'a str, name: corten::FieldName<String>, choices: &'a [Cho
     }
 }
 
-/// The receipt fields both custody forms share: station, time, conditions, weight, custody ID.
+/// The receipt fields both custody forms share: station, time (in `zone`, named under it, which
+/// the form sends back), conditions, weight, custody ID.
 #[component(css = IntakePage)]
-fn Receipt(t: Com) -> impl Render {
+fn Receipt<'a>(t: Com, zone: &'a DrawZone) -> impl Render {
     let f = IntakeForm::FIELDS;
     html! {
         <label class={Field}>
             <span>{t.ri_facility_station()}</span>
             <input type="text" name={f.station_id} required autocomplete="off">
         </label>
+        {zone.field(f.zone)}
         <label class={Field}>
             <span>{t.ri_receipt_timestamp()}</span>
             <input type="datetime-local" name={f.received_at} required>
+            <small>{zone.name()}</small>
         </label>
         <Select label={t.ri_package_condition()} name={f.package_condition} choices={&package_conditions(t)} />
         <Select label={t.ri_seal_condition()} name={f.seal_condition} choices={&seal_conditions(t)} />
@@ -173,7 +184,7 @@ fn Summary<'a>(t: Com, shipment: &'a Shipment) -> impl Render {
 }
 
 #[component(css, js)]
-pub fn IntakePage<'a>(t: Com, p: Pilot, screen: &'a StationScreen) -> impl Render {
+pub fn IntakePage<'a>(t: Com, p: Pilot, zone: &'a DrawZone, screen: &'a StationScreen) -> impl Render {
     let f = IntakeForm::FIELDS;
     let open = !screen.facility_id.is_empty();
     let here = url::Intake {
@@ -242,45 +253,60 @@ pub fn IntakePage<'a>(t: Com, p: Pilot, screen: &'a StationScreen) -> impl Rende
                 <label class={Field}>
                     <span>{t.ri_scan_label()}</span>
                     <small class={Muted}>{t.ri_scan_description()}</small>
-                    <input
-                        type="search"
-                        name="identifier"
-                        value={&screen.identifier}
-                        placeholder={t.ri_scan_placeholder()}
-                        autocomplete="off"
-                        spellcheck="false"
-                        required
-                        autofocus={open}
-                        disabled={!open}
-                    >
+                    <span class={InputGroup {}}>
+                        <SearchGlyph />
+                        <input
+                            type="search"
+                            name="identifier"
+                            value={&screen.identifier}
+                            placeholder={t.ri_scan_placeholder()}
+                            autocomplete="off"
+                            spellcheck="false"
+                            required
+                            autofocus={open}
+                            disabled={!open}
+                        >
+                    </span>
                 </label>
                 <button type="submit" class={Button} disabled={!open}>{t.ri_resolve_package()}</button>
             </form>
-            <dl class={Stats}>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_delivered_not_intaken()}</dt>
-                    <dd>{screen.metrics.delivered_not_intaken_count}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_oldest_waiting()}</dt>
-                    <dd>{duration(screen.metrics.oldest_delivered_not_intaken_age_seconds)}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_discrepancy_rate()}</dt>
-                    <dd>{format!("{}%", (screen.metrics.discrepancy_rate * 100.0).round())}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_unidentified()}</dt>
-                    <dd>{screen.metrics.unidentified_package_count}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_duplicate_scans()}</dt>
-                    <dd>{screen.metrics.duplicate_scan_count}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_average_latency()}</dt>
-                    <dd>{duration(screen.metrics.average_intake_latency_seconds)}</dd>
-                </div>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
+                <Stat
+                    label={t.ri_metric_delivered_not_intaken()}
+                    value={screen.metrics.delivered_not_intaken_count}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_oldest_waiting()}
+                    value={duration(screen.metrics.oldest_delivered_not_intaken_age_seconds)}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_discrepancy_rate()}
+                    value={format!("{}%", (screen.metrics.discrepancy_rate * 100.0).round())}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_unidentified()}
+                    value={screen.metrics.unidentified_package_count}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_duplicate_scans()}
+                    value={screen.metrics.duplicate_scan_count}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_average_latency()}
+                    value={duration(screen.metrics.average_intake_latency_seconds)}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
             </dl>
             if let Some(shipment) = &screen.resolved {
                 <div class={Workstation}>
@@ -358,7 +384,7 @@ pub fn IntakePage<'a>(t: Com, p: Pilot, screen: &'a StationScreen) -> impl Rende
                                 <input type="hidden" name={f.expected_version} value={&version}>
                                 <input type="hidden" name={f.idempotency_key} value={&screen.form_token}>
                                 <div class={Grid}>
-                                    <Receipt t={t} />
+                                    <Receipt t={t} zone={zone} />
                                 </div>
                                 <Photos label={t.ri_custody_evidence()} description={t.ri_evidence_description()} />
                                 <div class={Grid}>
@@ -412,7 +438,7 @@ pub fn IntakePage<'a>(t: Com, p: Pilot, screen: &'a StationScreen) -> impl Rende
                         <input type="hidden" name={f.facility_id} value={&screen.facility_id}>
                         <input type="hidden" name={f.idempotency_key} value={&screen.form_token}>
                         <div class={Grid}>
-                            <Receipt t={t} />
+                            <Receipt t={t} zone={zone} />
                             <label class={Field}>
                                 <span>{t.ri_exception_owner()}</span>
                                 <input type="text" name={f.owner} value={t.ri_eyebrow()} required>

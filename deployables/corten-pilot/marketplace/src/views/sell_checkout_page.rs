@@ -8,17 +8,26 @@
 //! sections are all open. One column on a phone with the estimated payout and the call to action
 //! in a bar at the bottom and the summary folded above the form; the summary beside the form from
 //! 64rem, and the fields two across from 40rem.
+//!
+//! A confirm not known to have finished, or finished in part, draws each line's result above the
+//! form with the same form to send again, and holds the form's buttons (marketplace's
+//! `SellListAttemptBoundary`).
 use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
 };
 
 use crate::{
     api::{SavedAddress, SellListConfirmation, SellListRow},
     app::url,
-    sell_checkout::{Errors, MANUAL, Payout, Recovery, Screen, Values, line_value},
+    cart_attempt::State as Attempted,
+    sell_checkout::{Attempt, Errors, LineResult, MANUAL, Payout, Recovery, Screen, Values, line_value},
     sell_list::support_reference,
-    text::{SellCheckoutMsg, SellListMsg},
+    text::{Pilot, SellCheckoutMsg, SellListMsg},
     views::on_marketplace,
 };
 
@@ -261,10 +270,10 @@ fn refused(errors: &Errors, fields: &[&str]) -> bool {
 
 /// The page.
 #[component(css)]
-pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Render {
+pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, s: SellListMsg, p: Pilot, screen: &'a Screen) -> impl Render {
     let w = Words::of(t, screen.account);
     let total = dollars(t, screen.total());
-    let blocked = screen.recovery.is_some();
+    let blocked = screen.recovery.is_some() || screen.attempt.is_some();
     let quantity: u64 = screen.lines.iter().map(|l| l.quantity).sum();
     let count = screen.lines.len() as u64;
     let collapsed = if screen.account {
@@ -282,6 +291,10 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Rend
             </div>
             <a class={(Button, Secondary)} href={back}>{w.back_to_sell_list}</a>
         </header>
+        <p><a class={(Button, Secondary)} href={url::ShippingSetup::PATH}>{t.shipping_setup()}</a></p>
+        if let Some(attempt) = &screen.attempt {
+            <AttemptBanner s={s} p={p} screen={screen} attempt={attempt} />
+        }
         if let Some(recovery) = &screen.recovery {
             <div class={Banner} data-tone="warning" role="status">
                 <p class={Strong}>{recovery_title(t, screen.account, recovery)}</p>
@@ -307,10 +320,6 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Rend
                         name="readinessSourceRevision"
                         value={screen.readiness.as_ref().map_or("", |r| r.source_revision.as_str())}
                     >
-                    if screen.account {
-                        <input type="hidden" name="readinessDecisions" value={&screen.decisions}>
-                        <input type="hidden" name="sellListReviewPlan" value={&screen.plan}>
-                    }
                     if let Some(message) = screen.errors.get("form") {
                         <div class={Banner} data-tone="danger" role="alert">
                             <p class={Strong}>{w.fix_details}</p>
@@ -377,6 +386,43 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Rend
     }
 }
 
+/// A confirm not known to have finished, or finished in part: each line's result by its item, and
+/// the same form to send again.
+#[component(css = SellCheckoutPage)]
+fn AttemptBanner<'a>(s: SellListMsg, p: Pilot, screen: &'a Screen, attempt: &'a Attempt) -> impl Render {
+    let title = if attempt.state == Attempted::Partial { s.attempt_partial() } else { s.attempt_ambiguous() };
+    let item = |id: &'a str| -> &'a str { screen.lines.iter().find(|l| l.line_id == id).map_or(id, |l| l.item_title.as_str()) };
+    html! {
+        <div class={Banner} data-tone="warning" role="alert" tabindex="-1" autofocus>
+            <p class={Strong}>{title}</p>
+            if !attempt.lines.is_empty() {
+                <dl class={Facts} aria-label={p.sell_list_results()}>
+                    for (id, result) in &attempt.lines {
+                        <div>
+                            <dt>{item(id)}</dt>
+                            <dd>
+                                {match result {
+                                    LineResult::Completed => p.sell_list_completed(),
+                                    LineResult::Partial => p.sell_list_partial(),
+                                    LineResult::Conflict => p.sell_list_conflict(),
+                                    LineResult::Unconfirmed => p.sell_list_unconfirmed(),
+                                    LineResult::NotSent => p.sell_list_not_sent(),
+                                }}
+                            </dd>
+                        </div>
+                    }
+                </dl>
+            }
+            <form class={Row} method="post">
+                for (name, value) in &attempt.resend {
+                    <input type="hidden" name={name} value={value}>
+                }
+                <button class={Button} type="submit">{s.attempt_retry()}</button>
+            </form>
+        </div>
+    }
+}
+
 /// The sale summary (`SummaryPanel`): each line, the counts, readiness and the estimated payout.
 #[component(css = SellCheckoutPage)]
 fn Summary<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen, total: &'a str, quantity: u64) -> impl Render {
@@ -390,7 +436,7 @@ fn Summary<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen, total: &'a str,
     };
     let ready = screen.readiness.as_ref().is_some_and(|r| r.status == "ready");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Row}>
                 <span class={Hint}>{&subtitle}</span>
                 <span class={Badge} data-tone="success">{w.summary_status}</span>
@@ -520,14 +566,15 @@ fn AccountSections<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen) -> impl
                     <FieldError errors={e} name="payoutMethod" />
                 </div>
             </details>
-            <div class={SavedRow}>
-                <span class={Tight}>
-                    <span class={Hint}>{t.signed_seller_readiness_title()}</span>
-                    <span class={Strong}>{t.signed_seller_readiness_ready()}</span>
-                    <span class={Hint}>{t.signed_seller_readiness_detail()}</span>
-                </span>
-                <span class={Badge} data-tone="success">{t.signed_ready()}</span>
-            </div>
+            if !screen.posted {
+                <div class={SavedRow}>
+                    <span class={Tight}>
+                        <span class={Hint}>{t.signed_seller_readiness_title()}</span>
+                        <span class={Strong}>{t.signed_seller_readiness_not_yet_assessed()}</span>
+                        <span class={Hint}>{t.signed_seller_readiness_detail()}</span>
+                    </span>
+                </div>
+            }
             <details class={Saved} open={label_open}>
                 <summary class={SavedRow}>
                     <span class={Tight}>
@@ -546,14 +593,15 @@ fn AccountSections<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen) -> impl
     }
 }
 
-/// A saved row's status and its Edit cue (the summary itself opens the fields).
+/// A saved row's status and its Edit cue (the summary itself opens the fields). Only a ready row
+/// has a status: one that is not opens on its fields, as checkout's page shows their form.
 #[component(css = SellCheckoutPage)]
 fn SavedStatus(t: SellCheckoutMsg, ready: bool, edit: &'static str) -> impl Render {
     html! {
         <span class={Status}>
-            <span class={Badge} data-tone={if ready { "success" } else { "warning" }}>
-                {if ready { t.signed_ready() } else { t.signed_review_required() }}
-            </span>
+            if ready {
+                <span class={Badge} data-tone="success">{t.signed_ready()}</span>
+            }
             <span class={Edit} aria-hidden="true">{edit}</span>
         </span>
     }

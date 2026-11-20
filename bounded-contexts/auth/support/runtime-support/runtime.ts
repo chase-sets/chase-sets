@@ -1,5 +1,7 @@
 import {
   AUTH_GUEST_CHECKOUT_COOKIE_NAME,
+  GUEST_CHECKOUT_SESSION_ID_PREFIX,
+  LINKED_PLATFORM_SESSION_ID_PREFIX,
   normalizeAgentOAuthScopes,
   type PermissionKey,
   type ResolvedActor,
@@ -61,7 +63,8 @@ export function createGuestCheckoutActor(
   tokenRecord: Readonly<{ token_id: string; account_id: string }>,
 ): ResolvedActor {
   return {
-    sessionId: `guest:${tokenRecord.token_id}`,
+    sessionId: `${GUEST_CHECKOUT_SESSION_ID_PREFIX}${tokenRecord.token_id}`,
+    sessionProvenance: "guest-checkout",
     tenantId: services.identity.bootstrapTenantId,
     userId: AUTH_GUEST_CHECKOUT_USER_ID,
     accountId: tokenRecord.account_id,
@@ -155,7 +158,8 @@ async function resolveLinkedPlatformActor(
   const scopes = normalizeAgentOAuthScopes(linked.scopes);
 
   return {
-    sessionId: `ucp:${linked.authorization_id}`,
+    sessionId: `${LINKED_PLATFORM_SESSION_ID_PREFIX}${linked.authorization_id}`,
+    sessionProvenance: "linked-platform",
     tenantId: services.identity.bootstrapTenantId,
     userId: linked.user_id,
     accountId: linked.account_id,

@@ -2,7 +2,6 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import {
   HiddenInput,
-  Form,
   OrderProtectionModule,
   Button,
   Card,
@@ -23,6 +22,7 @@ import {
 import type { ReviewOpportunity } from "./contracts";
 import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "./authored-text-guidance";
 import type { AuthoredTextRecovery } from "./authored-text-recovery";
+import { ReviewMutationForm } from "./review-mutation-form";
 import {
   intakeFlowForProblemCategory,
   isReviewProblemCategory,
@@ -384,7 +384,8 @@ export function ReviewSubmissionPage({
                   description={errorMessage}
                 />
               ) : null}
-              <Form spacing="none" method="post" errorAnnouncement="summary" onSubmit={handleSubmit}>
+              <ReviewMutationForm spacing="none" method="post" errorAnnouncement="summary" onSubmit={handleSubmit}>
+                <HiddenInput type="hidden" name="subjectAccountId" value={opportunity.subject_account_id} readOnly />
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="rating" value={rating} />
                   {problemCategories.map((category) => (
@@ -442,7 +443,7 @@ export function ReviewSubmissionPage({
                     </Stack>
                   )}
                 </Stack>
-              </Form>
+              </ReviewMutationForm>
             </Stack>
           </Card>
         )}

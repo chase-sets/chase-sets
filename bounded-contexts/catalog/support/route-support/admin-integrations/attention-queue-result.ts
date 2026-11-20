@@ -1,12 +1,24 @@
-import type {
-  CatalogAttentionQueueReadModel,
-  CatalogDeferredAttentionQueueResult,
+import {
+  catalogAttentionKindCoverage,
+  type CatalogAttentionKindCoverage,
+  type CatalogAttentionQueueCoverage,
+  type CatalogAttentionQueueFreshness,
+  type CatalogAttentionQueueReadModel,
+  type CatalogDeferredAttentionQueueResult,
 } from "../../../features/attention-queue/api/contracts";
 import {
   CATALOG_ATTENTION_ITEM_KINDS,
-  summarizeCatalogAttentionItems,
+  CATALOG_ATTENTION_KIND_SEVERITIES,
+  CATALOG_ATTENTION_MAX_WINDOW_LIMIT,
+  CATALOG_ATTENTION_SEVERITIES,
+  CATALOG_ATTENTION_TOTAL_KINDS,
+  catalogAttentionKindRecord,
+  catalogAttentionKindWindow,
+  isCatalogAttentionItemKind,
   type CatalogAttentionItem,
-  type CatalogAttentionItemKind,
+  type CatalogAttentionQueueCountBasis,
+  type CatalogAttentionQueueCounts,
+  type CatalogAttentionQueueWindow,
   type CatalogAttentionResolution,
   type CatalogAttentionSeverity,
 } from "../../../features/attention-queue/read-model/attention-item";
@@ -34,17 +46,33 @@ export const CATALOG_ATTENTION_QUEUE_UNAVAILABLE: CatalogDeferredAttentionQueueR
   status: "unavailable",
 });
 
-// Accept a raw API response only when it matches the existing attention read
-// model exactly (closed key sets, closed enums, timezone-bearing timestamps) and
-// its derived facts agree with its items. Any mismatch is `unavailable`: a queue
-// the surface cannot trust must not be rendered as an empty or partial inbox.
+// Accept a raw API response only when it matches the attention read model
+// exactly (closed key sets, closed enums, nonnegative integer counts,
+// timezone-bearing timestamps) and its coverage describes the request window and
+// the items returned. The counts, count bases, freshness and emptiness are the
+// Catalog API's, taken as returned: the attention runtime derives them, and this
+// parser checks their shape, not their arithmetic. Any mismatch is
+// `unavailable`: a queue the surface cannot trust must not be rendered as an
+// empty or partial inbox.
 export function resolveCatalogAttentionQueueResult(value: unknown): CatalogDeferredAttentionQueueResult {
   const readModel = parseCatalogAttentionQueueReadModel(value);
   return readModel ? { status: "ready", readModel } : CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
 }
 
-const READ_MODEL_KEYS = ["generatedAt", "empty", "items", "counts", "freshness"] as const;
+const READ_MODEL_KEYS = [
+  "generatedAt",
+  "empty",
+  "items",
+  "counts",
+  "countBasis",
+  "coverage",
+  "window",
+  "freshness",
+] as const;
 const COUNTS_KEYS = ["total", "bySeverity", "byKind"] as const;
+const COUNT_BASIS_KEYS = ["total", "bySeverity"] as const;
+const WINDOW_KEYS = ["kind", "offset", "limit"] as const;
+const COVERAGE_KEYS = ["total", "totalKind", "offset", "limit", "returned", "truncated", "nextOffset"] as const;
 const FRESHNESS_KEYS = ["generatedAt", "oldestObservedAt", "newestObservedAt"] as const;
 const ITEM_KEYS = [
   "itemKey",
@@ -62,7 +90,6 @@ const ITEM_KEYS = [
 ] as const;
 const RESOLUTION_REQUIRED_KEYS = ["intent", "mode", "labelKey", "fields"] as const;
 const RESOLUTION_OPTIONAL_KEYS = ["requiresReason", "href", "unavailable"] as const;
-const SEVERITIES = ["critical", "warning", "info"] as const satisfies readonly CatalogAttentionSeverity[];
 const RESOLUTION_MODES = ["command", "drawer"] as const;
 
 // ISO-8601 date-time with an explicit offset (`Z` or `±hh:mm`). The queue's
@@ -87,17 +114,136 @@ export function parseCatalogAttentionQueueReadModel(value: unknown): CatalogAtte
     }
     items.push(item);
   }
-  if (value.empty !== (items.length === 0)) {
+
+  const window = parseWindow(value.window);
+  const coverage = window ? parseCoverage(value.coverage, window, items) : null;
+  if (!window || !coverage) {
+    return null;
+  }
+  const counts = parseCounts(value.counts);
+  const countBasis = parseCountBasis(value.countBasis);
+  const freshness = parseFreshness(value.freshness);
+  if (!counts || !countBasis || !freshness) {
     return null;
   }
 
-  const counts = parseCounts(value.counts, items);
-  const freshness = parseFreshness(value.freshness, generatedAt, items);
-  if (!counts || !freshness) {
+  return { generatedAt, empty: value.empty, items, counts, countBasis, coverage, window, freshness };
+}
+
+function parseWindow(value: unknown): CatalogAttentionQueueWindow | null {
+  if (!hasExactKeys(value, WINDOW_KEYS)) {
     return null;
   }
+  const kind = value.kind === null ? null : isCatalogAttentionItemKind(value.kind) ? value.kind : undefined;
+  if (
+    kind === undefined ||
+    !isNonNegativeInteger(value.offset) ||
+    !isNonNegativeInteger(value.limit) ||
+    value.limit < 1 ||
+    value.limit > CATALOG_ATTENTION_MAX_WINDOW_LIMIT
+  ) {
+    return null;
+  }
+  return { kind, offset: value.offset, limit: value.limit };
+}
 
-  return { generatedAt, empty: value.empty, items, counts, freshness };
+// Each kind's coverage must describe the request window and the items actually
+// returned for that kind; truncation and the next offset are recomputed.
+function parseCoverage(
+  value: unknown,
+  window: CatalogAttentionQueueWindow,
+  items: readonly CatalogAttentionItem[],
+): CatalogAttentionQueueCoverage | null {
+  if (!hasExactKeys(value, CATALOG_ATTENTION_ITEM_KINDS)) {
+    return null;
+  }
+  const parsed: Partial<Record<CatalogAttentionItem["kind"], CatalogAttentionKindCoverage>> = {};
+  for (const kind of CATALOG_ATTENTION_ITEM_KINDS) {
+    const coverage = parseKindCoverage(
+      value[kind],
+      catalogAttentionKindWindow(window, kind),
+      items.filter((item) => item.kind === kind).length,
+    );
+    if (!coverage) {
+      return null;
+    }
+    parsed[kind] = coverage;
+  }
+  return catalogAttentionKindRecord((kind) => parsed[kind]!);
+}
+
+function parseKindCoverage(
+  value: unknown,
+  window: Readonly<{ offset: number; limit: number }>,
+  returned: number,
+): CatalogAttentionKindCoverage | null {
+  if (
+    !hasExactKeys(value, COVERAGE_KEYS) ||
+    !isNonNegativeInteger(value.total) ||
+    !isOneOf(value.totalKind, CATALOG_ATTENTION_TOTAL_KINDS) ||
+    returned > window.limit
+  ) {
+    return null;
+  }
+  const expected = catalogAttentionKindCoverage({
+    total: value.total,
+    totalKind: value.totalKind,
+    offset: window.offset,
+    limit: window.limit,
+    returned,
+  });
+  const matches =
+    value.offset === expected.offset &&
+    value.limit === expected.limit &&
+    value.returned === expected.returned &&
+    value.truncated === expected.truncated &&
+    value.nextOffset === expected.nextOffset;
+  return matches ? expected : null;
+}
+
+function parseCounts(value: unknown): CatalogAttentionQueueCounts | null {
+  if (!hasExactKeys(value, COUNTS_KEYS) || !isNonNegativeInteger(value.total)) {
+    return null;
+  }
+  const bySeverity = parseSeverityCounts(value.bySeverity);
+  const byKind = parseKindCounts(value.byKind);
+  return bySeverity && byKind ? { total: value.total, bySeverity, byKind } : null;
+}
+
+function parseKindCounts(value: unknown): CatalogAttentionQueueCounts["byKind"] | null {
+  if (
+    !hasExactKeys(value, CATALOG_ATTENTION_ITEM_KINDS) ||
+    !CATALOG_ATTENTION_ITEM_KINDS.every((kind) => isNonNegativeInteger(value[kind]))
+  ) {
+    return null;
+  }
+  return catalogAttentionKindRecord((kind) => value[kind] as number);
+}
+
+function parseSeverityCounts(value: unknown): Readonly<Record<CatalogAttentionSeverity, number>> | null {
+  if (!hasExactKeys(value, CATALOG_ATTENTION_SEVERITIES)) {
+    return null;
+  }
+  const { critical, warning, info } = value;
+  return isNonNegativeInteger(critical) && isNonNegativeInteger(warning) && isNonNegativeInteger(info)
+    ? { critical, warning, info }
+    : null;
+}
+
+function parseCountBasis(value: unknown): CatalogAttentionQueueCountBasis | null {
+  if (
+    !hasExactKeys(value, COUNT_BASIS_KEYS) ||
+    !isOneOf(value.total, CATALOG_ATTENTION_TOTAL_KINDS) ||
+    !hasExactKeys(value.bySeverity, CATALOG_ATTENTION_SEVERITIES)
+  ) {
+    return null;
+  }
+  const { critical, warning, info } = value.bySeverity;
+  return isOneOf(critical, CATALOG_ATTENTION_TOTAL_KINDS) &&
+    isOneOf(warning, CATALOG_ATTENTION_TOTAL_KINDS) &&
+    isOneOf(info, CATALOG_ATTENTION_TOTAL_KINDS)
+    ? { total: value.total, bySeverity: { critical, warning, info } }
+    : null;
 }
 
 function parseItem(value: unknown): CatalogAttentionItem | null {
@@ -119,8 +265,10 @@ function parseItem(value: unknown): CatalogAttentionItem | null {
     titleParams === null ||
     detailParams === null ||
     resolution === null ||
-    !isItemKind(value.kind) ||
+    !isCatalogAttentionItemKind(value.kind) ||
     !isSeverity(value.severity) ||
+    // A severity the item's source cannot produce is not a queue item.
+    !CATALOG_ATTENTION_KIND_SEVERITIES[value.kind].includes(value.severity) ||
     !isNullableString(value.providerKey) ||
     !isNullableString(value.unitKey) ||
     !Array.isArray(value.secondaryResolutions)
@@ -183,55 +331,16 @@ function parseResolution(value: unknown): CatalogAttentionResolution | null {
   };
 }
 
-// Counts are re-derived from the accepted items; the response's own counts must
-// match that recomputation exactly or the queue is not trusted.
-function parseCounts(value: unknown, items: readonly CatalogAttentionItem[]) {
-  if (!hasExactKeys(value, COUNTS_KEYS)) {
+function parseFreshness(value: unknown): CatalogAttentionQueueFreshness | null {
+  if (!hasExactKeys(value, FRESHNESS_KEYS)) {
     return null;
   }
-  const expected = summarizeCatalogAttentionItems(items);
-  if (
-    value.total !== expected.total ||
-    !countRecordMatches(value.bySeverity, SEVERITIES, expected.bySeverity) ||
-    !countRecordMatches(value.byKind, CATALOG_ATTENTION_ITEM_KINDS, expected.byKind)
-  ) {
-    return null;
-  }
-  return expected;
-}
-
-function parseFreshness(value: unknown, generatedAt: string, items: readonly CatalogAttentionItem[]) {
-  if (!hasExactKeys(value, FRESHNESS_KEYS) || value.generatedAt !== generatedAt) {
-    return null;
-  }
-  const expectedOldest = items.length > 0 ? extremeObservedAt(items, "oldest") : null;
-  const expectedNewest = items.length > 0 ? extremeObservedAt(items, "newest") : null;
-  if (value.oldestObservedAt !== expectedOldest || value.newestObservedAt !== expectedNewest) {
-    return null;
-  }
-  return { generatedAt, oldestObservedAt: expectedOldest, newestObservedAt: expectedNewest };
-}
-
-// Same lexical comparison the assembler uses, so a queue it produced round-trips.
-function extremeObservedAt(items: readonly CatalogAttentionItem[], edge: "oldest" | "newest"): string {
-  return items.reduce((current, item) => {
-    const delta = item.observedAt.localeCompare(current);
-    return (edge === "oldest" ? delta < 0 : delta > 0) ? item.observedAt : current;
-  }, items[0]!.observedAt);
-}
-
-function countRecordMatches<K extends string>(
-  value: unknown,
-  keys: readonly K[],
-  expected: Readonly<Record<K, number>>,
-): boolean {
-  if (!hasExactKeys(value, keys)) {
-    return false;
-  }
-  return keys.every((key) => {
-    const count = value[key];
-    return typeof count === "number" && Number.isInteger(count) && count === expected[key];
-  });
+  const generatedAt = timestamp(value.generatedAt);
+  const oldestObservedAt = nullableTimestamp(value.oldestObservedAt);
+  const newestObservedAt = nullableTimestamp(value.newestObservedAt);
+  return generatedAt !== null && oldestObservedAt !== undefined && newestObservedAt !== undefined
+    ? { generatedAt, oldestObservedAt, newestObservedAt }
+    : null;
 }
 
 function hasExactKeys<K extends string, O extends string = never>(
@@ -257,12 +366,12 @@ function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value
   return typeof value === "string" && (allowed as readonly string[]).includes(value);
 }
 
-function isItemKind(value: unknown): value is CatalogAttentionItemKind {
-  return isOneOf(value, CATALOG_ATTENTION_ITEM_KINDS);
+function isSeverity(value: unknown): value is CatalogAttentionSeverity {
+  return isOneOf(value, CATALOG_ATTENTION_SEVERITIES);
 }
 
-function isSeverity(value: unknown): value is CatalogAttentionSeverity {
-  return isOneOf(value, SEVERITIES);
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -277,6 +386,10 @@ function timestamp(value: unknown): string | null {
   return typeof value === "string" && TIMEZONE_BEARING_TIMESTAMP.test(value) && !Number.isNaN(Date.parse(value))
     ? value
     : null;
+}
+
+function nullableTimestamp(value: unknown): string | null | undefined {
+  return value === null ? null : (timestamp(value) ?? undefined);
 }
 
 function messageParams(value: unknown): Readonly<Record<string, string | number>> | null {

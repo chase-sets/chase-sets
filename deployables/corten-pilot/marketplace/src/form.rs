@@ -6,7 +6,6 @@
 //! attempt the pilot issued. The body is built as marketplace's route action builds it: required
 //! text as typed, optional text trimmed or `null`, an empty country as `US`.
 use corten::prelude::*;
-use serde::Deserialize;
 
 use crate::{
     api::{Address, DecisionCommand, Location, LocationCommand, Outcome},
@@ -17,7 +16,7 @@ use crate::{
 /// A location's fields and the attempt the form was posted with (its `SubmitKey`, drawn fresh
 /// each time the form is). The archive form sends the
 /// location's current fields as hidden inputs, as marketplace's does.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct LocationInput {
     pub attempt: Option<SubmitKey>,
@@ -112,7 +111,7 @@ impl LocationInput {
 
 /// What a restock decision's two forms post: the attempt, the decision's version as the page read
 /// it, and (the write-off form only) a damage note.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct DecisionInput {
     pub attempt: Option<SubmitKey>,

@@ -5,13 +5,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use corten::axum::{
+// The stand-in API is a server of its own, a plain axum router (a dev-dependency) with axum's
+// `State`, `Json` and `Response`; the app under test is a `corten::Router`, and the rest names Corten.
+use axum::{
     Json, Router,
-    body::{Body, Bytes},
     extract::State,
-    http::{HeaderMap, Method, Request, StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
+use corten::http::{Body, Bytes, HeaderMap, Method, Request, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -54,6 +55,9 @@ struct Stand {
     ensured: Arc<Mutex<HashMap<String, Value>>>,
     /// The repricing dry runs started here, by id: the body Pricing keeps (without its name).
     runs: Arc<Mutex<HashMap<String, Value>>>,
+    /// The Listing changes Marketplace prepared, by batch id: what it answers for each, and the
+    /// intent that prepared it.
+    batches: Arc<Mutex<HashMap<String, (String, Value)>>>,
 }
 
 const OVERLAY: &str = "/api/marketplace/items/charizard/seller-overlay";
@@ -76,8 +80,28 @@ fn committed(status: StatusCode, context: &str, position: &str, body: Value) -> 
 /// graded product and for `starter`; a create with `listingIdOverride` sent again is the same
 /// listing, and one priced `1.00` is refused; a listing priced `2.00` is created but its
 /// publication refused. A guest's draft needs its owner.
-fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// `lister`'s draft `DRAFTED`, which the item's read leaves out, is the overlay's selected listing
+/// when the read names it.
+fn listings(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    // `filler`'s listing has 1 of the 2 `off_high` asks for, and enough for `off_mine`, which is
+    // on its Sell List. The live redraw reads the overlay by the item's id.
+    if session == "filler" && (path == OVERLAY || path == "/api/marketplace/items/cat_charizard/seller-overlay") {
+        let matched = |id: &str, available: u64, listed: bool| {
+            json!({
+                "offer_id": id, "catalog_catalog_item_id": "cat_charizard", "product_id": OFFERED,
+                "selected_options": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+                "status": "submitted", "quantity_requested": 2, "seller_available_quantity": available,
+                "can_fulfill": available >= 2, "in_sell_list": listed, "acceptance_terms": null,
+            })
+        };
+        let overlay = json!({
+            "accountOfferMatches": [matched("off_mine", 3, true), matched("off_high", 1, false)],
+            "sellerInventoryItems": [], "hasListingStockLocation": false, "selectedSellerListing": null,
+        });
+        return Some(Json(overlay).into_response());
+    }
     if path == OVERLAY {
         let has = match (session, waits_for(headers).as_deref()) {
             (_, Some("43")) => {
@@ -90,8 +114,22 @@ fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: 
             ("lister", _) | ("starter", Some("42")) => true,
             _ => false,
         };
+        let named = uri.query().is_some_and(|q| q.split('&').any(|p| p == format!("selectedListingId={DRAFTED}")));
+        let selected = if session == "lister" && named {
+            json!({
+                "listing_id": DRAFTED, "account_id": "acc_seller", "catalog_catalog_item_id": "cat_charizard",
+                "product_id": OFFERED, "selected_options": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+                "product_summary": "Form: raw", "price_amount": "2.00", "price_currency_code": "USD",
+                "quantity_cap": 1, "visible_quantity": 1, "max_units_per_order": null, "max_units_per_day": null,
+                "max_units_per_customer_account": null, "seller_slug": "seller", "seller_display_name": "You",
+                "seller_average_rating": null, "seller_review_count": 0, "status": "draft", "listing_stream_version": 1,
+                "seller_at_capacity": false,
+            })
+        } else {
+            Value::Null
+        };
         let overlay = json!({
-            "accountOfferMatches": [], "sellerInventoryItems": [], "hasListingStockLocation": has, "selectedSellerListing": null,
+            "accountOfferMatches": [], "sellerInventoryItems": [], "hasListingStockLocation": has, "selectedSellerListing": selected,
         });
         return Some(Json(overlay).into_response());
     }
@@ -234,13 +272,27 @@ fn cart_line(id: &str, item: &str, quantity: u32, locked: Option<&str>, listings
     })
 }
 
-/// A readiness snapshot of `status` with each line's reason and the optimization's `decision`.
-fn snapshot(id: &str, status: &str, reasons: &[(&str, &str)], decision: &str, offer: bool) -> Value {
+/// How the API presents a line: its reason, whether it can be fulfilled, its listing and its price
+/// (`state`, `amount`) in USD.
+type Presented<'a> = (&'a str, &'a str, bool, Option<&'a str>, Option<(&'a str, &'a str)>);
+
+/// A readiness snapshot of `status` with each line's outcome and presentation and the
+/// optimization's `decision`.
+fn snapshot(id: &str, status: &str, lines: &[Presented], decision: &str, offer: bool) -> Value {
     let outcomes: Vec<Value> =
-        reasons.iter().map(|(line, reason)| json!({ "lineId": line, "outcome": "checkout", "reason": reason })).collect();
+        lines.iter().map(|(line, reason, ..)| json!({ "lineId": line, "outcome": "checkout", "reason": reason })).collect();
+    let presentations: Vec<Value> = lines
+        .iter()
+        .map(|(line, reason, fulfillable, listing, price)| {
+            json!({
+                "lineId": line, "reason": reason, "fulfillmentAvailable": fulfillable, "listingId": listing,
+                "price": price.map(|(state, amount)| json!({ "state": state, "amount": amount, "currency": "USD" })),
+            })
+        })
+        .collect();
     json!({
         "schemaVersion": "checkout.cart-readiness.v1", "source": "cart", "sourceRevision": "cr_rev", "snapshotId": id,
-        "status": status, "lineCount": reasons.len(), "includedLineIds": [], "unresolvedLineIds": [],
+        "status": status, "lineCount": lines.len(), "includedLineIds": [], "unresolvedLineIds": [],
         "lineOutcomes": outcomes,
         "optimization": {
             "available": offer, "decision": decision,
@@ -248,7 +300,7 @@ fn snapshot(id: &str, status: &str, reasons: &[(&str, &str)], decision: &str, of
             "proposedListingId": if offer { json!("lst_vault_charizard") } else { Value::Null },
             "currentListingId": null, "savingsAmount": if offer { json!("10.99") } else { Value::Null }, "currency": "USD",
         },
-        "fulfillmentGroups": [], "customerSafeFacts": [],
+        "fulfillmentGroups": [], "customerSafeFacts": [], "linePresentations": presentations,
     })
 }
 
@@ -269,10 +321,12 @@ fn cart(session: &str) -> Value {
             let mut mew = cart_line("cli_eur", "Mew", 1, Some("lst_mew"), &[], "2026-10-24T02:00:00.000Z");
             mew["item_image_url"] = json!("/fake-cdn/assets/pokemon_tcg_back.png");
             mew["item_image_srcset"] = json!("/fake-cdn/assets/mew-1x.png 1x, https://cdn.example/mew-2x.png 2x");
-            let reasons = [
-                ("cli_pikachu_a", "unassigned-fulfillment"),
-                ("cli_pikachu_b", "unassigned-fulfillment"),
-                ("cli_eur", "currency-mismatch"),
+            // The Pikachu lines have no way to be fulfilled and are priced from the one listing,
+            // each for its quantity; the Mew line's listing is gone, so it is priced at checkout.
+            let reasons: [Presented; 3] = [
+                ("cli_pikachu_a", "unassigned-fulfillment", false, Some("lst_pikachu"), Some(("indicative", "17.95"))),
+                ("cli_pikachu_b", "unassigned-fulfillment", false, Some("lst_pikachu"), Some(("indicative", "35.90"))),
+                ("cli_eur", "currency-mismatch", true, Some("lst_mew"), None),
             ];
             json!({
                 "items": [
@@ -290,6 +344,17 @@ fn cart(session: &str) -> Value {
                 },
             })
         }
+        // The buyer's cart, the API presenting only its Pikachu line.
+        "unpresented" => {
+            let mut buyer = cart("buyer");
+            for snapshot in ["loaded", "declined", "accepted"] {
+                buyer["readiness"][snapshot]["linePresentations"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|p| p["lineId"] == "cli_pikachu");
+            }
+            buyer
+        }
         "empty" => json!({
             "items": [], "count": 0,
             "readiness": {
@@ -299,7 +364,10 @@ fn cart(session: &str) -> Value {
             },
         }),
         _ => {
-            let reasons = [("cli_charizard", "ready"), ("cli_pikachu", "ready")];
+            let reasons: [Presented; 2] = [
+                ("cli_charizard", "ready", true, Some("lst_chase_charizard"), Some(("exact", "399.99"))),
+                ("cli_pikachu", "ready", true, Some("lst_chase_pikachu"), Some(("exact", "21.50"))),
+            ];
             json!({
                 "items": [
                     cart_line("cli_pikachu", "Pikachu", 1, Some("lst_chase_pikachu"), &[("lst_chase_pikachu", "Chase Sets", "21.50")], "2026-10-24T03:55:54.259Z"),
@@ -330,6 +398,26 @@ fn written(status: StatusCode, id: &str) -> Response {
     (status, headers, Json(json!({ "storage_location_id": id }))).into_response()
 }
 
+/// The Listing commands Marketplace takes only with an attempt (its routes' `listingAttemptInput`).
+fn listing_attempt_required(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/marketplace/account/") else { return false };
+    match (method.as_str(), rest) {
+        (
+            "POST",
+            "listings"
+            | "listing-availability/disable"
+            | "listing-availability/enable"
+            | "listing-availability/away-window"
+            | "order-capacity",
+        )
+        | ("DELETE", "listing-availability/away-window" | "order-capacity") => true,
+        ("POST", rest) => rest.strip_prefix("listings/").and_then(|r| r.split_once('/')).is_some_and(|(_, command)| {
+            matches!(command, "price" | "quantity-cap" | "purchase-limits" | "publish" | "pause" | "withdraw")
+        }),
+        _ => false,
+    }
+}
+
 /// The commit position a read waits for, if it sends a receipt.
 fn waits_for(headers: &HeaderMap) -> Option<String> {
     let sent = headers.get("chase-sets-read-after-write")?.to_str().ok()?;
@@ -351,6 +439,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         headers: headers.clone(),
         body: body.clone(),
     });
+    // Marketplace refuses a Listing command sent without its attempt (`listingAttemptInput`).
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok());
+    if listing_attempt_required(&method, uri.path()) && !attempt.is_some_and(crate::api::valid_listing_attempt) {
+        return refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "A valid Listing attempt identity is required.");
+    }
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let session = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_session=")).unwrap_or_default();
     // A guest checkout as the browser has one: its cookie and no session (`resolveGuestCheckoutActor`).
@@ -403,20 +496,34 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         };
         return match session {
             "seller" => actor(&["inventory.view", "inventory.manage"]),
+            // Sellers whose storage locations (`stock_dark`) or recent imports (`batches_dark`)
+            // cannot be read for now.
+            "stock_dark" | "batches_dark" => actor(&["inventory.view", "inventory.manage"]),
             "reader" => actor(&["inventory.view"]),
             // A buyer: any account has a cart, and none of these may see inventory.
             // `stale`'s session ends before its cart write is sent.
-            "other" | "buyer" | "blocked" | "empty" | "stale" => actor(&[]),
+            "other" | "buyer" | "blocked" | "empty" | "stale" | "unpresented" => actor(&[]),
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
+            // A trader of another account, whose listings could fill the item's offers (the
+            // seller overlay's matches).
+            "filler" => Json(json!({ "actor": {
+                "userId": "usr_filler", "accountId": "acc_filler", "roleKey": "seller",
+                "permissions": ["offers.view", "listings.view", "offers.manage"],
+            } }))
+            .into_response(),
+            // A trader whose market-following policies cannot be listed (503).
+            "offers_dark" => actor(&["offers.view", "listings.view", "offers.manage"]),
             // An account that may save Watch alerts.
             "watcher" | "notices_down" => actor(&["accounts.view"]),
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
-            // none until its ship-from setup is saved.
-            "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
-            // A seller who may read its listings but not change them.
-            "lookout" => actor(&["listings.view"]),
+            // none until its ship-from setup is saved. `lister_ended`'s session ends before its bulk
+            // change is sent.
+            "lister" | "starter" | "lister_ended" => actor(&["listings.view", "listings.manage", "offers.view"]),
+            // A seller who may read its listings but not change them (the last two's payouts are
+            // pending and restricted).
+            "lookout" | "lookout_pending" | "lookout_restricted" => actor(&["listings.view"]),
             // The account's orders: `shopper` buys and may cancel, `merchant` sells too, `looker`
             // may only read its purchases.
             "shopper" => actor(&["orders.view", "orders.manage"]),
@@ -457,6 +564,15 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
             // provider account (its management session asks it to sign in again).
             "setter" | "restricted_setter" => actor(&["payouts.view", "payouts.setup"]),
+            // An owner whose orders.manage Auth withholds until its email is verified, and an agent
+            // acting for an owner with the same permissions (never asked to verify).
+            "unverified" | "unverified_agent" => {
+                let mut actor = json!({ "userId": "usr_buyer", "accountId": "acc_buyer", "roleKey": "owner", "permissions": ["orders.view"] });
+                if session == "unverified_agent" {
+                    actor["agentGrant"] = json!({ "grantId": "agr_1" });
+                }
+                Json(json!({ "actor": actor })).into_response()
+            }
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -484,6 +600,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = payout_setup_api(session, &method, &uri) {
         return answer;
     }
+    if let Some(answer) = shipping_setup_api(session, &method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = money_api(session, &method, &uri, &body) {
         return answer;
     }
@@ -502,6 +621,12 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = checkout_start_api(&method, uri.path(), &headers) {
         return answer;
     }
+    if let Some(answer) = social_login(&method, &uri, &headers) {
+        return answer;
+    }
+    if let Some(answer) = guest_claims(&method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = auth(&method, uri.path(), &body) {
         return answer;
     }
@@ -511,7 +636,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = repricing(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = bulk_reprice(&stand, &method, uri.path(), &body) {
+    if let Some(answer) = bulk_reprice(&stand, &method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = recommendations(&stand, &method, uri.path(), &body) {
@@ -526,14 +651,21 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
+    if let Some(answer) = offer_policies(session, &method, &uri, &body) {
+        return answer;
+    }
     if let Some(answer) = submitted_offers(&method, &uri, &headers, &body) {
         return answer;
     }
     // Before Ordering's and the listing page's, whose paths begin the same.
-    if let Some(answer) = listing_list(session, &method, &uri, &headers, &body) {
+    if let Some(answer) = listing_batches(&stand, session, &method, &uri, &body) {
         return answer;
     }
-    if let Some(answer) = public_listings(&method, uri.path(), &headers) {
+    if let Some(answer) = listing_list(session, &method, &uri, &headers, &body) {
+        settle(&stand, &headers, &answer);
+        return answer;
+    }
+    if let Some(answer) = public_listings(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = review_opportunity_api(&method, uri.path(), &body) {
@@ -542,13 +674,16 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = reviews_api(&method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = public_accounts(&method, uri.path(), session) {
+    if let Some(answer) = public_accounts(&method, uri.path(), session, &body) {
         return answer;
     }
     if let Some(answer) = notification_center(session, &method, uri.path(), &headers, &body) {
         return answer;
     }
     // Before Ordering's, whose sales path is a prefix of the seller's shipments.
+    if let Some(answer) = command_center(session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = packing(&method, uri.path(), &headers, &body) {
         return answer;
     }
@@ -561,22 +696,26 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = listing_create(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
+    if let Some(answer) = listings(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = seller_listings(&method, uri.path(), &headers, &body) {
+        settle(&stand, &headers, &answer);
         return answer;
     }
     if let Some(rest) = uri.path().strip_prefix(ROLLUPS) {
         return rollups(rest);
     }
     if uri.path() == "/api/realtime/public/events" || uri.path() == "/api/realtime/account/events" {
-        return realtime();
+        return realtime(&uri);
     }
     if let Some(answer) = search(&uri) {
         return answer;
     }
     if let Some(answer) = sitemaps(&uri) {
+        return answer;
+    }
+    if let Some(answer) = bulk_cart(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
@@ -596,10 +735,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = sell_confirmations(&stand, &method, uri.path(), &headers, &body) {
         return answer;
     }
-    if let Some(answer) = sell_list_page(session, &method, &uri, &headers, &body) {
+    if let Some(answer) = sell_list_page(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = sell_list(&method, uri.path(), &headers, &body) {
+    if let Some(answer) = sell_list(&stand, &method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = product_alerts(&method, uri.path(), &headers, &body) {
@@ -633,6 +772,12 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     }
     if let Some(answer) = checkout(&stand, session, &method, uri.path(), &body) {
         return answer;
+    }
+    if method == Method::GET && session == "stock_dark" && uri.path() == LOCATIONS {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if method == Method::GET && session == "batches_dark" && uri.path() == IMPORT_BATCHES {
+        return refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests.");
     }
     if let Some(answer) = imports_api(&method, &uri, &headers, &body) {
         return answer;
@@ -787,9 +932,30 @@ fn checkout_session(id: &str) -> Value {
             session["source_type"] = json!("offer-intent");
             session["submitted_offer_id"] = json!("ofr_1");
         }
+        // Its orders exist and wait for payment: confirm's address write cleared the live preview,
+        // and the session keeps the quote and acknowledgement the orders were bound to.
+        "chk_ordered" => {
+            session["order_ids"] = json!(["ord_1"]);
+            session["last_recorded_quote"] = session["fulfillment_preview_snapshot"].clone();
+            session["fulfillment_preview_snapshot"] = Value::Null;
+            session["order_acknowledged_material_changes"] = json!(true);
+        }
+        // The same, but the kept quote is of another revision: no quote, as the loader gives none.
+        "chk_ordered_other" => {
+            session["order_ids"] = json!(["ord_1"]);
+            session["last_recorded_quote"] = session["fulfillment_preview_snapshot"].clone();
+            session["last_recorded_quote"]["revision"] = json!("lowest-total#other");
+            session["fulfillment_preview_snapshot"] = Value::Null;
+        }
         "chk_paid" => session["payment_id"] = json!("pay_1"),
         "chk_paydown" => session["payment_id"] = json!("pay_down"),
         "chk_cancelled" => session["cancelled_at"] = json!("2026-10-28T00:00:00.000Z"),
+        // Its one line can no longer be bought, so it cannot be confirmed.
+        "chk_blocked" => {
+            let line = json!(["lst_seed_lugia_neo_genesis_bgs_95"]);
+            session["fulfillment_preview_snapshot"]["readyLineKeys"] = json!([]);
+            session["fulfillment_preview_snapshot"]["unavailableLineKeys"] = line;
+        }
         _ => {}
     }
     session
@@ -801,7 +967,8 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 
 /// A buy checkout's reads and writes, as the stand-in answers them. `chk_gone` is not found,
 /// `chk_theirs` is another account's, `chk_down` fails and `chk_slow` has not caught up with
-/// any write; `chk_offer` is a purchase intent and `chk_paid`'s payment has started. Each review
+/// any write; `chk_offer` is a purchase intent, `chk_paid`'s payment has started and
+/// `chk_blocked`'s one line can no longer be bought. Each review
 /// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
 /// starts `pay_1`, but `chk_stale`'s quote is stale, and `chk_offer`'s Submit offer becomes the
 /// offer `ofr_1` (`chk_offered` already did). Payments quotes $620.00 as the sandbox
@@ -908,6 +1075,12 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        // As Checkout refuses Pay now for a buyer whose orders.manage Auth withheld (chase-sets/chase-sets#10785).
+        "confirm" if id == "chk_verify" => refusal(
+            StatusCode::FORBIDDEN,
+            "email_verification_required",
+            "Verify your email before you pay. Nothing was reserved or ordered.",
+        ),
         "confirm" if id == "chk_lostpay" => {
             stand.kept.lock().unwrap().insert(format!("confirm:{id}"), json!({}));
             StatusCode::GATEWAY_TIMEOUT.into_response()
@@ -1123,7 +1296,7 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
         "pay_1" => {}
         "pay_cs" => payment["processor_client_secret"] = json!("cs_test_1_secret"),
         "pay_noemail" => payment["order_ids"] = json!(["ord_noemail"]),
-        "pay_paid" => {
+        "pay_paid" | "pay_unbound" | "pay_limited" => {
             payment["status"] = json!("captured");
             payment["processor_status"] = json!("succeeded");
             payment["processor_client_secret"] = json!(null);
@@ -1217,11 +1390,12 @@ const GUEST_ATTEMPTS: &str = "/api/marketplace/guest/command-attempts/";
 /// An item page's cart add, as the stand-in answers it, to the account's cart or (with its id) a
 /// guest's. The quantity says what happens: 7 is refused with nothing applied, 8 applies and its
 /// answer is lost, 9's answer is lost and nothing is kept; any other applies, at position 12. A
-/// guest's lookup answers what was kept.
+/// guest's lookup (with its cart's or its Sell List's id) answers what was kept.
 fn cart_add(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
     if let Some(id) = path.strip_prefix(GUEST_ATTEMPTS) {
-        return Some(match (guest, stand.kept.lock().unwrap().get(id)) {
+        let list = headers.get("x-checkout-anonymous-sell-list-id").and_then(|v| v.to_str().ok());
+        return Some(match (guest.or(list.filter(|id| id.starts_with("anon_"))), stand.kept.lock().unwrap().get(id)) {
             (None, _) => refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "Sign in."),
             (Some(_), Some(attempt)) => Json(json!({ "attempt": attempt })).into_response(),
             (Some(_), None) => refusal(StatusCode::NOT_FOUND, "command_attempt_not_found", "Command attempt not found."),
@@ -1262,8 +1436,10 @@ const STANDARD_TERMS: &str = "/api/marketplace/terms/public-standard/listing-pre
 
 /// A sell-list add and the public standard terms, as the stand-in answers them. An offer's line
 /// is refused as the API refuses one without a listing (chase-sets/chase-sets#8830); a product's
-/// is added at position 13. The terms are a 5% fee and a 5% shipping allowance.
-fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// is added at position 13, as its attempt (chase-sets/chase-sets#9995), which a lookup answers:
+/// quantity 8's answer is lost after it applies, and 9's is lost with nothing kept. The terms are
+/// a 5% fee and a 5% shipping allowance.
+fn sell_list(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     if *method != Method::POST {
         return None;
     }
@@ -1295,10 +1471,23 @@ fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Op
             "Selected offer sell-list lines must reference an Offer and exact Listing.",
         ));
     }
+    if sent["quantity"].as_u64() == Some(9) {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    let kept = json!({
+        "ownerStatus": "committed",
+        "vector": [{ "lineId": "sll_new", "outcome": "succeeded", "message": null }],
+        "commitReceipt": { "eventId": "evt_sell", "globalPosition": "13" },
+    });
+    stand.kept.lock().unwrap().insert(sent["attemptId"].as_str().unwrap_or_default().to_owned(), kept.clone());
+    if sent["quantity"].as_u64() == Some(8) {
+        return Some(StatusCode::BAD_GATEWAY.into_response());
+    }
     let receipt = r#"[{"sourceContextName":"checkout","maxGlobalPosition":"13","eventIds":["evt_sell"]}]"#;
     let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "13".to_owned()), ("chase-sets-commit-receipt", receipt)];
-    Some((StatusCode::CREATED, headers, Json(json!({ "id": "sll_new", "version": 1, "status": "added" }))).into_response())
+    let answer = json!({ "id": "sll_new", "version": 1, "status": "added", "attempt": kept });
+    Some((StatusCode::CREATED, headers, Json(answer)).into_response())
 }
 
 /// A listing's evidence as the sell list reviews it: a front matched by `ph_front`, an unmatched
@@ -1328,6 +1517,80 @@ fn sell_evidence(listing: &str, complete: bool) -> Value {
     })
 }
 
+/// An account's payout readiness: `trader`'s and `lister`'s are ready, `lookout_pending`'s
+/// pending, `lookout_restricted`'s restricted, and any other's not started (a bank account twice,
+/// onboarding and a code the page does not know).
+fn sell_payout(session: &str) -> Value {
+    let (status, missing) = match session {
+        "trader" | "lister" => ("ready", json!([])),
+        "lookout_pending" => ("pending", json!([])),
+        "lookout_restricted" => ("restricted", json!(["individual.verification.document"])),
+        _ => ("not-started", json!(["external_account", "provider-onboarding", "bank account", "tax.id"])),
+    };
+    json!({ "status": status, "missing_requirements": missing })
+}
+
+/// What Checkout works out for the Sell List page (`screen`), as it would for the stand-in's lists:
+/// the account `session`'s (the offer line and the product line when `lines`), or a guest's (the
+/// offer line on the standard terms when `lines`). The offer line nets 16.86 a unit and pays 0.89;
+/// `lister`'s misses its back photo. The product line's Smart Match offer takes 2 of 3 and a listing
+/// the third at 20.00. The payout setup link comes back to `back`.
+fn sell_screen(session: Option<&str>, lines: bool, back: &str) -> Value {
+    let options = "%5B%7B%22dimensionId%22%3A%22dim_form%22%2C%22optionId%22%3A%22raw%22%7D%5D";
+    let inventory =
+        format!("/account/inventory?catalogItemId=cat_pika&returnTo=%2Faccount%2Fsell-list&selectedOptions={options}");
+    let offer_setup = format!("/account/listings/new?catalogItemId=cat_pika&recommendedPrice=17.75&selectedOptions={options}");
+    let missing_back = session == Some("lister");
+    let offer = if missing_back {
+        json!({ "ready": false, "canSubmit": false, "labelCode": "evidence-needs-action", "detailCode": "evidence-incomplete",
+            "unmetEvidenceCodes": ["slot-missing"] })
+    } else {
+        let detail = if session.is_some() { "selected-offer-ready" } else { "public-standard-preview-ready" };
+        json!({ "ready": true, "canSubmit": true, "labelCode": "ready", "detailCode": detail, "unmetEvidenceCodes": [] })
+    };
+    let mut offer = offer;
+    offer["parameters"] = json!({});
+    offer["message"] = Value::Null;
+    offer["setupHref"] = json!(offer_setup);
+    offer["inventoryHref"] = json!(inventory);
+    offer["recoveryHref"] = json!(offer_setup);
+    let product_setup = "/account/listings/new?inventoryItemId=inv_pika&recommendedPrice=20.00";
+    let product = json!({
+        "ready": true, "canSubmit": true, "labelCode": "ready", "detailCode": "smart-match-ready", "parameters": { "count": 1 },
+        "unmetEvidenceCodes": [], "message": null, "setupHref": product_setup, "inventoryHref": inventory, "recoveryHref": product_setup,
+    });
+    let (answers, quantity) = match (lines, session) {
+        (false, _) => (json!({}), 0),
+        (true, Some(_)) => (json!({ "sll_offer": offer, "sll_product": product }), 5),
+        (true, None) => (json!({ "sll_offer": offer }), 2),
+    };
+    let count = answers.as_object().map_or(0, |a| a.len());
+    let blocked = usize::from(lines && missing_back);
+    let payout = session.map(sell_payout);
+    let payout_ready = payout.as_ref().is_none_or(|p| p["status"] == "ready");
+    let setup = format!("/account/payouts/setup?returnTo={}", crate::api::segment(back));
+    let (recovery, code) = if !payout_ready {
+        (setup.clone(), "set-up-payouts")
+    } else if blocked > 0 {
+        (offer_setup.clone(), "resolve-items")
+    } else {
+        ("/search".to_owned(), "keep-selling")
+    };
+    let (gross, future, fees, net) = match (lines, session) {
+        (false, _) => ("0.00", "0.00", "0.00", "0.00"),
+        // 2 at 17.75; 0.89 and 16.86 a unit for the 2 offered and the 2 matched; the third listed at 20.00.
+        (true, Some(_)) => ("35.50", "20.00", "3.56", "67.44"),
+        (true, None) => ("35.50", "0.00", "1.78", "33.72"),
+    };
+    json!({
+        "lines": answers, "lineCount": count, "totalQuantity": quantity, "readyLineCount": count - blocked,
+        "blockedLineCount": blocked, "blockedSubmissionLineCount": blocked,
+        "canContinue": payout_ready && blocked == 0 && count > 0, "payoutIsReady": payout_ready, "payoutReadiness": payout,
+        "payoutSetupHref": setup, "recoveryHref": recovery, "recoveryCode": code, "hasMultipleOffers": false,
+        "selectedOfferGross": gross, "futureListingGross": future, "estimatedSalesFees": fees, "expectedSellerPayout": net,
+    })
+}
+
 /// A sell list's offer line: `off_ready` on `lst_pika`, 2 at 17.75.
 fn sell_offer_line() -> Value {
     json!({
@@ -1348,15 +1611,45 @@ fn sell_terms(fingerprint: &str) -> Value {
     })
 }
 
+/// A Sell List readiness answer for `snapshot` (at `rev_7`) with the line actions in `decisions`:
+/// ready with each as a line seller checkout takes, else needing resolution; the seller's readiness
+/// `seller`, or not evaluated.
+fn sell_review(snapshot: &str, decisions: &Value, seller: Option<&str>) -> Value {
+    let acts: Vec<Value> = decisions["lineActions"].as_array().cloned().unwrap_or_default();
+    let ready = !acts.is_empty();
+    let outcomes: Vec<Value> =
+        acts.iter().map(|a| json!({ "lineId": a["lineId"], "outcome": "checkout", "action": a["action"] })).collect();
+    let included: Vec<Value> = outcomes.iter().map(|o| o["lineId"].clone()).collect();
+    json!({ "readiness": {
+        "snapshotId": snapshot, "sourceRevision": "rev_7",
+        "status": if ready { "ready" } else { "needs-resolution" },
+        "unresolvedLineIds": if ready { json!([]) } else { json!(["sll_offer"]) },
+        "includedLineIds": included, "lineOutcomes": outcomes,
+        "sellerReadiness": { "status": seller.unwrap_or("not-evaluated") },
+    } })
+}
+
 /// The Sell List page's reads and writes, as the stand-in answers them. `trader`'s, `lister`'s and
 /// `lookout`'s lists have the offer line and a product line (`sll_product`, 3 of Pikachu, a listing
 /// for the rest from 20.00) whose Smart Match offer is `off_short` for 2, with inventory `inv_pika`;
-/// `lister`'s offer misses its back photo, and only `trader` and `lister` have payouts set up.
+/// `lister`'s offer misses its back photo, and only `trader` and `lister` have payouts set up:
+/// `lookout`'s are not started (a bank account twice, onboarding and a code the page does not
+/// know), `lookout_pending`'s pending and `lookout_restricted`'s restricted.
 /// `trader`'s latest seller confirmation is `slc_01J`; any other account's list is empty. A read that
 /// waits for 43 is still catching up. The guest list `anon_one` has the offer line, which merging
-/// moves at 73; any other guest's is empty. Readiness with a line action, or for `anon_one`, is ready
-/// at 71, and otherwise needs resolution; a removal applies at 72.
-fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// moves at 73; any other guest's is empty. Continue's review (`selections`) decides the offer line
+/// with a fee quote and the product line with an offer, keeping `sell_plan("off_short", 1)` as the
+/// plan; seller checkout's read of a kept review answers the one a test kept for its snapshot
+/// (`keep_review`), `srs_1` the default, and refuses any other, or another revision, as stale; seller
+/// readiness from `srs_moved` is stale too. Readiness with a line action, or for `anon_one`, is ready
+/// at 71, and otherwise needs resolution. Seller checkout's readiness (one from an entry snapshot)
+/// reads the seller's payout as Checkout does from its owner: one not set up is refused as
+/// `checkout_seller_not_ready` with `payout-setup-required`, and so are the confirmations
+/// `slc_chk_hold`, `slc_chk_block`, `slc_chk_label`, `slc_chk_ship` and `slc_chk_payout_down` with
+/// their reasons. A removal, or a batch of them (`/commands`), applies at 72
+/// as its attempt, which a lookup answers; `sll_unknown`'s answer is lost with nothing kept, and in a
+/// batch `sll_gone` is no longer on the list (its removal a conflict, the others applied).
+fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     let (guest_path, rest) = match (path.strip_prefix(GUEST_SELL_LIST), path.strip_prefix(ACCOUNT_SELL_LIST)) {
         (Some(rest), _) => (true, rest),
@@ -1364,7 +1657,7 @@ fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap
         _ => return None,
     };
     let guest = headers.get("x-checkout-anonymous-sell-list-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
-    let has_lines = matches!(session, "trader" | "lister" | "lookout");
+    let has_lines = matches!(session, "trader" | "lister" | "lookout" | "lookout_pending" | "lookout_restricted");
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     Some(match (method.as_str(), rest) {
         ("GET", "") if waits_for(headers).as_deref() == Some("43") => refusal(
@@ -1391,34 +1684,79 @@ fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap
             }));
             Json(json!({ "items": items, "count": items.len(), "latestConfirmation": latest })).into_response()
         }
-        ("GET", "/composite-review") => Json(json!({
-            "offerReviews": [{
-                "lineId": "sll_offer", "status": "ready", "terms": sell_terms("fq_offer"),
-                "evidence": sell_evidence("lst_pika", session != "lister"),
-            }],
-            "productOfferReviews": [{
-                "lineId": "sll_product", "status": "ready",
-                "offers": [{ "offer": offer_match("off_short", "submitted", true), "terms": sell_terms("fq_short") }],
-            }],
-            "inventoryItems": [{
-                "item_id": "inv_pika", "product_id": "cat_pika::form:raw", "storage_location_name": "Main",
-                "ship_from_code": "MAIN", "available_quantity": 5,
-            }],
-        }))
-        .into_response(),
-        ("GET", "/payout-readiness") => {
-            let ready = matches!(session, "trader" | "lister");
-            Json(json!({
-                "status": if ready { "ready" } else { "not-started" },
-                "missing_requirements": if ready { json!([]) } else { json!(["external_account"]) },
-            }))
-            .into_response()
-        }
-        ("GET", "/offer-reviews") => {
+        ("GET", "/composite-review") if guest_path => {
             let mut terms = sell_terms("fq_standard");
             terms["source_kind"] = json!("public-standard-seller-terms");
             terms["source_label"] = json!("Standard seller terms");
-            Json(json!({ "offerReviews": [{ "lineId": "sll_offer", "status": "ready", "terms": terms }] })).into_response()
+            let offer = (guest == "anon_one").then(|| json!({ "lineId": "sll_offer", "status": "ready", "terms": terms }));
+            Json(json!({
+                "offerReviews": offer.into_iter().collect::<Vec<_>>(), "productOfferReviews": [], "inventoryItems": [],
+                "screen": sell_screen(None, guest == "anon_one", "/account/sell-list"),
+            }))
+            .into_response()
+        }
+        ("GET", "/composite-review") => {
+            let back = uri.query().and_then(|q| q.split('&').find_map(|p| p.strip_prefix("sellListPath=")));
+            let back = if back == Some("%2Faccount%2Fdesk%2Foffers") { "/account/desk/offers" } else { "/account/sell-list" };
+            Json(json!({
+                "offerReviews": [{
+                    "lineId": "sll_offer", "status": "ready", "terms": sell_terms("fq_offer"),
+                    "evidence": sell_evidence("lst_pika", session != "lister"),
+                }],
+                "productOfferReviews": [{
+                    "lineId": "sll_product", "status": "ready",
+                    "offers": [{ "offer": offer_match("off_short", "submitted", true), "terms": sell_terms("fq_short") }],
+                }],
+                "inventoryItems": [{
+                    "item_id": "inv_pika", "product_id": "cat_pika::form:raw", "storage_location_name": "Main",
+                    "ship_from_code": "MAIN", "available_quantity": 5,
+                }],
+                "screen": sell_screen(Some(session), has_lines, back),
+            }))
+            .into_response()
+        }
+        ("GET", "/payout-readiness") => Json(sell_payout(session)).into_response(),
+        ("POST", "/readiness") if !guest_path && sent["selections"].is_object() => {
+            let lines = sent["selections"]["lines"].as_array().cloned().unwrap_or_default();
+            let filled = |l: &Value, key: &str| l[key].as_str().is_some_and(|s| !s.is_empty());
+            let mut acts = Vec::new();
+            if lines.iter().any(|l| l["lineId"] == "sll_offer" && filled(l, "selectedOfferFeeQuoteFingerprint")) {
+                acts.push(json!({ "lineId": "sll_offer", "action": "selected-offer" }));
+            }
+            if lines.iter().any(|l| l["lineId"] == "sll_product" && l["productOffers"].as_array().is_some_and(|o| !o.is_empty()))
+            {
+                acts.push(json!({ "lineId": "sll_product", "action": "smart-match" }));
+            }
+            let decisions = json!({ "lineActions": acts, "lineOutcomes": [] });
+            let mut review = sell_review("srs_1", &decisions, None);
+            review["reviewPlan"] = serde_json::from_str(&sell_plan("off_short", 1)).unwrap();
+            review["decisions"] = decisions;
+            committed(StatusCode::OK, "checkout", "71", review)
+        }
+        ("POST", "/readiness") if !guest_path && sent["readinessSnapshotId"].is_string() => {
+            let snapshot = sent["readinessSnapshotId"].as_str().unwrap_or_default();
+            let kept = stand.kept.lock().unwrap().get(&format!("sell_review:{snapshot}")).cloned();
+            let kept = kept.or_else(|| {
+                (snapshot == "srs_1").then(|| {
+                    json!({ "reviewPlan": serde_json::from_str::<Value>(&sell_plan("off_short", 1)).unwrap(),
+                        "decisions": serde_json::from_str::<Value>(SELL_DECISIONS).unwrap() })
+                })
+            });
+            match kept {
+                Some(kept) if sent["readinessSourceRevision"] == "rev_7" => {
+                    let mut review = sell_review(snapshot, &kept["decisions"], None);
+                    for key in ["reviewPlan", "decisions"] {
+                        if let Some(value) = kept.get(key) {
+                            review[key] = value.clone();
+                        }
+                    }
+                    Json(review).into_response()
+                }
+                _ => refusal(StatusCode::CONFLICT, "checkout_readiness_stale", "Sell List readiness snapshot is stale."),
+            }
+        }
+        ("POST", "/readiness") if sent["entryReadinessSnapshotId"] == "srs_moved" => {
+            refusal(StatusCode::CONFLICT, "checkout_readiness_stale", "Sell List readiness snapshot is stale.")
         }
         ("POST", "/readiness") => {
             let acts: Vec<Value> = sent["lineActions"].as_array().cloned().unwrap_or_default();
@@ -1432,11 +1770,26 @@ fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap
                 vec![]
             };
             let included: Vec<Value> = outcomes.iter().map(|o| o["lineId"].clone()).collect();
-            let seller = match sent["sellerEvidence"]["payout"]["readinessStatus"].as_str() {
+            let confirmation = sent["confirmationId"].as_str().unwrap_or_default();
+            let seller = match sent.get("entryReadinessSnapshotId") {
                 None => "not-evaluated",
-                Some("ready") => "ready",
+                Some(_) if sell_payout(session)["status"] == "ready" => "ready",
                 Some(_) => "blocked",
             };
+            let reasons: &[&str] = match confirmation {
+                "slc_chk_hold" => &["risk-hold"],
+                "slc_chk_block" => &["risk-block", "label-not-ready"],
+                "slc_chk_label" => &["label-not-ready"],
+                "slc_chk_ship" => &["ship-from-not-ready", "label-not-ready"],
+                "slc_chk_payout_down" => &["payout-unavailable"],
+                _ if seller == "blocked" => &["payout-setup-required"],
+                _ => &[],
+            };
+            if seller != "not-evaluated" && !reasons.is_empty() {
+                let error = json!({ "code": "checkout_seller_not_ready",
+                    "message": "Sell List readiness must be resolved before handoff.", "reasons": reasons });
+                return Some((StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response());
+            }
             committed(
                 StatusCode::OK,
                 "checkout",
@@ -1453,27 +1806,97 @@ fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap
         }
         ("POST", "/merge-to-account") => Json(json!({ "mergedLineCount": 0 })).into_response(),
         ("POST", rest) if rest.ends_with("/remove") => {
-            committed(StatusCode::OK, "checkout", "72", json!({ "status": "removed" }))
+            let line = rest.trim_start_matches('/').trim_end_matches("/remove");
+            if line == "sll_unknown" {
+                return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+            }
+            let vector = json!([{ "lineId": line, "outcome": "succeeded", "message": null }]);
+            let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_72", "globalPosition": "72" } });
+            stand.kept.lock().unwrap().insert(sent["attemptId"].as_str().unwrap_or_default().to_owned(), kept.clone());
+            committed(StatusCode::OK, "checkout", "72", json!({ "status": "removed", "attempt": kept }))
+        }
+        ("POST", "/commands") => {
+            let vector: Vec<Value> = sent["lineIds"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|line| match line.as_str() {
+                    Some("sll_gone") => json!({ "lineId": line, "outcome": "conflict", "message": "Sell List line not found." }),
+                    _ => json!({ "lineId": line, "outcome": "succeeded", "message": null }),
+                })
+                .collect();
+            let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_72", "globalPosition": "72" } });
+            stand.kept.lock().unwrap().insert(sent["attemptId"].as_str().unwrap_or_default().to_owned(), kept.clone());
+            committed(StatusCode::OK, "checkout", "72", json!({ "status": "committed", "attempt": kept }))
         }
         _ => return None,
     })
 }
 
-/// Seller checkout's confirmation, as the stand-in answers it: a confirm applies at 75 and is kept
-/// by its id; `slc_chk_done` was confirmed already; one read that waits for 75 before it is kept is
-/// still catching up, and any other is not saved (404).
+/// Seller checkout's confirmation, as the stand-in answers it. Checkout's confirm checks the kept
+/// plan and runs the Marketplace handoff itself: `slc_chk_other`'s and `slc_chk_over`'s plans do
+/// not fit their snapshots (400); `slc_chk_off_stale`'s handoff stops on an offer whose terms
+/// changed and `slc_chk_off_accepted`'s on one accepted already (409, after the offer line). Any
+/// other confirm applies at 75, its handoff's Marketplace writes at 76, and is kept by its id, but
+/// `slc_chk_lost`'s answer is lost after it is kept and `slc_chk_gone`'s is lost with nothing kept;
+/// `slc_chk_done` was confirmed already; `slc_chk_dark` cannot be read (503); one read that waits
+/// for 75 before it is kept is still catching up, and any other is not saved (404).
 fn sell_confirmations(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(ACCOUNT_SELL_LIST)?;
     if *method == Method::POST && rest == "/confirm" {
         let sent: Value = serde_json::from_str(body).unwrap_or_default();
         let id = sent["confirmationId"].as_str().unwrap_or_default().to_owned();
+        if id == "slc_chk_gone" {
+            return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        }
+        let interrupted = |message: &str, second: &str, recovery: Value| {
+            let lines = json!([
+                { "lineId": "sll_offer", "status": "completed", "detail": "Pikachu: sale review recorded." },
+                { "lineId": "sll_product", "status": second, "detail": message },
+            ]);
+            let error =
+                json!({ "code": "checkout_handoff_interrupted", "message": message, "lines": lines, "recovery": recovery });
+            Some((StatusCode::CONFLICT, Json(json!({ "error": error }))).into_response())
+        };
+        match id.as_str() {
+            "slc_chk_other" | "slc_chk_over" => {
+                let message = "Return to the Sell List and refresh the reviewed sale plan before confirming.";
+                return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", message));
+            }
+            "slc_chk_off_stale" => {
+                let detail = "Pikachu: offer terms need refresh.";
+                return interrupted(detail, "ambiguous", json!({ "kind": "readiness-stale", "detail": detail }));
+            }
+            "slc_chk_off_accepted" => return interrupted("Offer match has already been accepted.", "conflict", Value::Null),
+            _ => {}
+        }
         stand.kept.lock().unwrap().insert(format!("sell_confirmation:{id}"), sent);
-        return Some(committed(StatusCode::CREATED, "checkout", "75", json!({ "confirmationId": id, "status": "confirmed" })));
+        if id == "slc_chk_lost" {
+            return Some(StatusCode::BAD_GATEWAY.into_response());
+        }
+        let handoff = json!({ "mode": "eventual", "commitPosition": "76", "commitEventIds": ["evt_76"],
+            "commitPositions": [{ "sourceContextName": "marketplace", "maxGlobalPosition": "76", "eventIds": ["evt_76"] }] });
+        let answer = json!({ "confirmationId": id, "status": "confirmed", "sourceReceipts": [{ "commandReceipt": handoff }] });
+        return Some(committed(StatusCode::CREATED, "checkout", "75", answer));
     }
     let id = rest.strip_prefix("/confirmations/").filter(|_| *method == Method::GET)?;
+    if id == "slc_chk_dark" {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
     let kept = stand.kept.lock().unwrap().get(&format!("sell_confirmation:{id}")).cloned();
     let summary = match (kept, id) {
-        (Some(sent), _) => sent["handoffSummary"].clone(),
+        // What Checkout's handoff recorded for `trader`'s two lines.
+        (Some(_), _) => json!({
+            "acceptedOfferCount": 2, "publishedListingCount": 1, "skippedLineCount": 0,
+            "lineOutcomes": [
+                { "lineId": "sll_offer", "itemTitle": "Pikachu", "status": "completed", "action": "accepted-offer",
+                  "quantity": 2, "remainingQuantity": 0, "detail": "Pikachu: sale review recorded.", "references": { "offerIds": ["off_ready"] } },
+                { "lineId": "sll_product", "itemTitle": "Pikachu", "status": "completed", "action": "mixed",
+                  "quantity": 3, "remainingQuantity": 0, "detail": "Pikachu: sale review recorded.",
+                  "references": { "offerIds": ["off_short"], "listingId": "lst_slc_chk_one_sll_product" } },
+            ],
+            "sideEffects": { "sale": "handoff-recorded" },
+        }),
         (None, "slc_chk_done") => json!({
             "acceptedOfferCount": 1, "publishedListingCount": 0, "skippedLineCount": 0,
             "lineOutcomes": [{ "lineId": "sll_offer", "itemTitle": "Pikachu", "status": "completed", "action": "accepted-offer",
@@ -1645,10 +2068,18 @@ fn search(uri: &Uri) -> Option<Response> {
             })
         })
         .collect();
-    let facets = json!([{ "id": "dim_grade", "kind": "dimension", "label": "Grade", "values": [
+    let mut facets = json!([{ "id": "dim_grade", "kind": "dimension", "label": "Grade", "values": [
         { "id": "chc_10", "label": "Gem Mint 10", "count": 9, "selected": sent.get("dimension.dim_grade").map(String::as_str) == Some("chc_10") },
         { "id": "chc_9", "label": "Mint 9", "count": 4, "selected": false },
     ] }]);
+    // `sets` adds a facet of ten values, `set_9` chosen when the address names it.
+    if words == "sets" {
+        let chosen = sent.get("dimension.dim_set").map(String::as_str);
+        let values: Vec<Value> = (1..=10)
+            .map(|n| json!({ "id": format!("set_{n}"), "label": format!("Set {n}"), "count": n, "selected": chosen == Some(&format!("set_{n}")) }))
+            .collect();
+        facets.as_array_mut().unwrap().push(json!({ "id": "dim_set", "kind": "dimension", "label": "Set", "values": values }));
+    }
     let mut page = json!({
         "items": items, "facets": facets, "category_counts": [{ "slug": "singles-x1", "count": 7 }],
         "total": cursor.is_none().then_some(30),
@@ -1659,6 +2090,86 @@ fn search(uri: &Uri) -> Option<Response> {
         page["cursorRestarted"] = json!(true);
     }
     Some(Json(page).into_response())
+}
+
+const BULK_PREVIEW: &str = "/api/marketplace/items/bulk-cart-preview";
+const ACCOUNT_CART_BULK: &str = "/api/marketplace/account/cart/bulk";
+const GUEST_CART_BULK: &str = "/api/marketplace/guest/cart/bulk";
+
+/// Add matching products to Buy Cart, as the stand-in answers it. The preview's words say what it
+/// finds: `broken` fails, `lots` is over the limit, `none` names no product in full; any other is
+/// Card 1 and Card 3, with Card 2 needing its options, each line's product named for the words.
+/// The add keeps its attempt, Card 1 added and Card 3 merged, at position 14: `partial`'s Card 3
+/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept. The
+/// `stale` session's add asks for a sign-in.
+fn bulk_cart(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    if path == BULK_PREVIEW && *method == Method::GET {
+        let sent = query(&uri.to_string());
+        let words = sent.get("search").map_or("", String::as_str);
+        let line = |n: u32| {
+            json!({
+                "catalog_item_id": format!("cat_{n}"), "slug": format!("card-{n}"), "title": format!("Card {n}"),
+                "subtitle": "Base Set", "product_id": format!("cat_{n}::{words}"), "image_url": format!("/img/{n}.png"),
+                "image_srcset": null, "image_loading_url": null, "image_loading_alt": null, "image_loading_srcset": null,
+                "product_summary": "Raw / Near Mint", "quantity": 1,
+                "selected_options": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            })
+        };
+        let skipped = json!([{
+            "catalog_item_id": "cat_2", "slug": "card-2", "title": "Card 2",
+            "message": "Card 2 needs product options before it can be added.", "reason": "product-options-required",
+        }]);
+        let preview = |eligible: u64, over: bool, lines: Vec<Value>, skipped: Value| {
+            let skipped_count = skipped.as_array().map_or(0, Vec::len);
+            json!({
+                "totalMatches": eligible + skipped_count as u64, "eligibleCount": eligible, "skippedCount": skipped_count,
+                "overLimit": over, "limit": 250, "lines": lines, "skippedItems": skipped,
+            })
+        };
+        return Some(match words {
+            "broken" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            "lots" => Json(preview(300, true, Vec::new(), json!([]))).into_response(),
+            "none" => Json(preview(0, false, Vec::new(), skipped)).into_response(),
+            _ => Json(preview(2, false, vec![line(1), line(3)], skipped)).into_response(),
+        });
+    }
+    if *method != Method::POST || (path != ACCOUNT_CART_BULK && path != GUEST_CART_BULK) {
+        return None;
+    }
+    let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
+    if path == GUEST_CART_BULK && guest.is_none() {
+        return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    if path == ACCOUNT_CART_BULK && session == "stale" {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
+    let products: Vec<&str> = sent["lines"].as_array().into_iter().flatten().filter_map(|l| l["productId"].as_str()).collect();
+    if products.iter().any(|p| p.ends_with("::refused")) {
+        return Some(refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "Buy Cart is closed for changes."));
+    }
+    if products.iter().any(|p| p.ends_with("::lost")) {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    let vector: Vec<Value> = products
+        .iter()
+        .enumerate()
+        .map(|(index, product)| match index {
+            1 if product.ends_with("::partial") => json!({
+                "index": 1, "command": "add", "outcome": "conflict", "lineId": null, "status": null, "version": 0,
+                "message": "No listings are available.",
+            }),
+            _ => json!({
+                "index": index, "command": "add", "outcome": "succeeded", "lineId": format!("cli_{index}"),
+                "status": if index == 0 { "added" } else { "merged" }, "version": 1, "message": null,
+            }),
+        })
+        .collect();
+    let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_bulk", "globalPosition": "14" } });
+    stand.kept.lock().unwrap().insert(attempt, kept.clone());
+    Some(committed(StatusCode::OK, "checkout", "14", json!({ "status": "completed", "attempt": kept })))
 }
 
 /// A set's read, as the stand-in answers it: `base-set` (old slug `base`) with two of its three
@@ -1686,16 +2197,35 @@ fn set(slug: &str) -> Response {
     }
 }
 
+/// What Marketplace answers a report for its attempt before anything else: none is a 400
+/// (`invalid_attempt`), one explained as `lost` fails each time it is sent (its answer never
+/// comes), and `clash` was another report's attempt. Any other is the report's to answer.
+fn report_attempt(body: &str) -> Option<Response> {
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if !sent["attemptId"].as_str().is_some_and(crate::recovery::valid_attempt) {
+        return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "A valid Marketplace attempt identity is required."));
+    }
+    match sent["details"].as_str() {
+        Some("lost") => Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        Some("clash") => Some(refusal(StatusCode::CONFLICT, "attempt_conflict", "The attempt was used for another command.")),
+        _ => None,
+    }
+}
+
 /// A listing's public page and its reports, as the stand-in answers them: `psa-8` (old slug
 /// `old-psa-8`) is a PSA 8 Charizard from Chase Sets in Chicago; `away` is the same, its seller
 /// away until a day; `down` fails; any other is unknown. A report is received, except from the
-/// visitor `anon_repeat` (reported already) and `anon_busy` (too many).
-fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<Response> {
+/// visitor `anon_repeat` (reported already) and `anon_busy` (too many). A report needs its
+/// `attemptId`; one explained as `lost` is never answered, and `clash` is another report's attempt.
+fn public_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     const PUBLIC: &str = "/api/marketplace/listings/";
     let rest = path.strip_prefix(PUBLIC)?;
     if let Some(id) = rest.strip_suffix("/report") {
         if *method != Method::POST || id != "lst_psa_8" {
             return None;
+        }
+        if let Some(answer) = report_attempt(body) {
+            return Some(answer);
         }
         let visitor = headers.get("x-marketplace-anonymous-report-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
         return Some(match visitor {
@@ -1721,6 +2251,7 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
             "seller_listing_availability_status": if away { "unavailable" } else { "available" },
             "seller_available_again_at": if away { json!("2026-11-08T00:00:00.000Z") } else { Value::Null },
             "seller_at_capacity": false, "created_at": "2026-10-24T03:55:32.446Z", "updated_at": "2026-10-24T03:55:33.413Z",
+            "google_shopping_structured_data_payload": shopping_payload(),
         })
     };
     Some(match rest {
@@ -1735,11 +2266,15 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
 /// `chase-sets` (old slug `old-chase`, id `acc_chase`) is an active seller with 23 reviews and
 /// two listings; `quiet` has nothing yet and its chips fail; `closed` is closed; `down` fails;
 /// any other is unknown. A review's report needs an account (a visitor is a 401): `other` reported
-/// it already, `stale` sent too many, and `rev_refused` cannot be reported.
-fn public_accounts(method: &Method, path: &str, session: &str) -> Option<Response> {
+/// it already, `stale` sent too many, and `rev_refused` cannot be reported. It needs its
+/// `attemptId`, as `report_attempt` answers it.
+fn public_accounts(method: &Method, path: &str, session: &str, body: &str) -> Option<Response> {
     if let Some(review) = path.strip_prefix("/api/marketplace/reviews/").and_then(|r| r.strip_suffix("/report")) {
         if *method != Method::POST {
             return None;
+        }
+        if let Some(answer) = report_attempt(body) {
+            return Some(answer);
         }
         return Some(match (session, review) {
             ("" | "nobody", _) => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
@@ -1907,6 +2442,45 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
     }
 }
 
+/// Auth's social sign-in routes. A start redirects to the provider with its return address on the
+/// origin the request's `Host` names, as `buildSocialRedirectUri` does where the API does not trust
+/// `X-Forwarded-Host`. A callback with code `good` starts a session and goes back to its `returnTo`
+/// (state `st_cart`, `/account/cart`; state `st_away`, a path the pilot does not serve), code
+/// `member` asks which account, and any other state goes back to the sign-in with `invalid_state`.
+fn social_login(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let step = uri.path().strip_prefix("/api/auth/social/google/")?;
+    if *method != Method::GET {
+        return None;
+    }
+    let query = uri.query().unwrap_or_default();
+    let has = |pair: &str| query.split('&').any(|p| p == pair);
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let kept = |name: &str, value: &str| format!("{name}={value}; Path=/; SameSite=Lax");
+    let session = kept("chase_sets_session", "tok_google");
+    let selection = kept("chase_sets_account_selection", "sel_1");
+    let cleared = format!("{}; Max-Age=0", kept("chase_sets_account_selection", ""));
+    let found = |to: &str, cookies: &[&str]| {
+        let mut res = (StatusCode::FOUND, [(header::LOCATION, to.to_owned()), (header::CACHE_CONTROL, "no-store".to_owned())])
+            .into_response();
+        for cookie in cookies {
+            res.headers_mut().append(header::SET_COOKIE, cookie.parse().unwrap());
+        }
+        res
+    };
+    Some(match step {
+        "start" => {
+            let back = format!("http://{host}/api/auth/social/google/callback");
+            let back = percent_encoding::utf8_percent_encode(&back, percent_encoding::NON_ALPHANUMERIC).to_string();
+            found(&format!("https://provider.test/authorize?state=st_cart&redirect_uri={back}"), &[])
+        }
+        "callback" if has("state=st_cart") && has("code=good") => found("/account/cart", &[&cleared, &session]),
+        "callback" if has("state=st_away") && has("code=good") => found("/not-a-pilot-page", &[&cleared, &session]),
+        "callback" if has("state=st_cart") && has("code=member") => {
+            found("/account/select?returnTo=%2Faccount%2Fcart", &[&cleared, &selection])
+        }
+        _ => found("/sign-in?socialLoginError=invalid_state", &[]),
+    })
+}
 /// The Auth API's sign-in calls. `collector@example.test` signs in with `right`; `member@..` may act
 /// for two accounts and chooses one; `limited@..` is refused for too many attempts, and `broken@..`
 /// gets an answer the page does not know. Phone `+15550100`'s code is `123456`. Magic link `good`
@@ -1915,7 +2489,9 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
 /// Identity's receipt; `taken@..` exists, and `stranger@..` is not admitted. Invitation `ivt_1` with
 /// token `good` is pending and `ivt_old` expired; accepting it with password `right` signs in,
 /// `clash` conflicts with the attempt, `short` is refused and `lost` leaves it ambiguous, whose
-/// status is confirming.
+/// status is confirming; a passkey's credential `created` accepts it too. A passkey challenge is
+/// `cmd_1`; a sign-in with the credential `signed` starts a session, and a registration with
+/// `created` creates `new@..`'s account or adds a passkey to `known@..`, starting no session.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method == Method::GET && path == "/api/auth/registration-consent" {
         return Some(Json(json!({ "resolutionId": "rcr_1", "requirements": [] })).into_response());
@@ -1977,8 +2553,8 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
             ("ivt_old", _) => Json(json!({ "status": "expired" })).into_response(),
             _ => Json(json!({ "status": "unavailable" })).into_response(),
         },
-        "/api/auth/invitations/accept" => match text("password").as_str() {
-            "right" => {
+        "/api/auth/invitations/accept" => match (text("password").as_str(), text("webauthnResponse").as_str()) {
+            ("right", _) | ("", "created") => {
                 let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"81","eventIds":["evt_inv"]}]"#;
                 let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
                 let headers = [("chase-sets-commit-position", "81".to_owned()), ("chase-sets-commit-receipt", receipt)];
@@ -1988,13 +2564,41 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
                 });
                 (headers, Json(body)).into_response()
             }
-            "clash" => refusal(StatusCode::CONFLICT, "invitation_attempt_conflict", "Check the status."),
-            "short" => refusal(StatusCode::BAD_REQUEST, "invitation_attempt_invalid", "Invalid."),
+            ("clash", _) => refusal(StatusCode::CONFLICT, "invitation_attempt_conflict", "Check the status."),
+            ("short", _) => refusal(StatusCode::BAD_REQUEST, "invitation_attempt_invalid", "Invalid."),
             _ => refusal(StatusCode::SERVICE_UNAVAILABLE, "invitation_attempt_ambiguous", "Check the status."),
         },
         "/api/auth/invitations/acceptance-status" => {
             Json(json!({ "type": "confirming", "attemptId": text("attemptId") })).into_response()
         }
+        "/api/auth/passkeys/challenge" => match text("email").as_str() {
+            "limited@example.test" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            _ => Json(json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" })).into_response(),
+        },
+        "/api/auth/passkeys/sign-in" => match (text("challengeId").as_str(), text("webauthnResponse").as_str()) {
+            ("cmd_1", "signed") => started("tok_passkey"),
+            _ => unknown(),
+        },
+        "/api/auth/passkeys/register" => match (text("email").as_str(), text("webauthnResponse").as_str()) {
+            ("new@example.test", "created") => {
+                let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"78","eventIds":["evt_pk"]}]"#;
+                let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let headers = [("chase-sets-commit-position", "78".to_owned()), ("chase-sets-commit-receipt", receipt)];
+                let body = json!({
+                    "credentialId": "crd_1", "userId": "usr_new",
+                    "authResult": {
+                        "type": "session-started", "userId": "usr_new", "sessionId": "ses_pk", "sessionToken": "tok_pk",
+                        "session": { "expires_at": later }, "memberships": [],
+                    },
+                });
+                (StatusCode::CREATED, headers, Json(body)).into_response()
+            }
+            ("known@example.test", "created") => {
+                (StatusCode::CREATED, Json(json!({ "credentialId": "crd_2", "userId": "usr_known", "authResult": null })))
+                    .into_response()
+            }
+            _ => refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Passkey challenge is invalid or expired."),
+        },
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
             "good" => started("tok_magic"),
@@ -2024,9 +2628,72 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     })
 }
 
+/// The platform's internal capability the stand-in expects, and the pilot is configured with.
+const INTERNAL: &str = "stand-in-internal-capability";
+
+/// Auth's guest checkout claim calls, each refused without the platform's internal capability (a
+/// 401, as `auth-context.ts` refuses it). `pay_paid`'s claim context is bound to
+/// `guest@example.test` (Guest Buyer); `pay_unbound`'s is not, and `pay_limited`'s read is rate
+/// limited. A link request answers token `clm_1` (for `pay_limited` too), and is rate limited for
+/// `pay_unbound`; claiming with token `clm_1`, with continuation `cc_1` or with a passkey's
+/// credential `created` signs in with Identity's receipt (position 91), continuation `cc_busy` is
+/// rate limited, and anything else is refused as Auth refuses it.
+fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let claim = path.strip_prefix("/api/auth/guest-checkout/")?;
+    let claims =
+        ["claim-context", "claim-link/request", "claim-with-magic-link", "claim-with-continuation", "claim-with-passkey"];
+    if *method != Method::POST || !claims.contains(&claim) {
+        return None;
+    }
+    if headers.get("x-chase-sets-internal-auth").and_then(|v| v.to_str().ok()) != Some(INTERNAL) {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "internal_capability_required", "Internal capability required."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let text = |name: &str| sent[name].as_str().unwrap_or_default().to_owned();
+    let signed_in = || {
+        let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"91","eventIds":["evt_claim"]}]"#;
+        let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let headers = [("chase-sets-commit-position", "91".to_owned()), ("chase-sets-commit-receipt", receipt)];
+        let body = json!({
+            "type": "session-started", "userId": "usr_claimed", "sessionId": "ses_claimed", "sessionToken": "tok_claimed",
+            "session": { "expires_at": "2099-01-01T00:00:00.000Z" }, "memberships": [],
+        });
+        (headers, Json(body)).into_response()
+    };
+    let refused = |message: &str| (StatusCode::UNAUTHORIZED, Json(json!({ "error": message }))).into_response();
+    let paid = text("paymentId") == "pay_paid";
+    Some(match claim {
+        "claim-context" => match text("paymentId").as_str() {
+            "pay_limited" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            id => {
+                let bound = id == "pay_paid";
+                Json(json!({
+                    "accountId": "acc_guest", "paymentId": id,
+                    "contactEmail": bound.then_some("guest@example.test"), "contactName": bound.then_some("Guest Buyer"),
+                }))
+                .into_response()
+            }
+        },
+        "claim-link/request" if text("paymentId") == "pay_unbound" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many claim link requests. Try again later.")
+        }
+        "claim-link/request" if paid || text("paymentId") == "pay_limited" => {
+            Json(json!({ "tokenId": "cmd_claim", "token": "clm_1", "expiresAt": "2099-01-01T00:00:00.000Z" })).into_response()
+        }
+        "claim-with-magic-link" if paid && text("token") == "clm_1" => signed_in(),
+        "claim-with-continuation" if paid && text("continuation") == "cc_1" => signed_in(),
+        "claim-with-continuation" if text("continuation") == "cc_busy" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down.")
+        }
+        "claim-with-passkey" if paid && text("challengeId") == "cmd_1" && text("webauthnResponse") == "created" => signed_in(),
+        "claim-with-passkey" => refused("Passkey challenge is invalid or expired."),
+        _ => refused("Claim link is invalid or expired."),
+    })
+}
+
 /// The pilot, in front of a stand-in API on a loopback port.
 struct Pilot {
-    router: Router,
+    router: corten::Router,
     stand: Stand,
 }
 
@@ -2037,18 +2704,26 @@ impl Pilot {
 
     /// The pilot with crawlers allowed (`CHASE_SETS_MARKETPLACE_INDEXING` on) or not.
     async fn indexed(indexing: bool) -> Self {
+        Self::configured(|config| config.indexing = indexing).await
+    }
+
+    /// The pilot, its configuration `change`d: it holds the internal capability, and crawlers are
+    /// allowed.
+    async fn configured(change: impl FnOnce(&mut Config)) -> Self {
         let stand = Stand::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(platform).with_state(stand.clone());
-        tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
-        let router = app(Config {
-            platform: Platform::new(&origin),
+        tokio::spawn(async move { axum::serve(listener, stand_in).await.unwrap() });
+        let mut config = Config {
+            platform: Platform::new(&origin).with_internal_auth(::platform::api::InternalAuth::new(INTERNAL)),
             proto: "http",
             stripe_publishable_key: Some("pk_stand_in_pilot".into()),
-            indexing,
-        })
-        .router();
+            indexing: true,
+            claim_token_entry: false,
+        };
+        change(&mut config);
+        let router = app(config).router();
         Pilot { router, stand }
     }
 
@@ -2112,14 +2787,20 @@ fn get_json(uri: &str) -> Request<Body> {
     req
 }
 
-/// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
+/// What a browser's navigation asks for: Corten's debug checks of a browser's plain post (a page
+/// answered at a path with no `GET`) see these posts as a browser's.
+const BROWSER_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+/// A form post as the runtime sends it (`corten: action`, asking for a write's own page whole), or
+/// as a browser without JavaScript.
 fn post(uri: &str, session: &str, body: &str, script: bool) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
-        req = req.header("corten", "action");
+        req = req.header("corten", "action").header("prefer", "corten-draws=whole");
     }
     req.body(Body::from(body.to_owned())).unwrap()
 }
@@ -2639,10 +3320,10 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     // The two Pikachu lines are one, quantity 3, before the older Mew; Smart Match prices it "from".
     assert_eq!(html.matches("data-cart-line=").count(), 2, "{html}");
     assert!(html.contains(r#"data-cart-line="cli_pikachu_a""#), "the merged line keeps the first one's id: {html}");
-    assert!(html.contains("data-quantity>3<"), "{html}");
+    assert!(html.contains(r#"name="quantity" value="3" min="1""#), "{html}");
     assert!(page.contains("from $53.85"), "{page}");
     assert!(html.contains("data-reason>Needs fulfillment<"), "{html}");
-    // The API says the other currency's line needs review (marketplace draws it Ready).
+    // The API says the other currency's line needs review.
     assert!(html.contains("data-reason>Needs review<"), "{html}");
     assert!(page.contains("Priced at checkout"), "a line without a priced listing, and the total: {page}");
     assert_eq!(page.matches("Find alternatives").count(), 1, "only the line with no fulfillment: {page}");
@@ -2650,6 +3331,25 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     assert!(html.contains(">Continue to checkout<") && !html.contains(">Check out<"), "{html}");
     assert!(page.contains("Resolve item availability before payment starts."), "{page}");
     assert!(!page.contains("Use lower price"), "{page}");
+}
+
+/// A line the API did not present is drawn as needing review and priced at checkout, and the cart
+/// shows no total, offer or checkout until every line is presented (marketplace's
+/// `hasCompleteLinePresentations`).
+#[tokio::test]
+async fn a_line_the_api_did_not_present_needs_review_and_holds_the_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("unpresented"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert_eq!(html.matches("data-cart-line=").count(), 2, "{html}");
+    assert_eq!(html.matches("data-reason>Ready<").count(), 1, "the presented line: {html}");
+    assert_eq!(html.matches("data-reason>Needs review<").count(), 1, "the other: {html}");
+    assert!(page.contains("$21.50") && !page.contains("$399.99"), "only the presented line is priced: {page}");
+    assert!(page.contains("Priced at checkout"), "{page}");
+    assert!(!page.contains("Find alternatives"), "a line not presented is not said to have no fulfillment: {page}");
+    assert!(!page.contains("Estimated total $421.49") && !page.contains("Save "), "{page}");
+    assert!(checkout_forms(&html).is_empty(), "{html}");
 }
 
 #[tokio::test]
@@ -2699,6 +3399,18 @@ fn cart_badges(html: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
+/// `CartBadge` draws one "max+" for both bars from the top bar's cart entry, so the bottom bar's
+/// must match it.
+#[test]
+fn both_bars_cap_the_carts_count_the_same() {
+    let cart = |items: Vec<platform::nav::Shown<'static>>| {
+        items.into_iter().find(|(item, _)| item.badge_key() == Some("checkout.cart-count")).map(|(item, _)| item.badge_max())
+    };
+    let top = cart(crate::auth::top_nav(None)).expect("the top bar's cart");
+    assert!(top.is_some());
+    assert_eq!(cart(crate::auth::bottom_nav(None)), Some(top));
+}
+
 #[tokio::test]
 async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     let pilot = Pilot::new().await;
@@ -2721,12 +3433,56 @@ async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
     let (_, _, html) = pilot.send(req).await;
     assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "the guest cart the browser carries: {html}");
+    // The stylesheet shows a visitor's entry while its badge has a count; the server hides none.
+    assert_eq!(html.matches(" data-hide-empty>").count(), 2, "both bars: {html}");
     assert!(!html.contains("hidden data-hide-empty"), "{html}");
     // No guest cart: nothing is read, and the entry is hidden.
     let reads = guest_cart_reads(&pilot).len();
     let (_, _, html) = pilot.send(get("/search", None)).await;
     assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{html}");
     assert_eq!(guest_cart_reads(&pilot).len(), reads, "nothing read without a guest cart");
+}
+
+/// The cart page gives the count its own read found (`gives(CartCount)` on its route), so Corten
+/// starts no layout read for it: one cart read draws the page and both badges.
+#[tokio::test]
+async fn the_cart_page_draws_the_count_from_its_own_one_read() {
+    let pilot = Pilot::new().await;
+    let total = cart("buyer")["count"].as_u64().unwrap().to_string();
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "{html}");
+    let reads = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == CART).count();
+    assert_eq!(reads, 1, "the page's read is the count's");
+}
+
+/// A 404 or a refusal draws the cart's count, as every other page does: Corten starts the layout's
+/// reads for a failure the request is at fault for (corten-run/corten#877), a handler's own
+/// refusal (`Refused`, corten-run/corten#890) and a handler's 404 too.
+#[tokio::test]
+async fn a_not_found_or_refused_page_draws_the_carts_count() {
+    let pilot = Pilot::new().await;
+    let total = cart("buyer")["count"].as_u64().unwrap().to_string();
+    let (status, _, html) = pilot.send(get("/no-such-page", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a member's 404: {html}");
+    let mut req = get("/no-such-page", None);
+    req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a visitor's guest cart: {html}");
+    let (status, _, html) = pilot.send(get(SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a refused page: {html}");
+    // The handler refuses an account that is not the user's.
+    let body = "consent_token=tok_ok&account_id=acc_else";
+    let (status, _, html) = pilot.send(post(&format!("{AGENTS}/consent"), "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a handler's refusal: {html}");
+    // A handler's 404: no such item.
+    let (status, _, html) = pilot.send(get("/items/nope", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "a handler's 404: {html}");
 }
 
 #[tokio::test]
@@ -2753,11 +3509,10 @@ async fn a_page_and_its_layout_ask_who_is_asking_once() {
     let (status, _, _) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(identifies(&pilot), 1);
-    // The error page gets none of the refused request's extensions, so it asks once more
-    // (todd-skelton/corten#582); its cart count and session still share one.
+    // A refused page, its error page's session and its cart count share one too.
     let (status, _, _) = pilot.send(get(SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "refused, and drawn by the error page");
-    assert_eq!(identifies(&pilot), 3);
+    assert_eq!(identifies(&pilot), 2);
 }
 
 #[tokio::test]
@@ -2770,19 +3525,84 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     assert_eq!(shell.matches("<nav").count(), 2, "the top bar's and the phone's: {shell}");
     assert!(shell.contains(r#"data-badge="checkout.cart-count""#), "the cart's badge: {shell}");
     assert!(!shell.contains("data-hide-empty"), "a member's cart entry is always shown: {shell}");
+    // Every entry is a page the pilot serves, so every one stays on the pilot.
+    assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
+    let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
+    assert!(shell.contains(r#"href="/account/sales/shipments""#), "Shipping's entry: {shell}");
     let (_, _, html) = pilot.send(get(CART_SCREEN, None)).await;
     let shell = html.split_once("<main>").unwrap().0;
     assert!(!shell.contains(r#"aria-label="Account menu""#) && !shell.contains("Sign Out"), "{shell}");
-    assert_eq!(
-        shell.matches("hidden data-hide-empty>").count(),
-        2,
-        "a visitor's cart waits for its count, in both bars: {shell}"
-    );
+    // A visitor's cart entry is drawn in both bars with its badge hidden at 0, which the stylesheet
+    // hides it by (`views/market_nav.css`); the cart page gives the count its own read found.
+    assert_eq!(shell.matches(" data-hide-empty>").count(), 2, "a visitor's cart waits for its count, in both bars: {shell}");
+    assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{shell}");
     let (_, _, html) = pilot.send(get("/offline", None)).await;
     assert!(
         !html.contains("<nav") && html.contains("<body><main>"),
         "the offline page has no shell, nor room for its bar: {html}"
     );
+}
+
+#[tokio::test]
+async fn every_page_has_one_toaster_after_main_that_says_a_submit_that_got_no_answer() {
+    let pilot = Pilot::new().await;
+    for (path, session) in [(CART_SCREEN, Some("seller")), (SCREEN, Some("seller")), (CART_SCREEN, None), ("/offline", None)] {
+        let (_, _, html) = pilot.send(get(path, session)).await;
+        assert_eq!(html.matches(r#"id="ui-toast""#).count(), 1, "{path}: {html}");
+        let after = html.split_once("</main>").map_or("", |(_, after)| after);
+        assert!(after.contains(r#"id="ui-toast" hidden"#), "{path}: outside <main>, empty: {after}");
+        assert!(
+            after.contains("That did not go through, and may not have been saved. Check and try again."),
+            "{path}: the failed text: {after}"
+        );
+    }
+}
+
+/// Each nav link in `shell` to `href`: whether it is marked current, and its Corten nav group.
+fn nav_links_to(shell: &str, href: &str) -> Vec<(bool, String)> {
+    let at = format!(r#" href="{href}" data-nav="section" data-nav-group=""#);
+    shell
+        .match_indices(&at)
+        .map(|(i, _)| {
+            let tag = &shell[i..i + shell[i..].find('>').unwrap()];
+            let group = tag[at.len()..].split('"').next().unwrap().to_owned();
+            (tag.contains(r#"aria-current="page""#), group)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_nav_marks_the_deepest_entry_that_holds_the_page_in_each_bar() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(!shell.contains("data-nav-path") && !shell.contains("data-nav-rule"), "Corten marks the nav: {shell}");
+    let shipping = nav_links_to(shell, "/account/sales/shipments");
+    assert!(!shipping.is_empty() && shipping.iter().all(|(current, _)| *current), "Shipping is current: {shipping:?} {shell}");
+    let sales = nav_links_to(shell, "/account/sales");
+    assert!(sales.iter().all(|(current, _)| !current), "Sales holds the page but is not the deepest: {sales:?}");
+    // Imports is under Inventory: on its page only Imports is current, on Inventory's only Inventory.
+    let (_, _, html) = pilot.send(get("/account/inventory/imports", Some("seller"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    let imports = nav_links_to(shell, "/account/inventory/imports");
+    assert!(!imports.is_empty() && imports.iter().all(|(current, _)| *current), "{imports:?} {shell}");
+    assert!(nav_links_to(shell, "/account/inventory").iter().all(|(current, _)| !current), "{shell}");
+    let (_, _, html) = pilot.send(get("/account/inventory", Some("seller"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    let inventory = nav_links_to(shell, "/account/inventory");
+    assert!(!inventory.is_empty() && inventory.iter().all(|(current, _)| *current), "{inventory:?} {shell}");
+    assert!(nav_links_to(shell, "/account/inventory/imports").iter().all(|(current, _)| !current), "{shell}");
+    // The top bar's links and the phone's are two groups, each with at most one current link.
+    let mut groups: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for tag in shell.split("<a ").skip(1).map(|rest| &rest[..rest.find('>').unwrap()]) {
+        if let Some((_, group)) = tag.split_once(r#"data-nav-group=""#) {
+            *groups.entry(group.split('"').next().unwrap()).or_default() += usize::from(tag.contains(r#"aria-current="page""#));
+        }
+    }
+    assert_eq!(groups.len(), 2, "{groups:?}");
+    assert!(groups.values().all(|current| *current <= 1), "{groups:?}");
 }
 
 /// The guest cart reads the stand-in received.
@@ -2817,7 +3637,7 @@ async fn a_guest_cart_is_the_cart_page_with_its_lines_total_and_offer() {
 #[tokio::test]
 async fn a_guests_line_write_goes_to_the_guest_cart_it_carries() {
     let pilot = Pilot::new().await;
-    let body = format!("attempt={KEY}&line_id=cli_pikachu&quantity=1&delta=1");
+    let body = format!("attempt={KEY}&line_id=cli_pikachu&quantity=2");
     let (status, headers, html) = pilot.send(visitor_post(QUANTITY, Some(GUEST_LINES), &body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -2962,11 +3782,12 @@ async fn a_guests_check_out_is_checkout_starts_continue_with_the_offers_decision
 
     // A guest cart with lines: a guest checkout starts, from a readiness read with the decision.
     let (status, headers, html) = pilot.send(visitor_post(CHECK_OUT, Some(GUEST_LINES), DECLINED)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    let (status, headers, html) = pilot.send(followed_post(&headers, CHECK_OUT, Some(GUEST_LINES), DECLINED)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/checkout/buy/session/chk_1?"), "{to}");
     let set = cookies_set(&headers);
-    assert!(set["chase_sets_guest_checkout"].starts_with("chase_sets_guest_checkout=gst_new;"), "{set:?}");
     assert!(set["chase_sets_anonymous_cart"].contains("Max-Age=0"), "the guest cart moved into the checkout: {set:?}");
     let calls = checkout_calls(&pilot);
     let readiness = calls.iter().find(|c| c.path == "/api/marketplace/account/cart/readiness").expect("a readiness read");
@@ -2974,7 +3795,8 @@ async fn a_guests_check_out_is_checkout_starts_continue_with_the_offers_decision
     assert_eq!(decisions["optimization"]["decision"], "declined", "{decisions}");
     assert_eq!(readiness.headers["x-checkout-anonymous-cart-id"], "anon_lines");
     let started = calls.iter().find(|c| c.path == "/api/marketplace/account/checkout-sessions").expect("a session");
-    assert_eq!(started.headers[header::COOKIE], "chase_sets_guest_checkout=gst_new", "under the new guest");
+    let as_guest = started.headers[header::COOKIE].to_str().unwrap();
+    assert!(as_guest.contains("chase_sets_guest_checkout=gst_new"), "under the new guest: {as_guest}");
 }
 
 /// The cart writes the stand-in received, each as the JSON it was sent.
@@ -3025,15 +3847,18 @@ async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it()
         merged.contains(r#"name="line_id" value="cli_pikachu_a""#) && merged.contains(r#"name="line_id" value="cli_pikachu_b""#),
         "{merged}"
     );
-    assert!(merged.contains(r#"name="quantity" value="3""#), "{merged}");
-    assert!(
-        merged.contains(r#"name="delta" value="-1" aria-label="Decrease""#)
-            && merged.contains(r#"value="1" aria-label="Increase""#),
-        "{merged}"
-    );
+    // The kit's NumberField, from 1, named by its label, and sent by Update quantity without the
+    // script; with it, a change sends the form (cart_item.js).
+    assert!(merged.contains(r#"name="quantity" value="3" min="1" max="2147483647" step="1""#), "{merged}");
+    assert!(merged.contains(r#"aria-label="Decrease""#) && merged.contains(r#"aria-label="Increase""#), "{merged}");
+    assert!(merged.contains(r#"<label class=""#) && merged.contains(">Quantity</label>"), "{merged}");
+    assert!(merged.contains(">Update quantity</button>") && merged.contains("cart_item.commit"), "{merged}");
+    assert!(merged.contains(r#"id="line-quantity-form-cli_pikachu_a""#), "a form a patch can find: {merged}");
+    assert!(!merged.contains(r#"name="delta""#), "{merged}");
     // Mew's quantity is 1: it can only go up.
     let one = steppers[1];
-    assert!(one.contains(r#"value="-1" aria-label="Decrease" disabled"#), "{one}");
+    assert!(one.contains(r#"aria-label="Decrease" tabindex="-1" disabled"#), "{one}");
+    assert!(!one.contains(r#"aria-label="Increase" tabindex="-1" disabled"#), "{one}");
     assert_eq!(forms_to(&html, REMOVE).len(), 2, "{html}");
     // Only the line with a preferred listing it is not locked to can be locked.
     let locks = forms_to(&html, LOCK);
@@ -3056,7 +3881,7 @@ async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it()
 async fn a_quantity_step_is_one_attempt_and_the_cart_is_read_after_it() {
     let pilot = Pilot::new().await;
     let attempt = new_attempt();
-    let body = format!("attempt={attempt}&line_id=cli_pikachu_a&line_id=cli_pikachu_b&quantity=3&delta=1");
+    let body = format!("attempt={attempt}&line_id=cli_pikachu_a&line_id=cli_pikachu_b&quantity=4");
     let (status, headers, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -3077,12 +3902,20 @@ async fn a_quantity_step_is_one_attempt_and_the_cart_is_read_after_it() {
     let reads = cart_calls(&pilot);
     assert_eq!(waits_for(&reads.last().unwrap().headers).as_deref(), Some("11"));
 
-    // A step below 1 is 1, and a post without an attempt (no script) is still one attempt.
-    let (status, _, _) = pilot.send(post(QUANTITY, "blocked", "line_id=cli_eur&quantity=1&delta=-1", false)).await;
+    // A quantity typed without the script is still one attempt.
+    let (status, _, _) = pilot.send(post(QUANTITY, "blocked", "line_id=cli_eur&quantity=12", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let sent = cart_writes(&pilot).pop().unwrap();
-    assert_eq!(sent["commands"], json!([{ "type": "quantity", "lineId": "cli_eur", "quantity": 1 }]));
+    assert_eq!(sent["commands"], json!([{ "type": "quantity", "lineId": "cli_eur", "quantity": 12 }]));
     assert_eq!(sent["attemptId"].as_str().unwrap().len(), 36, "{sent}");
+
+    // One that is not a whole number from 1 is refused before it is sent, and says so.
+    for typed in ["0", "", "2.5", "4x", "2147483648"] {
+        let (status, _, html) = pilot.send(post(QUANTITY, "blocked", &format!("line_id=cli_eur&quantity={typed}"), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{typed}: {html}");
+        assert!(text(&html).contains("Enter a whole number of 1 or more."), "{typed}: {html}");
+    }
+    assert_eq!(cart_writes(&pilot).len(), 2, "nothing more sent");
 }
 
 #[tokio::test]
@@ -3125,9 +3958,8 @@ async fn remove_and_lock_send_a_command_for_each_merged_line() {
 #[tokio::test]
 async fn a_write_refused_or_applied_in_part_is_the_cart_with_what_did_not_apply() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot
-        .send(post(QUANTITY, "blocked", &format!("attempt={}&line_id=cli_refused&quantity=5&delta=1", new_attempt()), false))
-        .await;
+    let (status, _, html) =
+        pilot.send(post(QUANTITY, "blocked", &format!("attempt={}&line_id=cli_refused&quantity=6", new_attempt()), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let page = text(&html);
     assert!(page.contains("Your cart change was not applied Only 2 are available."), "the API's reason: {page}");
@@ -3164,7 +3996,7 @@ async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until
 
     // Not found: not known, so the cart's writes are paused and the same write can be sent again.
     let attempt = new_attempt();
-    let body = format!("attempt={attempt}&line_id=cli_unknown&quantity=2&delta=-1");
+    let body = format!("attempt={attempt}&line_id=cli_unknown&quantity=1");
     let (status, _, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert_eq!(cart_writes(&pilot).len(), 2, "never resent on its own");
@@ -3176,7 +4008,7 @@ async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until
         resend.contains(&format!(r#"name="attempt" value="{attempt}""#)) && !resend.contains("data-submit"),
         "the same attempt: {resend}"
     );
-    assert!(resend.contains(r#"name="quantity" value="2""#) && resend.contains(r#"name="delta" value="-1""#), "{resend}");
+    assert!(resend.contains(r#"name="quantity" value="1""#) && !resend.contains(r#"name="delta""#), "{resend}");
     assert!(html.contains(r#"href="/account/cart">Refresh cart<"#), "{html}");
     let fieldsets = fieldsets(&html);
     assert_eq!(fieldsets.len(), 5, "two steppers, two removes, one lock: {html}");
@@ -3331,6 +4163,12 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
             item["image_urls"] = json!(["/fake-cdn/front.png", "/fake-cdn/back.png"]);
             Json(item).into_response()
         }
+        "single" => {
+            let mut item = item();
+            item["slug"] = json!("single");
+            item["market_listings"].as_array_mut().unwrap().retain(|l| l["listing_id"] == "lst_vault");
+            Json(item).into_response()
+        }
         "unlisted" => {
             let mut item = item();
             item["slug"] = json!("unlisted");
@@ -3363,10 +4201,16 @@ const ITEM_PAGE: &str = "/items/charizard";
 
 const ROLLUPS: &str = "/api/marketplace/market-rollups/";
 
-/// The platform's realtime stream: a heartbeat, then one change to Charizard (a listing's
-/// patch), then the stream ends (the client connects again).
-fn realtime() -> Response {
-    let patch = r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["item:cat_charizard"],"changes":[{"op":"upsert","entity":"discovery.marketListing","id":"lst_vault","value":{}}]}"#;
+/// The platform's realtime stream: a heartbeat, then one change, then the stream ends (the client
+/// connects again). On `public:market` the change is Card 3's market summary and a listing's;
+/// on any other topic it is a listing of Charizard's.
+fn realtime(uri: &Uri) -> Response {
+    let market = uri.query().is_some_and(|q| q.split('&').any(|p| p == "topic=public%3Amarket"));
+    let patch = if market {
+        r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["public:market"],"changes":[{"op":"summary","entity":"discovery.marketSummary","id":"cat_3","value":{}},{"op":"upsert","entity":"discovery.marketListing","id":"lst_other","value":{}}]}"#
+    } else {
+        r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["item:cat_charizard"],"changes":[{"op":"upsert","entity":"discovery.marketListing","id":"lst_vault","value":{}}]}"#
+    };
     let body = format!("id: c1\nevent: heartbeat\ndata: {{}}\nretry: 1000\n\nid: c2\nevent: projection.patch\ndata: {patch}\n\n");
     ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
 }
@@ -3641,6 +4485,11 @@ const ITEM_BUY: &str = "/items/charizard/buy";
 const KEY: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const VAULT: &str = "cat_charizard::lst_vault";
 
+/// A form's body with its attempt (`KEY`), as a form drawn with `SubmitKey::field` sends it.
+fn keyed(body: &str) -> String {
+    format!("{body}&attempt={KEY}")
+}
+
 /// A buy form's body: its button, the attempt, the quantity, the product, the listing it showed,
 /// and the page's address after them.
 fn buy_body(intent: &str, quantity: &str, product: &str, lock: &str, address: &str) -> String {
@@ -3844,6 +4693,7 @@ async fn a_guest_adds_to_the_guest_cart_marketplace_reads() {
     let req = || {
         Request::post(ITEM_CART)
             .header(header::HOST, "localhost:7791")
+            .header(header::ACCEPT, BROWSER_ACCEPT)
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
     };
     let body = buy_body("buy-best-match", "1", VAULT, "", "");
@@ -3896,12 +4746,10 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
     assert!(text(&html).contains("Your selection changed after you chose Buy now."), "{html}");
     // A visitor's is checkout start's Continue: a guest checkout under a new guest identity, with
     // the form's key, then the guest's checkout, the pilot's page.
-    let req = Request::post(ITEM_BUY)
-        .header(header::HOST, "localhost:7791")
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from(buy_body("", "1", VAULT, "lst_vault", "")))
-        .unwrap();
-    let (status, headers, html) = pilot.send(req).await;
+    let body = buy_body("", "1", VAULT, "lst_vault", "");
+    let (status, headers, html) = pilot.send(visitor_post(ITEM_BUY, None, &body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "the Buy is sent again to itself as a new guest: {html}");
+    let (status, headers, html) = pilot.send(followed_post(&headers, ITEM_BUY, None, &body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
@@ -3991,6 +4839,7 @@ fn sell_calls(pilot: &Pilot) -> Vec<Call> {
 fn post_signed_out(uri: &str, body: &str) -> Request<Body> {
     Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.to_owned()))
         .unwrap()
@@ -4086,6 +4935,94 @@ async fn a_guest_sees_what_an_offer_pays_and_saves_it_or_its_product_to_a_sell_l
 }
 
 #[tokio::test]
+async fn a_sellers_rail_shows_the_offer_they_can_fill_and_what_their_match_allows() {
+    let pilot = Pilot::new().await;
+    // No offer in the address: the first submitted offer their listing can fill, not the best one.
+    let (status, _, html) = pilot.send(get(SELL_PAGE, Some("filler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(pilot.stand.calls.lock().unwrap().iter().any(|c| c.path == OVERLAY), "a trader's page reads the overlay");
+    let page = text(&html);
+    assert!(page.contains("Best offer $350.00 You \u{b7} 2 requested Can fulfill $700.00 offer"), "{page}");
+    let forms = forms_to(&html, SELL_LIST);
+    assert!(forms[0].contains(r#"name="offer" value="off_mine""#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="sell-now">Accept offer<"#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="add-to-sell-list" disabled>In Sell List<"#), "already on the list: {}", forms[0]);
+    assert!(!page.contains("Needs supply"), "{page}");
+
+    // The offer the address chose, which their listing cannot fill: neither action.
+    let (_, _, html) = pilot.send(get(&format!("{SELL_PAGE}&offer=off_high"), Some("filler"))).await;
+    let page = text(&html);
+    assert!(page.contains("Selected offer $380.00 Top Loader \u{b7} 2 requested Needs supply $760.00 offer"), "{page}");
+    let forms = forms_to(&html, SELL_LIST);
+    assert!(forms[0].contains(r#"name="offer" value="off_high""#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="sell-now" disabled>Accept offer<"#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="add-to-sell-list" disabled>Add offer to Sell List<"#), "{}", forms[0]);
+
+    // An account without matches keeps the best offer and both actions.
+    let (_, _, html) = pilot.send(get(SELL_PAGE, Some("trader"))).await;
+    let forms = forms_to(&html, SELL_LIST);
+    assert!(forms[0].contains(r#"name="offer" value="off_high""#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="add-to-sell-list">Add offer to Sell List<"#), "{}", forms[0]);
+    assert!(!text(&html).contains("Can fulfill") && !text(&html).contains("Needs supply"), "{html}");
+
+    // The live book marks the offer the page chose, reading the overlay again.
+    let live = "/items/cat_charizard/live?market=sell&book=offers";
+    let events = pilot.events(get(live, Some("filler")), 1).await;
+    let (_, _, data) = &events[0];
+    let mine = r#"href="/items/charizard?market=sell&amp;offer=off_mine" aria-current="true""#;
+    assert!(data.contains(mine), "{data}");
+}
+
+#[test]
+fn a_sellers_default_offer_is_the_first_submitted_one_they_can_fill_and_names_its_product() {
+    let mut raw = item();
+    // `off_mine` asks for Lightly Played, so the product the Sell tab names follows the offer.
+    let lp =
+        json!([{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" }]);
+    let lp_product = "cat_charizard::dim_form:chc_raw|dim_condition:chc_lp|dim_grade:-";
+    raw["offer_demand_matches"][1]["selected_options"] = lp.clone();
+    raw["offer_demand_matches"][1]["product_id"] = json!(lp_product);
+    let item: crate::api::Item = serde_json::from_value(raw).unwrap();
+    let matched = |id: &str, product: &str, options: &Value, status: &str, can_fulfill: bool| crate::api::AccountOfferMatch {
+        offer_id: id.to_owned(),
+        catalog_catalog_item_id: "cat_charizard".to_owned(),
+        product_id: product.to_owned(),
+        selected_options: serde_json::from_value(options.clone()).unwrap(),
+        status: status.to_owned(),
+        can_fulfill,
+        ..Default::default()
+    };
+    let nm =
+        json!([{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }]);
+    let sell = crate::items::Address { market: crate::items::Market::Sell, ..Default::default() };
+    let viewer = Some("acc_filler".to_owned());
+
+    let plain = crate::items::ItemScreen::of(item.clone(), &sell, viewer.clone());
+    assert_eq!((plain.offer_id.as_deref(), plain.product_id.as_deref()), (Some("off_high"), Some(OFFERED)));
+
+    // The first submitted match it can fill, skipping one it cannot and one no longer submitted.
+    let matches = [
+        matched("off_high", OFFERED, &nm, "submitted", false),
+        matched("off_gone", OFFERED, &nm, "accepted", true),
+        matched("off_mine", lp_product, &lp, "submitted", true),
+    ];
+    let screen = crate::items::ItemScreen::with_matches(item.clone(), &sell, viewer.clone(), &matches);
+    assert_eq!((screen.offer_id.as_deref(), screen.product_id.as_deref()), (Some("off_mine"), Some(lp_product)));
+    assert!(!screen.offer_explicit && screen.selected_match().is_some_and(|m| m.can_fulfill));
+
+    // An offer in the address stays chosen; with no match of its own the rail has none.
+    let chosen = crate::items::Address { offer: Some("off_high".to_owned()), ..sell.clone() };
+    let screen = crate::items::ItemScreen::with_matches(item.clone(), &chosen, viewer.clone(), &matches[2..]);
+    assert_eq!(screen.offer_id.as_deref(), Some("off_high"));
+    assert!(screen.selected_match().is_none());
+
+    // Off the Sell tab the matches choose nothing.
+    let buy = crate::items::Address::default();
+    let screen = crate::items::ItemScreen::with_matches(item, &buy, viewer, &matches);
+    assert_eq!(screen.offer_id.as_deref(), Some("off_high"));
+}
+
+#[tokio::test]
 async fn an_account_takes_an_offer_as_a_seller_and_needs_to_manage_offers() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(SELL_PAGE, Some("trader"))).await;
@@ -4114,6 +5051,35 @@ async fn an_account_takes_an_offer_as_a_seller_and_needs_to_manage_offers() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].path, ACCOUNT_SELL_LIST);
     assert!(!sent[0].headers.contains_key("x-checkout-anonymous-sell-list-id"));
+    let line: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(line["attemptId"].as_str().map(str::len), Some(36), "a post without its attempt is still one: {line}");
+
+    // An add whose answer is lost is looked up once by its attempt: kept, it goes to the list.
+    const KEPT: &str = "5b0e1c6e-2f7a-4c55-9a58-6f1d2c3b4a01";
+    let add = |quantity: u32, attempt: &str| {
+        format!(
+            "market=sell&intent=add-product-to-sell-list&product={}&quantity={quantity}&attempt={attempt}",
+            crate::api::segment(OFFERED)
+        )
+    };
+    let (status, headers, html) = pilot.send(post(SELL_LIST, "buyer", &add(8, KEPT), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(query(headers[header::LOCATION].to_str().unwrap())["afterWrite"].contains(r#""commitPosition":"13""#));
+    assert_eq!(list_calls(&pilot, &format!("/api/marketplace/account/command-attempts/{KEPT}")).len(), 1);
+
+    // Not kept, it is not known: the rail holds its sell forms and offers the same add again.
+    const LOST: &str = "5b0e1c6e-2f7a-4c55-9a58-6f1d2c3b4a02";
+    let (status, _, html) = pilot.send(post(SELL_LIST, "buyer", &add(9, LOST), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    let retry = forms_to(&html, SELL_LIST).into_iter().find(|f| f.contains("Retry the same action")).expect("a retry");
+    assert!(
+        retry.contains(&format!(r#"name="attempt" value="{LOST}""#)) && retry.contains(r#"name="quantity" value="9""#),
+        "{retry}"
+    );
+    assert!(html.contains(r#"value="add-product-to-sell-list" disabled"#), "{html}");
+    let posts = sell_calls(&pilot).iter().filter(|c| c.body.contains(LOST)).count();
+    assert_eq!(posts, 1, "never resent on its own");
 }
 
 const WATCH_PAGE: &str = "/items/charizard?market=watch&dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm";
@@ -4139,7 +5105,7 @@ async fn the_watch_tab_is_the_pilots_with_a_form_for_listings_and_one_for_offers
     let (status, _, html) = pilot.send(get(WATCH_PAGE, None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     // Watch is a tab of this page now, current on it.
-    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="true""#), "{html}");
+    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="page""#), "{html}");
     let page = text(&html);
     assert!(page.contains("Watch listings Listings at or below your target."), "{page}");
     assert!(page.contains("Watch offers Offers at or above your target."), "{page}");
@@ -4182,7 +5148,10 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
     let calls = alert_calls(&pilot);
     assert_eq!(calls.len(), 1, "{calls:?}");
     assert_eq!(calls[0].path, ACCOUNT_ALERTS);
-    let sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    let mut sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    // A post without the form's attempt is still one (the API applies an attempt once).
+    let attempt = sent.as_object_mut().unwrap().remove("attemptId").expect("an attempt");
+    assert_eq!(attempt.as_str().map(str::len), Some(36), "{attempt}");
     assert_eq!(
         sent,
         json!({
@@ -4212,6 +5181,29 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
         (&sent["marketSide"], &sent["thresholdAmount"], &sent["thresholdCurrencyCode"]),
         (&json!("listing"), &Value::Null, &Value::Null)
     );
+}
+
+#[tokio::test]
+async fn each_watch_form_sends_the_attempt_it_was_drawn_with_so_a_resend_is_the_same_alert() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(WATCH_PAGE, Some("watcher"))).await;
+    let attempts: Vec<_> = html.split(ATTEMPT_INPUT).skip(1).map(|rest| rest.split('"').next().unwrap().to_owned()).collect();
+    assert_eq!(attempts.len(), 2, "one attempt per Watch form: {html}");
+    assert_ne!(attempts[0], attempts[1], "{attempts:?}");
+    let body = format!("{}&attempt={}", watch_body("listing", "300", "USD"), attempts[0]);
+    for _ in 0..2 {
+        let (status, _, html) = pilot.send(post(WATCH, "watcher", &body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    }
+    let sent: Vec<Value> = alert_calls(&pilot).iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent.iter().all(|s| s["attemptId"] == json!(attempts[0])), "the same attempt both times: {sent:?}");
+
+    // A guest's intent has no attempt; it dedupes by product and threshold.
+    let (status, _, _) = pilot.send(post_signed_out(WATCH, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let intent: Value = serde_json::from_str(&alert_calls(&pilot)[2].body).unwrap();
+    assert!(intent.get("attemptId").is_none(), "{intent}");
 }
 
 #[tokio::test]
@@ -4271,7 +5263,8 @@ async fn a_guest_saves_a_watch_alert_as_an_intent_and_registers_to_claim_it() {
 }
 
 const SAVE_PAGE: &str = "/items/charizard?dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm";
-const SAVE: &str = "/items/charizard/save";
+/// Add to List posts to the item's own page.
+const SAVE: &str = "/items/charizard";
 
 /// The value of the hidden input `name` in the first form that has one.
 fn hidden(html: &str, name: &str) -> String {
@@ -4313,7 +5306,7 @@ async fn add_to_list_opens_a_dialog_the_page_drew_with_the_accounts_recent_lists
     );
     let dialog = html.split(r#"id="save-to-list""#).nth(1).expect("the dialog").split("</dialog>").next().unwrap();
     assert!(!html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "drawn closed: {html}");
-    assert!(dialog.contains(r#"action="/items/charizard/save""#), "{dialog}");
+    assert!(dialog.contains(r#"action="/items/charizard""#), "{dialog}");
     // The most recent list is chosen, then a new list; the title field is there for a new one.
     assert!(dialog.contains(r#"name="list" value="svl_binder" checked>"#), "{dialog}");
     assert!(dialog.contains(r#"name="list" value="new">"#), "{dialog}");
@@ -4335,7 +5328,7 @@ async fn add_to_list_opens_a_dialog_the_page_drew_with_the_accounts_recent_lists
     let (_, _, html) = pilot.send(get(SAVE_PAGE, None)).await;
     assert!(!html.contains(r#"id="save-to-list""#), "{html}");
     let form = html
-        .split(r#"<form class="item-detail__save" method="post" action="/items/charizard/save">"#)
+        .split(r#"<form class="item-detail__save" method="post" action="/items/charizard">"#)
         .nth(1)
         .expect("the guest's form");
     assert!(form.split("</form>").next().unwrap().contains(r#"<button type="submit" class="item-detail__button""#), "{form}");
@@ -4484,10 +5477,348 @@ async fn a_guests_add_to_list_is_an_intent_they_register_to_claim() {
     );
 }
 
+/// A search result's Add to List for charizard's raw Near Mint, from `/search?q=char`.
+const PREPARE: &str = "dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm&prepare=1&from=%2Fsearch%3Fq%3Dchar";
+
+#[tokio::test]
+async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filters_name() {
+    let pilot = Pilot::new().await;
+    // Each result posts its item's address, `prepare` and the search it is on; the page has the
+    // dialog, empty, for the answer.
+    let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let save = r#"<form class="search-page__save" method="post" action="/items/card-1" data-patch>"#;
+    let form = html.split(save).nth(1);
+    let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
+    for field in [
+        r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
+        r#"<input type="hidden" name="prepare" value="1">"#,
+        r#"<input type="hidden" name="from" value="/search?q=pika&amp;dimension.dim_grade=chc_10">"#,
+    ] {
+        assert!(form.contains(field), "{field}: {form}");
+    }
+    assert!(form.contains(r#"aria-label="Add Card 1"#) && form.contains(">Add to List</button>"), "{form}");
+    assert!(html.contains(r#"<dialog id="save-to-list" class="save-dialog__dialog"></dialog>"#), "{html}");
+    assert!(saved_list_calls(&pilot).is_empty(), "the page reads no lists until one is asked for");
+
+    // With a script, the dialog for the product, open, its form going back to the search.
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", PREPARE, true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "{html}");
+    assert!(text(&html).contains("Charizard · Raw / Near Mint"), "{html}");
+    assert!(html.contains(r#"name="list" value="svl_binder" checked>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="from" value="/search?q=char">"#), "{html}");
+    assert_eq!(hidden(&html, "product"), OFFERED);
+    // Without one, the item page with the dialog open.
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", PREPARE, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="from" value="/search?q=char">"#), "{html}");
+    assert!(html.contains(r#"class="item-detail__"#), "the item page: {html}");
+    let additions = saved_list_calls(&pilot).into_iter().filter(|c| c.path == LIST_ADDITIONS).count();
+    assert_eq!(additions, 0, "opening adds nothing");
+
+    // Filters that do not name a product: the item page, to choose its options.
+    let (status, headers, _) = pilot.send(post(SAVE, "watcher", "prepare=1&from=%2Fsearch%3Fq%3Dchar", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(headers["corten-location"], "/items/charizard");
+    // A page on another site is not a page to go back to.
+    let elsewhere = PREPARE.replace("%2Fsearch", "https%3A%2F%2Fevil.example%2Fsearch");
+    let (_, _, html) = pilot.send(post(SAVE, "watcher", &elsewhere, true)).await;
+    assert!(!html.contains(r#"name="from""#), "{html}");
+}
+
+#[tokio::test]
+async fn add_product_from_a_search_result_goes_back_to_the_search_saying_where_it_went() {
+    let pilot = Pilot::new().await;
+    let body = save_body(&pilot, "watcher", "new", "Chase+cards", "2").await;
+    let (status, headers, html) = pilot.send(post(SAVE, "watcher", &format!("{body}&from=%2Fsearch%3Fq%3Dchar"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/search?q=char");
+    let notice = cookies_set(&headers).remove("__Host-corten-notice").expect("the notice");
+    assert!(notice.contains("m=Added+to+Chase+cards"), "{notice}");
+    let sent = saved_list_calls(&pilot).into_iter().find(|c| c.path == LIST_ADDITIONS).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap()["sourceSurface"], "search");
+    // A recent list is named as the picker reads it.
+    let body = save_body(&pilot, "watcher", "svl_binder", "", "1").await;
+    let (_, headers, _) = pilot.send(post(SAVE, "watcher", &format!("{body}&from=%2Fsearch%3Fq%3Dchar"), true)).await;
+    assert_eq!(headers["corten-location"], "/search?q=char");
+    assert!(cookies_set(&headers)["__Host-corten-notice"].contains("m=Added+to+Binder"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_search_results_add_to_list_without_its_options_goes_to_the_item_page_even_with_one_listing() {
+    let pilot = Pilot::new().await;
+    // `single` has one listing, whose product the item page would pick; a result's filters that
+    // name no options still name no product.
+    let body = "prepare=1&from=%2Fsearch%3Fq%3Dchar";
+    let (status, headers, html) = pilot.send(post("/items/single", "watcher", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{html}");
+    assert_eq!(headers["corten-location"], "/items/single");
+    assert!(!html.contains(r#"aria-labelledby="save-to-list-title" open"#), "{html}");
+    // Signed out: the item page too, and no intent.
+    let (status, headers, html) = pilot.send(post_signed_out("/items/single", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/items/single");
+    let intents = saved_list_calls(&pilot).into_iter().filter(|c| c.path == GUEST_SAVED_LIST_INTENTS).count();
+    assert_eq!(intents, 0, "no intent for a product the filters do not name");
+}
+
+#[tokio::test]
+async fn a_guests_add_to_list_from_a_search_result_registers_back_to_the_search() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(SAVE, PREPARE)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/register?returnTo=%2Fsearch%3Fq%3Dchar%26claimSavedListIntent%3Dsli_1"
+    );
+    let sent: Value = serde_json::from_str(&saved_list_calls(&pilot)[0].body).unwrap();
+    assert_eq!((&sent["sourcePath"], &sent["sourceSurface"]), (&json!("/search?q=char"), &json!("search")));
+    assert_eq!(sent["product"]["productId"], OFFERED);
+}
+
+/// Add matching products to Buy Cart's preview and add.
+const BULK: &str = "/search/cart";
+const BULK_ATTEMPT: &str = "4f1c2b9e-7d3a-4e8b-a1c0-1234567890ab";
+
+/// The bulk add's previews Discovery was asked for, as their queries.
+fn bulk_previews(pilot: &Pilot) -> Vec<HashMap<String, String>> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(BULK_PREVIEW)).map(|c| query(&c.path)).collect()
+}
+
+/// The bulk adds Checkout was sent.
+fn bulk_adds(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path == ACCOUNT_CART_BULK || c.path == GUEST_CART_BULK).cloned().collect()
+}
+
+#[tokio::test]
+async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() {
+    let pilot = Pilot::new().await;
+    // A search with results offers it, a GET form with the search's parameters; the page has the
+    // sheet, empty, for its answer.
+    let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let trigger = r#"<form class="search-page__bulk" method="get" action="/search/cart" data-patch>"#;
+    let (bar, form) = html.split_once(trigger).expect("the bulk add's form");
+    let form = form.split("</form>").next().unwrap();
+    for field in [
+        r#"<input type="hidden" name="q" value="pika">"#,
+        r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
+        r#"<button type="submit" class="search-page__secondary">Add matching products to Buy Cart</button>"#,
+    ] {
+        assert!(form.contains(field), "{field}: {form}");
+    }
+    // The form and its button are in the control bar, above the filters: a filter's focus comes
+    // back to the filter, as hidden fields take no place (corten-run/corten#1372).
+    assert!(!bar.contains(r#"id="search-filters""#), "the form is above the filters: {html}");
+    assert!(html.contains(r#"<dialog id="bulk-cart" class="bulk-cart-sheet__dialog"></dialog>"#), "{html}");
+    assert!(bulk_previews(&pilot).is_empty(), "nothing is previewed until it is asked for");
+    // The landing and a failed search offer none.
+    for page in ["/", "/search?q=broken"] {
+        let (_, _, html) = pilot.send(get(page, Some("watcher"))).await;
+        assert!(!html.contains(r#"action="/search/cart""#), "{page}: {html}");
+    }
+
+    // With a script, the sheet, open: what the add would do, read for every match of the search.
+    let (status, headers, html) = pilot.send(get_patch("/search/cart?q=pika&dimension.dim_grade=chc_10")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "a patch: {headers:?}");
+    assert!(
+        html.contains(r#"<dialog class="bulk-cart-sheet__dialog" id="bulk-cart" aria-labelledby="bulk-cart-title" open"#),
+        "{html}"
+    );
+    let sheet = text(&html);
+    for said in
+        ["Add matching products to Buy Cart", "2 ready, 1 need product options.", "Matches 3", "Ready 2", "Need options 1"]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(sheet.contains("Card 2 needs product options before it can be added."), "{sheet}");
+    let read = bulk_previews(&pilot).pop().unwrap();
+    assert_eq!((read["search"].as_str(), read["dimension.dim_grade"].as_str()), ("pika", "chc_10"), "{read:?}");
+    assert!(!read.contains_key("limit") && !read.contains_key("includeTotal"), "every match, as the API reads them: {read:?}");
+    // Add eligible products posts the search again with an attempt.
+    let add = html.split(r#"<form class="bulk-cart-sheet__add" method="post" action="/search/cart" data-patch>"#).nth(1);
+    let add = add.expect("Add eligible products").split("</form>").next().unwrap();
+    assert!(add.contains(r#"name="attempt""#) && add.contains(r#"<input type="hidden" name="q" value="pika">"#), "{add}");
+    assert!(add.contains(">Add eligible products</button>") && !add.contains("disabled"), "{add}");
+
+    // Without one, the search's page with the sheet open.
+    let (status, _, html) = pilot.send(get("/search/cart?q=pika", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(html.contains(r#"<li id="result-1""#), "the results: {html}");
+
+    // On the home page, the form says so, for the add to go back to it.
+    let (_, _, html) = pilot.send(get("/?q=pika", Some("watcher"))).await;
+    let form = html.split(trigger).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="home" value="true">"#), "{form}");
+    // On a category's page, the form sends its slug, which the preview reads.
+    let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", Some("watcher"))).await;
+    let form = html.split(trigger).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="category" value="singles-x1">"#), "{form}");
+    pilot.send(get_patch("/search/cart?q=pika&category=singles-x1")).await;
+    assert_eq!(bulk_previews(&pilot).pop().unwrap()["category"], "singles-x1");
+}
+
+#[tokio::test]
+async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_search_saying_how_many() {
+    let pilot = Pilot::new().await;
+    let body = format!("q=pika&dimension.dim_grade=chc_10&attempt={BULK_ATTEMPT}");
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="),
+        "after the write, for the shell's count: {to}"
+    );
+    let notice = cookies_set(&headers).remove("__Host-corten-notice").expect("the notice");
+    assert!(notice.contains("m=1+added%2C+1+merged"), "{notice}");
+    // One attempt with every line the preview gave, for Smart Match to fill.
+    let adds = bulk_adds(&pilot);
+    assert_eq!(adds.len(), 1, "{adds:?}");
+    assert_eq!(adds[0].path, ACCOUNT_CART_BULK);
+    let sent: Value = serde_json::from_str(&adds[0].body).unwrap();
+    assert_eq!(sent["attemptId"], BULK_ATTEMPT);
+    assert_eq!(sent["lines"].as_array().map(Vec::len), Some(2), "{sent}");
+    assert_eq!(
+        sent["lines"][0],
+        json!({
+            "catalogItemId": "cat_1", "productId": "cat_1::pika", "itemTitle": "Card 1", "itemSubtitle": "Base Set",
+            "itemImageUrl": "/img/1.png", "itemImageSrcSet": null, "itemImageLoadingUrl": null, "itemImageLoadingAlt": null,
+            "itemImageLoadingSrcSet": null, "selectedOptions": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "productSummary": "Raw / Near Mint", "quantity": 1, "fulfillmentMode": "optimize", "lockedListingId": null,
+        })
+    );
+    // The page it goes back to draws the shell's count after the write, and says how many.
+    let notice = notice.split(';').next().unwrap();
+    let (status, _, html) = pilot.send(with_cookie(to, &format!("chase_sets_session=watcher; {notice}"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("1 added, 1 merged"), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+    // With a script, the same, which the runtime follows; the form sent again is the same attempt.
+    let (status, headers, _) = pilot.send(post(BULK, "watcher", &body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="));
+    let attempts: Vec<Value> =
+        bulk_adds(&pilot).iter().map(|c| serde_json::from_str::<Value>(&c.body).unwrap()["attemptId"].clone()).collect();
+    assert_eq!(attempts, [json!(BULK_ATTEMPT), json!(BULK_ATTEMPT)]);
+    // From a category, back to its page; from the home page, back to it; with Load more's rows,
+    // back to as many.
+    let (_, headers, _) =
+        pilot.send(post(BULK, "watcher", &format!("q=pika&category=singles-x1&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/categories/singles-x1?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&home=true&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&more=24&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/search?q=pika&more=24&after_write="), "{headers:?}");
+    assert!(bulk_previews(&pilot).iter().all(|read| !read.contains_key("more")), "the preview reads every match");
+}
+
+#[tokio::test]
+async fn a_bulk_add_after_the_session_ended_signs_in_back_to_the_search() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(BULK, "stale", &format!("q=pika&attempt={BULK_ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/sign-in?returnTo=%2Fsearch%3Fq%3Dpika");
+    assert!(cart_lookups(&pilot).is_empty(), "a refusal is not a lost answer");
+}
+
+#[tokio::test]
+async fn a_guests_bulk_add_goes_to_a_guest_cart_the_browser_keeps() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(BULK, &format!("q=pika&attempt={BULK_ATTEMPT}"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let add = bulk_adds(&pilot).pop().expect("the add");
+    assert_eq!(add.path, GUEST_CART_BULK);
+    let guest = add.headers["x-checkout-anonymous-cart-id"].to_str().unwrap().to_owned();
+    assert!(guest.starts_with("anon_"), "{guest}");
+    let kept = cookies_set(&headers).remove("chase_sets_anonymous_cart").expect("the guest cart's cookie");
+    assert!(kept.starts_with(&format!("chase_sets_anonymous_cart={guest};")), "{kept}");
+}
+
+#[tokio::test]
+async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
+    let pilot = Pilot::new().await;
+    // Each case its own attempt: an attempt sent again is the one the API kept.
+    let attempt = |words: &str| format!("bulk-attempt-{words}-0123456789");
+    let sent = |words: &str| format!("q={words}&attempt={}", attempt(words));
+    // Some lines added: the counts, each line that was not, and Review Buy Cart, on the search's
+    // page with the sheet open and the shell's count read after the add, with a script as without.
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &sent("partial"), true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    let sheet = text(&html);
+    for said in ["Buy Cart updated", "Card 3: No listings are available.", "1 added, 0 merged", "1 products could not be added."]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(html.contains(r#"href="/account/cart">Review Buy Cart</a>"#), "{html}");
+    assert!(!sheet.contains("Add eligible products"), "{sheet}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+    // Without a script, the search with it open, and the shell's count read after the add.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("partial"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+
+    // Its answer lost: not known, so the same attempt again, never on its own.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("lost"), true)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("We couldn&#39;t confirm this bulk add"), "{sheet}");
+    assert!(html.contains(&format!(r#"<input type="hidden" name="attempt" value="{}">"#, attempt("lost"))), "{html}");
+    assert!(html.contains(">Send the same add again</button>") && !sheet.contains("Add eligible products"), "{html}");
+    // Refused: nothing added, with the API's reason, and the add offered again.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("refused"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("No products were added") && sheet.contains("Buy Cart is closed for changes."), "{sheet}");
+    assert!(sheet.contains("Add eligible products"), "{sheet}");
+
+    // Over the limit, or nothing named in full: the preview again, and nothing sent.
+    let before = bulk_adds(&pilot).len();
+    for (words, said) in [("lots", "Too many matches"), ("none", "0 ready, 1 need product options.")] {
+        let (status, _, html) = pilot.send(post(BULK, "watcher", &sent(words), true)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(text(&html).contains(said), "{said}: {html}");
+        assert!(html.contains(" disabled>Add eligible products</button>"), "{html}");
+    }
+    assert_eq!(bulk_adds(&pilot).len(), before, "nothing is added");
+    // A preview that fails says so, with or without a script.
+    let (status, _, html) = pilot.send(get_patch("/search/cart?q=broken")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
+    let (status, _, html) = pilot.send(get("/search/cart?q=broken", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
+
+    // Without a script, the lost and the refused add are the search with the sheet open.
+    for (words, status, said) in [
+        ("lost", StatusCode::CONFLICT, "We couldn&#39;t confirm this bulk add"),
+        ("refused", StatusCode::UNPROCESSABLE_ENTITY, "Buy Cart is closed for changes."),
+    ] {
+        let (answered, _, html) = pilot.send(post(BULK, "watcher", &sent(words), false)).await;
+        assert_eq!(answered, status, "{words}: {html}");
+        assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{words}: {html}");
+        assert!(text(&html).contains(said) && html.contains(r#"<li id="result-1""#), "{words}: {html}");
+    }
+}
+
 const LIST: &str = "/items/charizard/list";
 const SHIP_FROM: &str = "/items/charizard/ship-from";
 const ATTEMPT: &str = "0b6f3c1e-4d2a-4b8e-9f00-1234567890ab";
 const LISTED: &str = "lst_0b6f3c1e4d2a4b8e9f001234567890ab";
+/// `lister`'s draft whose publication was refused.
+const DRAFTED: &str = "lst_1b6f3c1e4d2a4b8e9f001234567890ab";
 
 /// A List this product form's body: the Sell tab's address, the product it showed, the attempt,
 /// the price, currency and quantity.
@@ -4633,7 +5964,11 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
         .unwrap()
         .iter()
         .rev()
-        .find(|c| c.path.starts_with("/api/marketplace/items/charizard") && c.path != OVERLAY && !c.path.ends_with("/similar"))
+        .find(|c| {
+            c.path.starts_with("/api/marketplace/items/charizard")
+                && !c.path.starts_with(OVERLAY)
+                && !c.path.ends_with("/similar")
+        })
         .cloned()
         .unwrap();
     assert_eq!(waits_for(&item_read.headers).as_deref(), Some("31"), "the item waits for the publication");
@@ -4651,6 +5986,29 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
     assert!(again.starts_with(&format!("/items/charizard?market=sell&listing={LISTED}&after_write=%7B")), "{again}");
     let publishes = listing_calls(&pilot).iter().filter(|(p, _)| p.ends_with("/publish")).count();
     assert_eq!(publishes, 1, "{:?}", listing_calls(&pilot));
+    let creates: Vec<String> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path == CREATE_LISTING)
+        .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(creates, [format!("{LISTED}_create"), format!("{LISTED}_create")], "a resent form is the same create attempt");
+    let publish = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|c| c.path.ends_with("/publish"))
+        .map(|c| c.headers["idempotency-key"].clone());
+    assert_eq!(
+        publish.as_ref().map(|k| k.to_str().unwrap()),
+        Some(format!("{LISTED}_publish").as_str()),
+        "the listing's publish attempt"
+    );
     assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
     assert_eq!(pilot.stand.ensured.lock().unwrap().len(), 1);
 }
@@ -4753,7 +6111,7 @@ async fn the_sales_tab_reads_the_products_market_history_with_the_page_and_draws
     );
     assert!(series.headers.get("chase-sets-read-after-write").is_none());
     // The range is links, the year chosen; the chart is a line, a band and one verified sale.
-    assert!(book.contains(r#"aria-current="true">1 year</a>"#), "{book}");
+    assert!(book.contains(r#"aria-current="page">1 year</a>"#), "{book}");
     assert_eq!(hrefs(book, "90 days"), ["/items/charizard?book=sales&amp;dimension.dim_form=chc_raw"]);
     assert!(book.contains(r#"<svg viewBox="0 0 640 220" role="img" aria-label="Trade price history for Charizard""#), "{book}");
     assert!(book.contains(r#"class="time-series__chart-line" d="M12.00,"#), "{book}");
@@ -4828,6 +6186,34 @@ async fn a_change_to_the_item_draws_its_market_parts_again_and_a_reconnect_resum
 }
 
 #[tokio::test]
+async fn a_market_change_to_a_result_the_page_drew_draws_its_market_again() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", None)).await;
+    let src = html.split(r#"<corten-live src=""#).nth(1).and_then(|s| s.split('"').next()).expect("the results' stream");
+    let src = src.replace("&amp;", "&");
+    assert!(src.starts_with("/search/live?q=pika&slug=singles-x1&item=cat_1&item=cat_2&"), "{src}");
+    assert_eq!(src.matches("&item=").count(), 24, "every row the page drew: {src}");
+    assert!(html.contains(r#"id="result-market-cat_3""#), "{html}");
+    let events = pilot.events(get(&src, None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    // Only the result the change names, its price and intents, by its item; Add to List goes back
+    // to the category's page.
+    assert!(data.contains(r#"id="result-market-cat_3""#) && !data.contains(r#"id="result-market-cat_1""#), "{data}");
+    assert!(data.contains("$389.00") && data.contains(r#"href="/items/card-3?market=watch""#), "{data}");
+    assert!(data.contains(r#"name="from" value="/categories/singles-x1?q=pika""#), "{data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=public%3Amarket"), "{calls:?}");
+    let reads: Vec<_> = calls.iter().filter(|c| c.path.starts_with("/api/marketplace/items?")).map(|c| c.path.clone()).collect();
+    assert_eq!(reads.len(), 2, "the page's read and the change's: {reads:?}");
+    assert_eq!(reads[0], reads[1], "the same search");
+    // A search with nothing found follows nothing.
+    let (_, _, html) = pilot.send(get("/search?q=broken", None)).await;
+    assert!(!html.contains("<corten-live"), "{html}");
+}
+
+#[tokio::test]
 async fn the_mobile_dock_links_to_the_rail_on_each_side_or_to_the_options() {
     let pilot = Pilot::new().await;
     let dock = |html: &str| {
@@ -4882,6 +6268,27 @@ async fn a_listing_whose_read_has_not_caught_up_says_it_was_published_and_reads_
 }
 
 #[tokio::test]
+async fn a_sellers_own_draft_the_address_names_is_read_with_the_overlay_and_shown_as_theirs() {
+    let pilot = Pilot::new().await;
+    // The item's read lists only what buyers can see; the overlay adds the draft the address names.
+    let (status, _, html) = pilot.send(get(&format!("{SELL_PAGE}&listing={DRAFTED}"), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let overlay = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with(OVERLAY)).cloned().unwrap();
+    assert_eq!(overlay.path, format!("{OVERLAY}?selectedListingId={DRAFTED}"));
+    let page = text(&html);
+    assert!(page.contains("Your draft listing is $2.00. Manage listing"), "{page}");
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{DRAFTED}")]);
+    assert!(plain(&html).contains(&format!("{OPEN_PRODUCT_FOLD}<summary>")), "the fold is open on it: {html}");
+    assert!(!page.contains("Listing unavailable"), "the draft is not a stale listing: {html}");
+    assert!(!html.contains(r#"action="/items/charizard/list""#), "no second listing of the product: {html}");
+    // Without the listing in the address, or for another seller, the overlay names none.
+    let (_, _, html) = pilot.send(get(SELL_PAGE, Some("lister"))).await;
+    assert!(!text(&html).contains("Your draft listing"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{SELL_PAGE}&listing={DRAFTED}"), Some("starter"))).await;
+    assert!(!text(&html).contains("Your draft listing"), "{html}");
+}
+
+#[tokio::test]
 async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     let pilot = Pilot::new().await;
     // A price past the field's step, or none: nothing is written.
@@ -4914,7 +6321,7 @@ async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(attempt, "2", "USD", "1"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Listings require a resolved shipping measure before publication. Manage listing"), "{html}");
-    assert_eq!(hrefs(&html, "Manage listing"), ["/account/listings/lst_1b6f3c1e4d2a4b8e9f001234567890ab"]);
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{DRAFTED}")]);
     // A graded product's stock is refused, as on marketplace (chase-sets/chase-sets#10598).
     let address = "market=sell&dimension.dim_form=chc_graded&dimension.dim_grade=chc_grade_7";
     let (_, _, html) = pilot.send(get(&format!("/items/charizard?{address}"), Some("lister"))).await;
@@ -4969,6 +6376,34 @@ async fn an_account_that_may_not_list_is_sent_to_registration_and_cannot_post() 
     let (status, _, _) = pilot.send(post(LIST, "watcher", &list_body(ATTEMPT, "10", "USD", "1"), false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(listing_calls(&pilot).is_empty());
+}
+
+#[tokio::test]
+async fn a_facets_choices_past_six_wait_behind_show_more_and_a_long_facet_has_a_search() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/search?q=sets&dimension.dim_set=set_9", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    let set = html.split(r#"<span class="search-page__facet-title">Set</span>"#).nth(1).unwrap();
+    let set = &set[..set.find("</details></fieldset>").map_or(set.len(), |end| end + "</details></fieldset>".len())];
+    // The first six, and Set 9 (chosen), are in view; Set 7, 8 and 10 wait behind Show more.
+    for n in 1..=10 {
+        let at = set.find(&format!(r#"value="set_{n}""#)).unwrap();
+        let label = &set[..at];
+        let label = &label[label.rfind("<label").unwrap()..];
+        assert_eq!(label.contains("data-waits"), [7, 8, 10].contains(&n), "Set {n}: {label}");
+    }
+    assert!(set.contains("<summary><span class=\"search-page__more-label\">Show more</span><span class=\"search-page__less-label\">Show less</span></summary>"), "{set}");
+    // Its search, drawn hidden until the script shows it, and what it says when nothing matches.
+    assert!(set.contains(r#"aria-label="Search Set options""#) && set.contains(r#"placeholder="Find Set option""#), "{set}");
+    let find = &set[set.find(r#"<input type="search""#).unwrap()..];
+    let find = &find[..find.find('>').unwrap()];
+    assert!(find.contains(" hidden") && find.contains("search.reveal") && find.contains("search.find"), "{find}");
+    assert!(!find.contains(" name="), "the search is not a filter: {find}");
+    assert!(set.contains("No matching Set options"), "{set}");
+    // Grade's two values have neither.
+    let grade = html.split(r#"<span class="search-page__facet-title">Grade</span>"#).nth(1).unwrap();
+    let grade = &grade[..grade.find("</fieldset>").unwrap()];
+    assert!(!grade.contains("data-waits") && !grade.contains("Show more") && !grade.contains(r#"type="search""#), "{grade}");
 }
 
 /// The search reads the pilot sent, as their parameters.
@@ -5042,7 +6477,18 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     assert!(html.contains(">Japanese<"), "a result's language: {html}");
     // The filters are one GET form; the words box and the sort are in it by its id.
     assert!(html.contains(r#"<form id="search-form""#), "{html}");
-    assert!(html.contains(r#"<input type="search" name="q" form="search-form" value="pika""#), "{html}");
+    assert!(html.contains(r#"<input class="input__input" type="search" name="q" form="search-form" value="pika""#), "{html}");
+    // The words box is the kit's input group, the design system's search glyph inside its border
+    // and hidden from a screen reader, which reads the label's words.
+    let words = &html[html.find(r#"<label class="input-group__input-group">"#).expect("the words box's group")..];
+    let words = &words[..words.find("</label>").unwrap()];
+    assert!(
+        words.starts_with(
+            r#"<label class="input-group__input-group"><span class="input-group__adornment" aria-hidden="true"><svg"#
+        ),
+        "{words}"
+    );
+    assert!(words.contains(r#"<span class="visually-hidden__visually-hidden">Marketplace search</span>"#), "{words}");
     assert!(html.contains(r#"<select name="sort" form="search-form">"#), "{html}");
     assert!(html.contains(r#"<input type="checkbox" name="dimension.dim_grade" value="chc_10" checked>"#), "{html}");
     // Each chip is the address without its filter.
@@ -5056,7 +6502,10 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     // Load more: a GET form with every choice, a page more and the API's cursor. Without
     // JavaScript it is the address with a page more, at the first result it adds.
     let form = r#"<form id="load-more" class="#;
-    assert!(html.contains(form) && html.contains(r#"action="/search#result-25" data-patch>"#), "{html}");
+    assert!(
+        html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s)'>"#),
+        "{html}"
+    );
     for field in [
         r#"<input type="hidden" name="q" value="pika">"#,
         r#"<input type="hidden" name="marketActivity" value="offers">"#,
@@ -5132,11 +6581,20 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     assert!(html.contains("Could not load more results") && html.contains(">Retry loading results</button>"), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="cursor" value="broken">"#), "{html}");
 
+    assert!(!html.contains("search.near"), "a failed load waits for its button: {html}");
+
     // Without JavaScript the same form is the page with a page more.
     let (status, headers, html) = pilot.send(get(more, None)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(!headers.contains_key("corten-patch"), "{headers:?}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 30);
+
+    // A page with more sends Load more itself as the reader comes near (the hidden one above, with
+    // no page after, is drawn without it).
+    let (_, _, html) = pilot.send(get("/search?q=pika", None)).await;
+    let form = &html[html.find(r#"<form id="load-more""#).expect("Load more")..];
+    let form = &form[..form.find('>').unwrap()];
+    assert!(!form.contains(" hidden") && form.contains("connect:search.near("), "{form}");
 }
 
 #[test]
@@ -5241,7 +6699,7 @@ async fn the_search_terms_and_the_item_address_read_back_through_the_router_as_t
     assert!(form.contains(r#"<input type="hidden" name="dimension.dim_form" value="chc_graded">"#), "{form}");
     // The same listing twice is one the address chose; two different ones are none, so the page
     // chooses by itself.
-    let explicit = "&quot;selected_listing&quot;,&quot;explicit&quot;";
+    let explicit = r#""selected_listing","explicit""#;
     let (_, _, twice) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_chase", None)).await;
     assert!(twice.contains(explicit), "{twice}");
     let (_, _, two) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_vault", None)).await;
@@ -5294,7 +6752,7 @@ async fn the_home_page_shows_the_featured_categories_and_the_newest_items_until_
     assert_eq!(search_reads(&pilot).len(), 3);
     assert!(!html.contains("Featured categories"), "{html}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
-    assert!(html.contains(r#"action="/#result-25" data-patch>"#), "Load more stays at the home page: {html}");
+    assert!(html.contains(r#"action="/#result-25" data-patch data-on="#), "Load more stays at the home page: {html}");
     // Search's rules are in components.css, which every page links once, the home page too
     // (todd-skelton/corten#95): no section stylesheet of its own, none in the page's body.
     for uri in ["/?q=pika", "/search?q=pika", "/items/charizard"] {
@@ -5361,7 +6819,124 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     assert!(html.contains(r#"href="/items/charizard">Compare market</a>"#), "{html}");
     assert!(html.contains(r#"href="/accounts/chase-sets#feedback">View account</a>"#), "{html}");
     assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
-    assert!(!html.contains(r#"role="status""#), "{html}");
+    assert!(!main_of(&html).contains(r#"role="status""#), "no notice in the page (the layout's toaster is after it): {html}");
+    assert!(!html.contains("application/ld+json"), "structured data is for the production marketplace only: {html}");
+}
+
+/// The stand-in listing's eligible Google Shopping payload, linking the production page.
+fn shopping_payload() -> Value {
+    json!({
+        "offerId": "cs-listing-lst_psa_8", "title": "Charizard Base Set PSA 8", "description": "A </script> Base Set Charizard.",
+        "link": "https://marketplace.chasesets.com/listings/psa-8", "imageLink": "https://assets.chasesets.com/catalog/charizard.webp",
+        "priceAmount": "749.00", "currencyCode": "USD", "availability": "in stock", "condition": "used",
+        "brand": "Pokemon", "productType": "Trading Cards",
+    })
+}
+
+/// The stand-in's listing with `change` made to it.
+fn shopping_listing(change: impl FnOnce(&mut Value)) -> crate::api::PublicListing {
+    let mut value = json!({
+        "listing_id": "lst_psa_8", "listing_slug": "psa-8", "account_id": "acc_chase", "catalog_catalog_item_id": "cat_charizard",
+        "product_id": "cat_charizard::psa8", "price_amount": "749.00", "price_currency_code": "USD", "status": "active",
+        "seller_display_name": "Chase Sets", "seller_listing_availability_status": "available",
+        "google_shopping_structured_data_payload": shopping_payload(),
+    });
+    change(&mut value);
+    serde_json::from_value(value).unwrap()
+}
+
+const LISTING_CANONICAL: &str = "https://marketplace.chasesets.com/listings/psa-8";
+
+#[test]
+fn a_production_listing_writes_its_product_and_offer_from_its_shopping_payload_that_nothing_can_end() {
+    use corten::prelude::*;
+    let product = crate::views::listing_json_ld(&shopping_listing(|_| {}), LISTING_CANONICAL).expect("an eligible listing");
+    assert_eq!(
+        product,
+        json!({
+            "@context": "https://schema.org", "@type": "Product", "name": "Charizard Base Set PSA 8",
+            "description": "A </script> Base Set Charizard.", "image": "https://assets.chasesets.com/catalog/charizard.webp",
+            "sku": "cs-listing-lst_psa_8", "brand": { "@type": "Brand", "name": "Pokemon" }, "category": "Trading Cards",
+            "offers": {
+                "@type": "Offer", "url": LISTING_CANONICAL, "priceCurrency": "USD", "price": "749.00",
+                "availability": "https://schema.org/InStock", "itemCondition": "https://schema.org/UsedCondition",
+                "seller": { "@type": "Organization", "name": "Chase Sets" },
+            },
+        })
+    );
+    let html = html! { <JsonLd value={&product} /> }.to_html();
+    let json =
+        html.strip_prefix(r#"<script type="application/ld+json">"#).and_then(|s| s.strip_suffix("</script>")).expect(&html);
+    assert!(!json.contains('<'), "{json}");
+    assert_eq!(serde_json::from_str::<Value>(json).unwrap(), product);
+}
+
+#[test]
+fn a_listings_availability_and_condition_follow_its_shopping_payload() {
+    let listing = shopping_listing(|l| {
+        l["google_shopping_structured_data_payload"]["availability"] = json!("out of stock");
+        l["google_shopping_structured_data_payload"]["condition"] = json!("new");
+    });
+    let offer = &crate::views::listing_json_ld(&listing, LISTING_CANONICAL).unwrap()["offers"];
+    assert_eq!(offer["availability"], "https://schema.org/OutOfStock");
+    assert_eq!(offer["itemCondition"], "https://schema.org/NewCondition");
+}
+
+#[test]
+fn a_listing_writes_no_product_unless_it_is_buyable_production_and_its_payload_is_its_own() {
+    let none = |change: fn(&mut Value), canonical: &str| {
+        assert_eq!(crate::views::listing_json_ld(&shopping_listing(change), canonical), None, "{canonical}");
+    };
+    none(|l| l["status"] = json!("paused"), LISTING_CANONICAL);
+    none(|l| l["seller_listing_availability_status"] = json!("unavailable"), LISTING_CANONICAL);
+    none(|_| {}, "https://marketplace.staging.chasesets.com/listings/psa-8");
+    none(|_| {}, "http://marketplace.chasesets.com/listings/psa-8");
+    none(
+        |l| l["google_shopping_structured_data_payload"]["link"] = json!("https://marketplace.chasesets.com/listings/other"),
+        LISTING_CANONICAL,
+    );
+    none(|l| l["price_amount"] = json!("700.00"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = json!("EUR"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = Value::Null, LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["imageLink"] = json!(""), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["condition"] = json!("refurbished"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = json!("not an object"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = Value::Null, LISTING_CANONICAL);
+}
+
+#[tokio::test]
+async fn a_change_to_a_listing_draws_its_header_purchase_and_seller_again_and_not_its_report_form() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/listings/psa-8", None)).await;
+    assert!(html.contains(r#"<corten-live src="/listings/psa-8/live/lst_psa_8"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/listings/psa-8/live/lst_psa_8", None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    for id in [r#"id="listing-head""#, r#"id="listing-buy""#, r#"id="listing-seller""#] {
+        assert!(data.contains(id), "{id}: {data}");
+    }
+    assert!(data.contains(r#"<form method="post" action="/listings/psa-8/buy">"#) && data.contains("$749.00"), "{data}");
+    assert!(!data.contains(r#"name="reason""#), "the report form keeps what was typed: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=listing%3Alst_psa_8"), "the listing's topic only");
+    let reads = calls.iter().filter(|c| c.path == "/api/marketplace/listings/psa-8").count();
+    assert_eq!(reads, 2, "the page's read and the change's: {calls:?}");
+}
+
+#[tokio::test]
+async fn a_change_to_a_listing_the_read_no_longer_finds_says_it_is_not_found_and_ends_the_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/listings/nope/live/lst_gone", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    let (_, _, data) = &events[0];
+    assert!(data.contains(">Listing not found</h1>") && data.contains("This listing is not available right now."), "{data}");
+    assert!(data.contains(r#"id="listing-buy" class="listing-page__column" hidden"#) && !data.contains("/buy"), "{data}");
+
+    // A slug that now names another listing than the one the page was drawn for: not this one.
+    let events = pilot.events(get("/listings/psa-8/live/lst_other", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    assert!(events[0].2.contains(">Listing not found</h1>") && !events[0].2.contains("$749.00"), "{events:?}");
 }
 
 #[tokio::test]
@@ -5422,37 +6997,73 @@ async fn buy_this_listing_starts_a_checkout_for_an_account_and_sends_a_guest_to_
 #[tokio::test]
 async fn a_report_is_received_once_and_a_repeat_or_a_busy_reporter_is_told_so() {
     let pilot = Pilot::new().await;
+    // The form draws its attempt, which the report is sent as.
+    let (_, _, html) = pilot.send(get("/listings/psa-8", None)).await;
+    let form = html.split(r#"aria-labelledby="listing-report-heading""#).nth(1).unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="attempt" data-submit value=""#), "{form}");
     // A visitor's first report: a new reporter cookie, and the page says it was received.
     let (status, headers, _) =
-        pilot.send(post("/listings/psa-8/report", "nobody", "reason=pricing-scam&details=Too+low", false)).await;
+        pilot.send(post("/listings/psa-8/report", "nobody", &keyed("reason=pricing-scam&details=Too+low"), false)).await;
     assert_eq!((status, headers["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/listings/psa-8?reported=1"));
     let cookie = headers["set-cookie"].to_str().unwrap();
     assert!(cookie.starts_with("chase_sets_anonymous_reports=anon_cmd_"), "{cookie}");
     let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/report")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
-    assert_eq!(sent, json!({ "reason": "pricing-scam", "details": "Too low", "sourceRoutePath": "/listings/psa-8" }));
+    assert_eq!(
+        sent,
+        json!({ "attemptId": KEY, "reason": "pricing-scam", "details": "Too low", "sourceRoutePath": "/listings/psa-8" })
+    );
     let (_, _, html) = pilot.send(get("/listings/psa-8?reported=1", None)).await;
     assert!(html.contains(r#"role="status"><p>Thanks. We received your report"#) && !html.contains(r#"name="reason""#), "{html}");
 
     // The same visitor again, and one who sent too many: the page, saying so.
-    let report = |visitor: &str| {
-        let mut req = post("/listings/psa-8/report", "nobody", "reason=other&details=", false);
+    let report = |visitor: &str, details: &str| {
+        let mut req = post("/listings/psa-8/report", "nobody", &keyed(&format!("reason=other&details={details}")), false);
         req.headers_mut().insert(header::COOKIE, format!("chase_sets_anonymous_reports={visitor}").parse().unwrap());
         req
     };
-    let (status, headers, html) = pilot.send(report("anon_repeat")).await;
+    let (status, headers, html) = pilot.send(report("anon_repeat", "")).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(!headers.contains_key("set-cookie"), "the reporter keeps their cookie");
     assert!(html.contains("You have already reported this listing."), "{html}");
-    let (status, _, html) = pilot.send(report("anon_busy")).await;
+    let (status, _, html) = pilot.send(report("anon_busy", "")).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     assert!(html.contains(r#"role="alert"><p>You have sent several reports"#) && html.contains(r#"name="reason""#), "{html}");
 
+    // An answer lost twice: the attempt was sent once more, and the page cannot say whether the
+    // report was received, so it keeps what was sent without Submit.
+    let (status, _, html) = pilot.send(report("anon_lost", "lost")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Result not confirmed. Do not submit again.") && html.contains(">lost</textarea>"), "{words}");
+    let form = html.split(r#"aria-labelledby="listing-report-heading""#).nth(1).unwrap();
+    assert!(form.contains(r#"type="submit" class="#) && form.contains(" disabled"), "{form}");
+    let lost: Vec<Value> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path.ends_with("/report") && c.body.contains("\"lost\""))
+        .map(|c| serde_json::from_str(&c.body).unwrap())
+        .collect();
+    assert_eq!(lost.len(), 2, "sent once more: {lost:?}");
+    assert!(lost.iter().all(|b| b["attemptId"] == KEY), "as the same attempt: {lost:?}");
+    // Another report's attempt: said so, without Submit.
+    let (status, _, html) = pilot.send(report("anon_clash", "clash")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This attempt was used for a different request."), "{html}");
+
     // A reason that is not one is refused here, with the details kept.
-    let (status, _, html) = pilot.send(post("/listings/psa-8/report", "nobody", "reason=spam&details=Keep+me", false)).await;
+    let (status, _, html) =
+        pilot.send(post("/listings/psa-8/report", "nobody", &keyed("reason=spam&details=Keep+me"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a reason for the report.") && html.contains(">Keep me</textarea>"), "{html}");
-    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 3);
+    // A form without its attempt is not sent.
+    let (status, _, html) = pilot.send(post("/listings/psa-8/report", "nobody", "reason=other&details=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The report was not sent. Reload the form before submitting."), "{html}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 6);
 }
 
 #[tokio::test]
@@ -5558,6 +7169,36 @@ async fn an_old_slug_or_id_moves_an_unknown_account_is_not_found_and_a_closed_on
 }
 
 #[tokio::test]
+async fn a_change_to_an_account_draws_its_standing_and_listings_again_and_not_its_feedback() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/accounts/chase-sets?role=seller&page=2", None)).await;
+    assert!(html.contains(r#"<corten-live src="/accounts/acc_chase/live"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/accounts/acc_chase/live", None), 1).await;
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    assert!(data.contains(r#"id="account-head""#) && data.contains(r#"id="account-listings""#), "{data}");
+    assert!(data.contains(r#"href="/listings/psa-8">View listing</a>"#), "{data}");
+    assert!(!data.contains(r#"id="feedback""#) && !data.contains("/report"), "the feedback keeps its dialogs: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=public-account%3Aacc_chase"), "{calls:?}");
+    assert!(calls.iter().any(|c| c.path == "/api/marketplace/accounts/acc_chase?limit=10&offset=0"), "{calls:?}");
+}
+
+#[tokio::test]
+async fn an_account_no_longer_active_or_found_replaces_the_page_and_ends_the_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/accounts/closed/live", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    let data = &events[0].2;
+    assert!(data.contains(r#"id="account-page""#) && data.contains(">Account unavailable</h1>"), "{data}");
+    let events = pilot.events(get("/accounts/acc_gone/live", None), 3).await;
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert!(events[0].2.contains(">Account not found</h1>"), "{events:?}");
+    let (_, _, html) = pilot.send(get("/accounts/closed", None)).await;
+    assert!(!html.contains("corten-live"), "a closed account is not followed: {html}");
+}
+
+#[tokio::test]
 async fn an_account_with_nothing_yet_says_so_and_a_failed_chips_read_shows_none() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/accounts/quiet", None)).await;
@@ -5583,14 +7224,17 @@ async fn an_account_with_nothing_yet_says_so_and_a_failed_chips_read_shows_none(
 async fn report_review_is_received_once_refused_in_its_open_dialog_and_a_visitor_signs_in() {
     let pilot = Pilot::new().await;
     let report = "/accounts/chase-sets/reviews/rev_1/report?page=2";
-    let (status, headers, html) = pilot.send(post(report, "buyer", "reason=spam-or-manipulation&details=Paid+for", false)).await;
+    let (status, headers, html) =
+        pilot.send(post(report, "buyer", &keyed("reason=spam-or-manipulation&details=Paid+for"), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert_eq!(headers["location"].to_str().unwrap(), "/accounts/chase-sets?page=2&reported=rev_1#review-rev_1");
     let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/rev_1/report")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(
         sent,
-        json!({ "reason": "spam-or-manipulation", "details": "Paid for", "sourceRoutePath": "/accounts/chase-sets" })
+        json!({
+            "attemptId": KEY, "reason": "spam-or-manipulation", "details": "Paid for", "sourceRoutePath": "/accounts/chase-sets",
+        })
     );
     let (_, _, html) = pilot.send(get("/accounts/chase-sets?page=2&reported=rev_1", Some("buyer"))).await;
     assert!(html.contains(r#"role="status"><p class="#) && text(&html).contains("Report submitted"), "{html}");
@@ -5600,31 +7244,38 @@ async fn report_review_is_received_once_refused_in_its_open_dialog_and_a_visitor
     );
 
     // Reported already: the page, saying so, with the button off.
-    let (status, _, html) = pilot.send(post(report, "other", "reason=other&details=", false)).await;
+    let (status, _, html) = pilot.send(post(report, "other", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("This account already reported this review."), "{html}");
 
     // A reason that is not one, too many reports, and one the API refuses: the dialog drawn open
     // with what was sent.
-    let (status, _, html) = pilot.send(post(report, "buyer", "reason=nope&details=Keep+me", false)).await;
+    let (status, _, html) = pilot.send(post(report, "buyer", &keyed("reason=nope&details=Keep+me"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a reason for the report.") && html.contains(">Keep me</textarea>"), "{html}");
     let open = html.split(r#"<dialog id="report-dialog-rev_1""#).nth(1).unwrap().split('>').next().unwrap();
     assert!(open.contains(" open"), "{open}");
-    let (status, _, html) = pilot.send(post(report, "stale", "reason=other&details=", false)).await;
+    let (status, _, html) = pilot.send(post(report, "stale", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     assert!(html.contains("You have sent several reports"), "{html}");
     let refused = "/accounts/chase-sets/reviews/rev_refused/report";
-    let (status, _, html) = pilot.send(post(refused, "buyer", "reason=other&details=", false)).await;
+    let (status, _, html) = pilot.send(post(refused, "buyer", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("This review cannot be reported."), "{html}");
+    // An answer lost twice: the dialog open with what was sent, without Submit.
+    let (status, _, html) = pilot.send(post(report, "buyer", &keyed("reason=other&details=lost"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let dialog = html.split(r#"<dialog id="report-dialog-rev_1""#).nth(1).unwrap().split("</dialog>").next().unwrap();
+    assert!(dialog.split('>').next().unwrap().contains(" open"), "{dialog}");
+    assert!(text(dialog).contains("The first result could not be confirmed. Do not submit again."), "{dialog}");
+    assert!(dialog.contains(" disabled") && dialog.contains(">lost</textarea>"), "{dialog}");
 
     // A visitor signs in on marketplace, back to the page.
-    let (status, headers, _) = pilot.send(post(report, "nobody", "reason=other&details=", false)).await;
+    let (status, headers, _) = pilot.send(post(report, "nobody", &keyed("reason=other&details="), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers["location"].to_str().unwrap();
     assert!(to.starts_with("/sign-in?") && to.contains("%2Faccounts%2Fchase-sets"), "{to}");
-    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 5);
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count(), 7);
 }
 
 /// The notification center's calls to the API (the session lookups left out).
@@ -5817,6 +7468,44 @@ async fn an_alerts_write_reads_the_alerts_after_its_receipt_and_says_when_the_re
 }
 
 #[tokio::test]
+async fn marketplaces_product_alerts_action_changes_the_alert_it_names_then_shows_the_alerts() {
+    let pilot = Pilot::new().await;
+    // Discovery's `account-product-alerts` action: `intent` and `alertId`, then the settings at the
+    // alerts with the write's receipt.
+    for (intent, api) in [("pause", "pause"), ("resume", "resume"), ("delete", "delete")] {
+        let body = format!("intent={intent}&alertId=pal_1");
+        let (status, headers, html) = pilot.send(post("/account/product-alerts", "watcher", &body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{intent}: {html}");
+        let to = headers["location"].to_str().unwrap();
+        assert!(to.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite="), "{intent}: {to}");
+        let sent = notice_calls(&pilot).into_iter().rev().find(|c| c.method == Method::POST).unwrap();
+        assert_eq!(sent.path, format!("/api/marketplace/account/product-alerts/pal_1/{api}"));
+    }
+    // An intent it does not have, or no alert: the settings, nothing sent (`onUnknownIntent`).
+    let before = notice_calls(&pilot).iter().filter(|c| c.method == Method::POST).count();
+    for body in ["intent=explode&alertId=pal_1", "intent=pause", "intent=pause&alertId=+"] {
+        let (status, headers, _) = pilot.send(post("/account/product-alerts", "watcher", body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+        assert_eq!(headers["location"], "/account/notifications?view=settings&section=product-alerts", "{body}");
+    }
+    assert_eq!(notice_calls(&pilot).iter().filter(|c| c.method == Method::POST).count(), before);
+    // A refusal is the settings saying so, as the notification center's own form's is.
+    let (status, _, html) = pilot.send(post("/account/product-alerts", "watcher", "intent=delete&alertId=pal_gone", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert"><p>Product alert not found.</p>"#), "{html}");
+    // Anyone not signed in signs in first; nothing is sent.
+    let (status, headers, _) =
+        pilot.send(with_session_cookie_removed(post("/account/product-alerts", "", "intent=pause&alertId=pal_1", false))).await;
+    assert!(status.is_redirection(), "{status}");
+    assert!(headers["location"].to_str().unwrap().contains("sign-in"), "{headers:?}");
+}
+
+fn with_session_cookie_removed(mut req: Request<Body>) -> Request<Body> {
+    req.headers_mut().remove(header::COOKIE);
+    req
+}
+
+#[tokio::test]
 async fn an_alerts_write_whose_read_fails_says_in_place_it_was_saved() {
     let pilot = Pilot::new().await;
     let unconfirmed = r#"data-tone="warning" role="alert"><p>Saved, but your Product alerts could not be read. Reload the page to see the change.</p>"#;
@@ -5970,7 +7659,7 @@ fn ordering(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response>
     };
     if side == "buyer" {
         detail["delivery_summary"] =
-            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22 12:00:00+00" });
+            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22T12:00:00.000Z" });
         detail["reviewOutcome"] = json!({ "status": "ready", "opportunity": {
             "author_role": "buyer", "active_review_id": "rev_1", "active_review_revealed_at": "2026-03-23T10:05:00.000Z",
             "submission_state": "allowed", "window_expired": false, "revealed": true,
@@ -6014,6 +7703,74 @@ async fn the_orders_sign_in_and_need_their_permissions() {
 }
 
 #[tokio::test]
+async fn pay_now_is_offered_only_to_a_buyer_who_may_pay_and_the_others_are_told_why() {
+    let pilot = Pilot::new().await;
+    let pay = r#"href="/account/payments/new?orderIds=ord_open""#;
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("shopper"))).await;
+    assert!(html.contains(pay), "{html}");
+    assert!(!text(&html).contains("cannot pay"), "{html}");
+    // Without orders.manage: no Pay now, and a line that says so (chase-sets/chase-sets#11170).
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(pay) && !text(&html).contains("Pay now"), "{html}");
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    // Awaiting email verification: no Pay now, and Verify email names paying too.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    let shown = text(&html);
+    assert!(!html.contains(pay) && !shown.contains("Pay now"), "{html}");
+    assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
+    assert!(shown.contains("Paying and cancelling need a verified email."), "{shown}");
+    assert!(!shown.contains("cannot pay"), "{shown}");
+}
+
+#[tokio::test]
+async fn a_cancel_awaiting_email_verification_offers_the_sign_in_that_verifies_it() {
+    let pilot = Pilot::new().await;
+    let link = "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: no Cancel, and Verify email in its place. The
+    // purchase awaits payment, so it names paying too.
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
+    assert!(html.contains(&format!(r#"href="{link}""#)) && shown.contains("Verify email"), "{html}");
+    assert!(!html.contains("/cancel\"") && !shown.contains("Cancel purchase"), "{html}");
+    // Not when the order cannot be cancelled anyway, not for an agent, and not for a member whose
+    // role does not grant it.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("unverified"))).await;
+    assert!(!text(&html).contains("Verify your email"), "being packed: {html}");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified_agent"))).await;
+    assert!(!text(&html).contains("Verify your email"), "an agent: {html}");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
+    assert!(!text(&html).contains("Verify your email"), "a role without it: {html}");
+    // Coming back verified, the purchase reads as it does without the marker.
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open?verifyEmail=cancel-purchase", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Cancel purchase") && !text(&html).contains("Verify your email"), "{html}");
+    assert!(order_calls(&pilot).iter().all(|c| c.method == Method::GET), "nothing was cancelled");
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_cancel_a_purchase() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to cancel this purchase"), "{shown}");
+    assert!(shown.contains("Opening the link we send verifies that email"), "{shown}");
+    // Only a purchase's page, and only with the marker.
+    for other in ["%2Faccount%2Fpurchases%2Ford_open", "%2Faccount%2Fsales%2Ford_open%3FverifyEmail%3Dcancel-purchase"] {
+        let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
+        assert!(!text(&html).contains("Verify your email to cancel"), "{other}: {html}");
+    }
+}
+
+#[tokio::test]
 async fn the_purchases_are_cards_with_their_counts_and_pages_as_links() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/purchases?limit=100&offset=100", Some("shopper"))).await;
@@ -6023,7 +7780,7 @@ async fn the_purchases_are_cards_with_their_counts_and_pages_as_links() {
     assert!(shown.contains("205 Purchases 7 Items 1 Pending") || shown.contains("Purchases 205 Items 7 Pending 1"), "{shown}");
     assert!(
         shown.contains(
-            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN pending-payment"
+            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN Pending payment"
         ),
         "{shown}"
     );
@@ -6101,7 +7858,7 @@ async fn cancelling_redirects_to_the_order_read_after_it_and_a_late_read_reads_a
     assert!(query(&to)["after_write"].contains(r#""commitPosition":"42""#), "{to}");
     let (status, _, html) = pilot.send(get(&to, Some("shopper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(text(&html).contains("Status cancelled"), "{}", text(&html));
+    assert!(text(&html).contains("Status Cancelled"), "{}", text(&html));
     assert!(!html.contains("/cancel\""), "a cancelled purchase has no Cancel: {html}");
     let sent = order_calls(&pilot);
     assert_eq!(sent[0].path, format!("{PURCHASES_API}/ord_open/cancel"));
@@ -6154,7 +7911,10 @@ async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
         "{shown}"
     );
     assert!(!shown.contains("Tax $"), "a seller sees no buyer tax line: {shown}");
-    assert!(shown.contains("Inventory Holds Reserved item Inventory is reserved for this order while fulfillment is prepared. Quantity 1 Status active"), "{shown}");
+    assert!(shown.contains("Inventory Holds Reserved item Inventory is reserved for this order while fulfillment is prepared. Quantity 1 Status Active"), "{shown}");
+    // Ordering's codes in words: the shipping option and, on a hold, its status.
+    assert!(shown.contains("Shipping Preference Standard"), "{shown}");
+    assert!(!html.contains(">standard<") && !html.contains(">active<"), "{html}");
     assert!(shown.contains("Review window closed The feedback window for this order has closed."), "{shown}");
     // The held case and the refund outcome.
     assert!(
@@ -6163,7 +7923,7 @@ async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
     );
     assert!(html.contains(r#"href="/account/support/sup_01M5SPB8DCX26R20QVHASPF77D">SUP-HASPF77D</a>"#), "{html}");
     assert!(shown.contains("Refund outcome Refunded $5.00 Retained $52.32"), "{shown}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }
 
 #[tokio::test]
@@ -6234,6 +7994,7 @@ fn fulfillment(method: &Method, uri: &Uri) -> Option<Response> {
         _ => return Some(refusal(StatusCode::NOT_FOUND, "shipment_not_found", "Shipment not found.")),
     };
     if seller {
+        detail["action_plan"] = json!({ "status": "delivered", "primary": null, "disclosed": [], "terminal": true });
         detail["label_status"] = json!("failed");
         detail["label_error_code"] = json!("rate_unavailable");
         detail["label_error_message"] = json!("No rate for this package.");
@@ -6435,7 +8196,7 @@ async fn a_buyers_shipment_shows_its_progress_facts_cover_lines_and_exceptions()
 }
 
 #[tokio::test]
-async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_marketplace() {
+async fn a_sale_shipment_shows_the_postage_diagnostics_and_a_delivered_one_offers_no_actions() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_done", Some("shipper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -6445,7 +8206,7 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_
         html.contains(r#"href="/account/sales/shipments/packing-slips?shipmentIds=shp_done&amp;format=letter" target="_blank""#),
         "{html}"
     );
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">Back</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">Back</a>"#), "the command center: {html}");
     assert!(!shown.contains("Delivered at"), "the seller's facts have no delivery time, as marketplace's: {shown}");
     // The order's postage policy, then the diagnostics.
     assert!(shown.contains("Postage policy Committed requirements from the order package plan snapshot. Policy version default-postage-policy-v2 Parcel required Required Parcel reasons too-heavy-for-letter"), "{shown}");
@@ -6472,20 +8233,21 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_
         "{shown}"
     );
     assert!(shown.contains("carrier-delay Raised at 2026-03-21T09:00:00.000Z Missed scan."), "{shown}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments/shp_done">Open on marketplace</a>"#), "{html}");
+    // A delivered shipment's plan is empty: the page offers no action and sends none to marketplace.
+    assert!(!html.contains(r#"name="intent""#), "{html}");
+    assert!(!shown.contains("Open on marketplace"), "{shown}");
 }
 
 #[tokio::test]
-async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_command_center_is_marketplaces() {
+async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_command_center_is_the_pilots() {
     let pilot = Pilot::new().await;
     let (status, _, _) = pilot.send(get("/account/shipments/shp_gone", Some("shipper"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = pilot.send(get("/account/sales/shipments/shp_down", Some("shipper"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    // The seller's list is marketplace's (chase-sets/chase-sets#10638), not a sale named "shipments".
-    let (status, headers, _) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers["location"], "http://localhost:7753/account/sales/shipments");
+    // The seller's list is the command center, not a sale named "shipments".
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
         order_calls(&pilot).iter().all(|c| c.path.starts_with(SELLER_SHIPMENTS)),
         "Ordering is not asked for a sale called shipments"
@@ -6493,12 +8255,12 @@ async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_co
 }
 
 #[tokio::test]
-async fn an_orders_view_fulfillment_opens_the_buyers_shipments_here_and_the_sellers_on_marketplace() {
+async fn an_orders_view_fulfillment_opens_the_buyers_shipments_and_the_sellers_command_center() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("shopper"))).await;
     assert!(html.contains(r#"href="/account/shipments">View fulfillment</a>"#), "{html}");
     let (_, _, html) = pilot.send(get("/account/sales/ord_sold", Some("merchant"))).await;
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }
 
 /// Packing attempts the stand-in knows: one the API applied before (a repeat is refused, and
@@ -6508,7 +8270,8 @@ const NO_RECORD: &str = "33333333-3333-4333-8333-333333333333";
 const CHECK_DOWN: &str = "44444444-4444-4444-8444-444444444444";
 
 /// A shipment the seller packs: `shp_wait` awaits its package, `shp_pack` is packing with 2 of 3
-/// packed, `shp_full` is packing with all 3. Charizard's line holds 2.
+/// packed, `shp_full` is packing with all 3. Charizard's line holds 2. Each read carries the
+/// action plan the API resolves for its status.
 fn packing_shipment(id: &str) -> Option<Value> {
     let (status, packed) = match id {
         "shp_wait" => ("awaiting-package", [None, None]),
@@ -6517,6 +8280,8 @@ fn packing_shipment(id: &str) -> Option<Value> {
         _ => return None,
     };
     let mut detail = shipment(id, status, None);
+    let primary = if status == "packing" { "complete-packing" } else { "start-packing" };
+    detail["action_plan"] = json!({ "status": status, "primary": primary, "disclosed": ["raise-exception"], "terminal": false });
     detail["package_status"] = json!("unpacked");
     detail["total_quantity"] = json!(3);
     detail["updated_at"] = json!("2026-10-24T15:00:00.000Z");
@@ -6574,6 +8339,422 @@ fn packing(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Opti
         ("POST", "pack") => rule("Every line must be confirmed before packing completes."),
         _ => Some(StatusCode::METHOD_NOT_ALLOWED.into_response()),
     }
+}
+
+/// The stand-in command center (`getSellerCommandCenter`): for `shipper`, an exception with its
+/// notes, a shipment ready to dispatch with its tracking, one awaiting its label (`shp_lbl`, a
+/// letter, and `shp_parcel`, a parcel) and one awaiting its package, in the API's bucket order; for `tracker`, nothing needs
+/// them. A read that waits for position 44 is still catching up. Its actions: `shp_rtd`
+/// dispatches; `shp_ex`'s cancel is refused with the API's words; `shp_lbl`'s label is bought;
+/// any action sent as `APPLIED_BEFORE` was applied before. Each one's own read (`shp_rtd`,
+/// `shp_ex`, `shp_lbl`, `shp_parcel`) is the shipment with its origin and destination.
+fn command_center(session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix(SELLER_SHIPMENTS)?;
+    let item = |id: &str, status: &str| {
+        json!({
+            "shipmentId": id, "orderId": "ord_1", "displayReference": format!("SHP-{}", id.to_uppercase()),
+            "status": status, "labelStatus": "none", "trackingIdentifier": null, "carrierName": null,
+            "buyerDisplayName": "Collector Zero", "currentExceptionType": null, "currentExceptionNotes": null,
+            "lineCount": 2, "totalQuantity": 3, "bucket": "", "severity": "normal", "observedAt": "2026-11-02T10:00:00.000Z",
+            "conflicts": [], "plan": sale_plan(id), "attention": {},
+        })
+    };
+    if rest == "/command-center" && *method == Method::GET {
+        if waits_for(headers).as_deref() == Some("44") {
+            return Some(refusal(StatusCode::SERVICE_UNAVAILABLE, "projection_freshness_timeout", "Not caught up."));
+        }
+        if session != "shipper" {
+            let empty = ["exceptions", "ready-to-dispatch", "needs-label", "needs-packing"]
+                .map(|id| json!({ "id": id, "items": [], "count": 0 }));
+            return Some(
+                Json(json!({ "source": "fulfillment-ship-by", "buckets": empty, "queue": [], "totalNeedingAttention": 0 }))
+                    .into_response(),
+            );
+        }
+        let mut exception = item("shp_ex", "exception");
+        exception["currentExceptionType"] = json!("carrier-delay");
+        exception["currentExceptionNotes"] = json!("Stuck at the hub.");
+        let mut ready = item("shp_rtd", "label-attached");
+        ready["trackingIdentifier"] = json!("9400TRACK");
+        let packing = item("shp_new", "awaiting-package");
+        let label = item("shp_lbl", "awaiting-label");
+        let parcel = item("shp_parcel", "awaiting-label");
+        let buckets = json!([
+            { "id": "exceptions", "items": [exception], "count": 1 },
+            { "id": "ready-to-dispatch", "items": [ready], "count": 1 },
+            { "id": "needs-label", "items": [label, parcel], "count": 2 },
+            { "id": "needs-packing", "items": [packing], "count": 1 },
+            { "id": "awaiting-carrier", "items": [], "count": 0 },
+        ]);
+        return Some(
+            Json(json!({ "source": "fulfillment-ship-by", "buckets": buckets, "queue": [], "totalNeedingAttention": 5 }))
+                .into_response(),
+        );
+    }
+    let rest = rest.strip_prefix('/')?;
+    if *method == Method::GET && matches!(rest, "shp_ex" | "shp_rtd" | "shp_lbl" | "shp_parcel") {
+        return Some(Json(sale_shipment(rest)).into_response());
+    }
+    let (id, command) = rest.split_once('/')?;
+    if !matches!(id, "shp_ex" | "shp_rtd" | "shp_new" | "shp_lbl") {
+        return None;
+    }
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let _ = body;
+    Some(match (method.as_str(), id, command) {
+        ("GET", _, "mutation-recovery") => match attempt {
+            APPLIED_BEFORE => Json(json!({ "status": "succeeded" })).into_response(),
+            NO_RECORD => Json(json!({ "status": "confirming" })).into_response(),
+            CHECK_DOWN => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => Json(json!({ "status": "failed-safe" })).into_response(),
+        },
+        ("POST", _, _) if attempt == APPLIED_BEFORE => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "This request was already processed.")
+        }
+        ("POST", _, _) if attempt == CHECK_DOWN => refusal(StatusCode::CONFLICT, "shipment_conflict", "The shipment changed."),
+        ("POST", "shp_rtd", "dispatch" | "label/void" | "exception") => written(StatusCode::OK, id),
+        ("POST", "shp_ex", "cancel") => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "A shipment with an open exception cannot be cancelled.")
+        }
+        ("POST", "shp_ex", "return") => written(StatusCode::OK, id),
+        ("POST", "shp_lbl", "label/purchase") => written(StatusCode::OK, id),
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    })
+}
+
+/// A command-center shipment's action plan, as the command center and the shipment's own read both
+/// carry it: `shp_ex`'s offers a cancel the API refuses and an action the pilot does not know.
+fn sale_plan(id: &str) -> Value {
+    let (primary, disclosed) = match id {
+        "shp_ex" => (Value::Null, json!(["cancel-shipment", "return", "brand-new-action"])),
+        "shp_rtd" => (json!("dispatch"), json!(["void-label", "raise-exception"])),
+        "shp_new" => (json!("start-packing"), json!([])),
+        _ => (json!("buy-label"), json!(["raise-exception"])),
+    };
+    json!({ "primary": primary, "disclosed": disclosed })
+}
+
+/// A command-center shipment's own read: `shp_ex` in its exception, `shp_rtd` labelled with its
+/// tracking, `shp_lbl` and `shp_parcel` awaiting their labels, each with its action plan. Each
+/// ships from the seller's origin to the buyer; `shp_lbl` is planned as a letter.
+fn sale_shipment(id: &str) -> Value {
+    let (status, tracking) = match id {
+        "shp_ex" => ("exception", Some("9400STUCK")),
+        "shp_rtd" => ("label-attached", Some("9400TRACK")),
+        _ => ("awaiting-label", None),
+    };
+    let mut detail = shipment(id, status, tracking);
+    detail["action_plan"] = sale_plan(id);
+    detail["action_plan"]["status"] = json!(status);
+    detail["action_plan"]["terminal"] = json!(false);
+    detail["shipping_origin_snapshot"] = json!({
+        "name": "Chase Sets", "company": "Chase Sets LLC", "line1": "1 Seller Way", "line2": null,
+        "city": "Austin", "state": "TX", "postalCode": "78701", "country": "US", "phone": "5125550100", "email": null,
+    });
+    detail["shipping_destination_snapshot"] = json!({
+        "name": "Collector Zero", "line1": "2 Buyer Road", "line2": "Apt 4", "city": "Denver", "state": "CO",
+        "postalCode": "80202", "country": "US",
+    });
+    if id == "shp_ex" {
+        detail["current_exception_type"] = json!("carrier-delay");
+        detail["current_exception_notes"] = json!("Stuck at the hub.");
+    }
+    if id == "shp_lbl" {
+        detail["shipping_plan_snapshot"] = json!({ "packages": [{ "mailpieceClass": "letter" }] });
+    }
+    detail
+}
+
+/// The command-center actions the pilot sent: their path, attempt and body.
+fn center_writes(pilot: &Pilot) -> Vec<(String, String, String)> {
+    shipment_calls(pilot)
+        .into_iter()
+        .filter(|c| c.method == Method::POST && !c.path.contains("/packing") && !c.path.ends_with("/pack"))
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (c.path.trim_start_matches(SELLER_SHIPMENTS).to_owned(), attempt, c.body)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_command_center_draws_the_apis_buckets_in_order_each_shipments_next_action_and_the_rest_under_more() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Seller Fulfillment command center"), "{shown}");
+    let (ex, rtd, label, pack) = (
+        shown.find("Exceptions (1)").unwrap(),
+        shown.find("Ready to dispatch (1)").unwrap(),
+        shown.find("Needs a label (2)").unwrap(),
+        shown.find("Needs packing (1)").unwrap(),
+    );
+    assert!(ex < rtd && rtd < label && label < pack, "the API's order: {shown}");
+    assert!(!shown.contains("awaiting-carrier"), "an empty bucket is not drawn: {shown}");
+    assert!(shown.contains("Shipment SHP-SHP_EX Exception Collector Zero · 3 items across 2 lines"), "{shown}");
+    assert!(shown.contains("Carrier delay Stuck at the hub."), "the exception and its notes: {shown}");
+    assert!(shown.contains("Tracking 9400TRACK"), "a title is its tracking once it has one: {shown}");
+    // The next action: dispatch is a form, packing opens the packing page.
+    assert!(html.contains(r#"name="intent" value="dispatch">Mark dispatched</button>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments/shp_new/packing">Pack shipment</a>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="shipment" value="shp_rtd">"#), "{html}");
+    assert!(html.contains(ATTEMPT_INPUT), "every form carries an attempt: {html}");
+    // The rest under More actions; one the pilot does not know is not drawn.
+    assert!(html.contains("<details"), "{html}");
+    // Each form's hidden note (the browser cannot keep the attempt) is in the text; not shown.
+    let visible = shown.replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    assert!(visible.contains("More actions Cancel shipment Record return Open shipment"), "{visible}");
+    assert!(!html.contains("brand-new-action"), "{html}");
+    assert!(html.contains(r#"<select"#) && html.contains(r#"name="exception_type""#), "raise exception's type: {html}");
+    assert!(html.contains(r#"<option value="carrier-delay" selected>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments/shp_rtd">Open shipment</a>"#), "{html}");
+    assert!(center_writes(&pilot).is_empty(), "drawing the page sends nothing");
+
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("tracker"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Nothing needs you right now"), "{}", text(&html));
+}
+
+#[tokio::test]
+async fn an_action_is_sent_with_its_attempt_and_the_command_center_reads_after_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments?"), "{to}");
+    let place = query(to);
+    assert_eq!(place["done"], ATTEMPT, "the page settles the attempt");
+    assert_eq!(place["shipment"], "shp_rtd");
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    assert_eq!(center_writes(&pilot), [("/shp_rtd/dispatch".to_owned(), ATTEMPT.to_owned(), "{}".to_owned())]);
+
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=raise-exception&exception_type=lost-in-transit&notes=");
+    pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(center_writes(&pilot)[1].2, r#"{"exceptionType":"lost-in-transit","notes":null}"#);
+    let form = format!("attempt={ATTEMPT}&shipment=shp_ex&intent=return");
+    pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(center_writes(&pilot)[2], ("/shp_ex/return".to_owned(), ATTEMPT.to_owned(), r#"{"reason":null}"#.to_owned()));
+}
+
+#[tokio::test]
+async fn a_refused_action_says_why_and_one_applied_before_reads_as_applied() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_ex&intent=cancel-shipment");
+    let (status, _, html) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(
+        shown.contains("That action could not be completed A shipment with an open exception cannot be cancelled."),
+        "{shown}"
+    );
+    assert!(shown.contains("Exceptions (1)"), "the command center is drawn again: {shown}");
+    assert!(shipment_calls(&pilot).iter().any(|c| c.path.ends_with("/shp_ex/mutation-recovery")), "a refusal asks");
+
+    let form = format!("attempt={APPLIED_BEFORE}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(query(headers["location"].to_str().unwrap())["done"], APPLIED_BEFORE);
+}
+
+#[tokio::test]
+async fn an_action_the_api_cannot_confirm_turns_writes_off_until_the_page_checks_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={CHECK_DOWN}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    let place = query(&to);
+    assert_eq!((place["check"].as_str(), place["shipment"].as_str()), (CHECK_DOWN, "shp_rtd"));
+
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm your last shipment action"), "{}", text(&html));
+    assert!(html.contains("<fieldset") && html.contains(" disabled"), "writes are off: {html}");
+    assert!(html.contains("restoreAny"), "the page's script asks about other records: {html}");
+
+    let (_, _, html) =
+        pilot.send(get(&format!("/account/sales/shipments?check={APPLIED_BEFORE}&shipment=shp_rtd"), Some("shipper"))).await;
+    assert!(!text(&html).contains("could not confirm"), "a check the API settles: {}", text(&html));
+}
+
+#[tokio::test]
+async fn an_action_needs_fulfillment_manage_and_an_unknown_one_is_not_sent() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=dispatch");
+    let (status, _, _) = pilot.send(post("/account/sales/shipments", "tracker", &form, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs fulfillment.manage");
+    let (status, _, _) = pilot.send(get("/account/sales/shipments", Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account without fulfillment.view");
+    for intent in ["start-packing", "brand-new-action", ""] {
+        let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent={intent}");
+        let (status, _, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{intent}");
+    }
+    assert!(center_writes(&pilot).is_empty(), "nothing is sent");
+}
+
+#[tokio::test]
+async fn a_sale_shipments_page_draws_the_actions_the_apis_plan_allows_the_next_one_first() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_rtd", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    let visible = shown.replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    // The plan's next action first, then the rest in the plan's order.
+    assert!(
+        visible.contains("Actions Tracking identifier Mark dispatched Void label Exception type Notes Raise exception"),
+        "{visible}"
+    );
+    assert!(html.contains(r#"class="shipment-page__primary" name="intent" value="dispatch">"#), "the next action: {html}");
+    assert!(html.contains(r#"class="shipment-page__secondary" name="intent" value="void-label">"#), "{html}");
+    assert!(html.contains(r#"readonly value="9400TRACK""#), "the tracking is shown, not sent: {html}");
+    assert!(html.contains(r#"action="/account/sales/shipments/shp_rtd""#), "the page's own actions: {html}");
+    assert!(html.contains(ATTEMPT_INPUT), "every form carries an attempt: {html}");
+    assert!(!shown.contains("on marketplace for now"), "{shown}");
+    assert!(html.contains(r#"value="carrier-delay""#), "raise exception's type defaults to a carrier delay: {html}");
+    assert!(center_writes(&pilot).is_empty(), "drawing the page sends nothing");
+
+    // In an exception: the API's plan, with the exception's type and notes kept.
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_ex", Some("shipper"))).await;
+    let visible = text(&html).replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    assert!(visible.contains("Actions Cancel shipment Return notes Mark returned"), "{visible}");
+    assert!(!html.contains("brand-new-action"), "an action the pilot does not know is not drawn: {html}");
+
+    // The plan is the shipment's own read's; the page does not read the command center for it.
+    assert!(!shipment_calls(&pilot).iter().any(|c| c.path.ends_with("/command-center")), "{:?}", shipment_calls(&pilot));
+
+    // A shipment's actions are its own read's plan, not the command center's: a shipment the
+    // command center leaves out still offers what its plan does.
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_wait", Some("shipper"))).await;
+    assert!(html.contains(r#"value="raise-exception""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_label_is_bought_from_its_page_with_the_service_addresses_and_package_or_as_a_letter() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_lbl", Some("shipper"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Letter Mailpiece This shipment is planned as a Letter Mailpiece."), "{shown}");
+    assert!(html.contains(r#"<input type="hidden" name="service_level" value="First">"#), "{html}");
+    assert!(!html.contains(r#"name="sender_name""#), "a letter's label has no address fields: {html}");
+
+    // A letter sends only its service.
+    let form = format!("attempt={ATTEMPT}&intent=buy-label&service_level=First");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments/shp_lbl", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments/shp_lbl?"), "the shipment's page: {to}");
+    let place = query(to);
+    assert_eq!(place["done"], ATTEMPT, "the page settles the attempt");
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    let writes = center_writes(&pilot);
+    assert_eq!(writes[0].0, "/shp_lbl/label/purchase");
+    assert_eq!(writes[0].2, r#"{"overrideReason":"","serviceLevel":"First"}"#);
+
+    // A parcel's label: the addresses as typed and the package as Number() reads it.
+    let address = |prefix: &str| {
+        format!(
+            "&{prefix}_name=Chase+Sets&{prefix}_company=&{prefix}_street1=1+Seller+Way&{prefix}_street2=&{prefix}_city=Austin\
+             &{prefix}_state=TX&{prefix}_postal_code=78701&{prefix}_country=&{prefix}_phone=&{prefix}_email="
+        )
+    };
+    let form = format!(
+        "attempt={ATTEMPT}&intent=buy-label&service_level=PRIORITY{}{}&override_reason=Suite\
+         &package_length_inches=8.5&package_width_inches=&package_height_inches=2&package_weight_ounces=x",
+        address("sender"),
+        address("recipient"),
+    );
+    pilot.send(post("/account/sales/shipments/shp_lbl", "shipper", &form, false)).await;
+    let body: Value = serde_json::from_str(&center_writes(&pilot)[1].2).unwrap();
+    assert_eq!(body["serviceLevel"], "PRIORITY");
+    assert_eq!((body["senderName"].as_str(), body["senderCountry"].as_str()), (Some("Chase Sets"), Some("US")));
+    assert_eq!(body["recipientStreet1"], "1 Seller Way");
+    assert_eq!(body["recipientStreet2"], "", "an empty field is sent as typed");
+    assert_eq!(body["overrideReason"], "Suite");
+    assert_eq!(
+        [&body["packageLengthInches"], &body["packageWidthInches"], &body["packageHeightInches"], &body["packageWeightOunces"]],
+        [&json!(8.5), &json!(5.0), &json!(2.0), &Value::Null],
+        "an empty size is the form's default and one that is not a number is null"
+    );
+}
+
+#[tokio::test]
+async fn a_parcels_label_form_is_filled_from_the_shipments_addresses() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_rtd", Some("shipper"))).await;
+    assert!(!html.contains(r#"name="sender_name""#), "a labelled shipment has no label form: {html}");
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_parcel", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let visible = text(&html).replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    assert!(visible.contains("Actions USPS service"), "{visible}");
+    assert!(visible.contains("Purchase USPS label"), "{visible}");
+    for (name, value) in [
+        ("sender_name", "Chase Sets"),
+        ("sender_company", "Chase Sets LLC"),
+        ("sender_phone", "5125550100"),
+        ("recipient_street2", "Apt 4"),
+        ("recipient_postal_code", "80202"),
+        ("package_length_inches", "7"),
+        ("package_weight_ounces", "4"),
+    ] {
+        assert!(html.contains(&format!(r#"name="{name}" value="{value}""#)), "{name}: {html}");
+    }
+    assert!(html.contains(r#"<option value="USPS_GROUND_ADVANTAGE" selected>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_action_on_its_page_says_why_and_keeps_what_was_typed() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&intent=cancel-shipment&reason=Kept");
+    let (status, _, html) = pilot.send(post("/account/sales/shipments/shp_ex", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Shipment action failed. A shipment with an open exception cannot be cancelled."), "{shown}");
+    assert!(html.contains(">Kept</textarea>"), "the return's reason is kept: {html}");
+
+    let form = format!("attempt={ATTEMPT}&intent=return&reason=Buyer+refused");
+    pilot.send(post("/account/sales/shipments/shp_ex", "shipper", &form, false)).await;
+    let last = center_writes(&pilot).pop().unwrap();
+    assert_eq!((last.0.as_str(), last.2.as_str()), ("/shp_ex/return", r#"{"reason":"Buyer refused"}"#));
+
+    for intent in ["start-packing", "brand-new-action", ""] {
+        let form = format!("attempt={ATTEMPT}&intent={intent}");
+        let (status, _, _) = pilot.send(post("/account/sales/shipments/shp_rtd", "shipper", &form, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{intent}");
+    }
+    let form = format!("attempt={ATTEMPT}&intent=dispatch");
+    let (status, _, _) = pilot.send(post("/account/sales/shipments/shp_rtd", "tracker", &form, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs fulfillment.manage");
+}
+
+#[tokio::test]
+async fn an_action_its_page_cannot_confirm_turns_writes_off_until_the_page_checks_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={CHECK_DOWN}&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments/shp_rtd", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to)["check"], CHECK_DOWN, "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm your last shipment action"), "{}", text(&html));
+    assert!(html.contains("<fieldset") && html.contains(" disabled"), "writes are off: {html}");
+
+    let (_, _, html) =
+        pilot.send(get(&format!("/account/sales/shipments/shp_rtd?check={APPLIED_BEFORE}"), Some("shipper"))).await;
+    assert!(!text(&html).contains("could not confirm"), "a check the API settles: {}", text(&html));
+}
+
+#[tokio::test]
+async fn the_command_center_waits_for_a_write_it_cannot_read_yet() {
+    let pilot = Pilot::new().await;
+    let to = format!("/account/sales/shipments?after_write={}", receipt_at("44"));
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<meta http-equiv="refresh" content="2">"#), "the page reads itself again: {html}");
+    assert!(text(&html).contains("Fulfillment command center"), "{}", text(&html));
 }
 
 /// The packing writes the pilot sent: their path, attempt and body.
@@ -6643,13 +8824,17 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     let finish = html.find("Finish packing").unwrap();
     assert!(html[..finish].rfind("<button").is_some_and(|at| html[at..finish].contains("disabled")), "Finish is off: {html}");
     assert!(shown.contains("Ship to Collector Zero 1 Test Way Austin, TX 78701 US"), "{shown}");
+    // The scan box is the design system's SearchInput: the kit's input group with the search glyph.
+    let scan = html.find(r#"id="packing-scan-code""#).expect("the scan box");
+    let group = html[..scan].rfind(r#"<span class="input-group__input-group "#).expect("the scan's group");
+    assert!(html[group..scan].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#), "{html}");
     // Copy is corten-ui's: each copies a hidden element with the whole value, by the line's id.
     assert!(html.contains(r#"<span id="line-reference-spl_2" hidden>spl_2</span>"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;line-reference-spl_2&quot;"), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;product-reference-spl_2&quot;"), "{html}");
+    assert!(html.contains(r#"ui.copy_button.copy($t,"line-reference-spl_2""#), "{html}");
+    assert!(html.contains(r#"ui.copy_button.copy($t,"product-reference-spl_2""#), "{html}");
     assert!(html.contains(r#"<span id="ship-to" hidden>Collector Zero"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;ship-to&quot;"), "{html}");
-    // The pilot's own address, which redirects to marketplace's command center.
+    assert!(html.contains(r#"ui.copy_button.copy($t,"ship-to""#), "{html}");
+    // The command center.
     assert!(html.contains(r#"href="/account/sales/shipments">Back to shipments</a>"#), "{html}");
 
     let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_full/packing", Some("shipper"))).await;
@@ -6902,8 +9087,9 @@ const ACCOUNT_HOME: &str = "/account";
 
 /// The stand-in Identity account `acc_seller` and who is signed in to it. A read that waits for 45
 /// is still catching up. A profile update's attempt decides an answer as an address write's does
-/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict and the
-/// marketplace name `Refused` is refused for its fields.
+/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict, the
+/// marketplace name `Refused` is refused for its fields, and a blank name is refused as Identity
+/// refuses it, naming the field.
 fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     if path == "/api/identity/current-actor-display" {
         return Some(
@@ -6939,6 +9125,16 @@ fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &
             Json(json!({ "outcome": "conflict", "code": "owner-state-conflict", "current": { "id": "acc_seller", "version": 3, "status": "active" } })),
         )
             .into_response(),
+        "PUT" if ["name", "displayName"].iter().any(|f| sent[f].as_str().is_some_and(|v| v.trim().is_empty())) => {
+            let (field, message) = if sent["name"].as_str().is_some_and(|v| v.trim().is_empty()) {
+                ("name", "Legal name is required.")
+            } else {
+                ("displayName", "Marketplace name is required.")
+            };
+            let details = json!([{ "field": field, "code": "required", "message": message }]);
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })))
+                .into_response()
+        }
         "PUT" if sent["displayName"] == "Refused" => {
             (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
         }
@@ -7001,7 +9197,7 @@ async fn the_account_page_shows_the_profile_who_is_signed_in_and_where_to_manage
     );
     assert!(html.contains("<title>Account | Marketplace</title>"), "{html}");
     assert!(html.contains(r#"method="post" action="/account""#), "{html}");
-    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required"#) && !html.contains("pattern="), "{html}");
     assert!(html.contains(r#"name="display_name" value="Synthetic Shop" required"#), "{html}");
     assert_eq!(html.matches(ATTEMPT_INPUT).count(), 1, "the update carries an attempt: {html}");
     for (href, words) in [
@@ -7044,6 +9240,23 @@ async fn an_updated_profile_is_read_after_its_write_and_the_page_says_it_was_sav
     assert!(text(&html).contains("Your change was saved"), "{}", text(&html));
     let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == ACCOUNT_API).cloned().unwrap();
     assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the account waits for the write");
+}
+
+#[tokio::test]
+async fn a_blank_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    for (name, display_name, field, said) in [
+        ("+++", "Shop", "name", "Legal name is required."),
+        ("Synthetic+Legal+LLC", "+", "display_name", "Marketplace name is required."),
+    ] {
+        let body = format!("attempt={ATTEMPT}&name={name}&display_name={display_name}");
+        let (status, _, html) = pilot.send(post(ACCOUNT_HOME, "addresser", &body, true)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+        assert!(text(&html).contains(said), "{}", text(&html));
+        let input = html.split(&format!(r#"name="{field}""#)).nth(1).unwrap().split('>').next().unwrap();
+        assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    }
+    assert_eq!(profile_writes(&pilot).len(), 2, "each blank name is sent for Identity to refuse");
 }
 
 #[tokio::test]
@@ -7128,12 +9341,12 @@ fn key_committed(id: &str, secret: bool) -> Response {
     committed(StatusCode::OK, "identity", "42", body)
 }
 
-/// The stand-in Identity user `usr_seller` and the API keys: Shop sync (active), Old feed
-/// (revoked), and another user's key whose name holds `usr_seller`, which Identity's `search`
-/// matches too. A read that waits for 45 is still catching up. A write's attempt decides an answer
+/// The stand-in Identity user `usr_seller` and its API keys as Identity lists them to the user:
+/// Shop sync (active) and Old feed (revoked). A read that waits for 45 is still catching up. A write's attempt decides an answer
 /// as an address write's does: `NO_RECORD`, `APPLIED_BEFORE` and `CHECK_DOWN` are answered
 /// `indeterminate`, and the lookup says nothing was recorded, that it was (its secret lost), or
-/// cannot say. A display name `Refused` is refused; a key named `Taken` is a conflict.
+/// cannot say. A display name `Refused` is refused; a blank one is refused as Identity refuses it,
+/// naming the field; a key named `Taken` is a conflict.
 fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     let path = uri.path();
     let indeterminate = || {
@@ -7173,6 +9386,15 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
             }))
             .into_response(),
             "PUT" if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+            "PUT" if sent["displayName"].as_str().is_some_and(|v| v.trim().is_empty()) => {
+                let message = "Display name is required.";
+                let details = json!([{ "field": "displayName", "code": "required", "message": message }]);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })),
+                )
+                    .into_response()
+            }
             "PUT" if sent["displayName"] == "Refused" => {
                 (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
             }
@@ -7190,12 +9412,9 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
     Some(match (method.as_str(), rest) {
         ("GET", "") if waits_for(headers).as_deref() == Some("45") => catching_up(),
         ("GET", "") => {
-            let items = [
-                key("key_live", "usr_seller", "Shop sync", "active"),
-                key("key_old", "usr_seller", "Old feed", "revoked"),
-                key("key_else", "usr_other", "usr_seller backup", "active"),
-            ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            let items =
+                [key("key_live", "usr_seller", "Shop sync", "active"), key("key_old", "usr_seller", "Old feed", "revoked")];
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         ("POST", "") if sent["name"] == "Taken" => {
@@ -7245,14 +9464,15 @@ async fn the_security_page_shows_the_user_its_own_keys_and_their_controls() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
     assert!(html.contains("<title>Security | Marketplace</title>"), "{html}");
-    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required autocomplete="nickname""#), "{html}");
     assert!(html.contains(r#"name="given_name" value="Syn""#) && html.contains(r#"name="family_name" value="Seller""#), "{html}");
     assert!(
         shown.contains("Enabled Methods 3 Password, Passkey, Unrecognized authentication method: Hardware Token"),
         "an unknown method is named as Identity names it: {shown}"
     );
-    assert!(shown.contains("API Keys 1 2 total keys tracked"), "another user's key is not counted: {shown}");
-    assert!(!shown.contains("usr_seller backup"), "another user's key is not shown: {shown}");
+    assert!(shown.contains("API Keys 1 2 total keys tracked"), "{shown}");
+    let reads: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(reads.iter().any(|c| c == KEYS_API), "Identity scopes the list itself: {reads:?}");
     assert!(shown.contains("Shop sync (Active), Old feed (Revoked)"), "{shown}");
     assert!(shown.contains("Updated Oct 24, 2026"), "{shown}");
     assert_eq!(html.matches(r#"value="rotate-api-key""#).count(), 1, "only an active key rotates: {html}");
@@ -7273,8 +9493,9 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert!(text(&html).contains("API key secret created"), "{}", text(&html));
     assert!(html.contains(&format!(r#"<code id="secret">{STAND_IN_SECRET}</code>"#)), "{html}");
     assert!(
-        html.contains(r#"<button data-scope="ui-copy-button" type="button" hidden"#)
-            && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
+        html.contains(
+            r#"<button data-scope="ui-copy-button" type="button" class="security-page__button security-page__primary" hidden"#
+        ) && html.contains(r#"ui.copy_button.copy($t,"secret",@said,"Copied",$s)"#),
         "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
@@ -7351,6 +9572,19 @@ async fn a_refused_security_write_says_so_and_sends_nothing_it_cannot_name() {
 }
 
 #[tokio::test]
+async fn a_blank_display_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    let sent = security_writes(&pilot).len();
+    let body = format!("intent=update-user&attempt={ATTEMPT}&display_name=+++&given_name=Syn&family_name=");
+    let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Display name is required."), "{}", text(&html));
+    let input = html.split(r#"name="display_name""#).nth(1).unwrap().split('>').next().unwrap();
+    assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    assert_eq!(security_writes(&pilot).len(), sent + 1, "the blank name is sent for Identity to refuse");
+}
+
+#[tokio::test]
 async fn a_key_write_without_an_answer_is_asked_about_and_its_lost_secret_is_said() {
     let pilot = Pilot::new().await;
     let body = format!("intent=create-api-key&attempt={APPLIED_BEFORE}&name=CI&purpose=integration");
@@ -7406,7 +9640,9 @@ fn session_row(id: &str, user: &str, status: &str, method: &str, available: &[&s
 /// link), `ses_down` (active, one account, whose revoke fails), and `ses_else`, another user's
 /// whose display name mentions `usr_seller`, which Auth's list matches too. A read that waits for 45
 /// is still catching up; `ses_gone` is not found and `ses_else` forbidden. A revoke of `ses_one`
-/// or a switch of it to `acc_two` is done (a receipt at 42); every other write is Auth's 500.
+/// or a switch of it to `acc_two` is done (a receipt at 42), and a revoke of the revoked `ses_old`
+/// is done with nothing written. Auth names a refusal: a switch to the current or an unavailable
+/// account, or of a session no longer active. `ses_down`'s revoke is a 500.
 fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix(SESSIONS_API)?;
     let failed = || refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
@@ -7439,6 +9675,16 @@ fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) ->
         }
         ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_two" => {
             committed(StatusCode::OK, "auth", "42", json!({ "id": "ses_one", "version": 2, "status": "active" }))
+        }
+        ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_seller" => {
+            refusal(StatusCode::CONFLICT, "session_account_current", "This session is already using that account.")
+        }
+        ("POST", "/ses_one/switch-account") => {
+            refusal(StatusCode::BAD_REQUEST, "session_account_unavailable", "This session cannot switch to that account.")
+        }
+        ("POST", "/ses_old/revoke") => Json(json!({ "id": "ses_old", "version": 2, "status": "revoked" })).into_response(),
+        ("POST", "/ses_old/switch-account") => {
+            refusal(StatusCode::CONFLICT, "session_not_active", "This session is no longer active.")
         }
         ("POST", _) => failed(),
         _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
@@ -7549,10 +9795,23 @@ async fn a_revoke_or_switch_is_read_after_its_write_and_a_failed_one_says_what_t
 
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_two", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched");
+    let reads = |pilot: &Pilot| {
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::GET && c.path.starts_with(SESSIONS_API)).count()
+    };
+    let before = reads(&pilot);
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_bogus", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switch-refused", "Auth's 500, and the account unchanged");
+    assert_eq!(
+        query(headers["location"].to_str().unwrap())["said"],
+        "switch-refused",
+        "Auth's refusal of an unavailable account"
+    );
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_seller", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched", "already on that account");
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/switch"), "guard", "account_id=acc_two", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "a switch of a revoked session");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/revoke"), "guard", "", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "Auth's 500 for a revoked session");
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "revoked", "a revoked session's revoke is done");
+    assert_eq!(reads(&pilot), before, "a named refusal is not read again");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_down/revoke"), "guard", "", false)).await;
     let to = headers["location"].to_str().unwrap().to_owned();
     assert_eq!(query(&to)["said"], "failed", "still active after a failed revoke");
@@ -7909,7 +10168,8 @@ async fn the_mandate_is_sent_as_cents_and_an_amount_that_is_not_one_is_refused()
 #[tokio::test]
 async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let pilot = Pilot::new().await;
-    let webhook = format!("{AGENTS}/lpa_one/webhook");
+    // The webhook form posts to the grant's own page, which shows the secret once.
+    let webhook = format!("{AGENTS}/lpa_one");
     let (status, headers, html) =
         pilot.send(post(&webhook, "buyer", "callback_url=https%3A%2F%2Fagent.example%2Fnew", false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -7922,16 +10182,14 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let (_, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_one"), Some("buyer"))).await;
     assert!(!html.contains("whsec_synthetic_new_secret"), "the page read again never has the secret");
     assert!(
-        html.contains(r#"action="/account/agents/lpa_one/webhook" data-patch"#),
+        html.contains(r#"action="/account/agents/lpa_one" data-patch"#),
         "the runtime sends it: a reload does not post it again"
     );
     let (status, headers, html) =
         pilot.send(post(&webhook, "buyer", "callback_url=https%3A%2F%2Fagent.example%2Fnew", true)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        headers.contains_key("corten-page") && headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"),
-        "{headers:?}"
-    );
+    // The runtime draws a write's own page whole, so the shell's reads are current too.
+    assert!(html.contains("<html") && headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
     assert!(html.contains("whsec_synthetic_new_secret"), "the page with its secret replaces this one");
 
     let (status, _, html) = pilot.send(post(&webhook, "buyer", "callback_url=http%3A%2F%2Fagent.example", false)).await;
@@ -7940,12 +10198,12 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let (_, headers, _) = pilot.send(post(&webhook, "buyer", "callback_url=+", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "webhook-disabled", "an empty address disables it");
     let (_, headers, _) =
-        pilot.send(post(&format!("{webhook}/disable"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
+        pilot.send(post(&format!("{webhook}/webhook/disable"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "webhook-disabled");
     let writes = ucp_writes(&pilot);
     assert_eq!((writes[3].2.clone(), writes[4].2.clone()), (json!({ "callback_url": null }), json!({ "callback_url": null })));
     let (_, headers, _) =
-        pilot.send(post(&format!("{AGENTS}/lpa_old/webhook"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
+        pilot.send(post(&format!("{AGENTS}/lpa_old"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "grant-revoked");
 }
 
@@ -8272,8 +10530,8 @@ fn multipart_fields(headers: &HeaderMap, body: &str) -> Option<Vec<(String, Opti
 /// The search finds `cat_etb` for "twilight", nothing for "zzz", and fails for "broken";
 /// `cat_card` is a card with options (Inventory's read has no `valueKind`). A guest's draft
 /// `ldi_1` is claimed with an `anon_` owner. The create refuses `purchaseLimits`, as the multipart
-/// create does, answers 500 for a photo named `broken.png`
-/// (chase-sets/chase-sets#10649), and records the rest as the JSON create does.
+/// create does, refuses a photo named `broken.png` as evidence it cannot decode, and records the
+/// rest as the JSON create does.
 fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     let query = uri.query().unwrap_or_default();
@@ -8381,7 +10639,7 @@ fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
                 return Some(refusal(StatusCode::BAD_REQUEST, "listing_request_unknown_field", "Remove unrecognized fields and try again."));
             }
             if photos.iter().any(|p| p["filename"] == "broken.png") {
-                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                return Some(refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again."));
             }
             if sent["inventoryItemId"] == "inv_missing" && sent["inventorySnapshot"].is_null() {
                 return Some(refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item was not found."));
@@ -8420,6 +10678,7 @@ fn post_multipart(uri: &str, session: &str, fields: &[(&str, &str)], files: &[(&
     body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
     Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={BOUNDARY}"))
         .body(Body::from(body))
@@ -8559,11 +10818,11 @@ async fn a_photo_the_api_would_not_take_is_refused_with_the_form_and_nothing_is_
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Each photo must be 10 MB or smaller."), "{html}");
     assert_eq!(create_calls(&pilot), 0);
-    // The API's 500 for a photo it cannot decode (chase-sets/chase-sets#10649) is the form again.
+    // A photo the API cannot decode is refused by it, with the form again.
     let (status, _, html) =
         pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[("evidence", "broken.png", "image/png", PNG)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(text(&html).contains("The photos could not be processed, so nothing was created."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     assert!(pilot.stand.listings.lock().unwrap().is_empty());
 }
 
@@ -8750,8 +11009,9 @@ fn attention_queue() -> Value {
 /// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
 /// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
-/// the reason `bogus` is refused, as is an order capacity of 1000; pausing `lst_locked` is
-/// refused and `lst_broken` fails. Every other write applies at 51.
+/// the reason `bogus` is refused, as is an order capacity of 1000; one of 999 is another
+/// attempt's (409 `attempt_conflict`), and one of 998 has no confirmed result (409
+/// `history_incomplete`). Every write applies at 51.
 fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const ACCOUNT: &str = "/api/marketplace/account";
     let path = uri.path().strip_prefix(ACCOUNT)?;
@@ -8828,6 +11088,14 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
         ("POST", "/order-capacity") if sent["maxOpenOrders"] == 1000 => {
             refusal(StatusCode::BAD_REQUEST, "order_capacity_invalid", "Order capacity must be a whole number of at least 1.")
         }
+        ("POST", "/order-capacity") if sent["maxOpenOrders"] == 999 => {
+            refusal(StatusCode::CONFLICT, "attempt_conflict", "Idempotency key was already used with a different request.")
+        }
+        ("POST", "/order-capacity") if sent["maxOpenOrders"] == 998 => {
+            let mut answer = refusal(StatusCode::CONFLICT, "history_incomplete", "Mutation attempt history is incomplete.");
+            answer.headers_mut().insert(UNSETTLED, header::HeaderValue::from_static("1"));
+            answer
+        }
         (
             "POST",
             "/listing-availability/disable"
@@ -8836,20 +11104,172 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
             | "/order-capacity",
         )
         | ("DELETE", "/listing-availability/away-window" | "/order-capacity") => applied(),
-        ("POST", "/listings/lst_locked/pause") => {
-            refusal(StatusCode::BAD_REQUEST, "listing_command_rejected", "Listing cannot be paused from its current status.")
-        }
-        ("POST", "/listings/lst_broken/pause") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => return None,
     })
+}
+
+/// The intents Marketplace prepares (`listingRecoveryCommands`): each one's mutation family, the
+/// command name its batch id ends with, and whether it is a bulk change.
+fn listing_recovery_command(intent: &str) -> Option<(&'static str, &'static str, bool)> {
+    Some(match intent {
+        "bulk-pause-listings" => ("listing.pause", "bulk-pause-listings", true),
+        "bulk-withdraw-listings" => ("listing.withdraw", "bulk-withdraw-listings", true),
+        "publish" => ("listing.publish", "publishListing", false),
+        "pause" => ("listing.pause", "pauseListing", false),
+        "withdraw" => ("listing.withdraw", "withdrawListing", false),
+        "update-price" => ("listing.update-price", "updateListingPrice", false),
+        "update-quantity-cap" => ("listing.update-quantity", "updateListingQuantityCap", false),
+        "update-purchase-limits" => ("listing.update-purchase-limits", "updateListingPurchaseLimits", false),
+        "disable-listing-availability" => ("seller.availability", "disableSellerListingAvailability", false),
+        "enable-listing-availability" => ("seller.availability", "enableSellerListingAvailability", false),
+        "schedule-away-window" => ("seller.away", "scheduleSellerAwayWindow", false),
+        "cancel-away-window" => ("seller.away", "cancelScheduledAwayWindow", false),
+        "set-order-capacity" => ("seller.order-capacity", "setSellerOrderCapacity", false),
+        "clear-order-capacity" => ("seller.order-capacity", "clearSellerOrderCapacity", false),
+        _ => return None,
+    })
+}
+
+/// Nothing Marketplace can confirm (`ambiguousListingRecovery`).
+fn unconfirmed_recovery() -> Value {
+    json!({ "identity": null, "phase": "ambiguous", "items": [], "retryTargetIds": [] })
+}
+
+/// Marketplace's Listing change routes, as the stand-in answers them (`listing-batch`).
+///
+/// Prepare answers a reference whose batch id is the attempt and the command's name, and keeps
+/// the change as confirming, its form offered again (`reentry`) until a command settles it
+/// (`settle`); an intent it does not prepare has no reference. With a retained reference, only
+/// the form it offers again is prepared; anything else answers its recovery. `lister_ended`'s
+/// session ended, and a bulk change naming `lst_foreign` is refused.
+///
+/// The recovery read answers what was kept; a batch id that begins `readfails` cannot be read
+/// (503), and one never prepared is unconfirmed.
+///
+/// Retry sends a bulk change's listings whose outcome is unknown: `lst_locked` is an error,
+/// `lst_unsure` stays unknown, the others succeed, at 50. A change naming `lst_broken` fails (500).
+fn listing_batches(stand: &Stand, session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    const BATCH: &str = "/api/marketplace/account/listings/batch/";
+    let rest = uri.path().strip_prefix(BATCH)?;
+    if session == "lister_ended" {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let mut batches = stand.batches.lock().unwrap();
+    Some(match (method.as_str(), rest) {
+        ("POST", "prepare") => {
+            let intent = sent["intent"].as_str().unwrap_or_default();
+            let key = sent["idempotencyKey"].as_str().unwrap_or_default();
+            if let Some(retained) = sent["retained"]["batchId"].as_str() {
+                let kept = batches.get(retained).map(|(_, recovery)| recovery.clone());
+                let offered =
+                    kept.as_ref().is_some_and(|r| r["reentry"]["intent"] == intent && r["reentry"]["idempotencyKey"] == key);
+                if !offered {
+                    return Some(Json(json!({ "recovery": kept.unwrap_or_else(unconfirmed_recovery) })).into_response());
+                }
+            }
+            let Some((family, name, bulk)) = listing_recovery_command(intent) else {
+                return Some(Json(json!({ "reference": null })).into_response());
+            };
+            if !crate::api::valid_listing_attempt(key) {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_attempt",
+                    "A valid Listing attempt identity is required.",
+                ));
+            }
+            let targets: Vec<Value> = if bulk {
+                let ids: Vec<Value> = sent["listingIds"].as_array().cloned().unwrap_or_default();
+                if ids.iter().any(|id| id == "lst_foreign") {
+                    return Some(refusal(StatusCode::BAD_REQUEST, "id-invalid", "Listing batch targets are invalid."));
+                }
+                ids
+            } else {
+                vec![sent["listingId"].as_str().map_or(json!("acc_seller"), |id| json!(id))]
+            };
+            let batch_id = format!("{key}_{name}");
+            let identity = json!({ "batchId": batch_id, "mutationKind": family, "bulk": bulk });
+            batches.entry(batch_id).or_insert_with(|| {
+                let items: Vec<Value> = targets.iter().map(|id| json!({ "targetId": id, "outcome": "unknown" })).collect();
+                let reentry = (!bulk).then(|| json!({ "intent": intent, "idempotencyKey": key }));
+                let retry = if bulk { targets.clone() } else { Vec::new() };
+                let recovery = json!({
+                    "identity": identity, "phase": "confirming", "items": items, "retryTargetIds": retry, "reentry": reentry,
+                });
+                (intent.to_owned(), recovery)
+            });
+            Json(json!({ "reference": identity })).into_response()
+        }
+        ("POST", "retry") => {
+            let batch_id = sent["batchId"].as_str().unwrap_or_default();
+            let Some((_, recovery)) = batches.get_mut(batch_id) else {
+                return Some(refusal(StatusCode::NOT_FOUND, "listing_batch_not_found", "Listing batch not found."));
+            };
+            let items = recovery["items"].as_array_mut().expect("items");
+            if items.iter().any(|item| item["targetId"] == "lst_broken") {
+                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+            }
+            let mut sent_now = Vec::new();
+            for item in items.iter_mut().filter(|item| item["outcome"] == "unknown") {
+                sent_now.push(item["targetId"].clone());
+                item["outcome"] = json!(match item["targetId"].as_str().unwrap_or_default() {
+                    "lst_locked" => "error",
+                    "lst_unsure" => "unknown",
+                    _ => "succeeded",
+                });
+            }
+            let count = |outcome: &str| items.iter().filter(|item| item["outcome"] == outcome).count();
+            let (succeeded, total) = (count("succeeded"), items.len());
+            let unknown: Vec<Value> =
+                items.iter().filter(|item| item["outcome"] == "unknown").map(|item| item["targetId"].clone()).collect();
+            recovery["phase"] = json!(match (succeeded, unknown.is_empty()) {
+                (s, true) if s == total => "succeeded",
+                (0, true) => "failed-safe",
+                _ => "partial",
+            });
+            recovery["retryTargetIds"] = json!(unknown);
+            committed(StatusCode::OK, "marketplace", "50", json!({ "recovery": recovery, "sent": sent_now }))
+        }
+        ("GET", batch_id) if batch_id.starts_with("readfails") => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        ("GET", batch_id) => {
+            Json(batches.get(batch_id).map_or_else(unconfirmed_recovery, |(_, recovery)| recovery.clone())).into_response()
+        }
+        _ => return None,
+    })
+}
+
+/// A stand-in answer Marketplace records nothing for (`history_incomplete`).
+const UNSETTLED: &str = "stand-unsettled";
+
+/// What a command sent under a prepared batch id came to, as Marketplace records it: applied, in
+/// conflict (409), or refused (another 4xx). One with no answer it can confirm (a 5xx, or
+/// `UNSETTLED`) stays confirming, its form offered again.
+fn settle(stand: &Stand, headers: &HeaderMap, answer: &Response) {
+    let Some(key) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) else { return };
+    if answer.headers().contains_key(UNSETTLED) {
+        return;
+    }
+    let mut batches = stand.batches.lock().unwrap();
+    let Some((_, recovery)) = batches.get_mut(key) else { return };
+    let (phase, outcome) = match answer.status() {
+        s if s.is_success() => ("succeeded", "succeeded"),
+        StatusCode::CONFLICT => ("conflict", "conflict"),
+        s if s.is_client_error() => ("failed-safe", "error"),
+        _ => return,
+    };
+    recovery["phase"] = json!(phase);
+    recovery["reentry"] = Value::Null;
+    for item in recovery["items"].as_array_mut().expect("items") {
+        item["outcome"] = json!(outcome);
+    }
 }
 
 /// The seller's listing page's calls, as the stand-in answers them. A read that waits for 43 is
 /// still catching up; `lst_missing` is not found. A price of 1.00 is a stale quote (409 with the
 /// current one) and 0.50 is refused; an image description with a text-direction override is
 /// refused with its code; publishing the draft is refused for its evidence (409 with the
-/// readiness now); photos named `broken.png` are a 500 (chase-sets/chase-sets#10649). Every
-/// other write applies at 50.
+/// readiness now); photos named `broken.png` are refused as evidence it cannot decode, and a price
+/// of 5.00 is a 500, whose answer is lost. Every other write applies at 50.
 fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(SELLER_LISTINGS)?;
     let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
@@ -8891,6 +11311,7 @@ fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str)
         ("POST", "price") if sent["priceAmount"] == "0.50" => {
             refusal(StatusCode::BAD_REQUEST, "command-rejected", "Listing price is below the marketplace minimum.")
         }
+        ("POST", "price") if sent["priceAmount"] == "5.00" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         ("POST", a) if a.ends_with("/classify") && sent["altText"].as_str().is_some_and(|t| t.contains('\u{202E}')) => {
             refusal(StatusCode::BAD_REQUEST, "text_direction_override", "Remove hidden text-direction characters.")
         }
@@ -8903,7 +11324,9 @@ fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str)
             } })),
         )
             .into_response(),
-        ("POST", _) if body.contains("filename=\"broken.png\"") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        ("POST", _) if body.contains("filename=\"broken.png\"") => {
+            refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again.")
+        }
         ("POST", _) | ("DELETE", _) => applied(),
         _ => return None,
     })
@@ -8920,6 +11343,8 @@ async fn a_sellers_listing_shows_its_overview_fees_readiness_and_forms_and_only_
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/listings/lst_active", Some("lister"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    // Price, quantity cap, purchase limits, publish, pause and withdraw each carry an attempt.
+    assert_eq!(html.matches(r#"name="attempt" data-submit value=""#).count(), 6, "{html}");
     let page = text(&html);
     for words in [
         "Charizard",
@@ -8970,6 +11395,119 @@ async fn a_sellers_listing_shows_its_overview_fees_readiness_and_forms_and_only_
     assert!(!html.contains("ph_old"), "{html}");
 }
 
+/// A listing page's address naming the change `reference`.
+fn naming(path: &str, reference: &Value) -> String {
+    let reference = reference.to_string();
+    let reference = percent_encoding::utf8_percent_encode(&reference, percent_encoding::NON_ALPHANUMERIC);
+    format!("{path}?listingRecovery={reference}")
+}
+
+#[tokio::test]
+async fn a_listing_change_names_itself_and_the_page_after_it_says_it_is_confirmed_with_its_writes_off() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let body = format!("intent=pause&attempt={attempt}");
+    let (status, headers, _) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let reference: Value = serde_json::from_str(&query(&to)["listingRecovery"]).unwrap();
+    assert_eq!(
+        reference,
+        json!({ "batchId": format!("{attempt}_pauseListing"), "mutationKind": "listing.pause", "bulk": false })
+    );
+    let (status, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Your Listing change is confirmed."), "{page}");
+    assert!(page.contains("lst_active: succeeded, will not send again"), "{page}");
+    assert!(html.contains(r#"href="/account/listings/lst_active">Start another change</a>"#), "{html}");
+    // Its writes are off, and its forms post to the page naming the change.
+    assert!(html.contains(r#"value="update-price" disabled>"#), "{html}");
+    assert!(html.contains(r#"type="submit" disabled>Pause listing</button>"#), "{html}");
+    assert!(html.contains(r#"action="/account/listings/lst_active?listingRecovery="#), "{html}");
+    // Another write from it, a photo's too, is not sent: the page says what came of the change.
+    let before = listing_writes(&pilot, "lst_active").len();
+    for body in [format!("intent=withdraw&attempt={}", new_attempt()), "intent=reorder-photos&orderedPhotoIds=ph_2%2Cph_1".into()]
+    {
+        let (status, _, html) = pilot.send(post(&to, "lister", &body, false)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}: {html}");
+        assert!(text(&html).contains("Your Listing change is confirmed."), "{html}");
+    }
+    assert_eq!(listing_writes(&pilot, "lst_active").len(), before);
+}
+
+#[tokio::test]
+async fn a_listing_change_whose_answer_is_lost_is_read_back_and_only_the_same_form_is_sent_under_its_attempt() {
+    let pilot = Pilot::new().await;
+    let body = |price: &str, attempt: &str| {
+        format!("intent=update-price&priceAmount={price}&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing&attempt={attempt}")
+    };
+    let first = new_attempt();
+    let (status, headers, _) = pilot.send(post("/account/listings/lst_active", "lister", &body("5.00", &first), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(query(&to).contains_key("listingRecovery") && !query(&to).contains_key("afterWrite"), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    let page = text(&html);
+    assert!(page.contains("Confirming the result of your Listing change."), "{page}");
+    assert!(page.contains("No result is recorded. Re-enter the same details to retry this attempt"), "{page}");
+    assert!(html.contains(r#"value="update-price">"#), "the same form may be entered again: {html}");
+    // Another form is not sent.
+    let (status, _, _) = pilot.send(post(&to, "lister", &format!("intent=pause&attempt={}", new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    // The same form, drawn again with a new attempt, is sent under the first.
+    let (status, headers, _) = pilot.send(post(&to, "lister", &body("12.00", &new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let keys: Vec<String> =
+        listing_writes(&pilot, "lst_active").iter().map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned()).collect();
+    let batch_id = format!("{first}_updateListingPrice");
+    assert_eq!(keys, [batch_id.clone(), batch_id.clone()]);
+    let prepared = preparations(&pilot);
+    assert_eq!(prepared.len(), 2, "the other form was not prepared: {prepared:?}");
+    assert_eq!(prepared[1]["idempotencyKey"], first.as_str());
+    assert_eq!(prepared[1]["retained"]["batchId"], batch_id.as_str());
+    let (_, _, html) = pilot.send(get(headers[header::LOCATION].to_str().unwrap(), Some("lister"))).await;
+    assert!(text(&html).contains("Your Listing change is confirmed."), "{html}");
+}
+
+#[tokio::test]
+async fn a_listing_change_refused_says_so_and_a_listing_that_cannot_be_read_says_only_what_came_of_its_change() {
+    let pilot = Pilot::new().await;
+    // Refused: not applied, with the API's words, and the page's writes are off.
+    let body = format!("intent=update-price&priceAmount=0.50&priceCurrencyCode=USD&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("The change was not sent. Review your inputs before trying again."), "{page}");
+    assert!(page.contains("lst_active: failed safely, will not send again"), "{page}");
+    assert!(page.contains("Listing price is below the marketplace minimum."), "{page}");
+    assert!(html.contains(r#"value="update-price" disabled>"#), "{html}");
+    // A stale quote is a conflict.
+    let body = format!(
+        "intent=update-price&priceAmount=1.00&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing&attempt={}",
+        new_attempt()
+    );
+    let (status, _, html) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("This Listing change conflicts with its recorded result."), "{page}");
+    assert!(page.contains("lst_active: conflict, will not send again"), "{page}");
+    // A listing that cannot be read, on a page naming a change, says only what came of it.
+    let reference =
+        json!({ "batchId": format!("{}_pauseListing", new_attempt()), "mutationKind": "listing.pause", "bulk": false });
+    let (status, _, html) = pilot.send(get(&naming("/account/listings/lst_missing", &reference), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("We could not confirm the result.") && page.contains("Check the recorded result again"), "{page}");
+    assert!(!html.contains("update-price") && html.contains("Listing | Marketplace"), "{html}");
+    // A change whose outcome cannot be read is unconfirmed, and the page's writes are off.
+    let reference =
+        json!({ "batchId": "readfails-0123456789abcdef_pauseListing", "mutationKind": "listing.pause", "bulk": false });
+    let (status, _, html) = pilot.send(get(&naming("/account/listings/lst_active", &reference), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert!(html.contains(r#"type="submit" disabled>Pause listing</button>"#), "{html}");
+}
 #[tokio::test]
 async fn a_sellers_listing_needs_listings_view_to_read_and_listings_manage_to_write() {
     let pilot = Pilot::new().await;
@@ -9033,18 +11571,36 @@ async fn a_listing_write_goes_back_to_the_page_after_its_receipt_and_sends_what_
     ];
     for (intent, fields, path, body, event) in cases {
         let id = "lst_draft";
-        let (status, headers, html) =
-            pilot.send(post(&format!("/account/listings/{id}"), "lister", &format!("intent={intent}&{fields}"), false)).await;
+        let attempt = new_attempt();
+        let form = format!("intent={intent}&{fields}&attempt={attempt}");
+        let (status, headers, html) = pilot.send(post(&format!("/account/listings/{id}"), "lister", &form, false)).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{intent}: {html}");
         let to = at(&headers);
         assert!(to.starts_with(&format!("/account/listings/{id}?")), "{to}");
         let q = query(&to);
         assert!(q.contains_key("afterWrite"), "{to}");
         assert_eq!(q.get("evidenceEvent").map(String::as_str), event, "{intent}: {to}");
+        let photo = event == Some("remediation_completed");
+        // A change Marketplace prepares names itself on the page after it; a photo write does not.
+        assert_eq!(q.contains_key("listingRecovery"), !photo, "{intent}: {to}");
         let call = listing_writes(&pilot, id).pop().unwrap();
         assert_eq!(call.path, format!("{SELLER_LISTINGS}{id}/{path}"), "{intent}");
         let sent: Value = serde_json::from_str(&call.body).unwrap_or_default();
         assert_eq!(sent, body, "{intent}");
+        // The batch id Marketplace prepared from the form's attempt is the Listing attempt; a photo
+        // command is not prepared and has none.
+        let key = call.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned());
+        let named = listing_recovery_command(intent).map(|(_, name, _)| format!("{attempt}_{name}"));
+        assert_eq!(key, named, "{intent}");
+        if !photo {
+            let prepared = preparations(&pilot).pop().unwrap();
+            assert_eq!(prepared["intent"], intent);
+            assert_eq!(prepared["idempotencyKey"], attempt.as_str());
+            assert_eq!(prepared["listingId"], id);
+            if intent == "update-price" {
+                assert_eq!(prepared["fields"], json!({ "priceAmount": "12.00", "priceCurrencyCode": "USD" }));
+            }
+        }
         if intent == "remove-photo" {
             assert_eq!(call.method, Method::DELETE);
         }
@@ -9082,7 +11638,10 @@ async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
         .send(post(
             "/account/listings/lst_active",
             "lister",
-            "intent=update-price&priceAmount=1.00&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing",
+            &format!(
+                "intent=update-price&priceAmount=1.00&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing&attempt={}",
+                new_attempt()
+            ),
             false,
         ))
         .await;
@@ -9094,9 +11653,8 @@ async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
     assert!(html.contains(r#"name="priceAmount" value="1.00""#), "{html}");
 
     // Refused by the API: its words, and the price typed.
-    let (status, _, html) = pilot
-        .send(post("/account/listings/lst_active", "lister", "intent=update-price&priceAmount=0.50&priceCurrencyCode=USD", false))
-        .await;
+    let body = format!("intent=update-price&priceAmount=0.50&priceCurrencyCode=USD&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Update Listing Listing price is below the marketplace minimum."), "{html}");
     assert!(html.contains(r#"name="priceAmount" value="0.50""#), "{html}");
@@ -9118,14 +11676,20 @@ async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
     assert!(html.contains(r#"aria-invalid="true" aria-describedby="alt-text-error-ph_2""#), "{html}");
 
     // Publishing without the evidence: the API's words, and its readiness now.
-    let (status, _, html) =
-        pilot.send(post("/account/listings/lst_draft", "lister", "intent=publish&feeQuoteFingerprint=fq_listing", false)).await;
+    let body = format!("intent=publish&feeQuoteFingerprint=fq_listing&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_draft", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("Listing evidence is incomplete for the active policy."), "{html}");
 
     // An intent the page does not send.
     let (status, _, _) = pilot.send(post("/account/listings/lst_draft", "lister", "intent=delete-everything", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // A write with no attempt (a form the page did not draw) is not sent.
+    let writes = listing_writes(&pilot, "lst_active").len();
+    let (status, _, _) = pilot.send(post("/account/listings/lst_active", "lister", "intent=pause", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(listing_writes(&pilot, "lst_active").len(), writes);
 }
 
 #[tokio::test]
@@ -9202,12 +11766,12 @@ async fn a_drafts_photos_are_added_and_replaced_as_multipart_and_a_bad_file_is_r
     assert!(text(&html).contains("Choose a photo to upload."), "{html}");
     assert_eq!(listing_writes(&pilot, "lst_draft").len(), before);
 
-    // A photo the API cannot process (a 500, chase-sets/chase-sets#10649) says so.
+    // A photo the API cannot decode is refused by it, with its words.
     let (status, _, html) = pilot
         .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "broken.png", "image/png", PNG)]))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(text(&html).contains("The photos could not be processed, so nothing was changed."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     // Someone who may only read cannot post photos.
     let (status, _, _) = pilot
         .send(post_multipart(photos, "lookout", &[("intent", "add-photos")], &[("evidence", "front.png", "image/png", PNG)]))
@@ -9231,6 +11795,27 @@ fn list_calls(pilot: &Pilot, path: &str) -> Vec<String> {
     calls.iter().filter(|c| c.path.starts_with(path)).map(|c| format!("{} {} {}", c.method, c.path, c.body)).collect()
 }
 
+/// The Listing changes the pilot asked Marketplace to prepare, as it sent them.
+fn preparations(pilot: &Pilot) -> Vec<Value> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path == "/api/marketplace/account/listings/batch/prepare")
+        .map(|c| serde_json::from_str(&c.body).expect("a preparation is JSON"))
+        .collect()
+}
+
+/// The writes the pilot sent to the account's Marketplace routes, but its preparations.
+fn account_writes(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method != Method::GET && c.path.starts_with("/api/marketplace/account/"))
+        .filter(|c| !c.path.starts_with("/api/marketplace/account/listings/batch/prepare"))
+        .cloned()
+        .collect()
+}
+
 #[tokio::test]
 async fn the_sellers_listings_show_the_settings_counts_reliability_rows_and_fee_report() {
     let pilot = Pilot::new().await;
@@ -9243,7 +11828,7 @@ async fn the_sellers_listings_show_the_settings_counts_reliability_rows_and_fee_
         "Before you turn off listings 2 active listings will be hidden from buyers",
         "Schedule away window",
         "Current cap: 5 open orders Open orders right now: 3 of 5 Counted live from your orders.",
-        "Active listings 2 Visible to buyers Draft listings 1 Not visible yet Paused listings 1 Withdrawn listings 0",
+        "Active listings 2 Visible to buyers Draft listings 1 Not visible yet Paused listings 1 Hidden from buyers until resumed Withdrawn listings 0",
         "Seller reliability Objective, event-derived signals from the last 90 days",
         "On-time shipment rate 94.7% 38 shipments dispatched Cancellation rate 2.5% 40 orders, seller-caused only",
         "Dispute rate Not enough orders yet",
@@ -9308,12 +11893,17 @@ async fn the_filters_and_pages_are_links_that_keep_each_other() {
 async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     let pilot = Pilot::new().await;
     // Turn off listings: the day's start where the browser is (Chicago, after daylight saving time).
-    let body = "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02";
+    let body = &format!(
+        "intent=disable-listing-availability&reasonCategory=travel&availableAgainOn=2026-11-02&zone=America%2FChicago&attempt={}",
+        new_attempt()
+    );
     let (status, headers, html) = pilot.send(post_in("/account/listings?status=active", "lister", body, "America/Chicago")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/account/listings?status=active&afterWrite="), "{to}");
-    assert!(to.ends_with("&availabilityAction=disabled"), "{to}");
+    let q = query(to);
+    assert!(to.starts_with("/account/listings?status=active&"), "{to}");
+    assert!(q.contains_key("afterWrite") && q.contains_key("listingRecovery"), "after the write, naming the change: {to}");
+    assert_eq!(q.get("availabilityAction").map(String::as_str), Some("disabled"), "{to}");
     let sent = list_calls(&pilot, "/api/marketplace/account/listing-availability/disable");
     assert_eq!(
         sent,
@@ -9322,8 +11912,18 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         ]
     );
     assert!(list_calls(&pilot, "/api/identity/preferences").is_empty(), "the browser's zone needs no read");
-    // A browser that has not told its zone (no script): the zone the account chose, New York's.
-    let body = "intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02";
+    // A browser that has not told its zone (no script): the form is drawn in the zone the account
+    // chose, New York's, and names it.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    assert!(
+        html.contains(r#"<input type="hidden" name="zone" value="America/New_York">"#) && html.contains(">America/New_York<"),
+        "{html}"
+    );
+    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 1);
+    let body = &format!(
+        "intent=disable-listing-availability&reasonCategory=&availableAgainOn=2026-11-02&zone=America%2FNew_York&attempt={}",
+        new_attempt()
+    );
     let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -9333,12 +11933,24 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         "{:?}",
         list_calls(&pilot, "/api/marketplace/account/listing-availability/disable")
     );
-    // A zone the browser names that is not one is not trusted either.
+    // The day is read in the zone its form sends, whatever zone the browser names on the post.
     let (status, _, _) = pilot.send(post_in(LISTINGS, "lister", body, "Mars/Olympus")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 2);
+    assert_eq!(list_calls(&pilot, "/api/identity/preferences").len(), 1, "a post reads no zone");
+    // A zone the browser names that is not one is not trusted: the account's again.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister; corten-zone=Mars/Olympus"))).await;
+    assert!(html.contains(r#"name="zone" value="America/New_York""#), "{html}");
+    // A day without the form's zone did not come from this page.
+    let unzoned = &format!("intent=disable-listing-availability&availableAgainOn=2026-11-02&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", unzoned, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("did not say which time zone"), "{html}");
     // The away window and the capacity, each saying what it set for the read that catches up.
-    let body = "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=";
+    let body = &format!(
+        "intent=schedule-away-window&awayWindowReasonCategory=audit&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=\
+         &zone=America%2FChicago&attempt={}",
+        new_attempt()
+    );
     let (status, headers, _) = pilot.send(post_in(LISTINGS, "lister", body, "America/Chicago")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -9355,7 +11967,8 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
         ("intent=clear-order-capacity", "settingsAction=clear-order-capacity"),
         ("intent=enable-listing-availability", "availabilityAction=enabled"),
     ] {
-        let (status, headers, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+        let (status, headers, _) =
+            pilot.send(post(LISTINGS, "lister", &format!("{body}&attempt={}", new_attempt()), false)).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
         assert!(headers[header::LOCATION].to_str().unwrap().contains(action), "{body}: {:?}", headers[header::LOCATION]);
     }
@@ -9365,35 +11978,91 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     assert!(writes.iter().any(|w| w == r#"POST /api/marketplace/account/order-capacity {"maxOpenOrders":12}"#), "{writes:?}");
     assert!(writes.iter().any(|w| w == "DELETE /api/marketplace/account/order-capacity "), "{writes:?}");
     assert!(writes.iter().any(|w| w == "POST /api/marketplace/account/listing-availability/enable {}"), "{writes:?}");
+    // Each is sent under the batch id Marketplace prepared from its form's attempt: the attempt
+    // and the command's name.
+    let keys: Vec<String> =
+        account_writes(&pilot).iter().map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned()).collect();
+    let names = [
+        "disableSellerListingAvailability",
+        "disableSellerListingAvailability",
+        "disableSellerListingAvailability",
+        "scheduleSellerAwayWindow",
+        "cancelScheduledAwayWindow",
+        "setSellerOrderCapacity",
+        "clearSellerOrderCapacity",
+        "enableSellerListingAvailability",
+    ];
+    assert_eq!(keys.len(), names.len(), "{keys:?}");
+    for (key, name) in keys.iter().zip(names) {
+        let made_from = key.strip_suffix(&format!("_{name}")).unwrap_or_else(|| panic!("{key} is not {name}'s"));
+        assert!(crate::recovery::valid_attempt(made_from), "{key}");
+    }
+    // Each was prepared with its fields in marketplace's names.
+    let prepared = preparations(&pilot);
+    assert!(prepared.iter().any(|p| p["intent"] == "set-order-capacity" && p["fields"] == json!({ "maxOpenOrders": "12" })));
+    assert!(prepared.iter().all(|p| p["listingId"].is_null() && p["listingIds"] == json!([])), "{prepared:?}");
+    // The zone that is not one resent the second form, so it is that form's attempt again.
+    assert_eq!(keys[1], keys[2], "{keys:?}");
+    assert_eq!(keys.iter().collect::<std::collections::HashSet<_>>().len(), keys.len() - 1, "each other form its own: {keys:?}");
+    // A setting with no attempt (a form the page did not draw) is not sent.
+    let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=enable-listing-availability", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(account_writes(&pilot).len(), names.len());
 }
 
 #[tokio::test]
 async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     let pilot = Pilot::new().await;
     // An away window with no reason, or a start that is not a day, is not sent.
-    let body = "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40";
+    let body = &format!(
+        "intent=schedule-away-window&awayWindowStartsOn=2026-12-01&awayWindowEndsOn=2026-13-40&zone=Asia%2FTokyo&attempt={}",
+        new_attempt()
+    );
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     let page = text(&html);
     assert!(page.contains("Choose a reason for the away window."), "{page}");
     assert!(page.contains("Enter a date as YYYY-MM-DD."), "the end that is not a day: {page}");
     assert!(html.contains(r#"name="awayWindowStartsOn" value="2026-12-01""#), "the form as sent: {html}");
+    assert!(html.contains(r#"name="zone" value="Asia/Tokyo""#), "drawn again in the zone it was drawn in: {html}");
     assert!(html.contains("awayWindowEndsOn-error") && !html.contains("awayWindowStartsOn-error"), "{html}");
     // An order capacity that is not a whole number of at least 1.
-    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=set-order-capacity&maxOpenOrders=0", false)).await;
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=0&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Enter a whole-number order capacity of at least 1."), "{html}");
     assert!(html.contains(r#"name="maxOpenOrders" value="0""#), "{html}");
     assert!(list_calls(&pilot, "/api/marketplace/account/").iter().all(|c| c.starts_with("GET")), "nothing was written");
     // The API's refusals, in marketplace's words, by the field when they name one.
-    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=set-order-capacity&maxOpenOrders=1000", false)).await;
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=1000&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Enter a whole-number order capacity of at least 1."), "{html}");
     assert!(html.contains("maxOpenOrders-error"), "{html}");
-    let (status, _, html) =
-        pilot.send(post(LISTINGS, "lister", "intent=disable-listing-availability&reasonCategory=bogus", false)).await;
+    let body = &format!("intent=disable-listing-availability&reasonCategory=bogus&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Choose a valid availability reason."), "{html}");
+    // A Listing attempt the API refuses as sent before with other details
+    // (`listingErrorContract`): marketplace's words, on the form, kept as a conflict.
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=999&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let page = text(&html);
+    assert!(page.contains("This change was already sent with different details. Reload to see the first result."), "{page}");
+    assert!(!page.contains("Idempotency key"), "{page}");
+    assert!(!html.contains("maxOpenOrders-error"), "a form error, not the field's: {html}");
+    // One with no result Marketplace can confirm is read back: the list names the change, which
+    // is still being confirmed, and the same form may be entered again.
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=998&attempt={}", new_attempt());
+    let (status, headers, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(query(to).contains_key("listingRecovery") && !query(to).contains_key("afterWrite"), "{to}");
+    let (_, _, html) = pilot.send(get(to, Some("lister"))).await;
+    let page = text(&html);
+    assert!(page.contains("Confirming the result of your Listing change."), "{page}");
+    assert!(page.contains("No result is recorded. Re-enter the same details to retry this attempt"), "{page}");
     // Someone who may only read is refused, signed out signs in, and an account without listings
     // is marketplace's "Account access required" page, back to the list.
     let (status, _, html) = pilot.send(post(LISTINGS, "lookout", "intent=clear-order-capacity", false)).await;
@@ -9428,37 +12097,140 @@ async fn while_a_setting_catches_up_the_list_shows_what_was_set() {
     assert!(page.contains("Open order count is temporarily unavailable."), "{page}");
 }
 
+/// The bodies of the calls to `path`, as sent.
+fn sent_to(pilot: &Pilot, path: &str) -> Vec<Value> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path == path).map(|c| serde_json::from_str(&c.body).unwrap_or_default()).collect()
+}
+
+const RETRY: &str = "/api/marketplace/account/listings/batch/retry";
+
 #[tokio::test]
-async fn pause_selected_writes_each_listing_once_and_shows_each_outcome() {
+async fn pause_selected_prepares_the_checked_listings_as_one_change_and_the_list_says_what_came_of_each() {
     let pilot = Pilot::new().await;
-    let body = "intent=bulk-pause-listings&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_active";
-    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", body, false)).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    let page = text(&html);
-    assert!(page.contains("1 succeeded, 1 failed"), "{page}");
-    assert!(page.contains("Succeeded Listing lst_active"), "{page}");
-    assert!(page.contains("Failed Listing lst_locked This listing change is not available."), "{page}");
-    let writes = list_calls(&pilot, "/api/marketplace/account/listings/lst_");
-    assert_eq!(
-        writes,
-        [
-            "POST /api/marketplace/account/listings/lst_active/pause {}",
-            "POST /api/marketplace/account/listings/lst_locked/pause {}"
-        ]
+    // The bulk form is drawn with an attempt.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    let pause = html.find(r#"value="bulk-pause-listings""#).expect("Pause selected");
+    let form = &html[html[..pause].rfind("<form").unwrap()..pause];
+    assert!(form.contains(r#"name="attempt""#), "{form}");
+    let key = crate::recovery::new_attempt();
+    let body = format!(
+        "intent=bulk-pause-listings&attempt={key}&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_unsure&listingIds=lst_active"
     );
-    // The page is read after the write that applied, with the filters it was posted with.
+    let (status, headers, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    // Prepared as the form's attempt, each listing once, then sent; no listing's own command.
+    let expected = json!({
+        "intent": "bulk-pause-listings", "idempotencyKey": key, "listingId": null,
+        "listingIds": ["lst_active", "lst_locked", "lst_unsure"], "fields": {},
+    });
+    assert_eq!(preparations(&pilot), [expected]);
+    let batch_id = format!("{key}_bulk-pause-listings");
+    let reference = json!({ "batchId": batch_id, "mutationKind": "listing.pause", "bulk": true });
+    assert_eq!(sent_to(&pilot, RETRY), std::slice::from_ref(&reference));
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings/lst_").is_empty());
+    // The list as it was posted, naming the change, after the write.
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let q = query(&to);
+    assert_eq!(q.get("status").map(String::as_str), Some("active"), "{to}");
+    assert_eq!(serde_json::from_str::<Value>(&q["listingRecovery"]).unwrap(), reference, "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let read = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/listings?")).unwrap();
     assert_eq!(read.path, "/api/marketplace/account/listings?limit=100&offset=0&status=active");
     assert_eq!(waits_for(&read.headers).as_deref(), Some("50"));
-    // Nothing checked, and a listing whose write fails.
+    let recovered = format!("/api/marketplace/account/listings/batch/{batch_id}?family=listing.pause&bulk=true");
+    let recovered = calls.iter().rev().find(|c| c.path == recovered).expect("what came of the change is read");
+    assert!(waits_for(&recovered.headers).is_none(), "without the receipt");
+    let page = text(&html);
+    assert!(page.contains("1 of 3 Listings changed. Retry sends only the Listings whose result is unknown."), "{page}");
+    assert!(page.contains("lst_active: succeeded, will not send again"), "{page}");
+    assert!(page.contains("lst_locked: failed safely, will not send again"), "{page}");
+    assert!(page.contains("lst_unsure: unknown, available for explicit retry"), "{page}");
+    // The list's changes are off while it names a recorded change; Start another change leaves it.
+    assert!(html.contains(r#"value="bulk-pause-listings" disabled>"#), "{html}");
+    assert!(html.contains(">Start another change</a>"), "{html}");
+    // Retry sends the change again: Marketplace sends only the listing still unknown.
+    let retry = html.find(">Retry unknown Listings</button>").expect("Retry unknown Listings");
+    let form = &html[html[..retry].rfind("<form").unwrap()..retry];
+    let action = form.split(r#"action=""#).nth(1).unwrap().split('"').next().unwrap().replace("&amp;", "&");
+    assert!(action.contains("listingRecovery="), "{action}");
+    let (status, headers, _) = pilot.send(post(&action, "lister", "intent=retry-listing-batch", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(sent_to(&pilot, RETRY), [reference.clone(), reference]);
+    let (_, _, html) = pilot.send(get(headers[header::LOCATION].to_str().unwrap(), Some("lister"))).await;
+    assert!(text(&html).contains("lst_unsure: unknown, available for explicit retry"), "{html}");
+    // A page naming no bulk change has nothing to retry.
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=retry-listing-batch", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert_eq!(sent_to(&pilot, RETRY).len(), 2);
+}
+
+#[tokio::test]
+async fn a_bulk_change_that_is_refused_lost_or_needs_a_sign_in_says_so() {
+    let pilot = Pilot::new().await;
+    // Nothing checked.
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=bulk-withdraw-listings", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Check the listings to pause or withdraw first."), "{html}");
-    let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=bulk-pause-listings&listingIds=lst_broken", false)).await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    // A form the page did not draw (no attempt) is not prepared or sent.
+    let body = "intent=bulk-withdraw-listings&listingIds=lst_active";
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("The change was not sent. Review your inputs before trying again."), "{html}");
+    assert!(preparations(&pilot).is_empty());
+    // One Marketplace will not prepare is not sent.
+    let body = format!("intent=bulk-withdraw-listings&attempt={}&listingIds=lst_active&listingIds=lst_foreign", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("The change was not sent."), "{html}");
+    assert_eq!(preparations(&pilot)[0]["intent"], "bulk-withdraw-listings");
+    assert!(sent_to(&pilot, RETRY).is_empty());
+    // One whose answer is lost is read back: the list names it, and offers Retry.
+    let body = format!("intent=bulk-pause-listings&attempt={}&listingIds=lst_broken", new_attempt());
+    let (status, headers, _) = pilot.send(post(LISTINGS, "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(query(to).contains_key("listingRecovery") && !query(to).contains_key("afterWrite"), "{to}");
+    let (_, _, html) = pilot.send(get(to, Some("lister"))).await;
+    let page = text(&html);
+    assert!(
+        page.contains("lst_broken: unknown, available for explicit retry") && page.contains("Retry unknown Listings"),
+        "{page}"
+    );
+    // An ended session signs in.
+    let body = format!("intent=bulk-pause-listings&attempt={}&listingIds=lst_active", new_attempt());
+    let (status, headers, _) = pilot.send(post(LISTINGS, "lister_ended", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().starts_with("/sign-in"), "{headers:?}");
 }
 
+#[tokio::test]
+async fn a_list_naming_a_change_it_cannot_read_says_only_that_and_its_changes_are_off() {
+    let pilot = Pilot::new().await;
+    let named = |reference: &str| {
+        let reference = percent_encoding::utf8_percent_encode(reference, percent_encoding::NON_ALPHANUMERIC);
+        format!("{LISTINGS}?listingRecovery={reference}")
+    };
+    // A change whose outcome cannot be read, or a reference that is not one, is unconfirmed.
+    for reference in [r#"{"batchId":"readfails-0123456789abcdef_pauseListing","mutationKind":"listing.pause","bulk":true}"#, "{}"]
+    {
+        let (status, _, html) = pilot.send(get(&named(reference), Some("lister"))).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        let page = text(&html);
+        assert!(page.contains("We could not confirm the result. Changes are disabled to avoid duplicating your work."), "{page}");
+        assert!(page.contains("Check the recorded result again"), "{page}");
+        assert!(html.contains(r#"value="bulk-pause-listings" disabled>"#), "{html}");
+    }
+    // A setting from a page naming a change it does not offer again is not sent.
+    let to = named(r#"{"batchId":"readfails-0123456789abcdef_pauseListing","mutationKind":"listing.pause","bulk":true}"#);
+    let body = format!("intent=clear-order-capacity&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(&to, "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(account_writes(&pilot).is_empty() && preparations(&pilot).is_empty());
+}
 #[tokio::test]
 async fn a_change_to_the_accounts_listings_draws_the_counts_rows_and_report_again() {
     let pilot = Pilot::new().await;
@@ -9569,8 +12341,10 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     assert_eq!(links, ["/account/offers/matches/off_ready", "/account/offers/matches/off_short"]);
     assert!(html.contains(r#"<corten-live src="/account/offers/matches/live"></corten-live>"#), "{html}");
     // Each match posts to its own page; one with no supply cannot be added to the sell list.
-    assert!(html.contains(r#"<form method="post" action="/account/offers/matches/off_short"><input type="hidden" name="intent" value="add-selected-offer"><button class="#), "{html}");
-    let short = html.split(r#"action="/account/offers/matches/off_short""#).nth(1).unwrap();
+    // Each add carries its own attempt key, so a resend is applied once.
+    let short = html.split(r#"<form method="post" action="/account/offers/matches/off_short">"#).nth(1).unwrap();
+    let (inputs, _) = short.split_once("<button").unwrap();
+    assert!(inputs.starts_with(r#"<input type="hidden" name="intent" value="add-selected-offer"><input type="hidden" name="attemptId" data-submit value=""#), "{short}");
     assert!(short.split("</form>").next().unwrap().contains("disabled"), "{short}");
 }
 
@@ -9786,6 +12560,347 @@ fn submitted_offers(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
 
 const SUBMITTED_OFFERS: &str = "/account/offers/submitted";
 
+/// A market-following policy as the API answers it.
+fn offer_policy(id: &str, status: &str, version: u64, authority: Option<Value>, preview: Option<Value>) -> Value {
+    json!({
+        "policyId": id, "status": status, "version": version, "currency": "USD",
+        "authority": authority, "preview": preview, "offerVersions": { "off_open": 3 },
+    })
+}
+
+/// Terms over one offer with its cap.
+fn policy_terms(offer: &str, cap: &str, bps: i64) -> Value {
+    json!({
+        "currency": "USD", "adjustmentBps": bps,
+        "offers": [{
+            "offerId": offer, "offerVersion": 5, "catalogItemId": "cat_char", "productId": "cat_char::form:raw",
+            "selectedOptions": [], "quantity": 1, "maximumUnitItemAmount": cap,
+        }],
+    })
+}
+
+/// The preview id the stand-in's previews carry.
+const PREVIEW_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// A draft's preview of `terms`: `off_open` targeted at 16.50 against a Market Price of 17.00.
+fn policy_preview(terms: &Value) -> Value {
+    let outcome = json!({
+        "offerId": "off_open", "currentUnitItemAmount": "17.75",
+        "result": { "status": "target", "unitItemAmount": "16.50", "evidence": { "marketPrice": {
+            "amount": "17.00", "currencyCode": "USD", "estimateVersion": "mpe_7",
+            "freshUntil": "2026-11-13T18:00:00.000Z",
+        } } },
+    });
+    json!({ "previewId": PREVIEW_ID, "terms": terms, "outcomes": [outcome] })
+}
+
+/// Market following's calls, as the stand-in answers them. `bop_live` is active over `off_paused`
+/// at -1.5%, and every list names it, reading `off_open` at version 3, except `offers_dark`'s,
+/// which fail (503). A new policy's create answers its draft at 1 and its preview (`policy_preview`),
+/// unless the adjustment is -25% (`stale_preview`); `bop_new1` reads as that draft at 2, over
+/// `off_open` at -2% capped at 18.00. Authorize makes it active at 3, and Pause on `bop_live`
+/// answers it paused at 4. Stop on `bop_lost` and `bop_dark` has no answer (502): `bop_lost`'s
+/// attempt is found committed at 9, where the policy reads stopped, and `bop_dark`'s is not found.
+/// Any command on `bop_signed_out` asks for a sign-in (401); other commands are refused (422).
+fn offer_policies(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    const POLICIES: &str = "/api/marketplace/account/offer-policies";
+    const ATTEMPTS: &str = "/api/marketplace/mutation-attempts/";
+    let live = || offer_policy("bop_live", "active", 3, Some(policy_terms("off_paused", "20.00", -150)), None);
+    if let Some(attempt) = uri.path().strip_prefix(ATTEMPTS) {
+        let query = |key: &str| {
+            let raw = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix(&format!("{key}=")))?;
+            Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
+        };
+        let (Some(target), Some(hash)) = (query("target"), query("requestHash")) else {
+            return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "Invalid attempt."));
+        };
+        if let Some(answer) = review_attempt(attempt, query("kind").as_deref(), &target, &hash) {
+            return Some(answer);
+        }
+        if target != "bop_lost" || query("kind").as_deref() != Some("offer-policy.command") {
+            return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Attempt not found."));
+        }
+        let key = json!({ "kind": "offer-policy", "id": target });
+        let fingerprint = crate::market_following::request_hash(&json!(["acc_buyer", "offer-policy.command", key, attempt]));
+        return Some(
+            Json(json!({
+                "schemaVersion": 1, "mutationKind": "offer-policy.command", "attemptKeyFingerprint": fingerprint,
+                "actorBinding": { "accountId": "acc_buyer" }, "target": key, "canonicalRequestHash": hash,
+                "ownerStatus": "committed", "ownerReceipt": { "id": "bop_lost", "version": 9 },
+            }))
+            .into_response(),
+        );
+    }
+    let rest = uri.path().strip_prefix(POLICIES)?;
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") if session == "offers_dark" => refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Try again."),
+        ("GET", "") => {
+            Json(json!({ "items": [live()], "offerVersions": { "off_open": 3, "off_paused": 5 }, "nextCursor": null }))
+                .into_response()
+        }
+        ("GET", "/bop_live") => Json(live()).into_response(),
+        ("GET", "/bop_new1") => {
+            let preview = policy_preview(&policy_terms("off_open", "18.00", -200));
+            Json(offer_policy("bop_new1", "draft", 2, None, Some(preview))).into_response()
+        }
+        ("GET", "/bop_lost") => Json(offer_policy("bop_lost", "stopped", 9, None, None)).into_response(),
+        ("GET", _) => refusal(StatusCode::NOT_FOUND, "not_found", "Policy not found."),
+        ("POST", path) => {
+            let id = path.strip_prefix('/')?.strip_suffix("/commands")?;
+            if id == "bop_signed_out" {
+                return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
+            }
+            match sent["type"].as_str().unwrap_or_default() {
+                "CreateBuyerOfferPolicy" => Json(offer_policy(id, "draft", 1, None, None)).into_response(),
+                "PreviewBuyerOfferPolicy" if sent["terms"]["adjustmentBps"] == -2500 => {
+                    refusal(StatusCode::CONFLICT, "stale_preview", "The preview is stale.")
+                }
+                "PreviewBuyerOfferPolicy" => {
+                    Json(offer_policy(id, "draft", 2, None, Some(policy_preview(&sent["terms"])))).into_response()
+                }
+                "AuthorizeBuyerOfferPolicy" => {
+                    Json(offer_policy(id, "active", 3, Some(policy_terms("off_open", "18.00", -200)), None)).into_response()
+                }
+                "PauseBuyerOfferPolicy" if id == "bop_live" => {
+                    Json(offer_policy(id, "paused", 4, Some(policy_terms("off_paused", "20.00", -150)), None)).into_response()
+                }
+                "StopBuyerOfferPolicy" if matches!(id, "bop_lost" | "bop_dark") => {
+                    refusal(StatusCode::BAD_GATEWAY, "upstream_unavailable", "No answer.")
+                }
+                _ => refusal(StatusCode::UNPROCESSABLE_ENTITY, "invalid_authority", "Refused."),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The commands the pilot sent to `policy`, as their bodies.
+fn policy_commands(pilot: &Pilot, policy: &str) -> Vec<String> {
+    let path = format!("/api/marketplace/account/offer-policies/{policy}/commands");
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path == path)
+        .map(|c| c.body.clone())
+        .collect()
+}
+
+const POLICY_ATTEMPT: &str = "attempt_0123456789abcdefghij";
+
+#[tokio::test]
+async fn market_following_lists_the_policies_and_opens_one_with_its_steps() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Draft"), "{page}");
+    assert!(html.contains(r#"href="/account/offers/submitted?policy=bop_live""#), "{html}");
+    assert!(page.contains("Manage Active: off_paused"), "{page}");
+    // A new policy: only the open offer may be chosen, at version 0, under a new id.
+    assert!(html.contains(r#"action="/account/offers/submitted/following""#), "{html}");
+    assert!(
+        html.contains(r#"name="offerId" value="off_open""#) && !html.contains(r#"name="offerId" value="off_paused""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="expectedVersion" value="0""#) && html.contains(r#"name="policyId" value="bop_"#), "{html}");
+    let calls = list_calls(&pilot, "/api/marketplace/account/offer-policies?");
+    assert!(calls.iter().any(|c| c.contains("offerId=off_open&offerId=off_paused&offerId=off_taken")), "{calls:?}");
+
+    // Opened: its authority, Pause and Stop, and the form at its terms.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted?policy=bop_live", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Active"), "{page}");
+    assert!(
+        page.contains("Offer off_paused. Product cat_char::form:raw. Quantity: 1. Maximum unit item amount: $20.00."),
+        "{page}"
+    );
+    assert!(html.contains(r#"name="step" value="pause""#) && html.contains(r#"name="step" value="stop""#), "{html}");
+    assert!(html.contains(r#"name="confirmStop" value="true" required"#), "{html}");
+    assert!(html.contains(r#"name="adjustment""#) && html.contains(r#"value="-1.5""#), "{html}");
+
+    // A reader without offers.manage sees the policies and no step.
+    let (_, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("lister"))).await;
+    assert!(text(&html).contains("Manage Active: off_paused") && !html.contains(r#"name="step""#), "{html}");
+    let (status, _, _) =
+        pilot.send(post("/account/offers/submitted/following", "lister", "step=pause&policyId=bop_live", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_first_preview_creates_the_policy_and_authorize_needs_consent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/off_open/following";
+    let form = format!(
+        "step=preview&policyId=bop_new1&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18&adjustment=-2"
+    );
+    // Applied: the offer's page opens the draft at its own address, so reloading it reads again.
+    let opened = "/account/offers/submitted/off_open?policy=bop_new1";
+    let (status, headers, html) = pilot.send(post(here, "trader", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], opened);
+    let (status, _, html) = pilot.send(get(opened, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review exact Offer authority Currency: USD. Adjustment: -2%."), "{page}");
+    assert!(page.contains("Market Price: $17.00. Estimate version: mpe_7."), "{page}");
+    assert!(page.contains("Proposed unit item amount: $16.50"), "{page}");
+    assert!(html.contains(&format!(r#"name="previewId" value="{PREVIEW_ID}""#)), "{html}");
+    assert!(html.contains(r#"name="consent" value="true" required"#), "{html}");
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent[0].contains(r#""type":"CreateBuyerOfferPolicy""#), "{}", sent[0]);
+    assert!(
+        sent[0].contains(r#""attemptId":"bop_new1______________""#) && sent[0].contains(r#""operationId":"create_bop_new1""#)
+    );
+    for part in [
+        r#""type":"PreviewBuyerOfferPolicy""#,
+        r#""expectedVersion":1"#,
+        r#""adjustmentBps":-200"#,
+        r#""maximumUnitItemAmount":"18.00""#,
+        r#""offerVersion":3"#,
+        r#""productId":"cat_pika::form:raw""#,
+        r#""selectedOptions":[{"dimensionId":"dim_form","optionId":"raw"}]"#,
+        r#""attemptId":"attempt_0123456789abcdefghij""#,
+    ] {
+        assert!(sent[1].contains(part), "{part} in {}", sent[1]);
+    }
+
+    // Authorize without consent is refused before the API; with it, the policy is active.
+    let authorize = format!(
+        "step=authorize&policyId=bop_new1&expectedVersion=2&attemptId={POLICY_ATTEMPT}&operationId=op_2&previewId={PREVIEW_ID}"
+    );
+    let (status, _, html) = pilot.send(post(here, "trader", &authorize, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Review your Offer controls"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new1").len(), 2);
+    let (status, headers, html) = pilot.send(post(here, "trader", &format!("{authorize}&consent=true"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], opened);
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert!(sent[2].contains(&format!(r#""previewId":"{PREVIEW_ID}""#)) && sent[2].contains(r#""consent":true"#), "{}", sent[2]);
+}
+
+#[tokio::test]
+async fn a_refused_or_stale_preview_keeps_what_was_sent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let preview = |adjustment: &str| {
+        format!(
+            "step=preview&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment={adjustment}"
+        )
+    };
+    // The evidence moved under the preview: said so, and the inputs kept.
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("-25"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("The Offer or Market Price evidence changed."), "{html}");
+    assert!(html.contains(r#"value="18.5""#) && html.contains(r#"value="-25""#), "{html}");
+    // An adjustment above 0% is refused before the API.
+    let before = policy_commands(&pilot, "bop_new2").len();
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("5"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Check the selected Offers, matching currency and item limits"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new2").len(), before);
+    // Stop asks for its own confirmation.
+    let stop = format!("step=stop&policyId=bop_live&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_1");
+    let (status, _, _) = pilot.send(post(here, "trader", &stop, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(policy_commands(&pilot, "bop_live").is_empty());
+}
+
+#[tokio::test]
+async fn a_step_with_no_answer_is_looked_up_once_and_an_unconfirmed_one_turns_the_steps_off() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let stop = |policy: &str| {
+        format!("step=stop&policyId={policy}&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_3&confirmStop=true")
+    };
+    let (status, headers, html) = pilot.send(post(here, "trader", &stop("bop_lost"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/offers/submitted?policy=bop_lost");
+    let (_, _, html) = pilot.send(get("/account/offers/submitted?policy=bop_lost", Some("trader"))).await;
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Stopped") && page.contains("Stop is permanent."), "{page}");
+    let hash = crate::market_following::request_hash(
+        &json!({ "type": "StopBuyerOfferPolicy", "operationId": "op_3", "expectedVersion": 3 }),
+    );
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 1, "{lookups:?}");
+    assert!(
+        lookups[0].contains(&format!("{POLICY_ATTEMPT}?kind=offer-policy.command&target=bop_lost&requestHash={hash}")),
+        "{lookups:?}"
+    );
+
+    // Nothing to find: the result could not be confirmed (an upstream failure), and every step is off.
+    let (status, _, html) = pilot.send(post(here, "trader", &stop("bop_dark"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert!(html.contains(r#"type="submit" disabled"#), "{html}");
+    assert_eq!(list_calls(&pilot, "/api/marketplace/mutation-attempts/").len(), 2);
+}
+
+#[tokio::test]
+async fn pause_redirects_to_the_paused_policy_and_a_refused_one_keeps_the_page() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let pause =
+        |policy: &str| format!("step=pause&policyId={policy}&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_4");
+    let (status, headers, html) = pilot.send(post(here, "trader", &pause("bop_live"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/offers/submitted?policy=bop_live");
+    let sent = policy_commands(&pilot, "bop_live");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains(r#""type":"PauseBuyerOfferPolicy""#) && sent[0].contains(r#""expectedVersion":3"#), "{}", sent[0]);
+
+    // The API refuses it: said so on the page, the policy (gone) not opened.
+    let (status, _, html) = pilot.send(post(here, "trader", &pause("bop_other"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Review your Offer controls"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_other").len(), 1);
+
+    // The API asks for a sign-in.
+    let (status, headers, _) = pilot.send(post(here, "trader", &pause("bop_signed_out"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo="), "{headers:?}");
+
+    // An offer's page opens a policy from its address too.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open?policy=bop_live", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Market-following Offers Active"), "{html}");
+}
+
+#[tokio::test]
+async fn a_failed_policies_read_is_the_pages_read_failure_and_a_bad_cap_makes_no_draft() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("offers_dark"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let (status, _, _) = pilot.send(get("/account/offers/submitted/off_open", Some("offers_dark"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+
+    // A preview of a policy whose offers' versions cannot be read sends nothing, and is not a refusal.
+    let here = "/account/offers/submitted/following";
+    let preview = |policy: &str, version: u64, cap: &str| {
+        format!(
+            "step=preview&policyId={policy}&expectedVersion={version}&attemptId={POLICY_ATTEMPT}&operationId=op_5&offerId=off_open&cap.off_open={cap}&adjustment=-2"
+        )
+    };
+    let (status, _, _) = pilot.send(post(here, "offers_dark", &preview("bop_live", 3, "18"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(policy_commands(&pilot, "bop_live").is_empty());
+
+    // A cap the contract refuses is refused before a new policy's draft is made.
+    for cap in ["12.345", "0", "abc"] {
+        let (status, _, html) = pilot.send(post(here, "trader", &preview("bop_new3", 0, cap), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{cap}: {html}");
+        assert!(html.contains(&format!(r#"name="cap.off_open" inputmode="decimal" value="{cap}""#)), "{cap} kept: {html}");
+    }
+    assert!(policy_commands(&pilot, "bop_new3").is_empty());
+}
+
 #[tokio::test]
 async fn the_submitted_offers_show_each_offer_with_its_status_and_changes() {
     let pilot = Pilot::new().await;
@@ -9962,7 +13077,11 @@ fn inventory_items(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMa
             let page: Vec<Value> = all.iter().skip(offset).take(limit).cloned().collect();
             Json(json!({ "items": page, "total": 2, "count": page.len(), "limit": limit, "offset": offset })).into_response()
         }
-        ("GET", "/inv_1") => Json(inventory_detail()).into_response(),
+        ("GET", "/inv_1") => match waits_for(headers).as_deref() {
+            Some("43") => refusal(StatusCode::SERVICE_UNAVAILABLE, "projection_freshness_timeout", "Not caught up."),
+            Some("44") => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Failed."),
+            _ => Json(inventory_detail()).into_response(),
+        },
         ("GET", "/inv_gone") => refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item not found."),
         ("POST", "/inv_1/adjustments") => {
             let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
@@ -10240,6 +13359,11 @@ async fn record_sale_is_a_dialog_on_the_list_and_honoring_is_the_owners() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("<dialog") && text(&html).contains("Record a sale for Charizard without leaving Inventory."), "{html}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/offline-sales?sale=inv_1""#), "{html}");
+    assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(r#"hidden>That did not go through, and may not have been saved. Check and try again.</p>"#),
+        "a sale that gets no answer is said in the dialog, hidden until then: {html}"
+    );
     assert!(!text(&html).contains("Order commitments"), "a seller cannot honor a sale");
     assert!(html.contains(r#"name="collisionMode" value="protect-orders""#));
     let (_, _, html) = pilot.send(get("/account/inventory?sale=inv_1", Some("keeper"))).await;
@@ -10315,6 +13439,29 @@ async fn a_refused_sale_is_its_dialog_again() {
 
 const STOCK_ITEM: &str = "/account/inventory/items/inv_1";
 
+/// marketplace's `pending` and `unverified`: a read after a write the API has not caught up to
+/// is the page saying the item is still updating, which reads it again; one that failed for good
+/// says the update could not be verified.
+#[tokio::test]
+async fn an_item_not_readable_yet_after_a_write_says_so_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("43")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "read again shortly: {html}");
+    let page = text(&html);
+    assert!(
+        page.contains("Inventory item is still updating Your change was saved. This page reads the item again in a moment."),
+        "{page}"
+    );
+    assert!(!page.contains("could not be verified") && !html.contains(r#"name="quantityDelta""#), "{html}");
+    let (status, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("44")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("Inventory item update could not be verified."), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("42")), Some("seller"))).await;
+    assert!(text(&html).contains("Charizard") && !html.contains("data-corten-read-again"), "caught up: {html}");
+}
+
 #[tokio::test]
 async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_screen() {
     let pilot = Pilot::new().await;
@@ -10336,10 +13483,11 @@ async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_scree
     ] {
         assert!(page.contains(shown), "{shown}: {page}");
     }
-    assert!(!page.contains("offline-sale"), "no raw kind (chase-sets/chase-sets#10673): {page}");
+    assert!(!page.contains("offline-sale"), "no raw kind: {page}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_manual/release""#), "{html}");
     assert!(!html.contains("hld_order/release") && !html.contains("hld_old/release"), "only an active manual hold is released");
-    for action in ["/adjustments", "/holds", "/sale"] {
+    // Adjust Quantity posts to the page itself.
+    for action in ["", "/holds", "/sale"] {
         assert!(html.contains(&format!(r#"action="{STOCK_ITEM}{action}""#)), "{action}: {html}");
     }
     assert!(html.contains(r#"href="/account/listings/new?inventoryItemId=inv_1""#), "Create listing with stock available");
@@ -10370,7 +13518,10 @@ async fn the_item_page_needs_inventory_view_and_its_writes_inventory_manage() {
     let (status, _, html) = pilot.send(get(STOCK_ITEM, Some("reader"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(text(&html).contains("Show stock (1)"), "{html}");
-    assert!(!html.contains("/adjustments") && !html.contains("/release") && !html.contains("inventoryItemId="), "{html}");
+    assert!(
+        !html.contains(r#"name="quantityDelta""#) && !html.contains("/release") && !html.contains("inventoryItemId="),
+        "{html}"
+    );
     let (status, _, _) = pilot.send(get(STOCK_ITEM, Some("other"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, headers, _) = pilot.send(get(STOCK_ITEM, None)).await;
@@ -10383,7 +13534,7 @@ async fn the_item_page_needs_inventory_view_and_its_writes_inventory_manage() {
     let (status, _, _) = pilot.send(get("/account/inventory/items/inv_gone", Some("seller"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let body = format!("inventoryMutationAttemptId={}&quantityDelta=1&reasonCode=found&reason=x", new_attempt());
-    let (status, _, _) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "reader", &body, false)).await;
+    let (status, _, _) = pilot.send(post("/account/inventory/items/inv_1", "reader", &body, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "a reader adjusts nothing");
     assert!(pilot.writes().is_empty());
 }
@@ -10393,7 +13544,7 @@ async fn an_applied_adjustment_goes_back_to_the_page_which_confirms_it() {
     let pilot = Pilot::new().await;
     let attempt = new_attempt();
     let body = format!("inventoryMutationAttemptId={attempt}&quantityDelta=-1&reasonCode=damaged&reason=+Water+&note=+");
-    let (status, headers, _) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "seller", &body, false)).await;
+    let (status, headers, _) = pilot.send(post("/account/inventory/items/inv_1", "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/inventory/items/inv_1?"), "{to}");
@@ -10416,7 +13567,7 @@ async fn an_applied_adjustment_goes_back_to_the_page_which_confirms_it() {
 #[tokio::test]
 async fn a_refused_adjustment_is_its_form_again_with_why() {
     let pilot = Pilot::new().await;
-    let url = "/account/inventory/items/inv_1/adjustments";
+    let url = "/account/inventory/items/inv_1";
     let body = format!("inventoryMutationAttemptId={}&quantityDelta=0&reasonCode=sold-offline&reason=+", new_attempt());
     let (status, _, html) = pilot.send(post(url, "seller", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -10440,7 +13591,7 @@ async fn a_refused_adjustment_is_its_form_again_with_why() {
 async fn an_adjustment_recorded_as_a_collision_says_what_the_api_recorded() {
     let pilot = Pilot::new().await;
     let body = format!("inventoryMutationAttemptId={}&quantityDelta=-1&reasonCode=lost&reason=Collide", new_attempt());
-    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "seller", &body, false)).await;
+    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1", "seller", &body, false)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(text(&html).contains("Recorded a collision with an order hold. On-hand stock did not change."), "{html}");
 }
@@ -10597,12 +13748,45 @@ async fn the_desk_is_for_anyone_signed_in() {
 
 const REPRICING_API: &str = "/api/marketplace/account/repricing-policies";
 const REPRICING_SCREEN: &str = "/account/desk/repricing";
+/// Attempts the stand-in answers a configuration write for as Pricing does when it does not
+/// install the request: recorded and pending (202), replaced by a later request (409), and a
+/// pending receipt answered as 200, which no Pricing sends.
+const PENDING: &str = "7d3f2a10-1c2b-4d5e-8f60-0a1b2c3d4e5f";
+const REPLACED: &str = "7d3f2a10-1c2b-4d5e-8f60-0a1b2c3d4e60";
+const MISPAIRED: &str = "7d3f2a10-1c2b-4d5e-8f60-0a1b2c3d4e61";
+
+/// A repricing configuration write's answer (Pricing's receipt for the attempt in `headers`, or a
+/// key it made up): installed at `position` with `state`, as `status` (200, or 201 for a create),
+/// except for the attempts above.
+fn configured(headers: &HeaderMap, status: StatusCode, position: &str, state: Value) -> Response {
+    let key = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or("made-up-key").to_owned();
+    let pending = json!({ "requestKey": key, "requestedRevision": 7, "status": "accepted-pending" });
+    match key.as_str() {
+        PENDING => (StatusCode::ACCEPTED, Json(pending)).into_response(),
+        MISPAIRED => Json(pending).into_response(),
+        REPLACED => (
+            StatusCode::CONFLICT,
+            Json(
+                json!({ "requestKey": key, "requestedRevision": 7, "status": "superseded-by-revision", "replacingRevision": 8 }),
+            ),
+        )
+            .into_response(),
+        _ => committed(
+            status,
+            "pricing",
+            position,
+            json!({ "requestKey": key, "requestedRevision": 3, "installedRevision": 3, "status": "applied", "state": state }),
+        ),
+    }
+}
 
 /// Pricing's repricing routes, as the stand-in answers them: two policies (one active, one
 /// paused), the halt (engaged for `price_reader`), one finished dry run, USD and a cost basis, two
 /// categories and a scope that matches 12. A dry run is kept as Pricing keeps it (its body without
 /// the name) and is complete when read; one whose floor is `0` is refused with its details. A
 /// policy's pause answers position 42, its resume 43 (a read still catching up).
+/// Each write answers its configuration receipt (`configured`). For `price_reader` Pricing has
+/// not installed a policy's request (revision 5) nor the halt's (revision 2).
 fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = percent_encoding::percent_decode_str(uri.path()).decode_utf8().ok()?;
     let rest = path.strip_prefix(REPRICING_API)?;
@@ -10622,8 +13806,22 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
             { "policyId": "pol_2", "name": "Cards", "scope": { "kind": "catalog-filter", "categoryIds": ["cat-1", "cat-2"] }, "status": "paused", "maxChangesPerDay": null, "changesUsedToday": 0 },
         ]))
         .into_response(),
-        ("GET", "/halt") => Json(json!({ "engaged": session == "price_reader", "engagedAt": "2026-10-27T12:00:00.000Z", "releasedAt": null })).into_response(),
-        ("POST", "/halt") => Json(serde_json::from_str::<Value>(body).unwrap()).into_response(),
+        ("GET", "/halt") => {
+            let request = (session == "price_reader")
+                .then(|| json!({ "requestKey": "req_halt", "requestedRevision": 2, "status": "accepted-pending" }));
+            Json(json!({
+                "engaged": session == "price_reader", "engagedAt": "2026-10-27T12:00:00.000Z", "releasedAt": null,
+                "configuration": { "installedRevision": 1, "requestedRevision": if request.is_some() { 2 } else { 1 }, "request": request },
+            }))
+            .into_response()
+        }
+        ("GET", "/configuration-requests") if session == "price_reader" => Json(json!([
+            { "requestKey": "req_halt", "requestedRevision": 2, "status": "accepted-pending" },
+            { "requestKey": "req_policy", "requestedRevision": 5, "status": "accepted-pending" },
+        ]))
+        .into_response(),
+        ("GET", "/configuration-requests") => Json(json!([])).into_response(),
+        ("POST", "/halt") => configured(headers, StatusCode::OK, "46", serde_json::from_str::<Value>(body).unwrap()),
         ("GET", "/dry-runs") => Json(json!([run("repricing-dry-run:old", json!({}), "completed")])).into_response(),
         ("GET", "/authoring-prerequisites") => Json(json!({ "listingCurrencyCodes": ["USD"], "hasCostBasis": true })).into_response(),
         ("GET", "/categories") => Json(json!([{ "id": "cat-1", "name": "Pokemon" }, { "id": "cat-2", "name": "Magic" }])).into_response(),
@@ -10681,10 +13879,11 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
             if sent["dryRunId"] != json!("repricing-dry-run:new") {
                 return Some(refusal(StatusCode::CONFLICT, "dry_run_mismatch", "That preview cannot be activated."));
             }
-            committed(StatusCode::CREATED, "pricing", "42", json!({ "policyId": "pol_3" }))
+            configured(headers, StatusCode::CREATED, "42", json!({ "policyId": "pol_3" }))
         }
         ("GET", "/budget") => Json(json!({ "day": "2026-10-29", "changesUsed": 3 })).into_response(),
         ("GET", "/pol_1") => Json(repricing_policy_stand()).into_response(),
+        ("GET", "/pol_4") => Json(repricing_preset_stand()).into_response(),
         ("GET", "/pol_2") if waits_for(headers).as_deref() == Some("43") => refusal(StatusCode::NOT_FOUND, "not_found", "Not yet."),
         ("GET", "/pol_1/activity") => {
             let query = uri.query().unwrap_or_default();
@@ -10717,9 +13916,16 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
                 page(vec![row("lst_1", "changed", Value::Null, 0), row("lst_2", "skipped", json!("budget-exhausted"), 3)], json!("lst_2"))
             }
         }
-        ("POST", "/pol_1/pause") => committed(StatusCode::OK, "pricing", "42", json!({})),
-        ("POST", "/pol_1/delete") => committed(StatusCode::OK, "pricing", "44", json!({})),
-        ("POST", "/pol_2/resume") => committed(StatusCode::OK, "pricing", "43", json!({})),
+        ("POST", "/pol_1/pause") => configured(headers, StatusCode::OK, "42", json!({ "policyId": "pol_1" })),
+        ("POST", "/pol_1/delete") => configured(headers, StatusCode::OK, "44", json!({ "policyId": "pol_1" })),
+        ("POST", "/pol_2/resume") => configured(headers, StatusCode::OK, "43", json!({ "policyId": "pol_2" })),
+        // A revise whose daily cap is 0 is refused with its details.
+        ("POST", "/pol_1/revise" | "/pol_4/revise") if serde_json::from_str::<Value>(body).ok()?["maxChangesPerDay"] == json!(0) => {
+            let details = json!([{ "path": "maxChangesPerDay", "message": "Allow at least one change a day." }]);
+            (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": { "code": "validation_failed", "message": "Invalid policy.", "details": details } })))
+                .into_response()
+        }
+        ("POST", "/pol_1/revise" | "/pol_4/revise") => configured(headers, StatusCode::OK, "45", json!({})),
         ("POST", _) => refusal(StatusCode::CONFLICT, "policy_not_found", "That policy is gone."),
         _ => return None,
     })
@@ -10751,14 +13957,56 @@ fn repricing_policy_stand() -> Value {
     })
 }
 
+/// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
+/// fallback 4.00), its authoring intent bound.
+fn repricing_preset_stand() -> Value {
+    let floor = json!({ "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" });
+    let body = crate::repricing_body::compile_preset(
+        crate::repricing::Preset::Beat,
+        "Beat",
+        "USD",
+        floor,
+        2.0,
+        45,
+        json!({ "kind": "all-listings" }),
+    );
+    let mut policy = repricing_policy_stand();
+    for (key, value) in body.as_object().unwrap() {
+        policy[key] = value.clone();
+    }
+    policy["policyId"] = json!("pol_4");
+    policy
+}
+
+/// A form body of `pairs`, each name and value encoded.
+fn encoded(pairs: &[(&str, &str)]) -> String {
+    let encode = |text: &str| percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string();
+    pairs.iter().map(|(name, value)| format!("{}={}", encode(name), encode(value))).collect::<Vec<_>>().join("&")
+}
+
+/// The body a policy's editor drew, from its hidden field.
+fn drawn_body(html: &str) -> Value {
+    let at = html.find(r#"name="body" value=""#).expect("the editor's body") + r#"name="body" value=""#.len();
+    let raw = &html[at..at + html[at..].find('"').unwrap()];
+    serde_json::from_str(
+        &raw.replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"),
+    )
+    .unwrap()
+}
+
 const BULK_API: &str = "/api/marketplace/account/bulk-reprice";
 const BULK_SCREEN: &str = "/account/bulk-reprice";
+/// A second upload attempt, for uploads that are not `ATTEMPT` sent again.
+const OTHER_ATTEMPT: &str = "1c7a4e2f-5b3d-4c9e-8a11-2345678901bc";
 
-/// Pricing's bulk reprice routes, as the stand-in answers them: the template; a new job
+/// Pricing's bulk reprice routes, as the stand-in answers them: whether it is on (all 404 once
+/// `bulk-off` is set, as the policy gate answers); the template; a new job
 /// (`job_1`), refused when its rows are bad and a 404 (switched off) when they say `OFF`;
+/// an upload's attempt (`Idempotency-Key`) sent again with the same rows answers its first job,
+/// and with other rows is refused (409 `attempt_conflict`), as Pricing's `createJob` does;
 /// `job_1` running (its stream says it finished, and it reads as finished once cancelled or once
 /// the stream was opened), `job_done` finished with its results, and any other job not found.
-fn bulk_reprice(stand: &Stand, method: &Method, path: &str, body: &str) -> Option<Response> {
+fn bulk_reprice(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(BULK_API)?;
     let job = |id: &str, status: &str| {
         let done = status == "completed";
@@ -10771,7 +14019,12 @@ fn bulk_reprice(stand: &Stand, method: &Method, path: &str, body: &str) -> Optio
         })
     };
     let finished = || stand.runs.lock().unwrap().contains_key("bulk-job_1-done");
+    // Switched off (`bulk-off`), the whole tree answers 404, as Pricing's policy gate does.
+    if stand.runs.lock().unwrap().contains_key("bulk-off") {
+        return Some((StatusCode::NOT_FOUND, "404 Not Found").into_response());
+    }
     Some(match (method.as_str(), rest) {
+        ("GET", "") => Json(json!({ "enabled": true })).into_response(),
         ("GET", "/template.csv") => (
             [
                 (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
@@ -10784,7 +14037,21 @@ fn bulk_reprice(stand: &Stand, method: &Method, path: &str, body: &str) -> Optio
         ("POST", "") if body.contains("bad") => {
             refusal(StatusCode::BAD_REQUEST, "validation_failed", "Row 2: newPrice must be a price.")
         }
-        ("POST", "") => (StatusCode::ACCEPTED, Json(job("job_1", "queued"))).into_response(),
+        ("POST", "") => {
+            let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+            let mut runs = stand.runs.lock().unwrap();
+            match runs.get(&format!("bulk-attempt-{attempt}")) {
+                Some(rows) if rows != &json!(body) => refusal(
+                    StatusCode::CONFLICT,
+                    "attempt_conflict",
+                    "This upload attempt was already used for different rows. Start a new upload attempt.",
+                ),
+                _ => {
+                    runs.insert(format!("bulk-attempt-{attempt}"), json!(body));
+                    (StatusCode::ACCEPTED, Json(job("job_1", "queued"))).into_response()
+                }
+            }
+        }
         ("GET", "/jobs/job_1") if finished() => Json(job("job_1", "completed")).into_response(),
         ("GET", "/jobs/job_1") => Json(job("job_1", "running")).into_response(),
         ("GET", "/jobs/job_done") => Json(job("job_done", "completed")).into_response(),
@@ -10911,8 +14178,9 @@ async fn recommendations_are_for_a_seller_with_pricing_view_and_their_actions_ne
         assert!(words.contains(expected), "{expected}: {words}");
     }
     // The signals: 2 recommendations, 4 units on hand, 10 active listings, 2 offers.
+    let value = r#"<dd class="stats__value">"#;
     let stats: Vec<_> =
-        html.match_indices("<dd>").map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
+        html.match_indices(value).map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
     assert_eq!(stats, ["2", "4", "10", "2"], "{html}");
     assert!(html.contains(r#"value="refresh-recommendations""#) && html.contains(r#"value="apply-recommendations""#));
     assert!(html.contains(r#"name="recommendationId" value="rec_1""#), "a proposed one can be picked");
@@ -10991,6 +14259,28 @@ async fn a_recommendation_job_is_followed_live_and_the_list_is_read_again_once_i
 }
 
 #[tokio::test]
+async fn while_pricing_has_bulk_reprice_off_its_page_says_so_and_recommendations_do_not_offer_it() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert!(html.contains(r#"href="/account/bulk-reprice""#), "offered while it is on: {html}");
+
+    pilot.stand.runs.lock().unwrap().insert("bulk-off".into(), json!(true));
+    let (status, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"href="/account/bulk-reprice""#), "not offered while it is off: {html}");
+
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
+    assert!(!html.contains(r#"action="/account/bulk-reprice""#) && !html.contains(r#"name="file""#), "nothing to upload: {html}");
+    assert!(!html.contains("template.csv") && !html.contains("Job status"), "{html}");
+    assert!(html.contains(r#"href="/account/repricing""#), "{html}");
+    let calls: Vec<_> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
+    assert!(calls.iter().all(|path| !path.contains("/jobs/")), "no job is read: {calls:?}");
+}
+
+#[tokio::test]
 async fn bulk_reprice_is_for_a_seller_who_may_change_listings() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(get(BULK_SCREEN, None)).await;
@@ -11024,13 +14314,41 @@ async fn bulk_reprice_is_for_a_seller_who_may_change_listings() {
 async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why() {
     let pilot = Pilot::new().await;
     let file: &[u8] = b"sellerSku,newPrice\nSKU-1,4.50\n";
+    let (status, _, html) = pilot.send(get(BULK_SCREEN, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(ATTEMPT_INPUT), "the upload form is drawn with its attempt: {html}");
+    let attempt = [("attempt", ATTEMPT)];
     let (status, headers, _) =
-        pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "prices.csv", "text/csv", file)])).await;
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
-    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API).map(|c| c.body.clone()).unwrap();
-    let sent: Value = serde_json::from_str(&sent).unwrap();
+    let call =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API && c.method == Method::POST).cloned().unwrap();
+    assert_eq!(call.headers["idempotency-key"].to_str().unwrap(), ATTEMPT, "the form's attempt is Pricing's Idempotency-Key");
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent, json!({ "csvText": "sellerSku,newPrice\nSKU-1,4.50\n", "sourceFilename": "prices.csv" }));
+
+    // The same form sent again is the same attempt: Pricing answers the job it started. Another file
+    // under it is refused with Pricing's words.
+    let (status, headers, _) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", file)])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
+    let other: &[u8] = b"sellerSku,newPrice\nSKU-1,5.00\n";
+    let (status, _, html) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", other)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This upload attempt was already used for different rows."), "{html}");
+    let keys: Vec<String> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path == BULK_API && c.method == Method::POST)
+        .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(keys, [ATTEMPT; 3], "each send carries the form's one attempt");
 
     // While it runs: the form is off, the job's part is live, and without a script the page reads again.
     let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
@@ -11061,22 +14379,29 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     assert!(!html.contains("Job status"));
 
     // Pricing's refusal is drawn; Pricing switched off says bulk reprice is not available.
+    let fresh = [("attempt", OTHER_ATTEMPT)];
     let bad: &[u8] = b"sellerSku,newPrice\nbad,x\n";
-    let (status, _, html) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", bad)])).await;
+    let (status, _, html) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", bad)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Row 2: newPrice must be a price."), "{html}");
     let off: &[u8] = b"sellerSku,newPrice\nOFF,1\n";
-    let (status, _, html) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", off)])).await;
+    let (status, _, html) =
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", off)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.replace("&#39;", "'").contains("Bulk reprice isn't available yet."), "{html}");
-    // A file that is not text is refused here, not sent; a seller who may not change listings is refused.
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
+    // A file that is not text, or a form without its attempt, is refused here, not sent; a seller
+    // who may not change listings is refused.
     let calls = pilot.stand.calls.lock().unwrap().len();
     let (status, _, _) =
-        pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", &[0xff, 0xfe, 0x00])])).await;
+        pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", &[0xff, 0xfe, 0x00])])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &[], &[("file", "p.csv", "text/csv", file)])).await;
+    let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lister", &[], &[("file", "p.csv", "text/csv", file)])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &fresh, &[("file", "p.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let sent = pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API).count();
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API && c.method == Method::POST).count();
     assert_eq!(sent, 0);
 }
 
@@ -11223,7 +14548,8 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
             && html.contains(r#"value="engage-halt""#)
     );
     assert!(html.contains(r#"action="/account/desk/repricing/pol_1""#), "every write posts to the page");
-    assert!(html.contains("/account/desk/repricing/pol_1?edit=1"), "Edit opens marketplace's editor");
+    assert!(html.contains("/account/desk/repricing/pol_1?edit=open"), "Edit opens the page's editor");
+    assert!(!html.contains("data-repricing-editor"), "the editor is closed until Edit opens it");
     let calls = pricing_calls(&pilot);
     let read = |path: &str| calls.iter().any(|(m, p, _)| *m == Method::GET && p == path);
     assert!(
@@ -11253,8 +14579,10 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
         !html.contains("pause-policy")
             && !html.contains("delete-policy")
             && !html.contains("engage-halt")
-            && !html.contains("edit=1")
+            && !html.contains("edit=open")
     );
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("price_reader"))).await;
+    assert!(!html.contains("data-repricing-editor"), "a reader's address does not open the editor");
     let (status, _, _) = pilot.send(post(page, "price_reader", "intent=pause-policy", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/account/desk/repricing/pol_9", Some("pricer"))).await;
@@ -11299,6 +14627,267 @@ async fn a_policys_writes_go_back_to_it_with_their_receipt_and_delete_goes_to_th
 }
 
 #[tokio::test]
+async fn a_policys_edit_opens_its_editor_in_the_controls_its_intent_says() {
+    let pilot = Pilot::new().await;
+    // A preset's policy opens in the preset's controls, drawn from its body.
+    let (status, _, html) = pilot.send(get("/account/desk/repricing/pol_4?edit=open", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-editor="revise""#) && html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(html.contains(r#"<option value="beat-lowest" selected>"#), "the preset");
+    assert!(html.contains(r#"name="knob" value="2""#) && html.contains(r#"name="fallback" value="4.00""#), "{html}");
+    assert!(html.contains(r#"value="open-up""#) && html.contains(r#"value="revise-policy""#));
+    assert!(!html.contains("data-repricing-activate"), "a revise saves without a preview");
+    assert_eq!(drawn_body(&html)["authoringIntent"]["source"]["preset"], json!("beat-lowest"));
+
+    // A custom policy of two rules opens in the advanced editor, a condition and an anchor named through its rule's row;
+    // a Pricing Goal a seller may not choose says so, and no simple controls are offered.
+    for address in ["/account/desk/repricing/pol_1?edit=open", "/account/desk/repricing/pol_1?edit=1"] {
+        let (status, _, html) = pilot.send(get(address, Some("pricer"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(r#"data-repricing-tier="advanced""#), "{address}: {html}");
+        assert!(html.contains("data-repricing-unsupported-goal") && html.contains("data-repricing-custom"), "{html}");
+        assert!(html.contains(r#"name="rules[0].conditions[1].value" value="2""#), "{html}");
+        assert!(
+            html.contains(r#"name="rules[0].anchors[0].source""#) && html.contains(r#"name="rules[1].terminalValue""#),
+            "{html}"
+        );
+        assert!(html.contains(r#"data-repricing-anchor="1-0""#) && text(&html).contains("Pricing goal"), "{html}");
+        assert!(html.contains(r#"value="add-rule""#) && html.contains(r#"value="remove-condition:0:1""#), "{html}");
+    }
+    let calls = pricing_calls(&pilot);
+    let preview = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/scope-preview")).expect("the scope preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&preview.2).unwrap()["replacingPolicyId"],
+        json!("pol_4"),
+        "the preview replaces the policy"
+    );
+}
+
+#[tokio::test]
+async fn a_policys_editor_posts_draw_it_again_and_save_revises_the_policy() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, knob: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", knob),
+            ("currency", "USD"),
+            ("floor", "cost-basis-plus-margin"),
+            ("margin", "10"),
+            ("fallback", "4.00"),
+            ("scope", "all-listings"),
+        ]
+    };
+
+    // Save policy revises the policy with the preset's body and its intent, and reads the page
+    // after it.
+    let mut fields = preset("revise-policy", "3");
+    fields.push(("body", &body));
+    let (status, headers, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing/pol_4?after_write="));
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/pol_4/revise")).expect("the revise");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["rules"][0]["directive"]["offset"], json!({ "mode": "percent", "percent": -3 }));
+    assert_eq!(sent["authoringIntent"]["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 3, "ageDays": 45 }));
+    assert_eq!(sent["name"], json!("Beat"));
+
+    // A save Pricing records without installing it: the editor again, saying so, holding the
+    // attempt it sent, so sending it again is the same request.
+    let mut fields = preset("revise-policy", "3");
+    fields.extend([("body", body.as_str()), ("attempt", PENDING)]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 is pending. Installed policy and halt are unchanged."), "{html}");
+    assert!(html.contains(&format!(r#"{ATTEMPT_INPUT}{PENDING}""#)) && html.contains("data-repricing-tier"), "{html}");
+
+    // Open up this preset: one rule opens in the structured editor, which can go back.
+    let mut fields = preset("open-up", "2");
+    fields.push(("body", &body));
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="structured""#) && html.contains("data-repricing-simple"), "{html}");
+    let opened = drawn_body(&html).to_string();
+
+    // A change to what the policy does drops the intent: no simple controls any more.
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "structured"),
+        ("body", opened.as_str()),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-5"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let changed = drawn_body(&html);
+    assert_eq!(changed["rules"][0]["directive"]["offset"]["percent"], json!(-5));
+    assert!(changed["authoringIntent"].is_null() && html.contains("data-repricing-custom"), "{html}");
+
+    // Return to simple controls from what the preset wrote.
+    let fields = [("intent", "simple"), ("tier", "structured"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+
+    // A refused save keeps what was posted, with Pricing's words.
+    let fields = [("intent", "revise-policy"), ("tier", "structured"), ("body", opened.as_str()), ("cap", "0")];
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        text(&html).contains("Allow at least one change a day.") && drawn_body(&html)["maxChangesPerDay"] == json!(0),
+        "{html}"
+    );
+
+    // A post the editor cannot read opens it at the policy again.
+    let (status, _, html) = pilot.send(post(page, "pricer", "intent=apply&tier=advanced&body=nope", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_policys_editor_opens_up_only_a_complete_preset_and_keeps_choices_its_lists_do_not_offer() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, currency: &'static str, amount: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", "2"),
+            ("currency", currency),
+            ("floor", "absolute"),
+            ("amount", amount),
+        ]
+    };
+
+    // Open up this preset before its floor has an amount: the preset again, saying why.
+    let mut fields = preset("open-up", "USD", "");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(text(&html).contains("The policy could not be accepted."), "{html}");
+
+    // A currency no listing prices in and a category the list does not offer stay chosen.
+    let mut fields = preset("apply", "EUR", "5.00");
+    fields.extend([("scope", "catalog-filter"), ("categories", "cat-9"), ("categories", "cat-1"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<option value="EUR" selected>EUR</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#) && html.contains(r#"value="cat-1" checked>"#), "{html}");
+
+    // In the advanced editor too: a condition's category and the scope's, drawn and posted back.
+    let mut fields = preset("open-up", "USD", "5.00");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let mut opened = drawn_body(&html);
+    opened["scope"] = json!({ "kind": "catalog-filter", "categoryIds": ["cat-9"] });
+    let mut first = opened["rules"][0].clone();
+    first["conditions"] = json!([{ "type": "category", "categoryId": "cat-9" }]);
+    opened["rules"] = json!([first, opened["rules"][0].clone()]);
+    let opened = opened.to_string();
+    let fields = [("intent", "apply"), ("tier", "advanced"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"<option value="cat-9" selected>cat-9</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#), "{html}");
+    let drawn = drawn_body(&html).to_string();
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "advanced"),
+        ("body", drawn.as_str()),
+        ("scope", "catalog-filter"),
+        ("categories", "cat-9"),
+        ("rules[0].conditions[0].kind", "category"),
+        ("rules[0].conditions[0].category", "cat-9"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let kept = drawn_body(&html);
+    assert_eq!(kept["scope"]["categoryIds"], json!(["cat-9"]), "{html}");
+    assert_eq!(kept["rules"][0]["conditions"][0]["categoryId"], json!("cat-9"), "{html}");
+}
+
+#[tokio::test]
+async fn a_policys_advanced_editor_changes_its_rules_and_previews_them_in_place() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_1";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut fields = vec![("tier", "advanced"), ("body", body.as_str())];
+        fields.extend_from_slice(extra);
+        encoded(&fields)
+    };
+
+    // Add rule before default copies the default with a category condition; each button changes
+    // the rules' shape, answered with the editor drawn again.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "add-rule")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let rules = drawn_body(&html)["rules"].clone();
+    assert_eq!(rules.as_array().unwrap().len(), 3);
+    assert_eq!(rules[1]["conditions"], json!([{ "type": "category", "categoryId": "" }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-condition:0:0")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["conditions"], json!([{ "type": "quantity-at-least", "quantity": 2 }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "move-anchor-up:0:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["directive"]["anchorChain"][0], json!({ "source": "market-estimate" }));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-rule:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"].as_array().unwrap().len(), 2, "the default rule stays");
+
+    // A changed choice starts that part again from its defaults; the controls draw over the body.
+    let fields = [
+        ("intent", "apply"),
+        ("rules[0].conditions[0].kind", "schedule-window"),
+        ("rules[0].anchors[0].source", "lowest-competing-ask"),
+        ("rules[0].anchors[0].strata", "any"),
+        ("rules[1].ceiling", "none"),
+        ("rules[1].maxMove", "12"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&fields), false)).await;
+    let drawn = drawn_body(&html);
+    assert_eq!(
+        drawn["rules"][0]["conditions"][0],
+        json!({ "type": "schedule-window", "daysOfWeek": [], "startTime": "", "endTime": "" })
+    );
+    assert_eq!(
+        drawn["rules"][0]["directive"]["anchorChain"][0],
+        json!({ "source": "lowest-competing-ask", "strata": "any", "band": { "ground": "market-estimate", "minPercentOfGround": null } })
+    );
+    assert!(drawn["rules"][1]["directive"]["ceiling"].is_null() && drawn["rules"][1]["directive"]["maxMovePercent"] == json!(12));
+    assert_eq!(drawn["rules"][1]["directive"]["anchorChain"][0]["source"], json!("curve-objective"), "a goal's anchor stays");
+
+    // Preview starts the dry run of the policy as it is now, replacing this one, and draws its part
+    // in the editor: no Activate, since Save policy revises it.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("intent", "preview")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["replacingPolicyId"], json!("pol_1"));
+    assert_eq!(sent["rules"], serde_json::from_str::<Value>(&body).unwrap()["rules"]);
+    assert!(html.contains(r#"name="dryRun" value="repricing-dry-run:new""#) && html.contains("lst_1"), "{html}");
+    assert!(!html.contains("data-repricing-activate") && !html.contains("data-repricing-stale"), "{html}");
+
+    // With the runtime, the answer is the editor alone.
+    let (status, _, patch) = pilot.send(post(page, "pricer", &with(&[("intent", "apply")]), true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(patch.contains(r#"data-repricing-editor="revise""#) && !patch.contains("data-repricing-policy-settings"), "{patch}");
+
+    // A refused preview keeps the editor with Pricing's words.
+    let (status, _, html) =
+        pilot.send(post(page, "pricer", &with(&[("intent", "preview"), ("rules[0].amount", "0")]), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Floor must be above zero.") && html.contains(r#"data-repricing-tier="advanced""#), "{html}");
+}
+
+#[tokio::test]
 async fn the_halt_posts_its_change_and_goes_back_to_the_list() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=engage-halt", false)).await;
@@ -11308,6 +14897,55 @@ async fn the_halt_posts_its_change_and_goes_back_to_the_list() {
     assert_eq!(serde_json::from_str::<Value>(body).unwrap(), json!({ "engaged": true }));
     let (status, _, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=nonsense", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_write_pricing_does_not_install_says_so_where_it_was_posted_and_is_sent_as_its_attempt() {
+    let pilot = Pilot::new().await;
+    // Each write's form draws an attempt.
+    let (_, _, html) = pilot.send(get(REPRICING_SCREEN, Some("pricer"))).await;
+    assert_eq!(html.matches(ATTEMPT_INPUT).count(), 3, "the halt's and two policies' forms: {html}");
+    // A pause Pricing records and has not installed: the list again, saying so (marketplace's words).
+    let (status, _, html) = pilot
+        .send(post(REPRICING_SCREEN, "pricer", &format!("intent=pause-policy&policyId=pol_1&attempt={PENDING}"), false))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 is pending. Installed policy and halt are unchanged."), "{html}");
+    assert!(html.contains(&format!(r#"data-repricing-request="{PENDING}""#)), "{html}");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/pol_1/pause")).map(|c| c.headers.clone());
+    assert_eq!(sent.unwrap()["idempotency-key"], PENDING);
+    // A halt a later request replaced.
+    let (status, _, html) =
+        pilot.send(post(REPRICING_SCREEN, "pricer", &format!("intent=engage-halt&attempt={REPLACED}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 was replaced by request 8."), "{html}");
+    // A receipt whose status Pricing would not answer it with is not believed.
+    let (status, _, _) = pilot
+        .send(post(REPRICING_SCREEN, "pricer", &format!("intent=pause-policy&policyId=pol_1&attempt={MISPAIRED}"), false))
+        .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    // On a policy's page too.
+    let page = "/account/desk/repricing/pol_1";
+    let (status, _, html) = pilot.send(post(page, "pricer", &format!("intent=pause-policy&attempt={PENDING}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Request 7 is pending. Installed policy and halt are unchanged."), "{html}");
+}
+
+#[tokio::test]
+async fn the_list_and_a_policys_page_say_which_requests_pricing_has_not_installed() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(REPRICING_SCREEN, Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let shown = text(&html);
+    assert!(shown.contains("Request 2 is pending.") && shown.contains("Request 5 is pending."), "{html}");
+    // The policy's page says the halt's (the policy's read has none).
+    let (status, _, html) = pilot.send(get("/account/desk/repricing/pol_1", Some("price_reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Request 2 is pending.") && !text(&html).contains("Request 5"), "{html}");
+    // Without any, nothing is said.
+    let (_, _, html) = pilot.send(get(REPRICING_SCREEN, Some("pricer"))).await;
+    assert!(!html.contains("data-repricing-request"), "{html}");
 }
 
 #[tokio::test]
@@ -11337,8 +14975,12 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
     );
     let calls = pricing_calls(&pilot);
     let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let mut sent = serde_json::from_str::<Value>(sent).unwrap();
+    // The preset's authoring intent, which opens the policy in these controls again.
+    let intent = sent.as_object_mut().unwrap().remove("authoringIntent").unwrap_or_default();
+    assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 }));
     assert_eq!(
-        serde_json::from_str::<Value>(sent).unwrap(),
+        sent,
         json!({ "name": "Beat", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
           "rules": [ { "conditions": [], "directive": {
             "currencyCode": "USD",
@@ -11382,6 +15024,76 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
     let body = format!("intent=create-policy&{BEAT}&dryRun=repricing-dry-run%3Anew");
     let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing?afterWrite="));
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p == REPRICING_API).expect("the activation");
+    assert_eq!(serde_json::from_str::<Value>(sent).unwrap(), json!({ "dryRunId": "repricing-dry-run:new", "name": "Beat" }));
+}
+
+#[tokio::test]
+async fn the_create_editor_opens_up_a_complete_preset_previews_its_body_and_activates_only_that() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/desk/repricing?create=1", Some("pricer"))).await;
+    assert!(html.contains(r#"formmethod="post" name="intent" value="open-up""#), "{html}");
+
+    // Before its floor has an amount: the preset at its address again, saying why.
+    let incomplete =
+        "intent=open-up&create=1&preset=track-market&from=track-market&currency=USD&floor=absolute&amount=&scope=all-listings";
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", incomplete, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The policy could not be accepted.") && !html.contains("data-repricing-tier"), "{html}");
+
+    // A one-rule preset opens in the structured controls: a form posted to this page, which can go
+    // back to the preset, and no Save policy (its run activates).
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &format!("intent=open-up&{BEAT}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let tier = html.find(r#"data-repricing-tier="structured""#).expect("the structured controls");
+    let form = &html[html[..tier].rfind("<form").unwrap()..tier];
+    assert!(form.contains(r#"method="post" action="/account/desk/repricing""#) && form.contains("data-patch"), "{form}");
+    assert!(html.contains("data-repricing-simple") && !html.contains("data-repricing-save"), "{html}");
+    let opened = drawn_body(&html);
+    assert_eq!(opened["rules"][0]["directive"]["offset"], json!({ "mode": "percent", "percent": -2 }));
+    assert_eq!(opened["name"], json!("Beat"));
+    let opened = opened.to_string();
+
+    // Preview with a changed offset: the dry run of that body, replacing no policy, and Activate on.
+    let fields = [
+        ("intent", "preview"),
+        ("tier", "structured"),
+        ("body", opened.as_str()),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-5"),
+    ];
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().rfind(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["rules"][0]["directive"]["offset"]["percent"], json!(-5));
+    assert!(sent.get("replacingPolicyId").is_none(), "{sent}");
+    assert!(html.contains(r#"name="dryRun" value="repricing-dry-run:new""#), "{html}");
+    let activate = html.split("data-repricing-activate").next().unwrap();
+    assert!(!activate.ends_with("disabled ") && activate.contains(r#"value="create-policy""#), "Activate is on");
+    let previewed = drawn_body(&html).to_string();
+
+    // A change after the preview: Activate is refused and nothing is created.
+    let mut fields = vec![
+        ("intent", "create-policy"),
+        ("tier", "structured"),
+        ("body", previewed.as_str()),
+        ("dryRun", "repricing-dry-run:new"),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-6"),
+    ];
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Your settings changed since this preview"), "{html}");
+    assert!(!pricing_calls(&pilot).iter().any(|(m, p, _)| *m == Method::POST && p == REPRICING_API), "nothing activated");
+
+    // Activate the body as previewed: the run and the name, then the list read after it.
+    fields[5] = ("rules[0].offsetValue", "-5");
+    let (status, headers, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing?afterWrite="));
     let calls = pricing_calls(&pilot);
     let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p == REPRICING_API).expect("the activation");
@@ -11496,6 +15208,10 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     assert!(page.contains("Available balance $25.00 Payable total $638.83"), "Payments' quote, not one the page makes: {page}");
     assert!(page.contains("Ship to Demo Collector 42 Binder Lane, Evanston, IL 60201, US Ready"), "the saved default: {page}");
     assert!(page.contains("Standard insured: 2026-11-04 - 2026-11-09."), "{page}");
+    // The steps are the kit's: each says its state after its name, a description under it.
+    assert!(html.contains(r#"aria-label="Checkout steps""#), "{html}");
+    assert!(page.contains("Contact (done) Where receipts and updates go Delivery (done)"), "{page}");
+    assert!(page.contains("Payment How you pay Review (not started) Confirm and pay"), "{page}");
     assert!(
         html.contains(
             r#"<form id="checkout-form" class="checkout-page__form" method="post" action="/checkout/buy/session/chk_1""#
@@ -11537,6 +15253,16 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
     assert!(!calls.iter().any(|p| p == "/api/settlement/wallet" || p.ends_with("/ship-from-addresses")), "{calls:?}");
     assert!(calls.iter().any(|p| p.contains("requestedBalanceCreditAmount=0.00")), "{calls:?}");
+}
+
+#[tokio::test]
+async fn a_checkout_that_cannot_be_confirmed_draws_review_as_blocked() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_blocked", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review (blocked) Confirm and pay"), "{page}");
+    assert!(!page.contains("Review (not started)"), "{page}");
 }
 
 #[tokio::test]
@@ -11607,6 +15333,78 @@ async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
     assert!(html.contains(r#"data-payment="pay_1""#), "{html}");
     assert!(html.contains(r#"href="/account/payments/pay_1""#), "the pilot's payment page: {html}");
     assert!(!html.contains(r#"value="confirm-checkout""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_repeat_pay_now_on_orders_waiting_for_payment_is_quoted_from_the_kept_quote_and_posts_what_they_kept() {
+    let pilot = Pilot::new().await;
+    // chase-sets/chase-sets#11151: the orders kept their revision and acknowledgement, and the
+    // session the quote it last recorded, so Pay now is quoted and posts both back.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_ordered", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-commit="pay""#), "Pay now: {html}");
+    assert!(html.contains(r#"value="lowest-total#lst_seed_lugia#620.00""#), "the kept revision: {html}");
+    assert!(html.contains(r#"name="acknowledgedMaterialChanges" value="true""#), "the kept acknowledgement: {html}");
+    assert!(html.contains(r#"value="fq_card""#), "quoted: {html}");
+    assert!(!text(&html).contains("temporarily unavailable"), "no missing-preview banner: {html}");
+    // A kept quote of another revision gives no quote, and the page says the totals are not ready.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_ordered_other", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"value="fq_card""#), "no quote: {html}");
+}
+
+#[tokio::test]
+async fn a_buyer_whose_payment_awaits_email_verification_is_offered_the_sign_in_that_verifies_it() {
+    let pilot = Pilot::new().await;
+    let link = "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: Verify your email to pay in place of Pay now.
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(&format!(r#"href="{link}">Verify your email to pay</a>"#)), "{html}");
+    assert!(!html.contains(r#"data-commit="pay""#), "no Pay now: {html}");
+    // Not for an agent, nor for a buyer who may pay.
+    for session in ["unverified_agent", "payer"] {
+        let (_, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some(session))).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{session}: {html}");
+        assert!(html.contains(r#"data-commit="pay""#), "{session}: {html}");
+    }
+    // Checkout's refusal of Pay now is the page again, with its words and the link.
+    let (status, _, html) = pilot
+        .send(post("/checkout/buy/session/chk_verify", "unverified", &checkout_body("intent=confirm-checkout"), false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(text(&html).contains("Verify your email before you pay. Nothing was reserved or ordered."), "{html}");
+    assert!(html.contains("verifyEmail%3Dpay-checkout"), "{html}");
+    // The page refuses before it writes the session: no shipping option, opt-in, address,
+    // preview or confirm reached Checkout (chase-sets/chase-sets#10959).
+    let writes = checkout_writes(&pilot);
+    assert!(writes.is_empty(), "nothing written: {writes:?}");
+    // A role that never pays gets its own words, with nothing written either.
+    let (status, _, html) =
+        pilot.send(post(CHECKOUT_SCREEN, "card_reader", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(text(&html).contains("This account cannot pay for purchases. Nothing was reserved or ordered."), "{html}");
+    assert!(checkout_writes(&pilot).is_empty(), "nothing written");
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_pay_for_a_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for this checkout"), "{shown}");
+    assert!(shown.contains("brings you back to your checkout, where you can pay"), "{shown}");
+    // Only a checkout's page, and only with its marker.
+    for other in ["%2Fcheckout%2Fbuy%2Fsession%2Fchk_1", "%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dcancel-purchase"] {
+        let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{other}: {html}");
+    }
 }
 
 #[tokio::test]
@@ -11775,11 +15573,20 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
     assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
     assert!(csp.contains("https://api.stripe.com"), "{csp}");
-    // Only the payment pages allow Stripe (todd-skelton/corten#275).
+    // The page allows a `default` policy and `<Corten />` makes none: `views/stripe.js` makes it, to
+    // pass Stripe's SVG filter as well as Stripe's script URLs (corten-run/corten#1488).
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
+    assert!(!html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
+    // The Payment Element's wallets run the Payment Request API in Stripe's frames.
+    let features = headers["permissions-policy"].to_str().unwrap();
+    assert!(!features.contains("payment=()") && features.contains("camera=()"), "{features}");
+    // Only the payment pages allow Stripe (todd-skelton/corten#275), or its policy.
     let (status, headers, _) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK);
     let elsewhere = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(!elsewhere.contains("stripe.com"), "{elsewhere}");
+    assert!(elsewhere.contains("trusted-types corten;") || elsewhere.ends_with("trusted-types corten"), "{elsewhere}");
+    assert!(headers["permissions-policy"].to_str().unwrap().contains("payment=()"), "elsewhere payment is denied");
     let page = text(&html);
     assert!(page.contains("Secure Checkout Payment pay_1"), "{page}");
     assert!(page.contains("Complete payment by deadline"), "the order's deadline: {page}");
@@ -11798,8 +15605,11 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(html.contains("collector@chasesets.test") && html.contains("60201"), "the billing details: {html}");
     assert_eq!(html.matches("data-payment-confirm").count(), 2, "{html}");
     assert!(page.contains("Stripe can only load in the browser."), "{page}");
-    // The watch over its status.
+    // The watch over its status, and the step's status form, which Confirm sends for the runtime
+    // to read the part (a script's markup string would be refused under Trusted Types).
     assert!(html.contains("/account/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    assert!(html.contains(r#"method="get" action="/account/payments/pay_1/status" data-patch hidden>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="since" value="pending-confirmation">"#), "{html}");
     // A Checkout Session's secret goes to the script as it is.
     let (_, _, html) = pilot.send(get("/account/payments/pay_cs", Some("payer"))).await;
     assert!(html.contains("cs_test_1_secret"), "{html}");
@@ -11839,6 +15649,14 @@ async fn the_status_part_waits_while_the_status_holds_and_redraws_the_page_once_
     let (status, headers, _) =
         pilot.send(get("/account/payments/pay_paid/status?since=pending-confirmation&until=1", Some("payer"))).await;
     assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/payments/pay_paid"));
+    // A guest's part read by someone who is not the guest: the runtime still gets a patch, the
+    // watch empty and asking no more, where the payment page would answer them.
+    let mut stranger = get(&format!("/checkout/payments/pay_1/status?since=pending-confirmation&until={until}"), None);
+    stranger.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, headers, html) = pilot.send(stranger).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"<p id="payment-watch" hidden></p>"#) && !html.contains("data-corten-read-again"), "{html}");
 }
 
 #[tokio::test]
@@ -11999,12 +15817,24 @@ async fn starting_a_payment_needs_orders_and_orders_manage() {
     let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_gone", Some("payer"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
     assert!(text(&html).contains("Purchase not found."), "{html}");
-    // Seeing payments is not enough to start one.
-    let (status, _, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
+    // Seeing payments is not enough to start one, and the page says why with the purchase's page
+    // (chase-sets/chase-sets#11170), not a bare Forbidden.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
     let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
-    let (status, _, _) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
+    let (status, _, html) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    // One whose orders.manage awaits email verification is told to verify it from the purchase.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("unverified"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("Verify your email before you pay."), "{html}");
+    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
+    // More than one order: no single purchase to open.
+    let (_, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay,ord_open", Some("card_reader"))).await;
+    assert!(!html.contains(r#"href="/account/purchases/ord_"#), "{html}");
     let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", None)).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),
@@ -12017,13 +15847,14 @@ async fn starting_a_payment_needs_orders_and_orders_manage() {
 fn sign_in_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if let Some(cookie) = cookie {
         req = req.header(header::COOKIE, cookie);
     }
     let mut req = req.body(Body::from(body.to_owned())).unwrap();
     let peer: std::net::SocketAddr = "203.0.113.7:50000".parse().unwrap();
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+    req.extensions_mut().insert(corten::PeerAddr(peer));
     req
 }
 
@@ -12053,7 +15884,10 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"method="get" action="/sign-in""#), "a GET to the page: {html}");
     assert!(html.contains(r#"name="returnTo" value="/account/cart""#), "{html}");
     assert!(html.contains(r#"name="signInMethod" value="password""#) && html.contains(r#"name="signInIdentifier""#));
-    assert!(html.contains("/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart"), "{html}");
+    assert!(
+        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
+        "the pilot's relay: {html}"
+    );
     assert!(!html.contains(r#"type="password""#));
 
     let email = "/sign-in?returnTo=%2Faccount%2Fcart&signInIdentifier=collector%40example.test&signInMethod=password";
@@ -12072,7 +15906,11 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"value="magic-link-request""#) && !html.contains(r#"type="password""#), "{html}");
     let passkey = email.replace("signInMethod=password", "signInMethod=passkey");
     let (_, _, html) = pilot.send(get(&passkey, None)).await;
-    assert!(html.contains("http://localhost:7753/sign-in?returnTo=%2Faccount%2Fcart&amp;signInIdentifier=collector%40example.test&amp;signInMethod=passkey"), "marketplace's passkey: {html}");
+    assert!(
+        html.contains(r#"value="passkey-sign-in""#) && html.contains(r#"name="webauthnResponse""#),
+        "the pilot's passkey: {html}"
+    );
+    assert!(!html.contains("http://localhost:7753/sign-in"), "no longer marketplace's: {html}");
 
     let (_, _, html) = pilot.send(get("/sign-in?signInIdentifier=%2B15550100&signInMethod=password", None)).await;
     assert!(html.contains(r#"value="phone-code-request""#) && !html.contains(r#"type="password""#), "a phone has a code: {html}");
@@ -12215,7 +16053,7 @@ async fn a_magic_link_signs_in_or_says_why_it_could_not() {
     let body = "intent=magic-link-request&email=collector%40example.test";
     let (status, _, html) = pilot.send(sign_in_post("/sign-in?returnTo=%2Fsearch", None, body)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("Magic link sent") && html.contains(r#"role="status""#), "{html}");
+    assert!(html.contains("Magic link sent") && main_of(&html).contains(r#"role="status""#), "{html}");
     let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/magic-link/request")[0].body).unwrap();
     assert_eq!(sent, json!({ "email": "collector@example.test", "landingPath": "/sign-in/magic", "returnTo": "/search" }));
 }
@@ -12230,11 +16068,13 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     let order: Vec<usize> =
         ["Passkey", "Phone Code", "Magic Link", "Password"].iter().map(|m| html.find(&format!(">{m}</a>")).unwrap()).collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "marketplace's order: {order:?}");
-    // A passkey is the first, and marketplace's page: WebAuthn is its script.
+    // A passkey is the first, the passkey step's form, with the name and email it creates one for.
     assert!(html.contains(r#"aria-current="true">Passkey"#) && page.contains("Recommended"), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7753/register?returnTo=%2Faccount%2Fcart""#), "{html}");
+    assert!(html.contains(r#"value="passkey-register""#) && html.contains(r#"name="webauthnResponse""#), "{html}");
+    assert!(html.contains(r#"autocomplete="email""#) && html.contains(r#"autocomplete="name""#), "{html}");
+    assert!(!html.contains(r#"href="http://localhost:7753/register"#), "no longer marketplace's: {html}");
     assert!(
-        html.contains("http://localhost:7753/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart"),
+        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
         "{html}"
     );
 
@@ -12245,6 +16085,13 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     assert!(html.contains(r#"value="magic-link-register""#) && !html.contains(r#"type="password""#), "{html}");
     let (_, _, html) = pilot.send(get("/register?registrationMethod=phone-code", None)).await;
     assert!(html.contains(r#"value="phone-code-request""#) && !html.contains(r#"name="code""#), "{html}");
+
+    // Its analytics: the page as an address opens it counts what is shown, every other method's
+    // link counts a choice, and the forms' wrapper counts a form sent.
+    assert!(html.contains(r#"data-on='connect:register_analytics.watch($s,"phone-code",true)'"#), "{html}");
+    assert!(html.contains(r#"data-on='click:register_analytics.choose($e,"password")'"#), "{html}");
+    assert!(!html.contains(r#"choose($e,"phone-code")"#), "the method shown is no choice: {html}");
+    assert!(html.contains(r#"data-on='submit:register_analytics.completed($e,"phone-code")'"#), "{html}");
 }
 
 #[tokio::test]
@@ -12293,6 +16140,9 @@ async fn a_refused_registration_says_why_keeps_what_was_typed_and_names_no_accou
             "the name stays, the password does not: {html}"
         );
         assert!(html.contains(r#"aria-current="true">Password"#), "{html}");
+        // A form's answer counts no method shown again, and the refusal as marketplace classifies it.
+        assert!(html.contains(r#"connect:register_analytics.watch($s,"password",false)"#), "{email}: {html}");
+        assert!(html.contains(r#"data-on='connect:register_analytics.failed("password","FORM")'"#), "{email}: {html}");
     }
 }
 
@@ -12326,7 +16176,7 @@ async fn a_magic_link_registration_sends_the_link_and_a_phone_code_registration_
 const INVITE_ATTEMPT: &str = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
 
 #[tokio::test]
-async fn an_invitation_says_who_sent_it_and_offers_a_passkey_on_marketplace_or_a_password_here() {
+async fn an_invitation_says_who_sent_it_and_offers_a_passkey_or_a_password() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/invite/ivt_1?token=good", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -12334,7 +16184,9 @@ async fn an_invitation_says_who_sent_it_and_offers_a_passkey_on_marketplace_or_a
     assert!(page.contains("Accept your invitation"), "{page}");
     assert!(page.contains("Ann Owner invited you to Chase Sets Shop as Viewer."), "{page}");
     assert!(html.contains(r#"aria-current="true">Passkey"#), "a passkey first: {html}");
-    assert!(html.contains(r#"href="http://localhost:7753/invite/ivt_1?token=good""#), "marketplace's passkey: {html}");
+    assert!(html.contains(r#"value="passkey""#) && html.contains(r#"name="webauthnResponse""#), "the pilot's passkey: {html}");
+    assert!(html.contains(r#"name="attempt""#), "a passkey's acceptance is an attempt too: {html}");
+    assert!(!html.contains("http://localhost:7753/invite/"), "no longer marketplace's: {html}");
     let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/invitations/inspect")[0].body).unwrap();
     assert_eq!(sent, json!({ "invitationId": "ivt_1", "token": "good" }));
 
@@ -12431,6 +16283,181 @@ async fn an_acceptance_that_is_not_a_session_says_where_the_attempt_stands_and_c
 }
 
 #[tokio::test]
+async fn a_passkey_challenge_is_json_for_the_step_from_the_pages_host() {
+    let pilot = Pilot::new().await;
+    let body = "purpose=passkey-sign-in&email=collector%40example.test";
+    let (status, headers, json) = pilot.send(sign_in_post("/sign-in/passkey", None, body)).await;
+    assert_eq!(status, StatusCode::OK, "{json}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(serde_json::from_str::<Value>(&json).unwrap(), json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" }));
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/challenge");
+    // Auth checks the credential against the page's origin, which the call forwards.
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791", "{:?}", sent[0].headers);
+    assert_eq!(sent[0].headers["x-forwarded-for"], "203.0.113.7");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({ "purpose": "passkey-sign-in", "email": "collector@example.test" })
+    );
+
+    let (status, _, _) =
+        pilot.send(sign_in_post("/sign-in/passkey", None, "purpose=passkey-register&email=new%40example.test")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(sign_in_post("/sign-in/passkey", None, "purpose=password&email=new%40example.test")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "only a passkey's purposes");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/challenge").len(), 2, "nothing sent for another purpose");
+    let limited = "purpose=passkey-sign-in&email=limited%40example.test";
+    let (status, _, _) = pilot.send(sign_in_post("/sign-in/passkey", None, limited)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "Auth's refusal keeps its status");
+}
+
+const PASSKEY_SIGNED: &str = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=signed";
+
+#[tokio::test]
+async fn a_social_sign_in_goes_through_auth_and_comes_back_to_the_pages_origin() {
+    let pilot = Pilot::new().await;
+    let start = "/api/auth/social/google/start?journey=sign-in&returnTo=%2Faccount%2Fcart";
+    let (status, headers, _) = pilot.send(get(start, None)).await;
+    assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    let back = "redirect_uri=http%3A%2F%2Flocalhost%3A7791%2Fapi%2Fauth%2Fsocial%2Fgoogle%2Fcallback";
+    assert!(to.starts_with("https://provider.test/authorize?") && to.ends_with(back), "back to the page's origin: {to}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    let sent = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with("/api/auth/social/")).cloned().unwrap();
+    assert_eq!(sent.path, start, "the query as sent");
+    assert_eq!(sent.headers[header::HOST.as_str()], "localhost:7791");
+    assert_eq!(sent.headers["x-forwarded-host"], "localhost:7791");
+
+    // The provider's return: Auth's session cookie, and back to the page the sign-in was for.
+    let (status, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_cart&code=good", None)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::FOUND, "/account/cart"));
+    let set = cookies_set(&headers);
+    assert!(set["chase_sets_session"].starts_with("chase_sets_session=tok_google;"), "{headers:?}");
+    assert!(set["chase_sets_account_selection"].contains("Max-Age=0"), "both of Auth's cookies: {headers:?}");
+
+    // More than one account: the pilot's account selection, with the selection's cookie.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_cart&code=member", None)).await;
+    assert_eq!(headers[header::LOCATION], "/account/select?returnTo=%2Faccount%2Fcart");
+    assert!(cookies_set(&headers)["chase_sets_account_selection"].starts_with("chase_sets_account_selection=sel_1;"));
+
+    // A page the pilot does not serve is marketplace's, as a sign-in's `returnTo` is.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_away&code=good", None)).await;
+    assert_eq!(headers[header::LOCATION], "http://localhost:7753/not-a-pilot-page");
+
+    // A refusal comes back to the pilot's sign-in, which says it.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_old&code=good", None)).await;
+    let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(back, "/sign-in?socialLoginError=invalid_state");
+    assert!(cookies_set(&headers).is_empty());
+    let (status, _, html) = pilot.send(get(&back, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Social login could not be completed."), "{html}");
+
+    // Only a lowercase provider and Auth's two steps: nothing else reaches Auth.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    for path in ["/api/auth/social/Google/start", "/api/auth/social/google/link", "/api/auth/social/go.x/start"] {
+        let (status, _, _) = pilot.send(get(path, None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+    assert_eq!(pilot.stand.calls.lock().unwrap().len(), before);
+}
+#[tokio::test]
+async fn a_passkey_signs_in_with_its_credential_and_without_one_says_it_failed() {
+    let pilot = Pilot::new().await;
+    let at = "/sign-in?returnTo=%2Faccount%2Fcart&signInIdentifier=collector%40example.test&signInMethod=passkey";
+    let body = format!("intent=passkey-sign-in&email=collector%40example.test&{PASSKEY_SIGNED}");
+    let (status, headers, html) = pilot.send(sign_in_post(at, None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/cart");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_passkey;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/sign-in");
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791", "the page's origin, which Auth checks");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "signed",
+        })
+    );
+
+    // No credential: the step's script did not run. Nothing is sent.
+    let (status, _, html) = pilot.send(sign_in_post(at, None, "intent=passkey-sign-in&email=collector%40example.test")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Passkey sign-in failed."), "{html}");
+    assert!(html.contains(r#"value="passkey-sign-in""#), "the passkey's step again: {html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/sign-in").len(), 1);
+
+    // A credential Auth refuses is the generic failure, as marketplace's.
+    let refused = body.replace("webauthnResponse=signed", "webauthnResponse=forged");
+    let (status, headers, html) = pilot.send(sign_in_post(at, None, &refused)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    assert!(text(&html).contains("This request could not be completed."), "{html}");
+}
+
+#[tokio::test]
+async fn a_passkey_registration_lands_on_the_new_account_or_says_to_sign_in_with_the_passkey_added() {
+    let pilot = Pilot::new().await;
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=created";
+    let body = format!("intent=passkey-register&displayName=New+Seller&email=new%40example.test&{credential}");
+    let (status, headers, html) = pilot.send(sign_in_post("/register", None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account?after_write=") && to.contains("78"), "the account's page, after Identity's write: {to}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_pk;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/register");
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "displayName": "New Seller", "email": "new@example.test", "label": "Passkey", "challengeId": "cmd_1",
+            "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "created",
+        })
+    );
+
+    // A passkey added to an existing user starts no session (marketplace's `passkey-recovery`).
+    let known = body.replace("new%40example.test", "known%40example.test");
+    let (status, headers, html) = pilot.send(sign_in_post("/register", None, &known)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    let page = text(&html);
+    assert!(page.contains("Passkey added") && page.contains("Sign in with it to continue."), "{page}");
+
+    // No credential: nothing is sent, and what was typed stays.
+    let bare = "intent=passkey-register&displayName=New+Seller&email=new%40example.test";
+    let (status, _, html) = pilot.send(sign_in_post("/register", None, bare)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Passkey registration failed."), "{html}");
+    assert!(html.contains(r#"value="New Seller""#) && html.contains(r#"aria-current="true">Passkey"#), "{html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/register").len(), 2);
+}
+
+#[tokio::test]
+async fn a_passkey_accepts_an_invitation_as_one_attempt_and_without_a_credential_sends_nothing() {
+    let pilot = Pilot::new().await;
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=created";
+    let body = format!("attempt={INVITE_ATTEMPT}&intent=passkey&{credential}");
+    let (status, headers, html) = pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_invitee;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/invitations/accept");
+    assert_eq!(sent[0].headers["idempotency-key"], INVITE_ATTEMPT, "the attempt is the key");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "invitationId": "ivt_1", "token": "good", "attemptId": INVITE_ATTEMPT, "label": "Passkey",
+            "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "created",
+        }),
+        "a credential in place of a password"
+    );
+
+    let (status, _, html) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("attempt={INVITE_ATTEMPT}&intent=passkey"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Invitation could not be accepted"), "{html}");
+    assert!(html.contains(r#"value="passkey""#), "the passkey's form again: {html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/invitations/accept").len(), 1, "nothing sent without a credential");
+}
+
+#[tokio::test]
 async fn a_phone_code_is_sent_then_entered() {
     let pilot = Pilot::new().await;
     let at = "/sign-in?returnTo=%2Fsearch&signInIdentifier=%2B15550100";
@@ -12480,8 +16507,8 @@ const CONSENTS: &str = "/account/consents";
 
 /// The consents Identity lists for `usr_seller` on `acc_seller`, newest first: a current Terms of
 /// Service, an account's current Seller Agreement, a withdrawn Privacy Policy another one replaced,
-/// a policy the page does not know with a version that is not a token, and another user's consent
-/// (chase-sets/chase-sets#10707). A read that waits for 45 is still catching up. A withdrawal's
+/// and a policy the page does not know with a version that is not a token. A read that waits for 45
+/// is still catching up. A withdrawal's
 /// attempt decides an answer as a team write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`
 /// are `indeterminate`); the old Privacy Policy is refused as superseded.
 fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
@@ -12536,9 +16563,8 @@ fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Respo
                     false,
                 ),
                 consent("cns_odd", "user", "usr_seller", None, "beta-terms", "1.0", None, false),
-                consent("cns_else", "user", "usr_else", Some("acc_seller"), "terms-of-service", "2026-05-01", None, true),
             ];
-            Json(json!({ "items": items, "total": 5, "count": 5 })).into_response()
+            Json(json!({ "items": items, "total": 4, "count": 4 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => {
             (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })))
@@ -12568,7 +16594,7 @@ fn consent_writes(pilot: &Pilot) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-async fn the_consent_history_shows_only_the_users_own_and_offers_withdraw_on_a_current_one() {
+async fn the_consent_history_lists_the_users_consents_and_offers_withdraw_on_a_current_one() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(CONSENTS, Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -12585,7 +16611,6 @@ async fn the_consent_history_shows_only_the_users_own_and_offers_withdraw_on_a_c
     assert!(html.contains("Privacy Policy · Version 2025-01-01") && html.contains("Withdrawn"), "{html}");
     assert!(html.contains("Unrecognized consent policy: Beta Terms · Version unavailable"), "{html}");
     assert!(html.contains("Recorded Oct 1, 2026") && html.contains("· Withdrawn Oct 5, 2026"), "the moments: {html}");
-    assert!(!html.contains("cns_else"), "another user's consent (#10707): {html}");
     assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_terms""#), "{html}");
     assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_seller""#), "{html}");
     assert!(
@@ -12634,7 +16659,7 @@ async fn a_refused_withdrawal_says_why_and_a_lost_answer_is_asked_about() {
     // An attempt that is not a submit key is refused by the form's reader, before the handler.
     let (status, _, html) = pilot.send(refused("intent=withdraw&attempt=nope&consent_id=cns_terms".into())).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("submit key"), "{html}");
+    assert!(html.contains("This form is out of date. Reload the page and try again."), "{html}");
     let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={ATTEMPT}&consent_id=+"))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a consent to withdraw."), "{html}");
@@ -12909,6 +16934,8 @@ async fn payout_setup_shows_the_status_what_it_needs_and_stripes_form() {
         csp.contains("https://connect-js.stripe.com") && csp.contains("'sha256-0hAheEzaMe6uXIKV4EehS9pu1am1lj/KnnzrOYqckXk='"),
         "{csp}"
     );
+    assert!(csp.contains("trusted-types corten default"), "Connect.js loads through <Corten />'s policy: {csp}");
+    assert!(html.contains(r#"trustedTypes.createPolicy("default""#), "<Corten />'s policy, not the payment pages': {html}");
     assert_eq!(headers["cross-origin-opener-policy"], "unsafe-none");
     // Every other page keeps same-origin and no Connect.js.
     let (_, headers, _) = pilot.send(get(MONEY, Some("banker"))).await;
@@ -13186,7 +17213,9 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     assert!(words.contains("$10.00") && words.contains("$0.27") && words.contains("Completed"), "{words}");
     assert!(words.contains("Last provider check"), "{words}");
     assert!(words.contains("The payout provider accepted the transfer."), "{words}");
-    assert_eq!(html.matches(r#"data-status="complete""#).count(), 5, "every step done: {html}");
+    // The kit's Steps as a timeline, an <ol> named by its label (no <nav>), every step done.
+    assert!(html.contains(r#"<div class="steps__steps steps__timeline"><ol aria-label="Status Timeline">"#), "{html}");
+    assert_eq!(words.matches("(done)").count(), 5, "every step done: {words}");
     assert!(!words.contains("Payout requested") && !words.contains("needs review"), "{words}");
     assert!(html.contains(r#"href="/account/desk/money""#), "Back to payouts: {html}");
 
@@ -13196,7 +17225,9 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     assert!(words.contains("Payout account needs review"), "{words}");
     assert!(html.contains(r#"href="/account/desk/settings?mode=manage""#), "Review payout details is the pilot's: {html}");
     assert!(html.contains(r#"href="/account/support""#), "Contact support is the pilot's: {html}");
-    assert!(html.contains(r#"data-status="issue""#), "{html}");
+    // The last step failed, drawn with the kit's failed mark and read with its words.
+    assert!(html.contains(r#"<li class="steps__failed">"#), "{html}");
+    assert!(words.contains("Needs attention (failed) Bank account temporarily unavailable"), "{words}");
 
     let (_, _, html) = pilot.send(get("/account/desk/payouts/pyo_noted?requested=1", Some("banker"))).await;
     let words = text(&html);
@@ -13320,12 +17351,58 @@ fn review_opportunity_api(method: &Method, path: &str, body: &str) -> Option<Res
     if path != "/api/marketplace/reviews" || *method != Method::POST {
         return None;
     }
+    if let Some(refused) = without_attempt(body) {
+        return Some(refused);
+    }
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     Some(match sent["feedback"].as_str().unwrap_or_default() {
         "see ftp://x" => refusal(StatusCode::UNPROCESSABLE_ENTITY, "text_unsafe_link", "Unsafe link."),
-        "boom" => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Boom."),
+        "boom" | "lost" | "clash" | "unsure" => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Boom."),
         _ => committed(StatusCode::CREATED, "marketplace", "51", json!({ "id": "rev_new" })),
     })
+}
+
+/// What Marketplace kept of a review's or a reply's attempt, by the words it was sent with (a
+/// review rated 5 of `acc_seller`): `lost` was committed (a review as `rev_lost`), `clash` was
+/// another request's attempt, `unsure` cannot be looked up (503), and any other was not observed.
+fn review_attempt(attempt: &str, kind: Option<&str>, target: &str, hash: &str) -> Option<Response> {
+    let (kind, target_kind) = match kind? {
+        "review.submit" => ("review.submit", "order"),
+        "review.reply" => ("review.reply", "review"),
+        _ => return None,
+    };
+    let request = |feedback: &str| match kind {
+        "review.submit" => json!({ "orderId": target, "subjectAccountId": "acc_seller", "rating": 5, "feedback": feedback }),
+        _ => json!({ "reviewId": target, "feedback": feedback }),
+    };
+    let said = ["lost", "clash", "unsure"].into_iter().find(|w| crate::market_following::request_hash(&request(w)) == hash);
+    if said == Some("unsure") {
+        return Some(refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Try again."));
+    }
+    let key = json!({ "kind": target_kind, "id": target });
+    let mut answer = json!({
+        "schemaVersion": 1, "mutationKind": kind,
+        "attemptKeyFingerprint": crate::market_following::request_hash(&json!(["acc_seller", kind, key, attempt])),
+        "actorBinding": { "accountId": "acc_seller" }, "target": key, "canonicalRequestHash": hash,
+        "ownerStatus": "not-observed",
+    });
+    match said {
+        Some("lost") => {
+            answer["ownerStatus"] = json!("committed");
+            let id = if kind == "review.submit" { "rev_lost" } else { target };
+            answer["ownerReceipt"] = json!({ "id": id, "version": 1 });
+        }
+        Some("clash") => answer["ownerStatus"] = json!("conflict"),
+        _ => {}
+    }
+    Some(Json(answer).into_response())
+}
+
+/// A review write's attempt (`attemptId`), which Marketplace requires.
+fn without_attempt(body: &str) -> Option<Response> {
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    (!sent["attemptId"].as_str().is_some_and(crate::recovery::valid_attempt))
+        .then(|| refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "A valid Marketplace attempt identity is required."))
 }
 
 /// The review writes the order review form sent: their bodies.
@@ -13351,8 +17428,11 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
         "{words}"
     );
     assert!(html.contains(r#"value="5" checked"#), "five stars to start: {html}");
+    assert!(html.contains(r#"<input type="hidden" name="attempt" data-submit value=""#), "the form's attempt: {html}");
     assert!(words.contains("Item not received") && words.contains("Problem with this order?"), "{words}");
     assert!(html.contains(r#"href="/account/purchases/ord_rev""#), "Back: {html}");
+    // With JavaScript the form takes back a draft kept for the order, and its sends are counted.
+    assert!(html.contains(r#".resume($t,"ord_rev")"#) && html.contains(".submitted($e)"), "{html}");
     let (status, _, _) = pilot.send(get(FORM, Some("shopper"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "orders.view is not reputation.manage");
     let (status, headers, _) = pilot.send(get(FORM, None)).await;
@@ -13364,6 +17444,8 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Resolve this order first?"), "{html}");
     assert!(html.contains(r#"href="/account/support?orderId=ord_rev""#), "Open an order issue: {html}");
+    // Shown is counted for a buyer who can open an issue, and Open an order issue keeps the draft.
+    assert!(html.contains(".shown($t,true,true)") && html.contains(r#".resolveFirst($t,"ord_rev")"#), "{html}");
     assert!(html.contains(r#"value="2" checked"#) && html.contains(">meh</textarea>"), "kept: {html}");
     // A problem ticked asks too, and opens its flow.
     let (_, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=&problemCategories=damaged", false)).await;
@@ -13376,23 +17458,49 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
     assert!(!text(&html).contains("Resolve this order first?") && html.contains(">meh</textarea>"), "{html}");
     assert!(reviews_sent(&pilot).is_empty(), "nothing sent yet");
 
-    let body = "intent=feedback-only&feedbackOnlyAcknowledged=true&rating=2&feedback=meh";
-    let (status, headers, _) = pilot.send(post(FORM, "reviewer", body, false)).await;
+    let body = keyed("intent=feedback-only&feedbackOnlyAcknowledged=true&rating=2&feedback=meh");
+    let (status, headers, _) = pilot.send(post(FORM, "reviewer", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/account/reviews/rev_new?after_write="), "the review, read after it: {to}");
     assert_eq!(
         reviews_sent(&pilot),
-        [json!({ "orderId": "ord_rev", "subjectAccountId": "acc_seller", "rating": 2, "feedback": "meh" })]
+        [json!({ "attemptId": KEY, "orderId": "ord_rev", "subjectAccountId": "acc_seller", "rating": 2, "feedback": "meh" })]
     );
 
-    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=see+ftp%3A%2F%2Fx", false)).await;
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=see+ftp%3A%2F%2Fx"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Links must start with https://."), "{html}");
     assert!(html.contains(r##"href="#review-feedback""##) && html.contains(r#"aria-invalid="true""#), "{html}");
-    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=boom", false)).await;
+
+    // An answer lost on the way is looked up by its attempt: not observed keeps the form to send
+    // again; committed is the review written; another review's attempt, or a lookup that fails,
+    // keeps what was typed without Submit.
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=boom"), false)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert!(text(&html).contains("Review could not be submitted.") && html.contains(">boom</textarea>"), "{html}");
+    assert!(text(&html).contains("No committed result was found. Your work is still here."), "{html}");
+    assert!(html.contains(">boom</textarea>") && !html.contains(" disabled>"), "{html}");
+    let (status, headers, _) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=lost"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/reviews/rev_lost");
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=clash"), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This attempt was used for a different request."), "{html}");
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", &keyed("rating=5&feedback=unsure"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Result not confirmed. Do not submit again.") && html.contains(">unsure</textarea>"), "{words}");
+    assert!(html.contains(" disabled>Submit account review</button>"), "Submit is off: {html}");
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 4, "{lookups:?}");
+    assert!(lookups.iter().all(|c| c.contains(&format!("{KEY}?kind=review.submit&target=ord_rev&"))), "{lookups:?}");
+
+    // A form without its attempt is not sent.
+    let before = reviews_sent(&pilot).len();
+    let (status, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=fine", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The request was not sent. Reload the form before submitting."), "{html}");
+    assert_eq!(reviews_sent(&pilot).len(), before);
 }
 
 #[tokio::test]
@@ -13402,7 +17510,7 @@ async fn a_sellers_review_is_sent_as_rated_and_each_state_says_where_the_review_
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Review acc_buyer") && !text(&html).contains("Item not received"), "a seller's: {html}");
     let (status, headers, _) =
-        pilot.send(post("/account/sales/ord_sold/review", "reviewer", "rating=1&feedback=late", false)).await;
+        pilot.send(post("/account/sales/ord_sold/review", "reviewer", &keyed("rating=1&feedback=late"), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "a seller is not asked first");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/reviews/rev_new"));
 
@@ -13527,15 +17635,19 @@ fn review_api(id: &str, headers: &HeaderMap) -> Response {
 }
 
 /// A reply, as Reputation answers it by what it says: a link that is not https is a closed authoring
-/// code, `slow` is one reply too many, `twice` is refused in the API's words, `down` fails, and
-/// anything else is committed at position 47.
+/// code, `slow` is one reply too many, `twice` is refused in the API's words, `down`, `lost`,
+/// `clash` and `unsure` fail (`review_attempt` says what came of them), and anything else is
+/// committed at position 47. It needs its `attemptId`.
 fn reply_api(id: &str, body: &str) -> Response {
+    if let Some(refused) = without_attempt(body) {
+        return refused;
+    }
     let feedback = serde_json::from_str::<Value>(body).ok().and_then(|b| b["feedback"].as_str().map(str::to_owned));
     match (id, feedback.as_deref().unwrap_or_default()) {
         (_, f) if f.contains("http://") => refusal(StatusCode::BAD_REQUEST, "text_unsafe_link", "Unsafe link."),
         (_, "slow") => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many requests."),
         (_, "twice") => refusal(StatusCode::CONFLICT, "reply_already_submitted", "This review already has a response."),
-        (_, "down") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        (_, "down" | "lost" | "clash" | "unsure") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         ("rev_good", _) => committed(StatusCode::CREATED, "reputation", "47", json!({ "id": "rpl_new" })),
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Review not found."),
     }
@@ -13576,14 +17688,14 @@ async fn a_review_page_offers_the_reply_only_to_the_account_reviewed_and_links_i
 async fn a_reply_is_read_after_its_receipt_and_a_refused_one_keeps_its_words() {
     let pilot = Pilot::new().await;
     let at = format!("{REVIEWS}/rev_good");
-    let send = |body: &str| post(&at, "reviewer", body, false);
+    let send = |body: &str| post(&at, "reviewer", &keyed(body), false);
     let (status, headers, _) = pilot.send(send("intent=reply&feedback=Thank+you%21")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/reviews/rev_good?after_write="), "{to}");
     let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/reply")).cloned().unwrap();
     assert_eq!(sent.path, "/api/marketplace/reviews/rev_good/reply");
-    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap()["feedback"], "Thank you!");
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap(), json!({ "attemptId": KEY, "feedback": "Thank you!" }));
     let (status, _, html) = pilot.send(get(&to, Some("reviewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Review is preparing") && html.contains("Refresh review"), "still catching up: {html}");
@@ -13609,9 +17721,30 @@ async fn a_reply_is_read_after_its_receipt_and_a_refused_one_keeps_its_words() {
     let (status, _, html) = pilot.send(send("intent=reply&feedback=twice")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This review already has a response."), "the API's words: {html}");
+
+    // An answer lost on the way is looked up by its attempt: not observed keeps the words to post
+    // again; committed is the review read again; one that cannot be confirmed, or another reply's
+    // attempt, keeps the words without Post response.
     let (status, _, html) = pilot.send(send("intent=reply&feedback=down")).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert!(html.contains("Response could not be posted.") && html.contains(">down</textarea>"), "{html}");
+    assert!(text(&html).contains("No committed result was found. Your work is still here."), "{html}");
+    assert!(html.contains(">down</textarea>") && !html.contains(" disabled>Post response</button>"), "{html}");
+    let (status, headers, _) = pilot.send(send("intent=reply&feedback=lost")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/reviews/rev_good");
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=unsure")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(text(&html).contains("Result not confirmed. Do not submit again.") && html.contains(">unsure</textarea>"), "{html}");
+    assert!(html.contains(" disabled>Post response</button>"), "{html}");
+    let (status, _, html) = pilot.send(send("intent=reply&feedback=clash")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This attempt was used for a different request."), "{html}");
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 4, "{lookups:?}");
+    assert!(lookups.iter().all(|c| c.contains(&format!("{KEY}?kind=review.reply&target=rev_good&"))), "{lookups:?}");
+    let (status, _, html) = pilot.send(post(&at, "reviewer", "intent=reply&feedback=fine", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The request was not sent. Reload the form before submitting."), "{html}");
 
     let (status, headers, _) = pilot.send(send("intent=report-review&review_id=rev_good&reason=other")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -13632,6 +17765,9 @@ async fn the_review_summary_shows_both_ratings_and_the_newest_reviews() {
     assert!(html.contains("<h1") && html.contains("Chase Seller"), "the account's name: {html}");
     assert!(html.contains("4.5") && html.contains("(2)"), "as a seller: {html}");
     assert!(html.contains("0 ratings included · 1 reviews"), "as a buyer, context only: {html}");
+    // Each star's share is the kit's meter, a measure and not progress: a 5 and a 4 are half each.
+    assert!(html.contains(r#"<meter class="meter__meter" min="0" max="100" value="50">50%</meter>"#), "{html}");
+    assert!(!html.contains("<progress"), "{html}");
     assert!(html.contains("Binder Bob") && html.contains("Thanks for the order!"), "the reply: {html}");
     assert!(html.contains("Shared for context · rating not included"), "{html}");
     assert!(html.contains("Carrier-related issue") && html.contains("Refund issued"), "the scoring context: {html}");
@@ -13691,7 +17827,10 @@ async fn a_review_list_stands_in_for_reviews_it_cannot_show_and_filters_by_role(
 async fn a_report_is_received_once_and_a_refused_one_reopens_its_dialog() {
     let pilot = Pilot::new().await;
     let at = format!("{REVIEWS}/received?role=seller");
-    let send = |session: &str, body: &str| post(&at, session, body, false);
+    let send = |session: &str, body: &str| post(&at, session, &keyed(body), false);
+    let (_, _, html) = pilot.send(get(&at, Some("reviewer"))).await;
+    let dialog = html.split(r#"<dialog id="report-review-dialog-rev_good""#).nth(1).unwrap().split("</dialog>").next().unwrap();
+    assert!(dialog.contains(r#"<input type="hidden" name="attempt" data-submit value=""#), "the form's attempt: {dialog}");
     let (status, headers, _) = pilot.send(send("reviewer", "review_id=rev_good&reason=spam-or-manipulation&details=Fake")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
@@ -13699,7 +17838,7 @@ async fn a_report_is_received_once_and_a_refused_one_reopens_its_dialog() {
     let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/report")).cloned().unwrap();
     assert_eq!(sent.path, "/api/marketplace/reviews/rev_good/report");
     let body: Value = serde_json::from_str(&sent.body).unwrap();
-    assert_eq!(body["reason"], "spam-or-manipulation", "{body}");
+    assert_eq!((&body["reason"], &body["attemptId"]), (&json!("spam-or-manipulation"), &json!(KEY)), "{body}");
     assert_eq!(body["sourceRoutePath"], "/account/reviews/received", "{body}");
     let (_, _, html) = pilot.send(get(to.split('#').next().unwrap(), Some("reviewer"))).await;
     assert!(html.contains("Report submitted") && html.contains("Moderation received your report."), "{html}");
@@ -13715,20 +17854,26 @@ async fn a_report_is_received_once_and_a_refused_one_reopens_its_dialog() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Keep the explanation to 1,000 characters or fewer.") && html.contains(&long), "{html}");
     let all = format!("{REVIEWS}/received");
-    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_refused&reason=other", false)).await;
+    let (status, _, html) = pilot.send(post(&all, "reviewer", &keyed("review_id=rev_refused&reason=other"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This review cannot be reported."), "the API's words: {html}");
-    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_reported&reason=other", false)).await;
+    let (status, _, html) = pilot.send(post(&all, "reviewer", &keyed("review_id=rev_reported&reason=other"), false)).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(html.contains("Report already submitted") && html.contains("already reported this review"), "{html}");
-    let (status, _, html) = pilot.send(post(&all, "reviewer", "review_id=rev_flood&reason=other", false)).await;
+    let (status, _, html) = pilot.send(post(&all, "reviewer", &keyed("review_id=rev_flood&reason=other"), false)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     assert!(html.contains("several reports in a short time"), "{html}");
+    // Another report's attempt: the dialog open with what was sent, without Submit report.
+    let (status, _, html) = pilot.send(send("reviewer", "review_id=rev_good&reason=other&details=clash")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let dialog = html.split(r#"<dialog id="report-review-dialog-rev_good""#).nth(1).unwrap().split("</dialog>").next().unwrap();
+    assert!(text(dialog).contains("This attempt conflicts with the first request."), "{dialog}");
+    assert!(dialog.contains(" disabled>Submit report</button>") && dialog.contains(">clash</textarea>"), "{dialog}");
 
     let (status, _, _) = pilot.send(send("review_reader", "review_id=rev_good&reason=other")).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "reporting needs reputation.manage");
     let reports = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/report")).count();
-    assert_eq!(reports, 4, "only the forms the page could send");
+    assert_eq!(reports, 5, "only the forms the page could send");
 }
 
 const TEAM: &str = "/account/team";
@@ -13736,10 +17881,8 @@ const LINK_API: &str = "/api/auth/invitations/acceptance-link/request";
 /// An attempt the API had recorded before: its create answers `newlyCommitted: false`.
 const REPLAYED: &str = "55555555-5555-4555-8555-555555555555";
 
-/// The account `acc_seller`'s team, as Identity's lists answer a `search` of its id: its owner, a
-/// revoked packer with no display name, and another account's member whose name holds
-/// `acc_seller` (chase-sets/chase-sets#10704); a pending and a cancelled invitation, and another
-/// account's. A read that waits for 45 is still catching up. A write's attempt decides an answer as
+/// The account `acc_seller`'s team, as Identity lists it to a member: its owner, a revoked packer
+/// with no display name, and a pending and a cancelled invitation. A read that waits for 45 is still catching up. A write's attempt decides an answer as
 /// a security write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN` are `indeterminate`;
 /// `REPLAYED` was recorded before). An invite to `taken@` is a conflict, to `bad@` is refused; a
 /// role change of the owner to `viewer` is refused as the last owner. The acceptance link answers
@@ -13810,9 +17953,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
                         "active",
                     ),
                     member("mbr_packer", "usr_packer", None, "packer@chasesets.test", "acc_seller", "fulfillment", "revoked"),
-                    member("mbr_else", "usr_else", Some("acc_seller fan"), "else@chasesets.test", "acc_other", "owner", "active"),
                 ];
-                Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+                Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
             }
             _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
             ("PUT", "/mbr_owner/role") if sent["roleKey"] == "viewer" => {
@@ -13830,9 +17972,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
             let items = [
                 invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending"),
                 invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled"),
-                invitation("ivt_else", "acc_seller@elsewhere.test", "acc_other", "viewer", "pending"),
             ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         // Identity's `isInstant`: to the millisecond at most, or the attempt is indeterminate.
@@ -13900,14 +18041,12 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     let (status, _, html) = pilot.send(get(TEAM, Some("teamer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
-    assert!(calls.iter().any(|c| c == "/api/identity/memberships?search=acc_seller"), "{calls:?}");
-    assert!(calls.iter().any(|c| c == "/api/identity/invitations?search=acc_seller"), "{calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/memberships"), "Identity scopes the list itself: {calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/invitations"), "{calls:?}");
     assert!(html.contains("Synthetic Seller") && html.contains("Owner · Active"), "{html}");
     assert!(html.contains("packer@chasesets.test") && html.contains("Fulfillment · Revoked"), "no name: the email: {html}");
     assert!(html.contains("new@chasesets.test") && html.contains("Viewer invitation · Pending"), "{html}");
     assert!(html.contains("Manager invitation · Cancelled"), "{html}");
-    assert!(!html.contains("mbr_else") && !html.contains("acc_seller fan"), "another account's member (#10704): {html}");
-    assert!(!html.contains("ivt_else") && !html.contains("elsewhere.test"), "another account's invitation (#10704): {html}");
     // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is cancelled.
     assert!(html.contains(r#"commandfor="revoke-member-dialog-mbr_owner""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="intent" value="reinstate"><input type="hidden" name="membership_id" value="mbr_packer">"#), "{html}");
@@ -13934,7 +18073,7 @@ async fn an_invite_sends_its_attempt_then_asks_auth_for_the_link_and_a_replay_do
     let body = format!("intent=create-invitation&attempt={ATTEMPT}&email=fresh%40chasesets.test&role_key=manager");
     let mut req = post(TEAM, "teamer", &body, false);
     let peer: std::net::SocketAddr = "203.0.113.9:50000".parse().unwrap();
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+    req.extensions_mut().insert(corten::PeerAddr(peer));
     let (status, headers, _) = pilot.send(req).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers["location"].to_str().unwrap().to_owned();
@@ -14018,7 +18157,7 @@ async fn a_refused_team_write_says_so_and_a_lost_answer_is_asked_about() {
     let before = team_writes(&pilot).len();
     let (status, _, html) = pilot.send(post(TEAM, "teamer", "intent=revoke&attempt=nope&membership_id=mbr_owner", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("submit key"), "the form's reader refuses it: {html}");
+    assert!(html.contains("This form is out of date. Reload the page and try again."), "the form's reader refuses it: {html}");
     let (status, _, _) = pilot.send(post(TEAM, "teamer", &format!("intent=revoke-api-key&attempt={ATTEMPT}"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(team_writes(&pilot).len(), before, "nothing sent");
@@ -14186,7 +18325,7 @@ async fn a_support_case_shows_who_acts_next_and_only_the_viewers_part() {
     assert!(html.contains(r#"<option value="provide-tracking" selected>Provide tracking</option>"#), "{html}");
     assert!(html.contains(r#"<option value="offer-partial-refund">Offer a partial refund</option>"#), "{html}");
     // corten-ui's RequiredWhen requires the amount for a partial refund only (todd-skelton/corten#269).
-    assert!(html.contains("ui.required_when.connect(") && html.contains("[&quot;offer-partial-refund&quot;]"), "{html}");
+    assert!(html.contains("ui.required_when.connect(") && html.contains(r#"["offer-partial-refund"]"#), "{html}");
     assert!(!html.contains(r#"<option value="request-support-review""#), "review is its own button: {html}");
     assert!(html.contains("Request support review</button>") && !html.contains("Cancel case"), "the buyer opened it: {html}");
     let order: Vec<usize> = ["Case opened", "Evidence submitted", "Offer made", "Offer declined"]
@@ -14595,6 +18734,8 @@ async fn report_a_problem_walks_its_steps_in_the_address() {
     assert!(html.contains(r#"role="alert">Select every item affected by the same problem."#), "Continue with none: {html}");
     // corten-ui's CheckboxGroup stops Continue with none in the browser first (todd-skelton/corten#272).
     assert!(html.contains("ui.checkbox_group.connect(") && html.contains("<legend>Affected items</legend>"), "{html}");
+    // The kit's Checkboxes draws the group: its fieldset is the wrapper's child.
+    assert!(html.contains(r#"<div class="checkboxes__checkboxes"><fieldset"#), "{html}");
     let (_, _, html) = page("/account/support?orderId=ord_two&line=ln_1&step=issue").await;
     assert!(html.contains(r#"<input type="hidden" name="line" value="ln_1">"#), "{html}");
     assert!(html.contains(r#"value="product-damaged" checked required"#) && html.contains("Product not received"), "{html}");
@@ -14809,18 +18950,18 @@ async fn an_accounts_sell_list_shows_each_lines_readiness_the_payout_in_cents_an
     assert!(html.contains(r#"name="productOfferId:sll_product" value="off_short""#), "{html}");
     // The unmatched photo can be classified; the evidence is complete, so no Add photo.
     assert!(html.contains(r#"name="photoId" value="ph_extra""#), "{html}");
+    let classify = forms_to(&html, SELL_LIST_PAGE).into_iter().find(|f| f.contains(r#"value="ph_extra""#)).expect("Classify");
+    assert!(!classify.contains("disabled"), "Classify is offered: {classify}");
     assert!(!html.contains(r#"name="photoId" value="ph_front""#), "{html}");
     assert!(!html.contains(r#"name="listingPhoto""#), "{html}");
     // The latest seller confirmation, with its support reference.
     assert!(page.contains("Latest seller confirmation") && page.contains("CS-SL-01J"), "{page}");
+    // The readiness, the totals and the payout readiness are Checkout's review's, for this page.
     let calls = sell_list_calls(&pilot);
-    for call in [
-        "GET /api/marketplace/account/sell-list",
-        "GET /api/marketplace/account/sell-list/composite-review",
-        "GET /api/marketplace/account/sell-list/payout-readiness",
-    ] {
-        assert!(calls.iter().any(|c| c == call), "{call}: {calls:?}");
-    }
+    assert!(calls.iter().any(|c| c == "GET /api/marketplace/account/sell-list"), "{calls:?}");
+    let review = "GET /api/marketplace/account/sell-list/composite-review?sellListPath=%2Faccount%2Fsell-list";
+    assert!(calls.iter().any(|c| c == review), "{calls:?}");
+    assert!(!calls.iter().any(|c| c.ends_with("/payout-readiness")), "the review brings it: {calls:?}");
 }
 
 #[tokio::test]
@@ -14832,11 +18973,37 @@ async fn a_line_missing_evidence_or_payouts_not_set_up_holds_continue_back_and_s
     assert!(page.contains("Evidence needs action") && page.contains("Add the required photo for this view."), "{page}");
     assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "{html}");
     assert!(html.contains(r#"action="/account/sell-list/evidence" enctype="multipart/form-data""#), "{html}");
+    assert!(page.contains("Resolve 1 item before seller checkout starts. Offer acceptance is unavailable."), "{page}");
 
     let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, Some("lookout"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert_eq!(hrefs(&html, "Set up payouts").first(), Some(&"/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"), "{html}");
     assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "{html}");
+    let page = text(&html);
+    // Every line is ready, so the payout holds acceptance back, and each requirement is said once.
+    assert!(page.contains("Offer acceptance unavailable Offer acceptance is unavailable until payout setup is ready."), "{page}");
+    assert!(
+        page.contains(
+            "Payout setup required Complete payout setup before accepting offers or creating fallback listings. \
+             Add a bank account for payouts Complete payout provider onboarding Review additional payout setup requirements"
+        ),
+        "{page}"
+    );
+    assert_eq!(page.matches("Add a bank account for payouts").count(), 1, "{page}");
+    assert!(page.contains("Payout readiness Setup required"), "{page}");
+
+    for (session, readiness, description) in [
+        ("lookout_pending", "Verification pending", "Payout verification is pending."),
+        ("lookout_restricted", "Restricted", "Payouts are restricted. Review payout setup to resolve the restrictions."),
+    ] {
+        let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, Some(session))).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        let page = text(&html);
+        assert!(page.contains(&format!("Payout readiness {readiness}")), "{session}: {page}");
+        assert!(page.contains(&format!("Payout setup required {description}")), "{session}: {page}");
+    }
+    let (_, _, html) = pilot.send(get(SELL_LIST_PAGE, Some("lookout_restricted"))).await;
+    assert!(text(&html).contains("Provide identity verification documents"), "{html}");
 }
 
 #[tokio::test]
@@ -14853,7 +19020,7 @@ async fn a_guest_sees_their_sell_list_with_the_standard_terms_and_continues_to_r
     assert!(page.contains("Create an account to continue seller checkout") && page.contains("Pikachu"), "{page}");
     assert!(!html.contains(r#"name="bulkOfferId""#), "a guest picks no offers: {html}");
     let calls = sell_list_calls(&pilot);
-    assert!(calls.contains(&"GET /api/marketplace/guest/sell-list/offer-reviews".to_owned()), "{calls:?}");
+    assert!(calls.contains(&"GET /api/marketplace/guest/sell-list/composite-review".to_owned()), "{calls:?}");
     assert!(!calls.iter().any(|c| c.contains("/account/")), "a guest reads only its own: {calls:?}");
 
     let continue_ = post_signed_out(SELL_LIST_PAGE, "intent=review-sell-list-checkout");
@@ -14886,7 +19053,7 @@ async fn back_from_registration_the_guest_sell_list_moves_into_the_account_and_i
     let read = calls.iter().skip(merge).find(|c| c.path == ACCOUNT_SELL_LIST).unwrap();
     assert_eq!(waits_for(&read.headers).as_deref(), Some("73"), "the read waits for the merge");
     let review = calls.iter().find(|c| c.path.contains("/composite-review")).unwrap();
-    assert!(review.path.ends_with("?includeStandardComparison=true"), "{}", review.path);
+    assert!(review.path.ends_with("?sellListPath=%2Faccount%2Fsell-list&includeStandardComparison=true"), "{}", review.path);
 }
 
 #[tokio::test]
@@ -14925,26 +19092,96 @@ async fn remove_and_decline_selected_write_and_read_the_sell_list_after_them() {
     assert!(query(to)["afterWrite"].contains(r#""commitPosition":"72""#), "{to}");
     assert!(sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_product/remove".to_owned()));
 
-    let (status, headers, html) =
-        pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers&bulkOfferId=off_ready", false)).await;
+    let removed = list_calls(&pilot, "/api/marketplace/account/sell-list/sll_product/remove");
+    let sent: Value = serde_json::from_str(removed[0].split_once("/remove ").unwrap().1).unwrap();
+    assert_eq!(sent["attemptId"].as_str().map(str::len), Some(36), "a post without its attempt is still one: {sent}");
+
+    // Decline selected declines each offer as an attempt made from the form's, then removes their
+    // lines in one batch attempt (chase-sets/chase-sets#9995).
+    assert_eq!(
+        crate::sell_list::LineForm::FIELDS.attempt_id.as_str(),
+        crate::sell_list::ATTEMPT,
+        "the forms' field is the one read"
+    );
+    const ATTEMPT: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    let body = format!("intent=decline-sell-list-offers&bulkOfferId=off_ready&attemptId={ATTEMPT}");
+    let (status, headers, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/sell-list?afterWrite="));
     let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
     assert_eq!(
         declined,
-        [r#"POST /api/marketplace/account/offers/matches/off_ready/decline {"attemptId":"decline_off_ready_____"}"#],
-        "the offer's own attempt, padded to 22 as marketplace's action pads it"
+        [
+            r#"POST /api/marketplace/account/offers/matches/off_ready/decline {"attemptId":"Apm-cmT8CsgKuwxjl8A032YreUa18nMG2dX5LjfU4w4"}"#
+        ],
+        "marketplace's attempt for the offer, made from the form's"
     );
-    assert!(sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_offer/remove".to_owned()));
+    let batch = list_calls(&pilot, "/api/marketplace/account/sell-list/commands");
+    assert_eq!(batch.len(), 1, "{batch:?}");
+    let sent: Value = serde_json::from_str(batch[0].split_once("/commands ").unwrap().1).unwrap();
+    assert_eq!(sent, json!({ "attemptId": ATTEMPT, "lineIds": ["sll_offer"] }));
+    assert!(!sell_list_calls(&pilot).contains(&"POST /api/marketplace/account/sell-list/sll_offer/remove".to_owned()));
 
-    // A decline the API refuses is shown on the page, and its line stays.
-    let removes = |p: &Pilot| sell_list_calls(p).iter().filter(|c| c.ends_with("/remove")).count();
-    let before = removes(&pilot);
-    let (status, _, html) =
-        pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers&bulkOfferId=off_taken", false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(text(&html).contains("Offer match has already been declined."), "{html}");
-    assert_eq!(removes(&pilot), before);
+    // A decline the API refuses stops the batch: the page says which offers were declined, holds
+    // its writes and offers the same write again, with the lines the first send found.
+    let batches = |p: &Pilot| list_calls(p, "/api/marketplace/account/sell-list/commands").len();
+    let before = batches(&pilot);
+    let body = format!("intent=decline-sell-list-offers&bulkOfferId=off_ready&bulkOfferId=off_taken&attemptId={ATTEMPT}");
+    let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("This action completed only partly."), "{html}");
+    assert!(shown.contains("Offer match has already been declined."), "{html}");
+    assert!(shown.contains("Declined") && shown.contains("Not confirmed") && !shown.contains("Not sent"), "{shown}");
+    assert_eq!(batches(&pilot), before);
+    let retry = forms_to(&html, SELL_LIST_PAGE).into_iter().find(|f| f.contains("Retry the same action")).expect("a retry");
+    for field in [
+        format!(r#"name="attemptId" value="{ATTEMPT}""#),
+        r#"name="declinedLineId" value="sll_offer""#.to_owned(),
+        r#"name="declinedLineTargetsCaptured" value="true""#.to_owned(),
+        r#"name="bulkOfferId" value="off_taken""#.to_owned(),
+    ] {
+        assert!(retry.contains(&field), "{field}: {retry}");
+    }
+    assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "Continue waits: {html}");
+    assert!(html.contains(r#"type="submit" disabled>Remove<"#), "Remove waits: {html}");
+    // The listing evidence's Classify waits too, as the banner says.
+    let classify = forms_to(&html, SELL_LIST_PAGE)
+        .into_iter()
+        .find(|f| f.contains(r#"value="classify-listing-evidence""#))
+        .expect("Classify");
+    assert!(classify.contains(r#"type="submit" disabled>"#), "Classify waits: {classify}");
+
+    // Sent again, the lines are the ones the form carries; a line no longer there is not applied.
+    let body = format!(
+        "intent=decline-sell-list-offers&bulkOfferId=off_ready&attemptId={ATTEMPT}&declinedLineTargetsCaptured=true&declinedLineId=sll_gone&declinedLineId=sll_offer"
+    );
+    let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(
+        text(&html).contains("This action completed only partly.") && text(&html).contains("Sell List line not found."),
+        "{html}"
+    );
+    let batch = list_calls(&pilot, "/api/marketplace/account/sell-list/commands").pop().unwrap();
+    let sent: Value = serde_json::from_str(batch.split_once("/commands ").unwrap().1).unwrap();
+    assert_eq!(sent["lineIds"], json!(["sll_gone", "sll_offer"]), "the lines the form carries, not a new read");
+
+    // A removal whose answer is lost and was not kept is not known: the page holds its writes.
+    const UNKNOWN: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
+    let body = format!("intent=remove-sell-list-line&lineId=sll_unknown&attemptId={UNKNOWN}");
+    let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    let retry = forms_to(&html, SELL_LIST_PAGE).into_iter().find(|f| f.contains("Retry the same action")).expect("a retry");
+    assert!(
+        retry.contains(&format!(r#"name="attemptId" value="{UNKNOWN}""#)) && retry.contains(r#"value="sll_unknown""#),
+        "{retry}"
+    );
+    assert_eq!(
+        list_calls(&pilot, &format!("/api/marketplace/account/command-attempts/{UNKNOWN}")).len(),
+        1,
+        "looked up once, never resent"
+    );
     // Nothing checked is refused before anything is sent.
     let (status, _, _) = pilot.send(post(SELL_LIST_PAGE, "trader", "intent=decline-sell-list-offers", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -14994,7 +19231,7 @@ async fn a_photo_is_classified_or_added_to_the_offers_listing_from_the_sell_list
 }
 
 #[tokio::test]
-async fn continue_plans_each_line_asks_for_readiness_and_starts_seller_checkout_after_it() {
+async fn continue_sends_what_the_seller_chose_for_checkouts_review_and_starts_seller_checkout_after_it() {
     let pilot = Pilot::new().await;
     let body = [
         "intent=review-sell-list-checkout",
@@ -15012,32 +19249,27 @@ async fn continue_plans_each_line_asks_for_readiness_and_starts_seller_checkout_
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/checkout/sell/session/chk_"), "{to}");
+    // The address names the snapshot only: Checkout keeps the review with it
+    // (chase-sets/chase-sets#10505).
     let q = query(to);
+    let mut names: Vec<&str> = q.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["afterWrite", "readinessSnapshotId", "readinessSourceRevision"], "{to}");
     assert_eq!((q["readinessSnapshotId"].as_str(), q["readinessSourceRevision"].as_str()), ("srs_1", "rev_7"));
     assert!(q["afterWrite"].contains(r#""commitPosition":"71""#), "{to}");
-    let decisions: Value = serde_json::from_str(&q["readinessDecisions"]).unwrap();
+    // What the seller chose, for Checkout to plan from; the page reads no offer to plan with.
     assert_eq!(
-        decisions,
-        json!({ "lineActions": [
-            { "lineId": "sll_offer", "action": "selected-offer" }, { "lineId": "sll_product", "action": "smart-match" },
-        ], "lineOutcomes": [] })
+        last_body(&pilot, "/api/marketplace/account/sell-list/readiness"),
+        json!({ "selections": { "bulkOfferIds": [], "lines": [
+            { "lineId": "sll_product", "selectedOfferFeeQuoteFingerprint": "",
+              "productOffers": [{ "offerId": "off_short", "feeQuoteFingerprint": "fq_short" }],
+              "fallbackListing": { "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD",
+                  "quantityCap": "3" } },
+            { "lineId": "sll_offer", "selectedOfferFeeQuoteFingerprint": "fq_offer", "productOffers": [],
+              "fallbackListing": null },
+        ] } })
     );
-    let plan: Value = serde_json::from_str(&q["sellListReviewPlan"]).unwrap();
-    assert_eq!(
-        plan["lines"][0]["selectedOffer"],
-        json!({ "offerId": "off_ready", "listingId": "lst_pika", "feeQuoteFingerprint": "fq_offer" })
-    );
-    assert_eq!(
-        plan["lines"][1]["productOfferTargets"],
-        json!([{ "offerId": "off_short", "listingId": "lst_pika", "feeQuoteFingerprint": "fq_short", "quantity": 2 }])
-    );
-    // The third unit is listed: the cap is what the offers leave.
-    assert_eq!(
-        plan["lines"][1]["fallbackListing"],
-        json!({ "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD", "quantityCap": 1 })
-    );
-    let readiness = pilot.stand.calls.lock().unwrap().iter().rfind(|c| c.path.ends_with("/readiness")).cloned().unwrap();
-    assert_eq!(serde_json::from_str::<Value>(&readiness.body).unwrap(), decisions);
+    assert!(list_calls(&pilot, "/api/marketplace/account/sell-list/offer-matches/").is_empty(), "Checkout reads the offers");
 
     // With nothing chosen every line stays, readiness needs resolution, and the page says so.
     let (status, _, html) = pilot.send(post(SELL_LIST_PAGE, "trader", "intent=review-sell-list-checkout", false)).await;
@@ -15054,6 +19286,8 @@ async fn the_seller_desks_offers_are_the_sell_list_on_the_desk_and_need_an_accou
     let (status, _, html) = pilot.send(get("/account/desk/offers", Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("$67.44"), "{html}");
+    let review = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.contains("/composite-review")).map(|c| c.path.clone());
+    assert!(review.is_some_and(|p| p.ends_with("?sellListPath=%2Faccount%2Fdesk%2Foffers")), "the Desk's own payout link");
     // Its forms post back to the Desk.
     assert!(html.contains(r#"action="/account/desk/offers""#), "{html}");
     let (status, headers, _) =
@@ -15065,11 +19299,11 @@ async fn the_seller_desks_offers_are_the_sell_list_on_the_desk_and_need_an_accou
     assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"), "{headers:?}");
 }
 
-/// The decisions Continue made for \`trader\`'s list: the offer line's offer, the product line's Smart Match.
+/// The decisions Checkout kept for `trader`'s list: the offer line's offer, the product line's Smart Match.
 const SELL_DECISIONS: &str = r#"{"lineActions":[{"lineId":"sll_offer","action":"selected-offer"},{"lineId":"sll_product","action":"smart-match"}],"lineOutcomes":[]}"#;
 
-/// \`trader\`'s review plan: \`off_ready\` for the offer line; \`target\` for 2 of the product line and a
-/// listing for the third at 21.00 (\`cap\`).
+/// A review plan Checkout kept for `trader`: `off_ready` for the offer line; `target` for 2 of the
+/// product line and a listing for the third at 21.00 (`cap`).
 fn sell_plan(target: &str, cap: u64) -> String {
     json!({ "version": 1, "lines": [
         { "lineId": "sll_offer", "lineType": "selected-offer", "itemTitle": "Pikachu", "productId": "cat_pika::form:raw",
@@ -15089,22 +19323,26 @@ fn encode(v: &str) -> String {
 }
 
 /// Seller checkout's address as Continue writes it.
-fn sell_checkout(session: &str, snapshot: &str, decisions: &str, plan: &str) -> String {
-    format!(
-        "/checkout/sell/session/{session}?readinessSnapshotId={snapshot}&readinessSourceRevision=rev_7&readinessDecisions={}&sellListReviewPlan={}",
-        encode(decisions),
-        encode(plan)
-    )
+fn sell_checkout(session: &str, snapshot: &str) -> String {
+    format!("/checkout/sell/session/{session}?readinessSnapshotId={snapshot}&readinessSourceRevision=rev_7")
 }
 
-/// The seller checkout form, complete with a typed ship-from, with \`changes\` (an empty value leaves
+/// Has the stand-in's Checkout keep `plan` (none when empty) and `decisions` as the review for
+/// `snapshot`.
+fn keep_review(pilot: &Pilot, snapshot: &str, plan: &str, decisions: &str) {
+    let mut kept = json!({ "decisions": serde_json::from_str::<Value>(decisions).unwrap() });
+    if !plan.is_empty() {
+        kept["reviewPlan"] = serde_json::from_str(plan).unwrap();
+    }
+    pilot.stand.kept.lock().unwrap().insert(format!("sell_review:{snapshot}"), kept);
+}
+
+/// The seller checkout form, complete with a typed ship-from, with `changes` (an empty value leaves
 /// the field out).
-fn sell_form(plan: &str, changes: &[(&str, &str)]) -> String {
+fn sell_form(changes: &[(&str, &str)]) -> String {
     let mut fields: Vec<(String, String)> = [
         ("readinessSnapshotId", "srs_1"),
         ("readinessSourceRevision", "rev_7"),
-        ("readinessDecisions", SELL_DECISIONS),
-        ("sellListReviewPlan", plan),
         ("sellerName", "Demo Collector"),
         ("email", "Collector@ChaseSets.test"),
         ("shipFromAddressId", "__manual"),
@@ -15131,7 +19369,8 @@ fn sell_form(plan: &str, changes: &[(&str, &str)]) -> String {
     fields.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect::<Vec<_>>().join("&")
 }
 
-/// The handoff's and the confirm's calls, as \`METHOD path\`.
+/// The Marketplace handoff's writes and the confirm, as `METHOD path`: the pilot sends only the
+/// confirm, whose handoff Checkout runs (chase-sets/chase-sets#10754).
 fn handoff_calls(pilot: &Pilot) -> Vec<String> {
     let calls = pilot.stand.calls.lock().unwrap();
     calls
@@ -15153,10 +19392,9 @@ fn last_body(pilot: &Pilot, path: &str) -> Value {
 }
 
 #[tokio::test]
-async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_that_keeps_the_plan() {
+async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_from_the_kept_review() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
-    let (status, _, html) = pilot.send(get(&sell_checkout("chk_one", "srs_1", SELL_DECISIONS, &plan), Some("trader"))).await;
+    let (status, _, html) = pilot.send(get(&sell_checkout("chk_one", "srs_1"), Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"<meta name="robots" content="noindex""#), "{html}");
     let page = text(&html);
@@ -15164,12 +19402,23 @@ async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_that_k
     for words in ["Review sale checkout", "Pikachu", "$95.50", "Selected offer", "Product line"] {
         assert!(page.contains(words), "{words}: {page}");
     }
+    // Seller readiness is not assessed on entry: checkout's confirm tells it, so the row has no
+    // verdict and no status.
+    assert!(page.contains("Not yet assessed"), "{page}");
+    assert!(page.contains("check your account and shipping choices when you review the sale details."), "{page}");
+    for verdict in ["Seller account ready", "Seller account needs review", "Review required"] {
+        assert!(!page.contains(verdict), "{verdict}: {page}");
+    }
     assert!(html.contains(r#"method="post""#) && !html.contains(r#"type="submit" disabled"#), "{html}");
-    assert!(html.contains(&format!(r#"name="sellListReviewPlan" value="{}""#, plan.replace('"', "&quot;"))), "{html}");
     assert!(html.contains(r#"name="readinessSnapshotId" value="srs_1""#), "{html}");
-    // The page asks for readiness with the decisions alone; seller evidence is the confirm's.
-    let readiness = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
-    assert_eq!(readiness, serde_json::from_str::<Value>(SELL_DECISIONS).unwrap());
+    // The form carries the snapshot only: the plan and decisions stay with Checkout.
+    assert!(!html.contains("sellListReviewPlan") && !html.contains("readinessDecisions"), "{html}");
+    // The page reads the review Checkout kept with the snapshot, for its confirmation
+    // (chase-sets/chase-sets#9995); seller evidence is the confirm's.
+    assert_eq!(
+        last_body(&pilot, "/api/marketplace/account/sell-list/readiness"),
+        json!({ "readinessSnapshotId": "srs_1", "readinessSourceRevision": "rev_7", "confirmationId": "slc_chk_one" })
+    );
     assert!(handoff_calls(&pilot).is_empty(), "a read writes nothing");
 }
 
@@ -15177,12 +19426,16 @@ async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_that_k
 async fn seller_checkout_says_why_it_cannot_go_on_and_refuses_a_confirm_then() {
     let pilot = Pilot::new().await;
     let plan = sell_plan("off_short", 1);
+    // A review whose readiness needs resolution, and one kept without its plan.
+    keep_review(&pilot, "srs_blocked", &plan, "{}");
+    keep_review(&pilot, "srs_planless", "", SELL_DECISIONS);
     let cases = [
         (get("/checkout/sell/session/chk_one", Some("trader")), "Review Sell List first"),
-        (get(&sell_checkout("chk_one", "srs_0", SELL_DECISIONS, &plan), Some("trader")), "Sell List changed"),
-        (get(&sell_checkout("chk_one", "srs_1", "{}", &plan), Some("trader")), "Some items need attention"),
-        (get(&sell_checkout("chk_one", "srs_1", SELL_DECISIONS, &plan), Some("watcher")), "Your Sell List is empty"),
-        (get(&sell_checkout("chk_one", "srs_1", SELL_DECISIONS, &plan), None), "Sell List access expired"),
+        (get(&sell_checkout("chk_one", "srs_0"), Some("trader")), "Sell List changed"),
+        (get(&sell_checkout("chk_one", "srs_planless"), Some("trader")), "Sell List changed"),
+        (get(&sell_checkout("chk_one", "srs_blocked"), Some("trader")), "Some items need attention"),
+        (get(&sell_checkout("chk_one", "srs_1"), Some("watcher")), "Your Sell List is empty"),
+        (get(&sell_checkout("chk_one", "srs_1"), None), "Sell List access expired"),
     ];
     for (req, words) in cases {
         let (status, _, html) = pilot.send(req).await;
@@ -15192,21 +19445,28 @@ async fn seller_checkout_says_why_it_cannot_go_on_and_refuses_a_confirm_then() {
         assert!(html.contains(r#"type="submit" disabled"#), "no confirm while it cannot go on: {words}");
         assert_eq!(hrefs(&html, "Review Sell List").first(), Some(&"/account/sell-list"), "{words}: {html}");
     }
-    let body = sell_form(&plan, &[("readinessSnapshotId", "srs_0")]);
+    let body = sell_form(&[("readinessSnapshotId", "srs_0")]);
     let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Seller checkout readiness is no longer current."), "{html}");
+    // A list that changes between the page and its confirm: Checkout's readiness refuses it as
+    // stale, and the page says so with the way back to the Sell List.
+    keep_review(&pilot, "srs_moved", &plan, SELL_DECISIONS);
+    let body = sell_form(&[("readinessSnapshotId", "srs_moved")]);
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Sell List changed") && page.contains("Sell List readiness snapshot is stale."), "{page}");
+    assert_eq!(hrefs(&html, "Review Sell List").first(), Some(&"/account/sell-list"), "{html}");
     assert!(handoff_calls(&pilot).is_empty());
 }
 
 #[tokio::test]
-async fn seller_checkout_checks_each_field_and_the_payout_before_it_sends_anything() {
+async fn seller_checkout_checks_each_field_before_it_sends_anything_and_checkout_checks_the_payout() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
     let at = "/checkout/sell/session/chk_one";
-    let (status, _, html) = pilot
-        .send(post(at, "trader", &sell_form(&plan, &[("sellerName", ""), ("termsAccepted", ""), ("email", "nope")]), false))
-        .await;
+    let (status, _, html) =
+        pilot.send(post(at, "trader", &sell_form(&[("sellerName", ""), ("termsAccepted", ""), ("email", "nope")]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let page = text(&html);
     for words in [
@@ -15218,86 +19478,114 @@ async fn seller_checkout_checks_each_field_and_the_payout_before_it_sends_anythi
     }
     assert!(html.contains(r#"value="collector""#) || html.contains(r#"value="nope""#), "what was typed is kept: {html}");
 
-    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[("shipFromState", "PR")]), false)).await;
+    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&[("shipFromState", "PR")]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("This ship-from region is not supported for seller checkout yet."), "{html}");
-    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[("shipFromCountry", "CA")]), false)).await;
+    let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&[("shipFromCountry", "CA")]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Seller checkout currently supports US ship-from addresses."), "{html}");
 
-    // \`lookout\` has not set up payouts.
-    let (status, _, html) = pilot.send(post(at, "lookout", &sell_form(&plan, &[]), false)).await;
+    // `lookout` has not set up payouts: Checkout reads that from Settlement and refuses
+    // (chase-sets/chase-sets#10765), and the page says so on the payout method.
+    let (status, _, html) = pilot.send(post(at, "lookout", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Payout setup is required before seller checkout can continue."), "{html}");
-    assert!(handoff_calls(&pilot).is_empty(), "nothing was sent");
+    assert!(html.contains(r#"<select name="payoutMethod" required aria-invalid="true""#), "{html}");
+    assert!(handoff_calls(&pilot).is_empty(), "nothing was handed off");
 }
 
 #[tokio::test]
-async fn seller_checkout_refuses_a_plan_that_is_not_the_one_readiness_decided() {
+async fn checkouts_reasons_for_a_seller_not_ready_fall_on_their_fields() {
     let pilot = Pilot::new().await;
-    let at = "/checkout/sell/session/chk_one";
-    let mut other_offer: Value = serde_json::from_str(&sell_plan("off_short", 1)).unwrap();
-    other_offer["lines"][0]["selectedOffer"]["offerId"] = json!("off_other");
-    for plan in [String::new(), "not json".to_owned(), other_offer.to_string(), sell_plan("off_short", 4)] {
-        let (status, _, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[]), false)).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{plan}: {html}");
+    let cases = [
+        ("chk_hold", "This sale review needs support review. Return to the Sell List for next steps.", None),
+        (
+            "chk_block",
+            "This sale review cannot continue. Return to the Sell List for support-safe recovery.",
+            Some("labelPreference"),
+        ),
+        ("chk_label", "Label readiness is unavailable. Refresh the Sell List before seller checkout.", Some("labelPreference")),
+        ("chk_ship", "Seller readiness needs review. Return to the Sell List before seller checkout.", None),
+        (
+            "chk_payout_down",
+            "Payout setup is temporarily unavailable. Try again after payout setup is ready.",
+            Some("payoutMethod"),
+        ),
+    ];
+    for (session, words, field) in cases {
+        let at = format!("/checkout/sell/session/{session}");
+        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[]), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{session}: {html}");
+        assert!(text(&html).contains(words), "{session}: {html}");
+        assert!(!text(&html).contains("Not yet assessed"), "the refusal says it, not the row: {session}");
+        for name in ["labelPreference", "payoutMethod"] {
+            let marked = html.contains(&format!(r#"<select name="{name}" required aria-invalid="true""#));
+            assert_eq!(marked, field == Some(name), "{session} {name}: {html}");
+        }
+    }
+    assert!(handoff_calls(&pilot).is_empty(), "nothing was handed off");
+}
+
+#[tokio::test]
+async fn checkouts_refusal_of_a_kept_plan_that_does_not_fit_its_snapshot_is_the_page_again() {
+    let pilot = Pilot::new().await;
+    // Checkout's confirm checks the kept plan against the snapshot before its handoff
+    // (chase-sets/chase-sets#10754): another offer for the offer line, or more than the line has.
+    for session in ["chk_other", "chk_over"] {
+        let at = format!("/checkout/sell/session/{session}");
+        let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[]), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{session}: {html}");
         assert!(
             text(&html).contains("Return to the Sell List and refresh the reviewed sale plan before confirming."),
-            "{plan}: {html}"
+            "{session}: {html}"
         );
     }
-    assert!(handoff_calls(&pilot).is_empty(), "nothing was accepted or listed");
+    assert_eq!(
+        handoff_calls(&pilot),
+        ["POST /api/marketplace/account/sell-list/confirm", "POST /api/marketplace/account/sell-list/confirm"],
+        "the pilot accepts and lists nothing itself"
+    );
 }
 
 #[tokio::test]
-async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it() {
+async fn confirming_sends_the_kept_review_to_checkout_which_hands_it_off_and_the_page_shows_it() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
     let at = "/checkout/sell/session/chk_one";
-    let (status, headers, html) = pilot.send(post(at, "trader", &sell_form(&plan, &[]), false)).await;
+    let (status, headers, html) = pilot.send(post(at, "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/checkout/sell/session/chk_one/confirmation?afterWrite="), "{to}");
-    assert!(query(&to)["afterWrite"].contains(r#""commitPosition":"75""#), "the confirm's receipt: {to}");
+    // The read waits for the later write: the handoff's in Marketplace (76) after the confirm's (75).
+    assert!(query(&to)["afterWrite"].contains(r#""commitPosition":"76""#), "the handoff's receipt: {to}");
 
-    assert_eq!(
-        handoff_calls(&pilot),
-        [
-            "POST /api/marketplace/account/offers/matches/off_ready/accept",
-            "POST /api/marketplace/account/offers/matches/off_short/accept",
-            "POST /api/marketplace/account/listings",
-            "POST /api/marketplace/account/listings/lst_slc_chk_one_sll_product/publish",
-            "POST /api/marketplace/account/sell-list/confirm",
-        ]
-    );
-    let selected = last_body(&pilot, "/api/marketplace/account/offers/matches/off_ready/accept");
-    assert_eq!(
-        selected,
-        json!({ "listingId": "lst_pika", "feeQuoteFingerprint": "fq_offer", "sourceActionKey": "sell-confirm:slc_chk_one:sll_offer:selected:off_ready" })
-    );
-    let matched = last_body(&pilot, "/api/marketplace/account/offers/matches/off_short/accept");
-    assert_eq!(matched["acceptanceBatchId"], "offer-acceptance:slc_chk_one:sll_product");
-    assert_eq!(matched["acceptanceBatchSize"], 1);
-    let listing = last_body(&pilot, "/api/marketplace/account/listings");
-    assert_eq!(
-        listing,
-        json!({ "inventoryItemId": "inv_pika", "priceAmount": "21.00", "priceCurrencyCode": "USD", "quantityCap": 1,
-            "listingIdOverride": "lst_slc_chk_one_sll_product" })
-    );
-    // Readiness with the seller's evidence came first.
+    assert_eq!(handoff_calls(&pilot), ["POST /api/marketplace/account/sell-list/confirm"], "Checkout hands off");
+    // Readiness came first, with the kept review's decisions, for the confirmation and the snapshot
+    // the page started from; the plan stays with Checkout, and so does seller readiness: the page
+    // posts no evidence of it (chase-sets/chase-sets#10765).
     let evidence = last_body(&pilot, "/api/marketplace/account/sell-list/readiness");
-    assert_eq!(evidence["sellerEvidence"]["payout"]["readinessStatus"], "ready");
+    let decisions: Value = serde_json::from_str(SELL_DECISIONS).unwrap();
+    assert!(evidence.get("sellerEvidence").is_none(), "{evidence}");
     assert_eq!(
-        evidence["sellerEvidence"]["shipFrom"],
-        json!({ "status": "ready", "addressId": null, "country": "US", "region": "IL", "postalCode": "60201" })
+        (&evidence["confirmationId"], &evidence["entryReadinessSnapshotId"], &evidence["entryReadinessSourceRevision"]),
+        (&json!("slc_chk_one"), &json!("srs_1"), &json!("rev_7"))
     );
+    assert_eq!((&evidence["lineActions"], &evidence["lineOutcomes"]), (&decisions["lineActions"], &decisions["lineOutcomes"]));
+    assert!(evidence.get("reviewPlan").is_none(), "{evidence}");
+    // The choices Checkout reads seller readiness from (chase-sets/chase-sets#10764), at readiness
+    // and again with the confirm.
+    let typed = json!({ "name": "Demo Collector", "line1": "42 Binder Lane", "line2": null, "city": "Evanston",
+        "state": "IL", "postalCode": "60201", "country": "US" });
+    assert_eq!(evidence["shipFrom"], typed);
+    assert_eq!(evidence["label"], json!({ "preference": "prepaid-label" }));
     let confirm = last_body(&pilot, "/api/marketplace/account/sell-list/confirm");
+    assert_eq!(confirm["shipFrom"], typed);
+    assert_eq!(confirm["label"], json!({ "preference": "prepaid-label" }));
     assert_eq!(confirm["confirmationId"], "slc_chk_one");
-    assert_eq!(confirm["completedLineIds"], json!(["sll_offer", "sll_product"]));
-    assert_eq!(confirm["remainingLineQuantities"], json!([]));
-    assert_eq!(confirm["handoffSummary"]["acceptedOfferCount"], 2);
-    assert_eq!(confirm["handoffSummary"]["publishedListingCount"], 1);
-    assert_eq!(confirm["handoffSummary"]["lineOutcomes"][1]["action"], "mixed");
+    assert_eq!(confirm["readinessDecisions"], decisions);
+    // What the handoff did is Checkout's to record, not the page's to post.
+    for retired in ["completedLineIds", "remainingLineQuantities", "sellerEvidence", "handoffSummary"] {
+        assert!(confirm.get(retired).is_none(), "{retired}: {confirm}");
+    }
 
     let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -15307,54 +19595,75 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
 
     // The same form again goes to the saved confirmation and hands nothing off twice.
     let sent = handoff_calls(&pilot).len();
-    let (status, headers, _) = pilot.send(post(at, "trader", &sell_form(&plan, &[]), false)).await;
+    let (status, headers, _) = pilot.send(post(at, "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION], "/checkout/sell/session/chk_one/confirmation");
     assert_eq!(handoff_calls(&pilot).len(), sent);
 }
 
 #[tokio::test]
-async fn an_offer_whose_terms_changed_sends_the_seller_back_to_the_sell_list_without_confirming() {
+async fn a_handoff_checkout_reports_stopped_shows_each_lines_result_and_holds_the_form() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_stale", 1);
-    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_one", "trader", &sell_form(&plan, &[]), false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    // An offer whose terms changed: the way back to the Sell List, with why.
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_off_stale", "trader", &sell_form(&[]), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
     let page = text(&html);
-    assert!(page.contains("Sell List changed") && page.contains("Pikachu"), "{page}");
-    assert_eq!(
-        handoff_calls(&pilot),
-        [
-            "POST /api/marketplace/account/offers/matches/off_ready/accept",
-            "POST /api/marketplace/account/offers/matches/off_stale/accept",
-        ],
-        "nothing after the stale offer"
-    );
+    assert!(page.contains("Sell List changed") && page.contains("Pikachu: offer terms need refresh."), "{page}");
+    // The handoff stopped part way: what each line came to, the form held and offered again.
+    assert!(page.contains("This action completed only partly."), "{page}");
+    assert!(page.contains("Completed") && page.contains("Not confirmed"), "{page}");
+    assert!(html.contains(r#"type="submit" disabled"#) && page.contains("Retry the same action"), "{html}");
 
-    // An offer accepted already (a resent confirm after a lost answer) counts, with no second write.
-    let (status, _, html) =
-        pilot.send(post("/checkout/sell/session/chk_two", "trader", &sell_form(&sell_plan("off_accepted", 1), &[]), false)).await;
+    // An offer accepted already, not as this sale (chase-sets/chase-sets#9995): Checkout's words,
+    // the line not applied, and no way back to the Sell List it did not ask for.
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_off_accepted", "trader", &sell_form(&[]), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Offer match has already been accepted.") && page.contains("Not applied"), "{page}");
+    assert!(!page.contains("Sell List changed"), "{page}");
+}
+
+#[tokio::test]
+async fn a_confirm_whose_answer_is_lost_is_looked_up_and_one_not_found_waits_for_the_same_form() {
+    let pilot = Pilot::new().await;
+    // Kept, it is its confirmation's page.
+    let (status, headers, html) = pilot.send(post("/checkout/sell/session/chk_lost", "trader", &sell_form(&[]), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    let confirm = last_body(&pilot, "/api/marketplace/account/sell-list/confirm");
-    assert_eq!(confirm["handoffSummary"]["acceptedOfferCount"], 2);
+    assert_eq!(headers[header::LOCATION], "/checkout/sell/session/chk_lost/confirmation");
+    // Not kept, it is not known: the same form to send again, and the form held.
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_gone", "trader", &sell_form(&[]), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    let retry = html.split("<form").find(|f| f.contains("Retry the same action")).expect("a retry");
+    assert!(
+        retry.contains(r#"name="readinessSnapshotId" value="srs_1""#) && retry.contains(r#"name="termsAccepted""#),
+        "{retry}"
+    );
+    assert!(html.contains(r#"type="submit" disabled"#), "{html}");
+    // A confirmation that cannot be looked for first is not known either, and nothing is sent.
+    let before = handoff_calls(&pilot).len();
+    let (status, _, html) = pilot.send(post("/checkout/sell/session/chk_dark", "trader", &sell_form(&[]), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This action could not be confirmed."), "{html}");
+    assert_eq!(handoff_calls(&pilot).len(), before, "nothing handed off");
 }
 
 #[tokio::test]
 async fn a_guests_seller_checkout_checks_the_form_and_goes_to_registration() {
     let pilot = Pilot::new().await;
-    let plan = sell_plan("off_short", 1);
-    let page = sell_checkout("chk_guest", "srs_1", "{}", &plan);
+    let page = sell_checkout("chk_guest", "srs_1");
     let (status, _, html) = pilot.send(with_guest(get(&page, None), None, "anon_one")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Pikachu") && html.contains(r#"name="payoutHandoff""#), "{html}");
     assert!(!html.contains(r#"name="payoutMethod""#), "a guest has no saved payout: {html}");
 
     let at = "/checkout/sell/session/chk_guest";
-    let missing = sell_form(&plan, &[("readinessDecisions", "{}"), ("payoutHandoff", "")]);
+    let missing = sell_form(&[("payoutHandoff", "")]);
     let (status, _, html) = pilot.send(with_guest(post_signed_out(at, &missing), None, "anon_one")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Create account and payout setup is required before the final sale step."), "{html}");
 
-    let body = sell_form(&plan, &[("readinessDecisions", "{}")]);
+    let body = sell_form(&[]);
     let (status, headers, html) = pilot.send(with_guest(post_signed_out(at, &body), None, "anon_one")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert_eq!(headers[header::LOCATION], "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout");
@@ -15413,6 +19722,7 @@ async fn saved_payment_methods_are_cards_each_with_its_own_writes() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(csp.contains("https://js.stripe.com"), "Add's secure step may load Stripe.js: {csp}");
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
     assert!(html.contains("Saved payment methods") && html.contains("Synthetic spm_card"), "{html}");
     assert!(
         html.contains(">Setup Required<") && html.contains("Bank account"),
@@ -15458,6 +19768,10 @@ async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
     let sent = payment_method_calls(&pilot).into_iter().find(|c| c.path.ends_with("/setup-sessions")).expect("a setup started");
     let body: Value = serde_json::from_str(&sent.body).unwrap();
     assert_eq!(body, json!({ "accountId": "acc_seller", "attemptId": PM_OK, "returnUrlPath": "/account/payment-methods" }));
+    // Only the write's answer: the page itself keeps the default's caching (`no_store(post)`).
+    let (status, headers, _) = pilot.send(get(PAYMENT_METHODS, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
 }
 
 #[tokio::test]
@@ -15617,13 +19931,16 @@ fn import_batch(id: &str, status: &str, total: u64, accepted: u64, rejected: u64
 fn import_row(id: &str, number: u64, status: &str, resolution: &str, product: Option<&str>, errors: &[&str]) -> Value {
     json!({
         "row_id": id, "row_number": number, "status": status, "external_reference": null, "row_fingerprint": format!("fp_{id}"),
-        "quantity_mode": "add", "quantity_delta": 2, "set_quantity": null, "total_quantity": null,
+        "row_version": ROW_VERSION, "quantity_mode": "add", "quantity_delta": 2, "set_quantity": null, "total_quantity": null,
         "resolution_status": resolution, "catalog_item_id": product.map(|_| "cat_card"), "product_id": product,
         "listing_price_amount": null, "listing_price_currency_code": null, "listing_quantity_cap": null, "row_note": null,
         "validation_errors": errors, "committed_inventory_item_id": null, "committed_listing_id": null, "committed_at": null,
         "needs_seller": status == "rejected" && (resolution == "unresolved" || product.is_none()),
     })
 }
+
+/// Every stand-in import row's version (Inventory's opaque UTC microsecond text).
+const ROW_VERSION: &str = "2026-11-01T13:53:37.123456Z";
 
 /// A durable job's public snapshot.
 fn import_job(id: &str, status: &str) -> Value {
@@ -15636,7 +19953,8 @@ fn import_job(id: &str, status: &str) -> Value {
 /// yet), `imb_gone` unknown; a read that waits for 43 is
 /// still catching up. Jobs: `job_run` running, `job_done` finished with `imb_1` and a receipt at
 /// 42, `job_fail` failed, `job_other` another account's. A create needs its attempt and refuses
-/// rows that say `bad`; a commit needs its attempt and refuses `imb_done`.
+/// rows that say `bad`; a commit needs its attempt and refuses `imb_done`. A row's fix needs its
+/// attempt and exactly the five members, and is refused (409) when its version is not the row's.
 fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix(IMPORT_BATCHES)?;
     let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default();
@@ -15728,6 +20046,24 @@ fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> O
         }
         ("POST", fix) if fix.starts_with("/imb_1/rows/") && fix.ends_with("/resolve") => {
             let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            let mut members: Vec<&str> = sent.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
+            members.sort_unstable();
+            let five = ["catalogItemId", "expectedRowFingerprint", "expectedRowVersion", "selectedOptions", "storageLocationId"];
+            if attempt.is_empty() || members != five {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_resolve_request",
+                    "Import row fix request is invalid. Reload the batch and try again.",
+                ));
+            }
+            let row = fix.trim_start_matches("/imb_1/rows/").trim_end_matches("/resolve");
+            if sent["expectedRowVersion"] != ROW_VERSION || sent["expectedRowFingerprint"] != format!("fp_{row}") {
+                return Some(refusal(
+                    StatusCode::CONFLICT,
+                    "stale_row_facts",
+                    "Import row changed since it was loaded. Reload the batch and try again.",
+                ));
+            }
             if sent["storageLocationId"] == "loc_old" {
                 return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Storage location is archived."));
             }
@@ -15875,6 +20211,47 @@ async fn a_batch_shows_its_rows_the_rows_that_need_the_seller_and_commit() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Import still updating"), "{}", text(&html));
     assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    assert!(html.contains(" disabled>Validate import</button>"), "no write while the batch catches up: {html}");
+    assert!(!html.contains(r#"aria-labelledby="import-recent-title""#), "nor the recent imports: {html}");
+}
+
+#[tokio::test]
+async fn an_import_page_goes_without_a_read_that_fails_for_now_and_holds_its_writes() {
+    let pilot = Pilot::new().await;
+    // No storage locations: said, with Check again, and the writes that name one held.
+    let here = format!("{IMPORTS_SCREEN}/imb_1?resolveRowId=row_2");
+    let (status, _, html) = pilot.send(get(&here, Some("stock_dark"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Storage locations are temporarily unavailable. Reload this page in a moment."), "{shown}");
+    assert!(html.contains(&format!(r#"href="{here}">Check original result</a>"#)), "{html}");
+    assert!(shown.contains("1 rows need you"), "the batch is still shown: {shown}");
+    assert!(html.contains(" disabled>Validate import</button>"), "{html}");
+    assert!(html.contains(" disabled>Apply row fix</button>"), "{html}");
+    assert!(
+        html.contains(">Commit accepted rows</button>") && !html.contains(" disabled>Commit accepted rows</button>"),
+        "{html}"
+    );
+
+    // No recent imports: said in place of the list; the upload form is as it was.
+    let (status, _, html) = pilot.send(get(IMPORTS_SCREEN, Some("batches_dark"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Recent imports are temporarily unavailable. Reload this page in a moment."), "{html}");
+    assert!(!html.contains(r#"aria-labelledby="import-recent-title""#), "not an empty list: {html}");
+    assert!(html.contains(r#"<option value="loc_main">Main shelf</option>"#), "{html}");
+    assert!(html.contains(">Validate import</button>") && !html.contains(" disabled>Validate import</button>"), "{html}");
+
+    // A job the page follows holds every write until it is done.
+    let (status, _, html) = pilot.send(get(&format!("{IMPORTS_SCREEN}/imb_1?jobId=job_run"), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(" disabled>Commit accepted rows</button>"), "{html}");
+    assert!(html.contains(" disabled>Validate import</button>"), "{html}");
+    assert!(html.contains(r#"href="/account/inventory/imports/imb_1?jobId=job_run">Check original result</a>"#), "{html}");
+
+    // The drawer offers only the locations still in use.
+    let (_, _, html) = pilot.send(get(&here, Some("seller"))).await;
+    let drawer = &html[html.find("fix-dialog").unwrap()..];
+    assert!(drawer.contains(r#"value="loc_main""#) && !drawer.contains(r#"value="loc_old""#), "{drawer}");
 }
 
 #[tokio::test]
@@ -16018,6 +20395,11 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
     let shown = text(&html);
     assert!(shown.contains("Resolve import row 2 Close Row 1 of 1 to resolve No catalog product matches this row."), "{shown}");
     assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(r#"hidden>That did not go through, and may not have been saved. Check and try again.</p>"#),
+        "an Apply that gets no answer is said in the drawer, hidden until then: {html}"
+    );
+    assert!(
         html.contains(r#"method="post" action="/account/inventory/imports/imb_1?resolveRowId=row_2" data-patch"#),
         "the picker's GETs read the batch: {html}"
     );
@@ -16026,6 +20408,12 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
         "Apply alone posts: {html}"
     );
     assert!(html.contains(r#"href="/account/inventory/imports/imb_1">Close</a>"#), "Close goes back to the batch: {html}");
+    assert!(
+        html.contains(&format!(r#"<input type="hidden" name="expectedRowVersion" value="{ROW_VERSION}">"#))
+            && html.contains(r#"<input type="hidden" name="expectedRowFingerprint" value="fp_row_2">"#)
+            && html.contains(r#"name="attempt""#),
+        "the fix carries the row's facts as read and its attempt: {html}"
+    );
     // Resolve opens the drawer here, not on marketplace.
     assert!(html.contains(r#"href="/account/inventory/imports/imb_1?resolveRowId=row_2""#), "{html}");
 
@@ -16044,25 +20432,34 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
     assert!(html.contains(r#"<option value="loc_main" selected>"#), "the location kept: {html}");
     assert!(!html.contains("/rows/row_2/resolve\" disabled"), "every required option has its first: {html}");
 
-    // Apply: the API's body, then the next row that needs the seller.
-    let body = "catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp&storageLocationId=loc_main&offset=0";
+    // Apply: the API's body with the row's facts, as the form's attempt, then the next row that needs the seller.
+    let attempt = new_attempt();
+    let body = format!(
+        "catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp&storageLocationId=loc_main&offset=0\
+         &expectedRowVersion={ROW_VERSION}&expectedRowFingerprint=fp_row_2&attempt={attempt}"
+    );
     let (status, headers, _) =
-        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve"), "seller", body, false)).await;
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve"), "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1?resolveRowId=row_4");
     let sent = import_calls(&pilot).into_iter().find(|c| c.path.ends_with("/resolve")).unwrap();
     assert_eq!(sent.path, format!("{IMPORT_BATCHES}/imb_1/rows/row_2/resolve"));
+    assert_eq!(sent.headers["inventory-mutation-attempt"].to_str().unwrap(), attempt);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "catalogItemId": "cat_card", "storageLocationId": "loc_main", "selectedOptions": [
             { "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" },
-        ] })
+        ], "expectedRowVersion": ROW_VERSION, "expectedRowFingerprint": "fp_row_2" })
     );
 
     // The last row fixed closes the drawer.
-    let body = "catalogItemId=cat_etb&storageLocationId=loc_main&offset=0";
+    let body = format!(
+        "catalogItemId=cat_etb&storageLocationId=loc_main&offset=0\
+         &expectedRowVersion={ROW_VERSION}&expectedRowFingerprint=fp_row_4&attempt={}",
+        new_attempt()
+    );
     let (status, headers, _) =
-        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_4/resolve"), "seller", body, false)).await;
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_4/resolve"), "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1");
 }
@@ -16076,13 +20473,35 @@ async fn a_fix_that_is_incomplete_or_refused_is_the_drawer_again_and_a_reader_ca
     assert!(html.contains("fix-dialog") && html.contains(r#"role="alert""#), "{html}");
     assert!(!import_calls(&pilot).iter().any(|c| c.path.ends_with("/resolve")), "not sent without an item");
 
-    let body = "catalogItemId=cat_etb&storageLocationId=loc_old&offset=0";
-    let (status, _, html) = pilot.send(post(&fix, "seller", body, false)).await;
+    let facts =
+        |version: &str, attempt: &str| format!("&expectedRowVersion={version}&expectedRowFingerprint=fp_row_2&attempt={attempt}");
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_old&offset=0{}", facts(ROW_VERSION, &new_attempt()));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Storage location is archived."), "{}", text(&html));
     assert!(html.contains(r#"<p class="#) && html.contains("Twilight Masquerade Elite Trainer Box"), "the item kept: {html}");
 
-    let (status, _, _) = pilot.send(post(&fix, "reader", "catalogItemId=cat_etb&storageLocationId=loc_main", false)).await;
+    // A row changed since the drawer read it: Inventory's refusal, and the drawer again with the row as it now is.
+    let stale = "2026-11-01T13:53:37.000001Z";
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main&offset=0{}", facts(stale, &new_attempt()));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Import row changed since it was loaded. Reload the batch and try again."), "{}", text(&html));
+    assert!(
+        html.contains(&format!(r#"name="expectedRowVersion" value="{ROW_VERSION}""#)) && !html.contains(stale),
+        "the next Apply is sent against the row as read now: {html}"
+    );
+
+    // A form without its key is refused before the API.
+    let before = import_calls(&pilot).iter().filter(|c| c.path.ends_with("/resolve")).count();
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main&offset=0{}", facts(ROW_VERSION, ""));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("fix-dialog") && html.contains(r#"role="alert""#), "{html}");
+    assert_eq!(import_calls(&pilot).iter().filter(|c| c.path.ends_with("/resolve")).count(), before, "not sent");
+
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main{}", facts(ROW_VERSION, &new_attempt()));
+    let (status, _, _) = pilot.send(post(&fix, "reader", &body, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
@@ -16179,7 +20598,7 @@ async fn an_offer_whose_read_has_not_caught_up_says_it_is_preparing_and_reads_ag
     let receipt = platform::receipt::Receipt::of_metadata(Some("73"), &raw).unwrap().param();
     let to = {
         use corten::prelude::*;
-        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt) };
+        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt), policy: None };
         crate::app::url::SubmittedOffer { id: "off_open", place }.href()
     };
     let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;
@@ -16270,10 +20689,22 @@ fn pricing_health(session: &str, method: &Method, uri: &Uri, body: &str) -> Opti
         ("POST", p) if p.ends_with("/apply-goal") && body.contains("\"targetBodyHash\":\"stale\"") => {
             (StatusCode::CONFLICT, Json(json!({ "error": { "code": "goal_apply_refused", "reason": "policy_changed" } }))).into_response()
         }
+        // A goal's revise Pricing records and has not installed, and one a later request replaced.
+        ("POST", p) if p.ends_with("/apply-goal") && body.contains("\"targetRevision\":9") => (
+            StatusCode::ACCEPTED,
+            Json(json!({ "requestKey": "apply-goal:dry_c1", "requestedRevision": 10, "status": "accepted-pending" })),
+        )
+            .into_response(),
+        ("POST", p) if p.ends_with("/apply-goal") && body.contains("\"targetRevision\":8") => (
+            StatusCode::CONFLICT,
+            Json(json!({ "requestKey": "apply-goal:dry_c1", "requestedRevision": 9, "status": "superseded-by-revision", "replacingRevision": 10 })),
+        )
+            .into_response(),
         ("POST", p) if p.ends_with("/apply-goal") => Json(json!({
             "policyId": "rpp_1", "previousRevision": 4, "revision": 5, "bodyHash": "hash_5", "dryRunId": "dry_c1", "goalId": "fixed-percentile",
             "goalVersion": 1, "parameters": { "percentile": 65 }, "state": {}, "movement": { "raised": 3, "lowered": 2, "held": 5 },
             "alerts": { "floorBinding": 1, "evidenceFloorBinding": 0 },
+            "requestKey": "apply-goal:dry_c1", "requestedRevision": 5, "installedRevision": 5, "status": "applied",
         })).into_response(),
         _ => return None,
     })
@@ -16409,6 +20840,21 @@ async fn pricing_health_computes_compares_and_applies_a_goal_and_says_what_was_r
         html.contains("This goal could not be applied. The policy or preview may have changed; refresh and compare again."),
         "{html}"
     );
+    // A goal Pricing records and has not installed, and one a later request replaced: marketplace's
+    // words, and nothing said applied.
+    let (status, _, html) =
+        pilot.send(post(HEALTH_SCREEN, "pricer", &apply.replace("targetRevision=4", "targetRevision=9"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(
+        shown.contains("Pricing goal request is pending Request 10 is recorded. The installed policy is unchanged.")
+            && !shown.contains("Pricing goal applied"),
+        "{html}"
+    );
+    let (status, _, html) =
+        pilot.send(post(HEALTH_SCREEN, "pricer", &apply.replace("targetRevision=4", "targetRevision=8"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Pricing goal request was replaced Request 9 was replaced by request 10."), "{html}");
     // A form that is not what the page wrote is refused before Pricing sees it.
     let calls = pilot.stand.calls.lock().unwrap().len();
     let (status, _, html) =
@@ -16424,8 +20870,7 @@ const CHANNELS_SCREEN: &str = "/account/channels";
 /// first page with a next page holding a paused one; no paused connection on the paused filter's
 /// first page; the disconnected filter fails on Channels' side; `conn_gone` is not found. Connect
 /// makes `conn_new`; Pause, Resume and Disconnect follow the connection's status and refuse any
-/// other with a 409; Activate makes it active. Every write but Disconnect answers with a receipt, as
-/// Channels does (chase-sets/chase-sets#10779). One publication summary, and `conn_active`'s
+/// other with a 409; Activate makes it active. Every write answers with a receipt. One publication summary, and `conn_active`'s
 /// publication (`channel_publication_api`). `conn_active`'s manual sync has run `run_1` composed
 /// at revision 2 (`manual_sync_api`); `conn_pending`'s is unavailable.
 fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
@@ -16436,8 +20881,17 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     if let Some(answer) = channel_publication_api(method, uri, body) {
         return Some(answer);
     }
+    if let Some(answer) = ebay_api(method, uri, body) {
+        return Some(answer);
+    }
     let query = uri.query().unwrap_or_default();
-    let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z" });
+    let allowed = |status: &str| match status {
+        "pending-setup" => json!(["disconnect"]),
+        "active" => json!(["pause", "disconnect"]),
+        "paused" => json!(["resume", "disconnect"]),
+        _ => json!([]),
+    };
+    let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z", "allowedActions": allowed(status) });
     let status_of = |id: &str| match id {
         "conn_pending" => Some("pending-setup"),
         "conn_active" => Some("active"),
@@ -16447,8 +20901,6 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     let transition = |refused: bool, id: &str, to: &str| {
         if refused {
             refusal(StatusCode::CONFLICT, "invalid_transition", "invalid_transition")
-        } else if to == "disconnected" {
-            Json(connection(id, to)).into_response()
         } else {
             committed(StatusCode::OK, "channels", "50", connection(id, to))
         }
@@ -16460,14 +20912,22 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
             } else if query.contains("status=paused") {
                 Json(json!({ "items": [] })).into_response()
             } else if query.contains("cursor=c2") {
-                Json(json!({ "items": [connection("conn_paused", "paused")] })).into_response()
+                let mut ebay = connection("ebay_paused", "paused");
+                ebay["providerKey"] = json!("ebay");
+                Json(json!({ "items": [connection("conn_paused", "paused"), ebay] })).into_response()
             } else {
                 Json(json!({ "items": [connection("conn_pending", "pending-setup"), connection("conn_active", "active")], "nextCursor": "c2" }))
                     .into_response()
             }
         }
+        ("GET", "/api/channels/connections/providers") => {
+            Json(json!({ "items": [{ "providerKey": "tcgplayer", "environment": "sandbox" }] })).into_response()
+        }
         ("POST", "/api/channels/connections") if body.contains("\"providerKey\":\"tcgplayer\"") => {
             committed(StatusCode::CREATED, "channels", "49", connection("conn_new", "pending-setup"))
+        }
+        ("POST", "/api/channels/connections") => {
+            refusal(StatusCode::BAD_REQUEST, "provider-setup-unavailable", "provider-setup-unavailable")
         }
         ("GET", "/api/channels/publication") => {
             Json(json!({ "items": [{ "connectionId": "conn_active", "providerKey": "tcgplayer",
@@ -16492,6 +20952,120 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
                 _ => return None,
             }
         }
+    })
+}
+
+/// Channels' eBay Sandbox calls, as it answers them: consent lists two scopes, three with
+/// publication. `conn_active` is an active eBay connection (Disconnect goes through
+/// `channels_api`), `ebay_paused` paused, `ebay_pending` pending setup, `ebay_off` disconnected,
+/// `ebay_bare` active where eBay is not configured, `ebay_odd` in a status the journey does not
+/// know, and `ebay_other` someone else's (`null`). Start answers eBay Sandbox's consent, but
+/// another site's for `ebay_paused` and a 409 for `ebay_pending`; the callback commits
+/// `ebay_new` for the code `good`; declined refuses the state `used`.
+///
+/// Seller setup: `ebay_pending` has none yet and `conn_active` has generation 3; eBay's lists
+/// hold one policy of each type and two inventory locations, `wh_2` without a name.
+/// `ebay_partial` (pending) has an incomplete return list, `ebay_empty` (pending) no payment
+/// policy, and `ebay_broken`'s (pending) setup cannot be read. A save that names the
+/// generation the connection holds activates it; any other is a `generation-conflict`.
+fn ebay_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    let rest = uri.path().strip_prefix("/api/channels/ebay/")?;
+    let refused = || (StatusCode::CONFLICT, Json(json!({ "error": { "code": "stale-authorization" } }))).into_response();
+    if let Some(id) = rest.strip_prefix("connections/").and_then(|r| r.strip_suffix("/setup")) {
+        let conflict = || (StatusCode::CONFLICT, Json(json!({ "error": { "code": "generation-conflict" } }))).into_response();
+        let generation = match id {
+            "conn_active" => 3,
+            "ebay_pending" | "ebay_partial" | "ebay_empty" => 0,
+            "ebay_broken" => return Some(conflict()),
+            _ => return Some((StatusCode::CONFLICT, Json(json!({ "error": { "code": "invalid-selection" } }))).into_response()),
+        };
+        let complete = |items: Value| json!({ "status": "complete", "items": items });
+        let selection = (generation > 0).then(|| {
+            json!({
+                "connectionId": id,
+                "setupGeneration": generation,
+                "policies": [
+                    { "policyType": "fulfillment", "policyId": "fp_1", "materialFingerprint": "v1:a" },
+                    { "policyType": "payment", "policyId": "pp_1", "materialFingerprint": "v1:b" },
+                    { "policyType": "return", "policyId": "rp_1", "materialFingerprint": "v1:c" },
+                ],
+                "locationPairs": [{ "storageLocationId": "loc_main", "merchantLocationKey": "wh_1", "materialFingerprint": "v1:d" }],
+            })
+        });
+        if method == Method::POST {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            return Some(if sent["expectedSetupGeneration"] == json!(generation) {
+                Json(json!({ "selection": sent, "status": "active" })).into_response()
+            } else {
+                conflict()
+            });
+        }
+        let returns = if id == "ebay_partial" {
+            json!({ "status": "incomplete", "items": [] })
+        } else {
+            complete(json!([{ "returnPolicyId": "rp_1", "name": "30 day returns", "marketplaceId": "EBAY_US" }]))
+        };
+        let payments = if id == "ebay_empty" {
+            complete(json!([]))
+        } else {
+            complete(json!([{ "paymentPolicyId": "pp_1", "name": "Immediate pay", "marketplaceId": "EBAY_US" }]))
+        };
+        return Some(
+            Json(json!({
+                "selection": selection,
+                "lists": {
+                    "fulfillment": complete(json!([
+                        { "fulfillmentPolicyId": "fp_1", "name": "Ground shipping", "marketplaceId": "EBAY_US" },
+                        { "fulfillmentPolicyId": "fp_2", "name": "Expedited shipping", "marketplaceId": "EBAY_US" },
+                    ])),
+                    "payment": payments,
+                    "return": returns,
+                    "locations": complete(json!([
+                        { "merchantLocationKey": "wh_1", "name": "Dallas warehouse", "merchantLocationStatus": "ENABLED",
+                          "locationTypes": ["WAREHOUSE"], "location": {} },
+                        { "merchantLocationKey": "wh_2", "merchantLocationStatus": "ENABLED", "locationTypes": ["STORE"],
+                          "location": {} },
+                    ])),
+                },
+            }))
+            .into_response(),
+        );
+    }
+    Some(match (method.as_str(), rest) {
+        ("GET", "consent") => {
+            let mut scopes = vec!["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.account"];
+            if uri.query() == Some("publication=true") {
+                scopes.push("https://api.ebay.com/oauth/api_scope/sell.inventory");
+            }
+            Json(json!({ "scopes": scopes, "capabilities": [] })).into_response()
+        }
+        ("GET", connection) => {
+            let id = connection.strip_prefix("connections/")?;
+            let (status, available) = match id {
+                "conn_active" => ("active", true),
+                "ebay_paused" => ("paused", true),
+                "ebay_pending" | "ebay_partial" | "ebay_empty" | "ebay_broken" => ("pending-setup", true),
+                "ebay_off" => ("disconnected", true),
+                "ebay_bare" => ("active", false),
+                "ebay_odd" => ("revoked", true),
+                _ => return Some(Json(Value::Null).into_response()),
+            };
+            Json(json!({ "capabilities": [], "remoteRevocation": null, "status": status, "authorizationAvailable": available }))
+                .into_response()
+        }
+        ("POST", "start") if body.contains(r#""connectionId":"ebay_pending""#) => refused(),
+        ("POST", "start") if body.contains(r#""connectionId":"ebay_paused""#) => {
+            Json(json!({ "authorizationUrl": "https://auth.example.com/oauth2/authorize?state=s1" })).into_response()
+        }
+        ("POST", "start") => Json(json!({
+            "authorizationUrl": "https://auth.sandbox.ebay.com/oauth2/authorize?client_id=app&response_type=code&state=s1"
+        }))
+        .into_response(),
+        ("POST", "callback") if body.contains(r#""code":"good""#) => Json(json!({ "connectionId": "ebay_new" })).into_response(),
+        ("POST", "callback") => refused(),
+        ("POST", "declined") if body.contains(r#""state":"used""#) => refused(),
+        ("POST", "declined") => Json(json!({})).into_response(),
+        _ => return None,
     })
 }
 
@@ -16792,7 +21366,9 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     {
         assert!(words.contains(expected), "{expected}: {words}");
     }
-    assert!(html.contains(r#"<option value="tcgplayer">tcgplayer</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="tcgplayer">tcgplayer</option>"#), "Channels' providers: {html}");
+    let reads: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(reads.iter().any(|p| p == "/api/channels/connections/providers"), "{reads:?}");
     assert!(html.contains(r#"href="/account/channels" aria-current="page""#), "{html}");
     assert!(html.contains(r#"href="/account/channels?status=pending-setup""#), "{html}");
     assert!(
@@ -16802,6 +21378,10 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     // The next page, an empty filter and a failed read.
     let (_, _, html) = pilot.send(get("/account/channels?cursor=c2", Some("channeler"))).await;
     assert!(html.contains(r#"href="/account/channels/conn_paused""#) && !html.contains("Load more connections"), "{html}");
+    assert!(
+        html.contains(r#"href="/account/channels/ebay?connectionId=ebay_paused""#),
+        "an eBay connection opens its journey: {html}"
+    );
     let (_, _, html) = pilot.send(get("/account/channels?status=paused", Some("channeler"))).await;
     assert!(
         text(&html).contains("No channel connections")
@@ -16810,9 +21390,11 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     let (status, _, html) = pilot.send(get("/account/channels?status=disconnected", Some("channeler"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert!(text(&html).contains("Connections could not be loaded"), "{html}");
-    // A reader cannot connect.
+    // A reader cannot connect, and the providers are not read for them.
+    let before = pilot.stand.calls.lock().unwrap().len();
     let (_, _, html) = pilot.send(get(CHANNELS_SCREEN, Some("channel_reader"))).await;
     assert!(html.contains("conn_active") && !html.contains("Connect a channel"), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.ends_with("/providers")));
 
     // A connection: its status and the actions it allows; setup on the locations not archived.
     let (status, _, html) = pilot.send(get("/account/channels/conn_active", Some("channeler"))).await;
@@ -16840,18 +21422,290 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     assert!(words.contains("Publication") && words.contains("missing") && words.contains("2 mappings to review"), "{words}");
 }
 
+const EBAY_SCREEN: &str = "/account/channels/ebay";
+
+/// The answer's `form-action` directive.
+fn form_action(headers: &HeaderMap) -> String {
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    csp.split(';').map(str::trim).find(|d| d.starts_with("form-action")).unwrap_or_default().to_owned()
+}
+
+#[tokio::test]
+async fn ebay_consent_lists_its_scopes_and_a_connection_its_state_for_who_may_manage_channels() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get(EBAY_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("/sign-in?returnTo=%2Faccount%2Fchannels%2Febay"));
+    let (status, _, _) = pilot.send(get(EBAY_SCREEN, Some("channel_reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "reading needs channels.manage, as marketplace's loader does");
+
+    let (status, headers, html) = pilot.send(get(EBAY_SCREEN, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
+    // Consent's own redirects (to auth2.sandbox.ebay.com, its sign-in) are checked against it too.
+    let allowed = form_action(&headers);
+    assert!(allowed.contains("https://*.sandbox.ebay.com"), "{allowed}");
+    let words = text(&html);
+    for expected in [
+        "Connect eBay Sandbox",
+        "Review access before continuing",
+        "sell.account",
+        "Continue to eBay Sandbox",
+        "Back to channels",
+    ] {
+        assert!(words.contains(expected), "{expected}: {words}");
+    }
+    assert!(!words.contains("sell.inventory") && !html.contains(r#"value="disconnect""#), "{html}");
+    // The consent is tinted furniture, as marketplace's Card elevation="tinted" (#11388).
+    assert!(html.contains(r#"<div class="channels-page__card channels-page__tinted">"#), "{html}");
+    assert!(html.contains(r#"name="publication" value="false""#) && html.contains(r#"name="connectionId" value="""#), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{EBAY_SCREEN}?publication=true"), Some("channeler"))).await;
+    assert!(text(&html).contains("sell.inventory") && html.contains(r#"name="publication" value="true""#), "{html}");
+    // What consent came back with.
+    let (_, _, html) = pilot.send(get(&format!("{EBAY_SCREEN}?outcome=declined"), Some("channeler"))).await;
+    assert!(text(&html).contains("Access was declined We could not confirm authorization."), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{EBAY_SCREEN}?outcome=failed"), Some("channeler"))).await;
+    assert!(text(&html).contains("Connection could not be completed"), "{html}");
+
+    // A connection: its state, Reauthorize and Disconnect while it is live.
+    let at = |id: &str| format!("{EBAY_SCREEN}?connectionId={id}");
+    let (status, _, html) = pilot.send(get(&at("conn_active"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Connected") && words.contains("Reauthorize with eBay Sandbox"), "{words}");
+    assert!(html.contains(r#"value="disconnect""#) && html.contains(r#"name="connectionId" value="conn_active""#), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_paused"), Some("channeler"))).await;
+    assert!(text(&html).contains("Review access to your eBay account"), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_pending"), Some("channeler"))).await;
+    assert!(text(&html).contains("Connected, but setup is incomplete This connection is not active"), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_off"), Some("channeler"))).await;
+    let words = text(&html);
+    assert!(words.contains("Disconnected from Chase Sets") && words.contains("eBay revocation is unconfirmed"), "{words}");
+    assert!(words.contains("Continue to eBay Sandbox") && !html.contains(r#"value="disconnect""#), "a new connection: {html}");
+    // Where eBay is not configured, no consent is offered or read.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (_, _, html) = pilot.send(get(&at("ebay_bare"), Some("channeler"))).await;
+    assert!(!html.contains(r#"value="authorize""#) && html.contains(r#"value="disconnect""#), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.ends_with("/consent")));
+    let (status, _, _) = pilot.send(get(&at("ebay_odd"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "a status the journey does not know");
+    let (status, _, _) = pilot.send(get(&at("ebay_other"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn ebay_authorize_goes_only_to_ebay_sandboxs_consent_and_disconnect_draws_the_connection() {
+    let pilot = Pilot::new().await;
+    let last_body = |end: &str| {
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with(end)).map(|c| c.body.clone()).unwrap_or_default()
+    };
+    let (status, headers, _) =
+        pilot.send(post(EBAY_SCREEN, "channeler", "intent=authorize&connectionId=&publication=false", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("https://auth.sandbox.ebay.com/oauth2/authorize?client_id=app"), "{to}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    assert_eq!(last_body("/ebay/start"), r#"{"connectionId":null,"publication":false}"#);
+    let at = |id: &str| format!("{EBAY_SCREEN}?connectionId={id}");
+    let form = |id: &str| format!("intent=authorize&connectionId={id}&publication=true");
+    let (status, _, _) = pilot.send(post(&at("conn_active"), "channeler", &form("conn_active"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(last_body("/ebay/start"), r#"{"connectionId":"conn_active","publication":true}"#);
+    // Another site's address is never followed, and Channels' refusal is the journey saying so.
+    let (status, headers, html) = pilot.send(post(&at("ebay_paused"), "channeler", &form("ebay_paused"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(headers.get(header::LOCATION).is_none() && text(&html).contains("Connection could not be completed"), "{html}");
+    let (status, _, html) = pilot.send(post(&at("ebay_pending"), "channeler", &form("ebay_pending"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Connection could not be completed We could not confirm authorization."), "{html}");
+    for refused in ["intent=authorize&publication=maybe", "intent=delete", "intent=disconnect&connectionId="] {
+        let (status, _, _) = pilot.send(post(EBAY_SCREEN, "channeler", refused, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    }
+    // Disconnect: the connection as it is now.
+    let (status, headers, _) =
+        pilot.send(post(&at("conn_active"), "channeler", "intent=disconnect&connectionId=conn_active", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?connectionId=conn_active");
+    assert!(pilot.stand.calls.lock().unwrap().iter().any(|c| c.path == "/api/channels/connections/conn_active/disconnect"));
+    let (status, _, _) = pilot.send(post(EBAY_SCREEN, "channel_reader", "intent=authorize&publication=false", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn ebays_return_commits_consent_or_says_it_was_declined_or_failed() {
+    let pilot = Pilot::new().await;
+    let callback = "/channels/ebay/callback?state=s1&code=good";
+    // Signed out, the sign-in comes back to the journey, never to the address with eBay's code.
+    let (status, headers, _) = pilot.send(get(callback, None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.ends_with("/sign-in?returnTo=%2Faccount%2Fchannels%2Febay") && !to.contains("good"), "{to}");
+    let (status, _, _) = pilot.send(get(callback, Some("channel_reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, headers, _) = pilot.send(get(callback, Some("channeler"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?connectionId=ebay_new");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/ebay/callback")).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(r#"{"code":"good","state":"s1"}"#));
+    let failed = "/account/channels/ebay?outcome=failed";
+    for refused in ["state=s1&code=bad", "state=s1&state=s2&code=good", "code=good", "state=&code=good", "state=s1"] {
+        let before = pilot.stand.calls.lock().unwrap().len();
+        let (_, headers, _) = pilot.send(get(&format!("/channels/ebay/callback?{refused}"), Some("channeler"))).await;
+        assert_eq!(headers[header::LOCATION], failed, "{refused}");
+        let sent = pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.ends_with("/ebay/callback"));
+        assert_eq!(sent, refused == "state=s1&code=bad", "only a single state and code is sent on: {refused}");
+    }
+    let (_, headers, _) = pilot.send(get("/channels/ebay/declined?state=s1", Some("channeler"))).await;
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?outcome=declined");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/ebay/declined")).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(r#"{"state":"s1"}"#));
+    for refused in ["state=used", "", "state=a&state=b"] {
+        let (_, headers, _) = pilot.send(get(&format!("/channels/ebay/declined?{refused}"), Some("channeler"))).await;
+        assert_eq!(headers[header::LOCATION], failed, "{refused}");
+    }
+}
+
+#[tokio::test]
+async fn ebay_seller_setup_picks_policies_and_location_pairs_and_activates_the_connection() {
+    let pilot = Pilot::new().await;
+    let at = |id: &str| format!("{EBAY_SCREEN}?connectionId={id}");
+    let setup_reads =
+        || pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::GET && c.path.ends_with("/setup")).count();
+
+    // Pending setup: eBay's lists and the active storage locations, nothing chosen yet.
+    let (status, _, html) = pilot.send(get(&at("ebay_pending"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let words = text(&html);
+    assert!(words.contains("Seller policies and locations") && words.contains("Save selection and activate"), "{words}");
+    for expected in [
+        r#"<option value="fp_2">Expedited shipping</option>"#,
+        r#"<option value="pp_1">Immediate pay</option>"#,
+        r#"<option value="rp_1">30 day returns</option>"#,
+        r#"<option value="wh_1">Dallas warehouse</option>"#,
+        r#"<option value="wh_2">wh_2</option>"#,
+        r#"<option value="loc_main">Main shelf</option>"#,
+        r#"name="setupGeneration" value="0""#,
+        r#"name="intent" value="add-pair" formnovalidate"#,
+    ] {
+        assert!(html.contains(expected), "{expected}: {html}");
+    }
+    assert_eq!(html.matches(r#"name="storageLocationId""#).count(), 1, "one blank pair: {html}");
+    assert!(
+        pilot
+            .stand
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.path == "/api/inventory/storage-locations?includeArchived=false&limit=200"),
+        "the active storage locations, as marketplace reads them"
+    );
+
+    // Active: the current selection, and Replace with it chosen.
+    let (_, _, html) = pilot.send(get(&at("conn_active"), Some("channeler"))).await;
+    let words = text(&html);
+    assert!(words.contains("Sandbox connection activated") && words.contains("Fulfillment policy: fp_1"), "{words}");
+    assert!(words.contains("loc_main: wh_1") && words.contains("Replace selection"), "{words}");
+    assert!(html.contains(r#"<option value="fp_1" selected>"#) && html.contains(r#"name="setupGeneration" value="3""#), "{html}");
+    assert!(html.contains(r#"<option value="loc_main" selected>"#) && html.contains(r#"<option value="wh_1" selected>"#));
+
+    // A list eBay answered in part, an empty one, and a read that failed: words, and no form.
+    let (_, _, html) = pilot.send(get(&at("ebay_partial"), Some("channeler"))).await;
+    assert!(text(&html).contains("eBay returned an incomplete list") && !html.contains(r#"value="select-setup""#), "{html}");
+    let (_, _, html) = pilot.send(get(&at("ebay_empty"), Some("channeler"))).await;
+    assert!(text(&html).contains("Create the missing policies") && !html.contains(r#"value="select-setup""#), "{html}");
+    assert!(
+        html.contains(r#"href="https://www.sandbox.ebay.com/sh/ovw""#) && html.contains(r#"href="/account/inventory/locations""#)
+    );
+    let (status, _, html) = pilot.send(get(&at("ebay_broken"), Some("channeler"))).await;
+    assert_eq!(status, StatusCode::OK, "the journey still draws: {html}");
+    assert!(text(&html).contains("Seller setup could not be saved or loaded"), "{html}");
+    // A connection not pending setup or active, or where eBay is not configured, reads no setup.
+    let before = setup_reads();
+    for id in ["ebay_paused", "ebay_off", "ebay_bare"] {
+        let (_, _, html) = pilot.send(get(&at(id), Some("channeler"))).await;
+        assert!(!text(&html).contains("Seller policies and locations"), "{id}: {html}");
+    }
+    assert_eq!(setup_reads(), before);
+
+    // Add location pair draws the form again with what was chosen and one more pair, writing nothing.
+    let chosen = "connectionId=ebay_pending&setupGeneration=0&fulfillmentPolicyId=fp_2&paymentPolicyId=pp_1&returnPolicyId=\
+                  &storageLocationId=loc_main&merchantLocationKey=wh_2";
+    let (status, _, html) = pilot.send(post(&at("ebay_pending"), "channeler", &format!("intent=add-pair&{chosen}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(html.matches(r#"name="storageLocationId""#).count(), 2, "{html}");
+    assert!(html.contains(r#"<option value="fp_2" selected>"#) && html.contains(r#"<option value="loc_main" selected>"#));
+    assert!(html.contains(r#"<option value="wh_2" selected>"#), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap().iter().any(|c| c.method == Method::POST && c.path.ends_with("/setup")));
+
+    // Save: the policies and the pairs chosen (a blank pair left out), then the connection.
+    let save = "intent=select-setup&connectionId=ebay_pending&setupGeneration=0&fulfillmentPolicyId=fp_1\
+                &paymentPolicyId=pp_1&returnPolicyId=rp_1&storageLocationId=loc_main&merchantLocationKey=wh_1\
+                &storageLocationId=&merchantLocationKey=";
+    let (status, headers, _) = pilot.send(post(&at("ebay_pending"), "channeler", save, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay?connectionId=ebay_pending");
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/ebay_pending/setup")).unwrap().body.clone();
+    let sent: Value = serde_json::from_str(&sent).unwrap();
+    assert_eq!(
+        sent,
+        json!({
+            "expectedSetupGeneration": 0,
+            "policies": [
+                { "policyType": "fulfillment", "policyId": "fp_1" },
+                { "policyType": "payment", "policyId": "pp_1" },
+                { "policyType": "return", "policyId": "rp_1" },
+            ],
+            "locationPairs": [{ "storageLocationId": "loc_main", "merchantLocationKey": "wh_1" }],
+        })
+    );
+
+    // A selection that names a generation the connection no longer holds is refused, and the form
+    // keeps what was chosen with the generation it now holds.
+    let stale = "intent=select-setup&connectionId=conn_active&setupGeneration=2&fulfillmentPolicyId=fp_2\
+                 &paymentPolicyId=pp_1&returnPolicyId=rp_1&storageLocationId=loc_old&merchantLocationKey=wh_2";
+    let (status, _, html) = pilot.send(post(&at("conn_active"), "channeler", stale, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Seller setup could not be saved or loaded"), "{html}");
+    assert!(html.contains(r#"<option value="fp_2" selected>"#) && html.contains(r#"<option value="loc_old" selected>"#));
+    assert!(html.contains(r#"name="setupGeneration" value="3""#), "{html}");
+    // A generation that is not a number is not sent.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, _) = pilot
+        .send(post(&at("ebay_pending"), "channeler", "intent=select-setup&connectionId=ebay_pending&setupGeneration=x", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.method == Method::POST && c.path.ends_with("/setup")));
+    let (status, _, _) = pilot.send(post(&at("ebay_pending"), "channel_reader", save, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=tcgplayer", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_new?after_write="));
-    // A provider the seller may not connect is refused before Channels sees it.
-    let calls = pilot.stand.calls.lock().unwrap().len();
-    let (status, _, html) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=ebay", false)).await;
+    // A provider the seller may not connect is Channels' to refuse: the list says so.
+    let (status, _, html) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=shopify", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Connection action failed."), "{html}");
-    assert!(!pilot.stand.calls.lock().unwrap()[calls..].iter().any(|c| c.method == Method::POST));
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.method == Method::POST).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(r#"{"providerKey":"shopify"}"#), "the provider chosen, as sent");
+    // eBay connects through its consent journey, without a connection made first.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, headers, _) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=ebay", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/account/channels/ebay");
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.method == Method::POST), "nothing is written");
     let (status, _, _) = pilot.send(post(CHANNELS_SCREEN, "channel_reader", "providerKey=tcgplayer", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
@@ -16878,11 +21732,10 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     assert_eq!(serde_json::from_str::<Value>(&sent.unwrap()).unwrap(), json!({ "storageLocationIds": ["loc_main"] }));
     let (status, _, _) = pilot.send(post("/account/channels/conn_active", "channel_reader", "intent=pause", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    // Disconnect has no receipt to read after: the page is the connection it returned.
-    let (status, _, html) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    let words = text(&html);
-    assert!(words.contains("Disconnected") && words.contains("No actions are available for this connection."), "{words}");
+    // Disconnect goes to the connection with its receipt, as Pause does.
+    let (status, headers, _) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_paused?after_write="));
 }
 
 const CONNECTION: &str = "/account/channels/conn_active";
@@ -16906,10 +21759,7 @@ async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
     }
     assert!(html.contains(r#"action="/account/channels/conn_active/manual-sync/download""#), "{html}");
     assert!(html.contains(r#"name="runId" value="run_1""#) && html.contains(r#"name="expectedRevision" value="2""#));
-    assert!(
-        html.contains(r#"action="/account/channels/conn_active/manual-sync/ingest" enctype="multipart/form-data""#),
-        "{html}"
-    );
+    assert!(html.contains(r#"action="/account/channels/conn_active?do=ingest" enctype="multipart/form-data""#), "{html}");
     assert!(words.contains("Ingest Staged export") && !words.contains("Ingest Live export"), "Channels' actions only: {words}");
     assert!(!html.contains(r#"value="compose""#) && !html.contains(r#"value="release""#));
 
@@ -16938,13 +21788,15 @@ async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
     assert_eq!(headers[header::CONTENT_DISPOSITION], "attachment; filename=\"tcgplayer-staged-run_1.csv\"");
     assert!(!headers.get_all(header::SET_COOKIE).iter().any(|c| c == "leak=1"), "{headers:?}");
     assert!(csv.starts_with("TCGplayer Id,Add to Quantity"), "{csv}");
-    // A refused download goes back to the connection, which says so.
-    let (status, headers, _) =
+    // A refused download is the connection, which says so, as the panel's other writes are.
+    let (status, headers, html) =
         pilot.send(post(&download, "channeler", "intent=download&runId=run_1&expectedRevision=1", false)).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], "/account/channels/conn_active?manual=failed");
-    let (_, _, html) = pilot.send(get("/account/channels/conn_active?manual=failed", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"), "{headers:?}");
     assert!(text(&html).contains("Manual sync action failed Reload the current run state"), "{html}");
+    // Without a run there is nothing to download: the connection, saying the action was not valid.
+    let (status, _, html) = pilot.send(post(&download, "channeler", "intent=download", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
 
     // Compose without a newer Staged export says to ingest one; Release goes back to the connection.
     let write = format!("{CONNECTION}/manual-sync");
@@ -16963,10 +21815,10 @@ async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Manual sync action failed"), "{html}");
 
-    // An ingest draws the connection with Channels' receipt.
+    // An ingest, the connection's `ingest` post, draws the connection with Channels' receipt.
     let csv: &[u8] = b"TCGplayer Id,Quantity\nseed-1,1\n";
     let ingest = post_multipart(
-        &format!("{CONNECTION}/manual-sync/ingest"),
+        &format!("{CONNECTION}?do=ingest"),
         "channeler",
         &[("surface", "staged")],
         &[("export", "staged.csv", "text/csv", csv)],
@@ -17021,11 +21873,27 @@ const START_LISTING: &str = "/checkout/buy/readiness?source=buy-now&listingId=ls
 fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if let Some(cookie) = cookie {
         req = req.header(header::COOKIE, cookie);
     }
     req.body(Body::from(body.to_owned())).unwrap()
+}
+
+/// A guest entry's answer, checked: a 307 to `at` with `guestEntry=1` that carries only the new
+/// guest's token. Then the same form sent on as a browser follows it, presenting that guest and the
+/// browser's other cookies (`cookie`).
+fn followed_post(headers: &HeaderMap, at: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
+    let to = headers[header::LOCATION].to_str().unwrap();
+    let sep = if at.contains('?') { '&' } else { '?' };
+    assert_eq!(to, format!("{at}{sep}guestEntry=1"), "the same address, marked");
+    let set = cookies_set(headers);
+    assert_eq!(set.len(), 1, "only the guest's token: {set:?}");
+    let token = set["chase_sets_guest_checkout"].split(';').next().unwrap().to_owned();
+    assert_eq!(token, "chase_sets_guest_checkout=gst_new");
+    let cookie = cookie.map_or(token.clone(), |c| format!("{c}; {token}"));
+    visitor_post(to, Some(&cookie), body)
 }
 
 #[tokio::test]
@@ -17090,18 +21958,30 @@ async fn checkout_start_for_the_cart_reads_its_readiness_and_a_refusal_shows_its
 async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_token() {
     let pilot = Pilot::new().await;
     let cookie = "chase_sets_anonymous_cart=anon_full";
-    let (status, headers, html) =
-        pilot.send(visitor_post(START_LISTING, Some(cookie), "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST")).await;
+    let body = "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST";
+    // The visitor's Continue starts a guest and writes nothing more: a 307 with the guest's token.
+    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, Some(cookie), body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    assert!(cookies_set(&headers)["chase_sets_guest_checkout"].contains("Max-Age="), "{headers:?}");
+    assert!(pilot.stand.calls.lock().unwrap().iter().all(|c| !c.path.ends_with("/checkout-sessions")), "no session yet");
+    // The browser sends the form on as the guest: the session starts as that guest, the guest cart forgotten.
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, Some(cookie), body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
-    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;") && c.contains("Max-Age=")), "{set:?}");
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_anonymous_cart=;")), "the guest cart is forgotten: {set:?}");
+    assert!(cookies_set(&headers)["chase_sets_anonymous_cart"].contains("Max-Age=0"), "the guest cart is forgotten: {headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
     let started = calls.iter().find(|c| c.path.ends_with("/checkout-sessions")).unwrap();
     let as_guest = started.headers[header::COOKIE].to_str().unwrap();
-    assert_eq!(as_guest, "chase_sets_guest_checkout=gst_new", "the session starts as the new guest");
+    assert!(as_guest.contains("chase_sets_guest_checkout=gst_new"), "the session starts as the new guest: {as_guest}");
+    assert_eq!(serde_json::from_str::<Value>(&started.body).unwrap()["entryAttemptKey"], "chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST");
+
+    // A followed form whose guest is not there (the cookie refused or expired): no second guest.
+    let to = format!("{START_LISTING}&guestEntry=1");
+    let (status, headers, html) = pilot.send(visitor_post(&to, None, body)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "{headers:?}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
 
     // An offer needs an account: nothing starts.
     let offer =
@@ -17189,18 +22069,21 @@ async fn checkout_start_for_a_visitor_whose_entry_is_ambiguous_keeps_the_one_gue
     let pilot = Pilot::new().await;
     let body = "entryAttemptKey=chkentry_unknown_000000000000000";
     let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    // The browser already keeps the guest, so the page and a later look are that guest's.
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, None, body)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("We could not confirm whether your checkout started."), "{html}");
-    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;")), "{set:?}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "nothing more to keep: {headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
     let looked = calls.iter().find(|c| c.path.starts_with(CART_ATTEMPTS)).expect("one lookup");
     assert_eq!(looked.headers[header::COOKIE].to_str().unwrap(), "chase_sets_guest_checkout=gst_new", "as the new guest");
 
-    // A visitor's refusal is the page's, with no second guest started.
+    // A followed form's refusal is the page's, and a followed form never starts a second guest.
     let body = "entryAttemptKey=chkentry_closed_00000000000000000";
-    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    let (_, headers, _) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, None, body)).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{html}");
     assert!(headers.get(header::SET_COOKIE).is_none(), "{headers:?}");
     assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 2);
@@ -17312,6 +22195,7 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_1", "")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("/checkout/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    assert!(html.contains(r#"method="get" action="/checkout/payments/pay_1/status" data-patch hidden>"#), "{html}");
     assert!(!html.contains(r#"href="/account/purchases""#), "no Back to purchases: {html}");
     assert!(!html.contains(r#"href="/account/purchases/ord_pay""#), "no Open purchase: {html}");
     let until = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 60;
@@ -17349,16 +22233,14 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("This payment cannot be retried."), "{html}");
 
-    // Paid: Save this order, marketplace's page at the same address.
+    // Paid: Save this order, a link to the claim that carries the receipt the page was read after;
+    // the page asks Auth nothing (see the claim's own test).
     let (_, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
-    assert!(text(&html).contains("Save this order"), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7753/checkout/payments/pay_paid""#), "{html}");
-    // A claim link's landing goes on to marketplace's page with it.
-    let (status, headers, _) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid?claimContinuation=cc_1", "")).await;
-    assert_eq!(
-        (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/payments/pay_paid?claimContinuation=cc_1")
-    );
+    assert!(text(&html).contains("Save this order") && html.contains(r#"href="/checkout/claim/pay_paid""#), "{html}");
+    let after = format!("/checkout/payments/pay_paid?afterWrite={}", receipt_at("43"));
+    let (_, _, html) = pilot.send(as_guest(Method::GET, &after, "")).await;
+    assert!(html.contains(r#"href="/checkout/claim/pay_paid?afterWrite="#), "{html}");
+    assert!(auth_calls(&pilot, "/api/auth/guest-checkout/claim-context").is_empty());
 
     // An account goes to its own payment page; no guest checkout, or one Payments refuses, is told
     // the link is no longer good.
@@ -17369,6 +22251,203 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     assert!(text(&html).contains("This guest checkout payment link is invalid or expired."), "{html}");
     let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_gone", "")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+}
+
+/// A guest claim call's sent JSON.
+fn claim_sent(pilot: &Pilot, claim: &str) -> Vec<Value> {
+    let path = format!("/api/auth/guest-checkout/{claim}");
+    auth_calls(pilot, &path).iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect()
+}
+
+#[tokio::test]
+async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_link() {
+    let pilot = Pilot::new().await;
+    // Save this order (`/checkout/claim/{id}`), for the contact Auth reports bound: a passkey for its
+    // email (the passkey step, which asks the sign-in's challenge route), and a claim link sent there.
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/claim/pay_paid", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for says in [
+        "Save this order",
+        "Save with passkey",
+        "We will save this order to guest@example.test.",
+        "Send a claim link to guest@example.test.",
+        "Email me a claim link",
+        "Other options",
+    ] {
+        assert!(page.contains(says), "{says}: {page}");
+    }
+    assert!(html.contains(r#"value="claim-passkey""#) && html.contains(r#"value="Guest Buyer""#), "{html}");
+    assert!(html.contains(r#"name="label" value="Passkey""#) && html.contains("/sign-in/passkey"), "{html}");
+    assert!(!html.contains("claim-link-consume"), "no token to type: {html}");
+    assert_eq!(claim_sent(&pilot, "claim-context"), [json!({ "paymentId": "pay_paid" })]);
+    // The internal capability goes on Auth's claim calls and nothing else.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    for call in &calls {
+        let internal = call.headers.get("x-chase-sets-internal-auth").map(|v| v.to_str().unwrap().to_owned());
+        let claim = call.path.starts_with("/api/auth/guest-checkout/claim");
+        assert_eq!(internal.as_deref(), claim.then_some(INTERNAL), "{}", call.path);
+    }
+
+    // An unbound contact, or a read Auth refuses, says the order cannot be saved now and links back
+    // to its payment, instead of failing the page or drawing a prompt with no email
+    // (chase-sets/chase-sets#11253).
+    for id in ["pay_unbound", "pay_limited"] {
+        let (status, _, html) = pilot.send(as_guest(Method::GET, &format!("/checkout/claim/{id}"), "")).await;
+        assert_eq!(status, StatusCode::OK, "{id}: {html}");
+        let page = text(&html);
+        assert!(page.contains("This order cannot be saved to an account right now."), "{id}: {html}");
+        assert!(
+            !page.contains("Save with passkey")
+                && html.contains(&format!(r#"href="/checkout/payments/{id}">Back to payment</a>"#)),
+            "{html}"
+        );
+    }
+    // A payment not paid yet says it can be saved after payment, without asking Auth.
+    let asked = claim_sent(&pilot, "claim-context").len();
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/claim/pay_1", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
+    assert!(html.contains(r#"href="/checkout/payments/pay_1">Back to payment</a>"#), "{html}");
+    assert_eq!(claim_sent(&pilot, "claim-context").len(), asked);
+    // An account goes to its own payment page; no guest checkout is told the link is no longer good.
+    let (status, headers, _) = pilot.send(get("/checkout/claim/pay_1", Some("payer"))).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/payments/pay_1"));
+    let (status, _, html) = pilot.send(get("/checkout/claim/pay_paid", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    // Save this order's intents no longer post to the payment page, which goes back to itself.
+    let (status, headers, _) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-request")).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/checkout/payments/pay_paid"));
+
+    // The passkey: the credential, the name and Auth's label go to Auth, which signs the guest in;
+    // the account's payment, read after the claim, with the guest checkout's cookie cleared.
+    let body = "intent=claim-passkey&displayName=Guest+Buyer&email=guest%40example.test&label=Passkey\
+                &challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=crd_ext&webauthnResponse=created";
+    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
+    let set = cookies_set(&headers);
+    assert!(set["chase_sets_session"].starts_with("chase_sets_session=tok_claimed"), "{set:?}");
+    assert!(set["chase_sets_guest_checkout"].contains("Max-Age=0"), "{set:?}");
+    let sent = claim_sent(&pilot, "claim-with-passkey").pop().unwrap();
+    assert_eq!(
+        (&sent["displayName"], &sent["paymentId"], &sent["label"], &sent["challengeId"]),
+        (&json!("Guest Buyer"), &json!("pay_paid"), &json!("Passkey"), &json!("cmd_1")),
+        "{sent}"
+    );
+    // Without a credential (no script) nothing is sent; Auth's refusal says what was wrong.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-passkey&displayName=Guest")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Could not save order") && text(&html).contains("Passkey registration failed."), "{html}");
+    assert_eq!(claim_sent(&pilot, "claim-with-passkey").len(), 1);
+    let forged = "intent=claim-passkey&displayName=Guest&challengeId=cmd_1&challenge=x&webauthnResponse=forged";
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", forged)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Passkey registration failed."), "{html}");
+
+    // A claim link: sent to the contact, from the page's origin; the page says so and shows no
+    // token, which only the email carries here.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We sent a claim link to guest@example.test."), "{html}");
+    assert!(!html.contains("clm_1"), "{html}");
+    let sent = claim_sent(&pilot, "claim-link/request").pop().unwrap();
+    assert_eq!(sent, json!({ "paymentId": "pay_paid", "origin": "http://localhost:7791" }));
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-consume&token=clm_1")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Claim token entry is not available here."), "{html}");
+    assert!(claim_sent(&pilot, "claim-with-magic-link").is_empty());
+    // A payment not yet paid cannot be saved.
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_1", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
+    // A link sent when the contact cannot be read again still says it was sent; a request Auth
+    // rate limits says why.
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("We sent a claim link to this order") && page.contains("contact email."), "{html}");
+    assert!(!page.contains("Email me a claim link"), "{html}");
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_unbound", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Could not save order") && page.contains("Too many claim link requests. Try again later."), "{html}");
+
+    // The link opens the payment's address, which goes on to the claim with the same query.
+    let (status, headers, _) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_1&afterWrite=x", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/checkout/claim/pay_paid?afterWrite=x&claimContinuation=cc_1");
+    assert!(claim_sent(&pilot, "claim-with-continuation").is_empty());
+    // The landing claims with its continuation, in any browser, and signs in the same way; a spent
+    // or unknown one says the link is no longer good.
+    let (status, headers, html) = pilot.send(get("/checkout/claim/pay_paid?claimContinuation=cc_1", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_claimed"), "{headers:?}");
+    assert_eq!(claim_sent(&pilot, "claim-with-continuation"), [json!({ "continuation": "cc_1", "paymentId": "pay_paid" })]);
+    let (status, _, html) = pilot.send(get("/checkout/claim/pay_paid?claimContinuation=cc_old", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // One Auth rate limits says to wait, not that the link is spent.
+    let (status, _, html) = pilot.send(get("/checkout/claim/pay_paid?claimContinuation=cc_busy", None)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Too many attempts") && page.contains("Try the link again later."), "{html}");
+    assert!(!page.contains("invalid or expired"), "{html}");
+}
+
+#[tokio::test]
+async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
+    let envs = |node: Option<&str>, deployment: Option<&str>| [node.map(str::to_owned), deployment.map(str::to_owned)];
+    assert!(crate::app::claim_token_entry(Some(" Yes "), envs(None, None)));
+    assert!(crate::app::claim_token_entry(Some("1"), envs(Some("development"), Some("staging"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(None, Some("production"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(Some("production"), Some("staging"))), "React's NODE_ENV leg");
+    assert!(
+        !crate::app::claim_token_entry(Some("0"), envs(None, None)) && !crate::app::claim_token_entry(None, envs(None, None))
+    );
+
+    let pilot = Pilot::configured(|config| config.claim_token_entry = true).await;
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"value="claim-link-consume""#) && html.contains(r#"value="clm_1""#), "{html}");
+    assert!(text(&html).contains("Verify email and save order"), "{html}");
+    let (status, _, html) = pilot
+        .send(as_guest(Method::POST, "/checkout/claim/pay_paid", "intent=claim-link-consume&displayName=Guest&token=clm_2"))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // A link sent when the contact cannot be read again says so and draws no form, so no token:
+    // the emailed link still claims.
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We sent a claim link to this order"), "{html}");
+    assert!(!html.contains("clm_1") && !html.contains(r#"value="claim-link-consume""#), "{html}");
+    let body = "intent=claim-link-consume&displayName=Guest+Buyer&token=clm_1";
+    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_paid", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
+    let sent = claim_sent(&pilot, "claim-with-magic-link").pop().unwrap();
+    assert_eq!(sent, json!({ "token": "clm_1", "paymentId": "pay_paid", "displayName": "Guest Buyer" }));
+}
+
+#[tokio::test]
+async fn without_the_internal_capability_a_paid_guest_order_cannot_be_saved() {
+    let pilot = Pilot::configured(|config| config.platform = config.platform.clone().with_internal_auth(None)).await;
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/claim/pay_paid", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains("This order cannot be saved to an account right now.") && !page.contains("Save with passkey"),
+        "{html}"
+    );
+    let calls = auth_calls(&pilot, "/api/auth/guest-checkout/claim-context");
+    assert!(calls.len() == 1 && !calls[0].headers.contains_key("x-chase-sets-internal-auth"), "{calls:?}");
 }
 
 #[tokio::test]
@@ -17503,6 +22582,7 @@ async fn the_site_files_are_marketplaces() {
     assert_eq!(manifest["description"], "Purchase and sell trading cards.");
     assert_eq!(manifest["theme_color"], "#4845c6");
     assert_eq!(manifest["background_color"], "#f7f5f1");
+    assert_eq!((&manifest["orientation"], &manifest["categories"]), (&json!("any"), &json!(["shopping", "productivity"])));
     let icons = manifest["icons"].as_array().unwrap();
     assert_eq!(icons.len(), 4);
     for icon in icons {
@@ -17589,11 +22669,10 @@ async fn a_search_results_picture_and_title_send_its_place_and_the_searchs_keys(
     assert_eq!(status, StatusCode::OK, "{html}");
     let first = &html[html.find(r#"<li id="result-1""#).unwrap()..];
     let first = &first[..first.find("</li>").unwrap()];
-    let opened =
-        format!(r#"data-on="click:rail_analytics.searchResult(1,&quot;{QUERY_HASH}&quot;,&quot;{RESULT_SET_KEY}&quot;)""#);
+    let opened = format!(r#"data-on='click:rail_analytics.searchResult(1,"{QUERY_HASH}","{RESULT_SET_KEY}")'"#);
     // The picture's link and the title's, not Buy, Sell or Watch.
     assert_eq!(first.matches(&opened).count(), 2, "{first}");
-    assert_eq!(first.matches("data-on=").count(), 2, "{first}");
+    assert_eq!(first.matches("data-on='click:").count(), 2, "{first}");
     assert!(html.contains("rail_analytics.searchResult(24,"), "the 24th is 24: {html}");
     // The page loads the script.
     assert!(html.contains("rail_analytics"), "{html}");
@@ -17605,9 +22684,7 @@ async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
     let (status, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let call = |changed: bool, intent: &str, workflow: &str, selection: &str, surface: &str| {
-        format!(
-            "rail_analytics.railIntent({changed},&quot;{intent}&quot;,&quot;{workflow}&quot;,&quot;{selection}&quot;,&quot;guest&quot;,&quot;{surface}&quot;)"
-        )
+        format!(r#"rail_analytics.railIntent({changed},"{intent}","{workflow}","{selection}","guest","{surface}")"#)
     };
     // The rail's sides: Buy is current (nothing to count), with its best listing chosen for it.
     assert!(html.contains(&call(false, "buy", "best_available_listing", "implicit", "desktop_rail")), "{html}");
@@ -17616,13 +22693,14 @@ async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
     assert!(html.contains(&call(true, "buy", "best_available_listing", "implicit", "mobile_action_bar")), "{html}");
     let similar = &html[html.find(r#"aria-labelledby="similar-items""#).unwrap()..];
     let similar = &similar[..similar.find("</section>").unwrap()];
-    assert_eq!(similar.matches(r#"data-on="click:rail_analytics.similarItem()""#).count(), 3, "{similar}");
+    assert_eq!(similar.matches("data-on='click:rail_analytics.similarItem()'").count(), 3, "{similar}");
 }
 
 #[tokio::test]
 async fn the_rails_sections_forms_refusals_payout_and_gate_send_marketplaces_events() {
     let pilot = Pilot::new().await;
-    let q = |s: &str| s.replace('"', "&quot;");
+    // A handler's arguments are as written: `data-on` is single-quoted (corten-run/corten#1281).
+    let q = |s: &str| s.to_owned();
     // Buy: the listing's form names both sets of labels, and each section counts its opening.
     let (_, _, buy) = pilot.send(get(SAVE_PAGE, None)).await;
     for hook in [
@@ -17674,11 +22752,258 @@ async fn the_rails_sections_forms_refusals_payout_and_gate_send_marketplaces_eve
 fn plain(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
-    while let Some(at) = rest.find(" data-on=\"") {
+    while let Some(at) = rest.find(" data-on='") {
         out.push_str(&rest[..at]);
-        let after = &rest[at + " data-on=\"".len()..];
-        rest = after.find('"').map_or("", |end| &after[end + 1..]);
+        let after = &rest[at + " data-on='".len()..];
+        rest = after.find('\'').map_or("", |end| &after[end + 1..]);
     }
     out.push_str(rest);
     out
+}
+
+/// The page before the layout's toaster (`</main>` on), or all of an answer that has no `<main>`
+/// (a patch): where a page's own `role="status"` is looked for.
+fn main_of(html: &str) -> &str {
+    html.split_once("</main>").map_or(html, |(main, _)| main)
+}
+
+/// The declarations the scripts take Rust values by (`types/app.d.ts`): the payment step's
+/// `Defaults`. Fails, rewriting the file, while it is stale.
+#[test]
+fn script_types_match_the_server() {
+    corten::types::Types::new().add::<crate::payment::Defaults>().sync(concat!(env!("CARGO_MANIFEST_DIR"), "/types/app.d.ts"));
+}
+
+/// Fulfillment's seller shipping setup (`/api/marketplace/{account|guest}/seller-shipping-setup`).
+/// `shipper` has one saved whose prepaid label the platform supports; any other account has none.
+/// The guest sell list `anon_ship` has one awaiting support, `anon_down`'s cannot be read, and any
+/// other has none. A save answers with what it sent, unless its city is `Unknown` (refused, 400),
+/// `Conflict` (409) or `Down` (503). Like the API, it refuses any query.
+fn shipping_setup_api(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let guest = match uri.path() {
+        "/api/marketplace/account/seller-shipping-setup" => None,
+        "/api/marketplace/guest/seller-shipping-setup" => {
+            Some(headers.get("x-checkout-anonymous-sell-list-id").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned())
+        }
+        _ => return None,
+    };
+    if uri.query().is_some() {
+        return Some(refusal(StatusCode::BAD_REQUEST, "invalid-input", ""));
+    }
+    let origin = json!({ "name": "Ash Ketchum", "line1": "1 Pallet Rd", "line2": null, "city": "Pallet", "state": "KS",
+                         "postalCode": "66002", "country": "US" });
+    let read = |setup: Value, support: &str| {
+        Json(json!({ "setup": setup, "revision": 2, "recordedAt": "2026-11-01T00:00:00.000Z", "supportStatus": support }))
+            .into_response()
+    };
+    Some(match method.as_str() {
+        "GET" => match (guest.as_deref(), session) {
+            (Some("anon_down"), _) => refusal(StatusCode::SERVICE_UNAVAILABLE, "source-unavailable", ""),
+            (Some("anon_ship"), _) => read(
+                json!({ "origin": origin, "labelPreference": "seller-label-later", "shipFromLocationId": "sfl_guest" }),
+                "missing",
+            ),
+            (None, "shipper") => {
+                read(json!({ "origin": origin, "labelPreference": "prepaid-label", "shipFromLocationId": "sfl_1" }), "enabled")
+            }
+            _ => Json(json!({ "setup": null, "revision": null, "recordedAt": null, "supportStatus": "missing" })).into_response(),
+        },
+        "PUT" => {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            match sent["origin"]["city"].as_str() {
+                Some("Unknown") => refusal(StatusCode::BAD_REQUEST, "invalid-input", ""),
+                Some("Conflict") => refusal(StatusCode::CONFLICT, "conflicting-operation", ""),
+                Some("Down") => refusal(StatusCode::SERVICE_UNAVAILABLE, "source-unavailable", ""),
+                _ => {
+                    let mut setup = sent.clone();
+                    setup["shipFromLocationId"] = json!("sfl_new");
+                    read(setup, "missing")
+                }
+            }
+        }
+        _ => return None,
+    })
+}
+
+const SHIPPING_SETUP: &str = "/sell/shipping-setup";
+
+/// A request as a browser with `cookies` sends it.
+fn with_cookies(mut req: Request<Body>, cookies: &str) -> Request<Body> {
+    if cookies.is_empty() {
+        req.headers_mut().remove(header::COOKIE);
+    } else {
+        req.headers_mut().insert(header::COOKIE, cookies.parse().unwrap());
+    }
+    req
+}
+
+fn shipping_setup_calls(pilot: &Pilot) -> Vec<Call> {
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.contains("/seller-shipping-setup")).cloned().collect()
+}
+
+#[tokio::test]
+async fn shipping_setup_shows_an_accounts_saved_setup_and_whether_the_platform_supports_it() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get(SHIPPING_SETUP, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    let shown = text(&html);
+    assert!(shown.contains("Shipping setup Save your shipping origin and label preference."), "{shown}");
+    assert!(shown.contains("Shipping setup saved with platform shipping support."), "{shown}");
+    assert!(html.contains(r#"href="/account/sell-list""#) && shown.contains("Back to Sell List"), "{html}");
+    assert!(html.contains(r#"value="1 Pallet Rd""#) && html.contains(r#"value="66002""#), "the saved origin: {html}");
+    assert!(html.contains(r#"<option value="prepaid-label" selected>"#), "the saved preference: {html}");
+    assert!(
+        html.contains(r#"name="postalCode""#) && html.contains(r#"name="labelPreference""#),
+        "marketplace's field names: {html}"
+    );
+    assert!(
+        html.contains(r#"<form id="shipping-setup-form""#) && html.contains(r#"method="post" action="/sell/shipping-setup""#),
+        "{html}"
+    );
+    let calls = shipping_setup_calls(&pilot);
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0].path, "/api/marketplace/account/seller-shipping-setup");
+    assert!(!calls[0].headers.contains_key("x-checkout-anonymous-sell-list-id"));
+
+    // An account with none: the empty form, the country US and a prepaid label.
+    let (status, _, html) = pilot.send(get(SHIPPING_SETUP, Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let shown = text(&html);
+    assert!(shown.contains("Add your current shipping origin and label preference."), "{shown}");
+    assert!(!shown.contains("Shipping setup saved"), "{shown}");
+    assert!(html.contains(r#"value="US""#) && html.contains(r#"<option value="prepaid-label" selected>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_guests_shipping_setup_is_the_guest_sell_lists_and_without_one_the_page_asks_for_the_sell_list() {
+    let pilot = Pilot::new().await;
+    // A visitor with the guest sell list's cookie.
+    let req = with_cookies(get(SHIPPING_SETUP, None), "chase_sets_anonymous_sell_list=anon_ship");
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Shipping setup saved, awaiting platform shipping support. Shipping remains blocked."), "{shown}");
+    assert!(html.contains(r#"<option value="seller-label-later" selected>"#), "{html}");
+    let calls = shipping_setup_calls(&pilot);
+    assert_eq!(calls.last().unwrap().path, "/api/marketplace/guest/seller-shipping-setup");
+    assert_eq!(calls.last().unwrap().headers["x-checkout-anonymous-sell-list-id"], "anon_ship");
+
+    // A guest checkout is not an account: its setup is the guest sell list's too.
+    let req =
+        with_cookies(get(SHIPPING_SETUP, None), "chase_sets_guest_checkout=gst_1; chase_sets_anonymous_sell_list=anon_ship");
+    let (status, _, _) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(shipping_setup_calls(&pilot).last().unwrap().path, "/api/marketplace/guest/seller-shipping-setup");
+
+    // No one's: a visitor without the cookie, or with one that is not a guest sell list's.
+    let before = shipping_setup_calls(&pilot).len();
+    for cookies in ["", "chase_sets_anonymous_sell_list=acc_1", "chase_sets_guest_checkout=gst_1"] {
+        let (status, _, html) = pilot.send(with_cookies(get(SHIPPING_SETUP, None), cookies)).await;
+        assert_eq!(status, StatusCode::OK, "{cookies}: {html}");
+        let shown = text(&html);
+        assert!(shown.contains("Open your Sell List to recover it before setting up shipping."), "{cookies}: {shown}");
+        assert!(!html.contains("<form id=\"shipping-setup-form\""), "no form: {html}");
+    }
+    assert_eq!(shipping_setup_calls(&pilot).len(), before, "nothing is read for no one");
+}
+
+#[tokio::test]
+async fn shipping_setup_that_cannot_be_read_says_so_and_offers_retry() {
+    let pilot = Pilot::new().await;
+    let req = with_cookies(get(SHIPPING_SETUP, None), "chase_sets_anonymous_sell_list=anon_down");
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    let shown = text(&html);
+    assert!(shown.contains("Shipping setup could not be loaded. Retry to read your saved setup."), "{shown}");
+    assert!(html.contains(r#"href="/sell/shipping-setup""#) && shown.contains("Retry shipping setup"), "{html}");
+    assert!(!html.contains("<form id=\"shipping-setup-form\""), "no form: {html}");
+}
+
+const SHIPPING_FORM: &str = "name=+Ash+Ketchum+&line1=1+Pallet+Rd&line2=&city=Pallet&state=KS&postalCode=66002&country=us&labelPreference=seller-label-later";
+
+#[tokio::test]
+async fn saving_shipping_setup_sends_fulfillments_input_and_shows_the_page_again() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post(SHIPPING_SETUP, "seller", SHIPPING_FORM, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], SHIPPING_SETUP);
+    let put = shipping_setup_calls(&pilot).into_iter().find(|c| c.method == Method::PUT).unwrap();
+    assert_eq!(put.path, "/api/marketplace/account/seller-shipping-setup");
+    assert_eq!(
+        serde_json::from_str::<Value>(&put.body).unwrap(),
+        json!({ "origin": { "name": "Ash Ketchum", "line1": "1 Pallet Rd", "line2": null, "city": "Pallet", "state": "KS",
+                            "postalCode": "66002", "country": "US" },
+                "labelPreference": "seller-label-later" }),
+        "trimmed, the country in capitals and an empty line 2 as none, as parseShippingSetup sends it"
+    );
+
+    // A guest's goes to the guest sell list's; sent by the runtime, the page is where it goes next.
+    let req = with_cookies(post(SHIPPING_SETUP, "", SHIPPING_FORM, true), "chase_sets_anonymous_sell_list=anon_new");
+    let (status, headers, _) = pilot.send(req).await;
+    assert_eq!((status, headers["corten-location"].to_str().unwrap()), (StatusCode::NO_CONTENT, SHIPPING_SETUP));
+    let put = shipping_setup_calls(&pilot).into_iter().rev().find(|c| c.method == Method::PUT).unwrap();
+    assert_eq!(put.path, "/api/marketplace/guest/seller-shipping-setup");
+    assert_eq!(put.headers["x-checkout-anonymous-sell-list-id"], "anon_new");
+}
+
+#[tokio::test]
+async fn shipping_setup_that_is_not_saved_keeps_what_was_typed_and_says_why() {
+    let pilot = Pilot::new().await;
+    let puts = |pilot: &Pilot| shipping_setup_calls(pilot).iter().filter(|c| c.method == Method::PUT).count();
+    // Fulfillment's rules, checked before anything is sent: a field it does not know, a field
+    // twice, a blank required field, or a preference it does not have.
+    for body in [
+        format!("{SHIPPING_FORM}&owner=acc_other"),
+        format!("{SHIPPING_FORM}&city=Viridian"),
+        SHIPPING_FORM.replace("state=KS", "state=+"),
+        SHIPPING_FORM.replace("seller-label-later", "carrier-pickup"),
+    ] {
+        let (status, _, html) = pilot.send(post(SHIPPING_SETUP, "seller", &body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {html}");
+        assert!(text(&html).contains("Check your shipping origin and label preference, then try again."), "{body}: {html}");
+        assert!(html.contains(r#"value="1 Pallet Rd""#), "what was typed is kept: {html}");
+    }
+    assert_eq!(puts(&pilot), 0, "nothing the API would refuse is sent");
+
+    // The API's refusal of the input is "invalid" too; any other failure is "could not be saved".
+    let cases = [
+        ("Unknown", StatusCode::UNPROCESSABLE_ENTITY, "Check your shipping origin and label preference, then try again."),
+        (
+            "Conflict",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Shipping setup could not be saved. Your entries are retained. Please retry.",
+        ),
+        ("Down", StatusCode::SERVICE_UNAVAILABLE, "Shipping setup could not be saved. Your entries are retained. Please retry."),
+    ];
+    for (city, expected, said) in cases {
+        let body = SHIPPING_FORM.replace("city=Pallet", &format!("city={city}"));
+        let (status, _, html) = pilot.send(post(SHIPPING_SETUP, "seller", &body, false)).await;
+        assert_eq!(status, expected, "{city}: {html}");
+        assert!(text(&html).contains(said), "{city}: {html}");
+        assert!(html.contains(&format!(r#"value="{city}""#)), "{city}: what was typed is kept: {html}");
+    }
+    assert_eq!(puts(&pilot), 3);
+
+    // No one's setup: nothing is sent.
+    let req = with_cookies(post(SHIPPING_SETUP, "", SHIPPING_FORM, false), "");
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Open your Sell List to recover it before setting up shipping."), "{html}");
+
+    // Another site's post is refused before it is read.
+    let mut cross = post(SHIPPING_SETUP, "seller", SHIPPING_FORM, false);
+    cross.headers_mut().insert(header::ORIGIN, "https://evil.example".parse().unwrap());
+    cross.headers_mut().insert("sec-fetch-site", "cross-site".parse().unwrap());
+    let (status, _, _) = pilot.send(cross).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "another site's post");
+    assert_eq!(puts(&pilot), 3);
+}
+
+#[tokio::test]
+async fn seller_checkout_links_to_shipping_setup() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/checkout/sell/session/chk_one", Some("trader"))).await;
+    assert!(html.contains(r#"href="/sell/shipping-setup""#) && text(&html).contains("Shipping setup"), "{html}");
 }
