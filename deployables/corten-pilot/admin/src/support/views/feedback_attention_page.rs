@@ -36,7 +36,10 @@ fn Row<'a>(t: Sup, item: &'a Item) -> impl Render {
         <tr>
             <td class={Words}>
                 <CellLabel>{t.cfa_case()}</CellLabel>
-                <a class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }} href={url::Attention::case(&item.case_id)}>
+                <a
+                    class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }}
+                    href={url::Attention::case(&item.case_id)}
+                >
                     {&item.case_id}
                 </a>
             </td>
