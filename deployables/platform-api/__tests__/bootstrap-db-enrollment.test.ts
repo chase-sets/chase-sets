@@ -1316,14 +1316,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(old.requestedKeys).toHaveLength((1 << candidateRepository.schedule.files.length) - 1);
     const uncachedKeys = [...old.requestedKeys].filter((key) => !Object.hasOwn(memo.entries, key));
     expect(old.schedulerCalls.misses).toBe(uncachedKeys.length);
-    // The historical oracle's top-level path classifier rejects the real Catalog
-    // and composition entries, and it predates the measured floor, so it keeps any minimality
-    // verdict a bound declared floor lifts. Preserve its complete output
-    // comparison with exactly the default-path floor-role corrections; every
-    // schedule/case field still agrees.
+    // The historical oracle's top-level path classifier rejects the non-bootstrap
+    // DB entries below, and it predates the measured floor, so it keeps any minimality
+    // verdict a bound declared floor lifts. Account for only these known differences;
+    // every schedule/case field still agrees.
     const { observedUnitCount } = candidateRepository.schedule;
     expect(oldRepository.violations).toEqual([
       "test:db:1 references unmanifested bootstrap DB file 'listing-channel-activation-composition.db.test.ts'",
+      "test:db:1 references unmanifested bootstrap DB file 'owner-predicate-enrollment.db.test.ts'",
       "test:db:2 references unmanifested bootstrap DB file 'seed-command-catalog.db.test.ts'",
       ...(currentMinimumUnitCount < observedUnitCount
         ? [minimalityViolationFor(observedUnitCount, currentMinimumUnitCount)]
@@ -4688,7 +4688,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       naturallyMinimalEnrollment ??= defaultPathEnrollment(3, {
         scheduleModel,
         nonBootstrapCensus: {
-          ...platformApiNonBootstrapDbCensus,
+          ...platformApiProductDbProofCensus,
           referenceRunId: scheduleModel.referenceRunId,
           referenceJobId: scheduleModel.referenceJobId,
         },

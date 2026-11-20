@@ -6,7 +6,7 @@ import { createVitest, parseCLI } from "vitest/node";
 import {
   bootstrapDbEnrollmentManifest,
   derivePlatformApiDbTestCensus,
-  platformApiNonBootstrapDbCensus,
+  platformApiProductDbProofCensus,
 } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
@@ -1012,14 +1012,14 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    // Named members, never a moving total: the bootstrap manifest and the frozen non-bootstrap census each declare
+    // Named members, never a moving total: the bootstrap manifest and the live non-bootstrap census each declare
     // their DB entries and execution units, and the Vitest include rule declares the complete discovered set.
     const declaredUnits = [
       ...Object.entries(bootstrapDbEnrollmentManifest).map(([file, { executionUnit }]) => [
         `__tests__/${file}`,
         executionUnit,
       ]),
-      ...Object.entries(platformApiNonBootstrapDbCensus.entries),
+      ...Object.entries(platformApiProductDbProofCensus.entries),
     ];
     const declaredBootstrap = Object.keys(bootstrapDbEnrollmentManifest)
       .map((file) => `__tests__/${file}`)

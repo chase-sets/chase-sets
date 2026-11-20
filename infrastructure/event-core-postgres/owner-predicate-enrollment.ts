@@ -43,8 +43,11 @@ export function reserveOwnerPredicateInTransaction(client: PgQueryable, input: R
 }
 
 class OwnerPredicateSettlementRequired extends Error {
-  constructor(readonly keys: readonly string[]) {
+  readonly keys: readonly string[];
+
+  constructor(keys: readonly string[]) {
     super("Owner predicate settlement required before write.");
+    this.keys = keys;
   }
 }
 
