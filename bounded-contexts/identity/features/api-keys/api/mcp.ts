@@ -44,7 +44,7 @@ export function createApiKeyMcpHandlers(services: ApiKeyServices, db: PgQueryabl
     const scopedActor = requireOperator(actor);
     const search = optionalString(args, "search");
     const result = await services.listApiKeys({
-      search: scopedActor.roleKey !== "platform-admin" ? scopedActor.userId : search,
+      ...(scopedActor.roleKey !== "platform-admin" ? { userId: scopedActor.userId } : { search }),
       status: optionalString(args, "status"),
       limit: Number(args.limit) || undefined,
       offset: Number(args.offset) || undefined,

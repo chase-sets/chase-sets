@@ -10,7 +10,11 @@ import {
   buildPlatformChildEnvironment,
   createBrowserE2eProductionIngressDefinitions,
 } from "./dev-system-config.mjs";
-import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
+import {
+  buildPlatformBootstrapArguments,
+  completeDevSystemStartupFailure,
+  createDevSystemLauncher,
+} from "./dev-system-launch.mjs";
 import { buildPackageManagerInvocation, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 
 const directories = [];
@@ -110,6 +114,18 @@ function isAlive(pid) {
 }
 
 describe("dev system launcher", () => {
+  it("selects the disposable replay only for the explicitly requested API bootstrap", () => {
+    for (const workspace of ["@chase-sets/app-platform-api", "@chase-sets/app-platform-worker"]) {
+      expect(buildPlatformBootstrapArguments(workspace)).toEqual(["--filter", workspace, "run", "bootstrap"]);
+      expect(buildPlatformBootstrapArguments(workspace, { disposableRepresentativeCatalogReplay: true })).toEqual([
+        "--filter",
+        workspace,
+        "run",
+        "bootstrap",
+        ...(workspace.endsWith("platform-api") ? ["--disposable-representative-catalog-replay"] : []),
+      ]);
+    }
+  });
   it("resolves the Windows CI worker through the canonical package manager", () => {
     const directory = fixtureDirectory();
     const cli = path.join(directory, "pnpm.cjs");

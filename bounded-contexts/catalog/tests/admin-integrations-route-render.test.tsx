@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
@@ -26,10 +25,13 @@ import { isActionAvailable } from "../features/source-observations/ui/admin-cont
 import { catalogPrimaryWorkbenchHref } from "../features/source-observations/ui/primary-workbench-route-context";
 import type { CatalogDeferredAttentionQueueResult } from "../features/attention-queue/api/contracts";
 import { catalogAttentionQueueReadModelFixture } from "../features/attention-queue/api/attention-queue-test-fixtures";
+import {
+  buildCatalogAliasReviewReadModel,
+  type CatalogAliasReviewFilter,
+} from "../features/alias-equivalence/api/alias-review-admin-contracts";
 
 import {
   actionRequest,
-  aliasReviewReadModel,
   lifecycleConfirmationValue,
   redirectLocation,
   lorcastLorcanaProfileReview,
@@ -687,6 +689,112 @@ describe("Catalog integrations route", () => {
     expect(
       routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers,
     ).not.toContain("permission-denied");
+  });
+
+  it("reopens the accepted alias from the filtered Integrations route", async () => {
+    const proposedAlias = "Synthetic Expansion Alias";
+    const observedAt = "2026-06-16T00:00:00.000Z";
+    const filter = {
+      providerKey: "tcgdex",
+      sourceProfileVersion: "2026.06.03",
+      aliasType: "set-equivalent",
+      reviewStatuses: ["accepted"],
+      observationId: null,
+      targetKind: "reference-record",
+      targetId: "ref_synthetic_expansion",
+    } as const satisfies CatalogAliasReviewFilter;
+    const requestedFilters = {
+      providerKey: filter.providerKey,
+      aliasType: filter.aliasType,
+      reviewStatuses: filter.reviewStatuses.join(","),
+      targetKind: filter.targetKind,
+      targetId: filter.targetId,
+    };
+    const requestUrl = new URL("https://admin.example/catalog/integrations");
+    requestUrl.search = new URLSearchParams({
+      ...requestedFilters,
+      profileVersion: filter.sourceProfileVersion,
+    }).toString();
+    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue(
+      buildCatalogAliasReviewReadModel({
+        generatedAt: observedAt,
+        filter,
+        candidateRows: [
+          {
+            alias_hash: "synthetic_accepted_hash",
+            target_kind: filter.targetKind,
+            target_id: filter.targetId,
+            target_key: "expansion",
+            alias_text: proposedAlias,
+            normalized_alias_text: proposedAlias.toLowerCase(),
+            alias_language_code: "en",
+            source_language_code: "zh-TW",
+            alias_type: filter.aliasType,
+            confidence: "high",
+            review_status: "accepted",
+            provider_key: filter.providerKey,
+            observation_id: null,
+            source_category: "provider-same-id-localized-endpoint",
+            source_profile_key: "pokemon-tcg",
+            source_profile_version: filter.sourceProfileVersion,
+            mapping_fingerprint: "synthetic-fingerprint",
+            evidence: { providerId: "synthetic-set", evidenceKind: "set-id", nativeName: "Synthetic Native Name" },
+            first_observed_at: observedAt,
+            updated_at: observedAt,
+          },
+        ],
+        catalogItemAliasRows: [],
+        referenceRecordAliasRows: [],
+      }),
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface: vi.fn().mockResolvedValue({
+        readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+          requestUrl: requestUrl.href,
+          scopes: { items: [], total: 0, count: 0 },
+          profileReviews: { items: [], total: 0, count: 0 },
+          controlPlaneOverview: null,
+          canManageCatalog: true,
+        }),
+        readModelFailures: [],
+        catalogSyncScope: null,
+      }),
+      getCatalogAliasReviewReadModel,
+    });
+    mockUseLoaderData.mockReturnValue(
+      await loader({ request: new Request(requestUrl), params: {}, context: {} } as Parameters<typeof loader>[0]),
+    );
+    mockUseRouteLoaderData.mockReturnValue({ actor: { permissions: ["catalog.view", "catalog.manage"] } });
+
+    expect(getCatalogAliasReviewReadModel).toHaveBeenCalledTimes(1);
+    expect(Object.fromEntries(new URLSearchParams(getCatalogAliasReviewReadModel.mock.calls[0]?.[0]))).toEqual({
+      ...requestedFilters,
+      sourceProfileVersion: filter.sourceProfileVersion,
+    });
+
+    await act(async () => {
+      render(<IntegrationsRoute />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Review changes/ }));
+    });
+    const disclosureName = /^All-scopes alias review.*0 pending alias candidates$/;
+    const trigger = screen.getByRole("button", { name: disclosureName, expanded: false });
+    expect(screen.queryByRole("cell", { name: new RegExp(proposedAlias) })).toBeNull();
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    const panel = screen.getByRole("region", { name: disclosureName });
+    const candidate = within(panel).getByRole("cell", { name: new RegExp(proposedAlias) });
+    const row = within(candidate.closest("tr")!);
+    expect(row.getByRole("cell", { name: "accepted" })).toBeTruthy();
+    fireEvent.click(row.getByRole("button", { name: "Evidence" }));
+
+    const evidence = within(screen.getByRole("dialog", { name: `Evidence for ${proposedAlias}` }));
+    for (const value of ["synthetic-set", "set-id", "zh-TW", filter.sourceProfileVersion]) {
+      expect(evidence.getByText(value, { exact: true })).toBeTruthy();
+    }
   });
 
   // ---------------------------------------------------------------------------

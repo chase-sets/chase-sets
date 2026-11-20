@@ -235,26 +235,26 @@ fn SecretReveal<'a>(t: SecurityMsg, secret: &'a str, rotated: bool) -> impl Rend
 fn ProfileForm<'a>(t: SecurityMsg, draft: &'a Draft, held: bool) -> impl Render {
     let f = SecurityInput::FIELDS;
     let (i, e) = (&draft.input, draft.errors.within(UserFormId));
-    // A display name must have a letter in it: the API takes a blank one (chase-sets/chase-sets#11578).
-    let named = ".*\\S.*";
     html! {
         <form id={UserFormId} class={Form} method="post" action={url::Security::default()}>
             <input type="hidden" name={f.intent} value="update-user">
             {SubmitKey::field(f.attempt)}
             {draft.errors.form_message()}
             <fieldset class={Row} disabled={held}>
-                <label class={Field}>
-                    <span class={Label}>{t.user_display_name()}</span>
-                    <input
-                        type="text"
-                        name={f.display_name}
-                        value={&i.display_name}
-                        required
-                        pattern={named}
-                        autocomplete="nickname"
-                        {..e.aria(f.display_name)}
-                    >
-                </label>
+                <div class={Field}>
+                    <label class={Field}>
+                        <span class={Label}>{t.user_display_name()}</span>
+                        <input
+                            type="text"
+                            name={f.display_name}
+                            value={&i.display_name}
+                            required
+                            autocomplete="nickname"
+                            {..e.aria(f.display_name)}
+                        >
+                    </label>
+                    {e.message(f.display_name)}
+                </div>
                 <label class={Field}>
                     <span class={Label}>{t.user_given_name()}</span>
                     <input
