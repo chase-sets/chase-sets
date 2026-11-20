@@ -12,7 +12,13 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { module as marketplaceModule } from "../../../index";
 import { createMarketplaceServices } from "../../../support/runtime-support/services";
-import { getOfferMatch, getPublicOffer, listOfferMatchesForSellers } from "../read-model/queries";
+import {
+  getOfferMatch,
+  getPublicOffer,
+  listOfferMatches,
+  listOfferMatchesForSellers,
+  listSubmittedOffers,
+} from "../read-model/queries";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Offer account DB tests in CI.");
@@ -91,6 +97,59 @@ describeDb("Offer account visibility on Postgres", () => {
       changes: (JSON.parse(row.payload_json) as { changes: unknown[] }).changes,
     }));
   }
+
+  it("projects Listings-only legacy facts without hiding Offers, then removes and restores Offers on both realtime surfaces", async () => {
+    const subscription = marketplaceModule.buildSubscriptions!(createMarketplaceServices(pool)).find(
+      (candidate) => candidate.subscriptionName === "marketplace.self-listing-projection",
+    )!;
+    const date = "2030-01-01T00:00:00.000Z";
+    const data = {
+      accountId: "acc_buyer",
+      reasonCategory: "travel",
+      availableAgainOn: null,
+      availableAgainAt: null,
+      disabledAt: date,
+    };
+    const apply = async (
+      suffix: string,
+      version: number,
+      payload: typeof data | { accountId: string; enabledAt: string },
+    ) => {
+      const type = `marketplace.seller-listing-availability.${suffix}`;
+      await subscription.handlers[type]!(
+        buildTransportEvent(type, payload, {
+          streamId: "marketplace.seller-listing-availability-acc_buyer",
+          streamVersion: version,
+          globalPosition: String(version),
+        }),
+      );
+    };
+    await apply("disabled", 1, data);
+    expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });
+    await apply("enabled", 2, { accountId: data.accountId, enabledAt: date });
+    await apply("offers-disabled", 3, data);
+    expect(await getPublicOffer(pool, "off_one")).toBeNull();
+    expect((await listOfferMatches(pool, { sellerAccountId: "acc_seller" })).items).toEqual([]);
+    expect((await listSubmittedOffers(pool, { buyerAccountId: "acc_buyer" })).items[0]).toMatchObject({
+      status: "submitted",
+      offers_away: true,
+    });
+    expect((await patchRows()).flatMap((row) => row.changes)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ op: "remove", entity: "marketplace.offerMatch", id: "off_one" }),
+        expect.objectContaining({
+          op: "upsert",
+          entity: "marketplace.offer",
+          value: expect.objectContaining({ offers_away: true }),
+        }),
+      ]),
+    );
+    await apply("offers-enabled", 4, { accountId: data.accountId, enabledAt: date });
+    expect(await getOfferMatch(pool, "off_one", "acc_seller")).toMatchObject({ offer_id: "off_one" });
+    expect((await patchRows()).at(-1)?.changes).toEqual([
+      expect.objectContaining({ op: "upsert", entity: "marketplace.offerMatch" }),
+    ]);
+  });
 
   it("hides and restores every Offer read, and stale or duplicate lifecycle events are no-ops", async () => {
     expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });

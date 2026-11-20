@@ -263,6 +263,8 @@
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled",
         "marketplace.seller-listing-availability.away-window-scheduled",
         "marketplace.seller-listing-availability.away-window-cancelled",
         "marketplace.seller-order-capacity.set",

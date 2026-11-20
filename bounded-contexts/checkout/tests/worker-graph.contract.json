@@ -2,6 +2,31 @@
   "contextName": "checkout",
   "runners": [
     {
+      "subscriptionName": "checkout.buyer-offer-standing-projection",
+      "handlerKind": "projection",
+      "projectionName": "checkout.buyer-offer-standing-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "checkout",
+      "subscriptionVersion": 1,
+      "checkpointKey": "checkout.buyer-offer-standing-projection:marketplace:v1",
+      "handlers": {
+        "marketplace.seller-listing-availability.offers-disabled": "<function>",
+        "marketplace.seller-listing-availability.offers-enabled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 0
+    },
+    {
       "subscriptionName": "checkout.catalog-item-projection",
       "handlerKind": "projection",
       "projectionName": "checkout-catalog-item-projection",
@@ -486,6 +511,30 @@
     }
   ],
   "subscriptions": [
+    {
+      "subscriptionName": "checkout.buyer-offer-standing-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "projectionName": "checkout.buyer-offer-standing-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.seller-listing-availability.offers-disabled": "<function>",
+        "marketplace.seller-listing-availability.offers-enabled": "<function>"
+      },
+      "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": "<undefined>"
+    },
     {
       "subscriptionName": "checkout.catalog-item-projection",
       "handlerKind": "projection",

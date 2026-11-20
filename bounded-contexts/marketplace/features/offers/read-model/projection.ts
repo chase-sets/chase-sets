@@ -12,6 +12,7 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
   const result = await db.query<{
     offer_id: string;
     buyer_account_id: string;
+    offers_away: boolean;
     catalog_catalog_item_id: string;
     product_id: string;
     item_title: string;
@@ -28,7 +29,14 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     accepted_at: string | null;
     created_at: string;
     updated_at: string;
-  }>("SELECT * FROM marketplace_offer_pages WHERE offer_id = $1", [offerId]);
+  }>(
+    `SELECT offer.*, COALESCE(availability.offers_status = 'unavailable', FALSE) AS offers_away
+     FROM marketplace_offer_pages AS offer
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = offer.buyer_account_id
+     WHERE offer.offer_id = $1`,
+    [offerId],
+  );
   const row = result.rows[0];
 
   return row
@@ -91,7 +99,7 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   );
 }
 
-/** Reconcile Match rows after a buyer account lifecycle change, in pages of 100. */
+/** Reconcile buyer and Match rows after an account or Offers-away flip, in pages of 100. */
 export async function emitBuyerAccountOfferMatchPatches(
   db: PgQueryable,
   event: Parameters<ProjectorHandlerMap[string]>[0],

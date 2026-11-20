@@ -2,6 +2,31 @@
   "contextName": "discovery",
   "runners": [
     {
+      "subscriptionName": "discovery.buyer-offer-standing-projection",
+      "handlerKind": "projection",
+      "projectionName": "discovery.buyer-offer-standing-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "discovery",
+      "subscriptionVersion": 1,
+      "checkpointKey": "discovery.buyer-offer-standing-projection:marketplace:v1",
+      "handlers": {
+        "marketplace.seller-listing-availability.offers-disabled": "<function>",
+        "marketplace.seller-listing-availability.offers-enabled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 0
+    },
+    {
       "subscriptionName": "discovery.catalog-category-projection",
       "handlerKind": "projection",
       "projectionName": "discovery-category-projection",
@@ -429,6 +454,8 @@
       "subscriptionVersion": 2,
       "checkpointKey": "discovery-product-alert-notification-projection:marketplace:v2",
       "handlers": {
+        "marketplace.seller-listing-availability.offers-disabled": "<function>",
+        "marketplace.seller-listing-availability.offers-enabled": "<function>",
         "marketplace.listing.created": "<function>",
         "marketplace.listing.price-updated": "<function>",
         "marketplace.listing.quantity-cap-updated": "<function>",
@@ -451,6 +478,8 @@
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
       "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled",
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",
@@ -636,6 +665,30 @@
     }
   ],
   "subscriptions": [
+    {
+      "subscriptionName": "discovery.buyer-offer-standing-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "projectionName": "discovery.buyer-offer-standing-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.seller-listing-availability.offers-disabled": "<function>",
+        "marketplace.seller-listing-availability.offers-enabled": "<function>"
+      },
+      "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": "<undefined>"
+    },
     {
       "subscriptionName": "discovery.catalog-category-projection",
       "handlerKind": "projection",
@@ -1053,6 +1106,8 @@
       "projectionName": "discovery-product-alert-notification-projection",
       "subscriptionVersion": 2,
       "handlers": {
+        "marketplace.seller-listing-availability.offers-disabled": "<function>",
+        "marketplace.seller-listing-availability.offers-enabled": "<function>",
         "marketplace.listing.created": "<function>",
         "marketplace.listing.price-updated": "<function>",
         "marketplace.listing.quantity-cap-updated": "<function>",
@@ -1069,6 +1124,8 @@
         "marketplace.offer.withdrawn": "<function>"
       },
       "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled",
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",

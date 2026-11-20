@@ -8,6 +8,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
+import { emitBuyerAccountOfferMatchPatches } from "../../offers/read-model/projection";
 
 const measurePublicationCheckpointKey = createCheckpointKey(
   contextManifest.eventSubscriptions.find(
@@ -624,6 +625,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            away_window_starts_at = EXCLUDED.away_window_starts_at,
            away_window_ends_at = EXCLUDED.away_window_ends_at,
            away_window_reason_category = EXCLUDED.away_window_reason_category,
+           away_window_scope = DEFAULT,
            updated_at = EXCLUDED.updated_at`,
         [
           data.accountId,
@@ -680,6 +682,49 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         [data.accountId, data.maxOpenOrders, event.timing.recordedAt],
       );
     },
+    "marketplace.seller-listing-availability.offers-disabled": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const { accountId, reasonCategory, availableAgainAt } =
+        event.data as ChaseSetsEventPayloads["marketplace.seller-listing-availability.offers-disabled"];
+      const previous = await projectionDb.query<{ offers_status: string }>(
+        "SELECT offers_status FROM marketplace_seller_listing_availability_pages WHERE account_id = $1",
+        [accountId],
+      );
+      await projectionDb.query(
+        `INSERT INTO marketplace_seller_listing_availability_pages
+           (account_id, offers_status, offers_reason_category, offers_available_again_at, updated_at)
+         VALUES ($1, 'unavailable', $2, $3, $4)
+         ON CONFLICT (account_id) DO UPDATE SET
+           offers_status = EXCLUDED.offers_status,
+           offers_reason_category = EXCLUDED.offers_reason_category,
+           offers_available_again_at = EXCLUDED.offers_available_again_at,
+           away_window_starts_at = NULL,
+           away_window_ends_at = NULL,
+           away_window_reason_category = NULL,
+           away_window_scope = DEFAULT,
+           updated_at = EXCLUDED.updated_at`,
+        [accountId, reasonCategory, availableAgainAt, event.timing.recordedAt],
+      );
+      if (previous.rows[0]?.offers_status !== "unavailable") {
+        await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId);
+      }
+    },
+    "marketplace.seller-listing-availability.offers-enabled": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const { accountId } =
+        event.data as ChaseSetsEventPayloads["marketplace.seller-listing-availability.offers-enabled"];
+      await projectionDb.query(
+        `INSERT INTO marketplace_seller_listing_availability_pages (account_id, updated_at)
+         VALUES ($1, $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           offers_status = DEFAULT,
+           offers_reason_category = NULL,
+           offers_available_again_at = NULL,
+           updated_at = EXCLUDED.updated_at`,
+        [accountId, event.timing.recordedAt],
+      );
+      await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId);
+    },
     "marketplace.seller-order-capacity.cleared": async (event) => {
       const data = event.data as {
         accountId: string;
@@ -703,6 +748,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         startsAt: string;
         endsAt: string | null;
         reasonCategory: string;
+        scope?: string;
       };
 
       await db.query(
@@ -711,14 +757,23 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            away_window_starts_at,
            away_window_ends_at,
            away_window_reason_category,
+           away_window_scope,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5)
+         ) VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (account_id) DO UPDATE SET
            away_window_starts_at = EXCLUDED.away_window_starts_at,
            away_window_ends_at = EXCLUDED.away_window_ends_at,
            away_window_reason_category = EXCLUDED.away_window_reason_category,
+           away_window_scope = EXCLUDED.away_window_scope,
            updated_at = EXCLUDED.updated_at`,
-        [data.accountId, data.startsAt, data.endsAt, data.reasonCategory, event.timing.recordedAt],
+        [
+          data.accountId,
+          data.startsAt,
+          data.endsAt,
+          data.reasonCategory,
+          data.scope ?? "listings",
+          event.timing.recordedAt,
+        ],
       );
     },
     "marketplace.seller-listing-availability.away-window-cancelled": async (event) => {
@@ -739,6 +794,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            away_window_starts_at = EXCLUDED.away_window_starts_at,
            away_window_ends_at = EXCLUDED.away_window_ends_at,
            away_window_reason_category = EXCLUDED.away_window_reason_category,
+           away_window_scope = DEFAULT,
            updated_at = EXCLUDED.updated_at`,
         [data.accountId, event.timing.recordedAt],
       );

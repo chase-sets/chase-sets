@@ -813,6 +813,14 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           status: current.state.status,
         });
       }
+      if (current.state.buyerAccountId === params.sellerAccountId) {
+        throw new Error("Accounts cannot accept their own offers.");
+      }
+      const buyerAvailabilityStreamId = `marketplace.seller-listing-availability-${current.state.buyerAccountId}`;
+      const buyerAvailability = await sellerAvailabilityRepository.load(buyerAvailabilityStreamId);
+      if (buyerAvailability.state.offers.status === "unavailable") {
+        throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: current.state.status });
+      }
 
       const listingStreamId = `marketplace.listing-${params.listingId}`;
       const managedAcceptance = current.state.buyerOfferPolicyId
@@ -827,9 +835,6 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
 
       if (!offer) {
         throw new MarketplaceOfferAcceptanceReadinessError("listing_not_eligible", { listingId: params.listingId });
-      }
-      if (current.state.buyerAccountId === params.sellerAccountId) {
-        throw new Error("Accounts cannot accept their own offers.");
       }
       if (sellerAvailability.state.status === "unavailable") {
         throw new Error("Seller listing availability is off.");
@@ -979,6 +984,12 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
               events: [sellerAvailabilityCodec.encode(availabilityCheckEvent)],
               context,
             },
+            {
+              streamId: buyerAvailabilityStreamId,
+              expectedVersion: buyerAvailability.version === 0 ? "no_stream" : buyerAvailability.version,
+              events: [],
+              context,
+            },
           ],
           {
             offerId: params.offerId,
@@ -1008,6 +1019,12 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
             };
           }
           if (latest.state.status !== "submitted" && latest.state.status !== "accepted") {
+            throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: latest.state.status });
+          }
+          if (
+            latest.state.status === "submitted" &&
+            (await sellerAvailabilityRepository.load(buyerAvailabilityStreamId)).state.offers.status === "unavailable"
+          ) {
             throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: latest.state.status });
           }
           if (managedAcceptance) throw new ManagedOfferConflictError("managed_offer_conflict");

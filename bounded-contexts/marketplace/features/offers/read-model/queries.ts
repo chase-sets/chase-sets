@@ -2,6 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 export type MarketplaceOfferListRow = Readonly<{
+  offers_away?: boolean;
   offer_id: string;
   buyer_account_id: string;
   catalog_catalog_item_id: string;
@@ -48,6 +49,7 @@ export type OfferMatchRow = MarketplaceOfferListRow &
   }>;
 
 type MarketplaceOfferPageRow = Readonly<{
+  offers_away?: boolean;
   offer_id: string;
   buyer_account_id: string;
   catalog_catalog_item_id: string;
@@ -97,10 +99,7 @@ function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
 const sellerVisibilitySql = `
 (
   (
-    offer.status = 'submitted'
-    AND offer.price_currency_code IS NOT NULL
-    AND offer.last_stream_version > 0
-    AND buyer.status = 'active'
+    ${buyerVisibleOfferPredicateSql("offer", "buyer")}
     AND EXISTS (
       SELECT 1
       FROM marketplace_listing_pages AS listing
@@ -280,7 +279,12 @@ function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string)
   return `${offerAlias}.status = 'submitted'
     AND ${offerAlias}.price_currency_code IS NOT NULL
     AND ${offerAlias}.last_stream_version > 0
-    AND ${accountAlias}.status = 'active'`;
+    AND ${accountAlias}.status = 'active'
+    AND NOT EXISTS (
+      SELECT 1 FROM marketplace_seller_listing_availability_pages AS buyer_availability
+      WHERE buyer_availability.account_id = ${offerAlias}.buyer_account_id
+        AND buyer_availability.offers_status = 'unavailable'
+    )`;
 }
 
 function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
@@ -371,11 +375,14 @@ export async function listSubmittedOffers(
     db.query<MarketplaceOfferPageRow>(
       `SELECT
          offer.*,
+         COALESCE(availability.offers_status = 'unavailable', FALSE) AS offers_away,
          seller.average_rating_as_seller::text AS accepted_seller_average_rating,
          COALESCE(seller.rating_count_as_seller, 0)::integer AS accepted_seller_review_count
        FROM marketplace_offer_pages AS offer
        LEFT JOIN marketplace_account_pages AS seller
          ON seller.account_id = offer.accepted_seller_account_id
+       LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+         ON availability.account_id = offer.buyer_account_id
        WHERE offer.buyer_account_id = $1
          AND ($4::text IS NULL OR offer.status = $4)
        ORDER BY offer.updated_at DESC, offer.offer_id DESC

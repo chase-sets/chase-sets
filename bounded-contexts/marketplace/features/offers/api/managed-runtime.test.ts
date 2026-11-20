@@ -7,6 +7,36 @@ import { managedFixture } from "../tests/managed-fixture";
 import { context, terms } from "../../offer-policy/tests/fixtures";
 
 describe("managed Offer application and commitment", () => {
+  it("rejects Offers-away from the owner stream without relying on the read model", async () => {
+    const f = await managedFixture(createInMemoryEventStore().eventStore);
+    const params = await f.acceptance();
+    await f.store.appendToStream({
+      streamId: "marketplace.seller-listing-availability-acc_buyer",
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "marketplace.seller-listing-availability.offers-disabled",
+          payload: {
+            accountId: "acc_buyer",
+            reasonCategory: "travel",
+            availableAgainAt: null,
+            availableAgainOn: null,
+            disabledAt: "2030-01-01T00:00:00Z",
+            disabledBy: "seller",
+          },
+        },
+      ],
+      context,
+    });
+    f.evaluateTargets.mockClear();
+    await expect(
+      f.offers.acceptOffer(params, {
+        ...context,
+        audit: { ...context.audit, forAccountId: params.sellerAccountId },
+      }),
+    ).rejects.toMatchObject({ code: "offer_not_open" });
+    expect(f.evaluateTargets).not.toHaveBeenCalled();
+  });
   it("rejects a policy-bound suspended buyer before managed acceptance", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     const params = await f.acceptance();
@@ -250,6 +280,7 @@ describe("managed Offer application and commitment", () => {
       ["marketplace.offer-off_two", 2],
       ["marketplace.listing-lst_two", 2],
       ["marketplace.seller-listing-availability-acc_two", "no_stream"],
+      ["marketplace.seller-listing-availability-acc_buyer", "no_stream"],
       [expect.stringMatching(/^marketplace\.offer-acceptance-attempt-v1-/), "no_stream"],
     ]);
   });

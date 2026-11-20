@@ -10,6 +10,7 @@ import {
   Inline,
   MarketplaceNotice,
   NativeSelect,
+  RadioGroup,
   Stack,
   Text,
   TextInput,
@@ -102,9 +103,33 @@ function reasonItems() {
   ];
 }
 
+function awayScopeItems() {
+  return [
+    { value: "listings", label: t("marketplace.features.listings.ui.listingListPage.away.scope.listings") },
+    { value: "offers", label: t("marketplace.features.listings.ui.listingListPage.away.scope.offers") },
+    { value: "both", label: t("marketplace.features.listings.ui.listingListPage.away.scope.both") },
+  ];
+}
+
+function AwayScopeField({ value, onValueChange }: { value?: string; onValueChange?: (value: string) => void } = {}) {
+  return (
+    <RadioGroup
+      name="scope"
+      label={t("marketplace.features.listings.ui.listingListPage.away.scope.label")}
+      items={awayScopeItems()}
+      {...(value === undefined ? { defaultValue: "both" } : { value, onValueChange })}
+      required
+    />
+  );
+}
+
 function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapacitySnapshot) {
   const isFormHydrated = useFormHydrated();
   const isAvailable = availability.status === "available";
+  const offersAway = availability.offers_status === "unavailable";
+  const eitherAway = !isAvailable || offersAway;
+  const [scope, setScope] = useState("both");
+  const offersOnly = scope === "offers";
 
   return (
     <Stack gap={4}>
@@ -118,6 +143,23 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
           <Text weight="semibold">
             {t("marketplace.features.listings.ui.listingListPage.account.wide.listing.control")}
           </Text>
+        </Inline>
+        <Inline align="center">
+          <Badge tone={offersAway ? "warning" : "success"}>
+            {t(
+              offersAway
+                ? "marketplace.features.listings.ui.listingListPage.away.offers.unavailable"
+                : "marketplace.features.listings.ui.listingListPage.away.offers.available",
+            )}
+          </Badge>
+          {offersAway ? (
+            <Text tone="secondary">
+              {availabilityReasonLabel(availability.offers_reason_category ?? null)}
+              {availability.offers_available_again_at
+                ? ` · ${formatDateTime(availability.offers_available_again_at)}`
+                : null}
+            </Text>
+          ) : null}
         </Inline>
         <Text tone="secondary">
           {isAvailable
@@ -142,18 +184,22 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
 
       <Grid columns={{ base: 1, lg: 2 }} gap={5}>
         <Stack gap={3}>
-          {isAvailable ? (
+          {!eitherAway ? (
             <MarketplaceNotice
               tone="info"
               title={t("marketplace.features.listings.ui.listingListPage.impact.preview.title")}
-              description={t("marketplace.features.listings.ui.listingListPage.impact.preview.description", {
-                count: activeListingCount,
-              })}
+              description={
+                offersOnly
+                  ? t("marketplace.features.listings.ui.listingListPage.away.offers.preview")
+                  : t("marketplace.features.listings.ui.listingListPage.impact.preview.description", {
+                      count: activeListingCount,
+                    })
+              }
             />
           ) : (
             <Form spacing="none" method="post">
               <Button type="submit" name="intent" value="enable-listing-availability">
-                {t("marketplace.features.listings.ui.listingListPage.turn.on.listings")}
+                {t("marketplace.features.listings.ui.listingListPage.away.end")}
               </Button>
             </Form>
           )}
@@ -168,18 +214,28 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
           }
         >
           <Stack gap={3}>
+            <AwayScopeField value={scope} onValueChange={setScope} />
             <Grid columns={{ base: 1, md: 2 }} gap={3}>
               <NativeSelect
+                key={offersOnly ? "offers-reason" : "listings-reason"}
                 label={t("marketplace.features.listings.ui.listingListPage.reason")}
                 name="reasonCategory"
-                defaultValue={availability.disabled_reason_category ?? ""}
+                defaultValue={
+                  (offersOnly ? availability.offers_reason_category : availability.disabled_reason_category) ?? ""
+                }
                 items={reasonItems()}
               />
               <TextInput
+                key={offersOnly ? "offers-date" : "listings-date"}
                 label={t("marketplace.features.listings.ui.listingListPage.available.again.on")}
                 name="availableAgainOn"
                 type="date"
-                defaultValue={availability.available_again_on ?? undefined}
+                defaultValue={offersOnly ? undefined : (availability.available_again_on ?? undefined)}
+                description={
+                  offersOnly && availability.offers_available_again_at
+                    ? t("marketplace.features.listings.ui.listingListPage.away.offers.keep.date")
+                    : undefined
+                }
               />
             </Grid>
             <HiddenInput type="hidden" name="availableAgainAt" defaultValue="" />
@@ -191,8 +247,8 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
                 tone="secondary"
                 disabled={!isFormHydrated}
               >
-                {isAvailable
-                  ? t("marketplace.features.listings.ui.listingListPage.turn.off.listings")
+                {!eitherAway
+                  ? t("marketplace.features.listings.ui.listingListPage.away.start")
                   : t("marketplace.features.listings.ui.listingListPage.update.away.settings")}
               </Button>
             </Inline>
@@ -211,6 +267,9 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
       <Text weight="semibold">{t("marketplace.features.listings.ui.listingListPage.away.window")}</Text>
       {availability.away_window_starts_at ? (
         <Stack gap={3}>
+          <Text>
+            {awayScopeItems().find((item) => item.value === (availability.away_window_scope ?? "listings"))?.label}
+          </Text>
           <Text tone="secondary">
             {t("marketplace.features.listings.ui.listingListPage.away.window.scheduled.description", {
               reason: availabilityReasonLabel(availability.away_window_reason_category),
@@ -240,7 +299,7 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
             </Button>
           </Form>
         </Stack>
-      ) : availability.status === "available" ? (
+      ) : availability.status === "available" && availability.offers_status !== "unavailable" ? (
         <Form
           spacing="none"
           method="post"
@@ -252,6 +311,7 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
           }
         >
           <Stack gap={3}>
+            <AwayScopeField />
             <Text tone="secondary">
               {t("marketplace.features.listings.ui.listingListPage.away.window.description")}
             </Text>

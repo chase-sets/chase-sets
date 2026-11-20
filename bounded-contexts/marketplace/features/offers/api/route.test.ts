@@ -848,6 +848,38 @@ describe("buyer Offer lifecycle routes", () => {
     await expect(accept.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
   });
 
+  it("returns 409 offer_not_open when the submitted Offer's buyer is Away", async () => {
+    const { seller, eventStore } = await lifecycleApps({ off_1: "acc_buyer" }, true, "active");
+    await eventStore.appendToStream({
+      streamId: "marketplace.seller-listing-availability-acc_buyer",
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "marketplace.seller-listing-availability.offers-disabled",
+          payload: {
+            accountId: "acc_buyer",
+            reasonCategory: "travel",
+            availableAgainOn: null,
+            availableAgainAt: null,
+            disabledAt: "2030-01-01T00:00:00Z",
+            disabledBy: "seller",
+          },
+        },
+      ],
+      context: {
+        tenantId: "tnt_identity" as never,
+        audit: { performedByUserId: "usr_1" as never, forAccountId: "acc_buyer" as never },
+      },
+    });
+    const result = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+      sourceActionKey: "away_route_attempt_identity_01",
+    });
+    expect(result.status).toBe(409);
+    await expect(result.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
+  });
+
   it("hides another buyer's Offer from single lifecycle commands", async () => {
     const { buyer, eventStore } = await lifecycleApps({ off_other: "acc_other" });
     const response = await post(buyer, "/offers/submitted/off_other/withdraw");

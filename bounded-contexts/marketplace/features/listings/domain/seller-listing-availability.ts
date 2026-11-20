@@ -2,6 +2,9 @@ import { MarketplaceListingDomainError } from "./listing-error";
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core/domain";
 
 export type SellerListingAvailabilityStatus = "available" | "unavailable";
+export type AwayScope = "listings" | "offers" | "both";
+type AwaySide = Exclude<AwayScope, "both">;
+const awaySides = ["listings", "offers"] as const;
 
 export type SellerListingAvailabilityReasonCategory = "travel" | "audit" | "operations" | "other";
 
@@ -34,10 +37,23 @@ export type SellerListingAvailabilityAwayWindow = Readonly<{
   startsAt: string;
   endsAt: string | null;
   reasonCategory: SellerListingAvailabilityReasonCategory;
+  scope?: AwayScope;
+}>;
+
+type AvailabilityDetails = Readonly<{
+  status: SellerListingAvailabilityStatus;
+  disabledReasonCategory: SellerListingAvailabilityReasonCategory | null;
+  availableAgainOn: string | null;
+  availableAgainAt: string | null;
+  disabledAt: string | null;
+  disabledBy: SellerListingAvailabilityDisabledBy | null;
+  enabledAt: string | null;
+  enabledBy: SellerListingAvailabilityEnabledBy | null;
 }>;
 
 export type SellerListingAvailabilityState = Readonly<{
   accountId: string | null;
+  offers: AvailabilityDetails;
   status: SellerListingAvailabilityStatus;
   disabledReasonCategory: SellerListingAvailabilityReasonCategory | null;
   availableAgainOn: string | null;
@@ -61,8 +77,7 @@ export type SellerListingAvailabilityState = Readonly<{
   pendingAwayWindow: SellerListingAvailabilityAwayWindow | null;
 }>;
 
-export const initialSellerListingAvailabilityState: SellerListingAvailabilityState = {
-  accountId: null,
+const initialAvailabilityDetails: AvailabilityDetails = {
   status: "available",
   disabledReasonCategory: null,
   availableAgainOn: null,
@@ -71,6 +86,12 @@ export const initialSellerListingAvailabilityState: SellerListingAvailabilitySta
   disabledBy: null,
   enabledAt: null,
   enabledBy: null,
+};
+
+export const initialSellerListingAvailabilityState: SellerListingAvailabilityState = {
+  ...initialAvailabilityDetails,
+  accountId: null,
+  offers: initialAvailabilityDetails,
   pendingAwayWindow: null,
 };
 
@@ -89,6 +110,9 @@ export type DisableSellerListingAvailabilityCommand = Readonly<{
   disabledAt: string;
   /** Defaults to `"seller"`; the Away Window start sweep passes `"scheduled"`. */
   disabledBy: SellerListingAvailabilityDisabledBy;
+  scope?: AwayScope;
+  /** Internal disables never restore a side. */
+  preserveOtherSide?: boolean;
   /**
    * The pending Away Window's `startsAt` the caller observed as due, for
    * compare-and-swap protection against a lost race. When present, the
@@ -107,6 +131,7 @@ export type EnableSellerListingAvailabilityCommand = Readonly<{
   accountId: string;
   enabledAt: string;
   enabledBy: SellerListingAvailabilityEnabledBy;
+  scope?: AwayScope;
   /**
    * The Resume Instant the caller observed as due, for compare-and-swap
    * protection against a lost race. When present, the command only enables
@@ -130,6 +155,7 @@ export type ScheduleSellerAwayWindowCommand = Readonly<{
   reasonCategory: SellerListingAvailabilityReasonCategory;
   /** The instant the command was issued, used to validate `startsAt` is genuinely in the future. */
   scheduledAt: string;
+  scope?: AwayScope;
 }>;
 
 export type CancelScheduledAwayWindowCommand = Readonly<{
@@ -165,6 +191,15 @@ export type SellerListingAvailabilityEnabledEvent = DomainEvent<
   }
 >;
 
+type SellerOffersDisabledEvent = DomainEvent<
+  "marketplace.seller-listing-availability.offers-disabled",
+  SellerListingAvailabilityDisabledEvent["data"]
+>;
+type SellerOffersEnabledEvent = DomainEvent<
+  "marketplace.seller-listing-availability.offers-enabled",
+  SellerListingAvailabilityEnabledEvent["data"]
+>;
+
 export type SellerListingAvailabilityAwayWindowScheduledEvent = DomainEvent<
   "marketplace.seller-listing-availability.away-window-scheduled",
   {
@@ -173,6 +208,7 @@ export type SellerListingAvailabilityAwayWindowScheduledEvent = DomainEvent<
     endsAt: string | null;
     reasonCategory: SellerListingAvailabilityReasonCategory;
     scheduledAt: string;
+    scope?: AwayScope;
   }
 >;
 
@@ -196,6 +232,8 @@ export type SellerListingAvailabilityCommitmentCheckedEvent = DomainEvent<
 export type SellerListingAvailabilityEvent =
   | SellerListingAvailabilityDisabledEvent
   | SellerListingAvailabilityEnabledEvent
+  | SellerOffersDisabledEvent
+  | SellerOffersEnabledEvent
   | SellerListingAvailabilityAwayWindowScheduledEvent
   | SellerListingAvailabilityAwayWindowCancelledEvent
   | SellerListingAvailabilityCommitmentCheckedEvent;
@@ -291,10 +329,6 @@ function resolveAvailableAgainOn(availableAgainOn: string | null, availableAgain
   return normalizeIsoDate(availableAgainOn);
 }
 
-function normalizeReasonCategory(value: SellerListingAvailabilityReasonCategory | null) {
-  return value;
-}
-
 /**
  * Compares two instants for compare-and-swap purposes by parsed value, not
  * raw string equality. A `dueBy` observed via a due-index SQL query comes
@@ -313,6 +347,15 @@ function sameInstant(a: string | null | undefined, b: string | null | undefined)
   return !Number.isNaN(parsedA) && !Number.isNaN(parsedB) && parsedA === parsedB;
 }
 
+function enableSide(
+  side: AwaySide,
+  data: SellerListingAvailabilityEnabledEvent["data"],
+): SellerListingAvailabilityEvent {
+  return side === "listings"
+    ? { type: "marketplace.seller-listing-availability.enabled", data }
+    : { type: "marketplace.seller-listing-availability.offers-enabled", data };
+}
+
 export const decideSellerListingAvailability: AggregateDecider<
   SellerListingAvailabilityState,
   SellerListingAvailabilityCommand,
@@ -321,7 +364,7 @@ export const decideSellerListingAvailability: AggregateDecider<
   switch (command.type) {
     case "DisableSellerListingAvailability": {
       const accountId = normalizeAccountId(command.accountId);
-      const reasonCategory = normalizeReasonCategory(command.reasonCategory);
+      const reasonCategory = command.reasonCategory;
       const disabledAt = command.disabledAt.trim();
       assert(disabledAt.length > 0, "Disabled timestamp is required.");
       const disabledBy = command.disabledBy;
@@ -336,6 +379,16 @@ export const decideSellerListingAvailability: AggregateDecider<
       }
 
       const availableAgainAt = normalizeAvailableAgainAt(command.availableAgainAt);
+      if (disabledBy === "scheduled" && command.dueBy !== undefined) {
+        const window = state.pendingAwayWindow;
+        if (
+          !window ||
+          (window.scope ?? "listings") !== (command.scope ?? "listings") ||
+          window.reasonCategory !== reasonCategory ||
+          !sameInstant(window.endsAt, availableAgainAt)
+        )
+          return [];
+      }
       if (availableAgainAt !== null) {
         assert(
           new Date(availableAgainAt).valueOf() > new Date(disabledAt).valueOf(),
@@ -344,30 +397,49 @@ export const decideSellerListingAvailability: AggregateDecider<
       }
       const availableAgainOn = resolveAvailableAgainOn(command.availableAgainOn, availableAgainAt);
 
-      // A disable command while already unavailable is a refresh -- a seller
-      // extending or shortening time away -- not a no-op, UNLESS every
-      // field is byte-identical to the current state (idempotent
-      // double-submit protection, e.g. a retried request).
-      if (
-        state.status === "unavailable" &&
-        state.disabledReasonCategory === reasonCategory &&
-        state.availableAgainOn === availableAgainOn &&
-        state.availableAgainAt === availableAgainAt
-      ) {
-        return [];
-      }
+      const scope = command.scope ?? "listings";
+      const replaceScope = disabledBy === "seller" && !command.preserveOtherSide;
+      const events: SellerListingAvailabilityEvent[] = [];
+      for (const side of awaySides) {
+        const current = side === "listings" ? state : state.offers;
+        if (scope !== "both" && scope !== side) {
+          if (replaceScope && current.status === "unavailable") {
+            events.push(enableSide(side, { accountId, enabledAt: disabledAt, enabledBy: "seller" }));
+          }
+          continue;
+        }
 
-      const disabledEvent: SellerListingAvailabilityDisabledEvent = {
-        type: "marketplace.seller-listing-availability.disabled",
-        data: {
+        // Selecting Offers alone without a new date retains any existing Offers deadline.
+        const retainDeadline =
+          replaceScope &&
+          scope === "offers" &&
+          current.status === "unavailable" &&
+          availableAgainAt === null &&
+          availableAgainOn === null;
+        const until = retainDeadline ? current.availableAgainAt : availableAgainAt;
+        const on = retainDeadline ? current.availableAgainOn : availableAgainOn;
+        if (
+          current.status === "unavailable" &&
+          current.disabledReasonCategory === reasonCategory &&
+          current.availableAgainOn === on &&
+          current.availableAgainAt === until
+        )
+          continue;
+        if (retainDeadline && until !== null && new Date(until).valueOf() <= new Date(disabledAt).valueOf()) continue;
+        const data = {
           accountId,
           reasonCategory,
-          availableAgainOn,
-          availableAgainAt,
+          availableAgainOn: on,
+          availableAgainAt: until,
           disabledAt,
           disabledBy,
-        },
-      };
+        };
+        events.push(
+          side === "listings"
+            ? { type: "marketplace.seller-listing-availability.disabled", data }
+            : { type: "marketplace.seller-listing-availability.offers-disabled", data },
+        );
+      }
 
       // A manual disable while a window is pending pre-empts it: the seller
       // went away right now by their own action, so the future-dated window
@@ -376,53 +448,31 @@ export const decideSellerListingAvailability: AggregateDecider<
       // window) needs no separate cancellation event: the evolver clears
       // the pending window as part of applying the disabled fact itself.
       if (disabledBy === "seller" && state.pendingAwayWindow !== null) {
-        return [
-          disabledEvent,
-          {
-            type: "marketplace.seller-listing-availability.away-window-cancelled",
-            data: { accountId, cancelledAt: disabledAt },
-          },
-        ];
+        events.push({
+          type: "marketplace.seller-listing-availability.away-window-cancelled",
+          data: { accountId, cancelledAt: disabledAt },
+        });
       }
 
-      return [disabledEvent];
+      return events;
     }
     case "EnableSellerListingAvailability": {
       const accountId = normalizeAccountId(command.accountId);
       const enabledAt = command.enabledAt.trim();
       assert(enabledAt.length > 0, "Enabled timestamp is required.");
 
-      if (state.status === "available") {
-        return [];
-      }
-
-      // Compare-and-swap for a scheduled (auto-resume sweep) enable: when the
-      // caller supplies the Resume Instant it observed as due, a mismatch
-      // against the CURRENT aggregate means the seller acted between the
-      // sweep's read and this command -- no-op rather than clobber that
-      // action. Undefined skips the check entirely (unconditional enable).
-      //
-      // `dueBy` crosses a serialization boundary -- the sweep reads it from
-      // the read model as a Postgres timestamptz rendered to text
-      // ("2026-07-16 18:53:59.008+00"), while `state.availableAgainAt` is the
-      // canonical ISO instant the disable normalized. Compare by instant, not
-      // by byte-identical string, so the same moment expressed in either form
-      // matches; otherwise every scheduled restore would false-negative as a
-      // lost race.
-      if (command.dueBy !== undefined && normalizeAvailableAgainAt(command.dueBy) !== state.availableAgainAt) {
-        return [];
-      }
-
-      return [
-        {
-          type: "marketplace.seller-listing-availability.enabled",
-          data: {
-            accountId,
-            enabledAt,
-            enabledBy: command.enabledBy,
-          },
-        },
-      ];
+      const scope = command.scope ?? (command.dueBy === undefined ? "both" : "listings");
+      return awaySides.flatMap((side) => {
+        const current = side === "listings" ? state : state.offers;
+        if (
+          (scope !== "both" && scope !== side) ||
+          current.status === "available" ||
+          (command.dueBy !== undefined &&
+            (command.dueBy === null || !sameInstant(command.dueBy, current.availableAgainAt)))
+        )
+          return [];
+        return [enableSide(side, { accountId, enabledAt, enabledBy: command.enabledBy })];
+      });
     }
     case "ScheduleSellerAwayWindow": {
       const accountId = normalizeAccountId(command.accountId);
@@ -440,6 +490,10 @@ export const decideSellerListingAvailability: AggregateDecider<
       }
       assert(state.status === "available", "Scheduling an away window requires listings to currently be available.");
       assert(
+        state.offers.status === "available",
+        "Scheduling an away window requires offers to currently be available.",
+      );
+      assert(
         state.pendingAwayWindow === null,
         "Cancel the existing scheduled away window before scheduling a new one.",
       );
@@ -453,6 +507,7 @@ export const decideSellerListingAvailability: AggregateDecider<
             endsAt,
             reasonCategory: command.reasonCategory,
             scheduledAt,
+            ...(command.scope === undefined ? {} : { scope: command.scope }),
           },
         },
       ];
@@ -485,6 +540,7 @@ export const evolveSellerListingAvailability: AggregateEvolver<
   switch (event.type) {
     case "marketplace.seller-listing-availability.disabled":
       return {
+        ...state,
         accountId: event.data.accountId,
         status: "unavailable",
         disabledReasonCategory: event.data.reasonCategory,
@@ -508,6 +564,7 @@ export const evolveSellerListingAvailability: AggregateEvolver<
       };
     case "marketplace.seller-listing-availability.enabled":
       return {
+        ...state,
         accountId: event.data.accountId,
         status: "available",
         disabledReasonCategory: null,
@@ -522,6 +579,27 @@ export const evolveSellerListingAvailability: AggregateEvolver<
         enabledBy: event.data.enabledBy ?? "seller",
         pendingAwayWindow: state.pendingAwayWindow,
       };
+    case "marketplace.seller-listing-availability.offers-disabled":
+      return {
+        ...state,
+        accountId: event.data.accountId,
+        offers: {
+          ...state.offers,
+          status: "unavailable",
+          disabledReasonCategory: event.data.reasonCategory,
+          availableAgainOn: event.data.availableAgainOn,
+          availableAgainAt: event.data.availableAgainAt,
+          disabledAt: event.data.disabledAt,
+          disabledBy: event.data.disabledBy,
+        },
+        pendingAwayWindow: null,
+      };
+    case "marketplace.seller-listing-availability.offers-enabled":
+      return {
+        ...state,
+        accountId: event.data.accountId,
+        offers: { ...initialAvailabilityDetails, enabledAt: event.data.enabledAt, enabledBy: event.data.enabledBy },
+      };
     case "marketplace.seller-listing-availability.away-window-scheduled":
       return {
         ...state,
@@ -529,6 +607,7 @@ export const evolveSellerListingAvailability: AggregateEvolver<
           startsAt: event.data.startsAt,
           endsAt: event.data.endsAt,
           reasonCategory: event.data.reasonCategory,
+          ...(event.data.scope === undefined ? {} : { scope: event.data.scope }),
         },
       };
     case "marketplace.seller-listing-availability.away-window-cancelled":

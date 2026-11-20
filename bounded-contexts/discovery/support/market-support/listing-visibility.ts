@@ -23,5 +23,9 @@ export function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: 
   return `${offerAlias}.status = 'submitted'
            AND ${offerAlias}.price_currency_code IS NOT NULL
            AND ${offerAlias}.offer_stream_version > 0
-           AND ${accountAlias}.status = 'active'`;
+           AND ${accountAlias}.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM discovery_buyer_offer_standing AS standing
+             WHERE standing.account_id = ${offerAlias}.buyer_account_id AND standing.offers_away
+           )`;
 }

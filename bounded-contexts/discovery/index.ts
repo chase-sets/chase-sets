@@ -20,6 +20,7 @@ import { buildProductAlertNotificationProjectionHandlers } from "./features/prod
 import { buildProductAlertPageProjectionHandlers } from "./features/product-alerts/read-model/projection";
 import { buildGoogleShoppingFeedRowProjectionHandlers } from "./features/google-shopping-operations/api/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
+import { buildDiscoveryBuyerOfferStandingHandlers } from "./support/market-support/buyer-offer-standing";
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
 import { buildDiscoverySavedListPickerProjectionHandlers } from "./features/saved-list-addition/integrations/collections/projection";
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
@@ -69,6 +70,8 @@ const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactional
         "inventory.discovery-market-projection": () => marketProjectionHandlers,
         "checkout.discovery-market-projection": () => marketProjectionHandlers,
         "marketplace.discovery-market-projection": () => marketProjectionHandlers,
+        "marketplace.discovery.buyer-offer-standing-projection": () =>
+          buildDiscoveryBuyerOfferStandingHandlers(services.db),
         "ordering.discovery-market-projection": () => marketProjectionHandlers,
         "marketplace.discovery-product-alert-notification-projection": (subscription) =>
           buildProductAlertNotificationProjectionHandlers(

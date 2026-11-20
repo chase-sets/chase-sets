@@ -50,6 +50,7 @@ export function listingRecoveryForCommand(input: ListingRecoveryPreparation, acc
           reasonCategory: text("reasonCategory"),
           availableAgainOn: text("availableAgainOn"),
           availableAgainAt: text("availableAgainAt"),
+          scope: text("scope"),
         }
       : { status: "available" }),
     ...(intent === "schedule-away-window"
@@ -58,6 +59,7 @@ export function listingRecoveryForCommand(input: ListingRecoveryPreparation, acc
           startsAt: text("awayWindowStartsAt"),
           endsAt: text("awayWindowEndsAt"),
           reasonCategory: text("awayWindowReasonCategory"),
+          scope: text("scope"),
         }
       : { action: "cancel" }),
     maxOpenOrders: intent === "set-order-capacity" ? Number(text("maxOpenOrders")) : null,

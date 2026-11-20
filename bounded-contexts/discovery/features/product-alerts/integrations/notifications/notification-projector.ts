@@ -1,5 +1,5 @@
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { tryMoneyToCents } from "@chase-sets/primitives/money";
@@ -25,6 +25,7 @@ type MarketActivity = Readonly<{
   quantity: number;
   status: string;
   owner_account_status?: string | null;
+  buyer_offers_away?: boolean;
   seller_listing_availability_status?: "available" | "unavailable" | null;
   created_at: string;
   updated_at: string;
@@ -55,7 +56,12 @@ function normalizeSelectedOptions(value: unknown) {
 function isActiveForSide(
   activity: Pick<
     MarketActivity,
-    "market_side" | "status" | "quantity" | "seller_listing_availability_status" | "owner_account_status"
+    | "market_side"
+    | "status"
+    | "quantity"
+    | "seller_listing_availability_status"
+    | "owner_account_status"
+    | "buyer_offers_away"
   >,
 ) {
   if ((activity.owner_account_status ?? "active") !== "active") return false;
@@ -63,7 +69,7 @@ function isActiveForSide(
     ? activity.status === "active" &&
         activity.quantity > 0 &&
         (activity.seller_listing_availability_status ?? "available") === "available"
-    : activity.status === "submitted" && activity.quantity > 0;
+    : activity.status === "submitted" && activity.quantity > 0 && !activity.buyer_offers_away;
 }
 
 function thresholdMatches(
@@ -176,7 +182,23 @@ export function buildProductAlertNotificationProjectionHandlers(
   outbox: NotificationOutbox,
   projectionName = DISCOVERY_PRODUCT_ALERT_NOTIFICATION_PROJECTION,
 ): ProjectorHandlerMap {
+  // The alert subscription must observe Away before later Offer facts even if
+  // the independent standing projection has not caught up yet.
+  const recordSuppression =
+    (offersAway: boolean): ProjectorHandlerMap[string] =>
+    async (event, context) => {
+      await resolveProjectionDb(context, db).query(
+        `INSERT INTO discovery_product_alert_offer_suppression (account_id, away_stream_version, offers_away)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (account_id) DO UPDATE SET
+         away_stream_version = EXCLUDED.away_stream_version, offers_away = EXCLUDED.offers_away
+       WHERE discovery_product_alert_offer_suppression.away_stream_version < EXCLUDED.away_stream_version`,
+        [event.data.accountId, event.streamVersion, offersAway],
+      );
+    };
   return {
+    "marketplace.seller-listing-availability.offers-disabled": recordSuppression(true),
+    "marketplace.seller-listing-availability.offers-enabled": recordSuppression(false),
     "marketplace.listing.created": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.listing.price-updated": (event) =>
@@ -479,12 +501,17 @@ async function loadMarketActivity(db: PgQueryable, activityId: string): Promise<
        activity.quantity,
        activity.status,
        COALESCE(account.status, 'active') AS owner_account_status,
+       (COALESCE(standing.offers_away, FALSE) OR COALESCE(suppression.offers_away, FALSE)) AS buyer_offers_away,
        COALESCE(account.seller_listing_availability_status, 'available') AS seller_listing_availability_status,
        activity.created_at,
        activity.updated_at
      FROM discovery_product_alert_market_activity AS activity
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = activity.owner_account_id
+     LEFT JOIN discovery_buyer_offer_standing AS standing
+       ON standing.account_id = activity.owner_account_id
+     LEFT JOIN discovery_product_alert_offer_suppression AS suppression
+       ON suppression.account_id = activity.owner_account_id
      WHERE activity.activity_id = $1`,
     [activityId],
   );

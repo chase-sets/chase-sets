@@ -10,6 +10,7 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as checkoutModule } from "../index";
+import { createCheckoutServices } from "../support/runtime-support/services";
 import {
   buildCheckoutIdentitySellerAccountsProjectionHandlers,
   createSellerSlug,
@@ -121,6 +122,32 @@ describeDb("Checkout account status visibility on Postgres", () => {
       updatedAt: "2026-10-17T00:00:01.000Z",
     };
   }
+
+  it("projects Offers-away without an account mirror, rejects stale flips, and hides Sell List Matches", async () => {
+    const subscription = checkoutModule.buildSubscriptions!(createCheckoutServices(pool)).find(
+      (sub) => sub.projectionName === "checkout.buyer-offer-standing-projection",
+    )!;
+    const apply = async (suffix: string, version: number, accountId: string) => {
+      const type = `marketplace.seller-listing-availability.${suffix}`;
+      expect(subscription.eventTypes).toContain(type);
+      await subscription.handlers[type]!(
+        identityEvent(type, `marketplace.seller-listing-availability-${accountId}`, version, { accountId }),
+      );
+    };
+    await apply("offers-disabled", 3, "acc_no_mirror");
+    await apply("offers-disabled", 3, "acc_buyer");
+    await apply("offers-enabled", 2, "acc_buyer");
+    expect((await pool.query("SELECT * FROM checkout_buyer_offer_standing ORDER BY account_id")).rows).toEqual([
+      { account_id: "acc_buyer", away_stream_version: 3, offers_away: true },
+      { account_id: "acc_no_mirror", away_stream_version: 3, offers_away: true },
+    ]);
+    expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toBeNull();
+    expect(
+      await listCheckoutSellOfferMatches(pool, { sellerAccountId: "acc_seller", productIds: ["cat_one::"] }),
+    ).toEqual([]);
+    await apply("offers-enabled", 4, "acc_buyer");
+    expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toMatchObject({ offer_id: "off_one" });
+  });
 
   it("replays profile history without regressing status and hides/restores Offer matches", async () => {
     expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toMatchObject({ offer_id: "off_one" });

@@ -16,7 +16,11 @@ function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string)
   return `${offerAlias}.status = 'submitted'
     AND ${offerAlias}.price_currency_code IS NOT NULL
     AND ${offerAlias}.last_stream_version > 0
-    AND ${accountAlias}.status = 'active'`;
+    AND ${accountAlias}.status = 'active'
+    AND NOT EXISTS (
+      SELECT 1 FROM checkout_buyer_offer_standing AS standing
+      WHERE standing.account_id = ${offerAlias}.buyer_account_id AND standing.offers_away
+    )`;
 }
 
 export type CheckoutCommercialTermsResolver = Readonly<{
