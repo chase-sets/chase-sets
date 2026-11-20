@@ -166,6 +166,13 @@ let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
 let projectionRunnerLoop: WorkerRunnerLoop | null = null;
 const projectionWakeKey = createProjectionGroupRunnerName;
 const requestProjectionWakeLeaseHandoff = (event: Partial<ProjectionWakeIntentWorkSignalPayload>): void => {
+  const remainingAttempts =
+    typeof event.attemptCount === "number" &&
+    Number.isInteger(event.attemptCount) &&
+    event.attemptCount >= 0 &&
+    event.attemptCount < config.projectionWakeScheduler.maxAttempts;
+  const liveClaimUntil =
+    event.state === "claimed" && typeof event.claimedUntil === "string" ? Date.parse(event.claimedUntil) : NaN;
   if (
     event.priorityLane !== "hot" ||
     event.outcome === "blocked" ||
@@ -178,12 +185,8 @@ const requestProjectionWakeLeaseHandoff = (event: Partial<ProjectionWakeIntentWo
     typeof event.expiresAt !== "string" ||
     !(
       event.state === "queued" ||
-      event.state === "claimed" ||
-      (event.state === "failed" &&
-        typeof event.attemptCount === "number" &&
-        Number.isInteger(event.attemptCount) &&
-        event.attemptCount >= 0 &&
-        event.attemptCount < config.projectionWakeScheduler.maxAttempts)
+      (event.state === "claimed" && liveClaimUntil > Date.now()) ||
+      ((event.state === "claimed" || event.state === "failed") && remainingAttempts)
     )
   ) {
     return;
@@ -193,10 +196,11 @@ const requestProjectionWakeLeaseHandoff = (event: Partial<ProjectionWakeIntentWo
     projectionName: event.projectionName,
   });
   if (enabledProjectionWakeRunnerNames.has(runnerName)) {
+    const expiresAt = Date.parse(event.expiresAt);
     projectionRunnerLoop?.requestProjectionWakeLeaseHandoff(
       runnerName,
       { wakeIntentId: event.wakeIntentId, requiredPosition: BigInt(event.requiredPosition) },
-      Date.parse(event.expiresAt),
+      event.state === "claimed" && !remainingAttempts ? Math.min(expiresAt, liveClaimUntil) : expiresAt,
     );
   }
 };

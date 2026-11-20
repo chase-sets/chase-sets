@@ -171,6 +171,7 @@ export type ProjectionWakeIntentWorkSignalPayload = Readonly<{
   origin: WorkSignalWakeOrigin;
   state: ProjectionWakeIntentState;
   attemptCount: number;
+  claimedUntil: string | null;
   expiresAt: string;
   nextEligibleAt: string;
 }>;
@@ -1780,6 +1781,7 @@ function projectionWakeDemand(record: ProjectionWakeIntentRecord) {
     requiredPosition: record.requiredPosition.toString(),
     state: record.state,
     attemptCount: record.attemptCount,
+    claimedUntil: record.claimedUntil?.toISOString() ?? null,
     expiresAt: record.expiresAt.toISOString(),
   };
 }

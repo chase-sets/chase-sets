@@ -71,6 +71,7 @@ function createWiring(text: string, loop?: WorkerRunnerLoop, disabled = false) {
     observer: ProjectionWakeSchedulerObserver;
     receive: (event: { notification: { envelope: { kind: string; payload: object } } }) => void;
   } = runInNewContext(`${compiled}\n({ enqueue, observer, receive })`, {
+    Date,
     createProjectionGroupRunnerName,
     projectionRunnerLoop: loop ?? runner,
     projectionWakeRunnerLoop: null,
@@ -202,6 +203,7 @@ function sendWake(
   const payload = {
     ...completed,
     state: "queued" as const,
+    claimedUntil: null,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     ...overrides,
     outcome: "coalesced" as const,
@@ -265,10 +267,34 @@ describe("projection wake handoff production wiring", () => {
     it.each(["queued", "claimed"] as const)("yields for a %s higher-position reopen", async (state) => {
       await duringProductivePass(
         (wiring) =>
-          sendWake(wiring, ingress, { state, requiredPosition: "4", attemptCount: state === "queued" ? 0 : 3 }),
+          sendWake(wiring, ingress, {
+            state,
+            requiredPosition: "4",
+            attemptCount: state === "queued" ? 0 : 3,
+            claimedUntil: state === "claimed" ? new Date(Date.now() + 10_000).toISOString() : null,
+          }),
         { yields: true },
       );
     });
+
+    it.each([
+      ["expired at cap", -10_000, 3, false],
+      ["live at cap", 10_000, 3, true],
+      ["expired below cap", -10_000, 2, true],
+    ] as const)(
+      "hands off a same-position claim only when runnable: %s",
+      async (_label, claimOffset, attemptCount, yields) => {
+        await duringProductivePass(
+          (wiring) =>
+            sendWake(wiring, ingress, {
+              state: "claimed",
+              attemptCount,
+              claimedUntil: new Date(Date.now() + claimOffset).toISOString(),
+            }),
+          { yields },
+        );
+      },
+    );
   });
   it.each(["ran", "already-satisfied"] as const)("preserves newer hot work on requeued %s completion", (outcome) => {
     assertRequeuedHandoff(mainSource, outcome);

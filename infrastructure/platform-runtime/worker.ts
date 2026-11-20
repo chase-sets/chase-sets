@@ -293,6 +293,11 @@ type HeldRunnerLease = {
   releasePromise?: Promise<void>;
 };
 
+type ProjectionWakePark = {
+  parkUntil: number;
+  wakes: Map<string, { requiredPosition: bigint; blockedUntil: number }>;
+};
+
 export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,
   hostName: WorkerHostName,
@@ -504,7 +509,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   const projectionRunnerNames = new Set(
     options.runners.filter((runner) => runner.kind === "projection-group").map((runner) => runner.name),
   );
-  const pendingProjectionWakes = new Map<string, Map<string, { requiredPosition: bigint; blockedUntil: number }>>();
+  const pendingProjectionWakes = new Map<string, ProjectionWakePark>();
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
   const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
@@ -599,24 +604,29 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
   };
 
-  const pendingWakesFor = (runnerName: string, now = Date.now()) => {
-    const wakes = pendingProjectionWakes.get(runnerName);
-    if (!wakes) return undefined;
-    for (const [wakeIntentId, wake] of wakes) {
-      if (wake.blockedUntil <= now) wakes.delete(wakeIntentId);
+  const pendingWakeParkFor = (runnerName: string, now: number) => {
+    const park = pendingProjectionWakes.get(runnerName);
+    if (!park) return undefined;
+    for (const [wakeIntentId, wake] of park.wakes) {
+      if (wake.blockedUntil <= now) park.wakes.delete(wakeIntentId);
     }
-    if (wakes.size > 0) return wakes;
+    if (park.wakes.size > 0) return park;
     pendingProjectionWakes.delete(runnerName);
     requestedLeaseYields.delete(runnerName);
     return undefined;
   };
 
   const leaseYieldRequested = (runnerName: string) =>
-    requestedLeaseYields.has(runnerName) && pendingWakesFor(runnerName) !== undefined;
+    requestedLeaseYields.has(runnerName) && pendingWakeParkFor(runnerName, Date.now()) !== undefined;
 
-  const blocksNewProjectionAcquisition = (runner: WorkerRunner, now: number) =>
-    pendingWakesFor(runner.name, now) !== undefined &&
-    !heldRunnerLeases.get(createWorkerRunnerLeaseName(runner))?.leaseActive;
+  const blocksNewProjectionAcquisition = (runner: WorkerRunner, now: number) => {
+    const park = pendingWakeParkFor(runner.name, now);
+    return (
+      park !== undefined &&
+      now < park.parkUntil &&
+      !heldRunnerLeases.get(createWorkerRunnerLeaseName(runner))?.leaseActive
+    );
+  };
 
   const dropHeldRunnerLeaseAfterRenewalFailure = (heldLease: HeldRunnerLease, error?: unknown): void => {
     if (!heldLease.leaseActive) {
@@ -733,22 +743,33 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     let leaseAcquired = false;
     let acquiredLease: HeldRunnerLease | null = null;
     const promise = acquireHeldRunnerLease(runner)
-      .then((heldLease) => {
-        acquiredLease = heldLease ?? null;
-        return heldLease
-          ? runLeasedRunner(
-              options,
-              runner,
-              heldLease,
-              releaseHeldRunnerLease,
-              runAbortController.signal,
-              statusPublishState,
-              notifyHolderLifecycle,
-              () => leaseYieldRequested(runner.name),
-            )
-          : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome);
+      .then<LeasedRunnerOutcome | void>((heldLease) => {
+        if (!heldLease) return { leaseAcquired: false };
+        const now = Date.now();
+        const park = pendingWakeParkFor(runner.name, now);
+        if (park) {
+          // A wake may arrive while the fresh acquisition is in flight.
+          if (now < park.parkUntil && heldLease.nextPassSeq === 0) {
+            return releaseHeldRunnerLease(heldLease, false, "idle");
+          }
+          if (now >= park.parkUntil) {
+            requestedLeaseYields.add(runner.name);
+          }
+        }
+        acquiredLease = heldLease;
+        return runLeasedRunner(
+          options,
+          runner,
+          heldLease,
+          releaseHeldRunnerLease,
+          runAbortController.signal,
+          statusPublishState,
+          notifyHolderLifecycle,
+          () => leaseYieldRequested(runner.name),
+        );
       })
       .then((outcome) => {
+        if (!outcome) return;
         if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
           requestedLeaseYields.delete(runner.name);
@@ -782,7 +803,9 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeSharedSlotCount -= 1;
         }
         if (leaseAcquired) {
-          const yieldRequested = leaseYieldRequested(runner.name);
+          const now = Date.now();
+          const park = requestedLeaseYields.has(runner.name) ? pendingWakeParkFor(runner.name, now) : undefined;
+          const yieldRequested = park !== undefined;
           // A projection-group runner that finished an idle pass (processed
           // nothing) must not keep holding the shared `projection-group:<name>`
           // lease. Two consumer classes acquire that exact lease, frequently
@@ -806,6 +829,9 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
             (shouldYieldIdleProjectionGroupLease(runner, completedResult) ||
               (yieldRequested && acquiredLease.lastPassSucceeded))
           ) {
+            // A pass at the cap gives surviving wakes a new turn from the release boundary,
+            // even if the pass itself took longer than the park cap.
+            if (park && now >= park.parkUntil) park.parkUntil = now + options.leaseTtlMs;
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
             // freed lease stays available for queued wakes and operations.
@@ -999,14 +1025,14 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       const now = Date.now();
       if (stopped || !projectionRunnerNames.has(runnerName) || !Number.isFinite(expiresAt) || expiresAt <= now) return;
 
-      const wakes = pendingWakesFor(runnerName, now) ?? new Map();
-      const existing = wakes.get(wake.wakeIntentId);
+      const park = pendingWakeParkFor(runnerName, now) ?? { parkUntil: now + options.leaseTtlMs, wakes: new Map() };
+      const existing = park.wakes.get(wake.wakeIntentId);
       if (existing && existing.requiredPosition >= wake.requiredPosition) return;
-      wakes.set(wake.wakeIntentId, {
+      park.wakes.set(wake.wakeIntentId, {
         requiredPosition: wake.requiredPosition,
         blockedUntil: Math.min(expiresAt, now + options.leaseTtlMs),
       });
-      pendingProjectionWakes.set(runnerName, wakes);
+      pendingProjectionWakes.set(runnerName, park);
 
       const heldLease = [...heldRunnerLeases.values()].find(
         (candidate) => candidate.runner.name === runnerName && candidate.leaseActive,
@@ -1021,7 +1047,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       }
     },
     completeProjectionWakeLeaseHandoff: (runnerName, wake) => {
-      const wakes = pendingWakesFor(runnerName);
+      const wakes = pendingWakeParkFor(runnerName, Date.now())?.wakes;
       if (wakes?.get(wake.wakeIntentId)?.requiredPosition === wake.requiredPosition) {
         wakes.delete(wake.wakeIntentId);
         if (wakes.size === 0) {

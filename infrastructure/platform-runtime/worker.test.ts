@@ -1087,8 +1087,8 @@ describe("worker runner loop", () => {
     }
   });
 
-  it.each(["before", "after"] as const)(
-    "reserves the shared lease when poller B sees the wake %s its lease miss",
+  it.each(["before miss", "after miss", "before delayed grant"] as const)(
+    "reserves the shared lease when poller B sees the wake %s",
     async (arrival) => {
       vi.useFakeTimers();
       const firstPass = holderTestGate();
@@ -1098,10 +1098,15 @@ describe("worker runner loop", () => {
       let fence = 0;
       let runsA = 0;
       let runsB = 0;
+      const enteredAcquisition = vi.fn();
+      const released: PlatformLease[] = [];
       const controlPlane = createAlwaysLeasedControlPlane({
         acquireLease: async (input) => {
+          if (input.ownerId === "synthetic-poller-B") {
+            enteredAcquisition();
+            await miss.promise;
+          }
           if (held) {
-            if (input.ownerId === "synthetic-poller-B") await miss.promise;
             return null;
           }
           held = {
@@ -1113,6 +1118,7 @@ describe("worker runner loop", () => {
           return held;
         },
         releaseLease: async (lease) => {
+          released.push(lease);
           if (held?.fencingToken === lease.fencingToken) held = null;
         },
       });
@@ -1145,18 +1151,34 @@ describe("worker runner loop", () => {
         await vi.advanceTimersByTimeAsync(1);
         pollerB.start();
         await vi.advanceTimersByTimeAsync(1);
+        expect(enteredAcquisition).toHaveBeenCalledTimes(1);
         requestTestHotWake(pollerA, runnerName);
-        if (arrival === "before") requestTestHotWake(pollerB, runnerName);
+        if (arrival !== "after miss") requestTestHotWake(pollerB, runnerName);
         expect(await retryWake()).toBeNull();
-        miss.resolve();
-        await vi.advanceTimersByTimeAsync(1);
-        expect(pollerB.status().leaseMissCount).toBeGreaterThanOrEqual(1);
-        if (arrival === "after") requestTestHotWake(pollerB, runnerName);
-        firstPass.resolve();
+        if (arrival === "before delayed grant") {
+          firstPass.resolve();
+          await vi.advanceTimersByTimeAsync(1);
+          expect(released.map((lease) => lease.fencingToken)).toEqual(["1"]);
+          miss.resolve();
+        } else {
+          miss.resolve();
+          await vi.advanceTimersByTimeAsync(1);
+          expect(pollerB.status().leaseMissCount).toBeGreaterThanOrEqual(1);
+          if (arrival === "after miss") requestTestHotWake(pollerB, runnerName);
+          firstPass.resolve();
+        }
         await vi.advanceTimersByTimeAsync(101);
-        expect({ runsA, runsB, fence }).toEqual({ runsA: 1, runsB: 0, fence: 1 });
+        const expectedPollerFences = arrival === "before delayed grant" ? ["1", "2"] : ["1"];
+        expect({ runsA, runsB, released: released.map((lease) => lease.fencingToken) }).toEqual({
+          runsA: 1,
+          runsB: 0,
+          released: expectedPollerFences,
+        });
         const wake = await retryWake();
-        expect(wake).toMatchObject({ ownerId: "synthetic-hot-wake", fencingToken: "2" });
+        expect(wake).toMatchObject({
+          ownerId: "synthetic-hot-wake",
+          fencingToken: String(expectedPollerFences.length + 1),
+        });
         await controlPlane.releaseLease(wake!);
         // No terminal lifecycle callback on this replica: fall back at the TTL.
         await vi.advanceTimersByTimeAsync(30_001);
