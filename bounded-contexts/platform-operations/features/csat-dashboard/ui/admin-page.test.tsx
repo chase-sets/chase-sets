@@ -77,6 +77,38 @@ async function show(permissions = [capability]) {
   return router;
 }
 
+describe("CSAT page refused filters", () => {
+  afterEach(() => cleanup());
+
+  it("keeps the chosen filters on the page and says why they were refused", async () => {
+    const router = createMemoryRouter([
+      {
+        id: "root",
+        path: "/",
+        loader: () => ({ actor: { permissions: [capability] } }),
+        children: [
+          {
+            index: true,
+            element: (
+              <CsatAdminPage
+                data={{ refusal: "range-after-as-of", filters: { from: "2026-11-01", to: "2026-11-25", ratings: [5] } }}
+              />
+            ),
+          },
+        ],
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("The To date can't be later than today.");
+    expect((screen.getByLabelText("To") as HTMLInputElement).value).toBe("2026-11-25");
+    expect((screen.getByLabelText("From") as HTMLInputElement).value).toBe("2026-11-01");
+    expect(screen.getByRole("button", { name: "Apply filters" })).toBeTruthy();
+    expect(screen.queryByText("CSAT, trailing 7 days")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Export safe CSV" })).toBeNull();
+    expect(document.querySelector('input[name="asOf"]')).toBeNull();
+  });
+});
+
 describe("CSAT page canonical export workflow", () => {
   const fetcher = vi.fn<typeof fetch>();
   const createObjectURL = vi.fn(() => "blob:csat-export");

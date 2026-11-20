@@ -18,10 +18,19 @@ export type ApiKeyRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listApiKeys(db: PgQueryable, params: ListParams = {}) {
+/** `userId` lists exactly that user's keys; `search` is a staff search across the key and its owner. */
+export type ApiKeyListParams = ListParams & Readonly<{ userId?: string }>;
+
+export async function listApiKeys(db: PgQueryable, params: ApiKeyListParams = {}) {
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
+
+  if (params.userId !== undefined) {
+    conditions.push(`api_keys.user_id = $${paramIndex}`);
+    values.push(params.userId);
+    paramIndex += 1;
+  }
 
   if (params.status) {
     conditions.push(`api_keys.status = $${paramIndex}`);

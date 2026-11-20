@@ -36,4 +36,43 @@ describe("identity read-model pagination", () => {
     expect(calls[1]?.sql).not.toContain("UNION SELECT");
     expect(calls[1]?.values).toEqual(["active", "%identity\\_\\%%", 500, 0]);
   });
+
+  it.each([
+    ["api keys", (db: PgQueryable) => listApiKeys(db, { userId: "usr_1" }), "api_keys.user_id = $1", "usr_1"],
+    [
+      "invitations",
+      (db: PgQueryable) => listInvitations(db, { accountId: "acc_1" }),
+      "invitations.account_id = $1",
+      "acc_1",
+    ],
+    [
+      "memberships",
+      (db: PgQueryable) => listMemberships(db, { accountId: "acc_1" }),
+      "memberships.account_id = $1",
+      "acc_1",
+    ],
+    [
+      "memberships with an empty account",
+      (db: PgQueryable) => listMemberships(db, { accountId: "" }),
+      "memberships.account_id = $1",
+      "",
+    ],
+  ])("scopes %s to their owner by equality, not by search", async (_name, list, condition, owner) => {
+    const calls: Array<Readonly<{ sql: string; values: readonly unknown[] }>> = [];
+    const db: PgQueryable = {
+      query: async <QueryRow>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        return {
+          rows: (sql.includes("COUNT(*)") ? [{ count: "0" }] : []) as QueryRow[],
+          rowCount: sql.includes("COUNT(*)") ? 1 : 0,
+        };
+      },
+    };
+
+    await list(db);
+
+    expect(calls[0]?.sql).toContain(`WHERE ${condition}`);
+    expect(calls[0]?.sql).not.toContain("ILIKE");
+    expect(calls[0]?.values).toEqual([owner]);
+  });
 });
