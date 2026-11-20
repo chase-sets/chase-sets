@@ -356,7 +356,10 @@ function throwIfProjectionTransactionExpired(
 
 function normalizeTransactionCommand(text: string): "BEGIN" | "COMMIT" | "ROLLBACK" | null {
   const normalized = text.trim().replace(/;$/, "").toUpperCase();
-  return normalized === "BEGIN" || normalized === "COMMIT" || normalized === "ROLLBACK" ? normalized : null;
+  // Owner predicate appends request read committed explicitly. They must still
+  // use a savepoint in the enclosing projection transaction.
+  if (normalized === "BEGIN" || normalized === "BEGIN ISOLATION LEVEL READ COMMITTED") return "BEGIN";
+  return normalized === "COMMIT" || normalized === "ROLLBACK" ? normalized : null;
 }
 
 function nextNestedProjectionTransactionSavepoint(): string {
