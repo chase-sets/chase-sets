@@ -1,5 +1,5 @@
 import { agentOAuthScopesForPermissions } from "@chase-sets/auth-context";
-import { UCP_MCP_PRODUCT_CARDS_RESOURCE_URI } from "../../ucp-contracts";
+import { UCP_MCP_PRODUCT_CARDS_RESOURCE_URI } from "@chase-sets/platform-runtime/ucp-contracts";
 
 import {
   type McpJsonSchema,

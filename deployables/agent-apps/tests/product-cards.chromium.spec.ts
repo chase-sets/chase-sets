@@ -8,6 +8,7 @@ import captured from "./fixtures/staging-search-catalog.json" with { type: "json
 test("renders recorded catalog results in a sandboxed MCP App @agent-apps", async ({ page }) => {
   const host = "https://host.example.test/";
   const widget = "https://widget.example.test/product-cards.html";
+  const widgetWithoutDocumentCsp = `${widget}?without-document-csp`;
   const marketplace = new URL(captured.capture.endpoint).origin;
   const admittedImage = `${marketplace}/test-cards/admitted.svg`;
   const admittedScript = `${marketplace}/test-cards/admitted.js`;
@@ -32,16 +33,21 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
   ].join("; ");
 
   const requests: { type: string; url: string }[] = [];
+  const servedScriptAndStyle: string[] = [];
   page.on("request", (request) => requests.push({ type: request.resourceType(), url: request.url() }));
   await page.route("**/*", async (route) => {
     switch (route.request().url()) {
       case host:
         return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>MCP Apps test host</title>" });
       case widget:
+      case widgetWithoutDocumentCsp:
         return route.fulfill({
           contentType: "text/html",
           headers: { "content-security-policy": hostCsp },
-          body: resource.text,
+          body:
+            route.request().url() === widget
+              ? resource.text
+              : resource.text.replace(/<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i, ""),
         });
       case admittedImage:
         return route.fulfill({
@@ -49,8 +55,10 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
           body: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="12" height="12"/></svg>',
         });
       case admittedScript:
+        servedScriptAndStyle.push(admittedScript);
         return route.fulfill({ contentType: "text/javascript", body: 'document.title = "External script loaded";' });
       case admittedStyle:
+        servedScriptAndStyle.push(admittedStyle);
         return route.fulfill({ contentType: "text/css", body: "body { outline: 1px solid red; }" });
       default:
         return route.abort();
@@ -143,24 +151,55 @@ test("renders recorded catalog results in a sandboxed MCP App @agent-apps", asyn
   await expect.poll(() => messages.find(({ method }) => method === "ui/open-link")?.params).toEqual({ url: safeUrl });
   expect(messages.map(({ method }) => method)).not.toContain("tools/call");
 
-  const resourceEvents = await frame.locator("html").evaluate(
-    async (_, { admittedScript, admittedStyle }) => {
-      const script = Object.assign(document.createElement("script"), { src: admittedScript });
-      const style = Object.assign(document.createElement("link"), { rel: "stylesheet", href: admittedStyle });
-      return Promise.all(
-        [script, style].map(
-          (element) =>
-            new Promise<string>((resolve) => {
-              element.onload = () => resolve("load");
-              element.onerror = () => resolve("error");
-              document.head.append(element);
-            }),
-        ),
-      );
-    },
-    { admittedScript, admittedStyle },
-  );
-  expect(resourceEvents).toEqual(["error", "error"]);
-  expect(requests.filter(({ type }) => type === "script" || type === "stylesheet")).toEqual([]);
+  type Violation = Pick<SecurityPolicyViolationEvent, "blockedURI" | "effectiveDirective" | "disposition">;
+  const violations: Violation[] = [];
+  await page.exposeFunction("observePolicyViolation", (violation: Violation) => {
+    violations.push(violation);
+  });
+  await frame.locator("html").evaluate(() => {
+    const report = (window as unknown as { observePolicyViolation: (violation: Violation) => Promise<void> })
+      .observePolicyViolation;
+    document.addEventListener("securitypolicyviolation", ({ blockedURI, effectiveDirective, disposition }) => {
+      void report({ blockedURI, effectiveDirective, disposition });
+    });
+  });
+  const probeExternalResources = () =>
+    frame.locator("html").evaluate(
+      async (_, { admittedScript, admittedStyle }) => {
+        const script = Object.assign(document.createElement("script"), { src: admittedScript });
+        const style = Object.assign(document.createElement("link"), { rel: "stylesheet", href: admittedStyle });
+        return Promise.all(
+          [script, style].map(
+            (element) =>
+              new Promise<string>((resolve) => {
+                element.onload = () => resolve("load");
+                element.onerror = () => resolve("error");
+                document.head.append(element);
+              }),
+          ),
+        );
+      },
+      { admittedScript, admittedStyle },
+    );
+  expect(await probeExternalResources()).toEqual(["error", "error"]);
+  await expect
+    .poll(() => violations)
+    .toEqual(
+      expect.arrayContaining([
+        { blockedURI: admittedScript, effectiveDirective: "script-src-elem", disposition: "enforce" },
+        { blockedURI: admittedStyle, effectiveDirective: "style-src-elem", disposition: "enforce" },
+      ]),
+    );
+  // Chromium can emit request events for CSP-blocked subresources without reaching the response route.
+  expect(servedScriptAndStyle).toEqual([]);
   expect(requests.filter(({ type }) => type === "image")).toEqual([{ type: "image", url: admittedImage }]);
+
+  // With only the simulated host policy, the same sandbox and routes must let both resources load.
+  await page.locator("iframe").evaluate(async (element: HTMLIFrameElement, url) => {
+    const loaded = new Promise<void>((resolve) => element.addEventListener("load", () => resolve(), { once: true }));
+    element.src = url;
+    await loaded;
+  }, widgetWithoutDocumentCsp);
+  expect(await probeExternalResources()).toEqual(["load", "load"]);
+  expect(servedScriptAndStyle.sort()).toEqual([admittedStyle, admittedScript]);
 });

@@ -918,6 +918,9 @@
       "@chase-sets/platform-runtime/ucp": [
         "./infrastructure/platform-runtime/ucp.ts"
       ],
+      "@chase-sets/platform-runtime/ucp-contracts": [
+        "./infrastructure/platform-runtime/ucp-contracts.ts"
+      ],
       "@chase-sets/platform-runtime/ucp-schema-test-support": [
         "./infrastructure/platform-runtime/ucp-schema-test-support.ts"
       ],
