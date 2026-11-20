@@ -9,6 +9,7 @@ import {
   createWorkerRunnerLeaseName,
   createWorkerRunnerLoop,
   DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
+  tryRunWithRenewedLease,
   type WorkerHolderLifecycleEvent,
   type WorkerRuntimeObserver,
   type WorkerRunner,
@@ -38,6 +39,57 @@ describe("durable job lane runners", () => {
       "2:job:catalog.source-observation-bulk-jobs.lane-2:3",
       "3:job:catalog.source-observation-bulk-jobs.lane-3:3",
     ]);
+  });
+});
+
+describe("projection-group lease renewal", () => {
+  it("keeps the operation fence when a renewal reply arrives just before expiry", async () => {
+    vi.useFakeTimers();
+    try {
+      const leaseName = "projection-group:synthetic.long-drain";
+      const ttlMs = 200;
+      const coordinator = createInMemoryLeaseCoordinator();
+      const operation = coordinator.createControlPlane();
+      const scheduled = coordinator.createControlPlane();
+      const firstRenewalReply = holderTestGate();
+      const finishDrain = holderTestGate();
+      const acquireLease = vi.fn(operation.acquireLease);
+      const releaseLease = vi.fn(operation.releaseLease);
+      const renewLease = vi.fn(async (lease: PlatformLease, ttl: number) => {
+        const isFirstRenewal = renewLease.mock.calls.length === 1;
+        const renewed = await operation.renewLease(lease, ttl);
+        if (isFirstRenewal) await firstRenewalReply.promise;
+        return renewed;
+      });
+      const run = tryRunWithRenewedLease(
+        { ...operation, acquireLease, renewLease, releaseLease },
+        { leaseName, ownerId: "synthetic:projection-operations", ttlMs, renewIntervalMs: 50 },
+        async (context) => {
+          await finishDrain.promise;
+          context.throwIfLeaseLost?.();
+          return context.fencingToken;
+        },
+      );
+      // Postgres renewed at t=50, but the caller sees that result just before t=250.
+      await vi.advanceTimersByTimeAsync(247);
+      expect(renewLease).toHaveBeenCalledTimes(1);
+      firstRenewalReply.resolve();
+      await vi.advanceTimersByTimeAsync(3);
+      const scheduledInput = { leaseName, ownerId: "synthetic", ttlMs };
+      const contended = await scheduled.acquireLease(scheduledInput);
+
+      finishDrain.resolve();
+      await expect(run).resolves.toEqual({ acquired: true, result: "1" });
+      expect(contended).toBeNull();
+      expect(acquireLease).toHaveBeenCalledTimes(1);
+      expect(renewLease.mock.calls.map(([lease]) => lease.fencingToken)).toEqual(["1", "1"]);
+      expect(releaseLease).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ fencingToken: "1" }));
+      await expect(scheduled.acquireLease(scheduledInput)).resolves.toMatchObject({ fencingToken: "2" });
+      await vi.advanceTimersByTimeAsync(ttlMs);
+      expect(renewLease).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -2132,65 +2132,53 @@ export async function tryRunWithRenewedLease<T>(
   // to one `shouldAbort` poll interval later. Without this a timed-out
   // operation keeps renewing the shared `projection-group:<name>` lease while
   // its leaked work settles, starving the scheduled group runner.
-  const abortFromUpstreamSignal = () => {
+  const abortLease = () => {
     leaseActive = false;
     abortController.abort();
   };
   if (input.signal?.aborted) {
-    abortFromUpstreamSignal();
+    abortLease();
   } else {
-    input.signal?.addEventListener("abort", abortFromUpstreamSignal, { once: true });
+    input.signal?.addEventListener("abort", abortLease, { once: true });
   }
   const throwIfLeaseLost = () => {
     if (!leaseActive || abortController.signal.aborted) {
       throw new Error(`Lost lease '${lease.leaseName}'.`);
     }
   };
-  let renewalInFlight = false;
-  const renewalTimer = setInterval(() => {
-    if (renewalInFlight) {
+  let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleRenewal = (delayMs: number) => {
+    if (!leaseActive) return;
+    renewalTimer = setTimeout(() => void renew(), delayMs);
+    renewalTimer.unref?.();
+  };
+  const renew = async () => {
+    if (!leaseActive) return;
+    const startedAt = performance.now();
+    try {
+      if (!(await controlPlane.renewLease(lease, input.ttlMs))) {
+        abortLease();
+        return;
+      }
+    } catch {
+      abortLease();
       return;
     }
-    // Once the run is aborted (lease lost, cancellation, or operation
-    // timeout) the lease must lapse by TTL rather than being renewed forever:
-    // leaked work that ignores the abort signal must not pin the shared
-    // projection-group lease against the scheduled runner.
-    if (!leaseActive || abortController.signal.aborted) {
-      return;
-    }
-    renewalInFlight = true;
-    void controlPlane
-      .renewLease(lease, input.ttlMs)
-      .then((renewed) => {
-        leaseActive = leaseActive && renewed;
-        if (!renewed) {
-          abortController.abort();
-        }
-      })
-      .catch(() => {
-        leaseActive = false;
-        abortController.abort();
-      })
-      .finally(() => {
-        renewalInFlight = false;
-      });
-  }, input.renewIntervalMs);
-  renewalTimer.unref?.();
+    // Renewal extends the lease in Postgres before the reply reaches us.
+    // Keep one request in flight, but don't wait for another timer tick if
+    // that reply already took longer than the renewal interval.
+    scheduleRenewal(Math.max(0, Math.ceil(input.renewIntervalMs - (performance.now() - startedAt))));
+  };
+  scheduleRenewal(input.renewIntervalMs);
   const abortPollTimer =
     input.shouldAbort && input.abortPollIntervalMs && input.abortPollIntervalMs > 0
       ? setInterval(() => {
           void input
             .shouldAbort?.()
             .then((shouldAbort) => {
-              if (shouldAbort) {
-                leaseActive = false;
-                abortController.abort();
-              }
+              if (shouldAbort) abortLease();
             })
-            .catch(() => {
-              leaseActive = false;
-              abortController.abort();
-            });
+            .catch(abortLease);
         }, input.abortPollIntervalMs)
       : null;
   abortPollTimer?.unref?.();
@@ -2208,11 +2196,12 @@ export async function tryRunWithRenewedLease<T>(
     });
     return { acquired: true, result };
   } finally {
-    clearInterval(renewalTimer);
+    leaseActive = false;
+    clearTimeout(renewalTimer);
     if (abortPollTimer) {
       clearInterval(abortPollTimer);
     }
-    input.signal?.removeEventListener("abort", abortFromUpstreamSignal);
+    input.signal?.removeEventListener("abort", abortLease);
     await controlPlane.releaseLease(lease);
   }
 }
