@@ -6086,7 +6086,8 @@ const CSAT: &str = "/api/customer-feedback";
 #[tokio::test]
 async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_offers() {
     let pilot = Pilot::new().await;
-    let at = "/support/csat?from=2026-10-01&to=oops&surveyVersion=csat.v1&outcomeCodes=order.delivered&customerRoles=pirate&ratings=4";
+    let at =
+        "/support/csat?from=2026-10-01&to=oops&surveyVersion=csat.v1&outcomeCodes=order.delivered&customerRoles=pirate&ratings=4";
     let (status, _, html) = pilot.send(get(at, Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert_eq!(
