@@ -29,6 +29,7 @@
     "./client": "./client.ts",
     "./routes/*": "./routes/*.tsx",
     "./server": "./server.ts",
+    "./test-support": "./features/source-observations/tests/owner-predicate-test-support.ts",
     "./web": "./web.ts"
   },
   "types": "./index.ts",
