@@ -48,6 +48,7 @@ export const WALLET_ADJUSTMENT_PERMISSIONS = {
 } as const;
 
 export type WalletWorkbenchStatus = "ok" | "permission-denied" | "not-found" | "unavailable";
+export type WalletWorkbenchPayoutReviewHold = SettlementPayoutReviewHold | "unavailable";
 
 export type WalletWorkbenchAdjustmentsFilters = Readonly<{
   status?: SettlementWalletAdjustmentRow["status"];
@@ -86,7 +87,7 @@ export interface SettlementWalletWorkbenchPageProps {
   currentActorUserId?: string;
   lastAction?: WalletWorkbenchLastAction | null;
   marketplaceOrigin?: string | null;
-  payoutReviewHold?: SettlementPayoutReviewHold | null;
+  payoutReviewHold?: WalletWorkbenchPayoutReviewHold | null;
 }
 
 function PayoutReviewHoldPanel({
@@ -94,18 +95,24 @@ function PayoutReviewHoldPanel({
   actorPermissions,
   lastAction,
 }: {
-  hold: SettlementPayoutReviewHold | null | undefined;
+  hold: WalletWorkbenchPayoutReviewHold | null | undefined;
   actorPermissions: readonly string[];
   lastAction?: WalletWorkbenchLastAction | null;
 }) {
   const canManage = actorPermissions.includes("payout-review-holds.manage");
-  if (!canManage && !hold?.active) return null;
+  if (!hold || (!canManage && !actorPermissions.includes("payouts.platform.view"))) return null;
+  if (!canManage && hold !== "unavailable" && !hold.active) return null;
   return (
     <PageSection
       title={t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold")}
       data-testid="payout-review-hold-panel"
     >
-      {hold?.active ? (
+      {hold === "unavailable" ? (
+        <Banner
+          tone="danger"
+          title={t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.unavailable")}
+        />
+      ) : hold.active ? (
         <Stack gap={1}>
           <Badge tone="danger">{t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.held")}</Badge>
           <Text>
@@ -130,12 +137,12 @@ function PayoutReviewHoldPanel({
           {t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.not.held")}
         </Text>
       )}
-      {canManage ? (
+      {canManage && hold !== "unavailable" ? (
         <RouterForm method="post" spacing="none">
           <HiddenInput
             type="hidden"
             name="intent"
-            value={hold?.active ? "release-payout-review-hold" : "place-payout-review-hold"}
+            value={hold.active ? "release-payout-review-hold" : "place-payout-review-hold"}
           />
           <Textarea
             label={t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.reason")}
@@ -144,8 +151,8 @@ function PayoutReviewHoldPanel({
             maxLength={500}
             rows={3}
           />
-          <Button type="submit" tone={hold?.active ? "danger" : "primary"}>
-            {hold?.active
+          <Button type="submit" tone={hold.active ? "danger" : "primary"}>
+            {hold.active
               ? t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.release")
               : t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.place")}
           </Button>

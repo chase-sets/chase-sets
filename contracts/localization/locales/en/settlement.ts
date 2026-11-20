@@ -844,6 +844,8 @@ export const settlementEnglishTranslations = {
   "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.place": "Place hold",
   "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.release": "Release hold",
   "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.failed": "Payout review hold failed",
+  "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.unavailable":
+    "Payout review hold status unavailable",
   "settlement.features.wallets.ui.walletWorkbenchPage.filter.all": "All",
   "settlement.features.wallets.ui.walletWorkbenchPage.no.adjustments.title": "No adjustments",
   "settlement.features.wallets.ui.walletWorkbenchPage.no.adjustments.description":

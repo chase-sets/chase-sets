@@ -9,7 +9,6 @@ import {
   type SettlementWalletAdjustmentPreview,
   type SettlementWalletAdjustmentRow,
   type SettlementWalletRow,
-  type SettlementPayoutReviewHold,
 } from "../../support/request-support/api-client";
 import { describeWalletAdjustmentFlowError } from "../../support/request-support/wallet-adjustment-flow-error";
 import {
@@ -19,6 +18,7 @@ import {
 import {
   SettlementWalletWorkbenchPage,
   type WalletWorkbenchLastAction,
+  type WalletWorkbenchPayoutReviewHold,
   type WalletWorkbenchStatus,
 } from "../../features/wallets/ui/wallet-workbench-page";
 
@@ -66,7 +66,7 @@ type LoaderData = Readonly<{
   ledger: { items: readonly SettlementLedgerEntryRow[]; total: number };
   ledgerFilters: Readonly<{ limit: number; offset: number }>;
   marketplaceOrigin: string | null;
-  payoutReviewHold: SettlementPayoutReviewHold | null;
+  payoutReviewHold: WalletWorkbenchPayoutReviewHold | null;
 }>;
 
 export async function loader({ request, params }: LoaderFunctionArgs): Promise<LoaderData> {
@@ -87,7 +87,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
 
   const emptyAdjustments = { items: [] as readonly SettlementWalletAdjustmentRow[], total: 0 };
   const emptyLedger = { items: [] as readonly SettlementLedgerEntryRow[], total: 0 };
-  let payoutReviewHold: SettlementPayoutReviewHold | null = null;
+  let payoutReviewHold: WalletWorkbenchPayoutReviewHold | null = null;
   const adjustmentsFilters = {
     limit: adjustmentsLimit,
     offset: adjustmentsOffset,
@@ -134,7 +134,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
     try {
       payoutReviewHold = await settlementApi.getPayoutReviewHold(accountId);
     } catch {
-      // The panel is optional for actors without payout-review-holds.manage.
+      payoutReviewHold = "unavailable";
     }
     const [adjustments, ledger] = await Promise.all([
       settlementApi.listWalletAdjustmentAccountHistory(accountId, adjustmentsQuery),

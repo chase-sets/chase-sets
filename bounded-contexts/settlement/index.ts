@@ -139,7 +139,10 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
         "settlement.settlement-account-risk-source-projection": () =>
           buildSettlementPayoutReviewHoldProjectionHandlers(services.db),
         "identity.settlement-payout-review-hold-migration": () =>
-          buildPayoutReviewHoldMigrationHandlers(services.db, services.payoutReviewHold),
+          buildPayoutReviewHoldMigrationHandlers(
+            services.readCommittedManualPayoutReviewBadge,
+            services.payoutReviewHold,
+          ),
         "marketplace.settlement-account-risk-source-projection": () =>
           buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db, {
             policies: services.policies,

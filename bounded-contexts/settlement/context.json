@@ -435,6 +435,11 @@
       "purpose": "Validated Settlement database activation provenance supplied before the marketplace label postage subscription runner is constructed."
     },
     {
+      "portName": "readCommittedManualPayoutReviewBadge",
+      "providedBy": "platform-worker",
+      "purpose": "Read the current manual-payout-review badge from the committed Identity Account stream for payout review hold migration."
+    },
+    {
       "portName": "termsAcceptanceResolver",
       "providedBy": "identity",
       "purpose": "Resolve whether a buyer has accepted the active Terms of Service version so wallet balance credit can be applied at checkout without Settlement querying Identity storage."

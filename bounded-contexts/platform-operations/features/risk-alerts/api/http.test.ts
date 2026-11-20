@@ -357,6 +357,23 @@ describe("risk-alerts HTTP action outcomes", () => {
 });
 
 describe("risk-alerts HTTP action outcomes on the real runtime", () => {
+  it.each(["null", "false", "17", '"acknowledge"', "[]", "bad json"])(
+    "rejects an invalid JSON body (%s) without either write",
+    async (body) => {
+      const { app, appendToStream, placeRiskAlertHold } = realRuntimeApp({ candidate: true });
+      const response = await app.request("/alert_synthetic/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
+      expect(appendToStream).not.toHaveBeenCalled();
+      expect(placeRiskAlertHold).not.toHaveBeenCalled();
+    },
+  );
+
   it("risk alert action refuses a non-candidate payout review without appending", async () => {
     const { app, appendToStream, placeRiskAlertHold } = realRuntimeApp({ candidate: false });
 

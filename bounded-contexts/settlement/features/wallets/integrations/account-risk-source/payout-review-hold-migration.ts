@@ -1,27 +1,39 @@
-import type { ProjectorHandler, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import {
+  createTransientProjectionError,
+  type ProjectorHandler,
+  type ProjectorHandlerMap,
+} from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { PayoutReviewHoldServices } from "../../api/payout-review-hold-runtime";
-import { readManualPayoutReviewBadge } from "./account-risk-source-projection";
 
 const MIGRATED_BADGE_REASON = "Migrated manual-payout-review badge";
 
+export type CommittedManualPayoutReviewBadgeReader = (accountId: AccountId) => Promise<boolean>;
+
 /**
- * Converges each account's Payout Review Hold to its current Identity manual-payout-review badge, as the
- * unchanged version-1 identity risk-source subscription (which runs before this one) projected it.
+ * Converges each account's Payout Review Hold to its committed Identity manual-payout-review badge,
+ * independently of the risk-source projection's checkpoint.
  * Every badge event re-reads the current badge rather than following the event's direction, so a
  * replay from origin appends nothing; an operator or risk-alert decision is never overridden.
  */
 export function buildPayoutReviewHoldMigrationHandlers(
-  db: PgQueryable,
+  readCommittedBadge: CommittedManualPayoutReviewBadgeReader | undefined,
   holds: PayoutReviewHoldServices,
 ): ProjectorHandlerMap {
-  const converge: ProjectorHandler = async (event) => {
+  const converge: ProjectorHandler = async (event, invocation) => {
     if ((event.data as { badgeKey?: unknown }).badgeKey !== "manual-payout-review") return;
     const accountId = extractIdFromStreamId(event.streamId, "identity.account-") as AccountId;
-    const badged = await readManualPayoutReviewBadge(db, accountId);
+    let badged: boolean;
+    try {
+      if (!readCommittedBadge) throw new Error("Committed Identity badge reader is not mounted.");
+      badged = await readCommittedBadge(accountId);
+    } catch (cause) {
+      // Source availability is not a poison event or a negative badge decision.
+      throw createTransientProjectionError(`Cannot read committed payout review badge for '${accountId}'.`, { cause });
+    }
+    invocation?.throwIfLeaseLost?.();
     const hold = await holds.get(accountId);
     if (hold.hasNonMigrationEvent || hold.active === badged) return;
     const context: EventStoreContext = {

@@ -12252,6 +12252,7 @@ export const englishTranslations = {
   "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.reason": "Reason",
   "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.release": "Release hold",
   "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.source": "Source: {source}",
+  "settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.unavailable": "Payout review hold status unavailable",
   "settlement.features.wallets.ui.walletWorkbenchPage.pending": "Pending",
   "settlement.features.wallets.ui.walletWorkbenchPage.permission.denied.description": "You do not have permission to view this account's wallet. Ask a platform admin to grant wallet-adjustments access.",
   "settlement.features.wallets.ui.walletWorkbenchPage.permission.denied.title": "Permission required",

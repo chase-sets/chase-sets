@@ -130,10 +130,37 @@ describeDb("payout review hold maturity on real Postgres", () => {
     },
   );
 
+  it.each(["unclaimed", "claimed"] as const)(
+    "a missing risk row keeps a sale on extended clearance (%s SQL path)",
+    async (path) => {
+      const services = createSettlementServices(pool);
+      const missingRiskAccountId = "acc_synthetic_missing_risk";
+      await seedMatureBaseClearanceCandidate(services, missingRiskAccountId, { withRiskRow: false });
+      await seedMatureBaseClearanceCandidate(services, controlAccountId);
+      await expect(
+        pool.query("SELECT 1 FROM settlement_account_risk_sources WHERE account_id = $1", [missingRiskAccountId]),
+      ).resolves.toMatchObject({ rows: [] });
+
+      await expect(
+        services.wallets.releaseMaturePendingSaleCredits(
+          { now, ...(path === "claimed" ? { claimOwnerId: "worker_synthetic", claimTtlMs: 60_000 } : {}) },
+          context,
+        ),
+      ).resolves.toEqual({ released: 1, skipped: 0 });
+      expect((await services.wallets.loadWalletState(missingRiskAccountId as never)).entries).toEqual([
+        expect.objectContaining({ ledgerEntryId: `led_${missingRiskAccountId}`, fundsStatus: "pending" }),
+      ]);
+      expect((await services.wallets.loadWalletState(controlAccountId as never)).entries).toEqual([
+        expect.objectContaining({ ledgerEntryId: `led_${controlAccountId}`, fundsStatus: "available" }),
+      ]);
+    },
+  );
+
   /** A trusted, reviewed seller's delivered sale three days old: mature on base, not extended, clearance. */
   async function seedMatureBaseClearanceCandidate(
     services: ReturnType<typeof createSettlementServices>,
     accountId: string,
+    { withRiskRow = true } = {},
   ) {
     const ledgerEntryId = `led_${accountId}`;
     const orderId = `ord_${accountId}`;
@@ -160,12 +187,14 @@ describeDb("payout review hold maturity on real Postgres", () => {
        ) VALUES ($1, 'USD', 40.00, 0, 40.00, 0, $2, $2)`,
       [accountId, daysAgo(30)],
     );
-    await pool.query(
-      `INSERT INTO settlement_account_risk_sources (
-         account_id, account_created_at, trusted_seller, manual_payout_review, review_count, average_rating, updated_at
-       ) VALUES ($1, $2, TRUE, FALSE, 4, 4.75, $3)`,
-      [accountId, daysAgo(365), now],
-    );
+    if (withRiskRow) {
+      await pool.query(
+        `INSERT INTO settlement_account_risk_sources (
+           account_id, account_created_at, trusted_seller, manual_payout_review, review_count, average_rating, updated_at
+         ) VALUES ($1, $2, TRUE, FALSE, 4, 4.75, $3)`,
+        [accountId, daysAgo(365), now],
+      );
+    }
     await pool.query(
       `INSERT INTO settlement_ledger_entry_pages (
          ledger_entry_id, account_id, kind, direction, amount, currency_code, funds_status,

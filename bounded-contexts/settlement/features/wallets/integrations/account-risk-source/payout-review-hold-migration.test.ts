@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { isTransientProjectionError } from "@chase-sets/event-core/projector";
 import { buildTransportEvent, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { module as settlementModule } from "../../../../index";
 import type { SettlementServices } from "../../../../support/runtime-support/services";
@@ -39,23 +40,29 @@ const badgeHistories: Record<Badge, readonly Readonly<{ badgeKey: string; direct
 function createMigrationHarness() {
   const store = createInMemoryEventStore();
   const holds = createPayoutReviewHoldRuntime({ eventStore: store.eventStore });
-  // settlement_account_risk_sources.manual_payout_review, written by the unchanged version-1
-  // identity risk-source subscription, which runs at head before the migration subscription.
+  const identityLog: TransportEvent[] = [];
   const riskSourceBadges = new Map<string, boolean>();
-  const db = {
-    query: async (sql: string, params: readonly unknown[] = []) => {
-      if (sql.includes("manual_payout_review") && sql.includes("settlement_account_risk_sources")) {
-        const accountId = String(params[0]);
-        return riskSourceBadges.has(accountId)
-          ? { rows: [{ manual_payout_review: riskSourceBadges.get(accountId) }], rowCount: 1 }
-          : { rows: [], rowCount: 0 };
-      }
-      return { rows: [], rowCount: 0 };
-    },
-  } as unknown as PgQueryable;
+  const query = vi.fn(async (sql: string, params: readonly unknown[] = []) => {
+    if (sql.includes("manual_payout_review") && sql.includes("settlement_account_risk_sources")) {
+      const accountId = String(params[0]);
+      return riskSourceBadges.has(accountId)
+        ? { rows: [{ manual_payout_review: riskSourceBadges.get(accountId) }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+    return { rows: [], rowCount: 0 };
+  });
+  const readCommittedManualPayoutReviewBadge = vi.fn(async (accountId: string) => {
+    const latest = [...identityLog]
+      .reverse()
+      .find(
+        (event) => event.streamId === `identity.account-${accountId}` && event.data.badgeKey === "manual-payout-review",
+      );
+    return latest?.type === "identity.account.badge-assigned";
+  });
   const services = {
-    db,
+    db: { query } as unknown as PgQueryable,
     payoutReviewHold: holds,
+    readCommittedManualPayoutReviewBadge,
     policies: {},
     wallets: {},
     protectionCoverage: {},
@@ -68,7 +75,6 @@ function createMigrationHarness() {
       candidate.projectionName === "settlement-payout-review-hold-migration",
   );
   if (!subscription) throw new Error("Settlement must declare the identity badge migration subscription.");
-  const identityLog: TransportEvent[] = [];
 
   function appendBadgeEvent(accountId: string, badgeKey: string, direction: Direction) {
     const position = identityLog.length + 1;
@@ -85,7 +91,6 @@ function createMigrationHarness() {
         },
       ),
     );
-    if (badgeKey === "manual-payout-review") riskSourceBadges.set(accountId, direction === "assigned");
   }
 
   /** Runs the declared subscription from an empty checkpoint; events appended mid-run are delivered too. */
@@ -100,7 +105,16 @@ function createMigrationHarness() {
   const holdEvents = (accountId: string) =>
     store.readAllEvents().filter((event) => event.streamId === payoutReviewHoldStreamId(accountId));
 
-  return { holds, appendBadgeEvent, runFromOrigin, holdEvents, store };
+  return {
+    holds,
+    appendBadgeEvent,
+    runFromOrigin,
+    holdEvents,
+    store,
+    riskSourceBadges,
+    query,
+    readCommittedManualPayoutReviewBadge,
+  };
 }
 
 const badges = ["assigned", "removed", "never"] as const;
@@ -199,6 +213,49 @@ describe("badge migration converges once and never undoes an operator release", 
 });
 
 describe("badge migration subscription", () => {
+  it.each([
+    ["missing", undefined],
+    ["stale", false],
+  ] as const)(
+    "places the hold before projection catch-up and does not rewrite it on replay with a %s risk row",
+    async (_state, row) => {
+      const harness = createMigrationHarness();
+      const accountId = "acc_synthetic_lag";
+      harness.appendBadgeEvent(accountId, "manual-payout-review", "assigned");
+      await harness.runFromOrigin();
+      await expect(harness.holds.get(accountId as never)).resolves.toMatchObject({ active: true, version: 1 });
+      const firstDelivery = harness.holdEvents(accountId);
+      expect(firstDelivery).toHaveLength(1);
+
+      if (row !== undefined) harness.riskSourceBadges.set(accountId, row);
+      await harness.runFromOrigin();
+      await expect(harness.holds.get(accountId as never)).resolves.toMatchObject({ active: true, version: 1 });
+      expect(harness.holdEvents(accountId)).toEqual(firstDelivery);
+      expect(harness.query).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails retryably without applying the delivery when the committed badge read fails", async () => {
+    const harness = createMigrationHarness();
+    const accountId = "acc_synthetic_unavailable";
+    const failure = new Error("Identity source unavailable");
+    harness.appendBadgeEvent(accountId, "manual-payout-review", "assigned");
+    harness.readCommittedManualPayoutReviewBadge.mockRejectedValueOnce(failure);
+
+    await harness.runFromOrigin().then(
+      () => {
+        throw new Error("Expected the migration delivery to fail.");
+      },
+      (error: unknown) => {
+        expect(isTransientProjectionError(error)).toBe(true);
+        expect(error).toHaveProperty("cause", failure);
+      },
+    );
+    expect(harness.holdEvents(accountId)).toEqual([]);
+    await harness.runFromOrigin();
+    await expect(harness.holds.get(accountId as never)).resolves.toMatchObject({ active: true, version: 1 });
+  });
+
   it("badge migration subscription replays from origin", async () => {
     const harness = createMigrationHarness();
     harness.appendBadgeEvent("acc_synthetic_pre_freeze", "manual-payout-review", "assigned");

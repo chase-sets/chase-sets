@@ -22,6 +22,7 @@ import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
 export { createIdentityWalletFundingEligibilityResolver } from "./features/accounts/api/wallet-funding-eligibility";
+export { createIdentityManualPayoutReviewBadgeReader } from "./features/accounts/api/runtime";
 export {
   createIdentityOperatorAuthority,
   type IdentityOperatorAuthority,
