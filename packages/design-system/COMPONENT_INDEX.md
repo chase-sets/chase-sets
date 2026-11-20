@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 363
-- Source modules covered: 128
+- Runtime exports indexed: 365
+- Source modules covered: 129
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -303,6 +303,8 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Stagger` | `packages/design-system/src/motion/primitives.tsx` | Reveals its children in sequence through the Motion runtime `ChaseRoot` configures, on mount or once the group scrolls into view. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Stat` | `packages/design-system/src/components/data-display/stat.tsx` | Purpose not documented; symbol name suggests: Stat. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |
 | `StatGrid` | `packages/design-system/src/components/data-display/stat.tsx` | Purpose not documented; symbol name suggests: Stat Grid. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |
+| `StatList` | `packages/design-system/src/primitives/stat-list.tsx` | Figures a page reports, such as a market's last sale and medians, as a list of terms and values. | `bounded-contexts/pricing/features/public-market-pages/ui/market-price-history-page.tsx` |
+| `StatListItem` | `packages/design-system/src/primitives/stat-list.tsx` | One stat in a `StatList`: its label as the term, then its value and any detail lines. | `bounded-contexts/pricing/features/public-market-pages/ui/market-price-history-page.tsx` |
 | `StatusPill` | `packages/design-system/src/components/feedback/badge.tsx` | Purpose not documented; symbol name suggests: Status Pill. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-list-page.tsx` |
 | `StatusReasonList` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Status Reason List. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage.tsx` |
 | `StickyBar` | `packages/design-system/src/primitives/layout.tsx` | Position-agnostic sticky action bar pinned to the top or bottom edge. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
