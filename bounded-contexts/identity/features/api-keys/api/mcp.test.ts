@@ -1,6 +1,8 @@
+import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
+import type { IdentityApiEnv } from "../../../api";
 import type { ApiKeyServices } from "./runtime";
 import { getApiKey as queryApiKey } from "../read-model/queries";
 import { createApiKeyMcpHandlers } from "./mcp";
@@ -142,14 +144,14 @@ describe("identity API-key MCP handlers", () => {
   });
 
   it.each([undefined, "usr_other", "", "usr_1"])(
-    "forces non-platform-admin list search regardless of input %j",
+    "lists only a non-platform-admin's own keys, ignoring search %j",
     async (search) => {
       const { handlers, listApiKeys } = readFixture();
       await handlers["identity.list-api-keys"]!(
         request({ search, status: "active", limit: 20, offset: 40 }, { ...actor, roleKey: "owner" }),
       );
       expect(listApiKeys).toHaveBeenCalledExactlyOnceWith({
-        search: actor.userId,
+        userId: actor.userId,
         status: "active",
         limit: 20,
         offset: 40,
@@ -172,6 +174,32 @@ describe("identity API-key MCP handlers", () => {
     );
     expect(listApiKeys).toHaveBeenLastCalledWith({ search: "prefix", status: "revoked", limit: 999, offset: 99999 });
     expect(buildPaginationClause(listApiKeys.mock.calls[1]![0]).values).toEqual([500, 10000]);
+  });
+
+  it("lists only a signed-in user's own keys on the route, whatever search was asked", async () => {
+    const { listApiKeys, getApiKey, commandHandler } = readFixture();
+    const routes = apiKeyRoutes({
+      listApiKeys,
+      getApiKey,
+      commandHandler,
+      projectors: [],
+      db: { query: vi.fn() },
+      auth: { issueOpaqueToken: vi.fn(), hashSecret: vi.fn(), verifySecret: vi.fn(), issueChallenge: vi.fn() },
+      getUser: vi.fn(),
+    });
+    const app = new Hono<IdentityApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", { ...actor, roleKey: "owner" });
+      await next();
+    });
+    app.route("/", routes);
+    expect((await app.request("https://api.test/?search=usr_other&status=active")).status).toBe(200);
+    expect(listApiKeys).toHaveBeenCalledExactlyOnceWith({
+      userId: actor.userId,
+      status: "active",
+      limit: undefined,
+      offset: undefined,
+    });
   });
 
   it.each([0, 20])("preserves source-route parsing for limit %s and zero offset", async (limit) => {
