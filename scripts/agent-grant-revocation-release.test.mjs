@@ -135,10 +135,10 @@ describe("revocation release CLI decisions", () => {
       if (command[0] === "exec" && command.at(-1) === "--status") {
         const status = statuses[Math.min(statusIndex++, statuses.length - 1)];
         if (status instanceof Error) throw status;
-        return JSON.stringify(status);
+        return typeof status === "string" ? status : JSON.stringify(status);
       }
       if (command[0] === "exec" && command.at(-1) === "--support") return JSON.stringify({ supportVersion: 1 });
-      if (command[0] === "logs") return logs;
+      if (command[0] === "logs") return typeof logs === "function" ? logs(command) : logs;
       if (command[0] === "apply") {
         const resource = JSON.parse(input);
         applied.push(resource);
@@ -478,6 +478,89 @@ describe("revocation release CLI decisions", () => {
     });
   });
   it.each([
+    [
+      Object.assign(new Error(secretMarker), { stderr: `Error from server (Forbidden): ${secretMarker}\n` }),
+      "revocation_status_exec_forbidden",
+    ],
+    [Object.assign(new Error(secretMarker), { code: "ETIMEDOUT" }), "revocation_status_exec_timeout"],
+    [new Error(secretMarker), "revocation_status_exec_failed"],
+    [`${secretMarker}\n{"state":"dormant"}`, "revocation_status_response_invalid"],
+    ["", "revocation_status_response_invalid"],
+    [null, "revocation_status_response_invalid"],
+    [{ state: "unknown" }, "revocation_status_response_invalid"],
+    [
+      Object.assign(new Error(secretMarker), {
+        stderr: `revocation_status_database_schema_missing\ncommand terminated with exit code 1\n${secretMarker}\n`,
+      }),
+      "revocation_status_database_schema_missing",
+    ],
+  ])("preserves the safe cause of an unknown status (%#)", async (unreadable, code) => {
+    const f = fixture({ absent: true, statuses: [unreadable] });
+    await main(args("prepare"), f);
+    expect(status()).toMatchObject({ result: "prepared", identity: { state: "unknown", code } });
+    expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
+    expect(f.applied).toEqual([]);
+    expect(f.deleted).toEqual([]);
+    await expect(main(args("activate"), f)).rejects.toThrow(code);
+    expect(status()).toMatchObject({ result: "refused", refusal: code, identity: { state: "unknown", code } });
+    expect(f.spawn).not.toHaveBeenCalled();
+  });
+  it("captures recovery evidence before the 200-line tail without retaining raw lines", async () => {
+    const timestamp = "2026-10-19T23:57:01.000Z";
+    const recent = Array(200)
+      .fill(JSON.stringify({ level: "info", message: secretMarker }))
+      .join("\n");
+    const recovery = JSON.stringify({
+      timestamp,
+      type: "worker.runner.completed",
+      runnerName: "auth.agent-grant-revocation-recovery",
+    });
+    const f = fixture({
+      absent: true,
+      statuses: [dormant],
+      logs: (command) =>
+        !command.includes("platform-worker") ? "" : command.includes("--tail=200") ? recent : `${recovery}\n${recent}`,
+    });
+    await main(args("prepare"), f);
+    expect(status().logs).toMatchObject({
+      complete: true,
+      overflowTail: 8000,
+      pods: expect.arrayContaining([
+        expect.objectContaining({
+          role: "platform-worker",
+          lines: 201,
+          truncated: false,
+          recovery: { completed: 1, failed: 0, firstAt: timestamp, lastAt: timestamp },
+        }),
+      ]),
+    });
+    expect(f.calls.filter((call) => call[1] === "logs").map((call) => call.at(-1))).toEqual([
+      "--tail=200",
+      "--tail=200",
+      "--tail=8000",
+    ]);
+    expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
+  });
+  it.each(["exhausted", "unreadable"])(
+    "keeps the log evidence incomplete when the overflow read is %s",
+    async (mode) => {
+      const lines = (count) => Array(count).fill("{}").join("\n");
+      const f = fixture({
+        absent: true,
+        statuses: [dormant],
+        logs: (command) => {
+          if (command.includes("--tail=200")) return lines(200);
+          if (mode === "unreadable") throw new Error(secretMarker);
+          return lines(8000);
+        },
+      });
+      await main(args("prepare"), f);
+      expect(status().logs.complete).toBe(false);
+      expect(status().logs.pods.every((pod) => pod.truncated)).toBe(true);
+      expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
+    },
+  );
+  it.each([
     ["prepare", "exec"],
     ["prepare", "get"],
     ["activate", "exec"],
@@ -489,12 +572,13 @@ describe("revocation release CLI decisions", () => {
       (error) => error,
     );
     expect(failure).toBeInstanceOf(Error);
-    expect(refusalCode(failure)).toBe("revocation_release_refused");
+    const code = verb === "exec" ? "revocation_status_exec_forbidden" : "revocation_release_refused";
+    expect(refusalCode(failure)).toBe(code);
     expect(f.applied).toEqual([]);
     expect(f.deleted).toEqual([]);
     expect(f.spawn).not.toHaveBeenCalled();
     if (action !== "check-rollback") {
-      expect(status()).toMatchObject({ result: "refused", refusal: "revocation_release_refused" });
+      expect(status()).toMatchObject({ result: "refused", refusal: code });
       expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
     }
   });

@@ -19,7 +19,7 @@ export const SESSION_GENERATION_FLOOR_ACTION = "capture-session-generation-floor
 export const SESSION_GENERATION_REPORT_SCHEMA = "auth-session-generation-capability/v1";
 export const SESSION_GENERATION_CAPABILITY_FLOOR = 1;
 export const SESSION_GENERATION_SCHEMA_MIGRATION_ID = "20261102_auth_session_generation";
-const logWindow = { since: "5m", tail: 200, maxPods: 100 };
+const logWindow = { since: "5m", tail: 200, overflowTail: 8000, maxPods: 100 };
 const failureCategories = new Set([
   "pod_exec",
   "rbac",
@@ -343,7 +343,7 @@ function runCommand(file, args, input) {
     maxBuffer: 4 * 1024 * 1024,
     timeout: 60_000,
     stdio: ["pipe", "pipe", "pipe"],
-  }).trim();
+  });
 }
 
 function writeJson(path, value) {
@@ -360,7 +360,7 @@ function readFloor(namespace, run) {
     "-o",
     "json",
   ]);
-  return raw ? JSON.parse(raw) : null;
+  return raw.trim() ? JSON.parse(raw) : null;
 }
 
 function assertCompatible(commit, minimumCommit, run) {
@@ -389,15 +389,45 @@ function installFloor(resources, run) {
   return observed;
 }
 
+function readStatusJson(run, args, step) {
+  let output;
+  try {
+    output = run("kubectl", args);
+  } catch (error) {
+    const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+    const refused = refusalCode(error);
+    const forbidden = /^Error from server \(Forbidden\):/m.test(stderr);
+    const unauthorized = /^error: You must be logged in to the server \(Unauthorized\)/m.test(stderr);
+    const failure = new Error(
+      refused === "revocation_activation_refused"
+        ? "revocation_status_command_refused"
+        : refused !== "revocation_release_refused"
+          ? refused
+          : `revocation_status_${step}_${forbidden ? "forbidden" : unauthorized ? "unauthorized" : error?.code === "ETIMEDOUT" ? "timeout" : "failed"}`,
+    );
+    failure.failureCategory = forbidden || unauthorized ? "rbac" : step === "exec" ? "pod_exec" : "unknown";
+    const diagnostic = diagnosticFromError({ diagnostic: lastDiagnosticLine(stderr) });
+    if (diagnostic) failure.diagnostic = diagnostic;
+    throw failure;
+  }
+  try {
+    return JSON.parse(output);
+  } catch {
+    throw new Error(step === "pods" ? "revocation_status_pods_invalid" : "revocation_status_response_invalid");
+  }
+}
+
 function activationStatus(namespace, run) {
-  const pods = JSON.parse(run("kubectl", ["get", "pods", "-n", namespace, "--chunk-size=0", "-o", "json"]));
+  const pods = readStatusJson(run, ["get", "pods", "-n", namespace, "--chunk-size=0", "-o", "json"], "pods");
+  if (!Array.isArray(pods?.items)) throw new Error("revocation_status_pods_invalid");
   const pod = pods.items.find(
     (pod) =>
-      pod.status?.phase === "Running" && pod.spec?.containers?.some((container) => container.name === "platform-api"),
+      pod?.status?.phase === "Running" && pod.spec?.containers?.some((container) => container.name === "platform-api"),
   );
-  if (!pod) throw new Error("revocation_status_unavailable");
-  const status = JSON.parse(
-    run("kubectl", [
+  if (!pod?.metadata?.name) throw new Error("revocation_status_api_pod_missing");
+  const status = readStatusJson(
+    run,
+    [
       "exec",
       "-n",
       namespace,
@@ -412,9 +442,10 @@ function activationStatus(namespace, run) {
       "tsx",
       "scripts/activate-agent-grant-revocation.mts",
       "--status",
-    ]),
+    ],
+    "exec",
   );
-  if (!["activated", "dormant"].includes(status.state)) throw new Error("revocation_status_unavailable");
+  if (!["activated", "dormant"].includes(status?.state)) throw new Error("revocation_status_response_invalid");
   return status;
 }
 
@@ -600,7 +631,8 @@ async function activate(options, { run, spawn }) {
 }
 
 export function summarizeRuntimeLog(text, tail = logWindow.tail) {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === "") lines.pop();
   const recovery = { completed: 0, failed: 0, firstAt: null, lastAt: null };
   let unparsed = 0;
   let errors = 0;
@@ -646,25 +678,42 @@ function runtimeLogs(namespace, run) {
   const observed = members.slice(0, logWindow.maxPods).map((member) => {
     if (!/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/.test(member.pod))
       return { ...member, pod: null, read: "unknown", code: "revocation_status_pod_invalid" };
+    const read = (tail) =>
+      summarizeRuntimeLog(
+        run("kubectl", [
+          "logs",
+          "-n",
+          namespace,
+          member.pod,
+          "-c",
+          member.role,
+          `--since=${logWindow.since}`,
+          `--tail=${tail}`,
+        ]),
+        tail,
+      );
+    let summary;
     try {
-      const text = run("kubectl", [
-        "logs",
-        "-n",
-        namespace,
-        member.pod,
-        "-c",
-        member.role,
-        `--since=${logWindow.since}`,
-        `--tail=${logWindow.tail}`,
-      ]);
-      return { ...member, read: "observed", ...summarizeRuntimeLog(text) };
+      summary = read(logWindow.tail);
     } catch (error) {
       return { ...member, read: "unknown", code: refusalCode(error) };
     }
+    if (summary.truncated) {
+      try {
+        const overflow = read(logWindow.overflowTail);
+        if (overflow.lines < summary.lines)
+          return { ...member, read: "observed", ...summary, overflowCode: "revocation_status_log_window_changed" };
+        summary = overflow;
+      } catch {
+        return { ...member, read: "observed", ...summary, overflowCode: "revocation_status_log_overflow_failed" };
+      }
+    }
+    return { ...member, read: "observed", ...summary };
   });
   return {
     since: logWindow.since,
     tail: logWindow.tail,
+    overflowTail: logWindow.overflowTail,
     complete:
       members.length > 0 &&
       members.length <= logWindow.maxPods &&

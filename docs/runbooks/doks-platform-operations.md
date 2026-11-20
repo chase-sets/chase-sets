@@ -120,9 +120,11 @@ Each `prepare` and `activate` writes a post-command status record. The deploy jo
 - the refusal code, if any;
 - the floor's minimum commit, its image digests and its frozen flag;
 - Identity's state, the activation event's identity and version, and the nonterminal count and oldest age;
-- a summary of the last 5 minutes of API and worker logs, read with `kubectl logs --since=5m --tail=200` for each pod. The summary keeps line counts, truncation, error counts, and the first and last `auth.agent-grant-revocation-recovery` cycle. It never keeps raw log lines.
+- a summary of the last 5 minutes of available API and worker logs, initially read with `kubectl logs --since=5m --tail=200` for each pod. A capped read is repeated with `--tail=8000` under the same 4 MiB subprocess output limit. An overflow read that fails, shrinks or hits the cap leaves the evidence incomplete. Kubernetes exposes only the current container log file; this cannot recover rotated logs. The summary keeps line counts, truncation, error counts, and the first and last `auth.agent-grant-revocation-recovery` cycle. It never keeps raw log lines.
 
 Identity reads its status in a read-only transaction and never calls `pending()`. The oldest age runs from the admission of the lowest-position nonterminal operation. When recovery has not adopted that operation yet, it runs from activation instead. A lease rewrite of `next_attempt_at` never resets it. Any section that cannot be read is recorded as `state: unknown` with a code. An unknown section, a truncated log, or an unobserved recovery cycle is never a pass.
+
+For an unknown Identity status, `identity.code` distinguishes pod discovery, pod exec, invalid CLI output, and a refusal from the in-pod Identity command. Database status refusals identify typed authentication, connectivity, permission, missing schema, or query cancellation failures without including the database URL or query. `revocation_status_database_read_failed` means no more specific cause was identified. A prepare with an absent floor can still be `prepared` with unknown Identity status; that does not establish dormancy or authorize activation.
 
 Diagnostic records never contain messages, stacks, SQL, URLs, argv, secrets, or raw pod log lines. A missing, unknown, truncated, malformed, or secret-bearing diagnostic is a stop condition, not activation proof. The category is attributed only from typed or explicit evidence; `unknown` must be repaired before any staging activation dispatch.
 

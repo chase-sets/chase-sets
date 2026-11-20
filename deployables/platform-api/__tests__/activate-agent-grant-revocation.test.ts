@@ -126,6 +126,22 @@ describe("revocation-floor activation command", () => {
     expect(activationDiagnostic(new Error("raw secret-marker"), proof()).sqlstateClass).toBe("unknown");
     expect(activationDiagnostic(new Error("raw secret-marker"), proof()).failureCategory).toBe("unknown");
   });
+  it.each([
+    ["42501", "revocation_status_database_permission_denied", "schema_permission"],
+    ["42P01", "revocation_status_database_schema_missing", "schema_permission"],
+    ["42703", "revocation_status_database_schema_missing", "schema_permission"],
+    ["28P01", "revocation_status_database_auth_failed", "database_connectivity"],
+    ["08006", "revocation_status_database_connection_failed", "database_connectivity"],
+    ["ECONNREFUSED", "revocation_status_database_connection_failed", "database_connectivity"],
+    ["57014", "revocation_status_database_query_cancelled", "application"],
+    [undefined, "revocation_status_database_read_failed", "unknown"],
+  ])("emits a value-free Identity status diagnosis for %s", (sqlCode, code, failureCategory) => {
+    const error = Object.assign(new Error("raw secret-marker"), { code: sqlCode });
+    const diagnostic = activationDiagnostic(error, undefined, "status");
+    expect(diagnostic).toMatchObject({ code, failureCategory, identity: { state: "unknown" } });
+    expect(JSON.stringify(diagnostic)).not.toContain("secret-marker");
+    expect(activationRefusalCode(error)).toBe("revocation_activation_refused");
+  });
   it("retains validated proof identity in the entrypoint refusal diagnostic", async () => {
     const captured = proof();
     const failure = new Error("raw secret-marker");
@@ -154,12 +170,11 @@ describe("revocation-floor activation command", () => {
     const source = readFileSync(new URL("../scripts/activate-agent-grant-revocation.mts", import.meta.url), "utf8");
     const normalized = source.replaceAll("\r\n", "\n");
     expect(normalized).toContain(
-      "main().catch((error: unknown) => {\n    process.stderr.write(`${activationRefusalCode(error)}\\n`);",
+      'activationDiagnostic(error, undefined, process.argv[2] === "--status" ? "status" : "activate")',
     );
-    expect(normalized.indexOf("process.stderr.write(`${activationRefusalCode(error)}\\n`);")).toBeLessThan(
-      normalized.indexOf("process.exitCode = 1;"),
+    expect(normalized).toContain(
+      "process.stderr.write(`${diagnostic.code}\\n`);\n    process.stderr.write(`${JSON.stringify(diagnostic)}\\n`);\n    process.exitCode = 1;",
     );
-    expect(normalized).toContain("process.stderr.write(`${JSON.stringify(activationDiagnostic(error))}\\n`);");
   });
   it.each(["foreign", "old-worker", "incomplete", "stale"])(
     "refuses %s proof without an Identity activation call",
