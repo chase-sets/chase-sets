@@ -6,7 +6,7 @@ Seller Listing Availability is Marketplace's account-level Away overlay. It cove
 
 - The overlay is scoped by account id and is event-sourced on a Marketplace-owned stream.
 - Each side is independently `available` or `unavailable`, with its own reason, provenance, and Resume Instant.
-- A seller's Disable replaces the scope. An internal disable sets only the named sides. An unscoped Disable or scheduled window defaults to Listings, including on replay. An unscoped Enable restores both sides; scheduled restores check the observed Resume Instant on the side being restored.
+- A seller's Disable replaces the scope. When narrowing from both sides without choosing a new date, the retained side keeps its exact Resume Instant. A settlement Listings disable preserves a pending Offers window or the Offers leg of a pending Both window. An unscoped Disable or scheduled window defaults to Listings, including on replay. An unscoped Enable restores both sides; scheduled restores check the observed Resume Instant on the side being restored.
 - Disabling may record a structured reason category, an optional `availableAgainOn` display date, and an optional `availableAgainAt` Resume Instant.
 - `availableAgainAt` is the authoritative Resume Instant. When present it is asserted to be strictly after the disable time. It is the only field an automated resume sweep may act on.
 - `availableAgainOn` is a display-only date. When both fields are sent, the domain derives `availableAgainOn` from `availableAgainAt` (a UTC calendar-day slice) rather than trusting the two independently, so they can never disagree.
@@ -34,4 +34,4 @@ Marketplace publishes:
 - `marketplace.seller-listing-availability.offers-disabled`
 - `marketplace.seller-listing-availability.offers-enabled`
 
-The original events remain Listings-only and continue to drive existing Listing consumers. Discovery and Checkout project the Offers events into their own buyer Offer standing rows. Marketplace checks the buyer's authoritative Away stream before accepting an Offer.
+The original events remain Listings-only and continue to drive existing Listing consumers. Discovery and Checkout project the Offers events into their own buyer Offer standing rows. Marketplace checks the buyer's authoritative Away stream and guards its version when submitting or accepting an Offer. A completed submission can still be replayed while Away.

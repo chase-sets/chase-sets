@@ -2,13 +2,13 @@
   "contextName": "checkout",
   "runners": [
     {
-      "subscriptionName": "checkout.buyer-offer-standing-projection",
+      "subscriptionName": "checkout.offer-standing-projection",
       "handlerKind": "projection",
-      "projectionName": "checkout.buyer-offer-standing-projection",
+      "projectionName": "checkout.offer-standing-projection",
       "sourceContextName": "marketplace",
       "targetContextName": "checkout",
       "subscriptionVersion": 1,
-      "checkpointKey": "checkout.buyer-offer-standing-projection:marketplace:v1",
+      "checkpointKey": "checkout.offer-standing-projection:marketplace:v1",
       "handlers": {
         "marketplace.seller-listing-availability.offers-disabled": "<function>",
         "marketplace.seller-listing-availability.offers-enabled": "<function>"
@@ -512,10 +512,10 @@
   ],
   "subscriptions": [
     {
-      "subscriptionName": "checkout.buyer-offer-standing-projection",
+      "subscriptionName": "checkout.offer-standing-projection",
       "handlerKind": "projection",
       "sourceContextName": "marketplace",
-      "projectionName": "checkout.buyer-offer-standing-projection",
+      "projectionName": "checkout.offer-standing-projection",
       "subscriptionVersion": 1,
       "handlers": {
         "marketplace.seller-listing-availability.offers-disabled": "<function>",

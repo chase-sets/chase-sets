@@ -11,6 +11,7 @@ import {
   MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT,
   MarketplaceOfferAbuseControlError,
   MarketplaceOfferAcceptanceReadinessError,
+  MarketplaceOfferSubmissionAwayError,
   MarketplaceOfferFeeQuoteStaleError,
   MarketplaceOfferLifecycleError,
   type MarketplaceOfferServices,
@@ -182,6 +183,8 @@ function validationError(
       409,
     );
   }
+  if (error instanceof MarketplaceOfferSubmissionAwayError)
+    return c.json({ error: { code: error.code, message: error.message } }, 409);
 
   if (error instanceof MarketplaceOfferAbuseControlError) {
     return c.json(

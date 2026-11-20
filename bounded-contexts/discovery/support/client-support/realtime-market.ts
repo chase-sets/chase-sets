@@ -8,6 +8,11 @@ import type {
   DiscoverySearchResponse,
 } from "./contracts";
 
+export type DiscoveryItemRealtimeSnapshot = DiscoveryItemDetail & {
+  removedOfferIds?: readonly string[];
+  latestOfferUpsert?: RealtimeProjectionPatch;
+};
+
 export function applyDiscoverySearchPatch(
   data: DiscoverySearchResponse | null,
   patch: RealtimeProjectionPatch,
@@ -40,9 +45,9 @@ export function applyDiscoverySearchPatch(
 }
 
 export function applyDiscoveryItemPatch(
-  data: DiscoveryItemDetail | null,
+  data: DiscoveryItemRealtimeSnapshot | null,
   patch: RealtimeProjectionPatch,
-): DiscoveryItemDetail | null {
+): DiscoveryItemRealtimeSnapshot | null {
   if (!data) {
     return data;
   }
@@ -57,9 +62,14 @@ export function applyDiscoveryItemPatch(
     }
 
     if (change.entity === "discovery.buyerOffer") {
+      const removedOfferIds = new Set(next.removedOfferIds);
+      if (change.op === "remove") removedOfferIds.add(change.id);
+      if (change.op === "upsert") removedOfferIds.delete(change.id);
       next = {
         ...next,
         offer_demand_matches: applyEntityListPatch(next.offer_demand_matches, "offer_id", change),
+        removedOfferIds: [...removedOfferIds],
+        ...(change.op === "upsert" ? { latestOfferUpsert: patch } : {}),
       };
     }
 

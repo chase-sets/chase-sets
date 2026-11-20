@@ -96,10 +96,10 @@ function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
   };
 }
 
-const sellerVisibilitySql = `
+const sellerVisibilitySql = (checkProjectedOffersAway = true) => `
 (
   (
-    ${buyerVisibleOfferPredicateSql("offer", "buyer")}
+    ${buyerVisibleOfferPredicateSql("offer", "buyer", checkProjectedOffersAway)}
     AND EXISTS (
       SELECT 1
       FROM marketplace_listing_pages AS listing
@@ -275,16 +275,20 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
   END AS managed_status`;
 }
 
-function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string) {
+function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string, checkProjectedOffersAway = true) {
   return `${offerAlias}.status = 'submitted'
     AND ${offerAlias}.price_currency_code IS NOT NULL
     AND ${offerAlias}.last_stream_version > 0
-    AND ${accountAlias}.status = 'active'
+    AND ${accountAlias}.status = 'active'${
+      checkProjectedOffersAway
+        ? `
     AND NOT EXISTS (
       SELECT 1 FROM marketplace_seller_listing_availability_pages AS buyer_availability
       WHERE buyer_availability.account_id = ${offerAlias}.buyer_account_id
         AND buyer_availability.offers_status = 'unavailable'
-    )`;
+    )`
+        : ""
+    }`;
 }
 
 function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
@@ -458,7 +462,7 @@ export async function listOfferMatches(
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
   const productIds = [...new Set((params.productIds ?? []).map((value) => value.trim()).filter(Boolean))];
-  const innerWhere = [`offer.status = 'submitted'`, sellerVisibilitySql];
+  const innerWhere = [`offer.status = 'submitted'`, sellerVisibilitySql()];
   const innerValues: unknown[] = [params.sellerAccountId];
   if (productIds.length > 0) {
     innerValues.push(productIds);
@@ -524,7 +528,7 @@ export async function getOfferMatch(
        ON availability.account_id = $1
      WHERE offer.offer_id = $2
        AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
-       AND ${sellerVisibilitySql}
+       AND ${sellerVisibilitySql()}
        AND ${sellerOfferControlsWhereSql()}`,
     [sellerAccountId, offerId],
   );
@@ -539,6 +543,7 @@ export async function getOfferMatchForListing(
   offerId: string,
   sellerAccountId: string,
   listingId: string,
+  { checkProjectedOffersAway = true }: { checkProjectedOffersAway?: boolean } = {},
 ): Promise<OfferMatchRow | null> {
   const result = await db.query<OfferMatchPageRow>(
     `SELECT
@@ -551,8 +556,8 @@ export async function getOfferMatchForListing(
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = $1
      WHERE offer.offer_id = $2
-       AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
-       AND ${sellerVisibilitySql}
+       AND ${buyerVisibleOfferPredicateSql("offer", "buyer", checkProjectedOffersAway)}
+       AND ${sellerVisibilitySql(checkProjectedOffersAway)}
        AND ${sellerOfferControlsWhereSql()}`,
     [sellerAccountId, offerId, listingId],
   );

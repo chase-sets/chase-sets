@@ -57,15 +57,15 @@
   "eventSubscriptions": [
     {
       "sourceContextName": "marketplace",
-      "projectionName": "discovery.buyer-offer-standing-projection",
-      "subscriptionName": "discovery.buyer-offer-standing-projection",
+      "projectionName": "discovery.offer-standing-projection",
+      "subscriptionName": "discovery.offer-standing-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.seller-listing-availability.offers-disabled",
         "marketplace.seller-listing-availability.offers-enabled"
       ],
-      "projectionHandlerSetNames": ["discovery.buyer-offer-standing-projection"]
+      "projectionHandlerSetNames": ["discovery.offer-standing-projection"]
     },
     {
       "sourceContextName": "discovery",
@@ -393,7 +393,7 @@
   ],
   "projectionGroups": [
     {
-      "projectionName": "discovery.buyer-offer-standing-projection",
+      "projectionName": "discovery.offer-standing-projection",
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["discovery_buyer_offer_standing"],
       "requiredDuringBootstrap": false,

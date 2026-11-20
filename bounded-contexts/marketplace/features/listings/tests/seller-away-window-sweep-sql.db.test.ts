@@ -4,6 +4,7 @@ import type { BcApiEntry, BcApiModule } from "@chase-sets/bounded-context-module
 import { bootstrapContextDatabase, drainContextRuntime } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import {
   closeMultiContextTestPools,
   createMountedContextTestRuntime,
@@ -15,6 +16,7 @@ import {
 import { module as marketplaceModule } from "../../../index";
 import type { MarketplaceServices } from "../../../support/runtime-support/services";
 import { listDueSellerAwayWindowStarts } from "../read-model/queries";
+import { buildMarketplaceSettlementNegativeBalanceProjectionHandlers } from "../integrations/settlement/negative-balance-projection";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
@@ -240,6 +242,62 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
       skipped: 0,
     });
   });
+
+  it.each(["offers", "both"] as const)(
+    "starts and restores the Offers leg of a pending %s window without releasing the settlement Listings disable",
+    async (scope) => {
+      const { runtime, services } = buildRuntime();
+      const accountId = "acc_settlement";
+      const startsAt = "2030-01-01T00:00:00.000Z";
+      const endsAt = "2030-01-10T00:00:00.000Z";
+      await services.listings.scheduleSellerAwayWindow(
+        listingTestCommand("seller.away", {
+          action: "schedule",
+          accountId,
+          startsAt,
+          endsAt,
+          reasonCategory: "travel",
+          scope,
+        }),
+        context(accountId),
+      );
+      await drainContextRuntime(runtime);
+
+      const type = "settlement.wallet.negative-balance-collections-opened";
+      await buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings)[type]!(
+        buildTransportEvent(type, { accountId }),
+      );
+      await drainContextRuntime(runtime);
+      expect(await services.listings.getSellerListingAvailability(accountId)).toMatchObject({
+        status: "unavailable",
+        offers_status: "available",
+        away_window_scope: "offers",
+      });
+      expect(await services.listings.sweepDueSellerAwayWindowStarts({ now: startsAt }, context("system"))).toEqual({
+        checked: 1,
+        started: 1,
+        skipped: 0,
+      });
+      await drainContextRuntime(runtime);
+      expect(await services.listings.getSellerListingAvailability(accountId)).toMatchObject({
+        status: "unavailable",
+        offers_status: "unavailable",
+        away_window_starts_at: null,
+      });
+      expect(await services.listings.sweepDueSellerAvailabilityRestores({ now: endsAt }, context("system"))).toEqual({
+        checked: 1,
+        restored: 1,
+        skipped: 0,
+      });
+      await drainContextRuntime(runtime);
+      expect(await services.listings.getSellerListingAvailability(accountId)).toMatchObject({
+        status: "unavailable",
+        disabled_reason_category: "operations",
+        available_again_at: null,
+        offers_status: "available",
+      });
+    },
+  );
 
   it("restores Offers-only at the retained deadline after narrowing from both", async () => {
     const { runtime, services } = buildRuntime();

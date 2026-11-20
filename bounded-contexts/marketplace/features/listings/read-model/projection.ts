@@ -596,13 +596,12 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         // as NULL, matching the replay-safe legacy ruling.
         availableAgainAt?: string | null;
         disabledAt: string;
+        preserveOtherSide?: true;
       };
 
-      // A disable (manual or scheduled) consumes any pending Away Window --
-      // the columns are cleared here unconditionally, mirroring the
-      // aggregate evolver.
+      const keepOffersWindow = "$7 AND availability.away_window_scope IN ('offers', 'both')";
       await db.query(
-        `INSERT INTO marketplace_seller_listing_availability_pages (
+        `INSERT INTO marketplace_seller_listing_availability_pages AS availability (
            account_id,
            status,
            disabled_reason_category,
@@ -622,10 +621,10 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            available_again_at = EXCLUDED.available_again_at,
            disabled_at = EXCLUDED.disabled_at,
            enabled_at = EXCLUDED.enabled_at,
-           away_window_starts_at = EXCLUDED.away_window_starts_at,
-           away_window_ends_at = EXCLUDED.away_window_ends_at,
-           away_window_reason_category = EXCLUDED.away_window_reason_category,
-           away_window_scope = DEFAULT,
+           away_window_starts_at = CASE WHEN ${keepOffersWindow} THEN availability.away_window_starts_at END,
+           away_window_ends_at = CASE WHEN ${keepOffersWindow} THEN availability.away_window_ends_at END,
+           away_window_reason_category = CASE WHEN ${keepOffersWindow} THEN availability.away_window_reason_category END,
+           away_window_scope = CASE WHEN ${keepOffersWindow} THEN 'offers' ELSE 'listings' END,
            updated_at = EXCLUDED.updated_at`,
         [
           data.accountId,
@@ -634,6 +633,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           data.availableAgainAt ?? null,
           data.disabledAt,
           event.timing.recordedAt,
+          data.preserveOtherSide === true,
         ],
       );
     },
@@ -686,26 +686,31 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       const projectionDb = resolveProjectionDb(context, db);
       const { accountId, reasonCategory, availableAgainAt } =
         event.data as ChaseSetsEventPayloads["marketplace.seller-listing-availability.offers-disabled"];
-      const previous = await projectionDb.query<{ offers_status: string }>(
-        "SELECT offers_status FROM marketplace_seller_listing_availability_pages WHERE account_id = $1",
-        [accountId],
-      );
-      await projectionDb.query(
-        `INSERT INTO marketplace_seller_listing_availability_pages
-           (account_id, offers_status, offers_reason_category, offers_available_again_at, updated_at)
-         VALUES ($1, 'unavailable', $2, $3, $4)
+      const flipped = await projectionDb.query(
+        `WITH previous AS (
+           SELECT availability.offers_status
+           FROM marketplace_seller_listing_availability_pages AS availability WHERE account_id = $1
+         ), updated AS (
+         INSERT INTO marketplace_seller_listing_availability_pages AS availability
+           (account_id, offers_status, offers_reason_category, offers_available_again_at, updated_at, offers_stream_version)
+         VALUES ($1, 'unavailable', $2, $3, $4, $5)
          ON CONFLICT (account_id) DO UPDATE SET
            offers_status = EXCLUDED.offers_status,
            offers_reason_category = EXCLUDED.offers_reason_category,
            offers_available_again_at = EXCLUDED.offers_available_again_at,
+           offers_stream_version = EXCLUDED.offers_stream_version,
            away_window_starts_at = NULL,
            away_window_ends_at = NULL,
            away_window_reason_category = NULL,
            away_window_scope = DEFAULT,
-           updated_at = EXCLUDED.updated_at`,
-        [accountId, reasonCategory, availableAgainAt, event.timing.recordedAt],
+           updated_at = EXCLUDED.updated_at
+         WHERE availability.offers_stream_version < EXCLUDED.offers_stream_version
+         RETURNING account_id
+         ) SELECT account_id FROM updated
+           WHERE COALESCE((SELECT previous.offers_status FROM previous), 'available') <> 'unavailable'`,
+        [accountId, reasonCategory, availableAgainAt, event.timing.recordedAt, event.streamVersion],
       );
-      if (previous.rows[0]?.offers_status !== "unavailable") {
+      if (flipped.rows.length > 0) {
         await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId, "-away");
       }
     },
@@ -713,17 +718,27 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       const projectionDb = resolveProjectionDb(context, db);
       const { accountId } =
         event.data as ChaseSetsEventPayloads["marketplace.seller-listing-availability.offers-enabled"];
-      await projectionDb.query(
-        `INSERT INTO marketplace_seller_listing_availability_pages (account_id, updated_at)
-         VALUES ($1, $2)
+      const flipped = await projectionDb.query(
+        `WITH previous AS (
+           SELECT availability.offers_status
+           FROM marketplace_seller_listing_availability_pages AS availability WHERE account_id = $1
+         ), updated AS (
+         INSERT INTO marketplace_seller_listing_availability_pages AS availability (account_id, updated_at, offers_stream_version)
+         VALUES ($1, $2, $3)
          ON CONFLICT (account_id) DO UPDATE SET
            offers_status = DEFAULT,
            offers_reason_category = NULL,
            offers_available_again_at = NULL,
-           updated_at = EXCLUDED.updated_at`,
-        [accountId, event.timing.recordedAt],
+           offers_stream_version = EXCLUDED.offers_stream_version,
+           updated_at = EXCLUDED.updated_at
+         WHERE availability.offers_stream_version < EXCLUDED.offers_stream_version
+         RETURNING account_id
+         ) SELECT account_id FROM updated WHERE (SELECT previous.offers_status FROM previous) = 'unavailable'`,
+        [accountId, event.timing.recordedAt, event.streamVersion],
       );
-      await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId, "-away");
+      if (flipped.rows.length > 0) {
+        await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId, "-away");
+      }
     },
     "marketplace.seller-order-capacity.cleared": async (event) => {
       const data = event.data as {

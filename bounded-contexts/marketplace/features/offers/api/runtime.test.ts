@@ -329,8 +329,10 @@ describe("marketplace offer runtime", () => {
     },
   );
 
-  function createSubmitOfferServices(db: { query: ReturnType<typeof vi.fn> }) {
-    const { eventStore } = createInMemoryEventStore();
+  function createSubmitOfferServices(
+    db: { query: ReturnType<typeof vi.fn> },
+    eventStore = createInMemoryEventStore().eventStore,
+  ) {
     return createMarketplaceOfferRuntime({
       db: db as never,
       eventStore,
@@ -349,6 +351,91 @@ describe("marketplace offer runtime", () => {
     };
   }
 
+  const submissionContext = {
+    tenantId: "tnt_marketplace",
+    audit: { performedByUserId: "usr_buyer", forAccountId: "acc_buyer" },
+  } as const;
+
+  async function makeSubmittingBuyerAway(store: EventStore) {
+    await store.appendToStream({
+      streamId: "marketplace.seller-listing-availability-acc_buyer",
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "marketplace.seller-listing-availability.offers-disabled",
+          payload: {
+            accountId: "acc_buyer",
+            reasonCategory: "travel",
+            availableAgainAt: null,
+            availableAgainOn: null,
+            disabledAt: "2030-01-01T00:00:00.000Z",
+            disabledBy: "seller",
+          },
+        },
+      ],
+      context: submissionContext,
+    });
+  }
+
+  function submissionDb() {
+    return {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("marketplace_catalog_items") ? [activeCatalogItem()] : [],
+      })),
+    };
+  }
+
+  it.each(["already Away", "goes Away before append"])(
+    "returns 409 and writes no Offer or receipt when the submitting buyer %s",
+    async (when) => {
+      const { eventStore } = createInMemoryEventStore();
+      if (when === "already Away") await makeSubmittingBuyerAway(eventStore);
+      else {
+        const append = eventStore.appendToStreams!.bind(eventStore);
+        vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (inputs) => {
+          await makeSubmittingBuyerAway(eventStore);
+          return append(inputs);
+        });
+      }
+      const app = new Hono<MarketplaceApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", {
+          sessionId: "ses_buyer",
+          tenantId: submissionContext.tenantId,
+          userId: "usr_buyer",
+          accountId: "acc_buyer",
+          membershipId: "mbr_buyer",
+          roleKey: "owner",
+          permissions: ["offers.manage"],
+        });
+        c.set("context", submissionContext);
+        await next();
+      });
+      app.route("/account", createAccountSubmittedOfferRoutes(createSubmitOfferServices(submissionDb(), eventStore)));
+      const response = await app.request("/account/offers/submitted", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...submissionRequest, offerId: "off_away" }),
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: { code: "offer_not_open" } });
+      expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
+        "marketplace.seller-listing-availability.offers-disabled",
+      ]);
+    },
+  );
+
+  it("replays a completed submission while Away without appending again", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const offers = createSubmitOfferServices(submissionDb(), eventStore);
+    const request = { ...submissionRequest, buyerAccountId: "acc_buyer" as const };
+    const first = await offers.submitOffer(request, submissionContext);
+    await makeSubmittingBuyerAway(eventStore);
+    const before = await eventStore.readAll();
+    expect(await offers.submitOffer(request, submissionContext)).toEqual(first);
+    expect(await eventStore.readAll()).toEqual(before);
+  });
+
   function activeListingGuard(overrides: Record<string, unknown> = {}) {
     return {
       listing_id: "lst_1",
@@ -364,30 +451,27 @@ describe("marketplace offer runtime", () => {
     };
   }
 
+  function submissionParams(priceAmount = "80.00") {
+    return {
+      attemptId: "test_attempt_9545_identity",
+      buyerAccountId: "acc_buyer" as never,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+      priceAmount,
+      priceCurrencyCode: "USD",
+      quantityRequested: 1,
+    };
+  }
+
+  const submissionRequest = submissionParams();
+
   async function submitOfferWithDb(db: { query: ReturnType<typeof vi.fn> }, priceAmount = "80.00") {
-    return createSubmitOfferServices(db).submitOffer(
-      {
-        attemptId: "test_attempt_9545_identity",
-        buyerAccountId: "acc_buyer" as never,
-        catalogItemId: "cat_charizard",
-        productId: "cat_charizard::",
-        itemTitle: "Charizard",
-        itemSubtitle: null,
-        selectedOptions: [],
-        productSummary: null,
-        shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
-        priceAmount,
-        priceCurrencyCode: "USD",
-        quantityRequested: 1,
-      },
-      {
-        tenantId: "tnt_marketplace" as never,
-        audit: {
-          performedByUserId: "usr_buyer" as never,
-          forAccountId: "acc_buyer" as never,
-        },
-      },
-    );
+    return createSubmitOfferServices(db).submitOffer(submissionParams(priceAmount), submissionContext);
   }
 
   it("enforces buyer daily submission caps before submitting an offer", async () => {

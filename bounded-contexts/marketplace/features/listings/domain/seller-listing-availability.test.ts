@@ -721,19 +721,57 @@ describe("independent Away scopes", () => {
     expect(events.reduce(evolveSellerListingAvailability, offers).offers).toEqual(offers.offers);
   });
 
-  it("keeps the Offers deadline when narrowing and checks the instant of the requested side", () => {
-    const both = set("both");
-    const narrow = { ...away, scope: "offers", availableAgainAt: null } as const;
-    const events = decideSellerListingAvailability(both, narrow);
-    expect(eventNames(events)).toEqual(["enabled"]);
-    const offers = events.reduce(evolveSellerListingAvailability, both);
-    expect(offers.offers).toEqual(both.offers);
-    expect(decideSellerListingAvailability(offers, narrow)).toEqual([]);
-    expect(
-      decideSellerListingAvailability(offers, { ...enabled, scope: "offers", dueBy: "2030-01-01T00:00:00Z" }),
-    ).toEqual([]);
-    expect(eventNames(decideSellerListingAvailability(offers, { ...enabled, scope: "offers", dueBy: resume }))).toEqual(
-      ["offers-enabled"],
-    );
-  });
+  it.each(["offers", "both"] as const)(
+    "keeps the Offers leg of a pending %s window through settlement's Listings disable",
+    (scope) => {
+      const pending = decideSellerListingAvailability(initial, {
+        type: "ScheduleSellerAwayWindow",
+        accountId: away.accountId,
+        startsAt: "2030-01-20T00:00:00Z",
+        endsAt: resume,
+        reasonCategory: "travel",
+        scheduledAt: away.disabledAt,
+        scope,
+      }).reduce(evolveSellerListingAvailability, initial);
+      const events = decideSellerListingAvailability(pending, {
+        ...away,
+        preserveOtherSide: true,
+        reasonCategory: "operations",
+        availableAgainAt: null,
+      });
+      expect(eventNames(events)).toEqual(["disabled"]);
+      expect(events.reduce(evolveSellerListingAvailability, pending)).toMatchObject({
+        status: "unavailable",
+        disabledReasonCategory: "operations",
+        offers: { status: "available" },
+        pendingAwayWindow: { ...pending.pendingAwayWindow, scope: "offers" },
+      });
+    },
+  );
+
+  it.each(["listings", "offers"] as const)(
+    "keeps the %s deadline when narrowing and checks the retained instant",
+    (scope) => {
+      const both = set("both");
+      const other = scope === "offers" ? "listings" : "offers";
+      const details = (state: typeof both) => (scope === "offers" ? state.offers : state);
+      const narrow = { ...away, scope, availableAgainAt: null } as const;
+      const events = decideSellerListingAvailability(both, narrow);
+      const enableOther = other === "offers" ? "offers-enabled" : "enabled";
+      const enableRetained = scope === "offers" ? "offers-enabled" : "enabled";
+      expect(eventNames(events)).toEqual([enableOther]);
+      const narrowed = events.reduce(evolveSellerListingAvailability, both);
+      expect(details(narrowed).availableAgainAt).toBe(resume);
+      expect(decideSellerListingAvailability(narrowed, { ...enabled, scope, dueBy: "2030-01-01T00:00:00Z" })).toEqual(
+        [],
+      );
+      expect(eventNames(decideSellerListingAvailability(narrowed, { ...enabled, scope, dueBy: resume }))).toEqual([
+        enableRetained,
+      ]);
+
+      const newResume = "2030-03-01T00:00:00.000Z";
+      const explicit = decideSellerListingAvailability(both, { ...narrow, availableAgainAt: newResume });
+      expect(details(explicit.reduce(evolveSellerListingAvailability, both)).availableAgainAt).toBe(newResume);
+    },
+  );
 });

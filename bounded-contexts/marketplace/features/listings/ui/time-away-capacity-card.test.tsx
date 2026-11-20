@@ -61,6 +61,37 @@ describe("TimeAwayCapacityCard states", () => {
     fireEvent.click(within(choice).getByRole("radio", { name: "Offers" }));
     expect(new FormData(form).get("scope")).toBe("offers");
   });
+
+  it("keeps a prefilled Resume Instant exact and only submits a new date when entered after narrowing", () => {
+    const resume = "2030-02-01T08:29:00.000Z";
+    render(
+      <TimeAwayCapacityCard
+        {...snapshot({
+          availability: availability({
+            status: "unavailable",
+            offers_status: "unavailable",
+            available_again_on: "2030-02-01",
+            available_again_at: resume,
+            offers_available_again_at: resume,
+          }),
+        })}
+      />,
+    );
+    const choice = screen.getByRole("radiogroup", { name: "What does Away cover?" });
+    const form = choice.closest("form")!;
+    fireEvent.submit(form);
+    expect(new FormData(form).get("availableAgainAt")).toBe(resume);
+    for (const scope of ["Listings", "Offers"]) {
+      fireEvent.click(within(choice).getByRole("radio", { name: scope }));
+      fireEvent.submit(form);
+      expect(new FormData(form).get("availableAgainOn")).toBe("");
+      expect(new FormData(form).get("availableAgainAt")).toBe("");
+    }
+    const on = form.elements.namedItem("availableAgainOn") as HTMLInputElement;
+    fireEvent.change(on, { target: { value: "2030-02-02" } });
+    fireEvent.submit(form);
+    expect(new FormData(form).get("availableAgainAt")).toBe(new Date("2030-02-02T00:00:00").toISOString());
+  });
   // State 1: available (and capacity unset) -- status badge, impact preview,
   // schedule-away-window affordance, and "no cap set" capacity copy.
   it("renders the available state with the impact preview and a schedulable away window", () => {

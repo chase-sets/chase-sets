@@ -129,6 +129,7 @@ ALTER TABLE marketplace_seller_listing_availability_pages
   ADD COLUMN IF NOT EXISTS away_window_reason_category text NULL,
   ADD COLUMN IF NOT EXISTS away_window_scope text NOT NULL DEFAULT 'listings',
   ADD COLUMN IF NOT EXISTS offers_status text NOT NULL DEFAULT 'available',
+  ADD COLUMN IF NOT EXISTS offers_stream_version integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS offers_available_again_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS offers_reason_category text NULL;
 

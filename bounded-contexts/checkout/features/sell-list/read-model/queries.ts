@@ -12,15 +12,19 @@ import { realTimestamp } from "./seller-checkout-owner-reads";
 
 type CheckoutCommercialAccountType = "personal" | "business" | "enterprise";
 
+function offersNotAwaySql(buyerAccountId: string): string {
+  return `NOT EXISTS (
+      SELECT 1 FROM checkout_buyer_offer_standing AS standing
+      WHERE standing.account_id = ${buyerAccountId} AND standing.offers_away
+    )`;
+}
+
 function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string): string {
   return `${offerAlias}.status = 'submitted'
     AND ${offerAlias}.price_currency_code IS NOT NULL
     AND ${offerAlias}.last_stream_version > 0
     AND ${accountAlias}.status = 'active'
-    AND NOT EXISTS (
-      SELECT 1 FROM checkout_buyer_offer_standing AS standing
-      WHERE standing.account_id = ${offerAlias}.buyer_account_id AND standing.offers_away
-    )`;
+    AND ${offersNotAwaySql(`${offerAlias}.buyer_account_id`)}`;
 }
 
 export type CheckoutCommercialTermsResolver = Readonly<{
@@ -841,6 +845,7 @@ async function getSellOffer(db: PgQueryable, offerId: string) {
        updated_at::text AS updated_at
      FROM checkout_sell_offer_pages
      WHERE offer_id = $1
+       AND ${offersNotAwaySql("checkout_sell_offer_pages.buyer_account_id")}
      LIMIT 1`,
     [offerId],
   );
@@ -1073,7 +1078,7 @@ export async function loadCheckoutSellListRawReview(
       const evidence = match ? await getCheckoutListingEvidenceCoverage(db, match.listing_id) : null;
       try {
         if (!offer) {
-          throw new Error("Offer not found.");
+          throw new Error("Offer is unavailable.");
         }
         if (!selectedOfferMatchesLine(offer, line)) {
           throw new Error("Selected offer no longer matches this Sell List line.");

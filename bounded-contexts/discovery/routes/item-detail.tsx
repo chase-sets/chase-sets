@@ -4,9 +4,10 @@ import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
+import { useEffect } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
+import { applyDiscoveryItemPatch, type DiscoveryItemRealtimeSnapshot } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import { discoveryAssetUrls } from "../support/client-support/assets";
@@ -186,13 +187,18 @@ function DiscoveryItemDetailRealtimeView({
 }) {
   const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const actionErrorMessage = getActionErrorMessage(actionData);
-  const realtimeItem = useRealtimePatchedSnapshot({
+  const realtimeItem = useRealtimePatchedSnapshot<DiscoveryItemRealtimeSnapshot | null>({
     initialSnapshot: data.item,
     snapshotKey: JSON.stringify(data.item),
     topics: data.item ? discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id).topics : [],
     applyPatch: applyDiscoveryItemPatch,
     onSyncRequired: revalidateForRealtimeSync,
   });
+  const latestOfferUpsert = realtimeItem?.latestOfferUpsert;
+  useEffect(() => {
+    // Public patches do not carry the seller's account-scoped terms.
+    if (data.viewerAccountId && latestOfferUpsert) revalidateForRealtimeSync();
+  }, [data.viewerAccountId, latestOfferUpsert, revalidateForRealtimeSync]);
   const productJsonLd = realtimeItem
     ? buildItemDetailProductJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
     : null;

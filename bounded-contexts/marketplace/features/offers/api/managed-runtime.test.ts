@@ -7,25 +7,26 @@ import { managedFixture } from "../tests/managed-fixture";
 import { context, terms } from "../../offer-policy/tests/fixtures";
 
 describe("managed Offer application and commitment", () => {
+  const buyerAvailabilityStream = "marketplace.seller-listing-availability-acc_buyer";
+  const away = {
+    eventType: "marketplace.seller-listing-availability.offers-disabled",
+    payload: {
+      accountId: "acc_buyer",
+      reasonCategory: "travel",
+      availableAgainAt: null,
+      availableAgainOn: null,
+      disabledAt: "2030-01-01T00:00:00Z",
+      disabledBy: "seller",
+    },
+  } as const;
+
   it("rejects Offers-away from the owner stream without relying on the read model", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     const params = await f.acceptance();
     await f.store.appendToStream({
-      streamId: "marketplace.seller-listing-availability-acc_buyer",
+      streamId: buyerAvailabilityStream,
       expectedVersion: "no_stream",
-      events: [
-        {
-          eventType: "marketplace.seller-listing-availability.offers-disabled",
-          payload: {
-            accountId: "acc_buyer",
-            reasonCategory: "travel",
-            availableAgainAt: null,
-            availableAgainOn: null,
-            disabledAt: "2030-01-01T00:00:00Z",
-            disabledBy: "seller",
-          },
-        },
-      ],
+      events: [away],
       context,
     });
     f.evaluateTargets.mockClear();
@@ -36,6 +37,57 @@ describe("managed Offer application and commitment", () => {
       }),
     ).rejects.toMatchObject({ code: "offer_not_open" });
     expect(f.evaluateTargets).not.toHaveBeenCalled();
+  });
+
+  it("accepts after authoritative resume even when the Match read still says Away", async () => {
+    const f = await managedFixture(createInMemoryEventStore().eventStore);
+    const params = await f.acceptance();
+    await f.store.appendToStream({
+      streamId: buyerAvailabilityStream,
+      expectedVersion: "no_stream",
+      events: [
+        away,
+        {
+          eventType: "marketplace.seller-listing-availability.offers-enabled",
+          payload: { accountId: "acc_buyer", enabledAt: "2030-01-02T00:00:00Z", enabledBy: "seller" },
+        },
+      ],
+      context,
+    });
+    const rows = await f.db.query();
+    f.db.query.mockImplementation(async (sql?: string) =>
+      sql?.includes("buyer_availability.offers_status") ? { rows: [], rowCount: 0 } : rows,
+    );
+    await expect(f.offers.previewOfferAcceptanceTerms(params)).rejects.toThrow();
+    await expect(
+      f.offers.acceptOffer(params, {
+        ...context,
+        audit: { ...context.audit, forAccountId: params.sellerAccountId },
+      }),
+    ).resolves.toMatchObject({ offerId: params.offerId });
+  });
+
+  it("fails atomically with offer_not_open if the buyer goes Away during acceptance", async () => {
+    const f = await managedFixture(createInMemoryEventStore().eventStore);
+    const params = await f.acceptance();
+    const commit = f.store.appendToStreams!.bind(f.store);
+    vi.spyOn(f.store, "appendToStreams").mockImplementationOnce(async (inputs) => {
+      await f.store.appendToStream({
+        streamId: buyerAvailabilityStream,
+        expectedVersion: "no_stream",
+        events: [away],
+        context,
+      });
+      return commit(inputs);
+    });
+    const before = await f.store.readAll();
+    await expect(
+      f.offers.acceptOffer(params, {
+        ...context,
+        audit: { ...context.audit, forAccountId: params.sellerAccountId },
+      }),
+    ).rejects.toMatchObject({ code: "offer_not_open" });
+    expect((await f.store.readAll()).slice(before.length).map((event) => event.eventType)).toEqual([away.eventType]);
   });
   it("rejects a policy-bound suspended buyer before managed acceptance", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
@@ -279,8 +331,8 @@ describe("managed Offer application and commitment", () => {
       ["marketplace.offer-policy-bop_one", 3],
       ["marketplace.offer-off_two", 2],
       ["marketplace.listing-lst_two", 2],
-      ["marketplace.seller-listing-availability-acc_two", "no_stream"],
       ["marketplace.seller-listing-availability-acc_buyer", "no_stream"],
+      ["marketplace.seller-listing-availability-acc_two", "no_stream"],
       [expect.stringMatching(/^marketplace\.offer-acceptance-attempt-v1-/), "no_stream"],
     ]);
   });

@@ -14,6 +14,7 @@ class ProductAlertProjectionDb implements PgQueryable {
   public readonly activities = new Map<string, Row>();
   public readonly accounts = new Map<string, Row>();
   public readonly suppression = new Map<string, boolean>();
+  public readonly publicOffersAway = new Set<string>();
   public readonly notifications = new Set<string>();
 
   async query<T = Row>(sql: string, values: readonly unknown[] = []): Promise<PgQueryResult<T>> {
@@ -31,7 +32,10 @@ class ProductAlertProjectionDb implements PgQueryable {
               {
                 ...row,
                 owner_account_status: account?.status ?? "active",
-                buyer_offers_away: this.suppression.get(String(row.owner_account_id)) ?? false,
+                buyer_offers_away:
+                  (sql.includes("JOIN discovery_buyer_offer_standing") &&
+                    this.publicOffersAway.has(String(row.owner_account_id))) ||
+                  (this.suppression.get(String(row.owner_account_id)) ?? false),
                 seller_listing_availability_status: listingAvailability,
               },
             ]
@@ -142,7 +146,7 @@ function marketplaceEvent(
 }
 
 describe("Product Alert notification projector", () => {
-  it("suppresses a new Offer while Away even before public standing catches up", async () => {
+  it("suppresses an Offer during Away and alerts on a later Offer after resume despite public standing lag", async () => {
     const db = new ProductAlertProjectionDb();
     db.alerts.set("alert_open", {
       alert_id: "alert_open",
@@ -152,8 +156,8 @@ describe("Product Alert notification projector", () => {
       product_id: "prd_away",
       threshold_amount: null,
     });
-    const outbox = { enqueue: vi.fn() } as never;
-    const handlers = buildProductAlertNotificationProjectionHandlers(db, outbox);
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+    const handlers = buildProductAlertNotificationProjectionHandlers(db, outbox as never);
     await handlers["marketplace.seller-listing-availability.offers-disabled"]!(
       marketplaceEvent("marketplace.seller-listing-availability.offers-disabled", { accountId: "acc_away" }),
     );
@@ -170,6 +174,17 @@ describe("Product Alert notification projector", () => {
     await handlers["marketplace.offer.submitted"]!(marketplaceEvent("marketplace.offer.submitted", payload));
     expect(db.activities.get("off_away")?.status).toBe("submitted");
     expect(db.notifications.size).toBe(0);
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+
+    db.publicOffersAway.add("acc_away");
+    await handlers["marketplace.seller-listing-availability.offers-enabled"]!(
+      marketplaceEvent("marketplace.seller-listing-availability.offers-enabled", { accountId: "acc_away" }, 2),
+    );
+    await handlers["marketplace.offer.submitted"]!(
+      marketplaceEvent("marketplace.offer.submitted", { ...payload, offerId: "off_resumed" }),
+    );
+    expect([...db.notifications]).toEqual(["alert_open:off_resumed:offer"]);
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
   });
   const removal = {
     reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",

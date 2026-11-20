@@ -2,13 +2,13 @@
   "contextName": "discovery",
   "runners": [
     {
-      "subscriptionName": "discovery.buyer-offer-standing-projection",
+      "subscriptionName": "discovery.offer-standing-projection",
       "handlerKind": "projection",
-      "projectionName": "discovery.buyer-offer-standing-projection",
+      "projectionName": "discovery.offer-standing-projection",
       "sourceContextName": "marketplace",
       "targetContextName": "discovery",
       "subscriptionVersion": 1,
-      "checkpointKey": "discovery.buyer-offer-standing-projection:marketplace:v1",
+      "checkpointKey": "discovery.offer-standing-projection:marketplace:v1",
       "handlers": {
         "marketplace.seller-listing-availability.offers-disabled": "<function>",
         "marketplace.seller-listing-availability.offers-enabled": "<function>"
@@ -666,10 +666,10 @@
   ],
   "subscriptions": [
     {
-      "subscriptionName": "discovery.buyer-offer-standing-projection",
+      "subscriptionName": "discovery.offer-standing-projection",
       "handlerKind": "projection",
       "sourceContextName": "marketplace",
-      "projectionName": "discovery.buyer-offer-standing-projection",
+      "projectionName": "discovery.offer-standing-projection",
       "subscriptionVersion": 1,
       "handlers": {
         "marketplace.seller-listing-availability.offers-disabled": "<function>",

@@ -118,7 +118,7 @@ describeDb("Discovery Listing and Offer visibility parity on Postgres", () => {
         [`off_${slug}`, buyerAccountId],
       );
       const subscriptions = discoveryModule.buildSubscriptions!(createDiscoveryServices(pool));
-      const standing = subscriptions.find((sub) => sub.projectionName === "discovery.buyer-offer-standing-projection")!;
+      const standing = subscriptions.find((sub) => sub.projectionName === "discovery.offer-standing-projection")!;
       if (slug === "away") {
         await pool.query(`INSERT INTO discovery_market_accounts (account_id, seller_slug, status)
         VALUES ('acc_away', 'away', 'active');

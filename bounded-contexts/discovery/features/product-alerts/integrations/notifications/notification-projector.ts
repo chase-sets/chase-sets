@@ -182,8 +182,8 @@ export function buildProductAlertNotificationProjectionHandlers(
   outbox: NotificationOutbox,
   projectionName = DISCOVERY_PRODUCT_ALERT_NOTIFICATION_PROJECTION,
 ): ProjectorHandlerMap {
-  // The alert subscription must observe Away before later Offer facts even if
-  // the independent standing projection has not caught up yet.
+  // This subscription orders Away and Offer facts together. The independent
+  // public standing projection can trail either a disable or an enable.
   const recordSuppression =
     (offersAway: boolean): ProjectorHandlerMap[string] =>
     async (event, context) => {
@@ -501,15 +501,13 @@ async function loadMarketActivity(db: PgQueryable, activityId: string): Promise<
        activity.quantity,
        activity.status,
        COALESCE(account.status, 'active') AS owner_account_status,
-       (COALESCE(standing.offers_away, FALSE) OR COALESCE(suppression.offers_away, FALSE)) AS buyer_offers_away,
+       COALESCE(suppression.offers_away, FALSE) AS buyer_offers_away,
        COALESCE(account.seller_listing_availability_status, 'available') AS seller_listing_availability_status,
        activity.created_at,
        activity.updated_at
      FROM discovery_product_alert_market_activity AS activity
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = activity.owner_account_id
-     LEFT JOIN discovery_buyer_offer_standing AS standing
-       ON standing.account_id = activity.owner_account_id
      LEFT JOIN discovery_product_alert_offer_suppression AS suppression
        ON suppression.account_id = activity.owner_account_id
      WHERE activity.activity_id = $1`,

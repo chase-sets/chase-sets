@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -15,7 +15,13 @@ import {
   buildCheckoutIdentitySellerAccountsProjectionHandlers,
   createSellerSlug,
 } from "../features/cart/integrations/identity/identity-projection";
-import { getCheckoutSellOfferMatch, listCheckoutSellOfferMatches } from "../features/sell-list/read-model/queries";
+import {
+  getCheckoutSellOfferMatch,
+  listCheckoutSellOfferMatches,
+  loadCheckoutSellListRawReview,
+  type CheckoutSellListTermsPreview,
+} from "../features/sell-list/read-model/queries";
+import { fixtureLine } from "../features/sell-list/api/owner-read.fixture";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI)
@@ -123,31 +129,105 @@ describeDb("Checkout account status visibility on Postgres", () => {
     };
   }
 
-  it("projects Offers-away without an account mirror, rejects stale flips, and hides Sell List Matches", async () => {
-    const subscription = checkoutModule.buildSubscriptions!(createCheckoutServices(pool)).find(
-      (sub) => sub.projectionName === "checkout.buyer-offer-standing-projection",
-    )!;
-    const apply = async (suffix: string, version: number, accountId: string) => {
-      const type = `marketplace.seller-listing-availability.${suffix}`;
-      expect(subscription.eventTypes).toContain(type);
-      await subscription.handlers[type]!(
-        identityEvent(type, `marketplace.seller-listing-availability-${accountId}`, version, { accountId }),
+  it.each([false, true])(
+    "selected and suggested Sell List Offers follow standing before quoting (owner quote port: %s)",
+    async (withQuotePort) => {
+      const subscription = checkoutModule.buildSubscriptions!(createCheckoutServices(pool)).find(
+        (sub) => sub.projectionName === "checkout.offer-standing-projection",
+      )!;
+      const apply = async (suffix: string, version: number, accountId: string) => {
+        const type = `marketplace.seller-listing-availability.${suffix}`;
+        expect(subscription.eventTypes).toContain(type);
+        await subscription.handlers[type]!(
+          identityEvent(type, `marketplace.seller-listing-availability-${accountId}`, version, { accountId }),
+        );
+      };
+      const item = { catalog_catalog_item_id: "cat_one", product_id: "cat_one::", item_title: "Item" };
+      const selected = {
+        ...fixtureLine,
+        ...item,
+        offer_id: "off_one",
+        offer_price_amount: "80.00",
+        offer_stream_version: 2,
+      };
+      const suggested = { ...fixtureLine, ...item, line_type: "product" as const, offer_id: null, listing_id: null };
+      const resolvedAt = "2026-10-17T00:00:00.000Z";
+      const quote = vi.fn(
+        async (): Promise<CheckoutSellListTermsPreview> => ({
+          account_type: "personal",
+          basis_amount: "80.00",
+          marketplace_sales_fee_unit_amount: "0.00",
+          seller_net_unit_amount: "80.00",
+          shipping_allowance_percentage_bps: 500,
+          schedule_id: null,
+          agreement_id: null,
+          resolved_at: resolvedAt,
+          fee_quote_fingerprint: "synthetic_quote",
+        }),
       );
-    };
-    await apply("offers-disabled", 3, "acc_no_mirror");
-    await apply("offers-disabled", 3, "acc_buyer");
-    await apply("offers-enabled", 2, "acc_buyer");
-    expect((await pool.query("SELECT * FROM checkout_buyer_offer_standing ORDER BY account_id")).rows).toEqual([
-      { account_id: "acc_buyer", away_stream_version: 3, offers_away: true },
-      { account_id: "acc_no_mirror", away_stream_version: 3, offers_away: true },
-    ]);
-    expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toBeNull();
-    expect(
-      await listCheckoutSellOfferMatches(pool, { sellerAccountId: "acc_seller", productIds: ["cat_one::"] }),
-    ).toEqual([]);
-    await apply("offers-enabled", 4, "acc_buyer");
-    expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toMatchObject({ offer_id: "off_one" });
-  });
+      const fallback = vi.fn(async () => ({
+        accountType: "personal" as const,
+        basisAmount: "80.00",
+        marketplaceSalesFeeUnitAmount: "0.00",
+        sellerNetUnitAmount: "80.00",
+        shippingAllowancePercentageBps: 500,
+        scheduleId: null,
+        agreementId: null,
+        resolvedAt,
+      }));
+      const review = (line: typeof fixtureLine) =>
+        loadCheckoutSellListRawReview(
+          pool,
+          {
+            resolveListingTerms: fallback,
+            resolvePublicStandardListingTerms: async () => {
+              throw new Error("No standard comparison was requested.");
+            },
+          },
+          {
+            sellerAccountId: "acc_seller",
+            lines: [line],
+            ...(withQuotePort ? { offerAcceptanceTermsSource: { previewOfferAcceptanceTerms: quote } } : {}),
+          },
+        );
+      await apply("offers-disabled", 3, "acc_no_mirror");
+      await apply("offers-disabled", 3, "acc_buyer");
+      await apply("offers-enabled", 2, "acc_buyer");
+      expect((await pool.query("SELECT * FROM checkout_buyer_offer_standing ORDER BY account_id")).rows).toEqual([
+        { account_id: "acc_buyer", away_stream_version: 3, offers_away: true },
+        { account_id: "acc_no_mirror", away_stream_version: 3, offers_away: true },
+      ]);
+      expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toBeNull();
+      expect(
+        await listCheckoutSellOfferMatches(pool, { sellerAccountId: "acc_seller", productIds: ["cat_one::"] }),
+      ).toEqual([]);
+      for (const listing_id of [null, "lst_one"]) {
+        expect((await review({ ...selected, listing_id })).offerReviews[0]).toMatchObject({
+          lineId: selected.line_id,
+          status: "unavailable",
+          terms: null,
+        });
+      }
+      expect((await review(suggested)).productOfferReviews[0]).toMatchObject({ status: "unavailable", offers: [] });
+      expect(quote).not.toHaveBeenCalled();
+      expect(fallback).not.toHaveBeenCalled();
+
+      await apply("offers-enabled", 4, "acc_buyer");
+      expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toMatchObject({ offer_id: "off_one" });
+      for (const listing_id of [null, "lst_one"]) {
+        expect((await review({ ...selected, listing_id })).offerReviews[0]).toMatchObject({
+          lineId: selected.line_id,
+          status: "ready",
+        });
+      }
+      expect((await review(suggested)).productOfferReviews[0]).toMatchObject({
+        status: "ready",
+        offers: [{ offer: { offer_id: "off_one" } }],
+      });
+      expect(quote).toHaveBeenCalledTimes(withQuotePort ? 2 : 0);
+      expect(fallback).toHaveBeenCalledTimes(withQuotePort ? 1 : 3);
+    },
+  );
 
   it("replays profile history without regressing status and hides/restores Offer matches", async () => {
     expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toMatchObject({ offer_id: "off_one" });

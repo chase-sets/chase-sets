@@ -98,7 +98,7 @@ describeDb("Offer account visibility on Postgres", () => {
     }));
   }
 
-  it("projects Listings-only legacy facts without hiding Offers, then removes and restores Offers on both realtime surfaces", async () => {
+  it("fences stale and duplicate Offers standing on public reads, seller Match patches and the buyer badge", async () => {
     const subscription = marketplaceModule.buildSubscriptions!(createMarketplaceServices(pool)).find(
       (candidate) => candidate.subscriptionName === "marketplace.self-listing-projection",
     )!;
@@ -144,11 +144,27 @@ describeDb("Offer account visibility on Postgres", () => {
         }),
       ]),
     );
+    const awayPatches = await patchRows();
+    await apply("offers-enabled", 2, { accountId: data.accountId, enabledAt: date });
+    await apply("offers-disabled", 3, data);
+    expect(await getPublicOffer(pool, "off_one")).toBeNull();
+    expect(await getOfferMatch(pool, "off_one", "acc_seller")).toBeNull();
+    expect((await listSubmittedOffers(pool, { buyerAccountId: "acc_buyer" })).items[0]?.offers_away).toBe(true);
+    expect(await patchRows()).toEqual(awayPatches);
+
     await apply("offers-enabled", 4, { accountId: data.accountId, enabledAt: date });
+    expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });
+    expect((await listSubmittedOffers(pool, { buyerAccountId: "acc_buyer" })).items[0]?.offers_away).toBe(false);
     expect(await getOfferMatch(pool, "off_one", "acc_seller")).toMatchObject({ offer_id: "off_one" });
     expect((await patchRows()).at(-1)?.changes).toEqual([
       expect.objectContaining({ op: "upsert", entity: "marketplace.offerMatch" }),
     ]);
+    const resumedPatches = await patchRows();
+    await apply("offers-disabled", 3, data);
+    await apply("offers-enabled", 4, { accountId: data.accountId, enabledAt: date });
+    expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });
+    expect((await listSubmittedOffers(pool, { buyerAccountId: "acc_buyer" })).items[0]?.offers_away).toBe(false);
+    expect(await patchRows()).toEqual(resumedPatches);
   });
 
   it("hides and restores every Offer read, and stale or duplicate lifecycle events are no-ops", async () => {

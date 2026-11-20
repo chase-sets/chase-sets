@@ -23,15 +23,15 @@
   "eventSubscriptions": [
     {
       "sourceContextName": "marketplace",
-      "projectionName": "checkout.buyer-offer-standing-projection",
-      "subscriptionName": "checkout.buyer-offer-standing-projection",
+      "projectionName": "checkout.offer-standing-projection",
+      "subscriptionName": "checkout.offer-standing-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.seller-listing-availability.offers-disabled",
         "marketplace.seller-listing-availability.offers-enabled"
       ],
-      "projectionHandlerSetNames": ["checkout.buyer-offer-standing-projection"]
+      "projectionHandlerSetNames": ["checkout.offer-standing-projection"]
     },
     {
       "sourceContextName": "catalog",
@@ -227,7 +227,7 @@
   ],
   "projectionGroups": [
     {
-      "projectionName": "checkout.buyer-offer-standing-projection",
+      "projectionName": "checkout.offer-standing-projection",
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["checkout_buyer_offer_standing"],
       "requiredDuringBootstrap": false,

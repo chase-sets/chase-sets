@@ -784,13 +784,14 @@ export async function listDueSellerAvailabilityRestores(
     `WITH candidates AS (
        (SELECT account_id, available_again_at AS resume_at
         FROM marketplace_seller_listing_availability_pages
-        WHERE status = 'unavailable' AND available_again_at <= $1::timestamptz
-        ORDER BY available_again_at, account_id LIMIT $2)
+        WHERE status = 'unavailable' AND available_again_at IS NOT NULL AND available_again_at <= $1::timestamptz
+        ORDER BY available_again_at ASC, account_id ASC LIMIT $2)
        UNION ALL
        (SELECT account_id, offers_available_again_at AS resume_at
         FROM marketplace_seller_listing_availability_pages
-        WHERE offers_status = 'unavailable' AND offers_available_again_at <= $1::timestamptz
-        ORDER BY offers_available_again_at, account_id LIMIT $2)
+        WHERE offers_status = 'unavailable' AND offers_available_again_at IS NOT NULL
+          AND offers_available_again_at <= $1::timestamptz
+        ORDER BY offers_available_again_at ASC, account_id ASC LIMIT $2)
      ), due AS (
        SELECT account_id, MIN(resume_at) AS resume_at
        FROM candidates GROUP BY account_id

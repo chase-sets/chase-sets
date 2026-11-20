@@ -70,15 +70,19 @@ function localDateInputToInstant(value: string): string {
 type LocalDateInstantField = Readonly<{
   dateFieldName: string;
   instantFieldName: string;
+  existing?: { date: string | null; instant: string | null };
 }>;
 
 function populateLocalDateInstants(event: FormEvent<HTMLFormElement>, fields: readonly LocalDateInstantField[]): void {
-  for (const { dateFieldName, instantFieldName } of fields) {
+  for (const { dateFieldName, instantFieldName, existing } of fields) {
     const dateField = event.currentTarget.elements.namedItem(dateFieldName);
     const instantField = event.currentTarget.elements.namedItem(instantFieldName);
 
     if (dateField instanceof HTMLInputElement && instantField instanceof HTMLInputElement) {
-      instantField.value = localDateInputToInstant(dateField.value);
+      instantField.value =
+        existing?.instant && dateField.value === existing.date
+          ? existing.instant
+          : localDateInputToInstant(dateField.value);
     }
   }
 }
@@ -130,6 +134,7 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
   const eitherAway = !isAvailable || offersAway;
   const [scope, setScope] = useState("both");
   const offersOnly = scope === "offers";
+  const narrowingToListings = scope === "listings" && !isAvailable && offersAway;
 
   return (
     <Stack gap={4}>
@@ -209,7 +214,15 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
           method="post"
           onSubmit={(event) =>
             populateLocalDateInstants(event, [
-              { dateFieldName: "availableAgainOn", instantFieldName: "availableAgainAt" },
+              {
+                dateFieldName: "availableAgainOn",
+                instantFieldName: "availableAgainAt",
+                ...(offersOnly || narrowingToListings
+                  ? {}
+                  : {
+                      existing: { date: availability.available_again_on, instant: availability.available_again_at },
+                    }),
+              },
             ])
           }
         >
@@ -226,11 +239,13 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
                 items={reasonItems()}
               />
               <TextInput
-                key={offersOnly ? "offers-date" : "listings-date"}
+                key={scope}
                 label={t("marketplace.features.listings.ui.listingListPage.available.again.on")}
                 name="availableAgainOn"
                 type="date"
-                defaultValue={offersOnly ? undefined : (availability.available_again_on ?? undefined)}
+                defaultValue={
+                  offersOnly || narrowingToListings ? undefined : (availability.available_again_on ?? undefined)
+                }
                 description={
                   offersOnly && availability.offers_available_again_at
                     ? t("marketplace.features.listings.ui.listingListPage.away.offers.keep.date")

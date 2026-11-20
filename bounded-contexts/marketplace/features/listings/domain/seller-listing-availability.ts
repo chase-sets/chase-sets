@@ -179,6 +179,7 @@ export type SellerListingAvailabilityDisabledEvent = DomainEvent<
     availableAgainAt: string | null;
     disabledAt: string;
     disabledBy: SellerListingAvailabilityDisabledBy;
+    preserveOtherSide?: true;
   }
 >;
 
@@ -193,7 +194,7 @@ export type SellerListingAvailabilityEnabledEvent = DomainEvent<
 
 type SellerOffersDisabledEvent = DomainEvent<
   "marketplace.seller-listing-availability.offers-disabled",
-  SellerListingAvailabilityDisabledEvent["data"]
+  Omit<SellerListingAvailabilityDisabledEvent["data"], "preserveOtherSide">
 >;
 type SellerOffersEnabledEvent = DomainEvent<
   "marketplace.seller-listing-availability.offers-enabled",
@@ -409,10 +410,9 @@ export const decideSellerListingAvailability: AggregateDecider<
           continue;
         }
 
-        // Selecting Offers alone without a new date retains any existing Offers deadline.
         const retainDeadline =
           replaceScope &&
-          scope === "offers" &&
+          (scope === "offers" || (scope === "listings" && state.offers.status === "unavailable")) &&
           current.status === "unavailable" &&
           availableAgainAt === null &&
           availableAgainOn === null;
@@ -436,7 +436,10 @@ export const decideSellerListingAvailability: AggregateDecider<
         };
         events.push(
           side === "listings"
-            ? { type: "marketplace.seller-listing-availability.disabled", data }
+            ? {
+                type: "marketplace.seller-listing-availability.disabled",
+                data: { ...data, ...(command.preserveOtherSide ? { preserveOtherSide: true } : {}) },
+              }
             : { type: "marketplace.seller-listing-availability.offers-disabled", data },
         );
       }
@@ -447,7 +450,7 @@ export const decideSellerListingAvailability: AggregateDecider<
       // A scheduled disable (the window-start sweep consuming its own due
       // window) needs no separate cancellation event: the evolver clears
       // the pending window as part of applying the disabled fact itself.
-      if (disabledBy === "seller" && state.pendingAwayWindow !== null) {
+      if (replaceScope && state.pendingAwayWindow !== null) {
         events.push({
           type: "marketplace.seller-listing-availability.away-window-cancelled",
           data: { accountId, cancelledAt: disabledAt },
@@ -555,12 +558,11 @@ export const evolveSellerListingAvailability: AggregateEvolver<
         disabledBy: event.data.disabledBy ?? "seller",
         enabledAt: state.enabledAt,
         enabledBy: state.enabledBy,
-        // The disable consumes any pending window -- whether it's the
-        // window's own start sweep firing (implicit consumption) or a
-        // manual disable that already emitted an explicit
-        // `.away-window-cancelled` fact alongside this one, the window's
-        // relevance ends here either way.
-        pendingAwayWindow: null,
+        pendingAwayWindow:
+          event.data.preserveOtherSide &&
+          (state.pendingAwayWindow?.scope === "offers" || state.pendingAwayWindow?.scope === "both")
+            ? { ...state.pendingAwayWindow, scope: "offers" }
+            : null,
       };
     case "marketplace.seller-listing-availability.enabled":
       return {
