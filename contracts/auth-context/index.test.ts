@@ -15,6 +15,7 @@ import {
   resolveAgentOAuthScopedPermissions,
   emailVerificationSignInHref,
   permissionAwaitsEmailVerification,
+  type ResolvedActor,
 } from "./index";
 
 describe("email verification of withheld permissions", () => {
@@ -27,9 +28,11 @@ describe("email verification of withheld permissions", () => {
   it("names a permission as awaiting verification only when Auth said it withheld it for that", () => {
     expect(permissionAwaitsEmailVerification(member, "orders.manage")).toBe(true);
     // The role table is no longer read: an owner Auth withheld nothing from is not asked to verify.
-    expect(permissionAwaitsEmailVerification({ roleKey: "owner", permissions: ["orders.view"] }, "orders.manage")).toBe(
-      false,
-    );
+    const owner: Pick<ResolvedActor, "roleKey" | "permissions" | "withheldPermissions"> = {
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    };
+    expect(permissionAwaitsEmailVerification(owner, "orders.manage")).toBe(false);
     expect(permissionAwaitsEmailVerification({ ...member, withheldPermissions: [] }, "orders.manage")).toBe(false);
     expect(permissionAwaitsEmailVerification(null, "orders.manage")).toBe(false);
     expect(permissionAwaitsEmailVerification(member, "listings.manage")).toBe(false);

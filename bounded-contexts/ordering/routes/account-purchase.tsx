@@ -19,7 +19,7 @@ const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchase.inspect.a.pur
 // Cancel is offered only to an actor the action below admits; one whose
 // cancel permission Auth withholds pending email verification is told how to
 // verify instead, and no permission is granted here.
-function purchaseCancelAuthority(actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null) {
+function purchaseCancelAuthority(actor: Pick<ResolvedActor, "permissions" | "withheldPermissions"> | null) {
   if (actor?.permissions.includes("orders.manage")) {
     return "allowed" as const;
   }

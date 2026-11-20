@@ -10,7 +10,7 @@ export type CheckoutPaymentStartRefusalCode = "email_verification_required" | "a
  * other missing permission is not.
  */
 export function checkoutPaymentStartRefusalCode(
-  actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant">,
+  actor: Pick<ResolvedActor, "permissions" | "withheldPermissions">,
 ): CheckoutPaymentStartRefusalCode | null {
   if (actor.permissions.includes("orders.manage") || actor.permissions.includes("guest-checkout.manage")) {
     return null;
