@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
-import { createProjectionGroupRunnerName } from "@chase-sets/platform-runtime/worker";
+import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import {
+  createProjectionGroupRunnerName,
+  createWorkerRunnerLoop,
+  type WorkerRunnerLoop,
+} from "@chase-sets/platform-runtime/worker";
 import type {
   ProjectionWakeIntentCompletedEvent,
   ProjectionWakeSchedulerObserver,
@@ -11,7 +16,7 @@ import type { ProjectionWakeIntentEnqueuedEvent } from "@chase-sets/platform-run
 
 const mainSource = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
 
-function createWiring(text: string) {
+function createWiring(text: string, loop?: WorkerRunnerLoop, disabled = false) {
   const source = ts.createSourceFile("main.ts", text, ts.ScriptTarget.ES2022, true);
   const declarations = new Map<string, ts.VariableDeclaration>();
   let observerFactory: ts.FunctionDeclaration | undefined;
@@ -41,10 +46,12 @@ function createWiring(text: string) {
   const compiled = ts.transpileModule(
     [
       ...[
-        "pendingHotProjectionWakeKeys",
         "projectionWakeKey",
         "requestProjectionWakeLeaseHandoff",
         "completeProjectionWakeLeaseHandoff",
+        "projectionWakeDisabledProjectionKeys",
+        "projectionWakeSchedulerProjectionGroups",
+        "enabledProjectionWakeRunnerNames",
       ].map((name) => {
         expect(declarations.has(name)).toBe(true);
         return `const ${declarations.get(name)!.getText(source)};`;
@@ -52,21 +59,28 @@ function createWiring(text: string) {
       observerFactory!.getText(source),
       `const enqueue = ${property(declarations.get("workSignalStore")!, "projectionWakeIntentEnqueued").getText(source)};`,
       `const observer = ${property(declarations.get("projectionWakeRunners")!, "observer").getText(source)};`,
+      `const receive = ${property(declarations.get("projectionWakePushDispatcher")!, "notificationReceived").getText(source)};`,
     ].join("\n"),
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
   ).outputText;
-  const runner = { nudge: vi.fn(), completeProjectionWakeLeaseHandoff: vi.fn() };
+  const runner = { requestProjectionWakeLeaseHandoff: vi.fn(), completeProjectionWakeLeaseHandoff: vi.fn() };
   const recordOutcome = vi.fn();
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const wiring: {
     enqueue: (event: ProjectionWakeIntentEnqueuedEvent) => void;
     observer: ProjectionWakeSchedulerObserver;
-    pending: Set<string>;
-  } = runInNewContext(`${compiled}\n({ enqueue, observer, pending: pendingHotProjectionWakeKeys })`, {
+    receive: (event: { notification: { envelope: { kind: string; payload: object } } }) => void;
+  } = runInNewContext(`${compiled}\n({ enqueue, observer, receive })`, {
     createProjectionGroupRunnerName,
-    projectionRunnerLoop: runner,
+    projectionRunnerLoop: loop ?? runner,
     projectionWakeRunnerLoop: null,
-    config: { projectionWakeScheduler: { pushDispatchEnabled: false } },
+    config: {
+      projectionWakeDisabledProjections: disabled ? [`auth:${completed.projectionName}`] : [],
+      projectionWakeScheduler: { enabled: true, hotLaneRunnerCount: 1, maxAttempts: 3, pushDispatchEnabled: false },
+    },
+    runtime: {
+      projectionGroups: [completed, { targetContextName: "auth", projectionName: enabledSibling }],
+    },
     recordProjectionWakeIntentEnqueueOutcome: vi.fn(),
     recordProjectionWakeIntentOutcome: recordOutcome,
     logger,
@@ -93,29 +107,124 @@ const completed: ProjectionWakeIntentCompletedEvent = {
   processingDurationMs: 5,
 };
 
+const generation = { wakeIntentId: completed.wakeIntentId, requiredPosition: BigInt(completed.requiredPosition) };
+
 function enqueue(wiring: ReturnType<typeof createWiring>, priorityLane = completed.priorityLane) {
-  wiring.enqueue({
-    ...completed,
-    priorityLane,
-    outcome: "coalesced",
-    routingMode: "unspecified",
-  });
+  sendWake(wiring, "local", { priorityLane });
   return createProjectionGroupRunnerName(completed);
+}
+
+const enabledSibling = "auth-identity-session-projection";
+
+async function duringProductivePass(
+  probe: (wiring: ReturnType<typeof createWiring>) => void,
+  {
+    yields,
+    finish,
+    disabled,
+  }: { yields: boolean; finish?: (wiring: ReturnType<typeof createWiring>) => void; disabled?: boolean },
+) {
+  vi.useFakeTimers();
+  let runs = 0;
+  let finishPass!: () => void;
+  const firstPass = new Promise<void>((resolve) => {
+    finishPass = resolve;
+  });
+  const releaseLease = vi.fn(async () => {});
+  const granted: Partial<PlatformControlPlane> = {
+    acquireLease: async ({ leaseName, ownerId, ttlMs }) => ({
+      leaseName,
+      ownerId,
+      fencingToken: "1",
+      expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+    }),
+    renewLease: async () => true,
+    releaseLease,
+    recordRunnerStatus: async () => {},
+  };
+  const controlPlane = new Proxy(granted, {
+    get: (target, key) =>
+      Reflect.get(target, key) ??
+      (async () => {
+        throw new Error(`Unexpected synthetic control-plane call ${String(key)}.`);
+      }),
+  }) as PlatformControlPlane;
+  const loop = createWorkerRunnerLoop({
+    workerId: "synthetic-poller",
+    controlPlane,
+    runners: [
+      {
+        name: createProjectionGroupRunnerName(completed),
+        kind: "projection-group",
+        runOnce: async (context) => {
+          if (++runs === 1) await firstPass;
+          else
+            await new Promise<void>((resolve) =>
+              context?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+            );
+          return { processed: 1, lastGlobalPosition: "1" as never, state: "running" };
+        },
+      },
+    ],
+    maxConcurrentRunners: 1,
+    leaseTtlMs: 30_000,
+    leaseRenewIntervalMs: 10_000,
+    pollIntervalMs: 1_000,
+  });
+  try {
+    const wiring = createWiring(mainSource, loop, disabled);
+    loop.start();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runs).toBe(1);
+    probe(wiring);
+    finishPass();
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect({ runs, releases: releaseLease.mock.calls.length }).toEqual(
+      yields ? { runs: 1, releases: 1 } : { runs: 2, releases: 0 },
+    );
+    if (finish) {
+      finish(wiring);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runs).toBe(2);
+    }
+  } finally {
+    finishPass();
+    await loop.stop();
+    vi.useRealTimers();
+  }
+}
+
+function sendWake(
+  wiring: ReturnType<typeof createWiring>,
+  ingress: "local" | "listen",
+  overrides: Partial<ProjectionWakeIntentEnqueuedEvent> = {},
+) {
+  const payload = {
+    ...completed,
+    state: "queued" as const,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    ...overrides,
+    outcome: "coalesced" as const,
+    routingMode: "unspecified" as const,
+  };
+  if (ingress === "local") wiring.enqueue(payload);
+  else wiring.receive({ notification: { envelope: { kind: "projection.wake-intent", payload } } });
 }
 
 function assertRequeuedHandoff(text: string, outcome: ProjectionWakeIntentCompletedEvent["outcome"]) {
   const wiring = createWiring(text);
   const key = enqueue(wiring);
-  expect(wiring.pending.has(key)).toBe(true);
-  expect(wiring.runner.nudge).toHaveBeenCalledWith([key]);
+  expect(wiring.runner.requestProjectionWakeLeaseHandoff).toHaveBeenCalledExactlyOnceWith(
+    key,
+    generation,
+    expect.any(Number),
+  );
   // Newer hot work is queued while the older wake is running.
   enqueue(wiring);
   wiring.observer.wakeIntentCompleted!({ ...completed, outcome, requeued: true });
-  expect(wiring.pending.has(key)).toBe(true);
   expect(wiring.runner.completeProjectionWakeLeaseHandoff).not.toHaveBeenCalled();
   wiring.observer.wakeIntentCompleted!({ ...completed, outcome });
-  expect(wiring.pending.has(key)).toBe(false);
-  expect(wiring.runner.completeProjectionWakeLeaseHandoff).toHaveBeenCalledExactlyOnceWith(key);
+  expect(wiring.runner.completeProjectionWakeLeaseHandoff).toHaveBeenCalledExactlyOnceWith(key, generation);
   expect(wiring.recordOutcome.mock.calls.map(([event]) => event.requeued)).toEqual([true, false]);
   expect(wiring.recordOutcome.mock.calls.map(([event]) => event.outcome)).toEqual([
     outcome === "ran" ? "completed" : outcome,
@@ -125,6 +234,42 @@ function assertRequeuedHandoff(text: string, outcome: ProjectionWakeIntentComple
 }
 
 describe("projection wake handoff production wiring", () => {
+  it.each([
+    ["distinct intent", { wakeIntentId: "other-hot-wake" }],
+    ["higher position on the same row", { requiredPosition: "4" }],
+  ] as const)("keeps a %s pending after the old wake completes", async (_scenario, newerWake) => {
+    await duringProductivePass(
+      (wiring) => {
+        sendWake(wiring, "listen");
+        sendWake(wiring, "listen", newerWake);
+        wiring.observer.wakeIntentCompleted!(completed);
+      },
+      {
+        yields: true,
+        finish: (wiring) => wiring.observer.wakeIntentCompleted!({ ...completed, ...newerWake }),
+      },
+    );
+  });
+
+  describe.each(["local", "listen"] as const)("%s ingress", (ingress) => {
+    it("keeps polling a disabled group beside an enabled sibling", async () => {
+      await duringProductivePass((wiring) => sendWake(wiring, ingress), { yields: false, disabled: true });
+    });
+
+    it("does not yield for an exhausted same-position coalesce", async () => {
+      await duringProductivePass((wiring) => sendWake(wiring, ingress, { state: "failed", attemptCount: 3 }), {
+        yields: false,
+      });
+    });
+
+    it.each(["queued", "claimed"] as const)("yields for a %s higher-position reopen", async (state) => {
+      await duringProductivePass(
+        (wiring) =>
+          sendWake(wiring, ingress, { state, requiredPosition: "4", attemptCount: state === "queued" ? 0 : 3 }),
+        { yields: true },
+      );
+    });
+  });
   it.each(["ran", "already-satisfied"] as const)("preserves newer hot work on requeued %s completion", (outcome) => {
     assertRequeuedHandoff(mainSource, outcome);
   });
@@ -134,16 +279,15 @@ describe("projection wake handoff production wiring", () => {
     const normalized = mainSource.replaceAll("\r\n", "\n");
     expect(normalized).toContain(guard);
     const mutant = normalized.replace(guard, "options.onTerminal?.(event);");
-    expect(() => assertRequeuedHandoff(mutant, outcome)).toThrow("expected false to be true");
+    expect(() => assertRequeuedHandoff(mutant, outcome)).toThrow("to not be called at all");
   });
 
   it.each(["wakeIntentNotReady", "wakeIntentDeferred", "wakeIntentRunFailed", "wakeIntentClaimLost"] as const)(
     "%s is not terminal for the hot handoff",
     (method) => {
       const wiring = createWiring(mainSource);
-      const key = enqueue(wiring);
+      enqueue(wiring);
       wiring.observer[method]!({ ...completed, retryAfterMs: 10, error: new Error("synthetic failure") });
-      expect(wiring.pending.has(key)).toBe(true);
       expect(wiring.runner.completeProjectionWakeLeaseHandoff).not.toHaveBeenCalled();
     },
   );
@@ -154,16 +298,14 @@ describe("projection wake handoff production wiring", () => {
       const wiring = createWiring(mainSource);
       const key = enqueue(wiring);
       wiring.observer[method]!({ ...completed, retryAfterMs: 10 });
-      expect(wiring.pending.has(key)).toBe(false);
-      expect(wiring.runner.completeProjectionWakeLeaseHandoff).toHaveBeenCalledExactlyOnceWith(key);
+      expect(wiring.runner.completeProjectionWakeLeaseHandoff).toHaveBeenCalledExactlyOnceWith(key, generation);
     },
   );
 
   it("does not clear a hot handoff for standard-lane completion", () => {
     const wiring = createWiring(mainSource);
-    const key = enqueue(wiring);
+    enqueue(wiring);
     wiring.observer.wakeIntentCompleted!({ ...completed, priorityLane: "standard" });
-    expect(wiring.pending.has(key)).toBe(true);
     expect(wiring.runner.completeProjectionWakeLeaseHandoff).not.toHaveBeenCalled();
   });
 });

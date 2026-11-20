@@ -746,10 +746,7 @@ function notificationMatchesProjectionWakeIntent(
   notification: PostgresWorkSignalNotification,
   targetContextNames: ReadonlySet<string> | null,
 ): boolean {
-  if (
-    notification.envelope?.kind !== "projection.wake-intent" &&
-    notification.envelope?.kind !== "projection.checkpoint-ready"
-  ) {
+  if (notification.envelope?.kind !== "projection.wake-intent") {
     return false;
   }
   if (!targetContextNames) {

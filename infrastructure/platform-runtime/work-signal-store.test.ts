@@ -79,6 +79,10 @@ describe("work signal store", () => {
       correlationId: "corr_1",
       payload: {
         outcome: "created",
+        wakeIntentId: "projection-wake-1",
+        state: "queued",
+        attemptCount: 0,
+        expiresAt: "2026-06-10T12:05:00.000Z",
         sourceContextName: "catalog",
         targetContextName: "checkout",
         projectionName: "checkout-session-projection",
@@ -92,6 +96,11 @@ describe("work signal store", () => {
     expect(enqueuedEvents).toEqual([
       {
         outcome: "created",
+        wakeIntentId: "projection-wake-1",
+        requiredPosition: "12",
+        state: "queued",
+        attemptCount: 0,
+        expiresAt: "2026-06-10T12:05:00.000Z",
         sourceContextName: "catalog",
         targetContextName: "checkout",
         projectionName: "checkout-session-projection",
@@ -165,6 +174,11 @@ describe("work signal store", () => {
     expect(enqueuedEvents).toEqual([
       {
         outcome: "blocked",
+        wakeIntentId: "projection-wake-1",
+        requiredPosition: "1",
+        state: "queued",
+        attemptCount: 0,
+        expiresAt: "2026-06-10T12:05:00.000Z",
         sourceContextName: "catalog",
         targetContextName: "checkout",
         projectionName: "checkout-session-projection",

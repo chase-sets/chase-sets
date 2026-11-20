@@ -949,7 +949,7 @@ describe("worker runner loop", () => {
     loop.start();
     try {
       await vi.waitFor(() => expect(events.some((event) => event.phase === "run-start")).toBe(true));
-      loop.nudge([runner.name]);
+      requestTestHotWake(loop, runner.name);
       firstPass.resolve();
       await vi.waitFor(() => expect(releaseLease).toHaveBeenCalledTimes(1));
       expect(events).toEqual(
@@ -961,7 +961,7 @@ describe("worker runner loop", () => {
       // The yielding loop must not reacquire before the deferred wake has a
       // terminal signal. The existing lease TTL is the liveness fallback.
       expect(runs).toBe(1);
-      loop.completeProjectionWakeLeaseHandoff(runner.name);
+      loop.completeProjectionWakeLeaseHandoff(runner.name, testHotWake);
       await vi.waitFor(() => expect(runs).toBeGreaterThan(1));
     } finally {
       await loop.stop();
@@ -1017,7 +1017,7 @@ describe("worker runner loop", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(runs).toBe(1);
       const holder = leases.get(leaseName)!;
-      loop.nudge([runner.name]);
+      requestTestHotWake(loop, runner.name);
       expect(await controlPlane.acquireLease({ leaseName, ownerId: "hot-api-wait", ttlMs: 30_000 })).toBeNull();
       expect(events.filter((event) => event.phase === "released")).toEqual([]);
       firstPass.resolve();
@@ -1033,7 +1033,7 @@ describe("worker runner loop", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(runs).toBe(1);
       await controlPlane.releaseLease(wake!);
-      loop.completeProjectionWakeLeaseHandoff(runner.name);
+      loop.completeProjectionWakeLeaseHandoff(runner.name, testHotWake);
       await vi.advanceTimersByTimeAsync(1);
       expect(runs).toBe(2);
     } finally {
@@ -1071,11 +1071,11 @@ describe("worker runner loop", () => {
     try {
       loop.start();
       await vi.advanceTimersByTimeAsync(1);
-      loop.nudge([runner.name]);
+      requestTestHotWake(loop, runner.name);
       firstPass.resolve();
       await vi.advanceTimersByTimeAsync(1);
       expect(releaseLease).toHaveBeenCalledTimes(1);
-      loop.completeProjectionWakeLeaseHandoff(runner.name);
+      loop.completeProjectionWakeLeaseHandoff(runner.name, testHotWake);
       release.resolve();
       await vi.advanceTimersByTimeAsync(1_000);
       expect(runs).toBe(3);
@@ -1086,6 +1086,89 @@ describe("worker runner loop", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each(["before", "after"] as const)(
+    "reserves the shared lease when poller B sees the wake %s its lease miss",
+    async (arrival) => {
+      vi.useFakeTimers();
+      const firstPass = holderTestGate();
+      const miss = holderTestGate();
+      const leaseName = "projection-group:auth.auth-identity-user-projection";
+      let held: PlatformLease | null = null;
+      let fence = 0;
+      let runsA = 0;
+      let runsB = 0;
+      const controlPlane = createAlwaysLeasedControlPlane({
+        acquireLease: async (input) => {
+          if (held) {
+            if (input.ownerId === "synthetic-poller-B") await miss.promise;
+            return null;
+          }
+          held = {
+            leaseName: input.leaseName,
+            ownerId: input.ownerId,
+            fencingToken: String(++fence),
+            expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+          };
+          return held;
+        },
+        releaseLease: async (lease) => {
+          if (held?.fencingToken === lease.fencingToken) held = null;
+        },
+      });
+      const runnerName = "auth.auth-identity-user-projection";
+      const createPoller = (id: string, runOnce: WorkerRunner["runOnce"]) =>
+        createWorkerRunnerLoop({
+          workerId: id,
+          controlPlane,
+          runners: [{ name: runnerName, kind: "projection-group", runOnce }],
+          maxConcurrentRunners: 1,
+          leaseTtlMs: 30_000,
+          leaseRenewIntervalMs: 10_000,
+          pollIntervalMs: 100,
+        });
+      const productive = { processed: 1, lastGlobalPosition: "1" as never, state: "running" as const };
+      const pollerA = createPoller("synthetic-poller-A", async (context) => {
+        if (++runsA === 1) await firstPass.promise;
+        else await holderTestAbort(context);
+        return productive;
+      });
+      const pollerB = createPoller("synthetic-poller-B", async (context) => {
+        runsB += 1;
+        await holderTestAbort(context);
+        return productive;
+      });
+      const retryWake = () => controlPlane.acquireLease({ leaseName, ownerId: "synthetic-hot-wake", ttlMs: 30_000 });
+
+      try {
+        pollerA.start();
+        await vi.advanceTimersByTimeAsync(1);
+        pollerB.start();
+        await vi.advanceTimersByTimeAsync(1);
+        requestTestHotWake(pollerA, runnerName);
+        if (arrival === "before") requestTestHotWake(pollerB, runnerName);
+        expect(await retryWake()).toBeNull();
+        miss.resolve();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(pollerB.status().leaseMissCount).toBeGreaterThanOrEqual(1);
+        if (arrival === "after") requestTestHotWake(pollerB, runnerName);
+        firstPass.resolve();
+        await vi.advanceTimersByTimeAsync(101);
+        expect({ runsA, runsB, fence }).toEqual({ runsA: 1, runsB: 0, fence: 1 });
+        const wake = await retryWake();
+        expect(wake).toMatchObject({ ownerId: "synthetic-hot-wake", fencingToken: "2" });
+        await controlPlane.releaseLease(wake!);
+        // No terminal lifecycle callback on this replica: fall back at the TTL.
+        await vi.advanceTimersByTimeAsync(30_001);
+        expect(runsA + runsB).toBe(2);
+      } finally {
+        firstPass.resolve();
+        miss.resolve();
+        await Promise.all([pollerA.stop(), pollerB.stop()]);
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("ignores a stale hot-wake nudge when the projection group is not held", async () => {
     vi.useFakeTimers();
@@ -1110,7 +1193,7 @@ describe("worker runner loop", () => {
     });
 
     try {
-      loop.nudge([runner.name]);
+      loop.requestProjectionWakeLeaseHandoff(runner.name, testHotWake, Date.now() - 1);
       loop.start();
       await vi.waitFor(() => expect(runs).toBeGreaterThan(1));
       expect(releaseLease).not.toHaveBeenCalled();
@@ -1163,7 +1246,7 @@ describe("worker runner loop", () => {
     loop.start();
     try {
       await failureStarted;
-      loop.nudge([runnerName]);
+      requestTestHotWake(loop, runnerName);
       failureGate.resolve();
       await vi.waitFor(() => expect(runs, `releaseCalls=${releaseCalls}`).toBe(3), { timeout: 1_000 });
       expect(releaseCalls).toBe(0);
@@ -1203,7 +1286,7 @@ describe("worker runner loop", () => {
       loop.start();
       await vi.advanceTimersByTimeAsync(1);
       expect(onError).toHaveBeenCalledTimes(1);
-      loop.nudge([runner.name]);
+      requestTestHotWake(loop, runner.name);
       await vi.advanceTimersByTimeAsync(1_000);
       expect(releaseLease).not.toHaveBeenCalled();
       expect(runs).toBe(3);
@@ -1213,7 +1296,8 @@ describe("worker runner loop", () => {
     }
   });
 
-  it("clears a hot-wake request when lease acquisition misses in flight", async () => {
+  it("keeps matching pending demand after an in-flight lease acquisition misses", async () => {
+    vi.useFakeTimers();
     const runnerName = "auth.auth-identity-user-projection";
     let runs = 0;
     let acquireCalls = 0;
@@ -1260,14 +1344,22 @@ describe("worker runner loop", () => {
 
     loop.start();
     try {
-      await vi.waitFor(() => expect(acquireCalls).toBe(1));
-      loop.nudge([runnerName]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(acquireCalls).toBe(1);
+      requestTestHotWake(loop, runnerName);
       resolveFirstAcquire();
-      await vi.waitFor(() => expect(runs, `releaseCalls=${releaseCalls}`).toBe(2), { timeout: 1_000 });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(loop.status().leaseMissCount).toBe(1);
+      expect(acquireCalls).toBe(1);
+      loop.completeProjectionWakeLeaseHandoff(runnerName, testHotWake);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runs, `releaseCalls=${releaseCalls}`).toBe(2);
       expect(acquireCalls).toBe(2);
       expect(releaseCalls).toBe(0);
     } finally {
+      resolveFirstAcquire();
       await loop.stop();
+      vi.useRealTimers();
     }
   });
 
@@ -3960,6 +4052,12 @@ function createProjectionGroup(
       })),
     markRevisionSynced: overrides.markRevisionSynced ?? (async () => undefined),
   };
+}
+
+const testHotWake = { wakeIntentId: "synthetic-hot-wake", requiredPosition: 1n };
+
+function requestTestHotWake(loop: ReturnType<typeof createWorkerRunnerLoop>, runnerName: string) {
+  loop.requestProjectionWakeLeaseHandoff(runnerName, testHotWake, Date.now() + 60_000);
 }
 
 function holderTestGate() {

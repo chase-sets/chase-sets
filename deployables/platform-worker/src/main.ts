@@ -73,7 +73,7 @@ import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/pla
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import {
   createPostgresWorkSignalStore,
-  type ProjectionWakeIntentEnqueuedEvent,
+  type ProjectionWakeIntentWorkSignalPayload,
 } from "@chase-sets/platform-runtime/work-signal-store";
 import {
   collectRetentionSweepTargets,
@@ -164,21 +164,48 @@ const evidenceWindowCorrelation =
     : createNullEvidenceWindowCorrelation();
 let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
 let projectionRunnerLoop: WorkerRunnerLoop | null = null;
-const pendingHotProjectionWakeKeys = new Set<string>();
 const projectionWakeKey = createProjectionGroupRunnerName;
-const requestProjectionWakeLeaseHandoff = (event: ProjectionWakeIntentEnqueuedEvent): void => {
-  if (event.priorityLane !== "hot" || event.outcome === "blocked") {
+const requestProjectionWakeLeaseHandoff = (event: Partial<ProjectionWakeIntentWorkSignalPayload>): void => {
+  if (
+    event.priorityLane !== "hot" ||
+    event.outcome === "blocked" ||
+    typeof event.targetContextName !== "string" ||
+    typeof event.projectionName !== "string" ||
+    typeof event.wakeIntentId !== "string" ||
+    event.wakeIntentId.length === 0 ||
+    typeof event.requiredPosition !== "string" ||
+    !/^\d+$/.test(event.requiredPosition) ||
+    typeof event.expiresAt !== "string" ||
+    !(
+      event.state === "queued" ||
+      event.state === "claimed" ||
+      (event.state === "failed" &&
+        typeof event.attemptCount === "number" &&
+        Number.isInteger(event.attemptCount) &&
+        event.attemptCount >= 0 &&
+        event.attemptCount < config.projectionWakeScheduler.maxAttempts)
+    )
+  ) {
     return;
   }
-  const runnerName = projectionWakeKey(event);
-  pendingHotProjectionWakeKeys.add(runnerName);
-  projectionRunnerLoop?.nudge([runnerName]);
+  const runnerName = projectionWakeKey({
+    targetContextName: event.targetContextName,
+    projectionName: event.projectionName,
+  });
+  if (enabledProjectionWakeRunnerNames.has(runnerName)) {
+    projectionRunnerLoop?.requestProjectionWakeLeaseHandoff(
+      runnerName,
+      { wakeIntentId: event.wakeIntentId, requiredPosition: BigInt(event.requiredPosition) },
+      Date.parse(event.expiresAt),
+    );
+  }
 };
 const completeProjectionWakeLeaseHandoff = (event: ProjectionWakeIntentLifecycleEvent): void => {
   if (event.priorityLane === "hot") {
-    const runnerName = projectionWakeKey(event);
-    pendingHotProjectionWakeKeys.delete(runnerName);
-    projectionRunnerLoop?.completeProjectionWakeLeaseHandoff(runnerName);
+    projectionRunnerLoop?.completeProjectionWakeLeaseHandoff(projectionWakeKey(event), {
+      wakeIntentId: event.wakeIntentId,
+      requiredPosition: BigInt(event.requiredPosition),
+    });
   }
 };
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
@@ -502,8 +529,10 @@ const projectionWakeDisabledProjectionKeys = new Set(config.projectionWakeDisabl
 const projectionWakeSchedulerProjectionGroups = runtime.projectionGroups.filter(
   (group) => !projectionWakeDisabledProjectionKeys.has(`${group.targetContextName}:${group.projectionName}`),
 );
-const hostedProjectionWakeTargetContextNames = new Set(
-  projectionWakeSchedulerProjectionGroups.map((group) => group.targetContextName),
+const enabledProjectionWakeRunnerNames = new Set(
+  config.projectionWakeScheduler.enabled && config.projectionWakeScheduler.hotLaneRunnerCount > 0
+    ? projectionWakeSchedulerProjectionGroups.map(projectionWakeKey)
+    : [],
 );
 if (projectionWakeDisabledProjectionKeys.size > 0) {
   const hostedProjectionKeys = new Set(
@@ -585,9 +614,6 @@ const runnerLoops = runnerGroups.map((group) => ({
   }),
 }));
 projectionRunnerLoop = runnerLoops.find((runnerLoop) => runnerLoop.name === "projections")?.loop ?? null;
-if (projectionRunnerLoop && pendingHotProjectionWakeKeys.size > 0) {
-  projectionRunnerLoop.nudge([...pendingHotProjectionWakeKeys]);
-}
 projectionWakeRunnerLoop = runnerLoops.find((runnerLoop) => runnerLoop.name === "wakes")?.loop ?? null;
 const projectionWakePushDispatcher =
   config.projectionWakeScheduler.pushDispatchEnabled && projectionWakeRunnerLoop
@@ -597,36 +623,8 @@ const projectionWakePushDispatcher =
         listenerObserver: {
           notificationReceived: (event) => {
             const envelope = event.notification.envelope;
-            if (envelope?.kind !== "projection.wake-intent" && envelope?.kind !== "projection.checkpoint-ready") {
-              return;
-            }
-            const payload = envelope.payload as Partial<{
-              priorityLane: string;
-              targetContextName: string;
-              projectionName: string;
-            }>;
-            if (
-              typeof payload.targetContextName !== "string" ||
-              typeof payload.projectionName !== "string" ||
-              !hostedProjectionWakeTargetContextNames.has(payload.targetContextName)
-            ) {
-              return;
-            }
-            const runnerName = projectionWakeKey({
-              targetContextName: payload.targetContextName,
-              projectionName: payload.projectionName,
-            });
-            if (envelope.kind === "projection.checkpoint-ready") {
-              // A readiness signal can come from the scheduled projection
-              // runner, not the hot wake that requested the handoff. Keep the
-              // productive holder fenced until that wake reports a terminal
-              // lifecycle outcome; the lease-TTL fallback covers another
-              // worker observing the terminal signal.
-              return;
-            }
-            if (payload.priorityLane === "hot") {
-              pendingHotProjectionWakeKeys.add(runnerName);
-              projectionRunnerLoop?.nudge([runnerName]);
+            if (envelope?.kind === "projection.wake-intent") {
+              requestProjectionWakeLeaseHandoff(envelope.payload as Partial<ProjectionWakeIntentWorkSignalPayload>);
             }
           },
           listenerUnavailable: ({ error }) => {

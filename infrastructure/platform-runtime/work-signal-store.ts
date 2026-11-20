@@ -170,6 +170,8 @@ export type ProjectionWakeIntentWorkSignalPayload = Readonly<{
   priorityLane: WorkSignalPriorityLane;
   origin: WorkSignalWakeOrigin;
   state: ProjectionWakeIntentState;
+  attemptCount: number;
+  expiresAt: string;
   nextEligibleAt: string;
 }>;
 
@@ -404,15 +406,13 @@ export type WorkSignalStoreOptions = Readonly<{
   now?: () => Date;
 }>;
 
-export type ProjectionWakeIntentEnqueuedEvent = Readonly<{
-  outcome: ProjectionWakeIntentEnqueueOutcome;
-  sourceContextName: string;
-  targetContextName: string;
-  projectionName: string;
-  priorityLane: WorkSignalPriorityLane;
-  origin: WorkSignalWakeOrigin;
-  routingMode: ProjectionWakeRoutingMode;
-}>;
+export type ProjectionWakeIntentEnqueuedEvent = Omit<
+  ProjectionWakeIntentWorkSignalPayload,
+  "checkpointKey" | "requiredCursor" | "nextEligibleAt"
+> &
+  Readonly<{
+    routingMode: ProjectionWakeRoutingMode;
+  }>;
 
 export type WorkSignalStoreObserver = Readonly<{
   projectionWakeIntentEnqueued?: (event: ProjectionWakeIntentEnqueuedEvent) => void;
@@ -821,6 +821,7 @@ export function createPostgresWorkSignalStore(
         const blockedRecord = mapProjectionWakeIntentRow(existingRow);
         notifyProjectionWakeIntentEnqueued(options.observer, {
           outcome: "blocked",
+          ...projectionWakeDemand(blockedRecord),
           sourceContextName: blockedRecord.sourceContextName,
           targetContextName: blockedRecord.targetContextName,
           projectionName: blockedRecord.projectionName,
@@ -835,6 +836,7 @@ export function createPostgresWorkSignalStore(
       await tryEmitProjectionWakeIntentWorkSignal(db, record, row.enqueue_outcome, now);
       notifyProjectionWakeIntentEnqueued(options.observer, {
         outcome: row.enqueue_outcome,
+        ...projectionWakeDemand(record),
         sourceContextName: record.sourceContextName,
         targetContextName: record.targetContextName,
         projectionName: record.projectionName,
@@ -1772,6 +1774,16 @@ function tryParseGlobalPosition(value: string): bigint | null {
   }
 }
 
+function projectionWakeDemand(record: ProjectionWakeIntentRecord) {
+  return {
+    wakeIntentId: record.wakeIntentId,
+    requiredPosition: record.requiredPosition.toString(),
+    state: record.state,
+    attemptCount: record.attemptCount,
+    expiresAt: record.expiresAt.toISOString(),
+  };
+}
+
 async function tryEmitProjectionWakeIntentWorkSignal(
   db: PgQueryable | PgTransactionalPool,
   record: ProjectionWakeIntentRecord,
@@ -1788,16 +1800,14 @@ async function tryEmitProjectionWakeIntentWorkSignal(
         correlationId: record.correlationId,
         payload: {
           outcome,
-          wakeIntentId: record.wakeIntentId,
+          ...projectionWakeDemand(record),
           sourceContextName: record.sourceContextName,
           targetContextName: record.targetContextName,
           projectionName: record.projectionName,
           checkpointKey: record.checkpointKey,
-          requiredPosition: record.requiredPosition.toString(),
           requiredCursor: record.requiredCursor,
           priorityLane: record.priorityLane,
           origin: record.origin,
-          state: record.state,
           nextEligibleAt: record.nextEligibleAt.toISOString(),
         },
       },

@@ -2385,8 +2385,12 @@ describe("busy-group-pass-attribution Postgres", () => {
         readConsistencyGateway: {},
         observer: {
           projectionWakeIntentEnqueued: (event) => {
-            if (event.priorityLane === "hot") {
-              pollLoop!.nudge([createProjectionGroupRunnerName(event)]);
+            if (event.priorityLane === "hot" && event.outcome !== "blocked" && event.state === "queued") {
+              pollLoop!.requestProjectionWakeLeaseHandoff(
+                createProjectionGroupRunnerName(event),
+                { wakeIntentId: event.wakeIntentId, requiredPosition: BigInt(event.requiredPosition) },
+                Date.parse(event.expiresAt),
+              );
             }
             wakeLoop!.nudge();
           },
@@ -2454,7 +2458,10 @@ describe("busy-group-pass-attribution Postgres", () => {
             },
             wakeIntentCompleted: (event) => {
               if (event.priorityLane === "hot" && !event.requeued) {
-                pollLoop!.completeProjectionWakeLeaseHandoff(createProjectionGroupRunnerName(event));
+                pollLoop!.completeProjectionWakeLeaseHandoff(createProjectionGroupRunnerName(event), {
+                  wakeIntentId: event.wakeIntentId,
+                  requiredPosition: BigInt(event.requiredPosition),
+                });
               }
               if (event.projectionName !== fixture.projectionName) {
                 trace("sibling-wake-completed", event);
