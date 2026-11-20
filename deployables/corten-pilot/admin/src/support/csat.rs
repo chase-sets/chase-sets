@@ -11,8 +11,7 @@
 //! | `POST /support/csat/export?<the filters>` | the filtered queue as the API's CSV (`reason`) |
 //!
 //! A filter the API refuses (400 `validation_failed`) keeps the filters on the page with the API's
-//! reason (400), as admin-web does; any other failed read keeps them with a banner (502). An
-//! address with admin-web's old `v1` survey value is read as the registered `csat.v1`.
+//! reason (400), as admin-web does; any other failed read keeps them with a banner (502).
 //!
 //! Export is offered, as admin-web offers it, to staff who hold the export grant: a reason (Case
 //! review or Quality review) and the dashboard's filters. admin-web's script asks the API to create
@@ -256,11 +255,7 @@ impl Chosen {
         Chosen {
             from: filters.from.as_deref().and_then(date),
             to: filters.to.as_deref().and_then(date),
-            // admin-web's address says v1 for the registered version (chase-sets/chase-sets#10843).
-            survey_version: one(
-                &filters.survey_version.as_deref().map(|v| if v == "v1" { SURVEY.to_owned() } else { v.to_owned() }),
-                &[SURVEY],
-            ),
+            survey_version: one(&filters.survey_version, &[SURVEY]),
             outcome: one(&filters.outcome_codes, &OUTCOMES),
             role: one(&filters.customer_roles, &ROLES),
             state: one(&filters.states, &STATES),
