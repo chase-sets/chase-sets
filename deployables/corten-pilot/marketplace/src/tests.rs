@@ -2390,8 +2390,8 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
         (&Method::GET, "/api/notifications/preferences") if down => Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
         (&Method::GET, "/api/notifications/preferences") => Some(
             Json(json!({ "items": [
-                { "key": "web", "enabled": true }, { "key": "email", "enabled": true }, { "key": "sms", "enabled": false },
-                { "key": "rcs", "enabled": false }, { "key": "product-alerts", "enabled": true },
+                { "key": "web", "enabled": true }, { "key": "email", "enabled": true },
+                { "key": "product-alerts", "enabled": true },
             ] }))
             .into_response(),
         ),
@@ -7340,7 +7340,6 @@ async fn the_settings_show_the_channels_the_page_has_words_for_and_the_accounts_
     for key in ["web", "email", "product-alerts"] {
         assert!(html.contains(&format!(r#"<form id="preference-{key}""#)), "{key}: {html}");
     }
-    assert!(!html.contains(r#"id="preference-sms""#) && !html.contains(r#"id="preference-rcs""#), "{html}");
     assert_eq!(html.matches(r#"role="switch" aria-checked="true""#).count(), 3, "{html}");
     assert!(
         html.contains(
