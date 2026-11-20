@@ -224,8 +224,10 @@ export function membershipRoutes(
   app.get("/", async (c) => {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
+    // Anyone but a platform admin lists exactly their account's memberships; search is staff's.
+    const scoped = actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY;
     const result = await services.listMemberships({
-      search: actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY ? actor.accountId : search,
+      ...(scoped ? { accountId: actor.accountId } : { search }),
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,

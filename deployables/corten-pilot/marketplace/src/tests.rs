@@ -9341,9 +9341,8 @@ fn key_committed(id: &str, secret: bool) -> Response {
     committed(StatusCode::OK, "identity", "42", body)
 }
 
-/// The stand-in Identity user `usr_seller` and the API keys: Shop sync (active), Old feed
-/// (revoked), and another user's key whose name holds `usr_seller`, which Identity's `search`
-/// matches too. A read that waits for 45 is still catching up. A write's attempt decides an answer
+/// The stand-in Identity user `usr_seller` and its API keys as Identity lists them to the user:
+/// Shop sync (active) and Old feed (revoked). A read that waits for 45 is still catching up. A write's attempt decides an answer
 /// as an address write's does: `NO_RECORD`, `APPLIED_BEFORE` and `CHECK_DOWN` are answered
 /// `indeterminate`, and the lookup says nothing was recorded, that it was (its secret lost), or
 /// cannot say. A display name `Refused` is refused; a blank one is refused as Identity refuses it,
@@ -9413,12 +9412,9 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
     Some(match (method.as_str(), rest) {
         ("GET", "") if waits_for(headers).as_deref() == Some("45") => catching_up(),
         ("GET", "") => {
-            let items = [
-                key("key_live", "usr_seller", "Shop sync", "active"),
-                key("key_old", "usr_seller", "Old feed", "revoked"),
-                key("key_else", "usr_other", "usr_seller backup", "active"),
-            ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            let items =
+                [key("key_live", "usr_seller", "Shop sync", "active"), key("key_old", "usr_seller", "Old feed", "revoked")];
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         ("POST", "") if sent["name"] == "Taken" => {
@@ -9474,8 +9470,9 @@ async fn the_security_page_shows_the_user_its_own_keys_and_their_controls() {
         shown.contains("Enabled Methods 3 Password, Passkey, Unrecognized authentication method: Hardware Token"),
         "an unknown method is named as Identity names it: {shown}"
     );
-    assert!(shown.contains("API Keys 1 2 total keys tracked"), "another user's key is not counted: {shown}");
-    assert!(!shown.contains("usr_seller backup"), "another user's key is not shown: {shown}");
+    assert!(shown.contains("API Keys 1 2 total keys tracked"), "{shown}");
+    let reads: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(reads.iter().any(|c| c == KEYS_API), "Identity scopes the list itself: {reads:?}");
     assert!(shown.contains("Shop sync (Active), Old feed (Revoked)"), "{shown}");
     assert!(shown.contains("Updated Oct 24, 2026"), "{shown}");
     assert_eq!(html.matches(r#"value="rotate-api-key""#).count(), 1, "only an active key rotates: {html}");
@@ -17884,10 +17881,8 @@ const LINK_API: &str = "/api/auth/invitations/acceptance-link/request";
 /// An attempt the API had recorded before: its create answers `newlyCommitted: false`.
 const REPLAYED: &str = "55555555-5555-4555-8555-555555555555";
 
-/// The account `acc_seller`'s team, as Identity's lists answer a `search` of its id: its owner, a
-/// revoked packer with no display name, and another account's member whose name holds
-/// `acc_seller` (chase-sets/chase-sets#10704); a pending and a cancelled invitation, and another
-/// account's. A read that waits for 45 is still catching up. A write's attempt decides an answer as
+/// The account `acc_seller`'s team, as Identity lists it to a member: its owner, a revoked packer
+/// with no display name, and a pending and a cancelled invitation. A read that waits for 45 is still catching up. A write's attempt decides an answer as
 /// a security write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN` are `indeterminate`;
 /// `REPLAYED` was recorded before). An invite to `taken@` is a conflict, to `bad@` is refused; a
 /// role change of the owner to `viewer` is refused as the last owner. The acceptance link answers
@@ -17958,9 +17953,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
                         "active",
                     ),
                     member("mbr_packer", "usr_packer", None, "packer@chasesets.test", "acc_seller", "fulfillment", "revoked"),
-                    member("mbr_else", "usr_else", Some("acc_seller fan"), "else@chasesets.test", "acc_other", "owner", "active"),
                 ];
-                Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+                Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
             }
             _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
             ("PUT", "/mbr_owner/role") if sent["roleKey"] == "viewer" => {
@@ -17978,9 +17972,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
             let items = [
                 invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending"),
                 invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled"),
-                invitation("ivt_else", "acc_seller@elsewhere.test", "acc_other", "viewer", "pending"),
             ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         // Identity's `isInstant`: to the millisecond at most, or the attempt is indeterminate.
@@ -18048,14 +18041,12 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     let (status, _, html) = pilot.send(get(TEAM, Some("teamer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
-    assert!(calls.iter().any(|c| c == "/api/identity/memberships?search=acc_seller"), "{calls:?}");
-    assert!(calls.iter().any(|c| c == "/api/identity/invitations?search=acc_seller"), "{calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/memberships"), "Identity scopes the list itself: {calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/invitations"), "{calls:?}");
     assert!(html.contains("Synthetic Seller") && html.contains("Owner · Active"), "{html}");
     assert!(html.contains("packer@chasesets.test") && html.contains("Fulfillment · Revoked"), "no name: the email: {html}");
     assert!(html.contains("new@chasesets.test") && html.contains("Viewer invitation · Pending"), "{html}");
     assert!(html.contains("Manager invitation · Cancelled"), "{html}");
-    assert!(!html.contains("mbr_else") && !html.contains("acc_seller fan"), "another account's member (#10704): {html}");
-    assert!(!html.contains("ivt_else") && !html.contains("elsewhere.test"), "another account's invitation (#10704): {html}");
     // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is cancelled.
     assert!(html.contains(r#"commandfor="revoke-member-dialog-mbr_owner""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="intent" value="reinstate"><input type="hidden" name="membership_id" value="mbr_packer">"#), "{html}");
