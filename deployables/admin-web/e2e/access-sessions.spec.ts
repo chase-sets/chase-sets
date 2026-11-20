@@ -40,8 +40,22 @@ test.describe("access admin sessions", () => {
     await expect(page.getByText(session.session_id)).toBeVisible();
     await expect(page.getByText(sessionAuthenticationMethodLabel(session.authentication_method)).first()).toBeVisible();
     await expect(page.getByText(sessionExpiresAtLabel(session.expires_at)).first()).toBeVisible();
-    await expect(page.getByLabel("Active Account")).toHaveValue(session.account_id);
-    await expect(page.getByRole("button", { name: "Switch Account" })).toBeVisible();
+    const activeAccount = session.account_display_name ?? session.account_name ?? session.account_id;
+    const activeAccountValue = page
+      .getByText("Active Account", { exact: true })
+      .locator("xpath=following-sibling::*[1]");
+    await expect(activeAccountValue).toBeVisible();
+    await expect(activeAccountValue).toHaveText(activeAccount);
+    const switchTargets = session.available_account_ids.filter((id) => id !== session.account_id);
+    const switchAccount = page.getByRole("button", { name: "Switch Account" });
+    const switchTo = page.getByRole("combobox", { name: "Switch to" });
+    if (switchTargets.length > 0) {
+      await expect(switchAccount).toBeVisible();
+      await expect(switchTo.getByRole("option")).toHaveText(switchTargets);
+    } else {
+      await expect(switchAccount).toHaveCount(0);
+      await expect(switchTo).toHaveCount(0);
+    }
     await expect(page.getByRole("button", { name: "Revoke" })).toBeVisible();
   });
 });

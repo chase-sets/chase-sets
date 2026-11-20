@@ -225,7 +225,7 @@ pub fn SessionPage<'a>(t: SessionsMsg, p: Pilot, screen: &'a SessionScreen) -> i
                 if !others.is_empty() {
                     <form class={Switch} method="post" action={url::SessionSwitch { id }}>
                         <label class={Field}>
-                            <span class={Label}>{p.sessions_other_accounts()}</span>
+                            <span class={Label}>{t.detail_switch_to()}</span>
                             <select name={f.account_id} required>
                                 for other in &others {
                                     <option value={*other}>{*other}</option>

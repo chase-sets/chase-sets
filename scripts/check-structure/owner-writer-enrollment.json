@@ -1,5 +1,5 @@
 {
-  "owners": ["identity", "auth", "channels", "inventory"],
+  "owners": ["identity", "auth", "channels", "inventory", "marketplace", "catalog", "pricing"],
   "keys": [
     "account/<accountId>",
     "user/<userId>",
@@ -7,8 +7,66 @@
     "delegation/<delegationId>",
     "session/<sessionId>",
     "connection/<connectionId>",
-    "stock/<accountId>/<inventoryItemId>"
+    "stock/<accountId>/<inventoryItemId>",
+    "repricing-listing/<listingId>",
+    "repricing-catalog-category/<catalogItemId>/<categoryId>",
+    "repricing-stock/<accountId>/<inventoryItemId>",
+    "repricing-account/<accountId>",
+    "repricing-product-freeze/<catalogItemId>/<productId>",
+    "repricing-platform-policy/<policyKey>"
   ],
+  "pricingPredicateWriters": {
+    "Marketplace single": {
+      "boundary": "bounded-contexts/marketplace/support/runtime-support/services.ts",
+      "selection": "listingPredicateEvents",
+      "sink": "appendToStream: async"
+    },
+    "Marketplace atomic": {
+      "boundary": "bounded-contexts/marketplace/support/runtime-support/services.ts",
+      "selection": "listingPredicateEvents",
+      "sink": "appendToStreams: async"
+    },
+    "Marketplace independent bulk": {
+      "boundary": "bounded-contexts/marketplace/support/runtime-support/services.ts",
+      "selection": "listingPredicateEvents",
+      "sink": "appendToStreamsIndependently: async"
+    },
+    "Marketplace transaction alias": {
+      "boundary": "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
+      "selection": "withOwnerPredicateWrite",
+      "sink": "appendToStreamInTransaction: async"
+    },
+    "Catalog normal": {
+      "boundary": "bounded-contexts/catalog/support/authoring-support/services.ts",
+      "selection": "createCatalogAuthoringPersistence",
+      "sink": "appendToStream: async"
+    },
+    "Catalog promotion": {
+      "boundary": "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-target-exclusion.ts",
+      "selection": "withOwnerPredicateWrite",
+      "sink": "appendToStreamsInTransaction: async"
+    },
+    "Inventory stock": {
+      "boundary": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts",
+      "selection": "repricing-stock",
+      "sink": "await enrollOwnerPredicateWriteInTransaction"
+    },
+    "Pricing configuration": {
+      "boundary": "bounded-contexts/pricing/features/repricing-policies/api/configuration.ts",
+      "selection": "repricing-account",
+      "sink": "await enrollOwnerPredicateWriteInTransaction"
+    },
+    "Product freeze": {
+      "boundary": "bounded-contexts/pricing/features/repricing-engine/read-model/product-round-state.ts",
+      "selection": "repricing-product-freeze",
+      "sink": "await enrollOwnerPredicateWriteInTransaction"
+    },
+    "platform policy": {
+      "boundary": "bounded-contexts/pricing/support/runtime-support/services.ts",
+      "selection": "repricing-platform-policy",
+      "sink": "appendToStream: async"
+    }
+  },
   "consumedFields": {
     "account": ["id", "status"],
     "user": ["id", "status"],
