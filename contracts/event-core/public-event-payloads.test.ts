@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createPassthroughDomainEventCodec } from "./codec";
 import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFactType } from "../order-groups/index";
+import type { InventoryItemId } from "../primitives/typed-ids";
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
@@ -1284,6 +1285,17 @@ describe("public event payload aggregate composition", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
     expect(aggregateTypeIdentityCoversEveryRegisteredEvent).toBe(true);
     expect(Object.values(inventoryItemCreatedAcquisitionCurrencyContract).every(Boolean)).toBe(true);
+  });
+
+  it("publishes the persisted Inventory stock authority claim payload", () => {
+    expectTypeOf<ChaseSetsEventPayloads["inventory.item.stock-authority-claimed"]>().toEqualTypeOf<
+      Readonly<{
+        itemId: InventoryItemId;
+        authorityRef: string;
+        operation: "hold-placement" | "stock-reduction";
+        quantity: number;
+      }>
+    >();
   });
 
   it("publishes optional External Channel Sale line money on the existing v1 payload", () => {

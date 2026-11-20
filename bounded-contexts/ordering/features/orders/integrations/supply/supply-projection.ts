@@ -3,11 +3,7 @@ import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
 import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
-import {
-  defineProjectorHandlers,
-  type ProjectorHandler,
-  type ProjectorHandlerMap,
-} from "@chase-sets/event-core/projector";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonValue } from "@chase-sets/primitives/json";
@@ -648,28 +644,20 @@ async function markOrderingInventoryHoldTerminal(
   );
 }
 
+async function advanceInventoryItemVersion(db: PgQueryable, itemId: string, streamVersion: number): Promise<void> {
+  await db.query(
+    `UPDATE ordering_inventory_item_inputs
+     SET last_stream_version = $2
+     WHERE item_id = $1
+       AND last_stream_version < $2`,
+    [itemId, streamVersion],
+  );
+}
+
 export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  const advanceInventoryItemVersion: ProjectorHandler = async (event, context) => {
-    const { itemId } = event.data as { itemId: string };
-
-    await resolveProjectionDb(context, db).query(
-      `UPDATE ordering_inventory_item_inputs
-       SET last_stream_version = $2
-       WHERE item_id = $1
-         AND last_stream_version < $2`,
-      [itemId, event.streamVersion],
-    );
-  };
-
-  return {
+  return defineProjectorHandlers<ChaseSetsEventPayloads>({
     "inventory.item.created": async (event) => {
-      const data = event.data as {
-        itemId: string;
-        accountId: string;
-        catalogItemId: string;
-        productId: string;
-        totalQuantity: number;
-      };
+      const data = event.data;
 
       await db.query(
         `INSERT INTO ordering_inventory_item_inputs (
@@ -701,10 +689,7 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
       );
     },
     "inventory.item.adjusted": async (event) => {
-      const data = event.data as {
-        itemId: string;
-        quantityDelta: number;
-      };
+      const data = event.data;
 
       await db.query(
         `UPDATE ordering_inventory_item_inputs
@@ -716,17 +701,38 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
         [data.itemId, data.quantityDelta, event.timing.recordedAt, event.streamVersion],
       );
     },
-    "inventory.item.stock-authority-claimed": advanceInventoryItemVersion,
-    "inventory.item.offline-sale-recorded": advanceInventoryItemVersion,
-    "inventory.hold.placed": async (event) => {
-      const data = event.data as {
-        holdId: string;
-        accountId: string;
-        itemId: string;
-        quantity: number;
-      };
+    "inventory.item.stock-authority-claimed": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const { itemId, authorityRef, operation } = event.data;
+      if (operation === "hold-placement") {
+        const hold = await projectionDb.query(
+          `SELECT 1 FROM ordering_inventory_hold_inputs
+           WHERE hold_id = $1 AND item_id = $2`,
+          [authorityRef, itemId],
+        );
+        if (hold.rows.length === 0) {
+          // A source page can end after the claim but before its hold, even within one source commit.
+          await projectionDb.query(
+            `INSERT INTO ordering_inventory_pending_hold_claims (hold_id, item_id, item_stream_version)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (hold_id) DO UPDATE SET item_stream_version = EXCLUDED.item_stream_version
+             WHERE ordering_inventory_pending_hold_claims.item_id = EXCLUDED.item_id
+               AND ordering_inventory_pending_hold_claims.item_stream_version < EXCLUDED.item_stream_version`,
+            [authorityRef, itemId, event.streamVersion],
+          );
+          return;
+        }
+      }
+      await advanceInventoryItemVersion(projectionDb, itemId, event.streamVersion);
+    },
+    "inventory.item.offline-sale-recorded": async (event, context) => {
+      await advanceInventoryItemVersion(resolveProjectionDb(context, db), event.data.itemId, event.streamVersion);
+    },
+    "inventory.hold.placed": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data;
 
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO ordering_inventory_hold_inputs (
            hold_id,
            item_id,
@@ -748,11 +754,22 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
          WHERE ordering_inventory_hold_inputs.last_stream_version < EXCLUDED.last_stream_version`,
         [data.holdId, data.itemId, data.accountId, data.quantity, event.timing.recordedAt, event.streamVersion],
       );
+      await projectionDb.query(
+        `WITH claim AS (
+           DELETE FROM ordering_inventory_pending_hold_claims
+           WHERE hold_id = $1 AND item_id = $2
+           RETURNING item_id, item_stream_version
+         )
+         UPDATE ordering_inventory_item_inputs AS item
+         SET last_stream_version = claim.item_stream_version
+         FROM claim
+         WHERE item.item_id = claim.item_id
+           AND item.last_stream_version < claim.item_stream_version`,
+        [data.holdId, data.itemId],
+      );
     },
     "inventory.hold.converted": async (event) => {
-      const data = event.data as {
-        holdId: string;
-      };
+      const data = event.data;
 
       await db.query(
         `UPDATE ordering_inventory_hold_inputs
@@ -764,9 +781,7 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
       );
     },
     "inventory.hold.extended": async (event) => {
-      const data = event.data as {
-        holdId: string;
-      };
+      const data = event.data;
 
       await db.query(
         `UPDATE ordering_inventory_hold_inputs
@@ -778,10 +793,7 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
       );
     },
     "inventory.hold.released": async (event) => {
-      const data = event.data as {
-        holdId: string;
-        releasedAt: string;
-      };
+      const data = event.data;
 
       await markOrderingInventoryHoldTerminal(db, {
         holdId: data.holdId,
@@ -792,10 +804,7 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
       });
     },
     "inventory.hold.expired": async (event) => {
-      const data = event.data as {
-        holdId: string;
-        expiredAt: string;
-      };
+      const data = event.data;
 
       await markOrderingInventoryHoldTerminal(db, {
         holdId: data.holdId,
@@ -805,5 +814,5 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
         streamVersion: event.streamVersion,
       });
     },
-  };
+  });
 }

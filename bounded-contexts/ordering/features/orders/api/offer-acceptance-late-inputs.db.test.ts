@@ -144,7 +144,10 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     if (pools) await closeMultiContextTestPools(pools);
   });
 
-  function mount(legacyInventoryProjection = false) {
+  function mount({
+    legacyInventoryProjection = false,
+    inventoryBatchSize,
+  }: { legacyInventoryProjection?: boolean; inventoryBatchSize?: number } = {}) {
     const sources = new Set([
       ...contextManifest.eventSubscriptions.map((entry) => entry.sourceContextName),
       ...contextManifest.eventReactions.map((entry) => entry.sourceContextName),
@@ -160,27 +163,31 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
       })),
       {
         contextName: "ordering",
-        module: legacyInventoryProjection
-          ? {
-              ...orderingModule,
-              buildSubscriptions: (services) =>
-                orderingModule.buildSubscriptions!(services).map((subscription) => {
-                  if (subscription.projectionName !== inventoryProjectionName) return subscription;
-                  const handlers = Object.fromEntries(
-                    Object.entries(subscription.handlers).filter(
-                      ([type]) => !inventoryCompanionFacts.some((companion) => companion === type),
+        module:
+          legacyInventoryProjection || inventoryBatchSize !== undefined
+            ? {
+                ...orderingModule,
+                buildSubscriptions: (services) =>
+                  orderingModule.buildSubscriptions!(services).map((subscription) => {
+                    if (subscription.projectionName !== inventoryProjectionName) return subscription;
+                    if (!legacyInventoryProjection) return { ...subscription, batchSize: inventoryBatchSize };
+                    const handlers = Object.fromEntries(
+                      Object.entries(subscription.handlers).filter(
+                        ([type]) => !inventoryCompanionFacts.some((companion) => companion === type),
+                      ),
+                    );
+                    return { ...subscription, handlers, eventTypes: Object.keys(handlers) };
+                  }),
+                buildProjectionGroups: () =>
+                  orderingModule
+                    .buildProjectionGroups()
+                    .map((group) =>
+                      legacyInventoryProjection && group.projectionName === inventoryProjectionName
+                        ? { ...group, projectionRevision: 1 }
+                        : group,
                     ),
-                  );
-                  return { ...subscription, handlers, eventTypes: Object.keys(handlers) };
-                }),
-              buildProjectionGroups: () =>
-                orderingModule
-                  .buildProjectionGroups()
-                  .map((group) =>
-                    group.projectionName === inventoryProjectionName ? { ...group, projectionRevision: 1 } : group,
-                  ),
-            }
-          : orderingModule,
+              }
+            : orderingModule,
         pool: pools.ordering,
         ports: { inventoryCleanupAuthority: { kind: "not-mounted" as const } },
       },
@@ -260,6 +267,52 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     });
   }
 
+  async function commitHold(offer: MarketplaceOfferAcceptedPayload, holdId: string) {
+    const store = createPostgresEventStore({ pool: pools.inventory });
+    const [claim, placed] = await withPgTransaction(pools.inventory, (db) =>
+      store.appendToStreamsInTransaction(db, [
+        {
+          streamId: inventoryStreamId(offer),
+          expectedVersion: 1,
+          context,
+          events: [
+            {
+              eventType: "inventory.item.stock-authority-claimed",
+              payload: {
+                itemId: offer.inventoryItemId,
+                authorityRef: holdId,
+                operation: "hold-placement",
+                quantity: 1,
+              },
+            },
+          ],
+        },
+        {
+          streamId: `inventory.hold-${holdId}`,
+          expectedVersion: "no_stream",
+          context,
+          events: [
+            {
+              eventType: "inventory.hold.placed",
+              payload: {
+                holdId,
+                itemId: offer.inventoryItemId,
+                accountId: sellerAccountId,
+                quantity: 1,
+                reason: "Existing hold",
+                notes: null,
+                purpose: "manual",
+                sourceRef: null,
+                expiresAt: null,
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    return { claim: claim!.storedEvents[0]!, hold: placed!.storedEvents[0]! };
+  }
+
   async function createdOrders() {
     const result = await pools.ordering.query<{ payload: { orderId: string } }>(
       "SELECT payload FROM event_store_events WHERE event_type = 'ordering.order.created'",
@@ -321,51 +374,10 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     const isHold = fact === "inventory.item.stock-authority-claimed";
     const fixture = fill("companion", { inventoryItemVersion: isHold ? 2 : 3 });
     const { offer } = fixture;
-    const holdId = "inh_existing";
     const store = createPostgresEventStore({ pool: pools.inventory });
     await createInventory(offer, 3);
     if (isHold) {
-      await withPgTransaction(pools.inventory, (db) =>
-        store.appendToStreamsInTransaction(db, [
-          {
-            streamId: inventoryStreamId(offer),
-            expectedVersion: 1,
-            context,
-            events: [
-              {
-                eventType: fact,
-                payload: {
-                  itemId: offer.inventoryItemId,
-                  authorityRef: holdId,
-                  operation: "hold-placement",
-                  quantity: 1,
-                },
-              },
-            ],
-          },
-          {
-            streamId: `inventory.hold-${holdId}`,
-            expectedVersion: "no_stream",
-            context,
-            events: [
-              {
-                eventType: "inventory.hold.placed",
-                payload: {
-                  holdId,
-                  itemId: offer.inventoryItemId,
-                  accountId: sellerAccountId,
-                  quantity: 1,
-                  reason: "Existing hold",
-                  notes: null,
-                  purpose: "manual",
-                  sourceRef: null,
-                  expiresAt: null,
-                },
-              },
-            ],
-          },
-        ]),
-      );
+      await commitHold(offer, "inh_existing");
     } else {
       await store.appendToStream({
         streamId: inventoryStreamId(offer),
@@ -398,7 +410,7 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     }
 
     const tail = await createInventory(fill("checkpoint_tail").offer);
-    const legacy = mount(true);
+    const legacy = mount({ legacyInventoryProjection: true });
     await syncProjectionGroup(legacy.inventoryGroup);
     expect(await legacy.inventory.refreshStatus()).toMatchObject({ lastGlobalPosition: tail.globalPosition });
     const inventoryInput = async () =>
@@ -432,6 +444,65 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     expect(await reaction.runOnce()).toMatchObject({ lastGlobalPosition: accepted.globalPosition });
     await reaction.runOnce();
     expect(await createdOrders()).toEqual([expect.objectContaining({ sourceReferenceId: offer.offerId })]);
+  });
+
+  it("retries between the claim and hold pages and rejects when the hold exhausts stock", async () => {
+    const fixture = fill("hold_page_split", { inventoryItemVersion: 2 });
+    const { offer } = fixture;
+    const holdId = "inh_page_split";
+    const first = mount({ inventoryBatchSize: 1 });
+    await createInventory(offer);
+    const { claim, hold } = await commitHold(offer, holdId);
+    const accepted = await commitFill(fixture);
+    await first.listings.runOnce();
+
+    const itemInput = async () =>
+      (
+        await pools.ordering.query(
+          "SELECT total_quantity, last_stream_version FROM ordering_inventory_item_inputs WHERE item_id = $1",
+          [offer.inventoryItemId],
+        )
+      ).rows;
+    const pendingClaim = async () =>
+      (
+        await pools.ordering.query(
+          "SELECT item_id, item_stream_version FROM ordering_inventory_pending_hold_claims WHERE hold_id = $1",
+          [holdId],
+        )
+      ).rows;
+    const holdInput = async () =>
+      (
+        await pools.ordering.query("SELECT quantity, status FROM ordering_inventory_hold_inputs WHERE hold_id = $1", [
+          holdId,
+        ])
+      ).rows;
+
+    await first.inventory.runOnce(); // Inventory item creation
+    expect(await first.inventory.runOnce()).toMatchObject({ lastGlobalPosition: claim.globalPosition });
+    await expectWait(first.reaction);
+    expect(await itemInput()).toEqual([{ total_quantity: 1, last_stream_version: 1 }]);
+    expect(await pendingClaim()).toEqual([{ item_id: offer.inventoryItemId, item_stream_version: 2 }]);
+    expect(await holdInput()).toEqual([]);
+
+    const restarted = mount({ inventoryBatchSize: 1 });
+    expect(await restarted.inventory.runOnce()).toMatchObject({ lastGlobalPosition: hold.globalPosition });
+    expect(await itemInput()).toEqual([{ total_quantity: 1, last_stream_version: 2 }]);
+    expect(await pendingClaim()).toEqual([]);
+    expect(await holdInput()).toEqual([{ quantity: 1, status: "active" }]);
+    expect(await restarted.reaction.runOnce()).toMatchObject({
+      lastGlobalPosition: accepted.globalPosition,
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    expect(
+      (
+        await pools.ordering.query("SELECT error_message FROM event_projection_poison_events WHERE event_id = $1", [
+          accepted.eventId,
+        ])
+      ).rows,
+    ).toEqual([{ error_message: `Committed Listing ${fixture.listing.listingId} is not available in Ordering.` }]);
+    expect(await createdOrders()).toEqual([]);
   });
 
   it("rejects fresh but exhausted supply without a transient retry", async () => {

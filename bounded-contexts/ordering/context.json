@@ -277,7 +277,11 @@
       "projectionName": "ordering-inventory-supply-input-projection",
       "projectionRevision": 2,
       "sourceContextNames": ["inventory"],
-      "ownedTables": ["ordering_inventory_item_inputs", "ordering_inventory_hold_inputs"],
+      "ownedTables": [
+        "ordering_inventory_item_inputs",
+        "ordering_inventory_hold_inputs",
+        "ordering_inventory_pending_hold_claims"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

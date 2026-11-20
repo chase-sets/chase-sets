@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS ordering_inventory_hold_inputs (
 CREATE INDEX IF NOT EXISTS ordering_inventory_hold_inputs_item_idx
   ON ordering_inventory_hold_inputs (item_id, status);
 
+CREATE TABLE IF NOT EXISTS ordering_inventory_pending_hold_claims (
+  hold_id text PRIMARY KEY,
+  item_id text NOT NULL,
+  item_stream_version integer NOT NULL CHECK (item_stream_version >= 1)
+);
+
 CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,

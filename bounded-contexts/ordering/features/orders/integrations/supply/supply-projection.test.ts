@@ -12,24 +12,97 @@ import {
 } from "./supply-projection";
 
 describe("ordering inventory supply projection", () => {
-  it.each(["inventory.item.stock-authority-claimed", "inventory.item.offline-sale-recorded"])(
-    "advances only the item watermark monotonically for %s",
-    async (type) => {
-      const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
-      const handlers = buildOrderingInventorySupplyProjectionHandlers({ query });
-      await handlers[type]!({
-        ...event(type, "inventory.item-inv_1", { itemId: "inv_1", quantity: 1 }),
-        streamVersion: 4,
-      });
+  const holdClaim = {
+    ...event("inventory.item.stock-authority-claimed", "inventory.item-inv_1", {
+      itemId: "inv_1",
+      authorityRef: "inh_1",
+      operation: "hold-placement",
+      quantity: 2,
+    }),
+    streamVersion: 4,
+  };
 
-      expect(query).toHaveBeenCalledExactlyOnceWith(
-        expect.stringMatching(
-          /^UPDATE ordering_inventory_item_inputs\s+SET last_stream_version = \$2\s+WHERE item_id = \$1\s+AND last_stream_version < \$2$/,
-        ),
-        ["inv_1", 4],
-      );
-    },
-  );
+  it.each([
+    event("inventory.item.stock-authority-claimed", "inventory.item-inv_1", {
+      itemId: "inv_1",
+      authorityRef: "sale_1",
+      operation: "stock-reduction",
+      quantity: 1,
+    }),
+    event("inventory.item.offline-sale-recorded", "inventory.item-inv_1", { itemId: "inv_1", quantity: 1 }),
+  ])("advances only the item watermark monotonically for $type", async (fact) => {
+    const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+    const handlers = buildOrderingInventorySupplyProjectionHandlers({ query });
+    await handlers[fact.type]!({ ...fact, streamVersion: 4 });
+
+    expect(query).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(
+        /^UPDATE ordering_inventory_item_inputs\s+SET last_stream_version = \$2\s+WHERE item_id = \$1\s+AND last_stream_version < \$2$/,
+      ),
+      ["inv_1", 4],
+    );
+  });
+
+  it("defers a hold claim until the matching placement in the target transaction", async () => {
+    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const fallbackQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const handlers = buildOrderingInventorySupplyProjectionHandlers({ query: fallbackQuery });
+    const context = { db: { query } };
+
+    await handlers[holdClaim.type]!(holdClaim, context);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/FROM ordering_inventory_hold_inputs\s+WHERE hold_id = \$1 AND item_id = \$2/),
+      ["inh_1", "inv_1"],
+    );
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("INSERT INTO ordering_inventory_pending_hold_claims"),
+      ["inh_1", "inv_1", 4],
+    );
+    query.mockClear();
+
+    await handlers["inventory.hold.placed"]!(
+      event("inventory.hold.placed", "inventory.hold-inh_1", {
+        holdId: "inh_1",
+        accountId: "acc_1",
+        itemId: "inv_1",
+        quantity: 2,
+      }),
+      context,
+    );
+    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("INSERT INTO ordering_inventory_hold_inputs"), [
+      "inh_1",
+      "inv_1",
+      "acc_1",
+      2,
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(
+        /DELETE FROM ordering_inventory_pending_hold_claims[\s\S]+WHERE hold_id = \$1 AND item_id = \$2[\s\S]+last_stream_version < claim.item_stream_version/,
+      ),
+      ["inh_1", "inv_1"],
+    );
+    expect(fallbackQuery).not.toHaveBeenCalled();
+  });
+
+  it("advances a replayed hold claim when the matching hold already exists", async () => {
+    const query = vi.fn<PgQueryable["query"]>().mockResolvedValueOnce({ rows: [{ "?column?": 1 }], rowCount: 1 });
+    query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    const handlers = buildOrderingInventorySupplyProjectionHandlers({ query });
+
+    await handlers[holdClaim.type]!(holdClaim);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenLastCalledWith(
+      expect.stringMatching(/UPDATE ordering_inventory_item_inputs[\s\S]+last_stream_version < \$2/),
+      ["inv_1", 4],
+    );
+  });
 });
 
 type ListingInputRow = {
