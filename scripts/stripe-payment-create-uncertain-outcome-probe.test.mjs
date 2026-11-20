@@ -149,6 +149,8 @@ it("AC4: closed artifact excludes planted private data, has finite calls and ref
   for (const [armed, key] of [
     [false, secretKey],
     [true, `sk_live_${marker}`],
+    [true, "sk_test_"],
+    [true, `${secretKey}:`],
   ]) {
     await expect(
       captureProbe({

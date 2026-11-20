@@ -157,7 +157,7 @@ export async function captureProbe({
   if (
     !armed ||
     !isStripeTestServerKey(secretKey, { allowRestricted: true }) ||
-    !/^[sr]k_test_[A-Za-z0-9_]+$/.test(secretKey)
+    !/^[a-z]{2}_[a-z]+_[A-Za-z0-9_]+$/.test(secretKey)
   )
     throw refusal();
   const startedAt = new Date().toISOString();
