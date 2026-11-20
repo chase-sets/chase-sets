@@ -1,6 +1,11 @@
-import { catalogFixtureTransports, catalogProductionTransport } from "../catalog-fixture-transports";
+import {
+  catalogFixtureTransports,
+  catalogProductionTransport,
+  isCatalogFixtureTransport,
+} from "../catalog-fixture-transports";
 import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { t } from "@chase-sets/localization";
 import { runCatalogIntegrationDryRun } from "../../governance/catalog-integration-engine";
@@ -32,6 +37,28 @@ export const SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY = defineCatalogIntegrationUnit
 
 export const SCRYFALL_PRODUCTION_PROFILE_VERSION = "2026.06.19";
 export const SCRYFALL_VALIDATION_PROFILE_VERSION = "scryfall-validation-2026.06.08";
+
+const transientTransportCodes = new Set([
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EPIPE",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+const diagnosticTransportCodes = new Set([
+  ...transientTransportCodes,
+  "CERT_HAS_EXPIRED",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "ENOTFOUND",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+const retryDelayMs = 100;
 
 export type ScryfallProviderPayload =
   | Readonly<{
@@ -455,7 +482,7 @@ async function fetchScryfallCard(
 ): Promise<ScryfallCard> {
   const cardId = stringValue(values.cardId ?? values.id);
   if (cardId) {
-    return fetchJson(scryfallCardUrl(cardId, options), options);
+    return fetchJson(scryfallCardUrl(cardId, options), "/cards/:id", options);
   }
 
   const exactName = requireString(
@@ -474,7 +501,11 @@ async function fetchScryfallSearch(
   query: string,
   options: ScryfallProviderAdapterOptions,
 ): Promise<ScryfallListResponse<ScryfallCard>> {
-  return fetchJson(`${scryfallUrl("cards/search", options)}?q=${encodeURIComponent(query)}&unique=prints`, options);
+  return fetchJson(
+    `${scryfallUrl("cards/search", options)}?q=${encodeURIComponent(query)}&unique=prints`,
+    "/cards/search",
+    options,
+  );
 }
 
 async function fetchAllScryfallSearch(
@@ -483,11 +514,17 @@ async function fetchAllScryfallSearch(
 ): Promise<readonly ScryfallCard[]> {
   const cards: ScryfallCard[] = [];
   let nextUrl: string | null = `${scryfallUrl("cards/search", options)}?q=${encodeURIComponent(query)}&unique=prints`;
+  let page = 1;
 
   while (nextUrl) {
-    const response: ScryfallListResponse<ScryfallCard> = await fetchJson(nextUrl, options);
+    const response: ScryfallListResponse<ScryfallCard> = await fetchJson(
+      nextUrl,
+      `/cards/search page ${page}`,
+      options,
+    );
     cards.push(...(response.data ?? []));
     nextUrl = response.has_more && response.next_page ? response.next_page : null;
+    page += 1;
   }
 
   return cards;
@@ -496,26 +533,69 @@ async function fetchAllScryfallSearch(
 async function fetchScryfallBulkData(
   options: ScryfallProviderAdapterOptions,
 ): Promise<ScryfallListResponse<ScryfallBulkData>> {
-  return fetchJson(scryfallUrl("bulk-data", options), options);
+  return fetchJson(scryfallUrl("bulk-data", options), "/bulk-data", options);
 }
 
 async function fetchScryfallSets(options: ScryfallProviderAdapterOptions): Promise<ScryfallListResponse<ScryfallSet>> {
-  return fetchJson(scryfallUrl("sets", options), options);
+  return fetchJson(scryfallUrl("sets", options), "/sets", options);
 }
 
-async function fetchJson<T>(url: string, options: ScryfallProviderAdapterOptions): Promise<T> {
-  const response = await sendCatalogProviderRequest("scryfall", options.fetch ?? globalThis.fetch, url, {
-    headers: {
-      "User-Agent":
-        options.userAgent ??
-        "ChaseSetsCatalogValidation/1.0 (engineering-validation; https://github.com/chase-sets/chase-sets)",
-      Accept: "application/json;q=0.9,*/*;q=0.8",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Scryfall request failed with HTTP ${response.status}.`);
+class ScryfallTransportError extends Error {
+  readonly code: string | undefined;
+
+  constructor(location: string, error: unknown) {
+    const code = diagnosticTransportCode(error);
+    super(`Scryfall ${location} failed${code ? ` (${code})` : ""}.`);
+    this.code = code;
   }
-  return (await response.json()) as T;
+}
+
+function diagnosticTransportCode(error: unknown): string | undefined {
+  const cause = error instanceof Error ? error.cause : undefined;
+  const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+  return typeof code === "string" && diagnosticTransportCodes.has(code) ? code : undefined;
+}
+
+async function fetchJson<T>(url: string, location: string, options: ScryfallProviderAdapterOptions): Promise<T> {
+  const fetch = options.fetch ?? globalThis.fetch;
+  // Mark failures from fetch itself, not from admission or HTTP response handling.
+  const transport: typeof fetch = isCatalogFixtureTransport(fetch)
+    ? fetch
+    : async (...args) => {
+        try {
+          return await fetch(...args);
+        } catch (error) {
+          throw new ScryfallTransportError(location, error);
+        }
+      };
+  const send = () =>
+    sendCatalogProviderRequest("scryfall", transport, url, {
+      headers: {
+        "User-Agent":
+          options.userAgent ??
+          "ChaseSetsCatalogValidation/1.0 (engineering-validation; https://github.com/chase-sets/chase-sets)",
+        Accept: "application/json;q=0.9,*/*;q=0.8",
+      },
+    });
+  let response: Response;
+  try {
+    response = await send();
+  } catch (error) {
+    if (!(error instanceof ScryfallTransportError) || !error.code || !transientTransportCodes.has(error.code)) {
+      throw error;
+    }
+    await delay(retryDelayMs);
+    response = await send();
+  }
+  if (!response.ok) {
+    throw new Error(`Scryfall ${location} failed (HTTP ${response.status}).`);
+  }
+  try {
+    return (await response.json()) as T;
+  } catch (error) {
+    const code = diagnosticTransportCode(error);
+    throw new Error(`Scryfall ${location} returned invalid JSON (HTTP ${response.status}${code ? `, ${code}` : ""}).`);
+  }
 }
 
 function scryfallCardUrl(cardId: string, options: ScryfallProviderAdapterOptions): string {

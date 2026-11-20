@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
@@ -13,6 +13,8 @@ import { SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES } from "../domain/source-o
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
+import { reconcileProductionCatalogCompletion } from "../../completion-report/domain/reconcile";
+import { completeManifest } from "../../completion-report/domain/__fixtures__/manifest";
 import {
   CatalogIntegrationRolloutControlError,
   createCatalogIntegrationRolloutControlPolicy,
@@ -85,6 +87,272 @@ function tcgdexBaseSetMappingRow(): Record<string, unknown> {
     seriesId: "base",
   });
 }
+
+function createClaimExhaustionHarness() {
+  const harness = createIntegrationJobDedupeHarness({ acceptedScopeMappings: [tcgdexBaseSetMappingRow()] });
+  const coverage: Record<string, unknown> = {};
+  let beforeNextCoverageUpsert: (() => Promise<void>) | undefined;
+  const scope = {
+    scopeVersion: "catalog-sync-scope-v2",
+    productDomain: "pokemon",
+    productForm: "single-card",
+    languageCode: "en",
+    reference: { kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID },
+    providerParticipation: { selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"] },
+  } as const;
+  const exhaustedAt = "2026-08-03T00:00:00.000Z";
+  const services = createSourceObservationRuntime(
+    {
+      ...harness.deps,
+      db: {
+        query: async <T>(sql: string, values: readonly unknown[] = []) => {
+          const result = (rows: Record<string, unknown>[]) => ({ rowCount: rows.length, rows: rows as T[] });
+          if (
+            sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
+            sql.includes("status IN ('queued', 'running')")
+          ) {
+            const kinds = values[0] as string[];
+            return result(
+              harness.insertedJobs.filter((job) => job.status === "queued" && kinds.includes(String(job.job_kind))),
+            );
+          }
+          if (
+            sql.includes("WITH exhausted AS") &&
+            sql.includes("catalog_source_observation_integration_durable_jobs")
+          ) {
+            const [kinds, maxAttempts] = values as [string[], number];
+            const exhausted = harness.insertedJobs.filter(
+              (job) =>
+                kinds.includes(String(job.job_kind)) &&
+                job.status === "running" &&
+                String(job.claimed_until) < exhaustedAt &&
+                String(job.next_eligible_at) <= exhaustedAt &&
+                Number(job.attempt_count) >= maxAttempts,
+            );
+            expect(maxAttempts).toBe(10);
+            for (const job of exhausted) {
+              Object.assign(job, {
+                status: "failed",
+                claim_owner_id: null,
+                claimed_until: null,
+                error_message: job.error_message ?? "Durable job retry attempts exhausted.",
+                completed_at: exhaustedAt,
+                updated_at: exhaustedAt,
+              });
+            }
+            return result(exhausted);
+          }
+          if (sql.includes("INSERT INTO catalog_scope_sync_state")) {
+            const beforeUpsert = beforeNextCoverageUpsert;
+            beforeNextCoverageUpsert = undefined;
+            await beforeUpsert?.();
+            Object.assign(coverage, {
+              scope_key: values[0],
+              provider_key: values[1],
+              unit_key: values[2],
+              state: values[12],
+              last_sync_run_id: values[13],
+              last_job_id: values[14],
+              last_operator_status: values[15],
+              error_message: values[20],
+              last_completed_at: values[22],
+              updated_at: values[23],
+            });
+            return result([]);
+          }
+          if (sql.includes("UPDATE catalog_scope_sync_state")) {
+            expect(sql).toContain("WHERE last_job_id = $1");
+            if (coverage.last_job_id !== values[0]) return result([]);
+            Object.assign(coverage, {
+              state: values[1],
+              last_operator_status: "failed",
+              error_message: values[2],
+              last_completed_at: values[8],
+              updated_at: values[9],
+            });
+            return { rowCount: 1, rows: [] as T[] };
+          }
+          if (sql.includes("FROM catalog_scope_sync_state")) {
+            return result(coverage.scope_key === values[0] ? [coverage] : []);
+          }
+          return harness.deps.db.query<T>(sql, values);
+        },
+      },
+    },
+    {} as CatalogItemServices,
+    {} as ReferenceDataServices,
+    createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+  );
+  return {
+    services,
+    harness,
+    coverage,
+    scope,
+    exhaustedAt,
+    beforeCoverageUpsert(callback: () => Promise<void>) {
+      beforeNextCoverageUpsert = callback;
+    },
+    markLastClaimExpired(jobId: string | null) {
+      const job = harness.insertedJobs.find((candidate) => candidate.job_id === jobId);
+      if (!job) throw new Error("Missing import job in claim exhaustion fixture.");
+      Object.assign(job, {
+        status: "running",
+        claim_owner_id: "worker-expired",
+        claimed_until: "2026-08-02T00:00:00.000Z",
+        attempt_count: 10,
+      });
+    },
+  };
+}
+
+describe("source observation runtime: import claim exhaustion", () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Provider requests are not allowed in this test."));
+  });
+  afterEach(() => {
+    const fetch = vi.mocked(globalThis.fetch);
+    try {
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it.each(["new child", "reused standalone import"] as const)(
+    "records a linked %s as a terminal failure when its claims are exhausted",
+    async (link) => {
+      const { services, coverage, scope, exhaustedAt, markLastClaimExpired } = createClaimExhaustionHarness();
+      Object.assign(coverage, { observed_count: 12, changed_count: 2, failed_count: 0 });
+      let standalone;
+      if (link === "reused standalone import") {
+        const preview = await services.previewCatalogSyncScope({ scope, context });
+        const childScope = preview.units.find((unit) => unit.selected)?.childExecutionScope;
+        if (!childScope) throw new Error("Missing selected provider scope in claim exhaustion fixture.");
+        standalone = await services.enqueueIntegrationJob({ action: "import", scope: childScope, context });
+      }
+      const run = await services.enqueueCatalogSyncRun({ scope, context });
+      const childId = run.childJobs[0].childJobId;
+      expect(childId).toBeTruthy();
+      if (standalone) expect(childId).toBe(standalone.jobId);
+      expect(run.childJobs[0].syncRunLinkState).toBe(
+        standalone ? "reused-active-child-job" : "attached-to-child-payload",
+      );
+      expect(coverage).toMatchObject({
+        last_job_id: childId,
+        state: "pending",
+        last_operator_status: standalone ? "reused-active-job" : "queued",
+      });
+      markLastClaimExpired(childId);
+
+      await expect(
+        services.processNextIntegrationJob({ claimOwnerId: "worker-next", claimTtlMs: 120_000 }),
+      ).resolves.toBe(0);
+      const errorMessage = "Durable job retry attempts exhausted.";
+      await expect(services.getCatalogSyncRun({ syncRunId: run.syncRunId, context })).resolves.toMatchObject({
+        status: "failed",
+        progress: { childJobs: { total: 1, failed: 1, queued: 0, running: 0 } },
+        childJobs: [{ childJobId: childId, status: "failed", job: { errorMessage } }],
+      });
+      const state = await services.getCatalogScopeSyncState({ scope, context });
+      expect(state).toMatchObject([
+        {
+          state: "failed",
+          lastOperatorStatus: "failed",
+          lastSyncRunId: run.syncRunId,
+          lastJobId: childId,
+          errorMessage,
+          lastCompletedAt: exhaustedAt,
+          observedCount: 12,
+          changedCount: 2,
+          failedCount: 0,
+        },
+      ]);
+      const unit = { providerKey: state[0].providerKey, unitKey: state[0].unitKey };
+      const expectedUnit = { ...unit, scopeRecordId: BASE_SET_SCOPE_RECORD_ID };
+      const manifest = completeManifest();
+      const report = reconcileProductionCatalogCompletion(
+        {
+          ...manifest,
+          providerUnits: [{ ...unit, productionClass: "production", lifecycle: "active", active: true }],
+          scopes: [{ scopeRecordId: BASE_SET_SCOPE_RECORD_ID, eligible: true, acceptedMappings: [unit] }],
+          expectedUnits: [expectedUnit],
+          observedUnits: [
+            {
+              ...expectedUnit,
+              state: state[0].state,
+              lastCompletedAt: state[0].lastCompletedAt,
+              syncRunId: state[0].lastSyncRunId,
+              observedCount: Number(state[0].observedCount),
+              changedCount: Number(state[0].changedCount),
+              failedCount: Number(state[0].failedCount),
+            },
+          ],
+          providerUsage: [],
+        },
+        { generatedAt: exhaustedAt },
+      );
+      expect(report.providerUnitStates).toEqual({ failed: 1 });
+      expect(report.blockers.map((blocker) => blocker.code)).toContain("failed-job");
+      expect(report.blockers.map((blocker) => blocker.code)).not.toContain("non-terminal-unit");
+      expect(report.result).toBe("incomplete");
+    },
+  );
+
+  it.each([false, true])("retains exhaustion after the fan-out snapshot (existing link: %s)", async (existingLink) => {
+    const { services, coverage, scope, exhaustedAt, beforeCoverageUpsert, markLastClaimExpired } =
+      createClaimExhaustionHarness();
+    const preview = await services.previewCatalogSyncScope({ scope, context });
+    const childScope = preview.units.find((unit) => unit.selected)?.childExecutionScope;
+    if (!childScope) throw new Error("Missing selected provider scope in claim exhaustion fixture.");
+    const child = await services.enqueueIntegrationJob({ action: "import", scope: childScope, context });
+    const errorMessage = "Durable job retry attempts exhausted.";
+    if (existingLink) Object.assign(coverage, { last_job_id: child.jobId, state: "pending" });
+
+    beforeCoverageUpsert(async () => {
+      markLastClaimExpired(child.jobId);
+      await expect(
+        services.processNextIntegrationJob({ claimOwnerId: "worker-next", claimTtlMs: 120_000 }),
+      ).resolves.toBe(0);
+      expect(coverage.state).toBe(existingLink ? "failed" : undefined);
+    });
+
+    const run = await services.enqueueCatalogSyncRun({ scope, context });
+    expect(run.childJobs).toMatchObject([{ childJobId: child.jobId, syncRunLinkState: "reused-active-child-job" }]);
+    await expect(services.getCatalogSyncRun({ syncRunId: run.syncRunId, context })).resolves.toMatchObject({
+      status: "failed",
+      childJobs: [{ childJobId: child.jobId, status: "failed", job: { errorMessage } }],
+    });
+    expect(coverage).toMatchObject({
+      last_job_id: child.jobId,
+      last_sync_run_id: run.syncRunId,
+      state: "failed",
+      last_operator_status: "failed",
+      last_completed_at: exhaustedAt,
+      error_message: errorMessage,
+    });
+  });
+
+  it("leaves coverage unchanged when an unlinked or superseded import exhausts its claims", async () => {
+    const { services, harness, coverage, scope, markLastClaimExpired } = createClaimExhaustionHarness();
+    const run = await services.enqueueCatalogSyncRun({ scope, context });
+    const childId = run.childJobs[0].childJobId;
+    markLastClaimExpired(childId);
+    coverage.last_job_id = "job_newer";
+    const before = { ...coverage };
+    const unlinked = integrationJobRow({ jobId: "job_unlinked", action: "import", scope: {}, eventContext: context });
+    harness.insertedJobs.push(unlinked);
+    markLastClaimExpired(unlinked.job_id);
+
+    await expect(
+      services.processNextIntegrationJob({ claimOwnerId: "worker-next", claimTtlMs: 120_000 }),
+    ).resolves.toBe(0);
+    expect(harness.insertedJobs.filter((job) => job.status === "failed").map((job) => job.job_id)).toEqual([
+      childId,
+      unlinked.job_id,
+    ]);
+    expect(coverage).toEqual(before);
+  });
+});
 
 describe("source observation runtime: provider integration jobs", () => {
   it("reuses an active provider integration job with the same actor action and scope", async () => {
@@ -1003,6 +1271,88 @@ describe("source observation runtime: provider integration jobs", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it.each([
+    ["retries a transient second-page transport failure", "reset", 2, null],
+    ["persists a redacted reason after one retry", "timeout", 2, "/cards/search page 2 failed (ETIMEDOUT)"],
+    ["omits an unrecognized cause code", "unknown", 1, "/cards/search page 2 failed"],
+    ["does not retry HTTP 404", 404, 1, "/cards/search page 2 failed (HTTP 404)"],
+    ["does not retry HTTP 429", 429, 1, "/cards/search page 2 failed (HTTP 429)"],
+    ["does not retry HTTP 503", 503, 1, "/cards/search page 2 failed (HTTP 503)"],
+    [
+      "does not retry an invalid HTTP response body",
+      "invalid-json",
+      1,
+      "/cards/search page 2 returned invalid JSON (HTTP 200)",
+    ],
+  ] as const)("Scryfall set import %s", async (_name, failure, pageTwoAttempts, failureReason) => {
+    const secret = "SYNTHETIC_PRIVATE_VALUE";
+    const firstPage = "https://api.scryfall.com/cards/search?q=set%3Atsp&unique=prints";
+    const secondPage = `https://api.scryfall.com/cards/search?page=2&token=${secret}`;
+    const card = (id: string, collectorNumber: string) => ({
+      id,
+      uri: `https://api.scryfall.com/cards/${id}`,
+      name: "Synthetic Time Spiral Card",
+      lang: "en",
+      set: "tsp",
+      set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+      set_name: "Time Spiral",
+      collector_number: collectorNumber,
+      rarity: "common",
+      tcgplayer_id: 900000 + Number(collectorNumber),
+      released_at: "2006-10-06",
+    });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === firstPage) {
+        return jsonResponse({ data: [card("synthetic-one", "1")], has_more: true, next_page: secondPage });
+      }
+      if (String(input) !== secondPage) throw new Error("Unexpected synthetic page request");
+      if (typeof failure === "number") return new Response(secret, { status: failure });
+      if (failure === "invalid-json") return new Response(secret);
+      if (failure === "reset" && fetch.mock.calls.length === 3) {
+        return jsonResponse({ data: [card("synthetic-two", "2")], has_more: false });
+      }
+      const code = failure === "reset" ? "ECONNRESET" : failure === "timeout" ? "ETIMEDOUT" : secret;
+      throw new TypeError(`fetch failed: ${secret}`, { cause: Object.assign(new Error(secret), { code }) });
+    });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "scryfall",
+        profileKey: "mtg-card-print-reference-data",
+        ingestionUnitKey: "scryfall:mtg:single-card:reference-data",
+        setId: "tsp",
+      },
+      renewSucceeds: true,
+    });
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    try {
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        firstPage,
+        ...Array<string>(pageTwoAttempts).fill(secondPage),
+      ]);
+    } finally {
+      fetch.mockRestore();
+    }
+
+    const observed = failureReason === null ? 2 : 0;
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result?.outcomes).toMatchObject([
+      {
+        providerKey: "scryfall",
+        status: failureReason === null ? "imported" : "failed",
+        observed,
+        reason: failureReason === null ? null : `Scryfall ${failureReason}.`,
+      },
+    ]);
+    expect(JSON.stringify(harness.job.result)).not.toContain(secret);
+    expect(
+      harness.appendedSourceEvents.filter((event) => event.eventType === "catalog.source-observation.recorded"),
+    ).toHaveLength(observed);
   });
 
   it("generates merge candidates from successful catalog-sync child imports without waiting for projection catch-up", async () => {
