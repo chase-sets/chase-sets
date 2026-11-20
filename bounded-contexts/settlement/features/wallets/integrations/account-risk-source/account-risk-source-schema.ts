@@ -364,4 +364,14 @@ export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigra
   ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    migrationId: "20261120_settlement_payout_review_hold",
+    description: "Persist Settlement payout review hold projection state and stream version.",
+    statements: [
+      `ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false`,
+      `ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold_stream_version bigint NOT NULL DEFAULT 0`,
+    ],
+  },
 ] as const;

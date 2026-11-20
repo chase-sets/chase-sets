@@ -26,7 +26,11 @@ import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceServices } from "@chase-sets/marketplace/server";
 import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import type { PricingServices } from "@chase-sets/pricing/server";
-import { createIdentityTermsAcceptanceResolver, type IdentityServices } from "@chase-sets/identity/server";
+import {
+  createIdentityManualPayoutReviewBadgeReader,
+  createIdentityTermsAcceptanceResolver,
+  type IdentityServices,
+} from "@chase-sets/identity/server";
 import {
   activateMarketplaceLabelPostage,
   settlementOperationLogFields,
@@ -278,6 +282,10 @@ await listingConsumer?.initialize();
 const identityHostPorts = {
   capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
 } satisfies Pick<import("@chase-sets/identity/server").IdentityHostPorts, "capabilityAdministrationAuthority">;
+// Read the Identity stream outside the projection-aware pool, which uses Settlement's active transaction.
+const readCommittedManualPayoutReviewBadge: SettlementServices["readCommittedManualPayoutReviewBadge"] = pools.identity
+  ? createIdentityManualPayoutReviewBadgeReader(createPostgresEventStore({ pool: pools.identity }))
+  : undefined;
 const supportEvidenceCleanupHostPort = createSupportEvidenceCleanupHostPort(config, logger);
 const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
   createWorkerHost(workerContextRegistry, "platform-worker", {
@@ -310,6 +318,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       evidenceWindowCorrelation,
       evidenceWindowProviderWrite,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      readCommittedManualPayoutReviewBadge,
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers({

@@ -403,6 +403,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         await navigateToAccountListingsAfterWrite(
           await api.disableSellerListingAvailability({
             ...attempt,
+            scope: String(formData.get("scope") ?? ""),
             reasonCategory: String(formData.get("reasonCategory") ?? ""),
             availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
             // Captured client-side by the disable form (seller-local
@@ -433,6 +434,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         await navigateToAccountListingsAfterWrite(
           await api.scheduleSellerAwayWindow({
             ...attempt,
+            scope: String(formData.get("scope") ?? ""),
             reasonCategory,
             // Captured client-side (seller-local start-of-day for the
             // chosen date, converted to an instant), same convention as

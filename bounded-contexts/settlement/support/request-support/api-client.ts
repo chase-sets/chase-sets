@@ -20,6 +20,7 @@ export type {
   SettlementRequestWalletAdjustmentInput,
   SettlementPreviewWalletAdjustmentInput,
   SettlementReverseWalletAdjustmentResult,
+  SettlementPayoutReviewHold,
 } from "../../client";
 import { createSettlementApiClient } from "../../client";
 
