@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
-import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
+import { createEventStoreError, type AppendToStreamsResult, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createMarketplaceOfferRuntime } from "./runtime";
 import { MarketplaceOfferLifecycleClosedError, type MarketplaceOfferLifecycleAdmission } from "./lifecycle-admission";
@@ -356,13 +356,20 @@ describe("marketplace offer runtime", () => {
     audit: { performedByUserId: "usr_buyer", forAccountId: "acc_buyer" },
   } as const;
 
-  async function makeSubmittingBuyerAway(store: EventStore) {
+  async function makeSubmittingBuyerAway(
+    store: EventStore,
+    scope: "offers" | "listings" = "offers",
+    expectedVersion: AppendToStreamInput["expectedVersion"] = "no_stream",
+  ) {
     await store.appendToStream({
       streamId: "marketplace.seller-listing-availability-acc_buyer",
-      expectedVersion: "no_stream",
+      expectedVersion,
       events: [
         {
-          eventType: "marketplace.seller-listing-availability.offers-disabled",
+          eventType:
+            scope === "offers"
+              ? "marketplace.seller-listing-availability.offers-disabled"
+              : "marketplace.seller-listing-availability.disabled",
           payload: {
             accountId: "acc_buyer",
             reasonCategory: "travel",
@@ -385,15 +392,21 @@ describe("marketplace offer runtime", () => {
     };
   }
 
-  it.each(["already Away", "goes Away before append"])(
-    "returns 409 and writes no Offer or receipt when the submitting buyer %s",
-    async (when) => {
+  const submissionStandingCases = [
+    ["already Offers Away", 409],
+    ["goes Offers Away before append", 409],
+    ["goes Listings Away before append", 201],
+  ] as const;
+
+  it.each(submissionStandingCases)(
+    "when the submitting buyer %s, returns %i and only records an available Offer",
+    async (when, status) => {
       const { eventStore } = createInMemoryEventStore();
-      if (when === "already Away") await makeSubmittingBuyerAway(eventStore);
+      if (when === "already Offers Away") await makeSubmittingBuyerAway(eventStore);
       else {
         const append = eventStore.appendToStreams!.bind(eventStore);
         vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (inputs) => {
-          await makeSubmittingBuyerAway(eventStore);
+          await makeSubmittingBuyerAway(eventStore, status === 201 ? "listings" : "offers");
           return append(inputs);
         });
       }
@@ -417,10 +430,18 @@ describe("marketplace offer runtime", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...submissionRequest, offerId: "off_away" }),
       });
-      expect(response.status).toBe(409);
-      expect(await response.json()).toMatchObject({ error: { code: "offer_not_open" } });
+      expect(response.status).toBe(status);
+      expect(await response.json()).toMatchObject(
+        status === 201 ? { id: "off_away", version: 1, status: "submitted" } : { error: { code: "offer_not_open" } },
+      );
       expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
-        "marketplace.seller-listing-availability.offers-disabled",
+        ...(status === 201
+          ? [
+              "marketplace.seller-listing-availability.disabled",
+              "marketplace.offer.submitted",
+              "marketplace.mutation-attempt.completed",
+            ]
+          : ["marketplace.seller-listing-availability.offers-disabled"]),
       ]);
     },
   );
@@ -434,6 +455,54 @@ describe("marketplace offer runtime", () => {
     const before = await eventStore.readAll();
     expect(await offers.submitOffer(request, submissionContext)).toEqual(first);
     expect(await eventStore.readAll()).toEqual(before);
+  });
+
+  it("does not retry or disguise a submission conflict on the Offer stream", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const conflict = createEventStoreError("concurrency_conflict", "Offer changed", {
+      streamId: "marketplace.offer-off_conflict",
+    });
+    const append = vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async () => {
+      await makeSubmittingBuyerAway(eventStore);
+      throw conflict;
+    });
+    const offers = createSubmitOfferServices(submissionDb(), eventStore);
+    await expect(
+      offers.submitOffer(
+        { ...submissionRequest, offerId: "off_conflict", buyerAccountId: "acc_buyer" },
+        submissionContext,
+      ),
+    ).rejects.toBe(conflict);
+    expect(append).toHaveBeenCalledTimes(1);
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
+      "marketplace.seller-listing-availability.offers-disabled",
+    ]);
+  });
+
+  it.each(["offers", "listings"] as const)("bounds submission retry when another %s fact wins", async (scope) => {
+    const { eventStore } = createInMemoryEventStore();
+    const append = eventStore.appendToStreams!.bind(eventStore);
+    const spy = vi
+      .spyOn(eventStore, "appendToStreams")
+      .mockImplementationOnce(async (inputs) => {
+        await makeSubmittingBuyerAway(eventStore, "listings");
+        return append(inputs);
+      })
+      .mockImplementationOnce(async (inputs) => {
+        await makeSubmittingBuyerAway(eventStore, scope, 1);
+        return append(inputs);
+      });
+    const offers = createSubmitOfferServices(submissionDb(), eventStore);
+    await expect(
+      offers.submitOffer({ ...submissionRequest, buyerAccountId: "acc_buyer" }, submissionContext),
+    ).rejects.toMatchObject({ code: scope === "offers" ? "offer_not_open" : "concurrency_conflict" });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
+      "marketplace.seller-listing-availability.disabled",
+      scope === "offers"
+        ? "marketplace.seller-listing-availability.offers-disabled"
+        : "marketplace.seller-listing-availability.disabled",
+    ]);
   });
 
   function activeListingGuard(overrides: Record<string, unknown> = {}) {

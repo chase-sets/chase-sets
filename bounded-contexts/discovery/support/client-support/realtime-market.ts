@@ -10,7 +10,6 @@ import type {
 
 export type DiscoveryItemRealtimeSnapshot = DiscoveryItemDetail & {
   removedOfferIds?: readonly string[];
-  latestOfferUpsert?: RealtimeProjectionPatch;
 };
 
 export function applyDiscoverySearchPatch(
@@ -69,7 +68,6 @@ export function applyDiscoveryItemPatch(
         ...next,
         offer_demand_matches: applyEntityListPatch(next.offer_demand_matches, "offer_id", change),
         removedOfferIds: [...removedOfferIds],
-        ...(change.op === "upsert" ? { latestOfferUpsert: patch } : {}),
       };
     }
 

@@ -17,7 +17,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("removes the Match from an open seller rail and reloads its terms when the Offer returns", async () => {
+const reloadScenarios = ["ordinary reload", "removal during reload", "removal during reload with changed Listing IDs"];
+
+it.each(reloadScenarios)("reconciles the seller rail after %s", async (scenario) => {
   const sources: EventTarget[] = [];
   vi.stubGlobal(
     "EventSource",
@@ -32,10 +34,17 @@ it("removes the Match from an open seller rail and reloads its terms when the Of
   );
 
   const item = createItem();
+  const resumedOffer = { ...baseOffer, price_amount: "42.00" };
   let quote = "quote_before_away";
-  const loader = vi.fn(async () => ({
+  const routeData = () => ({
     entryAttemptKey: PAGE_VIEW_ENTRY_KEY,
-    item,
+    item:
+      quote === "quote_before_away"
+        ? item
+        : createItem({
+            offer_demand_matches: [resumedOffer],
+            ...(scenario === "removal during reload with changed Listing IDs" ? { market_listings: [] } : {}),
+          }),
     accountOfferMatches: [
       {
         ...baseAccountOfferMatch,
@@ -69,12 +78,16 @@ it("removes the Match from an open seller rail and reloads its terms when the Of
     notFound: false,
     error: null,
     canonicalUrl: null,
-  }));
-  const router = createMemoryRouter([{ path: "/", loader, Component: DiscoveryItemDetailRoute }]);
+  });
+  const loader = vi.fn(async () => routeData());
+  const router = createMemoryRouter([
+    { path: "/", loader, Component: DiscoveryItemDetailRoute, HydrateFallback: () => null },
+  ]);
   render(<RouterProvider router={router} />);
-  const rail = await screen.findByRole("complementary", { name: "Commerce options" });
+  await screen.findByRole("complementary", { name: "Commerce options" });
+  const rail = () => within(screen.getByRole("complementary", { name: "Commerce options" }));
   const getQuote = () => {
-    const button = within(rail).queryByRole("button", { name: "Accept offer" });
+    const button = rail().queryByRole("button", { name: "Accept offer" });
     const form = button?.closest("form");
     return form ? new FormData(form).get("feeQuoteFingerprint") : null;
   };
@@ -96,13 +109,34 @@ it("removes the Match from an open seller rail and reloads its terms when the Of
       );
     });
   send({ entity: "discovery.buyerOffer", op: "remove", id: baseOffer.offer_id });
-  expect(within(rail).queryByText("Can fulfill")).toBeNull();
-  expect(getQuote() || null).toBeNull();
+  expect(rail().queryByText("Can fulfill")).toBeNull();
+  expect(getQuote()).toBeNull();
   expect(loader).toHaveBeenCalledTimes(1);
 
   quote = "quote_after_resume";
-  send({ entity: "discovery.buyerOffer", op: "upsert", id: baseOffer.offer_id, value: baseOffer });
-  await waitFor(() => expect(getQuote()).toBe("quote_after_resume"));
-  expect(within(rail).getByText("Can fulfill")).toBeTruthy();
-  expect(loader).toHaveBeenCalledTimes(2);
+  const upsert = {
+    entity: "discovery.buyerOffer",
+    op: "upsert",
+    id: baseOffer.offer_id,
+    value: resumedOffer,
+  } as const;
+  if (scenario !== "ordinary reload") {
+    const staleResponse = routeData();
+    const reload = Promise.withResolvers<typeof staleResponse>();
+    loader.mockReturnValueOnce(reload.promise);
+    send(upsert);
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+    send({ entity: "discovery.buyerOffer", op: "remove", id: baseOffer.offer_id });
+    expect(getQuote()).toBeNull();
+    await act(async () => reload.resolve(staleResponse));
+    expect(router.state.revalidation).toBe("idle");
+    expect(getQuote()).toBeNull();
+    expect(screen.getByText("0 matching offers")).toBeTruthy();
+    quote = "quote_after_second_resume";
+  }
+  send(upsert);
+  await waitFor(() => expect(getQuote()).toBe(quote));
+  expect(rail().getByText("Can fulfill")).toBeTruthy();
+  expect(screen.getByText("1 matching offer")).toBeTruthy();
+  expect(loader).toHaveBeenCalledTimes(scenario === "ordinary reload" ? 2 : 3);
 });

@@ -570,7 +570,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       }
       await loadSubmissionGuard(params.buyerAccountId);
       const availabilityStreamId = `marketplace.seller-listing-availability-${params.buyerAccountId}`;
-      const availability = await sellerAvailabilityRepository.load(availabilityStreamId);
+      let availability = await sellerAvailabilityRepository.load(availabilityStreamId);
       if (availability.state.offers.status === "unavailable") {
         const completed = await attempt.read();
         if (completed) return completed;
@@ -596,37 +596,45 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         quantityRequested: params.quantityRequested,
       });
       const result = { offerId, version: current.version + events.length };
-      try {
-        return await attempt.commit(
-          [
-            {
-              streamId: `marketplace.offer-${offerId}`,
-              expectedVersion: current.version,
-              events: events.map(offerCodec.encode),
-              context,
-            },
-            {
-              streamId: availabilityStreamId,
-              expectedVersion: availability.version === 0 ? "no_stream" : availability.version,
-              events: [],
-              context,
-            },
-          ],
-          result,
-          { id: offerId, version: result.version },
-          context,
-        );
-      } catch (error) {
-        if (
-          typeof error === "object" &&
-          error !== null &&
-          "code" in error &&
-          error.code === "concurrency_conflict" &&
-          (await sellerAvailabilityRepository.load(availabilityStreamId)).state.offers.status === "unavailable"
-        ) {
-          throw new MarketplaceOfferSubmissionAwayError();
+      const offerAppend = {
+        streamId: `marketplace.offer-${offerId}`,
+        expectedVersion: current.version,
+        events: events.map(offerCodec.encode),
+        context,
+      };
+      for (let retries = 0; ; retries += 1) {
+        try {
+          return await attempt.commit(
+            [
+              offerAppend,
+              {
+                streamId: availabilityStreamId,
+                expectedVersion: availability.version === 0 ? "no_stream" : availability.version,
+                events: [],
+                context,
+              },
+            ],
+            result,
+            { id: offerId, version: result.version },
+            context,
+          );
+        } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            !("code" in error) ||
+            error.code !== "concurrency_conflict" ||
+            !("details" in error) ||
+            typeof error.details !== "object" ||
+            error.details === null ||
+            !("streamId" in error.details) ||
+            error.details.streamId !== availabilityStreamId
+          ) {
+            throw error;
+          }
+          availability = await sellerAvailabilityRepository.load(availabilityStreamId);
+          if (availability.state.offers.status === "unavailable") throw new MarketplaceOfferSubmissionAwayError();
+          if (retries === 1) throw error;
         }
-        throw error;
       }
     },
     updateOfferPrice: async (params, context) => {

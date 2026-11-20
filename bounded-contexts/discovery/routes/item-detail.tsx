@@ -3,10 +3,11 @@ import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/in
 import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData } from "react-router";
-import { useEffect } from "react";
+import { useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
+import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import { applyDiscoveryItemPatch, type DiscoveryItemRealtimeSnapshot } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
@@ -157,15 +158,7 @@ export default function DiscoveryItemDetailRoute() {
       actionKey={actionData && "entryAttemptKey" in actionData ? actionData.entryAttemptKey : null}
       actionDraft={actionData && "buyDraft" in actionData ? actionData.buyDraft : null}
     >
-      <DiscoveryItemDetailRealtimeView
-        key={[
-          data.item?.catalog_item_id ?? "empty",
-          data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
-          data.item?.offer_demand_matches.map((offer) => offer.offer_id).join("|") ?? "",
-        ].join("\n")}
-        data={data}
-        actionData={actionData}
-      />
+      <DiscoveryItemDetailRealtimeView data={data} actionData={actionData} />
     </EntryAttemptKeyScope>
   );
   const authority = "recoveryAuthority" in data ? data.recoveryAuthority : null;
@@ -178,6 +171,67 @@ export default function DiscoveryItemDetailRoute() {
   );
 }
 
+function useItemDetailRealtime(item: DiscoveryItemDetail | null, hasViewer: boolean) {
+  const revalidationState = useRevalidator().state;
+  const navigationState = useNavigation().state;
+  const loading = revalidationState === "loading" || navigationState === "loading";
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const revalidate = useDiscoveryRealtimeRevalidation();
+  const reload = useCallback(() => {
+    loadingRef.current = true;
+    revalidate();
+  }, [revalidate]);
+  const itemId = item?.catalog_item_id;
+  const loaderKey = useMemo(() => JSON.stringify(item), [item]);
+  const [state, setState] = useState<{
+    loaderKey: string;
+    visibleItem: DiscoveryItemRealtimeSnapshot | null;
+    overlappingOfferPatches: readonly RealtimeProjectionPatch[];
+  }>(() => ({
+    loaderKey,
+    visibleItem: item,
+    overlappingOfferPatches: [],
+  }));
+
+  let visibleItem = state.visibleItem;
+  if (state.loaderKey !== loaderKey || (!loading && state.overlappingOfferPatches.length > 0)) {
+    // The response can predate patches received while it was loading. Replaying
+    // removals also preserves the IDs used to filter the private seller overlay.
+    if (state.loaderKey !== loaderKey) {
+      visibleItem = state.overlappingOfferPatches.reduce<DiscoveryItemRealtimeSnapshot | null>(
+        applyDiscoveryItemPatch,
+        item,
+      );
+    }
+    setState({ loaderKey, visibleItem, overlappingOfferPatches: [] });
+  }
+
+  useEffect(() => {
+    if (!itemId) return;
+    const subscription = subscribeRealtimePatches({
+      topics: discoveryRealtimeRouteTopics.itemDetail(itemId).topics,
+      onPatch: (patch) => {
+        const offerChanges = patch.changes.filter((change) => change.entity === "discovery.buyerOffer");
+        const overlapping = loadingRef.current && offerChanges.length > 0;
+        setState((current) => ({
+          ...current,
+          visibleItem: applyDiscoveryItemPatch(current.visibleItem, patch),
+          overlappingOfferPatches: overlapping
+            ? [...current.overlappingOfferPatches, { ...patch, changes: offerChanges }]
+            : current.overlappingOfferPatches,
+        }));
+        // Public patches do not carry the seller's account-scoped terms.
+        if (hasViewer && offerChanges.some((change) => change.op === "upsert")) reload();
+      },
+      onSyncRequired: reload,
+    });
+    return () => subscription.close();
+  }, [hasViewer, itemId, reload]);
+
+  return visibleItem;
+}
+
 function DiscoveryItemDetailRealtimeView({
   data,
   actionData,
@@ -185,20 +239,8 @@ function DiscoveryItemDetailRealtimeView({
   data: DiscoveryItemDetailRouteData;
   actionData: DiscoveryItemDetailActionData;
 }) {
-  const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const actionErrorMessage = getActionErrorMessage(actionData);
-  const realtimeItem = useRealtimePatchedSnapshot<DiscoveryItemRealtimeSnapshot | null>({
-    initialSnapshot: data.item,
-    snapshotKey: JSON.stringify(data.item),
-    topics: data.item ? discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id).topics : [],
-    applyPatch: applyDiscoveryItemPatch,
-    onSyncRequired: revalidateForRealtimeSync,
-  });
-  const latestOfferUpsert = realtimeItem?.latestOfferUpsert;
-  useEffect(() => {
-    // Public patches do not carry the seller's account-scoped terms.
-    if (data.viewerAccountId && latestOfferUpsert) revalidateForRealtimeSync();
-  }, [data.viewerAccountId, latestOfferUpsert, revalidateForRealtimeSync]);
+  const realtimeItem = useItemDetailRealtime(data.item, Boolean(data.viewerAccountId));
   const productJsonLd = realtimeItem
     ? buildItemDetailProductJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
     : null;
@@ -215,6 +257,10 @@ function DiscoveryItemDetailRealtimeView({
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }} />
       ) : null}
       <ItemDetailPage
+        key={[
+          data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
+          data.item?.offer_demand_matches.map((offer) => offer.offer_id).join("|") ?? "",
+        ].join("\n")}
         data={realtimeItem}
         similarItems={data.similarItems}
         accountOfferMatches={data.accountOfferMatches}
