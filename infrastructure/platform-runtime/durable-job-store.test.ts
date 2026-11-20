@@ -115,6 +115,57 @@ describe("durable job store", () => {
     ]);
   });
 
+  it("rolls back the exhausted job and status event if its context write fails", async () => {
+    const completedAt = "2026-11-03T00:00:00.000Z";
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("WITH exhausted AS")) {
+        return {
+          rows: [
+            {
+              job_id: "job_exhausted",
+              job_kind: "import",
+              status: "failed",
+              error_message: "Earlier failure",
+              attempt_count: 10,
+              created_at: completedAt,
+              next_eligible_at: completedAt,
+              updated_at: completedAt,
+              completed_at: completedAt,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+      if (sql === "UPDATE coverage") throw new Error("Coverage write failed.");
+      return { rows: [], rowCount: 0 };
+    });
+    const client = { query, release: vi.fn() };
+    const db = { query: vi.fn(), connect: async () => client };
+    const store = createPostgresDurableJobStore(
+      db,
+      { jobsTable: "test_jobs", eventsTable: "test_events" },
+      {
+        onClaimExhausted: async (writer, job, reason) => {
+          expect(writer).toBe(client);
+          expect(job).toMatchObject({ jobId: "job_exhausted", status: "failed", errorMessage: "Earlier failure" });
+          expect(reason).toBe("Durable job retry attempts exhausted.");
+          await writer.query("UPDATE coverage");
+        },
+      },
+    );
+
+    await expect(store.claimNext({ claimOwnerId: "worker-next", claimTtlMs: 1_000 })).rejects.toThrow(
+      "Coverage write failed.",
+    );
+    const statements = query.mock.calls.map(([sql]) => sql);
+    expect(statements[0]).toBe("BEGIN");
+    expect(statements).toContainEqual(expect.stringContaining("INSERT INTO test_events"));
+    expect(statements.slice(-2)).toEqual(["UPDATE coverage", "ROLLBACK"]);
+    expect(statements).not.toContain("COMMIT");
+    expect(db.query).not.toHaveBeenCalled();
+    expect(client.release).toHaveBeenCalledOnce();
+  });
+
   it("enqueues and claims jobs with ordered status events", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const row = {

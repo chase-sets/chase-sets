@@ -1,4 +1,5 @@
-//! Bulk reprice's page (marketplace's `PricingBulkRepricePage`): the header with Download CSV
+//! Bulk reprice's page (marketplace's `PricingBulkRepricePage`): while Pricing has it off, a line
+//! saying it is not available and Recommendations; otherwise the header with Download CSV
 //! template and Recommendations, what an upload or Cancel was refused for, then the part a running
 //! job relays live: the upload form (off while a job runs) and the job's progress with Cancel or
 //! Download results. Every action is a form or a link and works without a script. One column on a
@@ -21,27 +22,42 @@ pub struct BulkPartId;
 pub fn BulkRepricePage<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) -> impl Render {
     let live = screen.job.as_ref().filter(|_| screen.active()).map(|job| url::BulkRepriceLive { id: &job.job_id }.href());
     html! {
-        <header class={Header}>
-            <p class={Eyebrow}>{t.bulk_seller()}</p>
-            <h1 class={Title}>{t.bulk_bulk_reprice()}</h1>
-            <p class={Muted}>{t.bulk_upload_a_csv()}</p>
-            <nav class={Row} aria-label={p.bulk_reprice_pages()}>
-                <a class={(Button, Secondary)} href={url::BulkRepriceTemplate} download>{t.bulk_download_template()}</a>
-                <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.bulk_recommendations()}</a>
-            </nav>
-        </header>
-        if let Some(error) = &screen.error {
-            <div class={Banner} data-tone="danger" role="alert">
+        if !screen.available {
+            // Pricing has it switched off: say so, and offer nothing that would fail.
+            <header class={Header}>
+                <p class={Eyebrow}>{t.bulk_seller()}</p>
+                <h1 class={Title}>{t.bulk_bulk_reprice()}</h1>
+                <nav class={Row} aria-label={p.bulk_reprice_pages()}>
+                    <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.bulk_recommendations()}</a>
+                </nav>
+            </header>
+            <div class={Banner} data-tone="info" role="status">
                 <p class={Strong}>{t.bulk_bulk_reprice()}</p>
-                <p>{error}</p>
+                <p>{t.bulk_unavailable()}</p>
             </div>
-        }
-        if let Some(src) = live {
-            <corten-live class={Live} src={&src}>
-                <BulkPart t={t} p={p} screen={screen} />
-            </corten-live>
         } else {
-            <BulkPart t={t} p={p} screen={screen} />
+            <header class={Header}>
+                <p class={Eyebrow}>{t.bulk_seller()}</p>
+                <h1 class={Title}>{t.bulk_bulk_reprice()}</h1>
+                <p class={Muted}>{t.bulk_upload_a_csv()}</p>
+                <nav class={Row} aria-label={p.bulk_reprice_pages()}>
+                    <a class={(Button, Secondary)} href={url::BulkRepriceTemplate} download>{t.bulk_download_template()}</a>
+                    <a class={(Button, Ghost)} href={url::Recommendations::default()}>{t.bulk_recommendations()}</a>
+                </nav>
+            </header>
+            if let Some(error) = &screen.error {
+                <div class={Banner} data-tone="danger" role="alert">
+                    <p class={Strong}>{t.bulk_bulk_reprice()}</p>
+                    <p>{error}</p>
+                </div>
+            }
+            if let Some(src) = live {
+                <corten-live class={Live} src={&src}>
+                    <BulkPart t={t} p={p} screen={screen} />
+                </corten-live>
+            } else {
+                <BulkPart t={t} p={p} screen={screen} />
+            }
         }
     }
 }

@@ -86,17 +86,26 @@ const expectedUnitSchema = z.object({
 });
 export type ManifestExpectedUnit = z.infer<typeof expectedUnitSchema>;
 
-const observedUnitSchema = z.object({
+const measuredCountSchema = z.number().int().nonnegative();
+const observedUnitBaseSchema = z.object({
   scopeRecordId: z.string().min(1),
   providerKey: z.string().min(1),
   unitKey: z.string().min(1),
-  state: z.enum(manifestUnitSyncStates),
   lastCompletedAt: z.string().nullable(),
   syncRunId: z.string().nullable(),
-  observedCount: z.number().int().nonnegative(),
-  changedCount: z.number().int().nonnegative(),
-  failedCount: z.number().int().nonnegative(),
+  observedCount: measuredCountSchema,
+  changedCount: measuredCountSchema,
+  failedCount: measuredCountSchema,
 });
+const observedUnitSchema = z.discriminatedUnion("state", [
+  observedUnitBaseSchema.extend({ state: z.enum(manifestUnitSyncStates).exclude(["failed"]) }),
+  observedUnitBaseSchema.extend({
+    state: z.literal("failed"),
+    observedCount: measuredCountSchema.nullable(),
+    changedCount: measuredCountSchema.nullable(),
+    failedCount: measuredCountSchema.nullable(),
+  }),
+]);
 export type ManifestObservedUnit = z.infer<typeof observedUnitSchema>;
 
 const mergeCandidateSchema = z.object({

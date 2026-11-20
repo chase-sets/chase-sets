@@ -390,6 +390,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.recoveredItems.ui.page.inventory": "Inventory operations",
   "inventory.features.recoveredItems.api.route.not.found": "Recovered item not found.",
   "inventory.features.recoveredItems.api.route.unsupported.value.type": "Unsupported recovered value type.",
+  "inventory.features.recoveredItems.api.route.unsupported.action": "Unsupported recovered item action.",
   "inventory.features.recoveredItems.ui.page.title": "Recovered returns",
   "inventory.features.recoveredItems.ui.page.description":
     "Identify, inspect, authorize, and dispose of items received into platform custody.",
