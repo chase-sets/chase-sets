@@ -40,7 +40,7 @@ describe("catalog scenario Source Observation seed boundary", () => {
     expect(importers.sort()).toEqual([seedBarrel, scenarioComposition].sort());
   });
 
-  it("runs both scenario seeds once, only on the scenario-seed profile path", () => {
+  it("calls each scenario writer from one site on the scenario-seed profile path", () => {
     const composition = source(scenarioComposition);
     const scenarioBody = composition.match(/\nasync function seedCatalogScenarioData\([\s\S]*?\n}\n/)?.[0] ?? "";
 
@@ -50,7 +50,7 @@ describe("catalog scenario Source Observation seed boundary", () => {
     }
     expect(composition).toContain('const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");');
     expect(composition).toMatch(
-      /if \(shouldSeedScenarioData\) \{\s*await seedCatalogScenarioData\(pool, services, authoring\);\s*\}/,
+      /if \(shouldSeedScenarioData\) \{\s*await seedCatalogScenarioData\(pool, services, authoring, options\?\.environmentName\);\s*\}/,
     );
     expect(composition.split("seedCatalogScenarioData(")).toHaveLength(3);
   });
