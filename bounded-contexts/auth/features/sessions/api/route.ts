@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthApiEnv } from "../../../api";
 import { toSessionStreamId } from "../domain/auth-flow";
+import { SessionRefusalError, type SessionRefusalCode } from "../domain/domain";
 import type { SessionServices } from "./runtime";
 
 function canManageSession(
@@ -25,6 +26,35 @@ function forbidden() {
   };
 }
 
+function sessionRefusal(code: SessionRefusalCode) {
+  switch (code) {
+    case "not-active":
+      return {
+        status: 409,
+        code: "session_not_active",
+        message: t("auth.features.sessions.api.route.refused.notActive"),
+      } as const;
+    case "account-required":
+      return {
+        status: 400,
+        code: "validation_failed",
+        message: t("auth.features.sessions.api.route.refused.accountRequired"),
+      } as const;
+    case "account-unavailable":
+      return {
+        status: 400,
+        code: "session_account_unavailable",
+        message: t("auth.features.sessions.api.route.refused.accountUnavailable"),
+      } as const;
+    case "account-current":
+      return {
+        status: 409,
+        code: "session_account_current",
+        message: t("auth.features.sessions.api.route.refused.accountCurrent"),
+      } as const;
+  }
+}
+
 export function sessionRoutes(services: SessionServices) {
   const app = new Hono<AuthApiEnv>();
 
@@ -41,15 +71,21 @@ export function sessionRoutes(services: SessionServices) {
       return c.json(forbidden(), 403);
     }
     const body = await c.req.json();
-    const result = await services.commandHandler({
-      streamId: toSessionStreamId(sessionId),
-      command: {
-        type: "SwitchSessionAccount",
-        accountId: body.accountId,
-      },
-      context: c.get("context"),
-    });
-    return c.json({ id: sessionId, version: result.version, status: result.state.status });
+    try {
+      const result = await services.commandHandler({
+        streamId: toSessionStreamId(sessionId),
+        command: {
+          type: "SwitchSessionAccount",
+          accountId: body.accountId,
+        },
+        context: c.get("context"),
+      });
+      return c.json({ id: sessionId, version: result.version, status: result.state.status });
+    } catch (error) {
+      if (!(error instanceof SessionRefusalError)) throw error;
+      const refusal = sessionRefusal(error.code);
+      return c.json({ error: { code: refusal.code, message: refusal.message } }, refusal.status);
+    }
   });
 
   app.post("/:id/revoke", async (c) => {
@@ -64,12 +100,18 @@ export function sessionRoutes(services: SessionServices) {
     if (!canManageSession(c.var.actor, session)) {
       return c.json(forbidden(), 403);
     }
-    const result = await services.commandHandler({
-      streamId: toSessionStreamId(sessionId),
-      command: { type: "RevokeSession" },
-      context: c.get("context"),
-    });
-    return c.json({ id: sessionId, version: result.version, status: result.state.status });
+    try {
+      const result = await services.commandHandler({
+        streamId: toSessionStreamId(sessionId),
+        command: { type: "RevokeSession" },
+        context: c.get("context"),
+      });
+      return c.json({ id: sessionId, version: result.version, status: result.state.status });
+    } catch (error) {
+      if (!(error instanceof SessionRefusalError)) throw error;
+      const refusal = sessionRefusal(error.code);
+      return c.json({ error: { code: refusal.code, message: refusal.message } }, refusal.status);
+    }
   });
 
   app.get("/", async (c) => {

@@ -15,8 +15,10 @@
 //! as an intent, its owner in marketplace's own cookie, and the guest goes to marketplace's
 //! registration, whose return claims it on marketplace's item page.
 //!
-//! A create has no attempt id, so the same create sent twice is two alerts
-//! (chase-sets/chase-sets#10596).
+//! An account's create is one attempt (the form's `SubmitKey`, sent as `attemptId`): the API
+//! answers the same attempt with the same request as the alert the first send created, so a form
+//! sent twice (a double click, a resend after a lost answer) is one alert. A guest's intent
+//! already dedupes by product and threshold.
 use corten::{
     extract::State,
     http::{HeaderMap, StatusCode, Uri, header},
@@ -30,6 +32,7 @@ use crate::{
     app::{Shared, sign_in_at, url},
     auth::Session,
     buying::BuyNotice,
+    cart_attempt,
     items::{self, Address, ItemScreen, Market, Raw},
     text::ItemMsg,
     views,
@@ -49,6 +52,7 @@ const ACCOUNTS_VIEW: &str = "accounts.view";
 #[derive(Fields)]
 #[allow(dead_code)]
 pub struct WatchFields {
+    attempt: Option<SubmitKey>,
     side: String,
     product: String,
     threshold: String,
@@ -58,6 +62,7 @@ pub struct WatchFields {
 /// The names as text.
 pub mod field {
     use super::WatchFields;
+    pub const ATTEMPT: &str = WatchFields::FIELDS.attempt.as_str();
     pub const SIDE: &str = WatchFields::FIELDS.side.as_str();
     pub const PRODUCT: &str = WatchFields::FIELDS.product.as_str();
     pub const THRESHOLD: &str = WatchFields::FIELDS.threshold.as_str();
@@ -95,8 +100,8 @@ pub struct WatchInput {
     pub currency: String,
 }
 
-/// An alert as the item page creates one (`CreateProductAlertRequest`), with `sourcePath` for a
-/// guest's intent.
+/// An alert as the item page creates one (`CreateProductAlertRequest`), with the account
+/// create's `attemptId` or `sourcePath` for a guest's intent.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlertRequest {
@@ -107,6 +112,8 @@ pub struct AlertRequest {
     pub product_summary: Option<String>,
     pub threshold_amount: Option<String>,
     pub threshold_currency_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
 }
@@ -241,6 +248,7 @@ pub(crate) async fn watch(
         product_summary: screen.product_summary.clone(),
         threshold_amount: amount,
         threshold_currency_code: code,
+        attempt_id: None,
         source_path: None,
     };
     let Some(viewer) = viewer else {
@@ -264,6 +272,8 @@ pub(crate) async fn watch(
         let message = t.route_account_cannot_create_product_alerts().to_owned();
         return refused(&req, session, item, &address, input, message, StatusCode::FORBIDDEN);
     }
+    // A post without the form's attempt (or with one the API would not take) is still one.
+    alert.attempt_id = Some(cart_attempt::attempt_id(&first(field::ATTEMPT)));
     match caller.create_product_alert(&alert).await {
         Ok(receipt) => {
             let receipt = receipt.map(|r| r.param()).unwrap_or_default();

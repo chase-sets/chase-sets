@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -122,5 +123,36 @@ describe("risk alert action runtime", () => {
       ),
     ).rejects.toBe(lookupError);
     expect(deps.appendToStream).not.toHaveBeenCalled();
+  });
+
+  it("risk alert action answers its commit receipt, so a read after it waits for it", async () => {
+    const deps = createDeps();
+    deps.appendToStream.mockImplementation(async ({ streamId, events }) =>
+      events.map((event: { eventType: string }) => ({
+        ...event,
+        eventId: "evt_risk",
+        streamId,
+        streamVersion: 1,
+        globalPosition: "77",
+      })),
+    );
+
+    const metadata = await runWithEventCommitMetadata(async () => {
+      await createRiskAlertRuntime(deps).recordRiskAlertAction(
+        {
+          alertId: "risk_synthetic_alert",
+          action: "acknowledge",
+          note: null,
+          operatorUserId: "usr_synthetic_operator",
+        },
+        context,
+      );
+      return getEventCommitMetadata();
+    });
+
+    expect(deps.appendToStream.mock.calls[0]![0].wakeSourceContextName).toBe("platform-operations");
+    expect(metadata.sources).toEqual([
+      { sourceContextName: "platform-operations", eventIds: ["evt_risk"], maxGlobalPosition: "77" },
+    ]);
   });
 });
