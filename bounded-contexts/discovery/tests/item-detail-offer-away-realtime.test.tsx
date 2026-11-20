@@ -238,6 +238,7 @@ it.each(scenarios)("$name", async (scenario) => {
 
   const loadA = deferred<ReturnType<typeof routeData>>();
   const loadB = deferred<ReturnType<typeof routeData>>();
+  const loadResume = deferred<ReturnType<typeof routeData>>();
   const bStarted = deferred<void>();
   const signals: AbortSignal[] = [];
   const loader = vi
@@ -248,7 +249,7 @@ it.each(scenarios)("$name", async (scenario) => {
       bStarted.resolve();
       return loadB.promise;
     })
-    .mockResolvedValueOnce(routeData(resumedMatch, true));
+    .mockReturnValueOnce(loadResume.promise);
   const router = createMemoryRouter(
     [
       {
@@ -368,10 +369,17 @@ it.each(scenarios)("$name", async (scenario) => {
     expectView(scenario.afterB, "superseded A returned");
   }
 
+  const resumeRevalidation = scenario.resume ? vi.spyOn(router, "revalidate") : null;
   sendAt("after B");
-  if (scenario.resume) {
+  if (resumeRevalidation) {
     if (scenario.phase !== "after B") send("upsert");
-    await waitFor(() => expectView(resumedMatch, "fresh resume snapshot"));
+    expect(resumeRevalidation).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      loadResume.resolve(routeData(resumedMatch, true));
+      await resumeRevalidation.mock.results[0]!.value;
+    });
+    resumeRevalidation.mockRestore();
+    expectView(resumedMatch, "fresh resume snapshot");
   }
   expect(loader).toHaveBeenCalledTimes(scenario.resume ? 4 : 3);
 });

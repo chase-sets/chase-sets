@@ -33,6 +33,7 @@
   "list.away.offers.available": "Offers visible",
   "list.away.offers.keep.date": "Leave blank to keep your Offers' current return date.",
   "list.away.offers.preview": "Your submitted Offers will be hidden from sellers. Your Listings stay visible.",
+  "list.away.offers.reason.with.return.date": "{reason} · {date}",
   "list.away.offers.unavailable": "Offers away",
   "list.away.scope.both": "Listings and Offers",
   "list.away.scope.label": "What does Away cover?",
