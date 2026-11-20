@@ -15,7 +15,7 @@ use super::{CatalogDialog, Empty, KeyValues, Tone, TonePill, ids};
 use crate::{
     catalog::{
         api::{AttentionItem, AttentionKind, AttentionQueue, KindCoverage, Resolution, ResolutionMode, Severity, TotalKind},
-        attention::{Params, ParkInput, Parked, RestoreInput, shown, url as at},
+        attention::{AliasDone, Params, ParkInput, Parked, RestoreInput, shown, url as at},
         scopes::url::{AttentionDone, ScopeQuery, Scopes},
     },
     text::{Cat, Pilot},
@@ -493,7 +493,8 @@ pub fn park_form<'a>(t: Cat, query: &'a ScopeQuery, parked: &'a Parked, manage: 
     }
 }
 
-/// admin-web's command banner, after a queue command: queued (with Restore, after a park) or failed.
+/// admin-web's command banner, after a queue command: queued (with Restore, after a park), what an
+/// alias command did, or failed.
 #[component(css = AttentionPanel)]
 pub fn AttentionBanner<'a>(
     t: Cat,
@@ -520,6 +521,23 @@ pub fn AttentionBanner<'a>(
                             </button>
                         </form>
                     }
+                </div>
+            }
+            AttentionDone::AliasAccepted
+            | AttentionDone::AliasRejected
+            | AttentionDone::AliasRevoked
+            | AttentionDone::AliasDeferred => {
+                let alias = match done {
+                    AttentionDone::AliasAccepted => AliasDone::Accepted,
+                    AttentionDone::AliasRejected => AliasDone::Rejected,
+                    AttentionDone::AliasRevoked => AliasDone::Revoked,
+                    _ => AliasDone::Deferred,
+                };
+                <div class={(Banner, Done)} role="status">
+                    <div>
+                        <p class={BannerTitle}>{alias.title(t)}</p>
+                        <p>{alias.description(t)}</p>
+                    </div>
                 </div>
             }
             AttentionDone::Failed => {
