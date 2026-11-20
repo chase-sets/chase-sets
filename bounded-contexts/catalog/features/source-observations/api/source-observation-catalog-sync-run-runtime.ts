@@ -1,4 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
@@ -8,6 +9,7 @@ import {
   type CatalogScopeSyncUnitState,
 } from "../../scope-sync-state/domain/state";
 import {
+  failCatalogScopeSyncUnitsLinkedToJob,
   listCatalogScopeSyncState,
   readCatalogScopeSyncUnitState,
   upsertCatalogScopeSyncUnitState,
@@ -61,6 +63,25 @@ export type CatalogScopeSyncStateRuntimeDeps = Readonly<{
   integrationJobStore: SourceObservationIntegrationJobStore;
   catalogSyncRunStore: CatalogSyncRunJobStore;
 }>;
+
+export function recordCatalogScopeSyncFailureForLinkedJob(
+  queryable: PgQueryable,
+  job: Pick<SourceObservationIntegrationJob, "jobId" | "result" | "startedAt" | "completedAt">,
+  errorMessage: string | null,
+  recordedAt: string,
+): Promise<boolean> {
+  return failCatalogScopeSyncUnitsLinkedToJob(queryable, {
+    jobId: job.jobId,
+    observedCount: job.result?.observed,
+    changedCount: job.result?.imported,
+    requestedCount: job.result?.requested,
+    failedCount: job.result?.failed,
+    errorMessage,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    updatedAt: recordedAt,
+  });
+}
 
 /**
  * Scope participation preview plus the durable Catalog scope sync state that
@@ -189,17 +210,24 @@ export function createCatalogScopeSyncStateRuntime({
   }
 
   // Records a single child job's terminal (or retried) status against the
-  // durable per-scope state, resolving which unit it belongs to through its
-  // parent sync run's selected-unit snapshot. No-ops for jobs that were never
-  // part of a "Sync scope" fan-out (reapply jobs, or standalone provider
-  // imports started outside a sync run).
+  // durable per-scope state. Failures prefer the current coverage link because
+  // fan-out can reuse a job from a different run or a standalone import.
   async function recordCatalogScopeSyncStateForChildJob(input: {
     job: SourceObservationIntegrationJob;
     status: CatalogScopeSyncUnitObservedStatus;
     errorMessage: string | null;
     recordedAt: string;
   }): Promise<void> {
-    if (input.job.action !== "import" || !input.job.syncRunId) {
+    if (input.job.action !== "import") {
+      return;
+    }
+    if (
+      input.status === "failed" &&
+      (await recordCatalogScopeSyncFailureForLinkedJob(deps.db, input.job, input.errorMessage, input.recordedAt))
+    ) {
+      return;
+    }
+    if (!input.job.syncRunId) {
       return;
     }
     const parent = await catalogSyncRunStore.get(input.job.syncRunId);
