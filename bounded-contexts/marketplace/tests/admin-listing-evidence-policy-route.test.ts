@@ -16,7 +16,7 @@ async function postIntent(fields: Record<string, string>) {
   const form = new FormData();
   for (const [name, value] of Object.entries(fields)) form.set(name, value);
   const response = await action({
-    request: new Request("http://localhost/listing-evidence-policy", { method: "POST", body: form }),
+    request: new Request("http://localhost/platform/listing-evidence-policy", { method: "POST", body: form }),
     params: {},
     context: undefined,
   } as never);
@@ -44,7 +44,7 @@ describe("admin Listing Evidence Policy route after a write", () => {
 
     expect(response.status).toBe(302);
     const location = response.headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/listing-evidence-policy\?afterWrite=/);
+    expect(location).toMatch(/^\/platform\/listing-evidence-policy\?afterWrite=/);
     expect(readFreshWriteToken(location)?.sources).toEqual([receiptSource]);
   });
 

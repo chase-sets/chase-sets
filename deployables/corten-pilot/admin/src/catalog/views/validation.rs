@@ -771,7 +771,7 @@ fn DecisionModule<'a>(
                     }
                 </div>
                 <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
-                    <EvidenceForm t={t} decision={d} recorded_at={&evidence_when} key={key} context={context} manage={manage} />
+                    <EvidenceForm t={t} decision={d} key={key} context={context} manage={manage} />
                     <ActivateForm t={t} decision={d} key={key} context={context} manage={manage} />
                 </div>
             </div>
@@ -781,21 +781,12 @@ fn DecisionModule<'a>(
 
 /// Record migration evidence (`MigrationEvidenceForm`).
 #[component(css = Validation)]
-fn EvidenceForm<'a>(
-    t: Cat,
-    decision: &'a Decision,
-    recorded_at: &'a str,
-    key: &'a str,
-    context: &'a str,
-    manage: bool,
-) -> impl Render {
+fn EvidenceForm<'a>(t: Cat, decision: &'a Decision, key: &'a str, context: &'a str, manage: bool) -> impl Render {
     let e = &decision.migration_evidence;
     let version = decision.profile_version.clone().unwrap_or_default();
     let disabled = !(manage && open(&decision.save_evidence_state) && !version.is_empty());
     let action = at(&provider::url::Evidence { key }.href().to_string(), context);
     let f = EvidenceInput::FIELDS;
-    let before = e.mapping_fingerprint_before.clone().unwrap_or_default();
-    let after = e.mapping_fingerprint_after.clone().unwrap_or_default();
     let run = e.fixture_run_id.clone().unwrap_or_default();
     html! {
         <form
@@ -806,9 +797,6 @@ fn EvidenceForm<'a>(
             data-catalog-validation-evidence-form="true"
         >
             <input type="hidden" name={f.profile_version} value={&version}>
-            <input type="hidden" name={f.migration_fingerprint_before} value={&before}>
-            <input type="hidden" name={f.migration_fingerprint_after} value={&after}>
-            <input type="hidden" name={f.migration_recorded_at} value={recorded_at}>
             <label class={Field}>
                 <span>{t.wb_validation_activation_decision_evidence_label()}</span>
                 <textarea

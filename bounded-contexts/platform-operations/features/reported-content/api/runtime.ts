@@ -1,3 +1,4 @@
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -85,19 +86,25 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
             event.eventType === "platform-operations.reported-content.acknowledged" &&
             Date.parse(String(event.payload.startedAt)) === Date.parse(startedAt),
         );
-        if (prior) return { acknowledgedAt: String(prior.payload.acknowledgedAt) };
+        if (prior) {
+          // A repeated acknowledgement answers the first one's receipt, so a read after it waits for it too.
+          recordCommittedEvents([prior], "platform-operations");
+          return { acknowledgedAt: String(prior.payload.acknowledgedAt) };
+        }
         const payload = parseReportedContentAcknowledgement({
           ...params,
           startedAt,
           acknowledgedAt: new Date().toISOString(),
         });
         try {
-          await deps.eventStore.appendToStream({
+          const stored = await deps.eventStore.appendToStream({
             streamId,
+            wakeSourceContextName: "platform-operations",
             expectedVersion: history.at(-1)?.streamVersion ?? "no_stream",
             events: [{ eventType: "platform-operations.reported-content.acknowledged", payload: { ...payload } }],
             context,
           });
+          recordCommittedEvents(stored, "platform-operations");
           return { acknowledgedAt: payload.acknowledgedAt };
         } catch (error) {
           if ((error as { code?: string }).code !== "concurrency_conflict") throw error;
@@ -131,8 +138,9 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
               directedAt: recordedAt,
             })
           : null;
-      await deps.eventStore.appendToStream({
+      const stored = await deps.eventStore.appendToStream({
         streamId: `platform-operations.reported-content-${audit.targetType}-${audit.targetId}` as never,
+        wakeSourceContextName: "platform-operations",
         expectedVersion: "any",
         events: [
           {
@@ -150,6 +158,7 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
         ],
         context,
       });
+      recordCommittedEvents(stored, "platform-operations");
       return { actionId, recordedAt };
     },
     projectors: [
