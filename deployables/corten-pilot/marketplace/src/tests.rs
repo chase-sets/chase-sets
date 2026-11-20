@@ -13979,7 +13979,8 @@ const BULK_SCREEN: &str = "/account/bulk-reprice";
 /// A second upload attempt, for uploads that are not `ATTEMPT` sent again.
 const OTHER_ATTEMPT: &str = "1c7a4e2f-5b3d-4c9e-8a11-2345678901bc";
 
-/// Pricing's bulk reprice routes, as the stand-in answers them: the template; a new job
+/// Pricing's bulk reprice routes, as the stand-in answers them: whether it is on (all 404 once
+/// `bulk-off` is set, as the policy gate answers); the template; a new job
 /// (`job_1`), refused when its rows are bad and a 404 (switched off) when they say `OFF`;
 /// an upload's attempt (`Idempotency-Key`) sent again with the same rows answers its first job,
 /// and with other rows is refused (409 `attempt_conflict`), as Pricing's `createJob` does;
@@ -13998,7 +13999,12 @@ fn bulk_reprice(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap,
         })
     };
     let finished = || stand.runs.lock().unwrap().contains_key("bulk-job_1-done");
+    // Switched off (`bulk-off`), the whole tree answers 404, as Pricing's policy gate does.
+    if stand.runs.lock().unwrap().contains_key("bulk-off") {
+        return Some((StatusCode::NOT_FOUND, "404 Not Found").into_response());
+    }
     Some(match (method.as_str(), rest) {
+        ("GET", "") => Json(json!({ "enabled": true })).into_response(),
         ("GET", "/template.csv") => (
             [
                 (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
@@ -14233,6 +14239,28 @@ async fn a_recommendation_job_is_followed_live_and_the_list_is_read_again_once_i
 }
 
 #[tokio::test]
+async fn while_pricing_has_bulk_reprice_off_its_page_says_so_and_recommendations_do_not_offer_it() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert!(html.contains(r#"href="/account/bulk-reprice""#), "offered while it is on: {html}");
+
+    pilot.stand.runs.lock().unwrap().insert("bulk-off".into(), json!(true));
+    let (status, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"href="/account/bulk-reprice""#), "not offered while it is off: {html}");
+
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
+    assert!(!html.contains(r#"action="/account/bulk-reprice""#) && !html.contains(r#"name="file""#), "nothing to upload: {html}");
+    assert!(!html.contains("template.csv") && !html.contains("Job status"), "{html}");
+    assert!(html.contains(r#"href="/account/repricing""#), "{html}");
+    let calls: Vec<_> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
+    assert!(calls.iter().all(|path| !path.contains("/jobs/")), "no job is read: {calls:?}");
+}
+
+#[tokio::test]
 async fn bulk_reprice_is_for_a_seller_who_may_change_listings() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(get(BULK_SCREEN, None)).await;
@@ -14274,7 +14302,8 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
         pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
-    let call = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API).cloned().unwrap();
+    let call =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API && c.method == Method::POST).cloned().unwrap();
     assert_eq!(call.headers["idempotency-key"].to_str().unwrap(), ATTEMPT, "the form's attempt is Pricing's Idempotency-Key");
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent, json!({ "csvText": "sellerSku,newPrice\nSKU-1,4.50\n", "sourceFilename": "prices.csv" }));
@@ -14296,7 +14325,7 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
         .lock()
         .unwrap()
         .iter()
-        .filter(|c| c.path == BULK_API)
+        .filter(|c| c.path == BULK_API && c.method == Method::POST)
         .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
         .collect();
     assert_eq!(keys, [ATTEMPT; 3], "each send carries the form's one attempt");
@@ -14340,7 +14369,7 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     let (status, _, html) =
         pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", off)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.replace("&#39;", "'").contains("Bulk reprice isn't available yet."), "{html}");
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
     // A file that is not text, or a form without its attempt, is refused here, not sent; a seller
     // who may not change listings is refused.
     let calls = pilot.stand.calls.lock().unwrap().len();
@@ -14351,7 +14380,8 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &fresh, &[("file", "p.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let sent = pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API).count();
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API && c.method == Method::POST).count();
     assert_eq!(sent, 0);
 }
 
