@@ -895,6 +895,26 @@ const listingCompositionCases = [
     name: "case 5: uncomposed Pricing class C/M participants refuse with zero events",
     identity: "b0ec4e7e6fda9c01",
   },
+  {
+    name: "commits the exact Pricing pair and original terminal without native price, fee, or anchor feedback",
+    identity: "d8b26bb7dc68d1ec",
+  },
+  {
+    name: "refuses a real decision when standing closes first and accepts only on a fresh epoch",
+    identity: "e756d02fa3c96e11",
+  },
+  {
+    name: "holds real Pricing standing until terminal-first COMMIT before installing the halt",
+    identity: "e9d64db8f323f14f",
+  },
+  {
+    name: "orders a real Listing withdrawal ahead of the open Pricing terminal without accepting a target",
+    identity: "b92e85c120679f4a",
+  },
+  {
+    name: "orders enrolled Catalog removal %s for P on both categories (terminal first: %s)",
+    identity: "9fdb2f9907dda494",
+  },
 ];
 
 function minimalityViolationFor(observedUnitCount: number, minimumUnitCount: number) {
@@ -1375,14 +1395,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.partitionUnitCount).toBe(3);
   });
 
-  it("preserves all 63 non-bootstrap composition case identities and their DB enrollment", () => {
+  it("preserves all 68 non-bootstrap composition case identities and their DB enrollment", () => {
     const fileName = "listing-channel-activation-composition.db.test.ts";
     const entry = `__tests__/${fileName}`;
     const census = derivePlatformApiDbTestCensus();
     expect(census.dbEntries).toContain(entry);
     expect(census.bootstrapEntries).not.toContain(entry);
     expect(platformApiNonBootstrapDbCensus.entries[entry]).toBe("test:db:1");
-    expect(listingCompositionCases).toHaveLength(63);
+    expect(listingCompositionCases).toHaveLength(68);
     expect(deriveBootstrapDbCaseIdentities(fileName, readFileSync(join(testDirectory, fileName), "utf8"))).toEqual(
       listingCompositionCases,
     );

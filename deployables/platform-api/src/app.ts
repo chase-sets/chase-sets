@@ -69,6 +69,7 @@ import type { WalletFundingEligibilityResolver } from "@chase-sets/payments/serv
 import { walletFundingLimitsPolicy } from "@chase-sets/payments/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
+  createInventoryStockAuthorityForPool,
   createStorageLocationAuthority,
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
@@ -371,6 +372,7 @@ export function createPlatformApiHost(
       ? createPlatformListingTargetAuthority({
           marketplace: marketplacePool,
           inventory: inventoryPool,
+          pricing: () => (runtime?.services.pricing as PricingServices | undefined)?.evaluationAuthority,
           auth: () => {
             if (!runtime) throw new Error("Auth runtime is unavailable.");
             return runtime.services.auth as ReturnType<typeof authModule.createServices>;
@@ -740,6 +742,17 @@ export function createPlatformApiHost(
             sessionConsumers: listingTargets.consumer.topology,
             connectionConsumers: listingTargets.consumer.topology,
             stockReservationConsumerPool: marketplacePool,
+            pricingEvaluationConsumers: listingTargets.consumer.topology,
+            ...(marketplacePool && inventoryPool && catalogPool
+              ? {
+                  pricingEvaluationOwners: {
+                    marketplace: marketplacePool,
+                    inventory: inventoryPool,
+                    catalog: catalogPool,
+                    captureInventoryStock: createInventoryStockAuthorityForPool(inventoryPool, marketplacePool).capture,
+                  },
+                }
+              : {}),
           }
         : {}),
       operationsAttentionRuntimeReads: {
