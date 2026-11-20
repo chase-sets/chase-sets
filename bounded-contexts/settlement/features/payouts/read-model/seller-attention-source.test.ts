@@ -16,6 +16,12 @@ import type { SettlementPayoutRow } from "./queries";
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: "2026-07-14T12:00:00.000Z" };
 const CLOSED_MESSAGE = "The bank account has been closed.";
 
+// node-postgres hands back a timestamptz column as a Date unless the query reads
+// it as text; this fake answers the same way for the column it is asked about.
+function pgTimestamp(sql: string, column: string, iso: string): string | Date {
+  return sql.includes(`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`) ? iso : new Date(iso);
+}
+
 // Answers the summary count and items queries the way the Settlement read model does.
 function summaryReadModel(rows: readonly SettlementPayoutRow[], count = rows.length) {
   return {
@@ -364,6 +370,42 @@ describe("selectBlockedPayoutAttentionRows", () => {
 
     expect(toBlockedPayoutAttentionItems(rows).map((item) => item.summary.params)).toEqual([
       { reference: "PYO-BLOCKED", reason },
+    ]);
+  });
+});
+
+describe("the blocked payout source's times", () => {
+  it("are read as ISO text, so the queue keeps a failed payout and a stale request", async () => {
+    const query = vi.fn(async (sql: string) =>
+      sql.includes("COUNT(*)")
+        ? { rows: [{ count: "2" }] }
+        : {
+            rows: [
+              payout({
+                payout_id: "pay-failed",
+                status: "failed",
+                failure_reason: "recent-payout-failure",
+                updated_at: pgTimestamp(sql, "updated_at", "2026-07-14T10:30:00.000Z") as string,
+                failed_at: pgTimestamp(sql, "failed_at", "2026-07-14T10:00:00.000Z") as string,
+              }),
+              payout({
+                payout_id: "pay-stale",
+                status: "requested",
+                updated_at: pgTimestamp(sql, "updated_at", "2026-07-14T11:00:00.000Z") as string,
+              }),
+            ],
+          },
+    );
+
+    const queue = await aggregateSellerAttentionQueue(
+      [createBlockedPayoutAttentionSourceFromReadModel({ query } as never)],
+      CONTEXT,
+    );
+
+    expect(queue.sources).toEqual([{ id: "settlement-blocked-payout", status: "available", itemCount: 2 }]);
+    expect(queue.items.map((item) => [item.id, item.observedAt])).toEqual([
+      ["settlement-blocked-payout:pay-failed", "2026-07-14T10:00:00.000Z"],
+      ["settlement-blocked-payout:pay-stale", "2026-07-14T11:00:00.000Z"],
     ]);
   });
 });

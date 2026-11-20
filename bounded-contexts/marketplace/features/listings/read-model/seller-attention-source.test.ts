@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
+import {
+  aggregateSellerAttentionQueue,
+  isSellerAttentionItem,
+  type SellerAttentionContext,
+} from "@chase-sets/seller-attention-queue";
 import {
   createListingActionAttentionSource,
   createListingActionAttentionSourceFromReadModel,
@@ -8,6 +12,12 @@ import {
 } from "./seller-attention-source";
 
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: "2026-07-14T12:00:00.000Z" };
+
+// node-postgres hands back a timestamptz column as a Date unless the query reads
+// it as text; this fake answers the same way for the column it is asked about.
+function pgTimestamp(sql: string, column: string, iso: string): string | Date {
+  return sql.includes(`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`) ? iso : new Date(iso);
+}
 
 function row(overrides: Partial<ListingActionAttentionRow> = {}): ListingActionAttentionRow {
   return {
@@ -43,7 +53,7 @@ describe("createListingActionAttentionSourceFromReadModel", () => {
           status: "paused",
           pause_reason: "inventory-capacity",
           inventory_capacity_recovery_block: "evidence-incomplete",
-          updated_at: "2026-10-28T00:00:00.000Z",
+          observed_at: "2026-10-28T00:00:00.000Z",
         },
       ],
     }));
@@ -61,7 +71,7 @@ describe("createListingActionAttentionSourceFromReadModel", () => {
           listing_id: "listing-1",
           item_title: "Charizard",
           status: "paused",
-          updated_at: "2026-07-13T00:00:00.000Z",
+          observed_at: "2026-07-13T00:00:00.000Z",
         },
       ],
     }));
@@ -76,6 +86,29 @@ describe("createListingActionAttentionSourceFromReadModel", () => {
       ["acct-1"],
     );
     expect(items[0]?.summary.params).toEqual({ reference: "Charizard", action: "paused" });
+  });
+
+  it("reads the listing's time as ISO text, so the queue keeps the listing", async () => {
+    const query = vi.fn(async (sql: string) => ({
+      rows: [
+        {
+          listing_id: "listing-1",
+          item_title: "Charizard",
+          status: "draft",
+          pause_reason: null,
+          inventory_capacity_recovery_block: null,
+          observed_at: pgTimestamp(sql, "updated_at", "2026-07-13T00:00:00.000Z"),
+        },
+      ],
+    }));
+
+    const queue = await aggregateSellerAttentionQueue(
+      [createListingActionAttentionSourceFromReadModel({ query } as never)],
+      CONTEXT,
+    );
+
+    expect(queue.sources).toEqual([{ id: "listing-action", status: "available", itemCount: 1 }]);
+    expect(queue.items[0]?.observedAt).toBe("2026-07-13T00:00:00.000Z");
   });
 });
 
