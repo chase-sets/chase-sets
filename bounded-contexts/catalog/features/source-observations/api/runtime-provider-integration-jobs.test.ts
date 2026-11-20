@@ -1060,15 +1060,17 @@ describe("source observation runtime: provider integration jobs", () => {
       const claimTtlMs = 120_000;
       let claimDeadline = 0;
       let foundCandidates = false;
-      const candidateRead = Promise.withResolvers<void>();
-      const resumeRead = Promise.withResolvers<void>();
+      let markCandidateRead!: () => void;
+      const candidateRead = new Promise<void>((resolve) => (markCandidateRead = resolve));
+      let resumeRead!: () => void;
+      const readResumed = new Promise<void>((resolve) => (resumeRead = resolve));
       const db: CatalogRuntimeDeps["db"] = {
         query: async <Row>(sql: string, params: readonly unknown[] = []) => {
           if (sql.includes("SELECT candidate_id") && sql.includes("FROM catalog_merge_candidates")) {
             foundCandidates = true;
             claimDeadline = Date.now() + claimTtlMs;
-            candidateRead.resolve();
-            await resumeRead.promise;
+            markCandidateRead();
+            await readResumed;
           }
           if (foundCandidates && sql.includes("UPDATE catalog_source_observation_integration_durable_jobs")) {
             if (Date.now() >= claimDeadline) return { rowCount: 0, rows: [] as Row[] };
@@ -1089,10 +1091,10 @@ describe("source observation runtime: provider integration jobs", () => {
       );
       const turn = services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs });
       try {
-        await Promise.race([candidateRead.promise, turn]);
+        await Promise.race([candidateRead, turn]);
         expect(foundCandidates, JSON.stringify(harness.appendedSourceEvents[0]?.payload.normalized)).toBe(true);
         await vi.advanceTimersByTimeAsync(claimTtlMs + 5_000);
-        resumeRead.resolve();
+        resumeRead();
         await expect(turn).resolves.toBe(canRenew ? 1 : 0);
         await vi.advanceTimersByTimeAsync(0);
         const writes = harness.appendedSourceEvents.map(({ eventType }) => eventType);
@@ -1104,7 +1106,7 @@ describe("source observation runtime: provider integration jobs", () => {
           expect(writes).toEqual(["catalog.source-observation.recorded"]);
         }
       } finally {
-        resumeRead.resolve();
+        resumeRead();
         await turn.catch(() => undefined);
         vi.useRealTimers();
         fetch.mockRestore();
