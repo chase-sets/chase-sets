@@ -676,12 +676,8 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
             Json(json!({ "error": { "code": "validation_failed", "reason": "note_required", "message": "The moderation action was rejected." } })),
         )
             .into_response(),
-        // As the API answers today (chase-sets/chase-sets#10833): no receipt.
-        (Method::POST, "/review/rev_1/actions") if body.contains("dismiss") => {
-            Json(json!({ "id": "rca_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
-        }
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
-        (Method::POST, "/listing/lst_1/acknowledge") => Json(json!({ "acknowledgedAt": "2026-11-15T12:00:00.000Z" })).into_response(),
+        (Method::POST, "/listing/lst_1/acknowledge") => written(StatusCode::OK, "ack_1"),
         // As the API refuses it: a reason and no message.
         (Method::POST, "/review/rev_1/acknowledge") => {
             (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "reason": "target-disposed" } })))
@@ -1015,8 +1011,7 @@ fn support_lookup(reference: &str) -> Response {
 }
 
 /// Platform Operations' risk alerts: a candidate with evidence and a threshold, and an
-/// acknowledged one that is not a candidate. Actions answer no receipt, as the API does
-/// (chase-sets/chase-sets#10835).
+/// acknowledged one that is not a candidate. Actions answer their receipt.
 fn risk_alerts(method: &Method, rest: &str) -> Response {
     let alert = |id: &str, status: &str, candidate: bool| {
         json!({
@@ -1040,9 +1035,7 @@ fn risk_alerts(method: &Method, rest: &str) -> Response {
         .into_response(),
         (Method::GET, "/ral_1") => Json(alert("ral_1", "needs-review", true)).into_response(),
         (Method::GET, "/ral_2") => Json(alert("ral_2", "acknowledged", false)).into_response(),
-        (Method::POST, "/ral_1/actions" | "/ral_2/actions") => {
-            Json(json!({ "id": "raa_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
-        }
+        (Method::POST, "/ral_1/actions" | "/ral_2/actions") => written(StatusCode::OK, "raa_1"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -5929,22 +5922,6 @@ async fn a_target_read_after_an_action_that_is_not_readable_yet_is_read_without_
 }
 
 #[tokio::test]
-async fn an_action_answered_without_a_receipt_carries_its_time_and_the_page_says_it_is_being_applied() {
-    let pilot = Pilot::new().await;
-    let at = "/support/reported-content/review/rev_1";
-    let (status, headers, _) = pilot.send(post_as("moderator", at, "action=dismiss&note=Not+abusive", false)).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert_eq!(to, "/support/reported-content/review/rev_1?recorded=2026-10-30T12%3A00%3A00.000Z");
-    let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "older than the action: {html}");
-    let caught_up = "/support/reported-content/review/rev_1?recorded=2026-10-29T13%3A00%3A00.000Z";
-    let (_, _, html) = pilot.send(get(caught_up, Some("moderator"))).await;
-    assert!(!html.contains("Refresh in a moment"), "the target shows the action: {html}");
-}
-
-#[tokio::test]
 async fn acknowledging_a_response_posts_to_its_endpoint_and_a_refusal_draws_the_page_again() {
     let pilot = Pilot::new().await;
     let at = "/support/reported-content/listing/lst_1";
@@ -5957,14 +5934,11 @@ async fn acknowledging_a_response_posts_to_its_endpoint_and_a_refusal_draws_the_
         "no body and no note, as admin-web sends it"
     );
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert_eq!(to, "/support/reported-content/listing/lst_1?recorded=2026-11-15T12%3A00%3A00.000Z", "the section stays");
+    assert!(to.starts_with("/support/reported-content/listing/lst_1?after_write="), "the section stays: {to}");
     let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains("Refresh in a moment"), "the target does not show the acknowledgement yet: {html}");
-    // The review's last action (Oct 29) is older than this; its acknowledgement (Oct 30, 9:00) is not.
-    let shown = "/support/reported-content/review/rev_1?recorded=2026-10-30T09%3A00%3A00.000Z";
-    let (_, _, html) = pilot.send(get(shown, Some("moderator"))).await;
-    assert!(!html.contains("Refresh in a moment"), "the target shows the acknowledgement: {html}");
+    let read = pilot.calls_to(REPORTED).into_iter().last().unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the acknowledgement");
 
     let review = "/support/reported-content/review/rev_1";
     let (status, headers, html) = pilot.send(post_as("moderator", review, "action=acknowledge", false)).await;
@@ -6006,20 +5980,22 @@ async fn risk_alerts_read_the_queue_and_an_alerts_page_as_admin_web_does() {
 }
 
 #[tokio::test]
-async fn a_risk_alert_response_is_sent_and_the_page_says_it_is_being_applied_until_it_shows() {
+async fn a_risk_alert_response_is_sent_and_the_page_is_read_after_it() {
     let pilot = Pilot::new().await;
     let at = "/support/risk-alerts/ral_1";
     let (status, headers, _) = pilot.send(post_as("moderator", at, "action=acknowledge&note=+Known+seller+", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert_eq!(to, "/support/risk-alerts/ral_1?recorded=2026-10-30T12%3A00%3A00.000Z");
+    assert!(to.starts_with("/support/risk-alerts/ral_1?after_write="), "{to}");
     let write = pilot.calls_to(RISK).into_iter().last().unwrap();
     assert_eq!(
         (write.method, write.path.as_str(), write.body.as_str()),
         (Method::POST, &*format!("{RISK}/ral_1/actions"), r#"{"action":"acknowledge","note":"Known seller"}"#)
     );
-    let (_, _, html) = pilot.send(get(&to, Some("moderator"))).await;
-    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot.calls_to(RISK).into_iter().last().unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the response");
     assert_eq!(pilot.send(post_as("moderator", at, "action=unlist", false)).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(pilot.send(post_as("staff", at, "action=acknowledge", false)).await.0, StatusCode::FORBIDDEN);
     let writes = pilot.calls_to(RISK).into_iter().filter(|c| c.method == Method::POST).count();
