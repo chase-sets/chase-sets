@@ -1,6 +1,7 @@
 import { formatDate, formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
+  Button,
   DataTable,
   EmptyState,
   Form,
@@ -88,19 +89,24 @@ export function OpsDashboardAdminPage({
 
       <PageSection title={t("platformOperations.opsDashboard.range")}>
         <Form spacing="none" method="get">
-          <Stack direction={{ base: "column", md: "row" }} gap={2}>
-            <NativeSelect
-              label={t("platformOperations.opsDashboard.rangeLabel")}
-              name="rangeDays"
-              defaultValue={filters.rangeDays}
-              items={rangeItems}
-            />
-            <NativeSelect
-              label={t("platformOperations.opsDashboard.granularityLabel")}
-              name="granularity"
-              defaultValue={filters.granularity}
-              items={granularityItems}
-            />
+          <Stack gap={2} align="start">
+            <Stack direction={{ base: "column", md: "row" }} gap={2}>
+              <NativeSelect
+                label={t("platformOperations.opsDashboard.rangeLabel")}
+                name="rangeDays"
+                defaultValue={filters.rangeDays}
+                items={rangeItems}
+              />
+              <NativeSelect
+                label={t("platformOperations.opsDashboard.granularityLabel")}
+                name="granularity"
+                defaultValue={filters.granularity}
+                items={granularityItems}
+              />
+            </Stack>
+            <Button type="submit" tone="secondary">
+              {t("platformOperations.opsDashboard.apply")}
+            </Button>
           </Stack>
         </Form>
       </PageSection>
