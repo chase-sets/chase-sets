@@ -11,9 +11,15 @@ const source = (file: string) => readFileSync(new URL(file, root), "utf8").repla
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
 const candidate = source(accountFile);
 const revisionId = "20261104_settlement_account_risk_source_revision";
+const holdId = "20261120_settlement_payout_review_hold";
 const revisionSql =
   "ALTER TABLE settlement_account_risk_sources\n  ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0";
-const candidateHash = "47c64402367e57c6f9bca8fc4aafcc7483aee1849e71ad2cce5ee12d7e4e36b5";
+const holdSql = [
+  "ALTER TABLE settlement_account_risk_sources\n  ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false",
+  "ALTER TABLE settlement_account_risk_sources\n  ADD COLUMN IF NOT EXISTS payout_review_hold_stream_version bigint NOT NULL DEFAULT 0",
+];
+const candidateHash = "af2f9f9e83057747ef49bad4ed66f44018c2bb94299c15166074aca41518464d";
+const revisionSchemaHash = "47c64402367e57c6f9bca8fc4aafcc7483aee1849e71ad2cce5ee12d7e4e36b5";
 const historicalHash = "a1de72122075c49e538ddf87e471c3ca29e3fb3775bd17a84041a5f49d24e610";
 const stoppedHash = "c0d4c4dfd3a81a360336334e3f7f7ffb397bad3ebca065b1b43039bddec877ea";
 const migrationIds = [
@@ -26,12 +32,13 @@ const migrationIds = [
   "20260707_settlement_account_velocity_risk_sources",
   "20260711_settlement_account_review_sources_reveal",
   revisionId,
+  holdId,
 ];
 
-// Fixed Settlement lifecycle evidence at abb4857e, not SQL eligibility inference or a guard exemption.
+// Fixed Settlement lifecycle evidence at abb4857e, plus the Settlement hold projection wiring in index.ts.
 // Full source pins include imports, exports, every executable member and opaque expressions.
 const composedSources = {
-  "bounded-contexts/settlement/index.ts": "8604850829725b147c19292fa546e8870f4ca301fdc48c0f8dd97a050b50683c",
+  "bounded-contexts/settlement/index.ts": "f6965fc7d3c64c824aff6c739558981d453bc2d3b7999ea872578b49ba55262c",
   "bounded-contexts/settlement/support/runtime-support/schema.ts":
     "2274e4327827a68c647aa383821fe93b6157dadfceba961918ebbe3fe88ca7be",
   "bounded-contexts/settlement/support/runtime-support/unlogged-projection-migrations.ts":
@@ -94,10 +101,25 @@ function property(object: ts.Node, name: string) {
     : undefined;
 }
 
-function historicalSource(text: string) {
+function sourceBeforeMigration(text: string, migrationId: string) {
   const parsed = declarations(text);
-  const last = parsed?.array.elements.at(-1);
-  return last ? `${text.slice(0, last.getFullStart())}\n] as const;\n` : "";
+  const next = parsed?.array.elements[migrationIds.indexOf(migrationId)];
+  return next ? `${text.slice(0, next.getFullStart())}\n] as const;\n` : "";
+}
+
+function hasExactSql(entry: ts.Node, expected: readonly string[], file: ts.SourceFile) {
+  const statements = property(entry, "statements");
+  return (
+    !!statements &&
+    ts.isArrayLiteralExpression(statements) &&
+    statements.elements.length === expected.length &&
+    statements.elements.every(
+      (statement, index) =>
+        ts.isNoSubstitutionTemplateLiteral(statement) &&
+        statement.text === expected[index] &&
+        statement.getText(file).slice(1, -1) === expected[index],
+    )
+  );
 }
 
 type Obligation = "identity" | "prefix" | "order" | "add" | "boot" | "closed";
@@ -110,32 +132,37 @@ function violations(text: string, bypass?: Obligation) {
   const parsed = declarations(text);
   if (!parsed) return [...failures, "opaque-source"];
   const { file, boot, array } = parsed;
-  checkObligation("prefix", digest(historicalSource(text)) === historicalHash);
+  checkObligation(
+    "prefix",
+    digest(sourceBeforeMigration(text, revisionId)) === historicalHash &&
+      digest(sourceBeforeMigration(text, holdId)) === revisionSchemaHash,
+  );
   const ids = array.elements.map((entry) => property(entry, "migrationId"));
   checkObligation(
     "order",
     JSON.stringify(ids.map((id) => (id && ts.isStringLiteral(id) ? id.text : null))) === JSON.stringify(migrationIds),
   );
-  const last = array.elements.at(-1)!;
-  const statements = property(last, "statements");
-  const add =
-    statements && ts.isArrayLiteralExpression(statements) && statements.elements.length === 1
-      ? statements.elements[0]
-      : undefined;
+  const revision = array.elements[migrationIds.indexOf(revisionId)];
+  const hold = array.elements[migrationIds.indexOf(holdId)];
   checkObligation(
     "add",
-    !!add &&
-      ts.isNoSubstitutionTemplateLiteral(add) &&
-      add.text === revisionSql &&
-      add.getText(file).slice(1, -1) === revisionSql,
+    !!revision && !!hold && hasExactSql(revision, [revisionSql], file) && hasExactSql(hold, holdSql, file),
   );
-  checkObligation("boot", !/\brevision\b/.test(boot.text) && boot.getText(file).slice(1, -1) === boot.text);
+  checkObligation(
+    "boot",
+    !/\b(?:revision|payout_review_hold|payout_review_hold_stream_version)\b/.test(boot.text) &&
+      boot.getText(file).slice(1, -1) === boot.text,
+  );
   checkObligation(
     "closed",
     file.statements.length === 3 &&
-      ts.isObjectLiteralExpression(last) &&
-      JSON.stringify(last.properties.map((entry) => entry.name?.getText(file))) ===
-        JSON.stringify(["migrationId", "description", "statements"]),
+      [revision, hold].every(
+        (entry) =>
+          !!entry &&
+          ts.isObjectLiteralExpression(entry) &&
+          JSON.stringify(entry.properties.map((property) => property.name?.getText(file))) ===
+            JSON.stringify(["migrationId", "description", "statements"]),
+      ),
   );
   return failures;
 }
@@ -187,8 +214,8 @@ describe("Settlement ledger-only schema contract", () => {
   });
 
   it("rejects the exact stopped-head fresh-CREATE revision through the fixed boot obligation", () => {
-    const baseSource = historicalSource(candidate);
-    const stopped = candidate.replace(
+    const baseSource = sourceBeforeMigration(candidate, revisionId);
+    const stopped = sourceBeforeMigration(candidate, holdId).replace(
       "  account_id text PRIMARY KEY,",
       "  account_id text PRIMARY KEY,\n  revision bigint NOT NULL DEFAULT 0,",
     );
@@ -220,7 +247,29 @@ describe("Settlement ledger-only schema contract", () => {
     expect(mutant).not.toBe(candidate);
     expect(violations(mutant, "identity")).toContain("add");
     expect(violations(mutant, "add")).toContain("identity");
-    expect(historicalSource(mutant)).toBe(historicalSource(candidate));
+    expect(sourceBeforeMigration(mutant, revisionId)).toBe(sourceBeforeMigration(candidate, revisionId));
+  });
+
+  it("refuses hold columns in bootstrap SQL even with source identity bypassed", () => {
+    const mutant = candidate.replace(
+      "  account_id text PRIMARY KEY,",
+      "  account_id text PRIMARY KEY,\n  payout_review_hold boolean NOT NULL DEFAULT false,",
+    );
+    expect(violations(mutant, "identity")).toContain("boot");
+  });
+
+  it("refuses a missing hold statement or a changed default without relying on the full-source hash", () => {
+    for (const mutant of [
+      candidate.replace(`      \`${holdSql[1]}\`,\n`, ""),
+      candidate.replace(
+        "payout_review_hold boolean NOT NULL DEFAULT false",
+        "payout_review_hold boolean NOT NULL DEFAULT true",
+      ),
+    ]) {
+      expect(mutant).not.toBe(candidate);
+      expect(violations(mutant, "identity")).toContain("add");
+      expect(sourceBeforeMigration(mutant, holdId)).toBe(sourceBeforeMigration(candidate, holdId));
+    }
   });
 
   it.each([

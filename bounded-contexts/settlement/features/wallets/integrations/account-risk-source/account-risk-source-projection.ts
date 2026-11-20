@@ -670,11 +670,13 @@ export function buildSettlementPayoutReviewHoldProjectionHandlers(db: PgQueryabl
     const data = event.data as { accountId: string };
     const version = Number(event.streamVersion ?? 0);
     await db.query(
-      `INSERT INTO settlement_account_risk_sources (account_id, payout_review_hold, payout_review_hold_stream_version, updated_at)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO settlement_account_risk_sources (
+         account_id, payout_review_hold, payout_review_hold_stream_version, revision, updated_at
+       ) VALUES ($1, $2, $3, 1, $4)
        ON CONFLICT (account_id) DO UPDATE SET
          payout_review_hold = EXCLUDED.payout_review_hold,
          payout_review_hold_stream_version = EXCLUDED.payout_review_hold_stream_version,
+         revision = settlement_account_risk_sources.revision + 1,
          updated_at = EXCLUDED.updated_at
        WHERE settlement_account_risk_sources.payout_review_hold_stream_version < EXCLUDED.payout_review_hold_stream_version`,
       [data.accountId, active, version, event.timing.recordedAt],

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -8,9 +9,11 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as settlementModule } from "../../../index";
 import { createSettlementServices } from "../../../support/runtime-support/services";
 import { createSettlementPayoutReviewHoldPort } from "./payout-review-hold-port";
+import { buildSettlementPayoutReviewHoldProjectionHandlers } from "../integrations/account-risk-source/account-risk-source-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -38,11 +41,47 @@ describeDb("payout review hold maturity on real Postgres", () => {
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ settlement: pool });
-    await pool.query(settlementModule.schemaSql);
+    await bootstrapContextDatabase(settlementModule, pool);
   });
 
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("publishes one revision for each accepted hold fact and none for a stale fact", async () => {
+    const handlers = buildSettlementPayoutReviewHoldProjectionHandlers(pool);
+    const publish = (action: "placed" | "released", streamVersion: number) => {
+      const type = `settlement.payout-review-hold.${action}`;
+      return handlers[type]!(
+        buildTransportEvent(
+          type,
+          { accountId: heldAccountId },
+          {
+            id: `evt_synthetic_hold_${streamVersion}`,
+            streamId: `settlement.payout-review-hold-${heldAccountId}`,
+            streamVersion,
+            ...context,
+            timing: { occurredAt: now, recordedAt: now },
+          },
+        ),
+      );
+    };
+    const read = async () =>
+      (
+        await pool.query(
+          `SELECT payout_review_hold, payout_review_hold_stream_version, revision
+         FROM settlement_account_risk_sources WHERE account_id = $1`,
+          [heldAccountId],
+        )
+      ).rows;
+
+    await publish("placed", 1);
+    expect(await read()).toEqual([{ payout_review_hold: true, payout_review_hold_stream_version: "1", revision: "1" }]);
+    await publish("released", 2);
+    await publish("placed", 1);
+    expect(await read()).toEqual([
+      { payout_review_hold: false, payout_review_hold_stream_version: "2", revision: "2" },
+    ]);
   });
 
   it.each(["operator", "risk-alert"] as const)(
