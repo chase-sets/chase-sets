@@ -84,6 +84,8 @@
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
+        "inventory.item.stock-authority-claimed",
+        "inventory.item.offline-sale-recorded",
         "inventory.hold.placed",
         "inventory.hold.converted",
         "inventory.hold.extended",
@@ -273,6 +275,7 @@
     },
     {
       "projectionName": "ordering-inventory-supply-input-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["inventory"],
       "ownedTables": ["ordering_inventory_item_inputs", "ordering_inventory_hold_inputs"],
       "requiredDuringBootstrap": true,

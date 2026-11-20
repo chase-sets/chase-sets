@@ -12,7 +12,7 @@ import {
   type BcContextManifest,
 } from "@chase-sets/bounded-context-module";
 import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
-import { createTransientProjectionError } from "@chase-sets/event-core/projector";
+import { createTransientProjectionError, isTransientProjectionError } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json" with { type: "json" };
@@ -242,18 +242,25 @@ const baseModule = defineBoundedContextModule<OrderingServices, PgTransactionalP
                   if (await hasOrderForSource(db, "offer-acceptance", params.acceptanceBatchId)) {
                     return;
                   }
+                  let retryableMiss: unknown;
                   for (const row of batchRows) {
-                    await requireAcceptedOfferSupplyInputs(
-                      db,
-                      {
-                        listingId: row.listing_id,
-                        inventoryItemId: row.inventory_item_id,
-                        inventoryItemVersion:
-                          row.inventory_item_version === null ? undefined : Number(row.inventory_item_version),
-                      },
-                      row.recorded_at.getTime(),
-                    );
+                    try {
+                      await requireAcceptedOfferSupplyInputs(
+                        db,
+                        {
+                          listingId: row.listing_id,
+                          inventoryItemId: row.inventory_item_id,
+                          inventoryItemVersion:
+                            row.inventory_item_version === null ? undefined : Number(row.inventory_item_version),
+                        },
+                        row.recorded_at.getTime(),
+                      );
+                    } catch (error) {
+                      if (!isTransientProjectionError(error)) throw error;
+                      retryableMiss ??= error;
+                    }
                   }
+                  if (retryableMiss) throw retryableMiss;
 
                   await services.orders.createOrdersFromAcceptedOfferBatch(
                     {

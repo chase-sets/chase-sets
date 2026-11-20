@@ -6,7 +6,31 @@ import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
-import { buildOrderingMarketplaceSupplyProjectionHandlers } from "./supply-projection";
+import {
+  buildOrderingInventorySupplyProjectionHandlers,
+  buildOrderingMarketplaceSupplyProjectionHandlers,
+} from "./supply-projection";
+
+describe("ordering inventory supply projection", () => {
+  it.each(["inventory.item.stock-authority-claimed", "inventory.item.offline-sale-recorded"])(
+    "advances only the item watermark monotonically for %s",
+    async (type) => {
+      const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+      const handlers = buildOrderingInventorySupplyProjectionHandlers({ query });
+      await handlers[type]!({
+        ...event(type, "inventory.item-inv_1", { itemId: "inv_1", quantity: 1 }),
+        streamVersion: 4,
+      });
+
+      expect(query).toHaveBeenCalledExactlyOnceWith(
+        expect.stringMatching(
+          /^UPDATE ordering_inventory_item_inputs\s+SET last_stream_version = \$2\s+WHERE item_id = \$1\s+AND last_stream_version < \$2$/,
+        ),
+        ["inv_1", 4],
+      );
+    },
+  );
+});
 
 type ListingInputRow = {
   listing_id: string;

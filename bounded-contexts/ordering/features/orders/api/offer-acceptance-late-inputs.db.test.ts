@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { bootstrapContextDatabase, getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMountedContextTestRuntime,
@@ -29,6 +29,11 @@ const sourceModule = defineBoundedContextModule({
   buildApis: () => [],
 });
 const sellerAccountId = "acc_late_input_seller" as AccountId;
+const inventoryProjectionName = "ordering-inventory-supply-input-projection";
+const inventoryCompanionFacts = [
+  "inventory.item.stock-authority-claimed",
+  "inventory.item.offline-sale-recorded",
+] as const;
 const terms = {
   marketplaceSalesFeePercentageBps: 300,
   marketplaceSalesFeeFixedAmount: "1.00",
@@ -139,7 +144,7 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     if (pools) await closeMultiContextTestPools(pools);
   });
 
-  function mount() {
+  function mount(legacyInventoryProjection = false) {
     const sources = new Set([
       ...contextManifest.eventSubscriptions.map((entry) => entry.sourceContextName),
       ...contextManifest.eventReactions.map((entry) => entry.sourceContextName),
@@ -155,7 +160,27 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
       })),
       {
         contextName: "ordering",
-        module: orderingModule,
+        module: legacyInventoryProjection
+          ? {
+              ...orderingModule,
+              buildSubscriptions: (services) =>
+                orderingModule.buildSubscriptions!(services).map((subscription) => {
+                  if (subscription.projectionName !== inventoryProjectionName) return subscription;
+                  const handlers = Object.fromEntries(
+                    Object.entries(subscription.handlers).filter(
+                      ([type]) => !inventoryCompanionFacts.some((companion) => companion === type),
+                    ),
+                  );
+                  return { ...subscription, handlers, eventTypes: Object.keys(handlers) };
+                }),
+              buildProjectionGroups: () =>
+                orderingModule
+                  .buildProjectionGroups()
+                  .map((group) =>
+                    group.projectionName === inventoryProjectionName ? { ...group, projectionRevision: 1 } : group,
+                  ),
+            }
+          : orderingModule,
         pool: pools.ordering,
         ports: { inventoryCleanupAuthority: { kind: "not-mounted" as const } },
       },
@@ -167,7 +192,8 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     return {
       reaction: runner("ordering-marketplace-offer-acceptance"),
       listings: runner("ordering-marketplace-supply-input-projection"),
-      inventory: runner("ordering-inventory-supply-input-projection"),
+      inventory: runner(inventoryProjectionName),
+      inventoryGroup: getProjectionGroup(runtime, "ordering", inventoryProjectionName),
       orders: runner("ordering-order-projection"),
       services: runtime.mountedContexts.find((entry) => entry.contextName === "ordering")!.services as OrderingServices,
     };
@@ -199,8 +225,8 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
 
   const inventoryStreamId = (offer: MarketplaceOfferAcceptedPayload) => `inventory.item-${offer.inventoryItemId}`;
 
-  async function createInventory(offer: MarketplaceOfferAcceptedPayload) {
-    await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+  async function createInventory(offer: MarketplaceOfferAcceptedPayload, totalQuantity = 1) {
+    const [created] = await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
       streamId: inventoryStreamId(offer),
       expectedVersion: "no_stream",
       context,
@@ -212,11 +238,12 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
             accountId: sellerAccountId,
             catalogItemId: offer.catalogItemId,
             productId: offer.productId,
-            totalQuantity: 1,
+            totalQuantity,
           },
         },
       ],
     });
+    return created!;
   }
 
   async function adjustInventory(offer: MarketplaceOfferAcceptedPayload, quantityDelta: number) {
@@ -288,6 +315,123 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     expect(await reaction.runOnce()).toMatchObject({ lastGlobalPosition: accepted.globalPosition });
     await reaction.runOnce();
     expect(await createdOrders()).toEqual([expect.objectContaining({ sourceReferenceId: fixture.offer.offerId })]);
+  });
+
+  it.each(inventoryCompanionFacts)("replays %s and creates one Order at that Inventory version", async (fact) => {
+    const isHold = fact === "inventory.item.stock-authority-claimed";
+    const fixture = fill("companion", { inventoryItemVersion: isHold ? 2 : 3 });
+    const { offer } = fixture;
+    const holdId = "inh_existing";
+    const store = createPostgresEventStore({ pool: pools.inventory });
+    await createInventory(offer, 3);
+    if (isHold) {
+      await withPgTransaction(pools.inventory, (db) =>
+        store.appendToStreamsInTransaction(db, [
+          {
+            streamId: inventoryStreamId(offer),
+            expectedVersion: 1,
+            context,
+            events: [
+              {
+                eventType: fact,
+                payload: {
+                  itemId: offer.inventoryItemId,
+                  authorityRef: holdId,
+                  operation: "hold-placement",
+                  quantity: 1,
+                },
+              },
+            ],
+          },
+          {
+            streamId: `inventory.hold-${holdId}`,
+            expectedVersion: "no_stream",
+            context,
+            events: [
+              {
+                eventType: "inventory.hold.placed",
+                payload: {
+                  holdId,
+                  itemId: offer.inventoryItemId,
+                  accountId: sellerAccountId,
+                  quantity: 1,
+                  reason: "Existing hold",
+                  notes: null,
+                  purpose: "manual",
+                  sourceRef: null,
+                  expiresAt: null,
+                },
+              },
+            ],
+          },
+        ]),
+      );
+    } else {
+      await store.appendToStream({
+        streamId: inventoryStreamId(offer),
+        expectedVersion: 1,
+        context,
+        events: [
+          {
+            eventType: "inventory.item.adjusted",
+            payload: {
+              itemId: offer.inventoryItemId,
+              quantityDelta: -1,
+              reason: "Offline sale",
+              reasonCode: "sold-offline",
+            },
+          },
+          {
+            eventType: fact,
+            payload: {
+              itemId: offer.inventoryItemId,
+              quantity: 1,
+              salePriceAmount: null,
+              channel: "card-show",
+              storageLocationId: "sl_companion",
+              acquisitionCostAmount: null,
+              recordedAt: offer.acceptedAt,
+            },
+          },
+        ],
+      });
+    }
+
+    const tail = await createInventory(fill("checkpoint_tail").offer);
+    const legacy = mount(true);
+    await syncProjectionGroup(legacy.inventoryGroup);
+    expect(await legacy.inventory.refreshStatus()).toMatchObject({ lastGlobalPosition: tail.globalPosition });
+    const inventoryInput = async () =>
+      (
+        await pools.ordering.query(
+          `SELECT total_quantity, last_stream_version FROM ordering_inventory_item_inputs WHERE item_id = $1`,
+          [offer.inventoryItemId],
+        )
+      ).rows;
+    const totalQuantity = isHold ? 3 : 2;
+    expect(await inventoryInput()).toEqual([{ total_quantity: totalQuantity, last_stream_version: isHold ? 1 : 2 }]);
+
+    const { reaction, listings, inventoryGroup } = mount();
+    const accepted = await commitFill(fixture);
+    await listings.runOnce();
+    await expectWait(reaction);
+    expect(await inventoryGroup.refreshStatus()).toMatchObject({ storedProjectionRevision: 1, revisionStale: true });
+
+    await syncProjectionGroup(inventoryGroup);
+    expect(await inventoryGroup.refreshStatus()).toMatchObject({ storedProjectionRevision: 2, revisionStale: false });
+    expect(await inventoryInput()).toEqual([
+      { total_quantity: totalQuantity, last_stream_version: offer.inventoryItemVersion },
+    ]);
+    expect(
+      (
+        await pools.ordering.query("SELECT quantity, status FROM ordering_inventory_hold_inputs WHERE item_id = $1", [
+          offer.inventoryItemId,
+        ])
+      ).rows,
+    ).toEqual(isHold ? [{ quantity: 1, status: "active" }] : []);
+    expect(await reaction.runOnce()).toMatchObject({ lastGlobalPosition: accepted.globalPosition });
+    await reaction.runOnce();
+    expect(await createdOrders()).toEqual([expect.objectContaining({ sourceReferenceId: offer.offerId })]);
   });
 
   it("rejects fresh but exhausted supply without a transient retry", async () => {
@@ -387,6 +531,58 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
         ],
       }),
     ]);
+  });
+
+  it.each([
+    { lastAge: 16, outcome: "poisons immediately when a young miss sorts before an expired miss" },
+    { lastAge: 0, outcome: "retries when all stale members are still young" },
+  ])("$outcome", async ({ lastAge }) => {
+    const batch = { acceptanceBatchId: "batch_two_stale", acceptanceBatchSize: 2, inventoryItemVersion: 2 };
+    const first = fill("batch_a", batch);
+    const last = fill("batch_z", batch);
+    const { reaction, listings, inventory } = mount();
+    await createInventory(first.offer);
+    await createInventory(last.offer);
+    await inventory.runOnce();
+    await adjustInventory(first.offer, 1);
+    await adjustInventory(last.offer, 1);
+    const lastAccepted = await commitFill(last, lastAge);
+    const firstAccepted = await commitFill(first);
+    await listings.runOnce();
+
+    if (lastAge === 0) {
+      await expectWait(reaction, lastAccepted.globalPosition);
+    } else {
+      expect(await reaction.runOnce()).toMatchObject({
+        state: "degraded",
+        lastGlobalPosition: firstAccepted.globalPosition,
+        blockedStreams: 1,
+        poisonEvents: 1,
+      });
+      expect(
+        (
+          await pools.ordering.query("SELECT error_message FROM event_projection_poison_events WHERE event_id = $1", [
+            firstAccepted.eventId,
+          ])
+        ).rows,
+      ).toEqual([{ error_message: `Committed Listing ${last.listing.listingId} is not available in Ordering.` }]);
+      expect(await createdOrders()).toEqual([]);
+    }
+    expect((await pools.ordering.query("SELECT offer_id FROM ordering_offer_acceptance_inputs")).rows).toEqual([
+      { offer_id: last.offer.offerId },
+    ]);
+
+    await inventory.runOnce();
+    if (lastAge > 0) {
+      expect(await reaction.retryBlockedStream(firstAccepted.streamId)).toMatchObject({
+        state: "resolved",
+        appliedEvents: 1,
+      });
+    } else {
+      expect(await reaction.runOnce()).toMatchObject({ lastGlobalPosition: firstAccepted.globalPosition });
+    }
+    await reaction.runOnce();
+    expect(await createdOrders()).toEqual([expect.objectContaining({ sourceReferenceId: batch.acceptanceBatchId })]);
   });
 
   it("uses the draft committed Listing, locked terms and accepted evidence and cancels normally", async () => {

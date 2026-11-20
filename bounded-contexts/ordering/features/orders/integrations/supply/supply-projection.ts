@@ -3,7 +3,11 @@ import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
 import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
-import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import {
+  defineProjectorHandlers,
+  type ProjectorHandler,
+  type ProjectorHandlerMap,
+} from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonValue } from "@chase-sets/primitives/json";
@@ -645,6 +649,18 @@ async function markOrderingInventoryHoldTerminal(
 }
 
 export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const advanceInventoryItemVersion: ProjectorHandler = async (event, context) => {
+    const { itemId } = event.data as { itemId: string };
+
+    await resolveProjectionDb(context, db).query(
+      `UPDATE ordering_inventory_item_inputs
+       SET last_stream_version = $2
+       WHERE item_id = $1
+         AND last_stream_version < $2`,
+      [itemId, event.streamVersion],
+    );
+  };
+
   return {
     "inventory.item.created": async (event) => {
       const data = event.data as {
@@ -700,6 +716,8 @@ export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable):
         [data.itemId, data.quantityDelta, event.timing.recordedAt, event.streamVersion],
       );
     },
+    "inventory.item.stock-authority-claimed": advanceInventoryItemVersion,
+    "inventory.item.offline-sale-recorded": advanceInventoryItemVersion,
     "inventory.hold.placed": async (event) => {
       const data = event.data as {
         holdId: string;
