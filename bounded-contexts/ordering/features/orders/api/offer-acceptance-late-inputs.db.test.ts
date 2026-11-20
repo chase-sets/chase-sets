@@ -736,13 +736,21 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
       expect.objectContaining({
         sourceType: "offer-acceptance",
         sourceReferenceId: fixture.offer.offerId,
+        commercialTermsSnapshot: expect.objectContaining({
+          shippingAllowancePercentageBps: terms.shippingAllowancePercentageBps,
+          termsScheduleId: terms.termsScheduleId,
+          termsAgreementId: terms.termsAgreementId,
+          termsResolvedAt: terms.termsResolvedAt,
+        }),
         lines: [
           expect.objectContaining({
             listingId: fixture.listing.listingId,
             inventoryItemId: fixture.offer.inventoryItemId,
             itemTitle: fixture.listing.itemTitle,
             unitPriceAmount: fixture.offer.priceAmount,
-            ...terms,
+            marketplaceSalesFeePercentageBps: terms.marketplaceSalesFeePercentageBps,
+            marketplaceSalesFeeFixedAmount: terms.marketplaceSalesFeeFixedAmount,
+            marketplaceSalesFeeCapAmount: terms.marketplaceSalesFeeCapAmount,
             marketplaceSalesFeeUnitAmount: fixture.offer.marketplaceSalesFeeUnitAmount,
             sellerNetUnitAmount: fixture.offer.sellerNetUnitAmount,
             listingEvidenceSnapshot: fixture.offer.listingEvidenceSnapshot,
