@@ -122,6 +122,35 @@ describe("Listing Evidence Policy guided administration", () => {
     }
   });
 
+  it("offers Validate again for a validated draft, so its Activate can be reached after a reload", () => {
+    const { container } = render(
+      <ListingEvidencePolicyPage
+        overview={{
+          ...overview,
+          documents: [
+            ...overview.documents,
+            { ...overview.documents[0]!, policyId: "pol_draft", version: 2, lifecycle: "draft", status: "inactive" },
+            {
+              ...overview.documents[0]!,
+              policyId: "pol_validated",
+              version: 3,
+              lifecycle: "validated",
+              status: "inactive",
+            },
+          ],
+        }}
+        selectorCatalog={selectorCatalog}
+        permissions={["listing-evidence-policy.view", "listing-evidence-policy.validate"]}
+      />,
+    );
+
+    const validated = Array.from(container.querySelectorAll('input[name="intent"][value="validate"]')).map(
+      (intent) => intent.closest("form")?.querySelector<HTMLInputElement>('input[name="policyId"]')?.value,
+    );
+    expect(validated).toEqual(["pol_draft", "pol_validated"]);
+    expect(screen.getAllByRole("button", { name: "Validate" })).toHaveLength(2);
+  });
+
   it("shows an invalid draft's diagnostics without offering activation", () => {
     render(
       <ListingEvidencePolicyPage

@@ -1493,6 +1493,7 @@ const outputs = [
         ["identity.features.users.ui.userDetailPage.display.name", "user.display_name"],
         ["identity.features.users.ui.userDetailPage.given.name", "user.given_name"],
         ["identity.features.users.ui.userDetailPage.family.name", "user.family_name"],
+        ["identity.features.users.errors.", "errors"],
         ["identity.values.authenticationMethod.", "method"],
         ["identity.values.family.apiKeyStatus", "family.api_key_status"],
         ["identity.values.family.authenticationMethod", "family.authentication_method"],

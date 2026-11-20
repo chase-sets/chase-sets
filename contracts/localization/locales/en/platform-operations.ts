@@ -129,6 +129,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.offerEconomics.windowRange": "{from} to {to}",
   "platformOperations.opsDashboard.activeBuyers": "Active buyers",
   "platformOperations.opsDashboard.activeSellers": "Active sellers",
+  "platformOperations.opsDashboard.apply": "Apply",
   "platformOperations.opsDashboard.catalogItem": "Catalog item",
   "platformOperations.opsDashboard.chart.gmv": "GMV",
   "platformOperations.opsDashboard.chart.pointLabel": "{date}: {amount}",

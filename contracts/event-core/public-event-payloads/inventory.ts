@@ -1,5 +1,5 @@
 // Inventory-owned public event payloads.
-import type { AccountId, CheckoutSessionId } from "../../primitives/typed-ids";
+import type { AccountId, CheckoutSessionId, InventoryItemId } from "../../primitives/typed-ids";
 
 export type InventoryReservationConfirmedPayload = Readonly<{
   orderId: string;
@@ -201,6 +201,13 @@ export type InventoryItemAdjustedPayload = Readonly<{
   acquisitionOccurrence?: AcquisitionOccurrence;
 }>;
 
+export type InventoryItemStockAuthorityClaimedPayload = Readonly<{
+  itemId: InventoryItemId;
+  authorityRef: string;
+  operation: "hold-placement" | "stock-reduction";
+  quantity: number;
+}>;
+
 export const inventoryOfflineSaleChannels = ["in-store", "card-show", "other"] as const;
 
 export type InventoryOfflineSaleChannel = (typeof inventoryOfflineSaleChannels)[number];
@@ -362,6 +369,7 @@ export type InventoryRecoveredItemValueReportedPayload = Readonly<{
 export type InventoryEventPayloads = Readonly<{
   "inventory.item.created": InventoryItemCreatedPayload;
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
+  "inventory.item.stock-authority-claimed": InventoryItemStockAuthorityClaimedPayload;
   "inventory.item.offline-sale-recorded": InventoryItemOfflineSaleRecordedPayload;
   "inventory.external-channel-sale.recorded": InventoryExternalChannelSaleRecordedPayload;
   "inventory.channel-stock-allocation.set": InventoryChannelStockAllocationSetPayload;

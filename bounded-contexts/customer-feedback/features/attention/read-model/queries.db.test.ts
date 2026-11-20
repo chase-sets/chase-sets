@@ -195,6 +195,23 @@ describeDb("feedback attention queries", () => {
     ]);
   });
 
+  it("selects one case's stored and derived attention when a case is named", async () => {
+    await insertCase(pool, "case_urgent", "normal", "2026-07-14T11:00:00.000Z");
+    await insertCase(pool, "case_sla_high", "high", "2026-07-14T07:00:00.000Z");
+    await insertCase(pool, "case_normal_a", "urgent", "2026-07-14T11:00:00.000Z");
+    await insertAttention(pool, "attention_urgent", "case_urgent", "urgent", "2026-07-14T13:00:00.000Z");
+    await insertAttention(pool, "attention_normal_a", "case_normal_a", "normal", "2026-07-14T13:00:00.000Z");
+    const now = "2026-07-14T12:00:00.000Z";
+
+    await expect(listFeedbackAttention(pool, { now, caseId: "case_urgent" })).resolves.toMatchObject([
+      { attentionId: "attention_urgent", caseId: "case_urgent" },
+    ]);
+    await expect(listFeedbackAttention(pool, { now, caseId: "case_sla_high" })).resolves.toMatchObject([
+      { attentionId: "sla:case_sla_high", caseId: "case_sla_high" },
+    ]);
+    await expect(listFeedbackAttention(pool, { now, caseId: "case_missing" })).resolves.toEqual([]);
+  });
+
   it("returns API-owned SLA state for the attention lifecycle and deadline boundaries", async () => {
     for (const fixture of lifecycleFixtures) {
       await insertCase(
