@@ -17,7 +17,7 @@ import MarketplaceAccountPaymentNewRoute, { action, loader } from "../routes/mar
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
-  requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer" })),
+  requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer", permissions: ["orders.manage"] })),
 }));
 
 const reason = "Accept the current Terms of Service to use wallet balance as payment.";
