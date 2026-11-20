@@ -22,8 +22,8 @@
 //! (chase-sets/chase-sets#10880), and a write comes back here, under `/platform`
 //! (chase-sets/chase-sets#10877).
 //!
-//! Two of the API's own faults show through: the read after a write may not show it yet
-//! (chase-sets/chase-sets#10881), and Validate fails for every draft (chase-sets/chase-sets#10882).
+//! One of the API's own faults shows through: Validate fails for every draft
+//! (chase-sets/chase-sets#10882).
 use corten::{
     ClientZone,
     form::{DrawZone, FormZone},
