@@ -399,10 +399,14 @@ describe("Customer Feedback admin API", () => {
       projectionLagMs: null,
       rejectedEventCount: 0,
     };
-    const analyticsPort = port();
-    analyticsPort.readAdminAnalytics = (query) => readCsatAnalytics(unusedDb as never, query, readiness);
-    const queuePort = port();
-    queuePort.listAdminQueue = (query) => listCsatAdminQueue(unusedDb as never, query);
+    const analyticsPort: CsatAdminReadPort = {
+      ...port(),
+      readAdminAnalytics: (query) => readCsatAnalytics(unusedDb as never, query, readiness),
+    };
+    const queuePort: CsatAdminReadPort = {
+      ...port(),
+      listAdminQueue: (query) => listCsatAdminQueue(unusedDb as never, query),
+    };
     const asOf = "asOf=2026-11-19T12:00:00.000Z";
     const cases = [
       [analyticsPort, `/?${asOf}&to=2026-11-25`, "range-after-as-of"],
@@ -427,10 +431,12 @@ describe("Customer Feedback admin API", () => {
   });
 
   it("still answers a read failure that is not a refused filter as an error", async () => {
-    const readPort = port();
-    readPort.readAdminAnalytics = vi.fn(async () => {
-      throw new Error("database unavailable");
-    });
+    const readPort: CsatAdminReadPort = {
+      ...port(),
+      readAdminAnalytics: vi.fn(async () => {
+        throw new Error("database unavailable");
+      }),
+    };
     expect((await appFor(["platform-feedback.view"], readPort).app.request("/")).status).toBe(500);
   });
 
