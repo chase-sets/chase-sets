@@ -15,11 +15,15 @@ export default function GuestPaymentClaimRoute() {
   const actionData = useActionData<GuestClaimActionData | null>();
   return (
     <Page>
-      {data.guestClaimContext ? (
-        <GuestClaimPrompt actionData={actionData ?? undefined} claimContext={data.guestClaimContext} />
+      {data.guestClaimContact ? (
+        <GuestClaimPrompt actionData={actionData ?? undefined} claimContact={data.guestClaimContact} />
       ) : (
         <PageSection title={t("auth.routes.marketplace.guestPaymentClaim.save.this.order")}>
-          <Text>{t("auth.routes.marketplace.guestPaymentClaim.you.can.save.this.order.after.payment")}</Text>
+          <Text>
+            {data.claimable
+              ? t("auth.routes.marketplace.guestPaymentClaim.claim.unavailable")
+              : t("auth.routes.marketplace.guestPaymentClaim.you.can.save.this.order.after.payment")}
+          </Text>
           <LinkButton href={`/checkout/payments/${data.paymentId}`}>
             {t("auth.routes.marketplace.guestPaymentClaim.payment.marketplace")}
           </LinkButton>

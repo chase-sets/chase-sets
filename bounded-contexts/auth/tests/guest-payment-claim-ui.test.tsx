@@ -64,9 +64,8 @@ describe("guest payment claim UI", () => {
       }),
       orders: [buildPurchase({ status: "paid" })],
       isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
+      claimable: true,
+      guestClaimContact: {
         contactEmail: "jane@example.com",
         contactName: "Jane Smith",
       },
@@ -104,9 +103,8 @@ describe("guest payment claim UI", () => {
       }),
       orders: [buildPurchase({ status: "paid" })],
       isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
+      claimable: true,
+      guestClaimContact: {
         contactEmail: "jane@example.com",
         contactName: "Jane Smith",
       },
@@ -141,9 +139,8 @@ describe("guest payment claim UI", () => {
       }),
       orders: [buildPurchase({ status: "paid" })],
       isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
+      claimable: true,
+      guestClaimContact: {
         contactEmail: "jane@example.com",
         contactName: "Jane Smith",
       },
@@ -159,5 +156,46 @@ describe("guest payment claim UI", () => {
 
     expect(screen.getByLabelText("Claim token")).toHaveProperty("value", "magic_token");
     expect(screen.getByText("Local recovery token. In production this arrives by email.")).toBeTruthy();
+  });
+
+  it("says a claim link was sent to the bound email", () => {
+    mockUseActionData.mockReturnValue({
+      status: "claim-link-sent",
+      token: null,
+      expiresAt: "2026-05-04T16:00:00.000Z",
+      displayName: "Jane Smith",
+    });
+    mockUseLoaderData.mockReturnValue({
+      paymentId: "pay_1",
+      claimable: true,
+      guestClaimContact: { contactEmail: "jane@example.com", contactName: "Jane Smith" },
+    });
+
+    render(
+      <ChaseRoot>
+        <GuestPaymentClaimRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByText("Claim link sent")).toBeTruthy();
+    expect(
+      screen.getByText("We sent a claim link to jane@example.com. Open it to save this order to an account."),
+    ).toBeTruthy();
+  });
+
+  it("offers no claim for a paid order whose contact cannot be claimed, and says so", () => {
+    mockUseLoaderData.mockReturnValue({ paymentId: "pay_1", claimable: true, guestClaimContact: null });
+
+    render(
+      <ChaseRoot>
+        <GuestPaymentClaimRoute />
+      </ChaseRoot>,
+    );
+
+    expect(
+      screen.getByText("This order cannot be saved to an account right now. It stays on its payment page."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Email me a claim link" })).toBeNull();
+    expect(screen.queryByLabelText("Contact name")).toBeNull();
   });
 });

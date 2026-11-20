@@ -402,9 +402,14 @@ export const authEnglishTranslations = {
   "auth.routes.marketplace.guestPaymentClaim.payment.preparing.description":
     "We are getting your secure payment ready. Refresh in a moment and your payment details should appear.",
   "auth.routes.marketplace.guestPaymentClaim.secure.checkout": "Secure Checkout",
+  "auth.routes.marketplace.guestPaymentClaim.claim.link.sent":
+    "We sent a claim link to {email}. Open it to save this order to an account.",
+  "auth.routes.marketplace.guestPaymentClaim.claim.link.sent.title": "Claim link sent",
   "auth.routes.marketplace.guestPaymentClaim.claim.token": "Claim token",
   "auth.routes.marketplace.guestPaymentClaim.claim.token.entry.is.not.available":
     "Claim token entry is not available here. Use the emailed link or request a new one.",
+  "auth.routes.marketplace.guestPaymentClaim.claim.unavailable":
+    "This order cannot be saved to an account right now. It stays on its payment page.",
   "auth.routes.marketplace.guestPaymentClaim.contact.name": "Contact name",
   "auth.routes.marketplace.guestPaymentClaim.continue.shopping": "Continue shopping",
   "auth.routes.marketplace.guestPaymentClaim.could.not.save.order": "Could not save order",
