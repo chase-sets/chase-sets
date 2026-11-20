@@ -620,10 +620,11 @@
         "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/resume",
         "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/delete",
         "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /halt",
-        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /scope-preview"
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /scope-preview",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /presets/compile"
       ],
       "visibleDestination": {
-        "description": "Policy and halt commands return folded aggregate state; scope preview returns the computed counts without mutation."
+        "description": "Policy and halt commands return folded aggregate state; scope preview returns the computed counts and preset compile returns the compiled body, both without mutation."
       },
       "proof": {
         "authoritativeResponse": "Creation appends and consumes atomically; owned commands fence the aggregate before dispatch and return its state.",

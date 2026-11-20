@@ -47,6 +47,7 @@ import {
 } from "../domain/halt";
 import { buildRepricingHaltProjectionHandlers } from "../read-model/halt-projection";
 import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
+import { repricingEditorDefaults, repricingPresetControls } from "../domain/authoring-intent";
 import {
   getRepricingAuthoringFacts,
   getRepricingBudget,
@@ -286,7 +287,12 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
         getRepricingAuthoringFacts(deps.db, accountId),
         deps.goalAdoptions(),
       ]);
-      return { ...facts, goalAdoption: adoptions.map(({ grades: _grades, ...adoption }) => adoption) };
+      return {
+        ...facts,
+        goalAdoption: adoptions.map(({ grades: _grades, ...adoption }) => adoption),
+        presets: repricingPresetControls(),
+        editorDefaults: repricingEditorDefaults(facts),
+      };
     },
     previewScope: (input) => previewRepricingScope(deps.db, input),
     listAccountRepricingPolicies: (params) => listAccountRepricingPolicies(deps.db, params),
