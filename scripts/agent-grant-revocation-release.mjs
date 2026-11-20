@@ -7,6 +7,17 @@ import { pathToFileURL } from "node:url";
 
 const roles = ["platform-api", "platform-worker"];
 const environments = ["staging", "production"];
+// pnpm v11's automatic install runs a nested pnpm without the parent's flags.
+const podPnpmExec = [
+  "env",
+  "pnpm_config_reporter=silent",
+  "pnpm",
+  "--silent",
+  "--filter",
+  "@chase-sets/app-platform-api",
+  "exec",
+  "tsx",
+];
 const component = "app.kubernetes.io/component";
 const sha = /^[a-f0-9]{40}$/;
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
@@ -74,6 +85,18 @@ const failureCategories = new Set([
 export function proofDigest(proof) {
   const keys = [...Object.keys(proof), ...Object.keys(proof.replicas[0])].sort();
   return createHash("sha256").update(JSON.stringify(proof, keys)).digest("hex");
+}
+
+function lastJsonObject(text) {
+  for (const line of text.trim().split(/\r?\n/).reverse()) {
+    if (!line.trimStart().startsWith("{")) continue;
+    try {
+      return JSON.parse(line);
+    } catch {
+      // pnpm can print non-JSON lines around the script's single-line response.
+    }
+  }
+  return null;
 }
 
 function lastRefusalLine(text) {
@@ -286,7 +309,7 @@ function captureSessionGenerationFloor(options, { run, now }) {
     for (const container of pod.spec?.containers?.filter((container) => roles.includes(container.name)) ?? []) {
       reports.set(
         pod.metadata.uid,
-        JSON.parse(
+        lastJsonObject(
           run("kubectl", [
             "exec",
             "-n",
@@ -295,11 +318,7 @@ function captureSessionGenerationFloor(options, { run, now }) {
             "-c",
             container.name,
             "--",
-            "pnpm",
-            "--filter",
-            "@chase-sets/app-platform-api",
-            "exec",
-            "tsx",
+            ...podPnpmExec,
             "scripts/report-session-generation-capability.mts",
           ]),
         ),
@@ -453,7 +472,7 @@ function readStatusJson(run, args, step) {
     throw failure;
   }
   try {
-    return JSON.parse(output);
+    return step === "exec" ? lastJsonObject(output) : JSON.parse(output);
   } catch {
     throw new Error(step === "pods" ? "revocation_status_pods_invalid" : "revocation_status_response_invalid");
   }
@@ -477,11 +496,7 @@ function activationStatus(namespace, run) {
       "-c",
       "platform-api",
       "--",
-      "pnpm",
-      "--filter",
-      "@chase-sets/app-platform-api",
-      "exec",
-      "tsx",
+      ...podPnpmExec,
       "scripts/activate-agent-grant-revocation.mts",
       "--status",
     ],
@@ -577,7 +592,7 @@ async function activate(options, { run, spawn }) {
   const initial = readPods();
   for (const pod of initial.items) {
     for (const container of pod.spec.containers.filter((container) => roles.includes(container.name))) {
-      const output = JSON.parse(
+      const output = lastJsonObject(
         run("kubectl", [
           "exec",
           "-n",
@@ -586,16 +601,12 @@ async function activate(options, { run, spawn }) {
           "-c",
           container.name,
           "--",
-          "pnpm",
-          "--filter",
-          "@chase-sets/app-platform-api",
-          "exec",
-          "tsx",
+          ...podPnpmExec,
           "scripts/activate-agent-grant-revocation.mts",
           "--support",
         ]),
       );
-      support.set(pod.metadata.uid, output.supportVersion);
+      support.set(pod.metadata.uid, output?.supportVersion);
     }
   }
   captureServingSet({ ...options, pods: initial, support, fenceId: "preflight" });
@@ -622,11 +633,7 @@ async function activate(options, { run, spawn }) {
       "-c",
       "platform-api",
       "--",
-      "pnpm",
-      "--filter",
-      "@chase-sets/app-platform-api",
-      "exec",
-      "tsx",
+      ...podPnpmExec,
       "scripts/activate-agent-grant-revocation.mts",
     ],
     { stdio: ["pipe", "pipe", "pipe"], timeout: 60_000 },
