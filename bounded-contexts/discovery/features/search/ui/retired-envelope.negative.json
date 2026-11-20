@@ -1,0 +1,8 @@
+{
+  "structuredContent": {
+    "ucp": { "version": "2026-04-08", "status": "success" },
+    "catalog": {
+      "products": [{ "id": "retired", "title": "Retired product", "primary_image_url": "/retired.png" }]
+    }
+  }
+}

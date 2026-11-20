@@ -53,6 +53,8 @@
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
     "./ucp": "./ucp.ts",
     "./ucp-schema-test-support": "./ucp-schema-test-support.ts",
+    "./mcp-widget-resources": "./mcp-widget-resources.ts",
+    "./public-product-urls": "./public-product-urls.ts",
     "./ucp-tool-schemas": "./ucp-tool-schemas.ts",
     "./seo": "./seo.ts",
     "./meta": "./meta.ts",

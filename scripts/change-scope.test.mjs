@@ -14,7 +14,7 @@ import {
   toGithubOutputMap,
   toOutputMap,
 } from "./change-scope.mjs";
-import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
+import { e2eSuiteById, e2eSuiteIdsForChangedFile, estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
@@ -1396,8 +1396,10 @@ const schedulerVocabularyLookalikePaths = [
 // adding Notifications to the Ordering and Pricing cases' affected sets.
 // Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
 // Accepted inventory delta adds @chase-sets/inventory-draft-listing.
+// Accepted inventory delta adds @chase-sets/app-agent-apps.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
+  "@chase-sets/app-agent-apps",
   "@chase-sets/app-marketplace-web",
   "@chase-sets/app-platform-api",
   "@chase-sets/app-platform-worker",
@@ -2043,8 +2045,9 @@ function publicPresenceOccurrences(names) {
   return names.filter((name) => name === publicPresenceWorkspaceName).length;
 }
 
-function withPublicPresenceAffected(names) {
+function withEnrolledWorkspaceDependents(names) {
   const affected = new Set([...names, publicPresenceWorkspaceName]);
+  if (affected.has("@chase-sets/discovery")) affected.add("@chase-sets/app-agent-apps");
   return listWorkspacePackages({ repoRoot })
     .map(({ name }) => name)
     .filter((name) => affected.has(name));
@@ -2101,7 +2104,7 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
   ) {
     return baseOutputMap;
   }
-  const nextAffected = withPublicPresenceAffected(
+  const nextAffected = withEnrolledWorkspaceDependents(
     withWorkerJobDependents(affected, JSON.parse(baseOutputMap.changed_files_json)),
   );
   const direct = JSON.parse(baseOutputMap.directly_affected_workspaces_json);
@@ -3256,6 +3259,22 @@ describe("change-scope", () => {
     },
   );
 
+  it("registers hosted Agent Apps Chromium for the app, view, and resource policy", () => {
+    for (const file of [
+      "deployables/agent-apps/tests/product-cards.chromium.spec.ts",
+      "bounded-contexts/discovery/features/search/ui/agent-product-cards-view.tsx",
+      "infrastructure/platform-runtime/mcp-widget-resources.ts",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(file)).toContain("agent_apps");
+    }
+    expect(e2eSuiteById("agent_apps").command).toEqual([
+      "--filter",
+      "@chase-sets/app-agent-apps",
+      "run",
+      "test:chromium",
+    ]);
+  });
+
   it("keeps every output except enumerated DB, enrollment, job dependency, setup E2E and acyclic context fan-out deltas byte-identical to the base commit", () => {
     for (const testCase of dbTestsOldVersusNewCorpus) {
       const scope = classifyChanges({ changedFiles: testCase.changedFiles });
@@ -3272,6 +3291,7 @@ describe("change-scope", () => {
         // baseline above and enumerate only the affected-workspace delta here.
         const affected = [
           "@chase-sets/app-admin-web",
+          "@chase-sets/app-agent-apps",
           "@chase-sets/app-marketplace-web",
           "@chase-sets/app-platform-api",
           "@chase-sets/app-platform-worker",
@@ -3550,7 +3570,7 @@ describe("change-scope", () => {
       expect(next.affectedWorkspaces).toEqual(prior.affectedWorkspaces);
       if (testCase.expectedAffectedWorkspaces) {
         expect(next.affectedWorkspaces, `${testCase.name}:${testCase.status} affected_workspaces`).toEqual(
-          withPublicPresenceAffected(
+          withEnrolledWorkspaceDependents(
             withWorkerJobDependents(testCase.expectedAffectedWorkspaces, testCase.changedFiles),
           ),
         );

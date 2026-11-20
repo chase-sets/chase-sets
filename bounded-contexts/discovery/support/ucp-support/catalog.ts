@@ -1,6 +1,8 @@
 import { createUcpEnvelope, type UcpEnvelope, type UcpMessageInput } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import { createPublicProductUrlPolicy } from "@chase-sets/platform-runtime/public-product-urls";
 import type { DiscoveryItemsServices } from "../item-support/runtime";
+import { publicProductImages } from "../item-support/public-product-images";
 import type { DiscoverySearchItemRow } from "../../features/search/read-model/queries";
 import type { DiscoveryItemDetailRow } from "../../features/item-detail/read-model/queries";
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
@@ -176,17 +178,19 @@ export function catalogUcpProduct({
   mode: CatalogUcpMode;
   inputs?: readonly CatalogUcpInput[];
 }>) {
-  const productUrl = marketplaceUrl(request, `/items/${source.slug}`);
+  const { resolve } = createPublicProductUrlPolicy(request);
+  const productUrl = resolve(`/items/${source.slug}`);
+  const images = publicProductImages(source, resolve);
   if (mode === "lookup" && inputs.length === 0) throw new Error("UCP lookup Product requires request inputs");
   const variants = presentment.listings.slice(0, mode === "lookup" ? 1 : undefined).map((listing) => {
     const price = toUcpMinorUnits(listing.price_amount, listing.price_currency_code);
     if (!price) throw new Error(`UCP Product listing ${listing.listing_id} has no exact presentment price.`);
-    const listingUrl = marketplaceUrl(request, `/listings/${listing.listing_slug}`);
+    const listingUrl = resolve(`/listings/${listing.listing_slug}`);
     return {
       id: listing.listing_id,
       title: listing.item_title ?? listing.product_summary ?? source.title,
       description: { plain: listing.product_summary ?? source.description },
-      url: listingUrl,
+      ...(listingUrl ? { url: listingUrl } : {}),
       price: { currency: price.currency, amount: price.minor },
       extensions: {
         chase_sets: {
@@ -205,7 +209,8 @@ export function catalogUcpProduct({
     id: source.catalog_item_id,
     title: source.title,
     description: { plain: source.description },
-    url: productUrl,
+    ...(productUrl ? { url: productUrl } : {}),
+    ...(images.length ? { media: images.map((url) => ({ type: "image", url })) } : {}),
     price_range: {
       min: { currency: presentment.currency, amount: presentment.priceRange.min },
       max: { currency: presentment.currency, amount: presentment.priceRange.max },
@@ -538,11 +543,6 @@ function readNumber(value: unknown) {
 
 function readStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
-}
-
-function marketplaceUrl(request: Request, path: string) {
-  const origin = new URL(request.url).origin;
-  return new URL(path, origin).toString();
 }
 
 function readIds(body: UcpCatalogLookupBody) {

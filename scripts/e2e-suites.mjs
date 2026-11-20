@@ -116,6 +116,15 @@ export const e2eSuites = Object.freeze([
     estimatedDurationSeconds: 90,
   },
   {
+    id: "agent_apps",
+    label: "Agent Apps",
+    deployable: "agent-apps",
+    journeys: ["sandboxed product cards", "MCP Apps host handshake", "public asset and link policy"],
+    grep: "@agent-apps",
+    command: ["--filter", "@chase-sets/app-agent-apps", "run", "test:chromium"],
+    estimatedDurationSeconds: 60,
+  },
+  {
     id: "tcgplayer_connector_extension",
     label: "TCGplayer Connector Extension Chromium Authority",
     deployable: "tcgplayer-connector-extension",
@@ -811,13 +820,23 @@ function ordinaryE2eSuiteIdsForChangedFile(filePath) {
 }
 
 export function e2eSuiteIdsForChangedFile(filePath) {
-  const suites = ordinaryE2eSuiteIdsForChangedFile(filePath);
+  const normalized = normalizeFilePath(filePath);
+  const suites = ordinaryE2eSuiteIdsForChangedFile(normalized);
+  const agentApps =
+    normalized.startsWith("deployables/agent-apps/") ||
+    /^bounded-contexts\/discovery\/(?:features\/search\/ui\/agent-product-cards|support\/ui-support\/agent-product-cards|web\.ts$)/.test(
+      normalized,
+    ) ||
+    /^infrastructure\/platform-runtime\/(?:mcp-widget-resources|public-product-urls|ucp-contracts)\.ts$/.test(
+      normalized,
+    );
   const seedFamily =
     /^bounded-contexts\/(?:auth|catalog|checkout|commercial-terms|fulfillment|identity|inventory|marketplace|ordering|payments|platform-operations|pricing|settlement)\/support\/(?:runtime-support|authoring-support)\/seed\.ts$/.test(
-      normalizeFilePath(filePath),
+      normalized,
     );
   return orderE2eSuiteIds([
     ...suites,
+    ...(agentApps ? ["agent_apps"] : []),
     ...(seedFamily && !suites.some((id) => renderedCopyOwningSuiteIds.includes(id)) ? ["rendered_copy"] : []),
   ]);
 }

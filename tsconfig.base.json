@@ -840,6 +840,9 @@
       "@chase-sets/platform-runtime/mcp-tool-call-limiter": [
         "./infrastructure/platform-runtime/mcp-tool-call-limiter.ts"
       ],
+      "@chase-sets/platform-runtime/mcp-widget-resources": [
+        "./infrastructure/platform-runtime/mcp-widget-resources.ts"
+      ],
       "@chase-sets/platform-runtime/meta": [
         "./infrastructure/platform-runtime/meta.ts"
       ],
@@ -875,6 +878,9 @@
       ],
       "@chase-sets/platform-runtime/projection-wake-scheduler": [
         "./infrastructure/platform-runtime/projection-wake-scheduler.ts"
+      ],
+      "@chase-sets/platform-runtime/public-product-urls": [
+        "./infrastructure/platform-runtime/public-product-urls.ts"
       ],
       "@chase-sets/platform-runtime/pwa": [
         "./infrastructure/platform-runtime/pwa.ts"
