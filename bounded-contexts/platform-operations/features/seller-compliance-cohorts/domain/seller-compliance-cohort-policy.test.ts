@@ -71,6 +71,20 @@ describe("seller compliance cohort policy", () => {
     expect(() => decode({ ...configured, disclosureGrossCents: "499999" })).toThrow("at least qualifyingGrossCents");
   });
 
+  it("returns canonical cents", () => {
+    for (const key of ["qualifyingGrossCents", "disclosureGrossCents"] as const) {
+      for (const [input, expected] of [
+        ["007", "7"],
+        [7, "7"],
+        ["000", "0"],
+        ["0", "0"],
+        ["7", "7"],
+      ] as const) {
+        expect(decode({ ...defaults, [key]: input })[key], `${key}: ${JSON.stringify(input)}`).toBe(expected);
+      }
+    }
+  });
+
   it("treatment-matrix: decodes every supported choice and rejects cross-field choices", () => {
     const treatments = {
       saleUnit: ["captured-order"],
