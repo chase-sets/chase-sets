@@ -120,6 +120,8 @@ const productLine: CheckoutSellListLineRow = {
 
 type CatalogItemRow = Readonly<{
   catalog_item_id: string;
+  title: string;
+  subtitle: string | null;
   status: string;
   product_schema: unknown;
 }>;
@@ -521,6 +523,59 @@ describe("sell list checkout runtime readiness boundary", () => {
     ]);
   });
 
+  it("takes a product line's title, subtitle and product summary from the catalog, not the request", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb(
+        [],
+        [
+          {
+            catalog_item_id: "cat_air_balloon",
+            title: "Air Balloon",
+            subtitle: "Scarlet & Violet 167/198",
+            status: "active",
+            product_schema: airBalloonProductSchema,
+          },
+        ],
+      ) as never,
+    });
+
+    await services.addLine(
+      {
+        attemptId: "sell-list-runtime-add-spoofed-words",
+        requestHash: "c".repeat(64),
+        sellerAccountId: "acc_seller" as never,
+        lineType: "product",
+        offerId: null,
+        buyerAccountId: null,
+        buyerDisplayName: null,
+        offerPriceAmount: null,
+        catalogItemId: "cat_air_balloon",
+        productId: airBalloonProductId,
+        itemTitle: "PROBE spoofed title",
+        itemSubtitle: "PROBE spoofed subtitle",
+        selectedOptions: [
+          { dimensionId: "dim_seed_condition", optionId: "chc_seed_condition_damaged" },
+          { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
+        ],
+        productSummary: "PROBE spoofed summary",
+        quantity: 1,
+        fallbackMode: "none",
+        minimumListingPriceAmount: null,
+      },
+      context,
+    );
+
+    const lineAddedEvent = allEvents.find((event) => event.eventType === "checkout.sell-list.line-added");
+    expect(lineAddedEvent?.payload).toMatchObject({
+      itemTitle: "Air Balloon",
+      itemSubtitle: "Scarlet & Violet 167/198",
+      productSummary: "Raw / Damaged",
+    });
+  });
+
   it("projects product add-line commands into the account Sell List read model", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const db = createDb(
@@ -528,6 +583,8 @@ describe("sell list checkout runtime readiness boundary", () => {
       [
         {
           catalog_item_id: "cat_air_balloon",
+          title: "Air Balloon",
+          subtitle: "Scarlet & Violet 167/198",
           status: "active",
           product_schema: airBalloonProductSchema,
         },
@@ -616,6 +673,8 @@ describe("sell list checkout runtime readiness boundary", () => {
         [
           {
             catalog_item_id: "cat_air_balloon",
+            title: "Air Balloon",
+            subtitle: "Scarlet & Violet 167/198",
             status: "active",
             product_schema: airBalloonProductSchema,
           },

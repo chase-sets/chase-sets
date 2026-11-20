@@ -13,8 +13,8 @@
 //! attempt (`SubmitKey`).
 //! The pilot reads the item again and builds the line from it: the offer from the item's own
 //! offers (it must still be `submitted`), the product from the address's choices, the words from
-//! the catalog's read, not the form (chase-sets/chase-sets#10592). A guest's line goes to a guest
-//! sell list whose id the browser keeps in marketplace's cookie.
+//! the catalog's read, not the form (the Sell List API takes them from the catalog as well). A
+//! guest's line goes to a guest sell list whose id the browser keeps in marketplace's cookie.
 //!
 //! The Sell List API refuses every `selected-offer` line without a listing
 //! (chase-sets/chase-sets#8830); the rail shows its message, as it shows any refusal (422).

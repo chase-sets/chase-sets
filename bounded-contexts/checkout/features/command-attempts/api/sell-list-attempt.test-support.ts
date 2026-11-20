@@ -19,7 +19,17 @@ const context = {
 const checkpointStore = {} as never;
 const stamp = "2026-11-06T01:02:03.000Z";
 export const catalogDb = {
-  query: vi.fn(async () => ({ rows: [{ catalog_item_id: "cat_attempt", status: "active", product_schema: null }] })),
+  query: vi.fn(async () => ({
+    rows: [
+      {
+        catalog_item_id: "cat_attempt",
+        title: "Synthetic Item",
+        subtitle: null,
+        status: "active",
+        product_schema: null,
+      },
+    ],
+  })),
 } as unknown as PgQueryable;
 
 async function seedSelectedLine(services: ReturnType<typeof createCheckoutSellListRuntime>) {
