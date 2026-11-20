@@ -15,6 +15,7 @@ import {
   type SocialLoginProviderKey,
   type UserStatus,
 } from "../../../support/runtime-support/common";
+import { UserProfileFieldError } from "./errors";
 
 export type SocialLoginLink = Readonly<{
   providerName: SocialLoginProviderKey;
@@ -236,7 +237,7 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
         {
           type: "identity.user.profile-updated",
           data: {
-            displayName: normalizeLabel(command.displayName),
+            displayName: requiredDisplayName(command.displayName),
             givenName: normalizeLabel(command.givenName ?? ""),
             familyName: normalizeLabel(command.familyName ?? ""),
           },
@@ -479,4 +480,11 @@ function normalizePrimaryContactMethod(command: CreateUserCommand): ContactMetho
 
 function requireCreatedUser(state: UserState) {
   assert(state.id !== null, "User must be created first.");
+}
+
+// The display name is how a user is shown to others, so a profile update may not blank it.
+function requiredDisplayName(value: string): string {
+  const label = normalizeLabel(value);
+  if (!label) throw new UserProfileFieldError("displayName");
+  return label;
 }

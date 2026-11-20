@@ -47,8 +47,7 @@ pub const ROLES: [&str; 4] = ["owner", "manager", "fulfillment", "viewer"];
 const INVITATION_DAYS: i64 = 7;
 
 /// An instant as Identity's `isInstant` takes it: RFC 3339 to the millisecond. A finer one is
-/// refused as an indeterminate attempt (503 `INDETERMINATE`), so no invitation is created: a request
-/// refused while it is validated should be a 4xx refusal (chase-sets/chase-sets#10793).
+/// refused (400 `validation-failed`), and no invitation is created.
 fn instant(at: OffsetDateTime) -> String {
     let at = at.replace_nanosecond(u32::from(at.millisecond()) * 1_000_000).unwrap_or(at);
     at.format(&Rfc3339).unwrap_or_default()
@@ -181,13 +180,12 @@ async fn render(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
-    let account = viewer.actor.account_id.as_str();
-    let ((memberships, invitations), pending) = match caller.team(account).await {
+    let ((memberships, invitations), pending) = match caller.team().await {
         Ok(team) => (team, false),
         // The write's projection is not readable yet: the team as it was, marked as updating.
         Err(error) if receipt.is_some() && error.catching_up() => {
             let plain = config.platform.caller(headers, config.proto, None);
-            match plain.team(account).await {
+            match plain.team().await {
                 Ok(team) => (team, true),
                 Err(error) => return read_failed(req, Some(viewer), error, None),
             }

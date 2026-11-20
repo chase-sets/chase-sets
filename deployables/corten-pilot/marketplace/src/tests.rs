@@ -5148,7 +5148,10 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
     let calls = alert_calls(&pilot);
     assert_eq!(calls.len(), 1, "{calls:?}");
     assert_eq!(calls[0].path, ACCOUNT_ALERTS);
-    let sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    let mut sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    // A post without the form's attempt is still one (the API applies an attempt once).
+    let attempt = sent.as_object_mut().unwrap().remove("attemptId").expect("an attempt");
+    assert_eq!(attempt.as_str().map(str::len), Some(36), "{attempt}");
     assert_eq!(
         sent,
         json!({
@@ -5178,6 +5181,29 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
         (&sent["marketSide"], &sent["thresholdAmount"], &sent["thresholdCurrencyCode"]),
         (&json!("listing"), &Value::Null, &Value::Null)
     );
+}
+
+#[tokio::test]
+async fn each_watch_form_sends_the_attempt_it_was_drawn_with_so_a_resend_is_the_same_alert() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(WATCH_PAGE, Some("watcher"))).await;
+    let attempts: Vec<_> = html.split(ATTEMPT_INPUT).skip(1).map(|rest| rest.split('"').next().unwrap().to_owned()).collect();
+    assert_eq!(attempts.len(), 2, "one attempt per Watch form: {html}");
+    assert_ne!(attempts[0], attempts[1], "{attempts:?}");
+    let body = format!("{}&attempt={}", watch_body("listing", "300", "USD"), attempts[0]);
+    for _ in 0..2 {
+        let (status, _, html) = pilot.send(post(WATCH, "watcher", &body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    }
+    let sent: Vec<Value> = alert_calls(&pilot).iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent.iter().all(|s| s["attemptId"] == json!(attempts[0])), "the same attempt both times: {sent:?}");
+
+    // A guest's intent has no attempt; it dedupes by product and threshold.
+    let (status, _, _) = pilot.send(post_signed_out(WATCH, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let intent: Value = serde_json::from_str(&alert_calls(&pilot)[2].body).unwrap();
+    assert!(intent.get("attemptId").is_none(), "{intent}");
 }
 
 #[tokio::test]
@@ -9315,12 +9341,12 @@ fn key_committed(id: &str, secret: bool) -> Response {
     committed(StatusCode::OK, "identity", "42", body)
 }
 
-/// The stand-in Identity user `usr_seller` and the API keys: Shop sync (active), Old feed
-/// (revoked), and another user's key whose name holds `usr_seller`, which Identity's `search`
-/// matches too. A read that waits for 45 is still catching up. A write's attempt decides an answer
+/// The stand-in Identity user `usr_seller` and its API keys as Identity lists them to the user:
+/// Shop sync (active) and Old feed (revoked). A read that waits for 45 is still catching up. A write's attempt decides an answer
 /// as an address write's does: `NO_RECORD`, `APPLIED_BEFORE` and `CHECK_DOWN` are answered
 /// `indeterminate`, and the lookup says nothing was recorded, that it was (its secret lost), or
-/// cannot say. A display name `Refused` is refused; a key named `Taken` is a conflict.
+/// cannot say. A display name `Refused` is refused; a blank one is refused as Identity refuses it,
+/// naming the field; a key named `Taken` is a conflict.
 fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     let path = uri.path();
     let indeterminate = || {
@@ -9360,6 +9386,15 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
             }))
             .into_response(),
             "PUT" if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+            "PUT" if sent["displayName"].as_str().is_some_and(|v| v.trim().is_empty()) => {
+                let message = "Display name is required.";
+                let details = json!([{ "field": "displayName", "code": "required", "message": message }]);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })),
+                )
+                    .into_response()
+            }
             "PUT" if sent["displayName"] == "Refused" => {
                 (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
             }
@@ -9377,12 +9412,9 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
     Some(match (method.as_str(), rest) {
         ("GET", "") if waits_for(headers).as_deref() == Some("45") => catching_up(),
         ("GET", "") => {
-            let items = [
-                key("key_live", "usr_seller", "Shop sync", "active"),
-                key("key_old", "usr_seller", "Old feed", "revoked"),
-                key("key_else", "usr_other", "usr_seller backup", "active"),
-            ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            let items =
+                [key("key_live", "usr_seller", "Shop sync", "active"), key("key_old", "usr_seller", "Old feed", "revoked")];
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         ("POST", "") if sent["name"] == "Taken" => {
@@ -9432,14 +9464,15 @@ async fn the_security_page_shows_the_user_its_own_keys_and_their_controls() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
     assert!(html.contains("<title>Security | Marketplace</title>"), "{html}");
-    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required autocomplete="nickname""#), "{html}");
     assert!(html.contains(r#"name="given_name" value="Syn""#) && html.contains(r#"name="family_name" value="Seller""#), "{html}");
     assert!(
         shown.contains("Enabled Methods 3 Password, Passkey, Unrecognized authentication method: Hardware Token"),
         "an unknown method is named as Identity names it: {shown}"
     );
-    assert!(shown.contains("API Keys 1 2 total keys tracked"), "another user's key is not counted: {shown}");
-    assert!(!shown.contains("usr_seller backup"), "another user's key is not shown: {shown}");
+    assert!(shown.contains("API Keys 1 2 total keys tracked"), "{shown}");
+    let reads: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(reads.iter().any(|c| c == KEYS_API), "Identity scopes the list itself: {reads:?}");
     assert!(shown.contains("Shop sync (Active), Old feed (Revoked)"), "{shown}");
     assert!(shown.contains("Updated Oct 24, 2026"), "{shown}");
     assert_eq!(html.matches(r#"value="rotate-api-key""#).count(), 1, "only an active key rotates: {html}");
@@ -9539,6 +9572,19 @@ async fn a_refused_security_write_says_so_and_sends_nothing_it_cannot_name() {
 }
 
 #[tokio::test]
+async fn a_blank_display_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    let sent = security_writes(&pilot).len();
+    let body = format!("intent=update-user&attempt={ATTEMPT}&display_name=+++&given_name=Syn&family_name=");
+    let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Display name is required."), "{}", text(&html));
+    let input = html.split(r#"name="display_name""#).nth(1).unwrap().split('>').next().unwrap();
+    assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    assert_eq!(security_writes(&pilot).len(), sent + 1, "the blank name is sent for Identity to refuse");
+}
+
+#[tokio::test]
 async fn a_key_write_without_an_answer_is_asked_about_and_its_lost_secret_is_said() {
     let pilot = Pilot::new().await;
     let body = format!("intent=create-api-key&attempt={APPLIED_BEFORE}&name=CI&purpose=integration");
@@ -9594,7 +9640,9 @@ fn session_row(id: &str, user: &str, status: &str, method: &str, available: &[&s
 /// link), `ses_down` (active, one account, whose revoke fails), and `ses_else`, another user's
 /// whose display name mentions `usr_seller`, which Auth's list matches too. A read that waits for 45
 /// is still catching up; `ses_gone` is not found and `ses_else` forbidden. A revoke of `ses_one`
-/// or a switch of it to `acc_two` is done (a receipt at 42); every other write is Auth's 500.
+/// or a switch of it to `acc_two` is done (a receipt at 42), and a revoke of the revoked `ses_old`
+/// is done with nothing written. Auth names a refusal: a switch to the current or an unavailable
+/// account, or of a session no longer active. `ses_down`'s revoke is a 500.
 fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix(SESSIONS_API)?;
     let failed = || refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
@@ -9627,6 +9675,16 @@ fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) ->
         }
         ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_two" => {
             committed(StatusCode::OK, "auth", "42", json!({ "id": "ses_one", "version": 2, "status": "active" }))
+        }
+        ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_seller" => {
+            refusal(StatusCode::CONFLICT, "session_account_current", "This session is already using that account.")
+        }
+        ("POST", "/ses_one/switch-account") => {
+            refusal(StatusCode::BAD_REQUEST, "session_account_unavailable", "This session cannot switch to that account.")
+        }
+        ("POST", "/ses_old/revoke") => Json(json!({ "id": "ses_old", "version": 2, "status": "revoked" })).into_response(),
+        ("POST", "/ses_old/switch-account") => {
+            refusal(StatusCode::CONFLICT, "session_not_active", "This session is no longer active.")
         }
         ("POST", _) => failed(),
         _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
@@ -9737,10 +9795,23 @@ async fn a_revoke_or_switch_is_read_after_its_write_and_a_failed_one_says_what_t
 
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_two", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched");
+    let reads = |pilot: &Pilot| {
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::GET && c.path.starts_with(SESSIONS_API)).count()
+    };
+    let before = reads(&pilot);
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_bogus", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switch-refused", "Auth's 500, and the account unchanged");
+    assert_eq!(
+        query(headers["location"].to_str().unwrap())["said"],
+        "switch-refused",
+        "Auth's refusal of an unavailable account"
+    );
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_seller", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched", "already on that account");
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/switch"), "guard", "account_id=acc_two", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "a switch of a revoked session");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/revoke"), "guard", "", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "Auth's 500 for a revoked session");
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "revoked", "a revoked session's revoke is done");
+    assert_eq!(reads(&pilot), before, "a named refusal is not read again");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_down/revoke"), "guard", "", false)).await;
     let to = headers["location"].to_str().unwrap().to_owned();
     assert_eq!(query(&to)["said"], "failed", "still active after a failed revoke");
@@ -13928,7 +13999,8 @@ const BULK_SCREEN: &str = "/account/bulk-reprice";
 /// A second upload attempt, for uploads that are not `ATTEMPT` sent again.
 const OTHER_ATTEMPT: &str = "1c7a4e2f-5b3d-4c9e-8a11-2345678901bc";
 
-/// Pricing's bulk reprice routes, as the stand-in answers them: the template; a new job
+/// Pricing's bulk reprice routes, as the stand-in answers them: whether it is on (all 404 once
+/// `bulk-off` is set, as the policy gate answers); the template; a new job
 /// (`job_1`), refused when its rows are bad and a 404 (switched off) when they say `OFF`;
 /// an upload's attempt (`Idempotency-Key`) sent again with the same rows answers its first job,
 /// and with other rows is refused (409 `attempt_conflict`), as Pricing's `createJob` does;
@@ -13947,7 +14019,12 @@ fn bulk_reprice(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap,
         })
     };
     let finished = || stand.runs.lock().unwrap().contains_key("bulk-job_1-done");
+    // Switched off (`bulk-off`), the whole tree answers 404, as Pricing's policy gate does.
+    if stand.runs.lock().unwrap().contains_key("bulk-off") {
+        return Some((StatusCode::NOT_FOUND, "404 Not Found").into_response());
+    }
     Some(match (method.as_str(), rest) {
+        ("GET", "") => Json(json!({ "enabled": true })).into_response(),
         ("GET", "/template.csv") => (
             [
                 (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
@@ -14182,6 +14259,28 @@ async fn a_recommendation_job_is_followed_live_and_the_list_is_read_again_once_i
 }
 
 #[tokio::test]
+async fn while_pricing_has_bulk_reprice_off_its_page_says_so_and_recommendations_do_not_offer_it() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert!(html.contains(r#"href="/account/bulk-reprice""#), "offered while it is on: {html}");
+
+    pilot.stand.runs.lock().unwrap().insert("bulk-off".into(), json!(true));
+    let (status, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"href="/account/bulk-reprice""#), "not offered while it is off: {html}");
+
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
+    assert!(!html.contains(r#"action="/account/bulk-reprice""#) && !html.contains(r#"name="file""#), "nothing to upload: {html}");
+    assert!(!html.contains("template.csv") && !html.contains("Job status"), "{html}");
+    assert!(html.contains(r#"href="/account/repricing""#), "{html}");
+    let calls: Vec<_> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
+    assert!(calls.iter().all(|path| !path.contains("/jobs/")), "no job is read: {calls:?}");
+}
+
+#[tokio::test]
 async fn bulk_reprice_is_for_a_seller_who_may_change_listings() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(get(BULK_SCREEN, None)).await;
@@ -14223,7 +14322,8 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
         pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
-    let call = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API).cloned().unwrap();
+    let call =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API && c.method == Method::POST).cloned().unwrap();
     assert_eq!(call.headers["idempotency-key"].to_str().unwrap(), ATTEMPT, "the form's attempt is Pricing's Idempotency-Key");
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent, json!({ "csvText": "sellerSku,newPrice\nSKU-1,4.50\n", "sourceFilename": "prices.csv" }));
@@ -14245,7 +14345,7 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
         .lock()
         .unwrap()
         .iter()
-        .filter(|c| c.path == BULK_API)
+        .filter(|c| c.path == BULK_API && c.method == Method::POST)
         .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
         .collect();
     assert_eq!(keys, [ATTEMPT; 3], "each send carries the form's one attempt");
@@ -14289,7 +14389,7 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     let (status, _, html) =
         pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", off)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.replace("&#39;", "'").contains("Bulk reprice isn't available yet."), "{html}");
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
     // A file that is not text, or a form without its attempt, is refused here, not sent; a seller
     // who may not change listings is refused.
     let calls = pilot.stand.calls.lock().unwrap().len();
@@ -14300,7 +14400,8 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &fresh, &[("file", "p.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let sent = pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API).count();
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API && c.method == Method::POST).count();
     assert_eq!(sent, 0);
 }
 
@@ -17780,10 +17881,8 @@ const LINK_API: &str = "/api/auth/invitations/acceptance-link/request";
 /// An attempt the API had recorded before: its create answers `newlyCommitted: false`.
 const REPLAYED: &str = "55555555-5555-4555-8555-555555555555";
 
-/// The account `acc_seller`'s team, as Identity's lists answer a `search` of its id: its owner, a
-/// revoked packer with no display name, and another account's member whose name holds
-/// `acc_seller` (chase-sets/chase-sets#10704); a pending and a cancelled invitation, and another
-/// account's. A read that waits for 45 is still catching up. A write's attempt decides an answer as
+/// The account `acc_seller`'s team, as Identity lists it to a member: its owner, a revoked packer
+/// with no display name, and a pending and a cancelled invitation. A read that waits for 45 is still catching up. A write's attempt decides an answer as
 /// a security write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN` are `indeterminate`;
 /// `REPLAYED` was recorded before). An invite to `taken@` is a conflict, to `bad@` is refused; a
 /// role change of the owner to `viewer` is refused as the last owner. The acceptance link answers
@@ -17854,9 +17953,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
                         "active",
                     ),
                     member("mbr_packer", "usr_packer", None, "packer@chasesets.test", "acc_seller", "fulfillment", "revoked"),
-                    member("mbr_else", "usr_else", Some("acc_seller fan"), "else@chasesets.test", "acc_other", "owner", "active"),
                 ];
-                Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+                Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
             }
             _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
             ("PUT", "/mbr_owner/role") if sent["roleKey"] == "viewer" => {
@@ -17874,9 +17972,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
             let items = [
                 invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending"),
                 invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled"),
-                invitation("ivt_else", "acc_seller@elsewhere.test", "acc_other", "viewer", "pending"),
             ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         // Identity's `isInstant`: to the millisecond at most, or the attempt is indeterminate.
@@ -17944,14 +18041,12 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     let (status, _, html) = pilot.send(get(TEAM, Some("teamer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
-    assert!(calls.iter().any(|c| c == "/api/identity/memberships?search=acc_seller"), "{calls:?}");
-    assert!(calls.iter().any(|c| c == "/api/identity/invitations?search=acc_seller"), "{calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/memberships"), "Identity scopes the list itself: {calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/invitations"), "{calls:?}");
     assert!(html.contains("Synthetic Seller") && html.contains("Owner · Active"), "{html}");
     assert!(html.contains("packer@chasesets.test") && html.contains("Fulfillment · Revoked"), "no name: the email: {html}");
     assert!(html.contains("new@chasesets.test") && html.contains("Viewer invitation · Pending"), "{html}");
     assert!(html.contains("Manager invitation · Cancelled"), "{html}");
-    assert!(!html.contains("mbr_else") && !html.contains("acc_seller fan"), "another account's member (#10704): {html}");
-    assert!(!html.contains("ivt_else") && !html.contains("elsewhere.test"), "another account's invitation (#10704): {html}");
     // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is cancelled.
     assert!(html.contains(r#"commandfor="revoke-member-dialog-mbr_owner""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="intent" value="reinstate"><input type="hidden" name="membership_id" value="mbr_packer">"#), "{html}");
@@ -20775,8 +20870,7 @@ const CHANNELS_SCREEN: &str = "/account/channels";
 /// first page with a next page holding a paused one; no paused connection on the paused filter's
 /// first page; the disconnected filter fails on Channels' side; `conn_gone` is not found. Connect
 /// makes `conn_new`; Pause, Resume and Disconnect follow the connection's status and refuse any
-/// other with a 409; Activate makes it active. Every write but Disconnect answers with a receipt, as
-/// Channels does (chase-sets/chase-sets#10779). One publication summary, and `conn_active`'s
+/// other with a 409; Activate makes it active. Every write answers with a receipt. One publication summary, and `conn_active`'s
 /// publication (`channel_publication_api`). `conn_active`'s manual sync has run `run_1` composed
 /// at revision 2 (`manual_sync_api`); `conn_pending`'s is unavailable.
 fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
@@ -20807,8 +20901,6 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     let transition = |refused: bool, id: &str, to: &str| {
         if refused {
             refusal(StatusCode::CONFLICT, "invalid_transition", "invalid_transition")
-        } else if to == "disconnected" {
-            Json(connection(id, to)).into_response()
         } else {
             committed(StatusCode::OK, "channels", "50", connection(id, to))
         }
@@ -21640,11 +21732,10 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     assert_eq!(serde_json::from_str::<Value>(&sent.unwrap()).unwrap(), json!({ "storageLocationIds": ["loc_main"] }));
     let (status, _, _) = pilot.send(post("/account/channels/conn_active", "channel_reader", "intent=pause", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    // Disconnect has no receipt to read after: the page is the connection it returned.
-    let (status, _, html) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    let words = text(&html);
-    assert!(words.contains("Disconnected") && words.contains("No actions are available for this connection."), "{words}");
+    // Disconnect goes to the connection with its receipt, as Pause does.
+    let (status, headers, _) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_paused?after_write="));
 }
 
 const CONNECTION: &str = "/account/channels/conn_active";

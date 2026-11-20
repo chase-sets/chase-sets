@@ -13,6 +13,10 @@ import { CATALOG_CONTROL_PLANE_WORKSPACES } from "./admin-control-plane/informat
 export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "job-queued"
   | "job-cancelled"
+  | "alias-accepted"
+  | "alias-rejected"
+  | "alias-revoked"
+  | "alias-deferred"
   | "preview-ready"
   | "draft-created"
   | "profile-activated"
@@ -442,6 +446,12 @@ function promotionTelemetryResult(
       return result;
     case "job-required":
       return "blocked";
+    case "alias-accepted":
+    case "alias-rejected":
+    case "alias-revoked":
+      return "completed";
+    case "alias-deferred":
+      return "skipped";
   }
 }
 

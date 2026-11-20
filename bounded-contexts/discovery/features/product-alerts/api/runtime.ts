@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -16,13 +18,15 @@ import {
   type ProductAlertMarketSide,
   type ProductAlertSelectedOption,
   type ProductAlertState,
+  type ProductAlertStatus,
 } from "../domain/domain";
 import { getProductAlert, listProductAlerts, type ProductAlertPageRow } from "../read-model/queries";
 import { buildProductAlertPageProjectionHandlers } from "../read-model/projection";
-import type {
-  AnonymousProductAlertIntent,
-  CreateAnonymousProductAlertIntentRequest,
-  CreateProductAlertRequest,
+import {
+  PRODUCT_ALERT_ATTEMPT_ID_PATTERN,
+  type AnonymousProductAlertIntent,
+  type CreateAnonymousProductAlertIntentRequest,
+  type CreateProductAlertRequest,
 } from "./contracts";
 
 const ANONYMOUS_PRODUCT_ALERT_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -104,6 +108,32 @@ function normalizeSelectedOptions(selectedOptions: readonly ProductAlertSelected
     );
 }
 
+const ulidAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/**
+ * The alert one create attempt owns: the account, the attempt and the request as the alert
+ * would record it. A resend of the same request is the same alert; the same attempt sent with
+ * a different request (the form changed and was sent again) is a different alert.
+ */
+function attemptProductAlertId(
+  input: CreateProductAlertRequest & Readonly<{ accountId: string; attemptId: string }>,
+): string {
+  const request = [
+    "product-alert.create",
+    input.accountId,
+    input.attemptId,
+    normalizeMarketSide(input.marketSide),
+    input.catalogItemId.trim(),
+    input.productId.trim(),
+    normalizeSelectedOptions(input.selectedOptions ?? []),
+    normalizeOptionalMoney(input.thresholdAmount),
+    normalizeOptionalCurrencyCode(input.thresholdCurrencyCode),
+  ];
+  const digest = createHash("sha256").update(JSON.stringify(request)).digest();
+  const body = Array.from(digest.subarray(0, 26), (byte, index) => ulidAlphabet[index === 0 ? byte & 7 : byte & 31]);
+  return `pal_${body.join("")}`;
+}
+
 function normalizeAnonymousProductAlertIntentRow(row: AnonymousProductAlertIntentRow): AnonymousProductAlertIntent {
   return {
     intent_id: row.intent_id,
@@ -133,7 +163,7 @@ export type ProductAlertServices = Readonly<{
   createProductAlert: (
     input: CreateProductAlertRequest & Readonly<{ accountId: string }>,
     context: EventStoreContext,
-  ) => Promise<Readonly<{ alertId: string; version: number }>>;
+  ) => Promise<Readonly<{ alertId: string; version: number; status: ProductAlertStatus }>>;
   pauseProductAlert: (
     input: Readonly<{ accountId: string; alertId: string }>,
     context: EventStoreContext,
@@ -162,7 +192,7 @@ export type ProductAlertServices = Readonly<{
 }>;
 
 export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAlertServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<ProductAlertEvent>(),
     initialState: () => initialProductAlertState,
@@ -210,7 +240,25 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
     input: CreateProductAlertRequest & Readonly<{ accountId: string }>,
     context: EventStoreContext,
   ) {
-    return createAccountProductAlertWithId({ ...input, alertId: createId("pal") }, context);
+    const attemptId = normalizeOptionalText(input.attemptId);
+    if (attemptId === null) {
+      return createAccountProductAlertWithId({ ...input, alertId: createId("pal") }, context);
+    }
+
+    assert(PRODUCT_ALERT_ATTEMPT_ID_PATTERN.test(attemptId), "Product Alert attempt id is invalid.");
+    const alertId = attemptProductAlertId({ ...input, attemptId });
+    try {
+      return await createAccountProductAlertWithId({ ...input, alertId }, context);
+    } catch (error) {
+      // The attempt was applied before (or concurrently): answer that alert and its events as
+      // this write's receipt, so the page after it reads the alert the first send created.
+      const loaded = await repository.load(productAlertStreamId(alertId));
+      if (loaded.state.alertId !== alertId || loaded.state.accountId !== input.accountId || !loaded.state.status) {
+        throw error;
+      }
+      recordCommittedEvents(loaded.storedEvents);
+      return { alertId, version: loaded.version, status: loaded.state.status };
+    }
   }
 
   async function createAccountProductAlertWithId(
@@ -235,7 +283,7 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
       },
     });
 
-    return { alertId: input.alertId, version: result.version };
+    return { alertId: input.alertId, version: result.version, status: "active" as const };
   }
 
   async function releaseClaimedAnonymousProductAlertIntent(

@@ -126,6 +126,7 @@ export type RepricingMarketplaceGateway = Readonly<{
 type RepricingEngineRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgTransactionalPool;
+  pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
   economics: Pick<EconomicsServices, "resolve">;
 }>;
 
@@ -233,6 +234,7 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
         cooldownMinutes: policy.productRoundCooldownMinutes,
       },
       new Date().toISOString(),
+      deps.pricingPredicateConsumerPool,
     );
     if (!reserved) {
       return false;
@@ -789,7 +791,14 @@ async function executeAdmittedProductRound(
   const direction = netChange > 0n ? "up" : netChange < 0n ? "down" : null;
   const trip =
     !frozenUntil && (facts.length > 0 || (round.listings.length === 0 && productState !== null))
-      ? await recordProductRoundDirection(deps.db, job.payload, direction, policy, new Date().toISOString())
+      ? await recordProductRoundDirection(
+          deps.db,
+          job.payload,
+          direction,
+          policy,
+          new Date().toISOString(),
+          deps.pricingPredicateConsumerPool,
+        )
       : null;
   for (const { streamId, fact } of facts) {
     const retainedFact: RepricingPolicyEvaluatedEvent = trip
