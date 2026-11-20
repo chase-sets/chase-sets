@@ -275,6 +275,35 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     });
   });
 
+  it("skips a due Offers restore when the seller has already moved its deadline", async () => {
+    const { runtime, services } = buildRuntime();
+    const accountId = "acc_offers_restore_race";
+    const firstDeadline = "2030-01-10T00:00:00.000Z";
+    const movedDeadline = "2030-01-11T00:00:00.000Z";
+    const disable = (availableAgainAt: string) =>
+      services.listings.disableSellerListingAvailability(
+        listingTestCommand("seller.availability", {
+          accountId,
+          status: "unavailable",
+          scope: "offers",
+          reasonCategory: "travel",
+          availableAgainOn: null,
+          availableAgainAt,
+        }),
+        context(accountId),
+      );
+    await disable(firstDeadline);
+    await drainContextRuntime(runtime);
+    await disable(movedDeadline);
+    expect(
+      await services.listings.sweepDueSellerAvailabilityRestores({ now: firstDeadline }, context("system")),
+    ).toEqual({ checked: 1, restored: 0, skipped: 1 });
+    await drainContextRuntime(runtime);
+    const stillAway = await services.listings.getSellerListingAvailability(accountId);
+    expect(stillAway.offers_status).toBe("unavailable");
+    expect(new Date(stillAway.offers_available_again_at!).toISOString()).toBe(movedDeadline);
+  });
+
   it("full round trip: schedule -> start sweep disables with the window's Resume Instant -> restore sweep re-enables with scheduled provenance", async () => {
     const pool = pools.marketplace;
     const { runtime, services } = buildRuntime();

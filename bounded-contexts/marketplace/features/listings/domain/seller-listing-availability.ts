@@ -461,7 +461,7 @@ export const decideSellerListingAvailability: AggregateDecider<
       const enabledAt = command.enabledAt.trim();
       assert(enabledAt.length > 0, "Enabled timestamp is required.");
 
-      const scope = command.scope ?? (command.dueBy === undefined ? "both" : "listings");
+      const scope = command.scope ?? "both";
       return awaySides.flatMap((side) => {
         const current = side === "listings" ? state : state.offers;
         if (
