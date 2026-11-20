@@ -164,6 +164,13 @@ function createBuyerActor(overrides: TestActorOverrides = {}): NonNullable<Check
   }) as NonNullable<CheckoutApiEnv["Variables"]["actor"]>;
 }
 
+/** What Auth says it withheld from a buyer refused for `code`: orders.manage, for an unverified email. */
+function withheldFor(code: string) {
+  return code === "email_verification_required"
+    ? { withheldPermissions: [{ permission: "orders.manage", reason: "email_verification_required" as const }] }
+    : {};
+}
+
 function buildApp(
   services: CheckoutSessionServices,
   actor: CheckoutApiEnv["Variables"]["actor"] = createBuyerActor(),
@@ -2694,7 +2701,7 @@ describe("checkout session routes", () => {
     ["a role without order management", "viewer", "authorization_forbidden", "This account cannot pay for purchases."],
   ])("refuses Pay now for %s before any reservation or order", async (_label, roleKey, code, message) => {
     const services = createServices({ getSession: vi.fn(async () => createSession()) });
-    const app = buildApp(services, createBuyerActor({ roleKey, permissions: ["orders.view"] }));
+    const app = buildApp(services, createBuyerActor({ roleKey, permissions: ["orders.view"], ...withheldFor(code) }));
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -2726,7 +2733,10 @@ describe("checkout session routes", () => {
         session: createSession({ order_ids: ["ord_1"] }),
       })),
     });
-    const app = buildApp(services, createBuyerActor({ roleKey: "owner", permissions: ["orders.view"] }));
+    const app = buildApp(
+      services,
+      createBuyerActor({ roleKey: "owner", permissions: ["orders.view"], ...withheldFor("email_verification_required") }),
+    );
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -2803,7 +2813,7 @@ describe("checkout session routes", () => {
     "refuses a repeat Pay now for %s before the committed orders' retained cart cleanup",
     async (_label, roleKey, code) => {
       const { response, cartAttempts, cleanupCompletions } = await retainedCleanupRoute(
-        createBuyerActor({ roleKey, permissions: ["orders.view"] }),
+        createBuyerActor({ roleKey, permissions: ["orders.view"], ...withheldFor(code) }),
       );
 
       expect(response.status).toBe(403);

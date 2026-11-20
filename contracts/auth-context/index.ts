@@ -67,6 +67,21 @@ export type ResolvedActor = Readonly<{
    * `currentAuthSessionIdOf`, never from the ID's shape.
    */
   sessionProvenance?: AuthSessionProvenance;
+  /**
+   * The permissions this actor's role grants that Auth withheld when it
+   * resolved the actor, each with Auth's reason. Absent when Auth withheld
+   * nothing, and for actor kinds Auth does not restrict (guest checkout,
+   * UCP/agent bearer tokens). A surface reads this rather than rebuilding
+   * Auth's decision from the role table.
+   */
+  withheldPermissions?: readonly ResolvedActorWithheldPermission[];
+}>;
+
+export const AUTH_WITHHELD_PERMISSION_REASONS = ["email_verification_required"] as const;
+export type AuthWithheldPermissionReason = (typeof AUTH_WITHHELD_PERMISSION_REASONS)[number];
+export type ResolvedActorWithheldPermission = Readonly<{
+  permission: string;
+  reason: AuthWithheldPermissionReason;
 }>;
 
 export type ResolvedActorCapabilityAssignment = Readonly<{
@@ -455,23 +470,19 @@ export const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = [
 ] as const satisfies readonly PermissionKey[];
 
 /**
- * True only when the actor's role grants `permission` and Auth withheld it
- * pending email verification, so a surface can truthfully ask the member to
- * verify their email rather than hide the action unexplained. Reads Auth's own
- * role table and grants nothing; agent-scoped actors are never told to verify.
+ * True only when Auth withheld `permission` from this actor pending email
+ * verification (`withheldPermissions`), so a surface can truthfully ask the
+ * member to verify their email rather than hide the action unexplained. Grants
+ * nothing; actors Auth does not restrict (agents, guests) never carry it.
  */
 export function permissionAwaitsEmailVerification(
-  actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null | undefined,
+  actor: Pick<ResolvedActor, "withheldPermissions"> | null | undefined,
   permission: PermissionKey,
 ): boolean {
-  if (!actor || actor.agentGrant || actor.permissions.includes(permission)) {
-    return false;
-  }
-
-  const rolePermissions: readonly string[] = ROLE_PERMISSIONS[actor.roleKey as keyof typeof ROLE_PERMISSIONS] ?? [];
   return (
-    (EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS as readonly string[]).includes(permission) &&
-    rolePermissions.includes(permission)
+    actor?.withheldPermissions?.some(
+      (withheld) => withheld.permission === permission && withheld.reason === "email_verification_required",
+    ) ?? false
   );
 }
 

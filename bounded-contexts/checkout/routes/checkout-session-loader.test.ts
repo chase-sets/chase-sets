@@ -265,7 +265,11 @@ describe("checkout web routes: checkout session loader", () => {
   // #10785: Auth withholds orders.manage until the buyer verifies their email, and Payments will not
   // start a payment without it, so Pay now becomes the verification link instead.
   it.each([
-    ["an owner whose email is unverified", { roleKey: "owner", permissions: ["orders.view"] }, true],
+    [
+      "an owner whose email is unverified",
+      { roleKey: "owner", permissions: ["orders.view"], withheldPermissions: [{ permission: "orders.manage", reason: "email_verification_required" as const }] },
+      true,
+    ],
     ["an owner who may pay", { roleKey: "owner", permissions: ["orders.view", "orders.manage"] }, false],
     ["a role that never pays", { roleKey: "fulfillment", permissions: ["orders.view", "fulfillment.view"] }, false],
   ])("offers email verification instead of Pay now only to %s", async (_label, actor, expected) => {

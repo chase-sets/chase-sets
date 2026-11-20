@@ -223,20 +223,26 @@ pub struct Actor {
     /// (`GUEST_CHECKOUT_SESSION_ID_PREFIX`), which Fulfillment's account routes refuse.
     #[serde(default)]
     pub session_id: String,
-    /// Whether an agent acts through an OAuth grant (`agentGrant`): Auth's email-verification
-    /// rule never asks an agent to verify.
-    #[serde(default, rename = "agentGrant", deserialize_with = "present")]
-    pub agent: bool,
+    /// The permissions the actor's role grants that Auth withheld, and why (`withheldPermissions`).
+    #[serde(default)]
+    pub withheld_permissions: Vec<WithheldPermission>,
 }
 
-/// Whether a field is there and not null, whatever it holds.
-fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
-    Ok(Option::<serde::de::IgnoredAny>::deserialize(d)?.is_some())
+/// A permission Auth withheld from an actor and its reason (`ResolvedActorWithheldPermission`).
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Deserialize)]
+pub struct WithheldPermission {
+    pub permission: String,
+    pub reason: String,
 }
 
 impl Actor {
     pub fn can(&self, permission: &str) -> bool {
         self.permissions.iter().any(|p| p == permission)
+    }
+
+    /// Whether Auth withheld `permission` from this actor for `reason`.
+    pub fn withheld(&self, permission: &str, reason: &str) -> bool {
+        self.withheld_permissions.iter().any(|w| w.permission == permission && w.reason == reason)
     }
 }
 

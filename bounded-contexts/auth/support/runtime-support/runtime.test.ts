@@ -194,6 +194,9 @@ describe("Auth request actor resolution", () => {
           }),
         );
         expect(storedActor?.permissions).not.toContain("pricing.manage");
+        expect(storedActor?.withheldPermissions).toEqual([
+          { permission: "pricing.manage", reason: "email_verification_required" },
+        ]);
         expect(storedActor?.permissions).toContain("pricing.view");
         expect(storedActor?.permissions).toContain("synthetic.retained");
       }
@@ -328,6 +331,15 @@ describe("Auth request actor resolution", () => {
     expect(unverifiedActor?.permissions).not.toContain("listings.manage");
     expect(unverifiedActor?.permissions).not.toContain("offers.manage");
     expect(unverifiedActor?.permissions).not.toContain("orders.manage");
+    // Auth says what it withheld and why, so a surface need not rebuild the rule from the role table.
+    expect(
+      unverifiedActor?.withheldPermissions?.map(({ permission, reason }) => `${permission}:${reason}`).sort(),
+    ).toEqual([
+      "listings.manage:email_verification_required",
+      "offers.manage:email_verification_required",
+      "orders.manage:email_verification_required",
+      "pricing.manage:email_verification_required",
+    ]);
 
     const verifiedServices = createServices({
       dbQuery,
@@ -356,6 +368,7 @@ describe("Auth request actor resolution", () => {
     expect(verifiedActor?.permissions).toEqual(
       expect.arrayContaining(["accounts.view", "listings.manage", "offers.manage", "orders.manage"]),
     );
+    expect(verifiedActor).not.toHaveProperty("withheldPermissions");
   });
 
   it("defines the guest checkout actor shape inside Auth", async () => {

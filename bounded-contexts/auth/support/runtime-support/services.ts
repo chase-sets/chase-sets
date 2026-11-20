@@ -14,6 +14,7 @@ import {
   ROLE_PERMISSIONS,
   type OperatorAuthority,
   type ResolvedActor,
+  type ResolvedActorWithheldPermission,
 } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -311,16 +312,22 @@ function hasVerifiedEmailForCommerce(
   return authenticationMethod === "google" || authenticationMethod === "facebook";
 }
 
+/** The permissions an unverified primary email keeps, and those it withholds with the reason. */
 function restrictPermissionsForUnverifiedEmail(
   permissions: readonly string[],
   user: Awaited<ReturnType<typeof getAuthIdentityUser>> | null,
   authenticationMethod: string | null,
-) {
+): Readonly<{ permissions: readonly string[]; withheld: readonly ResolvedActorWithheldPermission[] }> {
   if (hasVerifiedEmailForCommerce(user, authenticationMethod)) {
-    return permissions;
+    return { permissions, withheld: [] };
   }
 
-  return permissions.filter((permission) => !emailVerificationRestrictedPermissions.has(permission));
+  return {
+    permissions: permissions.filter((permission) => !emailVerificationRestrictedPermissions.has(permission)),
+    withheld: permissions
+      .filter((permission) => emailVerificationRestrictedPermissions.has(permission))
+      .map((permission) => ({ permission, reason: "email_verification_required" as const })),
+  };
 }
 
 export type AuthSessionStartResult =
@@ -663,7 +670,7 @@ export async function resolveActorFromSessionId(
     return null;
   }
   const user = await services.identity.getUser(session.user_id);
-  const permissions = restrictPermissionsForUnverifiedEmail(
+  const { permissions, withheld } = restrictPermissionsForUnverifiedEmail(
     resolveRolePermissions(membership.role_key, membership.role_permissions),
     user,
     session.authentication_method,
@@ -684,5 +691,6 @@ export async function resolveActorFromSessionId(
     permissions,
     authenticatedAt: session.started_at ?? null,
     ...(capabilityAssignments.length > 0 ? { capabilityAssignments } : {}),
+    ...(withheld.length > 0 ? { withheldPermissions: withheld } : {}),
   };
 }
