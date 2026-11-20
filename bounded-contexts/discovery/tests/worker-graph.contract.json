@@ -137,8 +137,8 @@
       },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
-      "checkpointBatchSize": 1,
-      "projectionCascadeChunkSize": "<undefined>",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": 500,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "eventTypes": [
@@ -587,8 +587,8 @@
       },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
-      "checkpointBatchSize": 1,
-      "projectionCascadeChunkSize": "<undefined>",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": 500,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "eventTypes": [
@@ -809,12 +809,12 @@
       ],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
-      "batchSize": "<undefined>",
-      "checkpointBatchSize": 1,
+      "batchSize": 100,
+      "checkpointBatchSize": 100,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "projectionTransactionBudgetEscalationMs": "<undefined>",
-      "projectionCascadeChunkSize": "<undefined>",
+      "projectionCascadeChunkSize": 500,
       "order": 10
     },
     {
@@ -1248,12 +1248,12 @@
       ],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
-      "batchSize": "<undefined>",
-      "checkpointBatchSize": 1,
+      "batchSize": 100,
+      "checkpointBatchSize": 100,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "projectionTransactionBudgetEscalationMs": "<undefined>",
-      "projectionCascadeChunkSize": "<undefined>",
+      "projectionCascadeChunkSize": 500,
       "order": 10
     }
   ]
