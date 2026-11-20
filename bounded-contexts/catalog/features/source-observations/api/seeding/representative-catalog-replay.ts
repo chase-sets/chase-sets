@@ -31,6 +31,10 @@ import {
   type ObservationPackObjectStorage,
 } from "./observation-pack";
 import { assertDecodableProductAssetSource } from "./product-asset-normalization";
+import {
+  createRepresentativeCatalogAssetPreparation,
+  REPRESENTATIVE_CATALOG_ASSET_CONCURRENCY,
+} from "./representative-catalog-asset-preparation";
 import { recoverObservationPackAssetReferences } from "./observation-pack-asset-references";
 import { resolveTcgdexImageReference } from "../providers/tcgdex/image-reference";
 import type { ProviderAdapter, ProviderImportPlan, ProviderImportScope } from "../provider-adapters/provider-adapter";
@@ -154,7 +158,9 @@ export async function replayRepresentativeCatalogPacks(input: {
   source: string | null | undefined;
   context: EventStoreContext;
   fetch?: typeof globalThis.fetch;
+  signal?: AbortSignal;
 }): Promise<readonly RepresentativeCatalogPackReplaySummary[]> {
+  input.signal?.throwIfAborted();
   const sources = await loadPackSources(input.source, input.fetch ?? globalThis.fetch).catch((error) => {
     if (error instanceof RepresentativeCatalogReplayError) {
       throw error;
@@ -162,8 +168,10 @@ export async function replayRepresentativeCatalogPacks(input: {
     throw new RepresentativeCatalogReplayError("representative-catalog-pack-source-invalid");
   });
   const summaries: RepresentativeCatalogPackReplaySummary[] = [];
+  const prepareAssets = createRepresentativeCatalogAssetPreparation();
   for (const source of sources) {
-    summaries.push(await replayRepresentativeCatalogPack({ ...input, source }));
+    input.signal?.throwIfAborted();
+    summaries.push(await replayRepresentativeCatalogPack({ ...input, source, prepareAssets }));
   }
   return summaries;
 }
@@ -172,9 +180,12 @@ async function replayRepresentativeCatalogPack(input: {
   services: CatalogServices;
   source: LoadedPackSource;
   context: EventStoreContext;
+  prepareAssets: ReturnType<typeof createRepresentativeCatalogAssetPreparation>;
+  signal?: AbortSignal;
 }): Promise<RepresentativeCatalogPackReplaySummary> {
   const eventCountBefore = await countCatalogEvents(input.services);
   const assetSetCountBefore = await countCatalogProductAssetSets(input.services);
+  input.signal?.throwIfAborted();
   const verification = await verifyObservationPack({
     storage: input.source.storage,
     manifestKey: input.source.manifestKey,
@@ -187,7 +198,9 @@ async function replayRepresentativeCatalogPack(input: {
     throw verificationError(verification.diagnostics.map((diagnostic) => diagnostic.code));
   }
   const manifest = verification.manifest;
+  input.signal?.throwIfAborted();
   const profileVersion = await requireCompatibleActiveProfile(input.services, manifest);
+  input.signal?.throwIfAborted();
   const envelopes = await readVerifiedObservationPackEnvelopes({
     storage: input.source.storage,
     manifest,
@@ -195,10 +208,12 @@ async function replayRepresentativeCatalogPack(input: {
   }).catch(() => {
     throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
   });
-  const assets = await preflightAssets(input.source, manifest);
-  const prepared = await prepareObservations(input.services, manifest, profileVersion, envelopes, assets);
+  input.signal?.throwIfAborted();
+  const assets = await preflightAssets(input.source, manifest, input.signal);
+  const prepared = await prepareObservations(input.services, manifest, profileVersion, envelopes, assets, input.signal);
   const empty = prepared.filter((entry) => entry.history === null);
 
+  input.signal?.throwIfAborted();
   if (empty.length > 0) {
     const adapter = createPackBackedProviderAdapter(
       manifest,
@@ -221,61 +236,80 @@ async function replayRepresentativeCatalogPack(input: {
   await drainLocalProjectionHandlerSets("catalog", input.services.pool, input.services.sourceObservations.projectors);
 
   const catalogItemIds: string[] = [];
-  for (const entry of prepared) {
-    const detail = await input.services.sourceObservations.getSourceObservationDetail(entry.observation.observationId);
-    if (!detail) {
-      throw new RepresentativeCatalogReplayError("representative-catalog-import-failed");
-    }
-    if (detail.status === "promoted" && detail.promoted_catalog_item_id) {
-      const reconciled = await input.services.sourceObservations
-        .reconcilePromotedObservationForReplay({
-          observationId: entry.observation.observationId,
-          context: input.context,
-          productAssetSource: entry.asset,
-        })
-        .catch(() => {
-          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid");
-        });
-      if (entry.history?.status !== "promoted") {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-status");
-      }
-      if (entry.history.promotedCatalogItemId !== reconciled.catalogItemId) {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-target");
-      }
-      if (
-        entry.history.promotionProfileKey !== reconciled.promotionProfileKey ||
-        entry.history.promotionProfileVersion !== reconciled.promotionProfileVersion
-      ) {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-profile");
-      }
-      if (
-        entry.history.promotionPlanFingerprint === null ||
-        !reconciled.promotionPlanFingerprints.includes(entry.history.promotionPlanFingerprint)
-      ) {
-        throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-plan");
-      }
-      catalogItemIds.push(reconciled.catalogItemId);
-      continue;
-    }
-    const promoted = await input.services.sourceObservations
-      .promoteObservation({
-        observationId: entry.observation.observationId,
-        context: input.context,
-        productAssetSource: entry.asset,
-      })
+  for (let offset = 0; offset < prepared.length; offset += REPRESENTATIVE_CATALOG_ASSET_CONCURRENCY) {
+    input.signal?.throwIfAborted();
+    const batch = prepared.slice(offset, offset + REPRESENTATIVE_CATALOG_ASSET_CONCURRENCY);
+    const normalizedSources = await input
+      .prepareAssets(
+        batch.filter((entry) => entry.history?.status !== "promoted").map((entry) => entry.asset),
+        input.signal,
+      )
       .catch(() => {
         throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
       });
-    if (!promoted.catalogItemId) {
-      throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
+    for (const entry of batch) {
+      input.signal?.throwIfAborted();
+      const productAssetSource = { ...entry.asset, preparedSource: normalizedSources.get(entry.asset.sourceHash) };
+      const detail = await input.services.sourceObservations.getSourceObservationDetail(
+        entry.observation.observationId,
+      );
+      if (!detail) {
+        throw new RepresentativeCatalogReplayError("representative-catalog-import-failed");
+      }
+      input.signal?.throwIfAborted();
+      if (detail.status === "promoted" && detail.promoted_catalog_item_id) {
+        const reconciled = await input.services.sourceObservations
+          .reconcilePromotedObservationForReplay({
+            observationId: entry.observation.observationId,
+            context: input.context,
+            productAssetSource,
+          })
+          .catch(() => {
+            throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid");
+          });
+        if (entry.history?.status !== "promoted") {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-status");
+        }
+        if (entry.history.promotedCatalogItemId !== reconciled.catalogItemId) {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-target");
+        }
+        if (
+          entry.history.promotionProfileKey !== reconciled.promotionProfileKey ||
+          entry.history.promotionProfileVersion !== reconciled.promotionProfileVersion
+        ) {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-profile");
+        }
+        if (
+          entry.history.promotionPlanFingerprint === null ||
+          !reconciled.promotionPlanFingerprints.includes(entry.history.promotionPlanFingerprint)
+        ) {
+          throw new RepresentativeCatalogReplayError("representative-catalog-history-invalid-plan");
+        }
+        catalogItemIds.push(reconciled.catalogItemId);
+        continue;
+      }
+      const promoted = await input.services.sourceObservations
+        .promoteObservation({
+          observationId: entry.observation.observationId,
+          context: input.context,
+          productAssetSource,
+        })
+        .catch(() => {
+          throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
+        });
+      if (!promoted.catalogItemId) {
+        throw new RepresentativeCatalogReplayError("representative-catalog-promotion-failed");
+      }
+      catalogItemIds.push(promoted.catalogItemId);
     }
-    catalogItemIds.push(promoted.catalogItemId);
   }
 
+  input.signal?.throwIfAborted();
   await drainLocalProjectionHandlerSets("catalog", input.services.pool, input.services.projectors);
   const uniqueCatalogItemIds = [...new Set(catalogItemIds)].sort();
   const drafts = await loadDraftCatalogItemIds(input.services, uniqueCatalogItemIds);
   if (drafts.length > 0) {
+    input.signal?.throwIfAborted();
     const publication = await input.services.items.publishBulk(drafts, input.context);
     if (publication.failed_count > 0 || publication.published_count !== drafts.length) {
       throw new RepresentativeCatalogReplayError("representative-catalog-publication-failed");
@@ -291,6 +325,7 @@ async function replayRepresentativeCatalogPack(input: {
     throw new RepresentativeCatalogReplayError("representative-catalog-publication-failed");
   }
   const eventCountAfter = await countCatalogEvents(input.services);
+  input.signal?.throwIfAborted();
   const assetSetCountAfter = await countCatalogProductAssetSets(input.services);
   return {
     packId: manifest.packId,
@@ -398,10 +433,12 @@ async function requireCompatibleActiveProfile(
 async function preflightAssets(
   source: LoadedPackSource,
   manifest: ObservationPackManifestV1,
+  signal?: AbortSignal,
 ): Promise<readonly PreflightAsset[]> {
   const prefix = objectKeyDirectory(source.manifestKey);
   const assets: PreflightAsset[] = [];
   for (const declared of manifest.assets) {
+    signal?.throwIfAborted();
     const object = await source.storage.getObject(joinObjectKey(prefix, declared.path)).catch(() => null);
     if (!object) {
       throw new RepresentativeCatalogReplayError("representative-catalog-asset-missing");
@@ -409,6 +446,7 @@ async function preflightAssets(
     if (object.body.byteLength !== declared.byteCount || sha256(object.body) !== declared.contentHash) {
       throw new RepresentativeCatalogReplayError("representative-catalog-asset-hash-mismatch");
     }
+    signal?.throwIfAborted();
     await assertDecodableProductAssetSource(object.body).catch(() => {
       throw new RepresentativeCatalogReplayError("representative-catalog-asset-undecodable");
     });
@@ -431,6 +469,7 @@ async function prepareObservations(
   profileVersion: CatalogProviderIntegrationProfileVersionRecord,
   envelopes: readonly ObservationPackEnvelope[],
   assets: readonly PreflightAsset[],
+  signal?: AbortSignal,
 ): Promise<readonly PreparedObservation[]> {
   const contract = requireSourceObservationMappingContract(profileVersion);
   const connector = profileVersion.profile.connector;
@@ -467,6 +506,7 @@ async function prepareObservations(
 
   const prepared: PreparedObservation[] = [];
   for (const envelope of envelopes) {
+    signal?.throwIfAborted();
     const payload = prepareProviderAdapterSourceObservationPayload({
       payload: toJsonValue(envelope.payload),
       providerProfile: profileVersion.profile,

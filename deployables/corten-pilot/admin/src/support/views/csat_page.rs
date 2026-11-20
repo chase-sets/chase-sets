@@ -81,6 +81,23 @@ fn outcome(t: Sup, value: &str) -> String {
     .to_owned()
 }
 
+/// Why the API refused the filters, in admin-web's words.
+fn refusal(t: Sup, reason: &str) -> &'static str {
+    match reason {
+        "timestamp-invalid" => t.csat_refused_timestamp_invalid(),
+        "range-order" => t.csat_refused_range_order(),
+        "range-after-as-of" => t.csat_refused_range_after_as_of(),
+        "range-too-long" => t.csat_refused_range_too_long(),
+        "history-too-long" => t.csat_refused_history_too_long(),
+        "survey-version-unregistered" => t.csat_refused_survey_version_unregistered(),
+        "granularity-unsupported" => t.csat_refused_granularity_unsupported(),
+        "page-size-invalid" => t.csat_refused_page_size_invalid(),
+        "minimum-sample-size-invalid" => t.csat_refused_minimum_sample_size_invalid(),
+        "cursor-invalid" => t.csat_refused_cursor_invalid(),
+        _ => t.csat_refused_filter_empty(),
+    }
+}
+
 fn version(t: Sup, value: &str) -> String {
     if value == SURVEY { t.csat_version_v1().to_owned() } else { value.to_owned() }
 }
@@ -157,6 +174,13 @@ pub fn CsatPage<'a>(t: Sup, p: Pilot, screen: &'a CsatScreen) -> impl Render {
         }
         <section class={Part}>
             <h2 class={Heading}>{t.csat_filters()}</h2>
+            if let Some(reason) = &screen.refused {
+                <p class={Alert} role="alert">
+                    <strong>{t.csat_refused_title()}</strong>
+                    {" "}
+                    {refusal(t, reason)}
+                </p>
+            }
             <form class={Filters} method="get" action={url::Csat::default()}>
                 <div class={Fields}>
                     <label class={Field}>
@@ -339,7 +363,7 @@ pub fn CsatPage<'a>(t: Sup, p: Pilot, screen: &'a CsatScreen) -> impl Render {
                 </p>
                 <p class={Muted}>{t.csat_safe_export()}</p>
             </section>
-        } else {
+        } else if screen.refused.is_none() {
             <p class={Alert} role="alert">{p.error_failed()}</p>
         }
     }

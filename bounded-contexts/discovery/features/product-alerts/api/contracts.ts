@@ -15,7 +15,16 @@ export type CreateProductAlertRequest = Readonly<{
   productSummary?: string | null;
   thresholdAmount?: string | null;
   thresholdCurrencyCode?: string | null;
+  /**
+   * One deliberate create, drawn with the form that sends it. The same attempt with the same
+   * request is the same alert, so a resend (a double click, a resend after a lost answer, a
+   * resubmitted form) answers the alert the first send created instead of creating another.
+   */
+  attemptId?: string | null;
 }>;
+
+/** An attempt id a create takes. */
+export const PRODUCT_ALERT_ATTEMPT_ID_PATTERN = /^[A-Za-z0-9_-]{22,128}$/;
 
 export interface AnonymousProductAlertIntent {
   intent_id: string;

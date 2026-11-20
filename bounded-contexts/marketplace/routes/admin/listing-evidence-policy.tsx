@@ -32,29 +32,32 @@ function isoTimestamp(value: FormDataEntryValue | null) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-const policyRedirect = formActionRedirect(null, "/listing-evidence-policy");
+// admin-web serves this page in its Platform section (context.json's route section).
+const policyRedirect = (commandResult: unknown) =>
+  formActionRedirect(commandResult, "/platform/listing-evidence-policy");
 
 export const action = defineFormAction({
   intents: {
     "create-draft": async ({ request, formData }) => {
       const rules = JSON.parse(String(formData.get("rules") ?? "[]")) as ListingEvidencePolicyRule[];
-      await createListingEvidencePolicyDraft(request, {
-        policyName: String(formData.get("policyName") ?? "").trim(),
-        rules,
-      });
-      return policyRedirect;
+      return policyRedirect(
+        await createListingEvidencePolicyDraft(request, {
+          policyName: String(formData.get("policyName") ?? "").trim(),
+          rules,
+        }),
+      );
     },
     validate: async ({ request, formData }) => ({
       validation: await validateListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? "")),
       error: null,
     }),
     reject: async ({ request, formData }) => {
-      await rejectListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? ""));
-      return policyRedirect;
+      return policyRedirect(await rejectListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? "")));
     },
     rollback: async ({ request, formData }) => {
-      await createListingEvidencePolicyRollbackDraft(request, String(formData.get("policyId") ?? ""));
-      return policyRedirect;
+      return policyRedirect(
+        await createListingEvidencePolicyRollbackDraft(request, String(formData.get("policyId") ?? "")),
+      );
     },
     activate: async ({ request, formData }) => {
       if (formData.get("impactAcknowledged") !== "yes") {
@@ -64,12 +67,13 @@ export const action = defineFormAction({
       if (!effectiveFrom) {
         return { validation: null, error: t("marketplace.features.listingEvidencePolicy.ui.effective.required") };
       }
-      await activateListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? ""), {
-        effectiveFrom,
-        effectiveUntil: isoTimestamp(formData.get("effectiveUntil")),
-        impactAcknowledgmentHash: String(formData.get("impactAcknowledgmentHash") ?? ""),
-      });
-      return policyRedirect;
+      return policyRedirect(
+        await activateListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? ""), {
+          effectiveFrom,
+          effectiveUntil: isoTimestamp(formData.get("effectiveUntil")),
+          impactAcknowledgmentHash: String(formData.get("impactAcknowledgmentHash") ?? ""),
+        }),
+      );
     },
   },
   onUnknownIntent: () => ({

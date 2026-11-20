@@ -1,6 +1,18 @@
 import { buildPackageManagerInvocation, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
+export function buildPlatformBootstrapArguments(workspace, { disposableRepresentativeCatalogReplay = false } = {}) {
+  return [
+    "--filter",
+    workspace,
+    "run",
+    "bootstrap",
+    ...(disposableRepresentativeCatalogReplay && workspace === "@chase-sets/app-platform-api"
+      ? ["--disposable-representative-catalog-replay"]
+      : []),
+  ];
+}
+
 export function completeDevSystemStartupFailure(runtime = process) {
   runtime.exitCode = 1;
   if (runtime.connected) runtime.disconnect();

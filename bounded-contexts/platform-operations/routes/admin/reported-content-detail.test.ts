@@ -37,11 +37,29 @@ describe("Reported Content acknowledgement delivery", () => {
       context: undefined,
     } as never);
     expect(result.status).toBe(302);
-    expect(result.headers.get("Location")).toBe("/reported-content/listing/lst_1");
+    expect(result.headers.get("Location")).toBe("/support/reported-content/listing/lst_1");
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/reported-content\/listing\/lst_1\/acknowledge$/);
     expect(init?.method).toBe("POST");
+  });
+
+  it("records a moderation action and returns to the target's page in admin-web's Support section", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => response({ id: "rca_1", recordedAt: acknowledgedAt }));
+    vi.stubGlobal("fetch", fetch);
+    const result = await action({
+      request: new Request("https://admin.example.test/support/reported-content/listing/lst%2F1", {
+        method: "POST",
+        body: new URLSearchParams({ action: "dismiss", note: "Duplicate report" }),
+      }),
+      params: { targetType: "listing", targetId: "lst/1" },
+      context: undefined,
+    } as never);
+    expect(result.status).toBe(302);
+    expect(result.headers.get("Location")).toBe("/support/reported-content/listing/lst%2F1");
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/reported-content\/listing\/lst%2F1\/actions$/);
+    expect(JSON.parse(String(init?.body))).toEqual({ action: "dismiss", note: "Duplicate report" });
   });
 
   it("does not redirect or submit a disposition when acknowledgement is rejected", async () => {

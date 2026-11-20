@@ -308,6 +308,7 @@
   "session_detail.revoke.confirm.title": "Revoke session for {user}?",
   "session_detail.session.id": "Session ID",
   "session_detail.switch.account": "Switch Account",
+  "session_detail.switch.to": "Switch to",
   "session_detail.title": "{user} session",
   "session_detail.user": "User",
   "session_detail.user.id": "User ID",

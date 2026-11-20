@@ -105,6 +105,7 @@
   "oe.window_range": "{from} to {to}",
   "od.active_buyers": "Active buyers",
   "od.active_sellers": "Active sellers",
+  "od.apply": "Apply",
   "od.catalog_item": "Catalog item",
   "od.chart.gmv": "GMV",
   "od.chart.point_label": "{date}: {amount}",

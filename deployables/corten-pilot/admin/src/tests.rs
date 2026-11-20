@@ -603,8 +603,8 @@ fn identity_api(method: &Method, rest: &str, body: &str) -> Response {
     }
 }
 
-/// Auth's sessions: one of 120 in the list; `ses_1` active with two accounts, `ses_old` revoked,
-/// and a switch to `acc_gone` refused.
+/// Auth's sessions: one of 120 in the list; `ses_1` active with two accounts, `ses_solo` active with
+/// only its own, `ses_old` revoked, and a switch to `acc_gone` refused.
 fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
     let session = |id: &str, status: &str| {
         json!({
@@ -618,6 +618,11 @@ fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
         (Method::GET, "") => Json(json!({ "items": [session("ses_1", "active")], "total": 120, "count": 1 })).into_response(),
         (Method::GET, "/ses_1") => Json(session("ses_1", "active")).into_response(),
         (Method::GET, "/ses_old") => Json(session("ses_old", "revoked")).into_response(),
+        (Method::GET, "/ses_solo") => {
+            let mut solo = session("ses_solo", "active");
+            solo["available_account_ids"] = json!(["acc_1"]);
+            Json(solo).into_response()
+        }
         (Method::POST, "/ses_1/switch-account") if body.contains("acc_gone") => {
             refusal(StatusCode::CONFLICT, "account_unavailable", "That account is not available to this session.")
         }
@@ -957,10 +962,14 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
 }
 
 /// Customer Feedback's CSAT dashboard: a 7-day window with too few answers, a 30-day one with
-/// figures, one trend bucket, one invitation and both pages; a `to` in the future is answered 500,
-/// as the API does (chase-sets/chase-sets#10844).
+/// figures, one trend bucket, one invitation and both pages; a `to` in the future is refused as
+/// the API refuses it (400 `validation_failed`, `range-after-as-of`), and the expired state fails.
 fn csat_dashboard(query: &str) -> Response {
     if query.contains("to=2099") {
+        let body = json!({ "error": { "code": "validation_failed", "reason": "range-after-as-of", "message": "CSAT trendTo cannot be after asOf." } });
+        return (StatusCode::BAD_REQUEST, Json(body)).into_response();
+    }
+    if query.contains("states=expired") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
     }
     let slice = |csat: Value, availability: &str| {
@@ -4186,7 +4195,10 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post("/catalog/scopes/attention/alias/accept", "alias_hashes=h1", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(headers["corten-location"].to_str().unwrap().contains("done=queued"));
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias_accepted"), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Alias accepted") && html.contains("The selected alias candidates were accepted."), "{html}");
     pilot.send(post("/catalog/scopes/attention/alias/reject", "alias_hashes=h1&reason=Reject", true)).await;
     let writes = pilot.catalog_writes();
     assert_eq!(writes[0].path, "/api/catalog/alias-review/commands");
@@ -4279,8 +4291,10 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=queued"), "{to}");
-    pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=alias_accepted"), "{to}");
+    let (_, headers, _) =
+        pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_revoked"), "{headers:?}");
     let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
     assert_eq!(
         bodies,
@@ -4292,7 +4306,9 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
 
     // Defer writes nothing; a revoke with no reason and an unknown intent are the failed banner.
     let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", "intent=alias.defer&alias_hashes=ah_glurak", false)).await;
-    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=queued");
+    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=alias_deferred");
+    let (_, _, html) = pilot.send(get("/catalog/scopes?done=alias_deferred", Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
     for body in
         ["intent=alias.revoke&alias_hashes=ah_pika&reason=+", "intent=alias.forget&alias_hashes=ah_pika", "intent=alias.accept"]
     {
@@ -4339,9 +4355,10 @@ async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accept
     let at = "/catalog/scopes/aliases?status=active";
     let (status, headers, _) = pilot.send(post(at, "intent=alias.accept&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=queued"), "{headers:?}");
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_accepted"), "{headers:?}");
     pilot.send(post(at, "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
-    pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    let (_, headers, _) = pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_rejected"), "{headers:?}");
     let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
     assert_eq!(
         bodies,
@@ -4956,9 +4973,9 @@ async fn an_editions_alias_commands_post_the_alias_review_and_defer_writes_nothi
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
     assert_eq!(to, "/catalog/scopes/scp_paf?done=alias_deferred");
-    assert!(pilot.catalog_writes().is_empty(), "chase-sets/chase-sets#10702: defer has no command");
+    assert!(pilot.catalog_writes().is_empty(), "defer has no command");
     let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
-    assert!(html.contains("stays pending"), "{html}");
+    assert!(html.contains("Left for later"), "admin-web's words for a defer: {html}");
 
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.accept&alias_hashes=ah_ja", true)).await;
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.reject&alias_hashes=ah_ja&reason=Not+this+set", true)).await;
@@ -5726,7 +5743,11 @@ async fn sessions_list_and_page_read_auth_as_admin_web_does() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("dana@example.test session") && html.contains("acc_1, acc_2"), "{html}");
     assert!(html.contains(r#"value="switch-account""#) && html.contains(r#"value="revoke""#), "{html}");
-    assert!(html.contains(r#"<option value="acc_1" selected>Acme Cards</option>"#), "{html}");
+    assert!(html.contains("Switch to") && html.contains(r#"<option value="acc_2">acc_2</option>"#), "{html}");
+    assert!(!html.contains(r#"<option value="acc_1""#), "the current account is not offered: {html}");
+    let (_, _, html) = pilot.send(get("/access/sessions/ses_solo", Some("access-staff"))).await;
+    assert!(!html.contains(r#"value="switch-account""#), "no other account, no switch: {html}");
+    assert!(html.contains(r#"value="revoke""#), "{html}");
     let (_, _, html) = pilot.send(get("/access/sessions/ses_old", Some("access-staff"))).await;
     assert!(!html.contains(r#"value="revoke""#), "a revoked session has no forms: {html}");
     assert_eq!(pilot.send(get("/access/sessions/ses_none", Some("access-staff"))).await.0, StatusCode::NOT_FOUND);
@@ -6080,10 +6101,24 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
 #[tokio::test]
 async fn a_csat_read_that_fails_keeps_the_filters_on_the_page_with_a_banner() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    let (status, _, html) = pilot.send(get("/support/csat?from=2026-10-01&states=expired", Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
-    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2099-01-01""#), "{html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2026-10-01""#), "{html}");
+    assert!(html.contains(r#"<option value="expired" selected>Expired</option>"#), "{html}");
+    assert!(!html.contains("These filters can&#39;t be applied") && !html.contains("These filters can't be applied"), "{html}");
+}
+
+#[tokio::test]
+async fn a_csat_filter_the_api_refuses_keeps_the_filters_and_says_why() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{html}");
+    assert!(html.contains(r#"value="2099-01-01""#), "{html}");
     assert!(html.contains(r#"<option value="issued" selected>Issued</option>"#), "{html}");
+    let alert = html.split(r#"role="alert">"#).nth(1).unwrap_or_default();
+    assert!(alert.contains("These filters can") && alert.contains("The To date can"), "{html}");
+    assert!(alert.contains("be later than today."), "{html}");
+    assert_eq!(html.matches(r#"role="alert""#).count(), 1, "one alert, the reason: {html}");
 }
 
 const FEEDBACK: &str = "/api/experience/platform-feedback";
@@ -9633,11 +9668,8 @@ async fn provider_detail_draws_validation_readiness_and_its_activation_decision(
     let evidence = html.find(r#"data-catalog-validation-evidence-form="true""#).unwrap();
     let form = &html[html[..evidence].rfind("<form").unwrap()..evidence + html[evidence..].find("</form>").unwrap()];
     assert!(form.contains(r#"action="/catalog/providers/tcgplayer/evidence?profileVersion=2026.07.13""#), "{form}");
-    assert!(form.contains(r#"value="fp_old""#) && form.contains(r#"value="fp_new""#), "{form}");
-    assert!(
-        form.contains(r#"name="migrationRecordedAt" value="2026-11-05T12:00:00.000Z""#),
-        "the read's time, as admin-web sends it (chase-sets/chase-sets#11068): {form}"
-    );
+    // Only the text and the fixture run: Catalog stamps the time, the author and the fingerprints.
+    assert!(!form.contains("migrationRecordedAt") && !form.contains("migrationFingerprint"), "{form}");
     assert!(form.contains("required") && !form.contains("disabled"), "{form}");
     let activate = html.find(r#"data-catalog-activate-profile-form="true""#).unwrap();
     let form = &html[activate..activate + html[activate..].find("</form>").unwrap()];
@@ -9658,8 +9690,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     let pilot = Pilot::new().await;
     let at = "profileVersion=2026.07.13";
     let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
-    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=\
-                &migrationFingerprintBefore=fp_old&migrationFingerprintAfter=fp_new&migrationRecordedAt=2026-11-05T12%3A00%3A00.000Z";
+    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
     let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -9672,8 +9703,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
-            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null, "mappingFingerprintBefore": "fp_old",
-            "mappingFingerprintAfter": "fp_new", "recordedAt": "2026-11-05T12:00:00.000Z" } } })
+            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
     );
     let (status, headers, _) =
         pilot.send(post(&format!("/catalog/providers/tcgplayer/activate?{at}"), "profileVersion=2026.07.13", false)).await;
@@ -9691,8 +9721,8 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Migration evidence saved"), "{html}");
 
-    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068: admin-web sends a
-    // fixed sentence instead), and so is an activation it will not run.
+    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068), and so is an
+    // activation it will not run.
     let (status, _, html) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/evidence?{at}"),
@@ -10387,7 +10417,10 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=queued"), "{to}");
+    assert!(
+        to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=alias-accepted"),
+        "{to}"
+    );
     let sent = |pilot: &Pilot| -> Vec<Value> {
         pilot
             .catalog_writes()
@@ -10407,8 +10440,11 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
         .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias-deferred"), "{to}");
     assert_eq!(sent(&pilot).len(), 2, "a defer writes nothing");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
 
     // A reject without its reason sends nothing and draws the page with the form's message.
     let (status, _, html) = pilot

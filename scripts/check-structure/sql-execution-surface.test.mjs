@@ -331,7 +331,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     const anchors = [
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236, "db"],
-      ["infrastructure/event-core-postgres/types.ts", 47, "client"],
+      ["infrastructure/event-core-postgres/types.ts", 49, "client"],
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
@@ -451,7 +451,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
     expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 867)?.outcome).toBe("not-sql");
-    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 51)?.outcome).toBe(
+    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 63)?.outcome).toBe(
       "not-sql",
     );
     expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 168)?.outcome).toBe("not-sql");

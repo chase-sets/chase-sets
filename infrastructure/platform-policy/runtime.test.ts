@@ -9,6 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createPolicyCache } from "./cache";
 import { gracePeriodPolicy } from "./examples/grace-period-policy";
 import { buildPolicyDocumentProjectionHandlers } from "./projection";
@@ -286,6 +287,23 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
 
     expect(runtime.projectors).toHaveLength(1);
     expect(runtime.projectors[0]?.streamPrefixes).toEqual(["platform-policy.document-"]);
+  });
+
+  it("names the adopting context as the source of a document write's commit receipt", async () => {
+    // The adopting context's projection subscribes under its own name, so a read
+    // carrying the receipt can only wait for it when the receipt names that context.
+    const receiptSources = async (runtime: ReturnType<typeof createPolicyRuntime>) =>
+      runWithEventCommitMetadata(async () => {
+        await runtime.createPolicyDocument(gracePeriodPolicy, createParams, context);
+        return getEventCommitMetadata().sources.map((source) => source.sourceContextName);
+      });
+    const { eventStore } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb();
+
+    expect(
+      await receiptSources(createPolicyRuntime({ eventStore, db, commitSourceContextName: "marketplace" })),
+    ).toEqual(["marketplace"]);
+    expect(await receiptSources(createPolicyRuntime({ eventStore, db }))).toEqual(["platform-policy"]);
   });
 
   it("resolves the compiled default before any document exists", async () => {

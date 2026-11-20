@@ -73,6 +73,18 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description":
     "The durable provider import job was cancelled for this provider and scope.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title": "Job cancelled",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.description":
+    "The selected alias candidates were accepted.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.title": "Alias accepted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.description":
+    "The selected candidates stay pending for a later review. Nothing was recorded.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.title": "Left for later",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.description":
+    "The selected alias candidates were rejected with your reason.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.title": "Alias rejected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.description":
+    "The selected aliases were revoked with your reason.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.title": "Alias revoked",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required":
     "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked":
@@ -115,6 +127,25 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "The previous validated profile version is restored. Review affected references before pulling provider data again.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.rollback.title":
     "Provider profile rolled back",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.description":
+    "Scheduled refreshes for this provider are paused. Run now still pulls on demand.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.title":
+    "Refresh schedule paused",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.description":
+    "The provider refresh ran. Its observations are in the refresh schedule's last run.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.title": "Provider refresh ran",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.description":
+    "Scheduled refreshes for this provider run on their cadence again.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.title":
+    "Refresh schedule resumed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed":
+    "The provider refresh ran but the pull failed. The refresh schedule shows the last run's error.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed.title":
+    "Provider refresh failed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.description":
+    "The provider has no active profile targets, so the refresh pulled nothing.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.title":
+    "Provider refresh had nothing to pull",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required":
     "Rejecting Source Observations requires an operator reason for audit evidence.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.conflict":

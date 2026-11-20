@@ -131,6 +131,17 @@ describe("SessionDetailPage destructive actions", () => {
     expect(form.querySelector("fieldset[disabled]")).toBeNull();
   });
 
+  it("offers Switch Account only for another account, and not at all without one", () => {
+    render(<SessionDetailPage data={sessionData} />);
+    const select = screen.getByLabelText("Switch to") as HTMLSelectElement;
+    expect([...select.options].map((option) => option.value)).toEqual(["acc_b"]);
+    cleanup();
+
+    render(<SessionDetailPage data={{ ...sessionData, available_account_ids: ["acc_a"] }} />);
+    expect(screen.queryByRole("button", { name: "Switch Account" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
+  });
+
   it("the page default remains a document form", () => {
     render(<SessionDetailPage data={sessionData} />);
     const form = screen.getByRole("button", { name: "Switch Account" }).closest("form")!;

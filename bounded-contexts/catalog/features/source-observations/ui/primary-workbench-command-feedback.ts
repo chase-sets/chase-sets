@@ -17,6 +17,10 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
   result:
     | "job-queued"
     | "job-cancelled"
+    | "alias-accepted"
+    | "alias-rejected"
+    | "alias-revoked"
+    | "alias-deferred"
     | "preview-ready"
     | "draft-created"
     | "profile-activated"
@@ -24,6 +28,11 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "profile-deprecated"
     | "profile-retired"
     | "section-saved"
+    | "refresh-paused"
+    | "refresh-resumed"
+    | "refresh-ran"
+    | "refresh-skipped"
+    | "refresh-run-failed"
     | "section-conflict"
     | "section-invalid"
     | "lifecycle-conflict"
@@ -37,6 +46,23 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "invalid-intent"
     | "command-failed";
 }>;
+
+const PROVIDER_REFRESH_RESULTS = [
+  "refresh-paused",
+  "refresh-resumed",
+  "refresh-ran",
+  "refresh-skipped",
+  "refresh-run-failed",
+] as const;
+
+export type CatalogProviderRefreshFeedbackResult = (typeof PROVIDER_REFRESH_RESULTS)[number];
+
+/** Provider refresh schedule commands report through the banner but are not control-plane commands. */
+export function isProviderRefreshFeedbackResult(
+  result: CatalogPrimaryWorkbenchCommandFeedback["result"],
+): result is CatalogProviderRefreshFeedbackResult {
+  return (PROVIDER_REFRESH_RESULTS as readonly string[]).includes(result);
+}
 
 export function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["result"]): string {
   if (result === "preview-ready") {
@@ -62,6 +88,30 @@ export function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedba
   }
   if (result === "section-saved") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title");
+  }
+  if (result === "refresh-paused") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.title");
+  }
+  if (result === "refresh-resumed") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.title");
+  }
+  if (result === "refresh-ran") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.title");
+  }
+  if (result === "refresh-skipped") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.title");
+  }
+  if (result === "alias-accepted") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.title");
+  }
+  if (result === "alias-rejected") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.title");
+  }
+  if (result === "alias-revoked") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.title");
+  }
+  if (result === "alias-deferred") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.title");
   }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
@@ -93,6 +143,30 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
     if (feedback.result === "section-saved") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.description");
     }
+    if (feedback.result === "refresh-paused") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.description");
+    }
+    if (feedback.result === "refresh-resumed") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.description");
+    }
+    if (feedback.result === "refresh-ran") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.description");
+    }
+    if (feedback.result === "refresh-skipped") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.description");
+    }
+    if (feedback.result === "alias-accepted") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.description");
+    }
+    if (feedback.result === "alias-rejected") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.description");
+    }
+    if (feedback.result === "alias-revoked") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.description");
+    }
+    if (feedback.result === "alias-deferred") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.description");
+    }
 
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");
   }
@@ -120,6 +194,8 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported");
     case "invalid-intent":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent");
+    case "refresh-run-failed":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed");
     case "command-failed":
     default:
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed");
@@ -129,6 +205,9 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
 export function commandErrorTitle(result: CatalogPrimaryWorkbenchCommandFeedback["result"]): string {
   if (result === "catalog-sync-blocked") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked.title");
+  }
+  if (result === "refresh-run-failed") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed.title");
   }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title");

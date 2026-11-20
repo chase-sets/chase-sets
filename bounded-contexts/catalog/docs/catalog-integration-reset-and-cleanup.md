@@ -63,7 +63,7 @@ These paths are not normal authoring workflows and must not survive as hidden or
 
 ## Raw JSON Quarantine
 
-Normal operators do not edit raw profile JSON. Supported authoring goes through section-scoped typed commands and the provider profile section registry. Migration evidence is a normal operator workflow and saves through the `migration-evidence` section command. After reset, every editable section metadata reports `rawJsonBacked=false`.
+Normal operators do not edit raw profile JSON. Supported authoring goes through section-scoped typed commands and the provider profile section registry. Migration evidence is a normal operator workflow and saves through the `migration-evidence` section command. The command takes only what the operator writes, the evidence text (refused when blank) and an optional fixture run; Catalog stamps when it was recorded, who recorded it and for which account, and the before and after mapping fingerprints from the active and candidate versions. After reset, every editable section metadata reports `rawJsonBacked=false`.
 
 ## Backfill Rules
 

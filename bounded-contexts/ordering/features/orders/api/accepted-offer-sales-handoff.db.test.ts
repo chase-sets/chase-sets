@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineBoundedContextModule, type BcApiEntry } from "@chase-sets/bounded-context-module";
 import { attachReadConsistencyMiddleware, bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { compactSubscriptionApplicationLedger } from "../../../../../infrastructure/bounded-context-runtime/subscription-store";
 import { getEventCommitMetadata, recordCommittedEvents, runWithEventCommitMetadata } from "@chase-sets/event-core";
+import { isTransientProjectionError } from "@chase-sets/event-core/projector";
 import { globalPositionFromBigInt } from "@chase-sets/event-core/storage";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -136,10 +137,10 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
         runner.projectionName,
       ),
     );
-    return { reaction, projection, supplyInputs, app };
+    return { reaction, projection, supplyInputs, app, services };
   }
 
-  async function supply(suffix: string) {
+  async function supply(suffix: string, inputs: readonly ("inventory" | "listing")[] = ["inventory", "listing"]) {
     const candidate = {
       listingId: `lst_${suffix}`,
       sellerAccountId: seller,
@@ -156,28 +157,32 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
       availableQuantity: 10,
       updatedAt: "2026-09-01T00:00:00.000Z",
     };
-    await pools.ordering.query(
-      `INSERT INTO ordering_inventory_item_inputs (item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity, updated_at, last_stream_version)
+    if (inputs.includes("inventory")) {
+      await pools.ordering.query(
+        `INSERT INTO ordering_inventory_item_inputs (item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity, updated_at, last_stream_version)
        VALUES ($1, $2, $3, $4, 10, now(), 1)`,
-      [candidate.inventoryItemId, seller, candidate.catalogItemId, candidate.productId],
-    );
-    await pools.ordering.query(
-      `INSERT INTO ordering_market_listing_inputs
+        [candidate.inventoryItemId, seller, candidate.catalogItemId, candidate.productId],
+      );
+    }
+    if (inputs.includes("listing")) {
+      await pools.ordering.query(
+        `INSERT INTO ordering_market_listing_inputs
        (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, item_title,
         ship_from_code, ship_from_address, product_measure_snapshot, price_amount, price_currency_code,
         listing_stream_version, marketplace_sales_fee_unit_amount, seller_net_unit_amount, terms_resolved_at,
         quantity_cap, max_units_per_day, max_units_per_customer_account, status, updated_at)
        VALUES ($1, $2, $3, $4, $5, 'Card', 'CHI', $6::jsonb, $7::jsonb, 150, 'USD', 1, 1, 149, now(), 10, 10, 10, 'active', now())`,
-      [
-        candidate.listingId,
-        seller,
-        candidate.inventoryItemId,
-        candidate.catalogItemId,
-        candidate.productId,
-        JSON.stringify(shipFromAddress),
-        JSON.stringify(productMeasureForCandidate(candidate)),
-      ],
-    );
+        [
+          candidate.listingId,
+          seller,
+          candidate.inventoryItemId,
+          candidate.catalogItemId,
+          candidate.productId,
+          JSON.stringify(shipFromAddress),
+          JSON.stringify(productMeasureForCandidate(candidate)),
+        ],
+      );
+    }
     return {
       offerId: `off_${suffix}`,
       buyerAccountId: String(context.audit.forAccountId),
@@ -386,43 +391,43 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
     );
   }
 
-  it.each(["listing", "inventory"])(
-    "exposes the Sales 500 when acceptance bypasses readiness of the %s input",
-    async (missingInput) => {
-      const runtime = compose();
-      const offer = await supply(`missing_${missingInput}`);
-      if (missingInput === "listing") {
-        await pools.ordering.query("DELETE FROM ordering_market_listing_inputs WHERE listing_id = $1", [
-          offer.listingId,
-        ]);
-      } else {
-        await pools.ordering.query("DELETE FROM ordering_inventory_item_inputs WHERE item_id = $1", [
-          offer.inventoryItemId,
-        ]);
-      }
-      const receipt = await accept(offer, "above");
+  it.each([
+    { missingInput: "listing", readyInput: "inventory" },
+    { missingInput: "inventory", readyInput: "listing" },
+  ] as const)("waits for the $missingInput input before handing off to Sales", async ({ missingInput, readyInput }) => {
+    const runtime = compose();
+    const listSales = vi.spyOn(runtime.services.orders, "listSales");
+    const suffix = `missing_${missingInput}`;
+    const offer = await supply(suffix, [readyInput]);
+    const receipt = await accept(offer, "above");
+    const acceptedPosition = receipt[0]!.maxGlobalPosition;
 
-      await runtime.reaction.runOnce();
+    const wait = await runtime.reaction.runOnce().then(
+      () => ({ transient: false }),
+      (error: unknown) => ({
+        transient: isTransientProjectionError(error),
+        message: error instanceof Error ? error.message : undefined,
+      }),
+    );
+    expect(wait).toEqual({
+      transient: true,
+      message: `Waiting for supply inputs for committed Listing ${offer.listingId}.`,
+    });
+    const status = await runtime.reaction.refreshStatus();
+    expect(status).toMatchObject({ blockedStreamCount: 0, poisonEventCount: 0 });
+    expect(BigInt(status.lastGlobalPosition)).toBeLessThan(BigInt(acceptedPosition));
+    expect(
+      (await pools.ordering.query("SELECT 1 FROM event_store_events WHERE event_type = 'ordering.order.created'")).rows,
+    ).toEqual([]);
+    expect(listSales).not.toHaveBeenCalled();
 
-      expect(await runtime.reaction.refreshStatus()).toMatchObject({ state: "degraded", poisonEventCount: 1 });
-      const failure = await pools.ordering.query<{ error_message: string }>(
-        "SELECT error_message FROM event_subscription_applications WHERE projection_key = $1 AND status = 'poison'",
-        [runtime.reaction.checkpointKey],
-      );
-      expect(failure.rows).toEqual([
-        { error_message: `Committed Listing ${offer.listingId} is not available in Ordering.` },
-      ]);
-      const sales = await read(runtime.app, receipt);
-      expect(sales.status).toBe(500);
-      expect(await sales.json()).toMatchObject({
-        error: {
-          code: "internal_error",
-          pending: [expect.objectContaining({ projectionName: reactionName, state: "degraded", lastError: null })],
-        },
-      });
-      expect((await pools.ordering.query("SELECT order_id FROM ordering_order_pages")).rows).toHaveLength(0);
-    },
-  );
+    await supply(suffix, [missingInput]);
+    expect(await runtime.reaction.runOnce()).toMatchObject({ lastGlobalPosition: acceptedPosition });
+    await runtime.projection.runOnce();
+    await assertRelation(receipt, "above", offer.offerId);
+    await assertOrder(await read(runtime.app, receipt), offer.offerId);
+    expect(listSales).toHaveBeenCalledTimes(1);
+  });
 
   it("fences buyer Purchases on acceptance and the durable Order's projection using the same receipt", async () => {
     const runtime = compose(false, String(context.audit.forAccountId));

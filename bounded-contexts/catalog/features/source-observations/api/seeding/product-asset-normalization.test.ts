@@ -6,10 +6,55 @@ import {
   extractApprovedOnePieceImageEvidence,
   normalizeLorcanaImageAsset,
   normalizeProductAssetSet,
+  prepareProductAssetSource,
   selectApprovedLorcanaImageEvidence,
 } from "./product-asset-normalization";
 
 describe("product asset normalization", () => {
+  it("reuses byte-identical prepared variants while preserving each item's storage and source policy", async () => {
+    const sourceBody = await transparentPaddedCardImage();
+    const preparedSource = await prepareProductAssetSource(sourceBody);
+    const puts: CatalogAssetStoragePutInput[][] = [[], [], []];
+    const sets = [];
+    for (const [index, storageBaseKey] of ["first", "first", "second"].entries()) {
+      sets.push(
+        await normalizeProductAssetSet({
+          sourceBody,
+          sourceContentType: "image/webp",
+          sourceProviderKey: "tcgdex",
+          sourceUrl: `https://assets.test/${storageBaseKey}`,
+          storageBaseKey,
+          generatedAt: "2026-05-20T00:00:00.000Z",
+          ...(index === 0 ? {} : { preparedSource }),
+          assetStorage: {
+            async putObject(input) {
+              puts[index].push(input);
+              return { key: input.key, publicUrl: `https://assets.test/${input.key}` };
+            },
+          },
+        }),
+      );
+    }
+    expect(sets[0]).toEqual(sets[1]);
+    expect(puts[0]).toEqual(puts[1]);
+    expect(puts[2].map((put) => put.body)).toEqual(puts[0].map((put) => put.body));
+    expect(sets[2].source.storageKey).toMatch(/^second\//);
+    expect(sets[2].sourcePolicy.sourceUrlHash).not.toEqual(sets[0].sourcePolicy.sourceUrlHash);
+    await expect(
+      normalizeProductAssetSet({
+        sourceBody: new Uint8Array([1]),
+        sourceContentType: "image/webp",
+        storageBaseKey: "wrong",
+        generatedAt: "now",
+        preparedSource,
+        assetStorage: {
+          async putObject() {
+            throw new Error("must not store");
+          },
+        },
+      }),
+    ).rejects.toThrow("does not match");
+  });
   it("preserves the source asset and trims transparent display padding before generating variants", async () => {
     const sourceBody = await transparentPaddedCardImage();
     const storedAssets: CatalogAssetStoragePutInput[] = [];

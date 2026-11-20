@@ -44,6 +44,8 @@ export type MarketplaceOfferAcceptedPayload = Readonly<{
   sellerAccountId: AccountId;
   listingId: string;
   inventoryItemId: string;
+  /** Inventory Item stream version Marketplace relied on for this acceptance. */
+  inventoryItemVersion?: number;
   listingVersion: number;
   catalogItemId: string;
   productId: string;

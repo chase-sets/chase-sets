@@ -6,6 +6,7 @@ import type {
   AcquisitionOccurrence,
   InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
+  InventoryItemStockAuthorityClaimedPayload,
   InventoryOfflineSaleChannel,
 } from "@chase-sets/event-core/public-event-payloads";
 import { inventoryOfflineSaleChannels } from "@chase-sets/event-core/public-event-payloads";
@@ -155,12 +156,7 @@ export type InventoryItemAdjustedEvent = DomainEvent<
 
 export type InventoryItemStockAuthorityClaimedEvent = DomainEvent<
   "inventory.item.stock-authority-claimed",
-  Readonly<{
-    itemId: InventoryItemId;
-    authorityRef: string;
-    operation: "hold-placement" | "stock-reduction";
-    quantity: number;
-  }>
+  InventoryItemStockAuthorityClaimedPayload
 >;
 
 export type InventoryItemOfflineSaleRecordedEvent = DomainEvent<

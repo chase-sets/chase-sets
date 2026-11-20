@@ -4,7 +4,10 @@ import { ConfigurationEpochError } from "@chase-sets/event-core/configuration-ep
 import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import {
   createPostgresConfigurationEpochStore,
+  enrollOwnerPredicateWriteInTransaction,
+  ownerPredicateKey,
   withConfigurationEpochTransaction,
+  withOwnerPredicateWrite,
   isPgRetryableTransientError,
   type PgPoolClient,
   type PgQueryable,
@@ -109,6 +112,7 @@ export function createRepricingConfigurationWriter(
   deps: Readonly<{
     pool: PgTransactionalPool;
     eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction">;
+    pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
     epochs?: Pick<
       ReturnType<typeof createPostgresConfigurationEpochStore>,
       "beginClosureInTransaction" | "installClosureInTransaction" | "driveClosure"
@@ -123,6 +127,8 @@ export function createRepricingConfigurationWriter(
     });
   const transaction = <T>(work: (client: PgPoolClient) => Promise<T>) =>
     withConfigurationEpochTransaction(deps.pool, work);
+  const write = <T>(work: (client: PgPoolClient) => Promise<T>) =>
+    withOwnerPredicateWrite(deps.pool, deps.pricingPredicateConsumerPool, work);
   async function lock(client: PgQueryable, key: string) {
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended('pricing_configuration:' || $1::text, 0))", [
       key,
@@ -227,7 +233,8 @@ export function createRepricingConfigurationWriter(
       const requestKey = input.requestKey ?? randomUUID();
       if (!requestKey.length || requestKey.length > 200)
         throw new RepricingConfigurationConflict("Invalid request key.");
-      const recorded = await transaction(async (client) => {
+      const accountPredicate = [ownerPredicateKey("repricing-account", input.accountId)];
+      const recorded = await write(async (client) => {
         await lock(client, `${input.accountId}:request:${requestKey}`);
         await lock(client, input.key);
         const original = (
@@ -246,6 +253,7 @@ export function createRepricingConfigurationWriter(
         }
         const prepared = await input.prepare(client);
         if (!prepared) return null;
+        await enrollOwnerPredicateWriteInTransaction(client, accountPredicate);
         await client.query(
           "INSERT INTO pricing_repricing_configuration_heads (key, seller_account_id, creation_revision, requested_revision, installed_revision) VALUES ($1, $2, $3, $3, $3) ON CONFLICT DO NOTHING",
           [
@@ -341,7 +349,7 @@ export function createRepricingConfigurationWriter(
         recordCommittedEvents(outcome.events, "pricing");
         return outcome.receipt;
       }
-      const installed = await transaction(async (client) => {
+      const installed = await write(async (client) => {
         await lock(client, input.key);
         const currentHead = await head(client, input.key);
         const original = await requestRow(client, input.key, requestKey);
@@ -357,6 +365,7 @@ export function createRepricingConfigurationWriter(
           await lock(client, input.installationGuard.key);
           if (!(await input.installationGuard.allowsInstallation(client))) return { receipt: current, events: [] };
         }
+        await enrollOwnerPredicateWriteInTransaction(client, accountPredicate);
         await epochs.installClosureInTransaction(client, input.key);
         const events = await deps.eventStore.appendToStreamInTransaction(client, prepared.append);
         const applied: RepricingConfigurationReceipt<State> = {
