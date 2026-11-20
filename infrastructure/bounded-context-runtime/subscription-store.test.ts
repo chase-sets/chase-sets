@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   areSubscribedReceiptEventsApplied,
   createCheckpointKey,
+  hasProjectionAppliedEvent,
   loadSubscriptionCheckpointRecoveryState,
   saveSubscriptionCheckpoint,
 } from "./subscription-store";
@@ -221,6 +222,41 @@ describe("areSubscribedReceiptEventsApplied", () => {
       "inline.items:inline:v1",
       ["evt_subscribed", "evt_ignored"],
       ["inline.item-recorded"],
+    ]);
+  });
+});
+
+describe("hasProjectionAppliedEvent", () => {
+  it("reads the event's ledger row, or the checkpoint past it when no failure or blocked stream holds it", async () => {
+    const queries: Readonly<{ sql: string; params: readonly unknown[] }>[] = [];
+    const db = {
+      query: async (sql: string, params: readonly unknown[]) => {
+        queries.push({ sql, params });
+        return { rows: [{ applied: false }] };
+      },
+    };
+
+    await expect(
+      hasProjectionAppliedEvent(db as never, "catalog-category-projection:catalog:v1", {
+        id: "evt_1",
+        streamId: "catalog.category-ctg_1",
+        globalPosition: "6083",
+      }),
+    ).resolves.toBe(false);
+
+    expect(queries).toHaveLength(1);
+    const sql = queries[0]!.sql;
+    expect(sql).toContain("status = 'applied'");
+    expect(sql).toContain("FROM event_subscription_checkpoints");
+    expect(sql).toContain("last_global_position >= $4::bigint");
+    expect(sql).toContain("status <> 'applied'");
+    expect(sql).toContain("state IN ('blocked', 'retrying')");
+    expect(sql).toContain("first_blocked_global_position <= $4::bigint");
+    expect(queries[0]!.params).toEqual([
+      "catalog-category-projection:catalog:v1",
+      "evt_1",
+      "catalog.category-ctg_1",
+      "6083",
     ]);
   });
 });

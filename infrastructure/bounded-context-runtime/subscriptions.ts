@@ -1646,6 +1646,17 @@ function allProjectionSourcesMounted(
   return sourceContextNames.every((sourceContextName) => mountedContextNames.has(sourceContextName));
 }
 
+const LOCAL_PROJECTION_SUBSCRIPTION_VERSION = 1;
+
+/** The checkpoint key of a context's own projection handler set (its local subscription). */
+export function localProjectionCheckpointKey(contextName: string, projectionName: string): string {
+  return createCheckpointKey({
+    projectionName,
+    sourceContextName: contextName,
+    subscriptionVersion: LOCAL_PROJECTION_SUBSCRIPTION_VERSION,
+  });
+}
+
 function createLocalProjectionSubscription(
   contextName: string,
   projection: BcProjectionHandlerSet,
@@ -1656,7 +1667,7 @@ function createLocalProjectionSubscription(
     handlerKind: "projection",
     sourceContextName: contextName,
     projectionName: projection.projectionName,
-    subscriptionVersion: 1,
+    subscriptionVersion: LOCAL_PROJECTION_SUBSCRIPTION_VERSION,
     handlers: projection.handlers,
     inlineApply: projection.inlineApply === true,
     eventTypes: projection.eventTypes,

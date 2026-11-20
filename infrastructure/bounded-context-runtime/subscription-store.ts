@@ -493,6 +493,56 @@ export async function readReceiptApplicationOutputs(
   };
 }
 
+/**
+ * Whether a projection has applied one event: its ledger row says applied, or
+ * its checkpoint has passed the event (applied rows behind the checkpoint are
+ * compacted away) with no failed row for the event and the event's stream not
+ * blocked for the projection. A projection that reads tables another
+ * projection writes uses this to wait until the writer has seen the event.
+ */
+export async function hasProjectionAppliedEvent(
+  db: PgQueryable,
+  projectionKey: string,
+  event: Readonly<{ id: string; streamId: string; globalPosition: string }>,
+): Promise<boolean> {
+  const result = await db.query<Readonly<{ applied: boolean }>>(
+    `SELECT
+       EXISTS (
+         SELECT 1
+         FROM event_subscription_applications
+         WHERE projection_key = $1
+           AND event_id = $2
+           AND status = 'applied'
+       )
+       OR (
+         EXISTS (
+           SELECT 1
+           FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
+           WHERE checkpoint_key = $1
+             AND last_global_position >= $4::bigint
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM event_subscription_applications
+           WHERE projection_key = $1
+             AND event_id = $2
+             AND status <> 'applied'
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM event_projection_blocked_streams
+           WHERE projection_key = $1
+             AND stream_id = $3
+             AND state IN ('blocked', 'retrying')
+             AND first_blocked_global_position <= $4::bigint
+         )
+       ) AS applied`,
+    [projectionKey, event.id, event.streamId, event.globalPosition],
+  );
+
+  return result.rows[0]?.applied === true;
+}
+
 export async function readOutputApplicationStatus(
   source: PgQueryable,
   target: PgQueryable,

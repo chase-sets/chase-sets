@@ -64,6 +64,7 @@ export {
   drainContextRuntime,
   drainSubscriptionRunners,
   listProjectionBlockedStreamDetails,
+  localProjectionCheckpointKey,
   LocalProjectorSubscriptionDeclarationError,
   resolveModuleSubscriptions,
   retryLocalProjectionBlockedStream,
@@ -72,7 +73,7 @@ export {
   summarizeRuntimeSubscriptionLedgers,
   syncContextSubscriptions,
 } from "./subscriptions";
-export { createCheckpointKey, loadSubscriptionCheckpoint } from "./subscription-store";
+export { createCheckpointKey, hasProjectionAppliedEvent, loadSubscriptionCheckpoint } from "./subscription-store";
 export type {
   ContextProjectionGroup,
   ContextProjectionGroupStatus,
