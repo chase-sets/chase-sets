@@ -389,7 +389,8 @@ describe("ordering marketplace supply projection", () => {
     const onOfferAccepted = vi.fn(async () => undefined);
     const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db, { onOfferAccepted });
 
-    await handlers["marketplace.offer.accepted"]!(offerAcceptedEvent());
+    const event = offerAcceptedEvent({ inventoryItemVersion: 2 });
+    await handlers["marketplace.offer.accepted"]!(event);
 
     expect(db.acceptedOffers.get("off_1")).toMatchObject({
       offer_id: "off_1",
@@ -410,6 +411,8 @@ describe("ordering marketplace supply projection", () => {
         sellerAccountId: "acc_seller",
         listingId: "lst_1",
         inventoryItemId: "inv_1",
+        inventoryItemVersion: 2,
+        recordedAt: event.timing.recordedAt,
         priceAmount: "120.00",
         marketplaceSalesFeeUnitAmount: "6.00",
         sellerNetUnitAmount: "114.00",
@@ -420,7 +423,22 @@ describe("ordering marketplace supply projection", () => {
           audit: expect.objectContaining({ forAccountId: "acc_1" }),
         }),
       }),
+      db,
     );
+  });
+
+  it("rejects malformed Inventory Item versions instead of treating them as missing", async () => {
+    const db = new ProjectionDb();
+    const onOfferAccepted = vi.fn(async () => undefined);
+    const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db, { onOfferAccepted });
+
+    for (const inventoryItemVersion of [null, "2", 0, 1.5]) {
+      await expect(
+        handlers["marketplace.offer.accepted"]!(offerAcceptedEvent({ inventoryItemVersion })),
+      ).rejects.toThrow("Inventory Item version must be a positive integer");
+    }
+    expect(db.acceptedOffers.size).toBe(0);
+    expect(onOfferAccepted).not.toHaveBeenCalled();
   });
 });
 

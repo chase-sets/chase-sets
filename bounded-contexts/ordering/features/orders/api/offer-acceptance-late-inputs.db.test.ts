@@ -1,0 +1,436 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import {
+  closeMultiContextTestPools,
+  createMountedContextTestRuntime,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import type { MarketplaceListingCreatedPayload, MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
+import { isTransientProjectionError } from "@chase-sets/event-core/projector";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { isoUtcFromDate } from "@chase-sets/primitives/iso-utc-timestamp";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { contextManifest, module as orderingModule } from "../../../index";
+import type { OrderingServices } from "../../../support/runtime-support/services";
+import { context, productMeasureForCandidate, shipFromAddress, shippingAddress } from "./runtime-test-harness";
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+const describeDb = databaseUrl ? describe : describe.skip;
+const sourceModule = defineBoundedContextModule({
+  manifest: { contextName: "marketplace", apiBasePath: "/api/marketplace", streamPrefix: "marketplace." },
+  schemaSql: "",
+  createServices: () => ({}),
+  buildApis: () => [],
+});
+const sellerAccountId = "acc_late_input_seller" as AccountId;
+const terms = {
+  marketplaceSalesFeePercentageBps: 300,
+  marketplaceSalesFeeFixedAmount: "1.00",
+  marketplaceSalesFeeCapAmount: "4.50",
+  shippingAllowancePercentageBps: 400,
+  termsScheduleId: "terms_fill",
+  termsAgreementId: "agreement_fill",
+  termsResolvedAt: "2026-10-05T00:00:00.000Z",
+};
+
+function fill(suffix: string, overrides: Partial<MarketplaceOfferAcceptedPayload> = {}) {
+  const offer: MarketplaceOfferAcceptedPayload = {
+    offerId: `off_${suffix}`,
+    buyerAccountId: context.audit.forAccountId,
+    sellerAccountId,
+    listingId: `lst_${suffix}`,
+    inventoryItemId: `inv_${suffix}`,
+    listingVersion: 1,
+    catalogItemId: `cat_${suffix}`,
+    productId: `cat_${suffix}::`,
+    itemTitle: "Card",
+    itemSubtitle: null,
+    selectedOptions: [],
+    productSummary: null,
+    priceAmount: "150.00",
+    priceCurrencyCode: "USD",
+    ...terms,
+    marketplaceSalesFeeUnitAmount: "4.50",
+    sellerNetUnitAmount: "145.50",
+    feeQuoteFingerprint: "sha256:synthetic-fill-fee",
+    listingEvidencePolicyId: null,
+    listingEvidencePolicyVersion: null,
+    listingEvidencePolicyHash: "sha256:synthetic-fill-policy",
+    listingEvidenceSnapshot: {
+      schemaVersion: 1,
+      policyHash: "sha256:synthetic-fill-policy",
+      snapshotHash: "sha256:synthetic-fill-evidence",
+      createdAt: terms.termsResolvedAt,
+      evidence: [],
+    },
+    shippingDestinationSnapshot: shippingAddress,
+    quantityRequested: 1,
+    acceptanceBatchId: null,
+    acceptanceBatchSize: null,
+    acceptedAt: new Date().toISOString(),
+    ...overrides,
+  };
+  const feeLocks = [
+    {
+      unitCount: 1,
+      terms,
+      marketplaceSalesFeeUnitAmount: offer.marketplaceSalesFeeUnitAmount,
+      sellerNetUnitAmount: offer.sellerNetUnitAmount,
+      feeQuoteFingerprint: offer.feeQuoteFingerprint,
+    },
+  ];
+  const listing: MarketplaceListingCreatedPayload = {
+    listingId: offer.listingId,
+    accountId: sellerAccountId,
+    inventoryItemId: offer.inventoryItemId,
+    catalogItemId: offer.catalogItemId,
+    productId: offer.productId,
+    itemTitle: "Committed Listing card",
+    itemSubtitle: null,
+    selectedOptions: [],
+    productSummary: null,
+    storageLocationName: null,
+    shipFromCode: "AUS",
+    shipFromAddress,
+    productMeasureSnapshot: productMeasureForCandidate({
+      ...offer,
+      storageLocationName: null,
+      shipFromCode: "AUS",
+      availableQuantity: 1,
+      updatedAt: offer.acceptedAt,
+    }),
+    priceAmount: offer.priceAmount,
+    priceCurrencyCode: "USD",
+    ...terms,
+    marketplaceSalesFeeUnitAmount: offer.marketplaceSalesFeeUnitAmount,
+    sellerNetUnitAmount: offer.sellerNetUnitAmount,
+    feeLocks,
+    quantityCap: 1,
+  };
+  return { offer, listing };
+}
+
+describeDb("Ordering accepted Offers with late supply inputs", () => {
+  let pools: Readonly<Record<"marketplace" | "inventory" | "ordering", PgTransactionalPool>>;
+
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseUrl!,
+      ["marketplace", "inventory", "ordering"],
+      "offer_late_inputs",
+    );
+    await ensureMultiContextTestDatabases(databaseUrl!, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+    for (const source of ["marketplace", "inventory"] as const) {
+      await bootstrapContextDatabase({ contextName: source, schemaSql: "" }, pools[source]);
+    }
+    await bootstrapContextDatabase(orderingModule, pools.ordering);
+  });
+  afterAll(async () => {
+    if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  function mount() {
+    const sources = new Set([
+      ...contextManifest.eventSubscriptions.map((entry) => entry.sourceContextName),
+      ...contextManifest.eventReactions.map((entry) => entry.sourceContextName),
+    ]);
+    sources.delete("ordering");
+    const runtime = createMountedContextTestRuntime([
+      ...[...sources].map((contextName) => ({
+        contextName,
+        module: sourceModule,
+        pool: contextName === "inventory" ? pools.inventory : pools.marketplace,
+        ports: {},
+        mountRole: "source-only" as const,
+      })),
+      {
+        contextName: "ordering",
+        module: orderingModule,
+        pool: pools.ordering,
+        ports: { inventoryCleanupAuthority: { kind: "not-mounted" as const } },
+      },
+    ]);
+    const runner = (projectionName: string) =>
+      runtime.subscriptionRunners.find(
+        (entry) => entry.projectionName === projectionName && entry.sourceContextName !== "catalog",
+      )!;
+    return {
+      reaction: runner("ordering-marketplace-offer-acceptance"),
+      listings: runner("ordering-marketplace-supply-input-projection"),
+      inventory: runner("ordering-inventory-supply-input-projection"),
+      orders: runner("ordering-order-projection"),
+      services: runtime.mountedContexts.find((entry) => entry.contextName === "ordering")!.services as OrderingServices,
+    };
+  }
+
+  async function commitFill({ offer, listing }: ReturnType<typeof fill>, recordedMinutesAgo = 0) {
+    const store = createPostgresEventStore({
+      pool: pools.marketplace,
+      now: () => isoUtcFromDate(new Date(Date.now() - recordedMinutesAgo * 60_000)),
+    });
+    const [, accepted] = await withPgTransaction(pools.marketplace, (db) =>
+      store.appendToStreamsInTransaction(db, [
+        {
+          streamId: `marketplace.listing-${listing.listingId}`,
+          expectedVersion: "no_stream",
+          context,
+          events: [{ eventType: "marketplace.listing.created", payload: listing }],
+        },
+        {
+          streamId: `marketplace.offer-${offer.offerId}`,
+          expectedVersion: "no_stream",
+          context,
+          events: [{ eventType: "marketplace.offer.accepted", payload: offer }],
+        },
+      ]),
+    );
+    return accepted!.storedEvents[0]!;
+  }
+
+  const inventoryStreamId = (offer: MarketplaceOfferAcceptedPayload) => `inventory.item-${offer.inventoryItemId}`;
+
+  async function createInventory(offer: MarketplaceOfferAcceptedPayload) {
+    await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+      streamId: inventoryStreamId(offer),
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.item.created",
+          payload: {
+            itemId: offer.inventoryItemId,
+            accountId: sellerAccountId,
+            catalogItemId: offer.catalogItemId,
+            productId: offer.productId,
+            totalQuantity: 1,
+          },
+        },
+      ],
+    });
+  }
+
+  async function adjustInventory(offer: MarketplaceOfferAcceptedPayload, quantityDelta: number) {
+    await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+      streamId: inventoryStreamId(offer),
+      expectedVersion: 1,
+      context,
+      events: [
+        {
+          eventType: "inventory.item.adjusted",
+          payload: { itemId: offer.inventoryItemId, quantityDelta },
+        },
+      ],
+    });
+  }
+
+  async function createdOrders() {
+    const result = await pools.ordering.query<{ payload: { orderId: string } }>(
+      "SELECT payload FROM event_store_events WHERE event_type = 'ordering.order.created'",
+    );
+    return result.rows.map((row) => row.payload);
+  }
+
+  async function expectWait(reaction: ReturnType<typeof mount>["reaction"], checkpoint = ZERO_GLOBAL_POSITION) {
+    const result = await reaction.runOnce().then(
+      () => ({ transient: false }),
+      (error: unknown) => ({ transient: isTransientProjectionError(error) }),
+    );
+    expect(result.transient).toBe(true);
+    expect(await reaction.refreshStatus()).toMatchObject({
+      lastGlobalPosition: checkpoint,
+      blockedStreamCount: 0,
+      poisonEventCount: 0,
+    });
+    expect(await createdOrders()).toEqual([]);
+  }
+
+  it("waits for a Listing committed with the acceptance and creates one Order after restart", async () => {
+    const fixture = fill("listing");
+    const first = mount();
+    await createInventory(fixture.offer);
+    await first.inventory.runOnce();
+    const accepted = await commitFill(fixture);
+    await expectWait(first.reaction);
+    expect((await pools.ordering.query("SELECT offer_id FROM ordering_offer_acceptance_inputs")).rows).toEqual([]);
+
+    const restarted = mount();
+    await restarted.listings.runOnce();
+    expect(await restarted.reaction.runOnce()).toMatchObject({ lastGlobalPosition: accepted.globalPosition });
+    await restarted.reaction.runOnce();
+    expect(await createdOrders()).toEqual([
+      expect.objectContaining({ sourceType: "offer-acceptance", sourceReferenceId: fixture.offer.offerId }),
+    ]);
+  });
+
+  it.each(["missing", "stale"] as const)("waits for %s Inventory input until its event projects", async (input) => {
+    const fixture = fill("inventory", input === "stale" ? { inventoryItemVersion: 2 } : {});
+    const { reaction, listings, inventory } = mount();
+    await createInventory(fixture.offer);
+    if (input === "stale") {
+      await inventory.runOnce();
+      await adjustInventory(fixture.offer, 1);
+    }
+    const accepted = await commitFill(fixture);
+    await listings.runOnce();
+
+    await expectWait(reaction);
+    await inventory.runOnce();
+    expect(await reaction.runOnce()).toMatchObject({ lastGlobalPosition: accepted.globalPosition });
+    await reaction.runOnce();
+    expect(await createdOrders()).toEqual([expect.objectContaining({ sourceReferenceId: fixture.offer.offerId })]);
+  });
+
+  it("rejects fresh but exhausted supply without a transient retry", async () => {
+    const fixture = fill("exhausted", { inventoryItemVersion: 2 });
+    const { reaction, listings, inventory } = mount();
+    await createInventory(fixture.offer);
+    await adjustInventory(fixture.offer, -1);
+    const accepted = await commitFill(fixture);
+    await listings.runOnce();
+    await inventory.runOnce();
+
+    expect(await reaction.runOnce()).toMatchObject({
+      lastGlobalPosition: accepted.globalPosition,
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    expect(
+      (
+        await pools.ordering.query("SELECT error_message FROM event_projection_poison_events WHERE event_id = $1", [
+          accepted.eventId,
+        ])
+      ).rows,
+    ).toEqual([
+      {
+        error_message: `Committed Listing ${fixture.listing.listingId} is not available in Ordering.`,
+      },
+    ]);
+    expect(await createdOrders()).toEqual([]);
+    await reaction.runOnce();
+    expect(await createdOrders()).toEqual([]);
+  });
+
+  it("blocks an expired missing input and creates exactly one Order on blocked-stream Retry", async () => {
+    const fixture = fill("expired");
+    const { reaction, listings, inventory } = mount();
+    await createInventory(fixture.offer);
+    await inventory.runOnce();
+    const accepted = await commitFill(fixture, 16);
+
+    expect(await reaction.runOnce()).toMatchObject({
+      lastGlobalPosition: accepted.globalPosition,
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    expect(await createdOrders()).toEqual([]);
+    await listings.runOnce();
+    expect(await reaction.retryBlockedStream(accepted.streamId)).toMatchObject({ state: "resolved", appliedEvents: 1 });
+    expect(await reaction.retryBlockedStream(accepted.streamId)).toMatchObject({ state: "already-resolved" });
+    expect(await reaction.refreshStatus()).toMatchObject({
+      state: "caught-up",
+      blockedStreamCount: 0,
+      poisonEventCount: 0,
+    });
+    expect(await createdOrders()).toEqual([expect.objectContaining({ sourceReferenceId: fixture.offer.offerId })]);
+  });
+
+  it.each([0, 16])("checks the first batch member's version and recorded age of %i minutes", async (firstAge) => {
+    const batch = { acceptanceBatchId: "batch_late_input", acceptanceBatchSize: 2 };
+    const first = fill("batch_first", { ...batch, inventoryItemVersion: 2 });
+    const last = fill("batch_last", batch);
+    const { reaction, listings, inventory } = mount();
+    await createInventory(first.offer);
+    await createInventory(last.offer);
+    await inventory.runOnce();
+    await adjustInventory(first.offer, 1);
+    const firstAccepted = await commitFill(first, firstAge);
+    const lastAccepted = await commitFill(last);
+    await listings.runOnce();
+
+    if (firstAge === 0) {
+      await expectWait(reaction, firstAccepted.globalPosition);
+      await inventory.runOnce();
+      expect(await reaction.runOnce()).toMatchObject({ lastGlobalPosition: lastAccepted.globalPosition });
+    } else {
+      expect(await reaction.runOnce()).toMatchObject({
+        state: "degraded",
+        lastGlobalPosition: lastAccepted.globalPosition,
+        blockedStreams: 1,
+        poisonEvents: 1,
+      });
+      expect(await createdOrders()).toEqual([]);
+      await inventory.runOnce();
+      expect(await reaction.retryBlockedStream(lastAccepted.streamId)).toMatchObject({
+        state: "resolved",
+        appliedEvents: 1,
+      });
+    }
+    await reaction.runOnce();
+    expect(await createdOrders()).toEqual([
+      expect.objectContaining({
+        sourceReferenceId: batch.acceptanceBatchId,
+        lines: [
+          expect.objectContaining({ listingId: first.listing.listingId }),
+          expect.objectContaining({ listingId: last.listing.listingId }),
+        ],
+      }),
+    ]);
+  });
+
+  it("uses the draft committed Listing, locked terms and accepted evidence and cancels normally", async () => {
+    const fixture = fill("draft");
+    const { reaction, listings, inventory, orders, services } = mount();
+    await createInventory(fixture.offer);
+    await commitFill(fixture);
+    await listings.runOnce();
+    await inventory.runOnce();
+    expect(
+      (
+        await pools.ordering.query(
+          "SELECT status, fee_locks FROM ordering_market_listing_inputs WHERE listing_id = $1",
+          [fixture.listing.listingId],
+        )
+      ).rows,
+    ).toEqual([{ status: "draft", fee_locks: fixture.listing.feeLocks }]);
+
+    await reaction.runOnce();
+    const created = await createdOrders();
+    expect(created).toEqual([
+      expect.objectContaining({
+        sourceType: "offer-acceptance",
+        sourceReferenceId: fixture.offer.offerId,
+        lines: [
+          expect.objectContaining({
+            listingId: fixture.listing.listingId,
+            inventoryItemId: fixture.offer.inventoryItemId,
+            itemTitle: fixture.listing.itemTitle,
+            unitPriceAmount: fixture.offer.priceAmount,
+            ...terms,
+            marketplaceSalesFeeUnitAmount: fixture.offer.marketplaceSalesFeeUnitAmount,
+            sellerNetUnitAmount: fixture.offer.sellerNetUnitAmount,
+            listingEvidenceSnapshot: fixture.offer.listingEvidenceSnapshot,
+          }),
+        ],
+      }),
+    ]);
+    await orders.runOnce();
+    const orderId = created[0]!.orderId;
+    await services.orders.cancelPurchase({ orderId, buyerAccountId: fixture.offer.buyerAccountId }, context);
+    await orders.runOnce();
+    expect(await services.orders.getPurchase(orderId, fixture.offer.buyerAccountId)).toMatchObject({
+      status: "cancelled",
+    });
+  });
+});

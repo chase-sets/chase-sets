@@ -8,6 +8,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { OrderingDomainError } from "../../domain/common";
 
 const measurePublicationCheckpointKey = createCheckpointKey(
   contextManifest.eventSubscriptions.find(
@@ -23,6 +24,8 @@ type AcceptedOfferParams = Readonly<{
   sellerAccountId: string;
   listingId: string;
   inventoryItemId: string;
+  inventoryItemVersion?: number;
+  recordedAt: string;
   listingVersion: number;
   catalogItemId: string;
   productId: string;
@@ -97,7 +100,7 @@ type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
 export function buildOrderingMarketplaceSupplyProjectionHandlers(
   db: PgQueryable,
   options: Readonly<{
-    onOfferAccepted?: (params: AcceptedOfferParams) => Promise<void>;
+    onOfferAccepted?: (params: AcceptedOfferParams, db: PgQueryable) => Promise<void>;
     /**
      * Order Capacity enforcement (m127): fired after the capacity
      * input row is upserted for `.set` or `.cleared`, so the At Capacity
@@ -433,10 +436,18 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         [data.accountId, event.timing.recordedAt],
       );
     },
-    "marketplace.offer.accepted": async (event) => {
+    "marketplace.offer.accepted": async (event, context) => {
       const data = event.data;
+      if (
+        data.inventoryItemVersion !== undefined &&
+        (!Number.isSafeInteger(data.inventoryItemVersion) || data.inventoryItemVersion < 1)
+      ) {
+        throw new OrderingDomainError("Accepted Offer Inventory Item version must be a positive integer.");
+      }
 
-      const projected = await db.query<{ offer_id: string }>(
+      // A failed dispatch and the upsert that enables it must roll back together.
+      const projectionDb = resolveProjectionDb(context, db);
+      const projected = await projectionDb.query<{ offer_id: string }>(
         `INSERT INTO ordering_offer_acceptance_inputs (
            offer_id,
            buyer_account_id,
@@ -472,9 +483,10 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            accepted_at,
            acceptance_batch_id,
            acceptance_batch_size,
-           updated_at
+           updated_at,
+           inventory_item_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -510,7 +522,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              accepted_at = EXCLUDED.accepted_at,
              acceptance_batch_id = EXCLUDED.acceptance_batch_id,
              acceptance_batch_size = EXCLUDED.acceptance_batch_size,
-             updated_at = EXCLUDED.updated_at
+             updated_at = EXCLUDED.updated_at,
+             inventory_item_version = EXCLUDED.inventory_item_version
          WHERE ordering_offer_acceptance_inputs.offer_stream_version < EXCLUDED.offer_stream_version
          RETURNING offer_id`,
         [
@@ -549,24 +562,29 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.acceptanceBatchId ?? null,
           data.acceptanceBatchSize ?? null,
           event.timing.recordedAt,
+          data.inventoryItemVersion ?? null,
         ],
       );
 
       if (projected.rows.length > 0 && data.priceCurrencyCode === "USD") {
-        await options.onOfferAccepted?.({
-          ...data,
-          priceCurrencyCode: data.priceCurrencyCode,
-          offerStreamVersion: event.streamVersion,
-          marketplaceSalesFeePercentageBps: data.marketplaceSalesFeePercentageBps ?? 0,
-          marketplaceSalesFeeFixedAmount: data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
-          marketplaceSalesFeeCapAmount: data.marketplaceSalesFeeCapAmount ?? null,
-          listingEvidenceSnapshot: data.listingEvidenceSnapshot ?? null,
-          context: {
-            tenantId: event.tenantId,
-            audit: event.audit,
-            trace: event.trace,
-          } as EventStoreContext,
-        });
+        await options.onOfferAccepted?.(
+          {
+            ...data,
+            recordedAt: event.timing.recordedAt,
+            priceCurrencyCode: data.priceCurrencyCode,
+            offerStreamVersion: event.streamVersion,
+            marketplaceSalesFeePercentageBps: data.marketplaceSalesFeePercentageBps ?? 0,
+            marketplaceSalesFeeFixedAmount: data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
+            marketplaceSalesFeeCapAmount: data.marketplaceSalesFeeCapAmount ?? null,
+            listingEvidenceSnapshot: data.listingEvidenceSnapshot ?? null,
+            context: {
+              tenantId: event.tenantId,
+              audit: event.audit,
+              trace: event.trace,
+            } as EventStoreContext,
+          },
+          projectionDb,
+        );
       }
     },
     "marketplace.seller-order-capacity.set": async (event) => {

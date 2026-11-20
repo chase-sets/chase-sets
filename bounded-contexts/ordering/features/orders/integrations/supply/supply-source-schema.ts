@@ -129,7 +129,8 @@ ALTER TABLE ordering_market_listing_inputs
   ALTER COLUMN terms_resolved_at DROP NOT NULL;
 
 ALTER TABLE ordering_offer_acceptance_inputs
-  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
+  ADD COLUMN IF NOT EXISTS inventory_item_version bigint NULL;
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
