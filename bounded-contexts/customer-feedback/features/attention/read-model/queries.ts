@@ -8,6 +8,8 @@ import {
 
 export type FeedbackAttentionQueueFilters = Readonly<{
   ownerId?: string | null;
+  /** Selects one case's attention items, so a case deep link shows that case. */
+  caseId?: string;
   /** null selects the full export; interactive queues remain bounded. */
   limit?: number | null;
   now?: string;
@@ -58,8 +60,10 @@ export async function listFeedbackAttention(
   const limit = filters.limit === null ? null : Math.min(Math.max(filters.limit ?? 100, 1), 500);
   const now = filters.now ?? new Date().toISOString();
   const values: unknown[] = [now];
-  const ownerClause = filters.ownerId === undefined ? "" : 'AND attention_queue."ownerId" = $2';
   if (filters.ownerId !== undefined) values.push(filters.ownerId);
+  const ownerClause = filters.ownerId === undefined ? "" : `AND attention_queue."ownerId" = $${values.length}`;
+  if (filters.caseId !== undefined) values.push(filters.caseId);
+  const caseClause = filters.caseId === undefined ? "" : `AND attention_queue."caseId" = $${values.length}`;
   const overdueClause = filters.overdueOnly ? `AND ${feedbackOverdueSql(queueSlaColumns, "$1::timestamptz")}` : "";
   values.push(limit);
   const result = await db.query<FeedbackAttentionItem>(
@@ -97,6 +101,7 @@ export async function listFeedbackAttention(
      WHERE attention_queue.state = 'active'
        ${overdueClause}
        ${ownerClause}
+       ${caseClause}
      ORDER BY CASE attention_queue.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC,
               COALESCE(attention_queue."dueAt", attention_queue."triageDueAt"), attention_queue."attentionId"
      LIMIT $${values.length}`,

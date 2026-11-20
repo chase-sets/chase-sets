@@ -462,3 +462,35 @@ describe("Customer Feedback attention API read", () => {
     expect(reprioritized?.triageDueAt).toBe("2026-07-16T09:00:00.250Z");
   });
 });
+
+describe("Customer Feedback attention case deep links", () => {
+  const caseId = "fbcase_01JQZZ0000000000000000000B";
+
+  it("reads only the linked case's attention items", async () => {
+    const { app, query } = exportApp(3);
+    const response = await app.request(`/attention?caseId=${caseId}`);
+
+    expect(response.status).toBe(200);
+    const [sql, values] = query.mock.calls[0] ?? [];
+    expect(sql).toContain('AND attention_queue."caseId" = $2');
+    expect(values?.slice(1)).toEqual([caseId, 100]);
+  });
+
+  it("filters by owner and case together", async () => {
+    const { app, query } = exportApp(3);
+    await app.request(`/attention?ownerId=usr_owner&caseId=${caseId}`);
+
+    const [sql, values] = query.mock.calls[0] ?? [];
+    expect(sql).toContain('AND attention_queue."ownerId" = $2');
+    expect(sql).toContain('AND attention_queue."caseId" = $3');
+    expect(values?.slice(1)).toEqual(["usr_owner", caseId, 100]);
+  });
+
+  it("refuses a malformed case id before querying the read model", async () => {
+    const { app, query } = exportApp(3);
+    const response = await app.request("/attention?caseId=not-a-case");
+
+    expect(response.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+});
