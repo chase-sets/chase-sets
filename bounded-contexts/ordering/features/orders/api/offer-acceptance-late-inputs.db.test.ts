@@ -17,6 +17,10 @@ import { isoUtcFromDate } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { contextManifest, module as orderingModule } from "../../../index";
 import type { OrderingServices } from "../../../support/runtime-support/services";
+import {
+  getOrderingSupplyCandidateByListingId,
+  hasAcceptedOfferSupplyInputs,
+} from "../integrations/supply/supply-queries";
 import { context, productMeasureForCandidate, shipFromAddress, shippingAddress } from "./runtime-test-harness";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -253,10 +257,10 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
     return created!;
   }
 
-  async function adjustInventory(offer: MarketplaceOfferAcceptedPayload, quantityDelta: number) {
-    await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+  async function adjustInventory(offer: MarketplaceOfferAcceptedPayload, quantityDelta: number, expectedVersion = 1) {
+    const [adjusted] = await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
       streamId: inventoryStreamId(offer),
-      expectedVersion: 1,
+      expectedVersion,
       context,
       events: [
         {
@@ -265,6 +269,7 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
         },
       ],
     });
+    return adjusted!;
   }
 
   async function commitHold(offer: MarketplaceOfferAcceptedPayload, holdId: string) {
@@ -503,6 +508,59 @@ describeDb("Ordering accepted Offers with late supply inputs", () => {
       ).rows,
     ).toEqual([{ error_message: `Committed Listing ${fixture.listing.listingId} is not available in Ordering.` }]);
     expect(await createdOrders()).toEqual([]);
+  });
+
+  it("waits for a poisoned hold despite a newer item version and finds exhausted supply after retry", async () => {
+    const fixture = fill("hold_poison", { inventoryItemVersion: 2 });
+    const unrelated = fill("hold_poison_unrelated", { inventoryItemVersion: 1 });
+    const { offer } = fixture;
+    const { inventory, listings, reaction } = mount({ inventoryBatchSize: 1 });
+    const db = pools.ordering;
+
+    await createInventory(unrelated.offer);
+    await createInventory(offer, 2);
+    const { claim, hold } = await commitHold(offer, "inh_poisoned");
+    const adjusted = await adjustInventory(offer, -1, 2);
+    await commitFill(fixture);
+    await commitFill(unrelated);
+    await listings.runOnce();
+
+    await db.query(`ALTER TABLE ordering_inventory_hold_inputs
+      ADD CONSTRAINT synthetic_hold_projection_failure CHECK (hold_id <> 'inh_poisoned')`);
+    await inventory.runOnce(); // Unrelated item creation
+    await inventory.runOnce(); // Target item creation
+    expect(await inventory.runOnce()).toMatchObject({ lastGlobalPosition: claim.globalPosition });
+    expect(await inventory.runOnce()).toMatchObject({
+      lastGlobalPosition: hold.globalPosition,
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    expect(await inventory.runOnce()).toMatchObject({ lastGlobalPosition: adjusted.globalPosition });
+
+    const itemInput = async () =>
+      (
+        await db.query(
+          "SELECT total_quantity, last_stream_version FROM ordering_inventory_item_inputs WHERE item_id = $1",
+          [offer.inventoryItemId],
+        )
+      ).rows;
+    const isReady = () => hasAcceptedOfferSupplyInputs(db, offer.listingId, offer.inventoryItemId, 2);
+    expect(await itemInput()).toEqual([{ total_quantity: 1, last_stream_version: 3 }]);
+    expect(await isReady()).toBe(false);
+    expect(await hasAcceptedOfferSupplyInputs(db, unrelated.offer.listingId, unrelated.offer.inventoryItemId, 1)).toBe(
+      true,
+    );
+    await expectWait(reaction);
+
+    const loadCommittedCandidate = () =>
+      getOrderingSupplyCandidateByListingId(db, offer.listingId, { allowCommitted: true });
+    expect(await loadCommittedCandidate()).toMatchObject({ availableQuantity: 1 });
+    await db.query(`ALTER TABLE ordering_inventory_hold_inputs DROP CONSTRAINT synthetic_hold_projection_failure`);
+    expect(await inventory.retryBlockedStream(hold.streamId)).toMatchObject({ state: "resolved", appliedEvents: 1 });
+    expect(await itemInput()).toEqual([{ total_quantity: 1, last_stream_version: 3 }]);
+    expect(await isReady()).toBe(true);
+    expect(await loadCommittedCandidate()).toBeNull();
   });
 
   it("rejects fresh but exhausted supply without a transient retry", async () => {

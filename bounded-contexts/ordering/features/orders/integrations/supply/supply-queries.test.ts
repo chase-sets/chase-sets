@@ -1,8 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { getOrderingSupplyCandidateByListingId, listOrderingSupplyCandidates } from "./supply-queries";
+import {
+  getOrderingSupplyCandidateByListingId,
+  hasAcceptedOfferSupplyInputs,
+  listOrderingSupplyCandidates,
+} from "./supply-queries";
 
 describe("ordering supply queries", () => {
+  it("requires no pending hold claims for the accepted Offer item independently of its version", async () => {
+    const query = vi.fn(async (_sql: string) => ({ rows: [{ ready: false }] }));
+    const db = { query } as unknown as PgQueryable;
+
+    expect(await hasAcceptedOfferSupplyInputs(db, "lst_1", "inv_1", 2)).toBe(false);
+    expect(await hasAcceptedOfferSupplyInputs(db, "lst_1", "inv_1")).toBe(false);
+
+    const noPendingClaims = expect.stringMatching(
+      /AND NOT EXISTS\s*\(\s*SELECT 1 FROM ordering_inventory_pending_hold_claims\s+WHERE item_id = \$2\s*\)/,
+    );
+    expect(query).toHaveBeenNthCalledWith(1, noPendingClaims, ["lst_1", "inv_1", 2]);
+    expect(query).toHaveBeenNthCalledWith(2, noPendingClaims, ["lst_1", "inv_1", null]);
+  });
+
   it("requires seller listing availability and resolved terms when loading a locked listing", async () => {
     const query = vi.fn(async (_sql: string) => ({ rows: [] }));
     const db = { query } as unknown as PgQueryable;

@@ -335,11 +335,15 @@ export async function hasAcceptedOfferSupplyInputs(
   inventoryItemId: string,
   inventoryItemVersion?: number,
 ): Promise<boolean> {
+  // A later item event can advance its version while the hold stream is blocked.
   const result = await db.query<{ ready: boolean }>(
     `SELECT EXISTS (SELECT 1 FROM ordering_market_listing_inputs WHERE listing_id = $1)
         AND EXISTS (
           SELECT 1 FROM ordering_inventory_item_inputs
           WHERE item_id = $2 AND ($3::bigint IS NULL OR last_stream_version >= $3::bigint)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM ordering_inventory_pending_hold_claims WHERE item_id = $2
         ) AS ready`,
     [listingId, inventoryItemId, inventoryItemVersion ?? null],
   );
