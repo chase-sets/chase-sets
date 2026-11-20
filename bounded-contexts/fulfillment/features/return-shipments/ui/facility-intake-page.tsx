@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { t } from "@chase-sets/localization";
+import { returnIntakeHref } from "./admin-paths";
 import {
   Button,
   ConnectionStatusIndicator,
@@ -125,8 +126,7 @@ export function FacilityIntakePage(props: FacilityIntakePageProps) {
   }, []);
 
   function resolveScan(identifier: string) {
-    const params = new URLSearchParams({ facilityId: props.facilityId, identifier: identifier.trim() });
-    void navigate(`/return-intake?${params.toString()}`);
+    void navigate(returnIntakeHref(props.facilityId, { identifier: identifier.trim() }));
   }
 
   const intakeSummary = props.resolved ? facilityIntakeSummary(props.resolved) : null;
