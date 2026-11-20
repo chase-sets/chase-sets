@@ -116,6 +116,18 @@ export function createChannelsPublicationRequestApiClient(request: Request) {
     if (!response.ok) throw new ChannelsPublicationApiError(response.status, body);
     return body as T;
   }
+  // A configuration command at a version that is no longer current answers 409 with its refusal
+  // (`stream-version-conflict`), which is the command's result rather than a failure.
+  async function command(path: string, init: RequestInit): Promise<ChannelCommandResult> {
+    try {
+      return await json<ChannelCommandResult>(path, init);
+    } catch (error) {
+      if (error instanceof ChannelsPublicationApiError && error.status === 409 && isVersionConflict(error.body)) {
+        return error.body;
+      }
+      throw error;
+    }
+  }
   return {
     async listConnections(): Promise<readonly ChannelPublicationConnectionSummary[]> {
       const result = await json<{ items: readonly ChannelPublicationConnectionSummary[] }>("");
@@ -130,7 +142,7 @@ export function createChannelsPublicationRequestApiClient(request: Request) {
       settings: ChannelPublicationSettings,
       expectedStreamVersion: number,
     ): Promise<ChannelCommandResult> {
-      return json(`/${encodeURIComponent(connectionId)}/settings`, {
+      return command(`/${encodeURIComponent(connectionId)}/settings`, {
         method: "PUT",
         body: JSON.stringify({ settings, expectedStreamVersion }),
       });
@@ -145,7 +157,7 @@ export function createChannelsPublicationRequestApiClient(request: Request) {
         expectedStreamVersion: number;
       }>,
     ): Promise<ChannelCommandResult> {
-      return json(
+      return command(
         `/${encodeURIComponent(input.connectionId)}/mappings/${encodeURIComponent(input.dimension)}/${encodeURIComponent(input.sourceKey)}/decision`,
         {
           method: "POST",
@@ -158,4 +170,10 @@ export function createChannelsPublicationRequestApiClient(request: Request) {
       );
     },
   };
+}
+
+function isVersionConflict(body: unknown): body is Extract<ChannelCommandResult, { kind: "refused" }> {
+  if (typeof body !== "object" || body === null) return false;
+  const record = body as Record<string, unknown>;
+  return record.kind === "refused" && record.code === "stream-version-conflict";
 }
