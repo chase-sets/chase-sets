@@ -8,6 +8,7 @@ import {
   Form,
   Grid,
   HiddenInput,
+  LocalDateTimeInput,
   NativeSelect,
   OperationalStatusBanner,
   Page,
@@ -328,9 +329,8 @@ export function FacilityIntakePage(props: FacilityIntakePageProps) {
                       required
                       autoComplete="off"
                     />
-                    <TextInput
+                    <LocalDateTimeInput
                       name="receivedAt"
-                      type="datetime-local"
                       label={t("fulfillment.returnIntake.receiptTimestamp")}
                       required
                     />
@@ -441,12 +441,7 @@ export function FacilityIntakePage(props: FacilityIntakePageProps) {
             <HiddenInput name="idempotencyKey" value={props.formToken} />
             <Grid columns={{ base: 1, md: 2 }} gap={3}>
               <TextInput name="stationId" label={t("fulfillment.returnIntake.facilityStation")} required />
-              <TextInput
-                name="receivedAt"
-                type="datetime-local"
-                label={t("fulfillment.returnIntake.receiptTimestamp")}
-                required
-              />
+              <LocalDateTimeInput name="receivedAt" label={t("fulfillment.returnIntake.receiptTimestamp")} required />
               <NativeSelect
                 name="packageCondition"
                 label={t("fulfillment.returnIntake.packageCondition")}

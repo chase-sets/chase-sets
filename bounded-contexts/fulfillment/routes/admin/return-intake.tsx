@@ -1,3 +1,4 @@
+import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { t } from "@chase-sets/localization";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -27,9 +28,15 @@ function optionalNumber(formData: FormData, key: string): number | null {
   return raw ? Number(raw) : null;
 }
 
-function timestamp(value: string): string {
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
+// The form sends the receipt instant the browser read in the operator's zone
+// (`LocalDateTimeInput`); a time without one is refused, never read in this
+// server's zone or replaced by now.
+function receivedAt(formData: FormData): string | null {
+  try {
+    return parseIsoUtcTimestamp(value(formData, "receivedAt"));
+  } catch {
+    return null;
+  }
 }
 
 function actionError(error: unknown): string {
@@ -116,12 +123,16 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
   try {
     if (intent === "complete") {
+      const receiptTime = receivedAt(formData);
+      if (!receiptTime) {
+        return { error: t("fulfillment.returnIntake.route.receiptTimeInvalid") };
+      }
       const evidence = await uploadEvidence(api, formData, facilityId);
       const discrepancyType = value(formData, "discrepancyType");
       const result = (await api.completeReturnIntake(value(formData, "returnShipmentId"), {
         facilityId,
         stationId: value(formData, "stationId"),
-        receivedAt: timestamp(value(formData, "receivedAt")),
+        receivedAt: receiptTime,
         packageCondition: value(formData, "packageCondition"),
         sealCondition: value(formData, "sealCondition"),
         measuredWeightOunces: optionalNumber(formData, "measuredWeightOunces"),
@@ -146,11 +157,15 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       return redirect(`${redirectBase}&result=${result.duplicate ? "duplicate" : "completed"}`);
     }
     if (intent === "unidentified") {
+      const receiptTime = receivedAt(formData);
+      if (!receiptTime) {
+        return { error: t("fulfillment.returnIntake.route.receiptTimeInvalid") };
+      }
       const evidence = await uploadEvidence(api, formData, facilityId);
       await api.recordUnidentifiedReturnPackage({
         facilityId,
         stationId: value(formData, "stationId"),
-        receivedAt: timestamp(value(formData, "receivedAt")),
+        receivedAt: receiptTime,
         packageCondition: value(formData, "packageCondition"),
         sealCondition: value(formData, "sealCondition"),
         measuredWeightOunces: optionalNumber(formData, "measuredWeightOunces"),

@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 365
-- Source modules covered: 129
+- Runtime exports indexed: 368
+- Source modules covered: 130
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -157,6 +157,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `InlineTextGroup` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Inline Text Group. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
 | `Inset` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Inset. | `bounded-contexts/auth/features/registration/ui/guest-payment-claim-prompt.tsx` |
 | `InspectorLayout` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Inspector Layout. | `No production consumer yet.` |
+| `instantToLocalDateTime` | `packages/design-system/src/components/forms/local-date-time-input.tsx` | The `datetime-local` value showing `instant` in this runtime's time zone, or "" when it is not a time. | `No production consumer yet.` |
 | `KeyValueList` | `packages/design-system/src/components/data-display/key-value-list.tsx` | Purpose not documented; symbol name suggests: Key Value List. | `bounded-contexts/catalog/features/attention-queue/ui/attention-queue-panel.tsx` |
 | `Label` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Label. | `No production consumer yet.` |
 | `layoutWidthClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: layout Width Classes. | `No production consumer yet.` |
@@ -167,6 +168,8 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ListingPurchasePanel` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Listing Purchase Panel. | `bounded-contexts/discovery/routes/public-listing.tsx` |
 | `LiveRegion` | `packages/design-system/src/primitives/layout.tsx` | Assistive-technology announcement region. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `LoadingSpinner` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Loading Spinner. | `bounded-contexts/catalog/features/provider-scope-mapping/ui/unmapped-scope-inbox-page.tsx` |
+| `LocalDateTimeInput` | `packages/design-system/src/components/forms/local-date-time-input.tsx` | A date and time the operator enters in their own time zone. | `bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx` |
+| `localDateTimeToInstant` | `packages/design-system/src/components/forms/local-date-time-input.tsx` | Reads a `datetime-local` value (a wall-clock time with no zone, such as `2026-11-10T09:00`) in this runtime's time zone and returns the instant as ISO-8601 UTC, or "" when it is empty or not a time. | `No production consumer yet.` |
 | `MarketingImageHero` | `packages/design-system/src/patterns/app-shells/marketing.tsx` | Purpose not documented; symbol name suggests: Marketing Image Hero. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MarketplaceActionSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Marketplace Action Sheet. | `No production consumer yet.` |
 | `MarketplaceCartLineItem` | `packages/design-system/src/components/commerce/cart-line-item.tsx` | Purpose not documented; symbol name suggests: Marketplace Cart Line Item. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
