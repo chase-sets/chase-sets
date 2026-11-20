@@ -7682,6 +7682,7 @@ export const englishTranslations = {
   "inventory.features.inventoryItems.ui.offlineSaleForm.title": "Record offline sale",
   "inventory.features.inventoryItems.ui.offlineSaleForm.trigger": "Record sale",
   "inventory.features.recoveredItems.api.route.not.found": "Recovered item not found.",
+  "inventory.features.recoveredItems.api.route.unsupported.action": "Unsupported recovered item action.",
   "inventory.features.recoveredItems.api.route.unsupported.value.type": "Unsupported recovered value type.",
   "inventory.features.recoveredItems.ui.page.action": "Action",
   "inventory.features.recoveredItems.ui.page.action.authority": "Record ownership authority",
