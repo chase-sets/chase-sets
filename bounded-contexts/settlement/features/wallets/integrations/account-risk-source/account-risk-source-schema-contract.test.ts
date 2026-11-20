@@ -63,7 +63,7 @@ const composedSources = {
   "infrastructure/notification-outbox/index.ts": "24ff5dd032a3c3fa6b2b91efb97ec06e4a73e28bb1e615de9a771a90c8b1e537",
   "infrastructure/platform-policy/schema.ts": "dd1923a1b8ebd4d8e562e5f9198655f01569c5c145441f682a3edd0af92e46b2",
   "infrastructure/platform-runtime/durable-job-store.ts":
-    "2c7678d007db36b623d8b244d206fd8990ff871617acdb190c35f4efdee5c7a0",
+    "fcabac808d63a9b9fb7f6218a62eba3979a4e48808f20fb33cec1f63e442c8e4",
   "infrastructure/platform-runtime/durable-job-work-units.ts":
     "15a95d797c8138ff20098e331cba58448d7efdc4c6158eec610e229ba73899e8",
   "infrastructure/bounded-context-runtime/schema.ts":

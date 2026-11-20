@@ -7,7 +7,7 @@ const beforeCutoff = "2026-07-30T00:00:00.000Z";
 // A complete, fully-reconciled manifest: one eligible scope, one production
 // provider unit, terminal-good coverage after the cutoff, all merge candidates
 // disposed. Every failure fixture is a shallow override of this baseline.
-export function completeManifest(): ProductionCatalogCompletionManifest {
+export function completeManifest() {
   return {
     manifestVersion: productionCatalogCompletionManifestVersion,
     frozenAt: cutoff,
@@ -70,7 +70,7 @@ export function completeManifest(): ProductionCatalogCompletionManifest {
       },
     ],
     exclusions: [],
-  };
+  } satisfies ProductionCatalogCompletionManifest;
 }
 
 export const fixtureCutoff = cutoff;
