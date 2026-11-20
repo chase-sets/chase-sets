@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { LISTING_EVIDENCE_LAUNCH_POLICY_VALUE } from "../domain/policy";
 import type {
   ListingEvidencePolicyOverview,
@@ -61,6 +61,15 @@ const validation: ListingEvidencePolicyValidation & { documentId: string; versio
 
 afterEach(cleanup);
 
+// The operator reads the page in Chicago.
+const zone = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = "America/Chicago";
+});
+afterAll(() => {
+  process.env.TZ = zone;
+});
+
 describe("Listing Evidence Policy guided administration", () => {
   it("offers typed selectors and requirements without a raw policy JSON editor", () => {
     const { container } = render(
@@ -93,5 +102,23 @@ describe("Listing Evidence Policy guided administration", () => {
     expect(screen.getByLabelText("Effective from")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Activate policy version" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create draft" })).toBeNull();
+  });
+
+  it("shows the effective time in the operator's zone and takes new ones as instants", () => {
+    const { container } = render(
+      <ListingEvidencePolicyPage
+        overview={overview}
+        selectorCatalog={selectorCatalog}
+        validation={validation}
+        permissions={["listing-evidence-policy.view", "listing-evidence-policy.activate"]}
+      />,
+    );
+
+    expect(screen.getByText("Jul 12, 2026, 7:00 PM CDT")).toBeTruthy();
+    expect(screen.queryByText("2026-07-13T00:00:00.000Z")).toBeNull();
+    for (const name of ["effectiveFrom", "effectiveUntil"]) {
+      expect(container.querySelector<HTMLInputElement>(`input[name="${name}Local"]`)?.type).toBe("datetime-local");
+      expect(container.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.type).toBe("hidden");
+    }
   });
 });

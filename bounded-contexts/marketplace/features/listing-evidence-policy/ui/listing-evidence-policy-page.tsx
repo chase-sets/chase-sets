@@ -11,6 +11,8 @@ import {
   HiddenInput,
   Inset,
   KeyValueList,
+  LocalDateTime,
+  LocalDateTimeInput,
   NativeSelect,
   NumberField,
   Page,
@@ -209,11 +211,15 @@ export function ListingEvidencePolicyPage({
               { key: t("marketplace.features.listingEvidencePolicy.ui.hash"), value: overview.current.hash },
               {
                 key: t("marketplace.features.listingEvidencePolicy.ui.effective.from"),
-                value: overview.current.effectiveFrom ?? "—",
+                value: overview.current.effectiveFrom ? <LocalDateTime value={overview.current.effectiveFrom} /> : "—",
               },
               {
                 key: t("marketplace.features.listingEvidencePolicy.ui.effective.until"),
-                value: overview.current.effectiveUntil ?? t("marketplace.features.listingEvidencePolicy.ui.open.ended"),
+                value: overview.current.effectiveUntil ? (
+                  <LocalDateTime value={overview.current.effectiveUntil} />
+                ) : (
+                  t("marketplace.features.listingEvidencePolicy.ui.open.ended")
+                ),
               },
             ]}
           />
@@ -310,14 +316,12 @@ export function ListingEvidencePolicyPage({
                 <HiddenInput name="policyId" value={validation.documentId} readOnly />
                 <HiddenInput name="impactAcknowledgmentHash" value={validation.impactPreview.previewHash} readOnly />
                 <Grid columns={2} gap={3}>
-                  <TextInput
-                    type="datetime-local"
+                  <LocalDateTimeInput
                     name="effectiveFrom"
                     label={t("marketplace.features.listingEvidencePolicy.ui.effective.from")}
                     required
                   />
-                  <TextInput
-                    type="datetime-local"
+                  <LocalDateTimeInput
                     name="effectiveUntil"
                     label={t("marketplace.features.listingEvidencePolicy.ui.effective.until")}
                   />
