@@ -240,6 +240,7 @@ export function createPricingEvaluationAuthority(
         captureOwnInventory(owners.inventory, binding, listing.inventoryItemId),
         captureOwnListingMember(owners.marketplace, binding),
       ]);
+      const [inventoryMember] = inventory.members;
       // The enrolled generation was read first. An Inventory write before or after
       // this canonical snapshot makes the later membership reservation fail.
       const stockCapture = await captureInventoryStock(
@@ -256,7 +257,7 @@ export function createPricingEvaluationAuthority(
       );
       if (
         stockCapture.itemVersion !== inventory.itemVersion ||
-        stockCapture.incarnation !== inventory.members[0]?.seal.storeIncarnation
+        stockCapture.incarnation !== inventoryMember?.seal.storeIncarnation
       )
         throw new Error("Inventory stock changed during Pricing capture.");
       const assignment = assignedPolicy(installed.policies, binding.listingId, category.categoryIds);
