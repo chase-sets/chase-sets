@@ -1800,6 +1800,7 @@ const hostedDbAdmissionCorpusSeeds = [
     expected: { db: true, e2e: false, integrationRisk: true, clusterPreview: false },
     expectedAffectedWorkspaces: [
       "@chase-sets/app-admin-web",
+      "@chase-sets/app-agent-apps",
       "@chase-sets/app-marketplace-web",
       "@chase-sets/app-platform-api",
       "@chase-sets/app-platform-worker",
@@ -2045,9 +2046,8 @@ function publicPresenceOccurrences(names) {
   return names.filter((name) => name === publicPresenceWorkspaceName).length;
 }
 
-function withEnrolledWorkspaceDependents(names) {
+function withPublicPresenceAffected(names) {
   const affected = new Set([...names, publicPresenceWorkspaceName]);
-  if (affected.has("@chase-sets/discovery")) affected.add("@chase-sets/app-agent-apps");
   return listWorkspacePackages({ repoRoot })
     .map(({ name }) => name)
     .filter((name) => affected.has(name));
@@ -2104,7 +2104,7 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
   ) {
     return baseOutputMap;
   }
-  const nextAffected = withEnrolledWorkspaceDependents(
+  const nextAffected = withPublicPresenceAffected(
     withWorkerJobDependents(affected, JSON.parse(baseOutputMap.changed_files_json)),
   );
   const direct = JSON.parse(baseOutputMap.directly_affected_workspaces_json);
@@ -3273,6 +3273,9 @@ describe("change-scope", () => {
       "run",
       "test:chromium",
     ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts")).toEqual([
+      "platform_mcp_sdk",
+    ]);
   });
 
   it("keeps every output except enumerated DB, enrollment, job dependency, setup E2E and acyclic context fan-out deltas byte-identical to the base commit", () => {
@@ -3570,7 +3573,7 @@ describe("change-scope", () => {
       expect(next.affectedWorkspaces).toEqual(prior.affectedWorkspaces);
       if (testCase.expectedAffectedWorkspaces) {
         expect(next.affectedWorkspaces, `${testCase.name}:${testCase.status} affected_workspaces`).toEqual(
-          withEnrolledWorkspaceDependents(
+          withPublicPresenceAffected(
             withWorkerJobDependents(testCase.expectedAffectedWorkspaces, testCase.changedFiles),
           ),
         );

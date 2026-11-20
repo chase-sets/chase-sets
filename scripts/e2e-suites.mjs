@@ -759,6 +759,10 @@ function ordinaryE2eSuiteIdsForChangedFile(filePath) {
     return ["admin_auth"];
   }
 
+  if (normalized === "deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts") {
+    return ["platform_mcp_sdk"];
+  }
+
   if (
     normalized.startsWith("deployables/tcgplayer-operator-extension/") ||
     normalized.startsWith("bounded-contexts/catalog/features/operator-session/domain/extension/") ||

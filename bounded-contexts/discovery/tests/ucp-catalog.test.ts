@@ -756,7 +756,7 @@ describe("UCP 2026-08-25 Product resource", () => {
         expect(validate(envelope), `${row.name}/${mode}: ${JSON.stringify(validate.errors)}`).toBe(true);
         expect(product.id).toBe(source.catalog_item_id);
         expect(product.url).toBe("https://marketplace.example/items/charizard-cat-1");
-        expect(new URL(product.url).origin).toBe("https://marketplace.example");
+        expect(new URL(product.url!).origin).toBe("https://marketplace.example");
         expect(product.price_range).toEqual({
           min: { currency: "USD", amount: presentment.priceRange.min },
           max: { currency: "USD", amount: presentment.priceRange.max },
@@ -769,7 +769,7 @@ describe("UCP 2026-08-25 Product resource", () => {
         );
         for (const [index, variant] of product.variants.entries()) {
           expect(variant.url).toBe(`https://marketplace.example/listings/${listings[index]!.listing_slug}`);
-          expect(new URL(variant.url).origin).toBe("https://marketplace.example");
+          expect(new URL(variant.url!).origin).toBe("https://marketplace.example");
           if (mode === "lookup") expect(variant.inputs).toEqual(inputs);
           else expect(variant).not.toHaveProperty("inputs");
         }
