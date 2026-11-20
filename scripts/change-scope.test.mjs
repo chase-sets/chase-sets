@@ -999,7 +999,7 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(152);
+    expect(candidate.cases).toHaveLength(156);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
