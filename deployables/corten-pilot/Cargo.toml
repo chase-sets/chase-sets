@@ -10,8 +10,8 @@ publish = false
 [workspace.dependencies]
 # Pinned to a Corten revision on purpose: it follows Corten's main, past the 0.2.0 release. Move it
 # forward as main moves; see README.md, "Corten pin".
-corten = { git = "https://github.com/corten-run/corten", rev = "9de7529fc3f723d80da1dc725f5d1555645cf67a", package = "corten-run", features = ["compress", "json", "zones"] }
-corten-ui = { git = "https://github.com/corten-run/corten", rev = "9de7529fc3f723d80da1dc725f5d1555645cf67a" }
+corten = { git = "https://github.com/corten-run/corten", rev = "d006525b3384f4998e53aad30c245c678aaef342", package = "corten-run", features = ["compress", "json", "zones"] }
+corten-ui = { git = "https://github.com/corten-run/corten", rev = "d006525b3384f4998e53aad30c245c678aaef342" }
 platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 futures-util = { version = "0.3", default-features = false }
@@ -26,7 +26,7 @@ tracing = "0.1"
 ulid = "1"
 time = { version = "0.3", default-features = false, features = ["std", "parsing", "formatting"] }
 # A visitor's time zone by its name (corten::ClientZone), for a picked date's start where they are.
-jiff = "0.2"
+jiff = "1"
 uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }

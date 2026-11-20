@@ -377,8 +377,8 @@ async fn redraw(
     form: impl Patch,
     forms: BlueprintForms,
 ) -> HtmlResult {
-    if req.mode == Mode::Action {
-        return req.patch(form);
+    if let Some(script) = req.action() {
+        return script.patch(form);
     }
     blueprint_page(req, viewer, config, headers, id, &After::default(), forms).await
 }
@@ -523,15 +523,15 @@ async fn open_set(
         Ok(None) => SetRules::Unread(which),
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let (t, p) = (req.t(), req.t());
         return match &set {
-            SetRules::Fields(form) => req.patch(views::FieldRulesDialog { t, p, id, form: Some(form) }),
-            SetRules::Dimensions(form) => req.patch(views::DimensionRulesDialog { t, p, id, form: Some(form) }),
-            SetRules::Order(form) => req.patch(views::OrderDialog { t, p, id, form: Some(form) }),
-            SetRules::Unread(Set::Fields) => req.patch(views::FieldRulesDialog { t, p, id, form: None }),
-            SetRules::Unread(Set::Dimensions) => req.patch(views::DimensionRulesDialog { t, p, id, form: None }),
-            SetRules::Unread(Set::Order) => req.patch(views::OrderDialog { t, p, id, form: None }),
+            SetRules::Fields(form) => script.patch(views::FieldRulesDialog { t, p, id, form: Some(form) }),
+            SetRules::Dimensions(form) => script.patch(views::DimensionRulesDialog { t, p, id, form: Some(form) }),
+            SetRules::Order(form) => script.patch(views::OrderDialog { t, p, id, form: Some(form) }),
+            SetRules::Unread(Set::Fields) => script.patch(views::FieldRulesDialog { t, p, id, form: None }),
+            SetRules::Unread(Set::Dimensions) => script.patch(views::DimensionRulesDialog { t, p, id, form: None }),
+            SetRules::Unread(Set::Order) => script.patch(views::OrderDialog { t, p, id, form: None }),
         };
     }
     let forms = BlueprintForms { set: Some(set), ..Default::default() };

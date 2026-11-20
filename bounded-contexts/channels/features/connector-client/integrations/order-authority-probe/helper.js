@@ -41,7 +41,7 @@
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  function countRecord(searchRange, after) {
+  function countRecord(searchRange, after, canary) {
     const portalLabel = searchRange === "LastTwoYears" ? "Last 2 years" : "Last 90 days";
     if (
       after &&
@@ -51,11 +51,14 @@
     )
       throw new Error("canceled");
     let dateFilter = prompt(
-      `Expected range: ${portalLabel} (${searchRange}). Confirm the visible date filter as LastTwoYears or LastThreeMonths BEFORE reading any count. Cancel stops.`,
+      canary
+        ? `Expected fixed range: ${portalLabel} (${searchRange}). Transcribe the visible date filter BEFORE reading any count. A different range or cancel stops.`
+        : `Expected range: ${portalLabel} (${searchRange}). Confirm the visible date filter as LastTwoYears or LastThreeMonths BEFORE reading any count. Cancel stops.`,
     );
     if (dateFilter === null) throw new Error("canceled");
     const reprompted = dateFilter !== searchRange;
     if (reprompted) {
+      if (canary) throw new Error("date_filter_mismatch");
       dateFilter = prompt(
         `Restore ${portalLabel} in the portal once, wait for it to settle, then confirm the visible date filter. Cancel stops.`,
       );
@@ -141,6 +144,7 @@
     };
     const terminal = async (response) => {
       finished = true;
+      if (response.handoff) download("ready-to-ship-handoff.json", JSON.stringify(response.handoff, null, 2) + "\n");
       return exportReceipt(response.receipt);
     };
     try {
@@ -153,19 +157,25 @@
       const begin = await send({ kind: "begin" });
       begun = true;
       if (begin.receipt) return terminal(begin);
+      const canary = begin.code === "canary";
       const lookup = await send({ kind: "lookup" });
       if (lookup.receipt) return terminal(lookup);
-      for (let index = 0; index < 2; index += 1) {
+      for (let index = 0; index < (canary ? 1 : 2); index += 1) {
         const searchRange = index === 0 ? "LastTwoYears" : "LastThreeMonths";
-        const search = await send({ kind: "search", ...countRecord(searchRange, false) });
+        const search = await send({ kind: "search", ...countRecord(searchRange, false, canary) });
         if (search.receipt) return terminal(search);
         const counts = await send({
           kind: "counts",
-          ...countRecord(searchRange, true),
+          ...countRecord(searchRange, true, canary),
           sameSession: confirm("Same seller and approved session throughout this bracket? Session loss stops."),
         });
         if (counts.receipt) return terminal(counts);
         if (counts.code !== "fallback_available") break;
+      }
+      if (canary) {
+        if (!confirm("Same seller and isolated session through the last detail read? Cancel stops."))
+          throw new Error("bracket_changed");
+        return terminal(await send({ kind: "finish", sameSession: true }));
       }
       return terminal(await send({ kind: "finish" }));
     } catch (error) {

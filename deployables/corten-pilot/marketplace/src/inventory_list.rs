@@ -387,9 +387,9 @@ async fn render(
     };
     // A refused form, or the picker asking the page again: only that form is drawn again, in place.
     let m: crate::text::Msg = req.t();
-    if req.mode == corten::Mode::Action {
+    if let Some(script) = req.action() {
         if let Some(status) = &posted {
-            return req.patch_with_status(UNPROCESSABLE, views::refused_item(t, p, m, viewer, &screen, &create, status));
+            return script.patch_with_status(UNPROCESSABLE, views::refused_item(t, p, m, viewer, &screen, &create, status));
         }
         if let Some(draft) = &sale {
             let form = html! {
@@ -402,10 +402,10 @@ async fn render(
                     autofocus={true}
                 />
             };
-            return req.patch_with_status(UNPROCESSABLE, form);
+            return script.patch_with_status(UNPROCESSABLE, form);
         }
         if create.draft.redraw {
-            return req
+            return script
                 .patch(html! { <views::CreateItemForm t={t} p={p} m={m} viewer={viewer} screen={&screen} create={&create} /> });
         }
     }

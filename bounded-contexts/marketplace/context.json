@@ -1380,17 +1380,18 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-client:bounded-contexts/marketplace/client.ts:POST H5bf11c91704f#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H967996563c95#1",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/batch/prepare"
       ],
       "visibleDestination": {
-        "description": "Only after the server acknowledges the hash-only C2 vector does the browser install the bounded recovery reference. The authorized loader reconstructs that vector before any Listing command is sent."
+        "description": "The browser installs the opaque recovery reference after Marketplace prepares the Listing vector. The authorized loader renders Marketplace's classified recovery response before a Listing command is sent."
       },
       "proof": {
-        "authoritativeResponse": "Preparation acknowledges a durable owner-bound vector with an unchanged target/hash binding. It cannot overwrite terminal outcomes, execute a Listing command, or persist request bytes.",
+        "authoritativeResponse": "Marketplace derives each request hash from the command and persists a durable owner-bound vector. Preparation cannot overwrite terminal outcomes, execute a Listing command, or persist request bytes.",
         "tests": [
           "bounded-contexts/marketplace/features/listings/api/route.test.ts",
           "bounded-contexts/marketplace/features/listings/api/listing-batch.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/listing-recovery.test.ts",
           "bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"
         ]
       }
@@ -1401,14 +1402,19 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
+        "api-client:bounded-contexts/marketplace/client.ts:POST H8b8ec8f405d2#1",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/batch/retry",
         "post-form:bounded-contexts/marketplace/features/listings/ui/listing-batch-recovery.tsx:H1abed2c1c746#1"
       ],
       "visibleDestination": {
         "description": "The Listing recovery notice renders the command-owned terminal vector. Only explicit unknown targets have a retry action; projected Listing rows never authorize a resend."
       },
       "proof": {
-        "authoritativeResponse": "The retry route preflights each target through its owner lookup, submits only unknown targets, and returns the C2 terminal vector. Possible-send loss resolves through owner history rather than repeating the command.",
-        "tests": ["bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"]
+        "authoritativeResponse": "Marketplace checks owner history, sends only targets whose outcome is unknown, and returns classified outcomes. A possible send is recovered through a read, not by repeating the command.",
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
+          "bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"
+        ]
       }
     },
     {
@@ -1546,7 +1552,7 @@
         "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /drafts/:id/activate",
         "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /documents/:id/rollback-draft",
         "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /evaluation",
-        "api-client:bounded-contexts/marketplace/features/listing-evidence-policy/api/client.ts:POST Hd8d108712ea1#1",
+        "api-client:bounded-contexts/marketplace/features/listing-evidence-policy/api/client.ts:POST Haa1c04f43ca0#1",
         "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#1",
         "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#2",
         "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#3",

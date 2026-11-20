@@ -118,7 +118,7 @@
   "list.dispute.rate": "Dispute rate",
   "list.dispute.rate.detail": "{count} orders, resolved against you",
   "list.open": "Open",
-  "list.paused.listings.detail": "{count} paused {label}",
+  "list.paused.listings.detail": "Hidden from buyers until resumed",
   "list.photo.count": "{count} photos",
   "list.preview.fees.before.publishing": "Preview fees before publishing",
   "list.preview.fees": "Preview fees",

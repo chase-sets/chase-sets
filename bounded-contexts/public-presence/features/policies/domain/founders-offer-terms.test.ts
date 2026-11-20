@@ -260,7 +260,7 @@ const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quot
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:1369-1388`,
+    `${listingRuntime}:1365-1384`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -289,7 +289,7 @@ const creationChain: Citation[] = [
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1900-1955`,
+    `${listingRuntime}:1896-1951`,
     /params.publicationScope === "channel-only" \? null : await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
@@ -380,18 +380,18 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:2509-2542`,
+        `${listingRuntime}:2505-2538`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:2543-2633`,
+        `${listingRuntime}:2539-2629`,
         /applyBulkListingPriceUpdates: async/,
         /driveBulkPriceUpdates\(params.accountId, /,
       ],
       [
-        `${listingRuntime}:2004-2110`,
+        `${listingRuntime}:2000-2106`,
         /async function driveBulkPriceUpdates\(/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -465,7 +465,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2663-2703`,
+        `${listingRuntime}:2658-2698`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
@@ -623,7 +623,7 @@ describe("founders clause-level source authority", () => {
   it("preserves all three Pricing callers through the shared client and the real bulk route", () => {
     const callers: Citation[] = [
       [
-        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:653-653",
+        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:655-655",
         /marketplaceGatewayForAccount\(accountId\).applyBulkListingPriceUpdates\(\{ updates \}\)/,
       ],
       [
@@ -645,13 +645,13 @@ describe("founders clause-level source authority", () => {
         /applyBulkListingPriceUpdates: \(body, options\) => marketplaceApi.applyBulkListingPriceUpdates\(body, options\)/,
       ],
       [
-        "bounded-contexts/marketplace/client.ts:706-738",
+        "bounded-contexts/marketplace/client.ts:735-767",
         /async applyBulkListingPriceUpdates/,
         /"\/account\/listings\/prices\/bulk"/,
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1591-1623",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1592-1624",
         /"\/listings\/prices\/bulk"/,
         /const batch = parseBulkListingPriceUpdates\(body, c\.req\.header\("Idempotency-Key"\)\)/,
         /services.applyBulkListingPriceUpdates/,

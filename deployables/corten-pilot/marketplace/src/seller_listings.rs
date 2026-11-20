@@ -8,13 +8,18 @@
 //! open orders without it, best-effort (a failure shows them unavailable, never the page's error).
 //! While a write's projection is not readable yet, the page reads without the receipt and shows
 //! the setting the address says was written (marketplace's `availabilityAction` and
-//! `settingsAction` recovery).
+//! `settingsAction` recovery). When the address names a change (`listingRecovery`), the page reads
+//! back what came of it and says so above the rest (`listing_recovery`); if the rest cannot be
+//! read, it says only that (marketplace's `recoveryOnly`).
 //!
-//! Writes, each its own form posting an `intent` to the page with its `SubmitKey` (the Listing
-//! attempt, so a form sent again applies once): turn listings off or on, schedule or cancel an
-//! away window, set or remove the order capacity (each redirects to the page with its
-//! receipt), and Pause or Withdraw the checked listings as one batch (the page again, each listing's
-//! outcome shown, read after the batch). A date a seller picks means the start of that day where
+//! Writes, each its own form posting an `intent` to the page with its `SubmitKey`: turn listings
+//! off or on, schedule or cancel an away window, set or remove the order capacity, and Pause or
+//! Withdraw the checked listings as one change. Each is prepared first and sent under the attempt
+//! Marketplace prepared it as, so a form sent again applies once; then the page follows with the
+//! write's receipt and the change on its address, saying what came of it (each listing of a bulk
+//! change, with Retry for those still unknown). A change whose answer was lost is the page naming
+//! it, read back; one refused is the page again with the API's words. A date a seller picks means
+//! the start of that day where
 //! they are (marketplace's `localDateInputToInstant`). The page draws the day forms in the
 //! browser's time zone (`req.zone()`), or before the runtime has run (a first page, no JavaScript)
 //! the zone the account chose in Identity's preferences, or UTC; each form sends that zone back
@@ -33,11 +38,12 @@ use platform::{realtime::Tick, receipt::Receipt};
 
 use crate::{
     api::{
-        ApiError, Availability, BatchFamily, Caller as Api, CommandError, FeeLockRow, ListingBatch, ListingPage, OrderCapacity,
-        PreferenceCalls as _, SellerListingList as _, SellerListings as _, SellerMetrics, SellerSetting, segment,
+        ApiError, Availability, Caller as Api, CommandError, FeeLockRow, ListingPage, ListingRecovery, ListingReference,
+        OrderCapacity, PreferenceCalls as _, SellerListingList as _, SellerListings as _, SellerMetrics, SellerSetting, segment,
     },
     app::{Shared, read_failed, sign_in, url},
     auth::{ListingManager, Viewer},
+    listing_recovery::{self, Change, Next},
     text::{Pilot, SellerListingsMsg},
     views::{self, Layout},
 };
@@ -68,6 +74,8 @@ pub struct Place {
     pub away_window_starts_at: Option<String>,
     pub away_window_ends_at: Option<String>,
     pub max_open_orders: Option<String>,
+    /// A prepared change whose outcome the page says (`ListingReference`'s JSON).
+    pub listing_recovery: Option<String>,
 }
 
 /// The list's filters and page (`sellerListingFilters`, `sellerListingPageQuery`).
@@ -147,65 +155,9 @@ pub struct ListingsForm {
     pub max_open_orders: String,
     /// The checked listings, for Pause selected and Withdraw selected.
     pub listing_ids: Vec<String>,
-    /// The form's attempt, drawn with it: the same form sent again is the same batch (the bulk
-    /// form's batch id) or the same Listing attempt (a setting's, marketplace's `ListingCommandForm`).
+    /// The form's attempt, drawn with it (marketplace's `ListingCommandForm`): Marketplace prepares
+    /// the change as this attempt, so the same form sent again is the same change.
     pub attempt: Option<SubmitKey>,
-}
-
-/// One listing's outcome of a bulk Pause or Withdraw (`MarketplaceListingBulkActionOutcome`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Outcome {
-    pub listing_id: String,
-    pub state: Settled,
-    pub message: Option<String>,
-}
-
-/// What a batch did to a listing, as Marketplace's batch item says (`outcome`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Settled {
-    Succeeded,
-    /// Changed elsewhere first (`conflict`).
-    Conflict,
-    /// Not confirmed either way (`unknown`, or a listing the answer left out): it may have
-    /// applied, and sending the same batch again settles it.
-    Unknown,
-    /// Refused or failed (`error`, or the whole batch refused).
-    Failed,
-}
-
-impl Settled {
-    fn read(outcome: &str) -> Self {
-        match outcome {
-            "succeeded" => Settled::Succeeded,
-            "conflict" => Settled::Conflict,
-            "unknown" => Settled::Unknown,
-            _ => Settled::Failed,
-        }
-    }
-}
-
-impl Outcome {
-    fn failed(listing_id: String, message: &str) -> Self {
-        Outcome { listing_id, state: Settled::Failed, message: Some(message.to_owned()) }
-    }
-}
-
-/// What a bulk Pause or Withdraw came to: each listing's outcome, and, when one is not
-/// confirmed, the same batch to send again.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Bulk {
-    pub outcomes: Vec<Outcome>,
-    pub resend: Option<Resend>,
-}
-
-/// A batch to send again as it was: its id, its intent and its listings. Marketplace answers what
-/// it already decided and applies again only a listing whose outcome was unknown; a different set
-/// of listings under the same id is refused, so the form sends the whole batch.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Resend {
-    pub batch_id: String,
-    pub intent: &'static str,
-    pub listing_ids: Vec<String>,
 }
 
 /// The page.
@@ -219,7 +171,10 @@ pub struct ListingsScreen {
     /// None when the metrics could not be read, or were not all valid.
     pub metrics: Option<SellerMetrics>,
     pub filters: Filters,
-    pub bulk: Option<Bulk>,
+    /// What came of the change the address names, or of one the page did not send.
+    pub recovery: Option<ListingRecovery>,
+    /// The page as it is, naming the change: where its forms post.
+    pub action: url::SellerListings,
     /// What a refused write was refused for: the page's banner and the fields'.
     pub errors: Errors,
     /// The refused form as it was sent.
@@ -228,10 +183,19 @@ pub struct ListingsScreen {
     pub zone: DrawZone,
 }
 
+impl ListingsScreen {
+    /// Whether the page's changes are off: what it says came of a change is recorded, or nothing
+    /// is confirmed (`ListingRecovery::blocks`).
+    pub fn blocked(&self) -> bool {
+        self.recovery.as_ref().is_some_and(ListingRecovery::blocks)
+    }
+}
+
 /// What a write adds to the page drawn after it.
 #[derive(Default)]
 struct After {
-    bulk: Option<Bulk>,
+    /// What came of a change the page did not send.
+    recovery: Option<ListingRecovery>,
     errors: Errors,
     sent: ListingsForm,
     /// The zone a refused day form was drawn in, to draw it again in.
@@ -303,24 +267,43 @@ async fn render(
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     // Neither has a write on this page to wait for, and neither may fail the page.
     let plain = config.platform.caller(headers, config.proto, None);
+    let After { recovery, errors, sent, zone: drawn } = after;
     let zone = async {
-        match after.zone.clone() {
+        match drawn {
             Some(zone) => zone,
             None => seller_zone(req, &plain).await,
         }
     };
-    let (fresh, metrics, open_orders, zone) =
-        tokio::join!(reads(&caller, &query), plain.seller_metrics(), plain.open_order_count(), zone);
-    let reads = match fresh {
-        Ok(reads) => reads,
-        Err(error) if receipt.is_some() && error.catching_up() => match self::reads(&plain, &query).await {
+    // What came of the change the address names, read without the receipt (`nonFreshApi`).
+    let recovery = async {
+        match recovery {
+            Some(recovery) => Some(recovery),
+            None => listing_recovery::read(&plain, place.listing_recovery.as_deref()).await,
+        }
+    };
+    let (fresh, metrics, open_orders, zone, recovery) =
+        tokio::join!(reads(&caller, &query), plain.seller_metrics(), plain.open_order_count(), zone, recovery);
+    let action = naming(&filters, place.listing_recovery.clone());
+    let reads = match (fresh, &recovery) {
+        (Ok(reads), _) => reads,
+        // A change's outcome is still said when the page cannot be read (`recoveryOnly`).
+        (Err(error), Some(recovery)) => {
+            tracing::warn!("the listings could not be read after a change: {error}");
+            let (here, clear) = (action.href(), filters.here().href());
+            let t: SellerListingsMsg = req.t();
+            let view = html! { <views::ListingRecoveryNotice t={req.t()} recovery={recovery} here={&here} clear={&clear} /> };
+            return req.page(html! {
+                <Layout req={req} viewer={Some(viewer)} title={t.route_listings_marketplace()} head={()}>{view}</Layout>
+            });
+        }
+        (Err(error), None) if receipt.is_some() && error.catching_up() => match self::reads(&plain, &query).await {
             Ok(mut reads) => {
                 overlay(place, &mut reads);
                 reads
             }
             Err(error) => return read_failed(req, Some(viewer), error, None),
         },
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        (Err(error), None) => return read_failed(req, Some(viewer), error, None),
     };
     let metrics = match metrics {
         Ok(metrics) if metrics.valid() => Some(metrics),
@@ -342,13 +325,14 @@ async fn render(
         open_orders,
         metrics,
         filters,
-        bulk: after.bulk,
-        errors: after.errors,
-        sent: after.sent,
+        recovery,
+        action,
+        errors,
+        sent,
         zone,
     };
     let t: SellerListingsMsg = req.t();
-    let view = html! { <views::SellerListingsPage t={t} p={req.t()} screen={&screen} /> };
+    let view = html! { <views::SellerListingsPage t={t} p={req.t()} r={req.t()} screen={&screen} /> };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.route_listings_marketplace()} head={()}>{view}</Layout>
     };
@@ -461,12 +445,31 @@ fn setting(form: &ListingsForm, t: SellerListingsMsg, p: Pilot) -> Result<Seller
     errors.into_result(setting)
 }
 
-/// Where a setting that applied goes: the list as it was, after the write, saying what it set
-/// (`navigateAfterWrite` to `settingsDestination`).
-fn applied(place: &Place, receipt: Option<&Receipt>, setting: &SellerSetting) -> url::SellerListings {
-    let mut to = Filters::read(place).here();
+/// The list as `filters` have it, naming the change `reference` (a reference's JSON).
+fn naming(filters: &Filters, reference: Option<String>) -> url::SellerListings {
+    let mut to = filters.here();
+    to.place.listing_recovery = reference;
+    to
+}
+
+/// The list as it was, naming the change `reference`, after the write `receipt` follows: where a
+/// change goes, and one whose answer was lost (`listingRecoveryUrl`).
+fn changed(place: &Place, reference: &ListingReference, receipt: Option<&Receipt>) -> url::SellerListings {
+    let mut to = naming(&Filters::read(place), Some(listing_recovery::param(reference)));
+    to.place.after_write = receipt.map(Receipt::param);
+    to
+}
+
+/// Where a setting that applied goes: the list as it was, naming the change, after the write,
+/// saying what it set (`navigateAfterWrite` to `settingsDestination`).
+fn applied(
+    place: &Place,
+    reference: &ListingReference,
+    receipt: Option<&Receipt>,
+    setting: &SellerSetting,
+) -> url::SellerListings {
+    let mut to = changed(place, reference, receipt);
     let p = &mut to.place;
-    p.after_write = receipt.map(Receipt::param);
     let action = |name: &str| Some(name.to_owned());
     match setting {
         SellerSetting::Disable { .. } => p.availability_action = action("disabled"),
@@ -530,12 +533,10 @@ pub(crate) async fn write(
 ) -> HtmlResult {
     let place = route.place;
     let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
-    if let Some(family) = match form.intent.as_str() {
-        "bulk-pause-listings" => Some(BatchFamily::Pause),
-        "bulk-withdraw-listings" => Some(BatchFamily::Withdraw),
-        _ => None,
-    } {
-        return bulk(&req, &viewer, &config, &headers, &place, form, family).await;
+    match form.intent.as_str() {
+        "bulk-pause-listings" | "bulk-withdraw-listings" => return bulk(&req, &viewer, &config, &headers, &place, form).await,
+        "retry-listing-batch" => return retry(&req, &viewer, &config, &headers, &place).await,
+        _ => {}
     }
     let refused_page = |errors: Errors, form: ListingsForm, status| {
         // A refused day form is drawn again in the zone it was drawn in.
@@ -548,8 +549,20 @@ pub(crate) async fn write(
         Ok(setting) => setting,
         Err(errors) => return refused_page(errors, form, StatusCode::UNPROCESSABLE_ENTITY).await,
     };
-    let error = match caller.seller_setting(&setting, form.attempt.as_ref().map(SubmitKey::as_str)).await {
-        Ok(receipt) => return req.redirect(&applied(&place, receipt.as_ref(), &setting)),
+    let change = Change {
+        intent: &form.intent,
+        attempt: form.attempt.as_ref().map(SubmitKey::as_str),
+        listing_id: None,
+        listing_ids: &[],
+        fields: listing_recovery::setting_fields(&setting),
+    };
+    let reference = match listing_recovery::prepare(&caller, place.listing_recovery.as_deref(), change).await {
+        Ok(Next::Send(reference)) => reference,
+        Ok(Next::Show(recovery)) => return shown(&req, &viewer, &config, &headers, &place, form, recovery).await,
+        Err(_) => return sign_in(&req),
+    };
+    let error = match caller.seller_setting(&setting, &reference.batch_id).await {
+        Ok(receipt) => return req.redirect(&applied(&place, &reference, receipt.as_ref(), &setting)),
         Err(CommandError::Api(error)) => error,
         Err(other) => {
             tracing::warn!("a listing setting was refused with a listing's conflict: {other:?}");
@@ -560,6 +573,10 @@ pub(crate) async fn write(
     };
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(&req),
+        _ if listing_recovery::interrupted(&error) => {
+            tracing::warn!("a listing setting's answer was lost: {error}");
+            return req.redirect(&changed(&place, &reference, None));
+        }
         Some(status) if status.is_client_error() => status,
         _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     };
@@ -574,85 +591,97 @@ pub(crate) async fn write(
     refused_page(errors, form, status).await
 }
 
-/// Pause selected or Withdraw selected: the checked listings as one batch (marketplace's
-/// `applyListingBatch`) whose id is the form's attempt, then the page with each listing's outcome,
-/// read after the batch. The same form sent again (a double click, a resend after a lost answer)
-/// is the same batch: Marketplace answers what it decided and sends again only a listing whose
-/// outcome was unknown. Each listing says what the batch did to it, in marketplace's words
-/// (succeeded, changed elsewhere, unconfirmed, failed). An unconfirmed one says so, the count names
-/// it apart from the failed ones, and the page offers the same batch to send again. Marketplace's
-/// page also prepares the batch and carries a reference to it on its address, so a reload after a
-/// lost answer reads each outcome back; it works out the request hashes and the outcomes itself,
-/// which the pilot does not repeat (chase-sets/chase-sets#11461). A refused batch (4xx) says why for
-/// every listing; a failure (5xx, no answer) is the error page, as marketplace's action throws.
-#[allow(clippy::too_many_arguments)]
-async fn bulk(
+/// The page again, not having sent `form`'s change, saying `recovery`.
+async fn shown(
     req: &Req,
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     place: &Place,
     form: ListingsForm,
-    family: BatchFamily,
+    recovery: ListingRecovery,
 ) -> HtmlResult {
-    let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
+    // A day form is drawn again in the zone it was drawn in.
+    let zone = form.zone.as_ref().map(DrawZone::from);
+    let after = After { recovery: Some(recovery), sent: form, zone, ..After::default() };
+    render(req, viewer, config, headers, place, None, after, StatusCode::CONFLICT).await
+}
+
+/// Pause selected or Withdraw selected: the checked listings as one change (marketplace's
+/// `bulk-pause-listings` and `bulk-withdraw-listings`), prepared as the form's attempt and sent
+/// (`send_batch`). The same form sent again (a double click, a resend after a lost answer) is the
+/// same change: Marketplace sends again only a listing whose outcome is unknown.
+async fn bulk(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, place: &Place, form: ListingsForm) -> HtmlResult {
+    let p: Pilot = req.t();
     let mut ids: Vec<String> = Vec::new();
     for id in form.listing_ids.iter().map(|id| id.trim()).filter(|id| !id.is_empty()) {
         if !ids.iter().any(|seen| seen == id) {
             ids.push(id.to_owned());
         }
     }
-    if ids.is_empty() {
+    // Nothing checked on a page that names no change: nothing to send.
+    if ids.is_empty() && place.listing_recovery.is_none() {
         let mut errors = Errors::new();
         errors.add_form(p.seller_listings_choose_listings());
         let after = After { errors, sent: form, ..After::default() };
         return render(req, viewer, config, headers, place, None, after, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
-    // A form drawn before the batch id was part of it gets one of its own.
-    let batch_id = form.attempt.as_ref().map_or_else(|| uuid::Uuid::new_v4().to_string(), |key| key.as_str().to_owned());
     let caller = config.platform.caller(headers, config.proto, None);
-    let batch = ListingBatch { batch_id: &batch_id, family, listing_ids: &ids };
-    let (bulk, receipt, status) = match caller.listing_batch(&batch).await {
-        Ok((result, receipt)) => {
-            let outcomes: Vec<Outcome> = ids
-                .iter()
-                .map(|listing_id| {
-                    let item = result.items.iter().find(|item| &item.target_id == listing_id);
-                    let state = item.map_or(Settled::Unknown, |item| Settled::read(&item.outcome));
-                    let message = match state {
-                        Settled::Succeeded | Settled::Conflict => None,
-                        Settled::Unknown => Some(p.seller_listings_unconfirmed().to_owned()),
-                        Settled::Failed => Some(t.route_bulk_action_request_failed().to_owned()),
-                    };
-                    Outcome { listing_id: listing_id.clone(), state, message }
-                })
-                .collect();
-            let resend = outcomes.iter().any(|o| o.state == Settled::Unknown).then(|| Resend {
-                batch_id: batch_id.clone(),
-                intent: match family {
-                    BatchFamily::Pause => "bulk-pause-listings",
-                    BatchFamily::Withdraw => "bulk-withdraw-listings",
-                },
-                listing_ids: ids.clone(),
-            });
-            (Bulk { outcomes, resend }, receipt, StatusCode::OK)
-        }
-        Err(error) => match error.status() {
-            Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
-            Some(status) if status.is_client_error() => {
-                let message = error
-                    .code()
-                    .and_then(|code| refusal(t, code))
-                    .or(error.refusal())
-                    .unwrap_or(t.route_bulk_action_request_failed());
-                let outcomes = ids.into_iter().map(|id| Outcome::failed(id, message)).collect();
-                (Bulk { outcomes, resend: None }, None, StatusCode::UNPROCESSABLE_ENTITY)
-            }
-            _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
-        },
+    let change = Change {
+        intent: &form.intent,
+        attempt: form.attempt.as_ref().map(SubmitKey::as_str),
+        listing_id: None,
+        listing_ids: &ids,
+        fields: Default::default(),
     };
-    let after = After { bulk: Some(bulk), ..After::default() };
-    render(req, viewer, config, headers, place, receipt, after, status).await
+    match listing_recovery::prepare(&caller, place.listing_recovery.as_deref(), change).await {
+        Ok(Next::Send(reference)) => send_batch(req, viewer, config, headers, place, &reference).await,
+        Ok(Next::Show(recovery)) => shown(req, viewer, config, headers, place, form, recovery).await,
+        Err(_) => sign_in(req),
+    }
+}
+
+/// Retry unknown Listings (marketplace's `retry-listing-batch`): the bulk change the address names,
+/// sent again. A page naming no bulk change sends nothing.
+async fn retry(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, place: &Place) -> HtmlResult {
+    match listing_recovery::reference(place.listing_recovery.as_deref()) {
+        Ok(Some(reference)) if reference.bulk => send_batch(req, viewer, config, headers, place, &reference).await,
+        _ => shown(req, viewer, config, headers, place, ListingsForm::default(), ListingRecovery::ambiguous()).await,
+    }
+}
+
+/// Sends a prepared bulk change (`retryListingBatch`): Marketplace checks each listing's history
+/// and sends those whose outcome is unknown, then the list follows naming the change, which says
+/// what came of each. One whose answer was lost is the same. A refused one (4xx) is the list naming
+/// it, with the API's words.
+async fn send_batch(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    place: &Place,
+    reference: &ListingReference,
+) -> HtmlResult {
+    let caller = config.platform.caller(headers, config.proto, None);
+    let error = match caller.retry_listing_batch(reference).await {
+        Ok(receipt) => return req.redirect(&changed(place, reference, receipt.as_ref())),
+        Err(error) => error,
+    };
+    if error.status() == Some(StatusCode::UNAUTHORIZED) {
+        return sign_in(req);
+    }
+    if listing_recovery::interrupted(&error) {
+        tracing::warn!("a bulk listing change's answer was lost: {error}");
+        return req.redirect(&changed(place, reference, None));
+    }
+    let t: SellerListingsMsg = req.t();
+    let message =
+        error.code().and_then(|code| refusal(t, code)).or(error.refusal()).unwrap_or(t.route_bulk_action_request_failed());
+    let mut errors = Errors::new();
+    errors.add_form(message);
+    let naming = Place { listing_recovery: Some(listing_recovery::param(reference)), ..place.clone() };
+    let after = After { errors, ..After::default() };
+    render(req, viewer, config, headers, &naming, None, after, StatusCode::UNPROCESSABLE_ENTITY).await
 }
 
 /// The list's parts for `<corten-live>` (marketplace's `useRealtimePatchedSnapshot` on
@@ -708,15 +737,6 @@ pub(crate) async fn live(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_batch_items_outcome_reads_as_marketplace_names_it() {
-        assert_eq!(Settled::read("succeeded"), Settled::Succeeded);
-        assert_eq!(Settled::read("conflict"), Settled::Conflict);
-        assert_eq!(Settled::read("unknown"), Settled::Unknown);
-        assert_eq!(Settled::read("error"), Settled::Failed);
-        assert_eq!(Settled::read("something-new"), Settled::Failed, "an outcome it does not know is not a success");
-    }
 
     fn place(pairs: &[(&str, &str)]) -> Place {
         let mut place = Place::default();

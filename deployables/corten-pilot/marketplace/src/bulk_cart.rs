@@ -22,9 +22,9 @@
 //! marketplace keeps the sheet open after a whole add, saying "Buy Cart updated"; the pilot sends
 //! the search page again, as a write's answer does, so the shell's count is drawn after the write
 //! with or without JavaScript, and says the counts in the page's notice. A partial add keeps its
-//! sheet, so each line's reason stays on screen: without JavaScript the page gives the count it read
-//! after the write; with JavaScript the patch cannot reach the shell's count, which shows the add at
-//! the next page (corten-run/corten#1370).
+//! sheet, so each line's reason stays on screen: its answer is the search's page with the sheet
+//! open, which gives the count it read after the write. With JavaScript the runtime draws a write's
+//! own page whole, so the shell's count is the one read after the add in both.
 use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
@@ -236,15 +236,10 @@ pub(crate) async fn commit(
                 })
                 .collect();
             let sheet = Sheet::Partial { preview, added, merged, not_added };
-            if req.mode == corten::Mode::Action {
-                // The patch cannot reach the shell's count, which shows the add at the next page
-                // (corten-run/corten#1370).
-                answer(&req, session, &caller, asked, sheet, StatusCode::OK).await?
-            } else {
-                // The page draws the shell's count as it read it after the write, for the cart written.
-                let n = count_of(&config, &headers, guest.is_none(), guest.as_deref(), outcome.receipt.as_ref()).await;
-                answer(&req, session, &caller, asked, sheet, StatusCode::OK).await?.give::<CartCount>(Some(n))
-            }
+            // The page, not the sheet's patch, so the shell's count is drawn as it was read after the
+            // write, for the cart written, with JavaScript as without.
+            let n = count_of(&config, &headers, guest.is_none(), guest.as_deref(), outcome.receipt.as_ref()).await;
+            crate::search::with_sheet(&req, session, &caller, asked, sheet, StatusCode::OK).await?.give::<CartCount>(Some(n))
         }
         Attempted::FailedSafe => {
             let message = outcome.message.or_else(|| outcome.not_applied.into_iter().flatten().next());
@@ -270,9 +265,9 @@ async fn answer(
     sheet: Sheet,
     status: StatusCode,
 ) -> HtmlResult {
-    if req.mode == corten::Mode::Action {
+    if let Some(script) = req.action() {
         let (t, pairs) = (req.t(), asked.pairs());
-        return req.patch_with_status(status, views::BulkCartSheet { t, sheet: Some(&sheet), pairs: &pairs });
+        return script.patch_with_status(status, views::BulkCartSheet { t, sheet: Some(&sheet), pairs: &pairs });
     }
     crate::search::with_sheet(req, session, caller, asked, sheet, status).await
 }

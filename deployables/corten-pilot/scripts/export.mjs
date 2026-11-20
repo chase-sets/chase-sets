@@ -1463,6 +1463,7 @@ const outputs = [
     json(
       await catalog("identity.ts", "identityEnglishTranslations", [
         ["identity.features.accounts.ui.accountProfilePage.", "page"],
+        ["identity.features.accounts.errors.", "errors"],
         ["identity.features.accounts.ui.currentActorDisplayCue.", "actor"],
         ["identity.features.accounts.ui.accountBadges.", "badges"],
         ["identity.values.accountType.", "account_type"],
@@ -1660,6 +1661,16 @@ const outputs = [
         ["localization.languageCode.", "language"],
       ])),
     }),
+  ],
+  [
+    "marketplace/locales/listing-recovery.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        // `continue` is a Rust keyword, so not a message's name.
+        ["marketplace.listingRecovery.continue", "start_another"],
+        ["marketplace.listingRecovery.", ""],
+      ]),
+    ),
   ],
   [
     "marketplace/locales/desk.en.json",

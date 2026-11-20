@@ -11,6 +11,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.reviewRecovery.changedRequest": "This attempt was used for a different request.",
   "marketplace.reviewRecovery.reportNotSent": "The report was not sent. Reload the form before submitting.",
   "marketplace.reviewRecovery.reportFailed": "The report could not be submitted.",
+  "marketplace.reviewRecovery.reportLimited":
+    "You have sent several reports in a short time. Try again in a few minutes.",
   "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
   "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
   "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
@@ -510,7 +512,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.dispute.rate": "Dispute rate",
   "marketplace.features.listings.ui.listingListPage.dispute.rate.detail": "{count} orders, resolved against you",
   "marketplace.features.listings.ui.listingListPage.open": "Open",
-  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "{count} paused {label}",
+  "marketplace.features.listings.ui.listingListPage.paused.listings.detail": "Hidden from buyers until resumed",
   "marketplace.features.listings.ui.listingListPage.photo.count": "{count} photos",
   "marketplace.features.listings.ui.listingListPage.preview.fees.before.publishing": "Preview fees before publishing",
   "marketplace.features.listings.ui.listingListPage.preview.fees": "Preview fees",

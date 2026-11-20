@@ -27,7 +27,12 @@ import type {
   ClaimedSubjectOperation,
   ClaimedOutboundOperation,
 } from "../domain/contracts";
-import { deriveOrderPullId, orderPullFitsLease, type ClaimedOrderPullOutcome } from "../domain/order-pull";
+import {
+  deriveOrderPullId,
+  orderPullFitsLease,
+  type ClaimedOrderPullOutcome,
+  type OrderPullProgressOutcome,
+} from "../domain/order-pull";
 import { outboundSyncSchemaMigrations } from "../read-model/schema";
 import { syntheticAuthority, syntheticPage, syntheticPayload, syntheticProgress } from "./order-pull-fixtures";
 import { advanceOrderPullTraversal } from "../domain/order-pull-progress";
@@ -98,9 +103,7 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
       outcome,
     };
   }
-  function complete(
-    member: ClaimedOrderPullOperation,
-  ): Exclude<ClaimedOrderPullOutcome["outcome"], { kind: "order-pull-unknown" | "abandoned" }> {
+  function complete(member: ClaimedOrderPullOperation): OrderPullProgressOutcome {
     return {
       kind: "order-pull-complete",
       lawVersion: member.payload.lawVersion,

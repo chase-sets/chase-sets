@@ -35,6 +35,8 @@ on:
           - m50-final-proof
           - scope-sync-batch-preview-probe
           - full-game-start
+          - full-game-preview
+          - full-game-confirm
           - full-game-settle
           - scope-sync-count-lifecycle
           - scrydex-cache-capture
@@ -67,17 +69,22 @@ on:
         default: ""
         type: string
       product_domain:
-        description: full-game-start only. Catalog Scope product domain to batch, e.g. one-piece.
+        description: Whole-game start, preview or confirm. Catalog Scope product domain to batch, e.g. one-piece.
         required: false
         default: ""
         type: string
       language_code:
-        description: full-game-start only. Optional language code; blank batches every language.
+        description: Whole-game start, preview or confirm. Optional language code; blank batches every language.
         required: false
         default: ""
         type: string
       budget:
-        description: full-game-start only. Comma-separated key=value overrides of maxScopesPerTurn, tcgdexRequestLimit, scrydexRateRequestLimit, scrydexRequestLimit, providerFailureThreshold.
+        description: Whole-game start, preview or confirm. Comma-separated key=value overrides of maxScopesPerTurn, tcgdexRequestLimit, scrydexRateRequestLimit, scrydexRequestLimit, providerFailureThreshold. For paid confirm, scrydexRequestLimit must equal the approved L.
+        required: false
+        default: ""
+        type: string
+      approved_preview_fingerprint:
+        description: full-game-confirm only. Exact fingerprint from a confirmable full-game-preview with the approved budget.
         required: false
         default: ""
         type: string
@@ -116,6 +123,7 @@ jobs:
           RUN_SHA: ${{ github.sha }}
           CONFIRMATION: ${{ inputs.confirm }}
           JOURNEY_SCOPE: ${{ inputs.journey_scope }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
           SCRATCH_PARENT: ${{ inputs.scratch_parent }}
         with:
@@ -126,9 +134,13 @@ jobs:
                 expected.toLowerCase() !== process.env.RUN_SHA) {
               core.setFailed('Confirmation and exact immutable expected_sha are required.');
             }
-            if (['full-game-start', 'full-game-settle', 'scope-sync-count-lifecycle', 'scrydex-cache-capture', 'scrydex-coordinate-preview', 'scrydex-force-refresh-bounded'].includes(process.env.JOURNEY_SCOPE) &&
+            if ((process.env.JOURNEY_SCOPE?.startsWith('full-game-') ||
+                ['scope-sync-count-lifecycle', 'scrydex-cache-capture', 'scrydex-coordinate-preview', 'scrydex-force-refresh-bounded'].includes(process.env.JOURNEY_SCOPE)) &&
                 process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
               core.setFailed('Whole-game and capture journeys require the exact staging origin.');
+            }
+            if (process.env.JOURNEY_SCOPE === 'full-game-confirm' && process.env.RUN_ATTEMPT !== '1') {
+              core.setFailed('Paid whole-game confirmation requires a fresh dispatch, not a rerun.');
             }
             if (process.env.JOURNEY_SCOPE === 'admin-origin-generate-probe') {
               if (process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
@@ -171,7 +183,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe|admin-origin-generate-probe)
+            one-piece-launch|lorcana-launch|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-preview|full-game-confirm|full-game-settle|scope-sync-batch-preview-probe|admin-origin-generate-probe)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)
@@ -184,7 +196,7 @@ jobs:
   staging-provider-uat:
     name: Staging Provider Sync UAT (${{ matrix.journey_scope }})
     needs: [admit-reviewed-sha, resolve-provider-uat-plan]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 61
     environment: staging
     if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
@@ -206,6 +218,7 @@ jobs:
       CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: ${{ inputs.product_domain }}
       CATALOG_WHOLE_GAME_LANGUAGE_CODE: ${{ inputs.language_code }}
       CATALOG_WHOLE_GAME_BUDGET: ${{ inputs.budget }}
+      CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: ${{ inputs.approved_preview_fingerprint }}
       CATALOG_WHOLE_GAME_BATCH_ID: ${{ inputs.batch_id }}
       CATALOG_WHOLE_GAME_RETRY_FAILED: ${{ inputs.retry_failed }}
       CATALOG_WHOLE_GAME_RESUME_CANCELLED: ${{ inputs.resume_cancelled }}
@@ -305,7 +318,7 @@ jobs:
     name: Scope Sync Count Lifecycle
     needs: admit-reviewed-sha
     if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scope-sync-count-lifecycle'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: staging
     permissions:
@@ -366,7 +379,7 @@ jobs:
     name: Scrydex Coordinate Preview
     needs: admit-reviewed-sha
     if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-coordinate-preview'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
     permissions:
@@ -442,7 +455,7 @@ jobs:
     name: Scrydex Cache Capture
     needs: [admit-reviewed-sha, scrydex-force-refresh-bounded]
     if: ${{ !cancelled() && needs.admit-reviewed-sha.result == 'success' && (inputs.journey_scope == 'scrydex-cache-capture' || (inputs.journey_scope == 'scrydex-force-refresh-bounded' && needs.scrydex-force-refresh-bounded.result == 'success' && needs.scrydex-force-refresh-bounded.outputs.refresh_outcome == 'complete')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
     permissions:
@@ -505,7 +518,7 @@ jobs:
     name: Scrydex Force Refresh (bounded)
     needs: admit-reviewed-sha
     if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-force-refresh-bounded'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
     permissions:

@@ -15,6 +15,7 @@ export * from "./patterns/app-shells";
 export * from "./patterns/dense-admin-workbench";
 export * from "./patterns/dense-admin-workbench-proof";
 export * from "./primitives/layout";
+export { StatList, StatListItem, type StatListItemProps, type StatListProps } from "./primitives/stat-list";
 export { ToneIcon, type ToneIconProps, type ToneIconSize, type ToneIconTone } from "./primitives/tone-icon";
 export * from "./primitives/typography";
 export * from "./theme/provider";

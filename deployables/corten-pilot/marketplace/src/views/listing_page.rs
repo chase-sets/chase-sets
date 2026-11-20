@@ -236,7 +236,7 @@ pub fn ListingPage<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing, noti
                 <Buy t={t} p={p} listing={listing} />
                 <div class={Column}>
                     <Seller t={t} p={p} listing={listing} />
-                    <ReportForm t={t} p={p} action={&report} notice={notice} />
+                    <ReportForm t={t} action={&report} notice={notice} />
                 </div>
             </div>
         </div>
@@ -459,7 +459,7 @@ fn Rating<'a>(name: &'a str, href: Option<&'a str>, rating: Option<&'a str>, rev
 /// Report Listing: the reason and details with the form's attempt, or, once sent, that it was
 /// received. A report whose result cannot be confirmed keeps what was sent without its send.
 #[component(css = ListingPage)]
-fn ReportForm<'a>(t: ListingMsg, p: Pilot, action: &'a str, notice: Option<&'a ListingNotice>) -> impl Render {
+fn ReportForm<'a>(t: ListingMsg, action: &'a str, notice: Option<&'a ListingNotice>) -> impl Render {
     let labels = [
         t.page_report_reason_counterfeit(),
         t.page_report_reason_stolen_photos(),
@@ -488,14 +488,14 @@ fn ReportForm<'a>(t: ListingMsg, p: Pilot, action: &'a str, notice: Option<&'a L
             <h2 id="listing-report-heading" class={SectionTitle}>{t.page_report_title()}</h2>
             match notice {
                 Some(ListingNotice::Received) => {
-                    <div class={Banner} data-tone="success" role="status"><p>{p.listing_report_received()}</p></div>
+                    <div class={Banner} data-tone="success" role="status"><p>{t.page_report_received()}</p></div>
                 }
                 Some(ListingNotice::Repeat) => {
-                    <div class={Banner} data-tone="info" role="status"><p>{p.listing_report_repeat()}</p></div>
+                    <div class={Banner} data-tone="info" role="status"><p>{t.page_report_repeat()}</p></div>
                 }
                 _ => {
                     if let Some(ListingNotice::Limited) = notice {
-                        <div class={Banner} data-tone="warning" role="alert"><p>{p.listing_report_limited()}</p></div>
+                        <div class={Banner} data-tone="warning" role="alert"><p>{t.attempt_report_limited()}</p></div>
                     }
                     if let Some(ListingNotice::ReportRefused { message, .. }) = notice {
                         <div class={Banner} data-tone="danger" role="alert"><p>{message}</p></div>

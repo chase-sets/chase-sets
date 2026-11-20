@@ -47,6 +47,7 @@ it("AC1/AC2 pre-fix regression: E2E acquisition reserves suites inside the uncha
   expect(PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS).toBe(570);
   const job = parse(readFileSync(".github/workflows/platform-pr.yml", "utf8")).jobs["e2e-tests"];
   const install = job.steps.find((step) => step.name === "Install Playwright Chromium");
+  expect(job["runs-on"]).toBe("ubuntu-24.04");
   expect(install["timeout-minutes"]).toBe(10);
   expect(install.run).toBe("node scripts/playwright-chromium-install.mjs");
   expect(install.env.PLAYWRIGHT_INSTALL_POLICY).toBe("e2e-acquisition");
@@ -450,6 +451,7 @@ describe("Playwright Chromium installer primitive", () => {
     ] of rows) {
       const candidate = job(wf, id);
       expect(candidate, `${wf}/${id}`).toBeTruthy();
+      expect(candidate["runs-on"], `${wf}/${id} Chromium runner`).toBe("ubuntu-24.04");
       const install = candidate.steps.find((step) => step.name === installName);
       const consumer = candidate.steps.find((step) => step.name === consumerName);
       expect(install, `${site} install`).toBeTruthy();

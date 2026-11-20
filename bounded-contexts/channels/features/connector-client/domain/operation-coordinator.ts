@@ -3,6 +3,7 @@ import { RetentionError } from "./raw-export-record";
 import type { ClaimedOperationReservation, ClaimedSubjectOperation } from "../../outbound-sync/domain/contracts";
 import { browserCheckpointDigest } from "./order-pull-handoff";
 import { createOrderPullExecution } from "./order-pull-execution";
+import { canaryAuthority, canaryReservationPrefix } from "../../outbound-sync/domain/ready-to-ship-canary";
 import { createLiveExportExecution, liveExportOutcome } from "./live-export-execution";
 import {
   assertStagedImportTimingTransition,
@@ -75,12 +76,16 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       executor.dispatchDeadlineMs < 1000 ||
       executor.dispatchDeadlineMs > 600000 ||
       !executor.accepts.length ||
+      (executor.readyToShipCanary &&
+        (executor.accepts.length !== 1 ||
+          executor.accepts[0]?.[0] !== "tcgplayer-order-pull" ||
+          executor.providerRequests)) ||
       (executor.providerRequests !== undefined &&
         (executor.providerRequests !== "tcgplayer-staged-import" || executor.unit !== "reservation"))
     )
       refuse();
     for (const pair of executor.accepts) {
-      const key = canonicalJson(pair);
+      const key = canonicalJson([pair, executor.readyToShipCanary ?? false]);
       if (
         pairs.has(key) ||
         !(
@@ -97,8 +102,11 @@ export function createConnectorOperationCoordinator(ports: Ports) {
   }
   // A connection-subject capability is advertised exactly when a registered executor accepts its pair.
   const capabilities = (["tcgplayer-order-pull", "tcgplayer-live-export"] as const).filter((kind) =>
-    [...executors.values()].some((executor) => executor.accepts.some(([accepted]) => accepted === kind)),
+    [...executors.values()].some(
+      (executor) => !executor.readyToShipCanary && executor.accepts.some(([accepted]) => accepted === kind),
+    ),
   );
+  const readyToShipCanary = [...executors.values()].some((executor) => executor.readyToShipCanary);
   const origin = new URL(ports.platformOrigin);
   if (
     origin.origin !== ports.platformOrigin ||
@@ -160,10 +168,13 @@ export function createConnectorOperationCoordinator(ports: Ports) {
   }
   function select(claim: ClaimedOperationReservation<ClaimedSubjectOperation>): ConnectorExecutor | undefined {
     return [...executors.values()].find((executor) =>
-      claim.operations.every((operation) =>
-        executor.accepts.some(
-          ([kind, payload]) => kind === operation.operationKind && payload === operation.payload.kind,
-        ),
+      claim.operations.every(
+        (operation) =>
+          Boolean(executor.readyToShipCanary) ===
+            (operation.operationKind === "tcgplayer-order-pull" && Boolean(operation.payload.canary)) &&
+          executor.accepts.some(
+            ([kind, payload]) => kind === operation.operationKind && payload === operation.payload.kind,
+          ),
       ),
     );
   }
@@ -259,7 +270,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       const old = previous.get(operation.operationId);
       if (
         old &&
-        (old.payloadDigest !== operation.payloadDigest ||
+        ((operation.operationKind === "tcgplayer-order-pull" && operation.payload.canary) ||
+          old.payloadDigest !== operation.payloadDigest ||
           old.state === "acked" ||
           old.operationKind !== operation.operationKind ||
           ("desiredStateSequence" in old &&
@@ -365,14 +377,23 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     reservation: OperationReservation,
   ): Promise<CoordinatorResult> {
     if ((await authority(input)) === "absent") return { outcome: "unknown" };
+    let signal: AbortSignal | undefined;
+    if (reservation.reservationId.startsWith(canaryReservationPrefix)) {
+      const timeout = Math.min(
+        canaryAuthority.reportTimeoutMs,
+        Date.parse(reservation.leaseExpiresAt) - ports.clock.now(),
+      );
+      if (timeout <= 0) return { outcome: "unknown" };
+      signal = AbortSignal.timeout(timeout);
+    }
     let response: Response;
     try {
-      response = await request(input, "report", reservation.reportEnvelope!);
+      response = await request(input, "report", reservation.reportEnvelope!, signal);
     } catch {
       await write(input, state, revise(reservation, { lastRefusal: "transport" }), []);
       return { outcome: "unknown" };
     }
-    if (!response.ok || (await response.text()) !== "{}") {
+    if (!response.ok || (await response.text()) !== "{}" || signal?.aborted) {
       await write(
         input,
         state,
@@ -445,6 +466,13 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         current,
         signal,
         now: () => ports.clock.now(),
+        postCanary: (bytes, postSignal) =>
+          request(
+            input,
+            "ingest",
+            { ...JSON.parse(bytes), canaryReservationId: reservation.reservationId },
+            postSignal,
+          ),
         fence: async () =>
           (await authority(input)) === "paired-idle" &&
           input.reason !== "unpair" &&
@@ -770,7 +798,11 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         )
           refuse();
       const expired = state.reservations
-        .filter((row) => row.phase === "acked" && ports.clock.now() >= Date.parse(row.ackedAt!) + 86400000)
+        .filter((row) =>
+          row.reservationId.startsWith(canaryReservationPrefix)
+            ? row.phase === "acked" || ports.clock.now() >= Date.parse(row.leaseExpiresAt)
+            : row.phase === "acked" && ports.clock.now() >= Date.parse(row.ackedAt!) + 86400000,
+        )
         .slice(0, 32);
       if (expired.length) {
         const ids = new Set(expired.map((row) => row.reservationId));
@@ -790,7 +822,10 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       const seen = new Set<string>();
       for (let count = 0; count < 8; count++) {
         if (input.reason === "unpair" || (await authority(input)) !== "paired-idle") break;
-        const response = await request(input, "claim", capabilities.length ? { capabilities } : {});
+        const response = await request(input, "claim", {
+          ...(capabilities.length ? { capabilities } : {}),
+          ...(readyToShipCanary ? { readyToShipCanary: true } : {}),
+        });
         if (!response.ok)
           return {
             outcome:

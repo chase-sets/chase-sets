@@ -266,9 +266,9 @@ async fn new_dialog(
     let choices = choices(&caller).await;
     let first = choices.types.first().map(|ty| ty.key.as_str());
     let draft = RecordDraft { form: Draft::new(RefRecordInput::blank(first)), choices };
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let action = url::RefRecords::of(&query).href();
-        return req.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
+        return script.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
     }
     let none = url::ListNotice::default();
     page_list(&req, &staff.viewer, &config, &headers, &query, &none, Some(draft), None).await
@@ -288,8 +288,8 @@ async fn create(
     let none = url::ListNotice::default();
     if let Some(next) = input.rerowed() {
         let draft = RecordDraft { form: Draft::new(next), choices: choices(&caller).await };
-        if req.mode == Mode::Action {
-            return req.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
+        if let Some(script) = req.action() {
+            return script.patch(views::RefRecordCreateDialog { t: req.t(), p: req.t(), action: &action, draft: &draft });
         }
         return page_list(&req, &staff.viewer, &config, &headers, &query, &none, Some(draft), None).await;
     }
@@ -380,8 +380,8 @@ async fn edit_dialog(
         Err(error) => return read_failed(&req, error, receipt.is_some()),
     };
     let draft = RecordDraft { form: Draft::new(RefRecordInput::of(&record)), choices };
-    if req.mode == Mode::Action {
-        return req.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
+    if let Some(script) = req.action() {
+        return script.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
     }
     let after = After { after_write: opened.after_write, done: None };
     let forms = RefRecordForms { edit: Some(draft), ..Default::default() };
@@ -401,8 +401,8 @@ async fn revise(
     let after = After::default();
     if let Some(next) = input.rerowed() {
         let draft = RecordDraft { form: Draft::new(next), choices: choices(&caller).await };
-        if req.mode == Mode::Action {
-            return req.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
+        if let Some(script) = req.action() {
+            return script.patch(views::RefRecordEditDialog { t: req.t(), p: req.t(), id: &id, draft: &draft });
         }
         let forms = RefRecordForms { edit: Some(draft), ..Default::default() };
         return record_page(&req, &staff.viewer, &config, &headers, &id, &after, forms).await;

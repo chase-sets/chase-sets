@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
@@ -8,11 +8,13 @@ import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-
 import type { ProviderAdapter } from "./provider-adapters/provider-adapter";
 import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
 import { buildCatalogMergeCandidatesFromObservations } from "./promotion/catalog-merge-candidate-matcher";
-import { catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
+import { catalogMergeCandidateStreamId, sourceObservationStreamId } from "./source-observation-stream-identity";
 import { SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES } from "../domain/source-observation-payload-chunks";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
+import { reconcileProductionCatalogCompletion } from "../../completion-report/domain/reconcile";
+import { completeManifest } from "../../completion-report/domain/__fixtures__/manifest";
 import {
   CatalogIntegrationRolloutControlError,
   createCatalogIntegrationRolloutControlPolicy,
@@ -85,6 +87,272 @@ function tcgdexBaseSetMappingRow(): Record<string, unknown> {
     seriesId: "base",
   });
 }
+
+function createClaimExhaustionHarness() {
+  const harness = createIntegrationJobDedupeHarness({ acceptedScopeMappings: [tcgdexBaseSetMappingRow()] });
+  const coverage: Record<string, unknown> = {};
+  let beforeNextCoverageUpsert: (() => Promise<void>) | undefined;
+  const scope = {
+    scopeVersion: "catalog-sync-scope-v2",
+    productDomain: "pokemon",
+    productForm: "single-card",
+    languageCode: "en",
+    reference: { kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID },
+    providerParticipation: { selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"] },
+  } as const;
+  const exhaustedAt = "2026-08-03T00:00:00.000Z";
+  const services = createSourceObservationRuntime(
+    {
+      ...harness.deps,
+      db: {
+        query: async <T>(sql: string, values: readonly unknown[] = []) => {
+          const result = (rows: Record<string, unknown>[]) => ({ rowCount: rows.length, rows: rows as T[] });
+          if (
+            sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
+            sql.includes("status IN ('queued', 'running')")
+          ) {
+            const kinds = values[0] as string[];
+            return result(
+              harness.insertedJobs.filter((job) => job.status === "queued" && kinds.includes(String(job.job_kind))),
+            );
+          }
+          if (
+            sql.includes("WITH exhausted AS") &&
+            sql.includes("catalog_source_observation_integration_durable_jobs")
+          ) {
+            const [kinds, maxAttempts] = values as [string[], number];
+            const exhausted = harness.insertedJobs.filter(
+              (job) =>
+                kinds.includes(String(job.job_kind)) &&
+                job.status === "running" &&
+                String(job.claimed_until) < exhaustedAt &&
+                String(job.next_eligible_at) <= exhaustedAt &&
+                Number(job.attempt_count) >= maxAttempts,
+            );
+            expect(maxAttempts).toBe(10);
+            for (const job of exhausted) {
+              Object.assign(job, {
+                status: "failed",
+                claim_owner_id: null,
+                claimed_until: null,
+                error_message: job.error_message ?? "Durable job retry attempts exhausted.",
+                completed_at: exhaustedAt,
+                updated_at: exhaustedAt,
+              });
+            }
+            return result(exhausted);
+          }
+          if (sql.includes("INSERT INTO catalog_scope_sync_state")) {
+            const beforeUpsert = beforeNextCoverageUpsert;
+            beforeNextCoverageUpsert = undefined;
+            await beforeUpsert?.();
+            Object.assign(coverage, {
+              scope_key: values[0],
+              provider_key: values[1],
+              unit_key: values[2],
+              state: values[12],
+              last_sync_run_id: values[13],
+              last_job_id: values[14],
+              last_operator_status: values[15],
+              error_message: values[20],
+              last_completed_at: values[22],
+              updated_at: values[23],
+            });
+            return result([]);
+          }
+          if (sql.includes("UPDATE catalog_scope_sync_state")) {
+            expect(sql).toContain("WHERE last_job_id = $1");
+            if (coverage.last_job_id !== values[0]) return result([]);
+            Object.assign(coverage, {
+              state: values[1],
+              last_operator_status: "failed",
+              error_message: values[2],
+              last_completed_at: values[8],
+              updated_at: values[9],
+            });
+            return { rowCount: 1, rows: [] as T[] };
+          }
+          if (sql.includes("FROM catalog_scope_sync_state")) {
+            return result(coverage.scope_key === values[0] ? [coverage] : []);
+          }
+          return harness.deps.db.query<T>(sql, values);
+        },
+      },
+    },
+    {} as CatalogItemServices,
+    {} as ReferenceDataServices,
+    createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+  );
+  return {
+    services,
+    harness,
+    coverage,
+    scope,
+    exhaustedAt,
+    beforeCoverageUpsert(callback: () => Promise<void>) {
+      beforeNextCoverageUpsert = callback;
+    },
+    markLastClaimExpired(jobId: string | null) {
+      const job = harness.insertedJobs.find((candidate) => candidate.job_id === jobId);
+      if (!job) throw new Error("Missing import job in claim exhaustion fixture.");
+      Object.assign(job, {
+        status: "running",
+        claim_owner_id: "worker-expired",
+        claimed_until: "2026-08-02T00:00:00.000Z",
+        attempt_count: 10,
+      });
+    },
+  };
+}
+
+describe("source observation runtime: import claim exhaustion", () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Provider requests are not allowed in this test."));
+  });
+  afterEach(() => {
+    const fetch = vi.mocked(globalThis.fetch);
+    try {
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it.each(["new child", "reused standalone import"] as const)(
+    "records a linked %s as a terminal failure when its claims are exhausted",
+    async (link) => {
+      const { services, coverage, scope, exhaustedAt, markLastClaimExpired } = createClaimExhaustionHarness();
+      Object.assign(coverage, { observed_count: 12, changed_count: 2, failed_count: 0 });
+      let standalone;
+      if (link === "reused standalone import") {
+        const preview = await services.previewCatalogSyncScope({ scope, context });
+        const childScope = preview.units.find((unit) => unit.selected)?.childExecutionScope;
+        if (!childScope) throw new Error("Missing selected provider scope in claim exhaustion fixture.");
+        standalone = await services.enqueueIntegrationJob({ action: "import", scope: childScope, context });
+      }
+      const run = await services.enqueueCatalogSyncRun({ scope, context });
+      const childId = run.childJobs[0].childJobId;
+      expect(childId).toBeTruthy();
+      if (standalone) expect(childId).toBe(standalone.jobId);
+      expect(run.childJobs[0].syncRunLinkState).toBe(
+        standalone ? "reused-active-child-job" : "attached-to-child-payload",
+      );
+      expect(coverage).toMatchObject({
+        last_job_id: childId,
+        state: "pending",
+        last_operator_status: standalone ? "reused-active-job" : "queued",
+      });
+      markLastClaimExpired(childId);
+
+      await expect(
+        services.processNextIntegrationJob({ claimOwnerId: "worker-next", claimTtlMs: 120_000 }),
+      ).resolves.toBe(0);
+      const errorMessage = "Durable job retry attempts exhausted.";
+      await expect(services.getCatalogSyncRun({ syncRunId: run.syncRunId, context })).resolves.toMatchObject({
+        status: "failed",
+        progress: { childJobs: { total: 1, failed: 1, queued: 0, running: 0 } },
+        childJobs: [{ childJobId: childId, status: "failed", job: { errorMessage } }],
+      });
+      const state = await services.getCatalogScopeSyncState({ scope, context });
+      expect(state).toMatchObject([
+        {
+          state: "failed",
+          lastOperatorStatus: "failed",
+          lastSyncRunId: run.syncRunId,
+          lastJobId: childId,
+          errorMessage,
+          lastCompletedAt: exhaustedAt,
+          observedCount: 12,
+          changedCount: 2,
+          failedCount: 0,
+        },
+      ]);
+      const unit = { providerKey: state[0].providerKey, unitKey: state[0].unitKey };
+      const expectedUnit = { ...unit, scopeRecordId: BASE_SET_SCOPE_RECORD_ID };
+      const manifest = completeManifest();
+      const report = reconcileProductionCatalogCompletion(
+        {
+          ...manifest,
+          providerUnits: [{ ...unit, productionClass: "production", lifecycle: "active", active: true }],
+          scopes: [{ scopeRecordId: BASE_SET_SCOPE_RECORD_ID, eligible: true, acceptedMappings: [unit] }],
+          expectedUnits: [expectedUnit],
+          observedUnits: [
+            {
+              ...expectedUnit,
+              state: state[0].state,
+              lastCompletedAt: state[0].lastCompletedAt,
+              syncRunId: state[0].lastSyncRunId,
+              observedCount: Number(state[0].observedCount),
+              changedCount: Number(state[0].changedCount),
+              failedCount: Number(state[0].failedCount),
+            },
+          ],
+          providerUsage: [],
+        },
+        { generatedAt: exhaustedAt },
+      );
+      expect(report.providerUnitStates).toEqual({ failed: 1 });
+      expect(report.blockers.map((blocker) => blocker.code)).toContain("failed-job");
+      expect(report.blockers.map((blocker) => blocker.code)).not.toContain("non-terminal-unit");
+      expect(report.result).toBe("incomplete");
+    },
+  );
+
+  it.each([false, true])("retains exhaustion after the fan-out snapshot (existing link: %s)", async (existingLink) => {
+    const { services, coverage, scope, exhaustedAt, beforeCoverageUpsert, markLastClaimExpired } =
+      createClaimExhaustionHarness();
+    const preview = await services.previewCatalogSyncScope({ scope, context });
+    const childScope = preview.units.find((unit) => unit.selected)?.childExecutionScope;
+    if (!childScope) throw new Error("Missing selected provider scope in claim exhaustion fixture.");
+    const child = await services.enqueueIntegrationJob({ action: "import", scope: childScope, context });
+    const errorMessage = "Durable job retry attempts exhausted.";
+    if (existingLink) Object.assign(coverage, { last_job_id: child.jobId, state: "pending" });
+
+    beforeCoverageUpsert(async () => {
+      markLastClaimExpired(child.jobId);
+      await expect(
+        services.processNextIntegrationJob({ claimOwnerId: "worker-next", claimTtlMs: 120_000 }),
+      ).resolves.toBe(0);
+      expect(coverage.state).toBe(existingLink ? "failed" : undefined);
+    });
+
+    const run = await services.enqueueCatalogSyncRun({ scope, context });
+    expect(run.childJobs).toMatchObject([{ childJobId: child.jobId, syncRunLinkState: "reused-active-child-job" }]);
+    await expect(services.getCatalogSyncRun({ syncRunId: run.syncRunId, context })).resolves.toMatchObject({
+      status: "failed",
+      childJobs: [{ childJobId: child.jobId, status: "failed", job: { errorMessage } }],
+    });
+    expect(coverage).toMatchObject({
+      last_job_id: child.jobId,
+      last_sync_run_id: run.syncRunId,
+      state: "failed",
+      last_operator_status: "failed",
+      last_completed_at: exhaustedAt,
+      error_message: errorMessage,
+    });
+  });
+
+  it("leaves coverage unchanged when an unlinked or superseded import exhausts its claims", async () => {
+    const { services, harness, coverage, scope, markLastClaimExpired } = createClaimExhaustionHarness();
+    const run = await services.enqueueCatalogSyncRun({ scope, context });
+    const childId = run.childJobs[0].childJobId;
+    markLastClaimExpired(childId);
+    coverage.last_job_id = "job_newer";
+    const before = { ...coverage };
+    const unlinked = integrationJobRow({ jobId: "job_unlinked", action: "import", scope: {}, eventContext: context });
+    harness.insertedJobs.push(unlinked);
+    markLastClaimExpired(unlinked.job_id);
+
+    await expect(
+      services.processNextIntegrationJob({ claimOwnerId: "worker-next", claimTtlMs: 120_000 }),
+    ).resolves.toBe(0);
+    expect(harness.insertedJobs.filter((job) => job.status === "failed").map((job) => job.job_id)).toEqual([
+      childId,
+      unlinked.job_id,
+    ]);
+    expect(coverage).toEqual(before);
+  });
+});
 
 describe("source observation runtime: provider integration jobs", () => {
   it("reuses an active provider integration job with the same actor action and scope", async () => {
@@ -1005,6 +1273,88 @@ describe("source observation runtime: provider integration jobs", () => {
     }
   });
 
+  it.each([
+    ["retries a transient second-page transport failure", "reset", 2, null],
+    ["persists a redacted reason after one retry", "timeout", 2, "/cards/search page 2 failed (ETIMEDOUT)"],
+    ["omits an unrecognized cause code", "unknown", 1, "/cards/search page 2 failed"],
+    ["does not retry HTTP 404", 404, 1, "/cards/search page 2 failed (HTTP 404)"],
+    ["does not retry HTTP 429", 429, 1, "/cards/search page 2 failed (HTTP 429)"],
+    ["does not retry HTTP 503", 503, 1, "/cards/search page 2 failed (HTTP 503)"],
+    [
+      "does not retry an invalid HTTP response body",
+      "invalid-json",
+      1,
+      "/cards/search page 2 returned invalid JSON (HTTP 200)",
+    ],
+  ] as const)("Scryfall set import %s", async (_name, failure, pageTwoAttempts, failureReason) => {
+    const secret = "SYNTHETIC_PRIVATE_VALUE";
+    const firstPage = "https://api.scryfall.com/cards/search?q=set%3Atsp&unique=prints";
+    const secondPage = `https://api.scryfall.com/cards/search?page=2&token=${secret}`;
+    const card = (id: string, collectorNumber: string) => ({
+      id,
+      uri: `https://api.scryfall.com/cards/${id}`,
+      name: "Synthetic Time Spiral Card",
+      lang: "en",
+      set: "tsp",
+      set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+      set_name: "Time Spiral",
+      collector_number: collectorNumber,
+      rarity: "common",
+      tcgplayer_id: 900000 + Number(collectorNumber),
+      released_at: "2006-10-06",
+    });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === firstPage) {
+        return jsonResponse({ data: [card("synthetic-one", "1")], has_more: true, next_page: secondPage });
+      }
+      if (String(input) !== secondPage) throw new Error("Unexpected synthetic page request");
+      if (typeof failure === "number") return new Response(secret, { status: failure });
+      if (failure === "invalid-json") return new Response(secret);
+      if (failure === "reset" && fetch.mock.calls.length === 3) {
+        return jsonResponse({ data: [card("synthetic-two", "2")], has_more: false });
+      }
+      const code = failure === "reset" ? "ECONNRESET" : failure === "timeout" ? "ETIMEDOUT" : secret;
+      throw new TypeError(`fetch failed: ${secret}`, { cause: Object.assign(new Error(secret), { code }) });
+    });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "scryfall",
+        profileKey: "mtg-card-print-reference-data",
+        ingestionUnitKey: "scryfall:mtg:single-card:reference-data",
+        setId: "tsp",
+      },
+      renewSucceeds: true,
+    });
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    try {
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        firstPage,
+        ...Array<string>(pageTwoAttempts).fill(secondPage),
+      ]);
+    } finally {
+      fetch.mockRestore();
+    }
+
+    const observed = failureReason === null ? 2 : 0;
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result?.outcomes).toMatchObject([
+      {
+        providerKey: "scryfall",
+        status: failureReason === null ? "imported" : "failed",
+        observed,
+        reason: failureReason === null ? null : `Scryfall ${failureReason}.`,
+      },
+    ]);
+    expect(JSON.stringify(harness.job.result)).not.toContain(secret);
+    expect(
+      harness.appendedSourceEvents.filter((event) => event.eventType === "catalog.source-observation.recorded"),
+    ).toHaveLength(observed);
+  });
+
   it("generates merge candidates from successful catalog-sync child imports without waiting for projection catch-up", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mtgjsonFetch() as typeof globalThis.fetch;
@@ -1039,9 +1389,96 @@ describe("source observation runtime: provider integration jobs", () => {
     );
   });
 
-  it.each([false, true])(
-    "AC2 two child imports share one syncRunId without candidate projection catch-up; missing member=%s",
-    async (missingMember) => {
+  it.each([true, false])(
+    "reconciles Time Spiral candidates only while the import claim renews: %s",
+    async (canRenew) => {
+      const unitKey = "mtgjson:mtg:single-card:reference-data";
+      const harness = createIntegrationJobClaimHandoffHarness({
+        scope: {
+          provider: "mtgjson",
+          profileKey: "mtg-card-reference-data",
+          ingestionUnitKey: unitKey,
+          setId: "TSP",
+          setName: "Time Spiral",
+        },
+        syncRunId: "job_sync_time_spiral",
+        acceptedScopeRecordId: "scope_time_spiral",
+        acceptedUnitKey: unitKey,
+        renewSucceeds: true,
+      });
+      const query = harness.deps.db.query;
+      const claimTtlMs = 120_000;
+      let claimDeadline = 0;
+      let foundCandidates = false;
+      let markCandidateRead!: () => void;
+      const candidateRead = new Promise<void>((resolve) => (markCandidateRead = resolve));
+      let resumeRead!: () => void;
+      const readResumed = new Promise<void>((resolve) => (resumeRead = resolve));
+      const db: CatalogRuntimeDeps["db"] = {
+        query: async <Row>(sql: string, params: readonly unknown[] = []) => {
+          if (sql.includes("SELECT candidate_id") && sql.includes("FROM catalog_merge_candidates")) {
+            foundCandidates = true;
+            claimDeadline = Date.now() + claimTtlMs;
+            markCandidateRead();
+            await readResumed;
+          }
+          if (foundCandidates && sql.includes("UPDATE catalog_source_observation_integration_durable_jobs")) {
+            if (Date.now() >= claimDeadline) return { rowCount: 0, rows: [] as Row[] };
+            if (sql.includes("SET claimed_until")) {
+              if (!canRenew) return { rowCount: 0, rows: [] as Row[] };
+              claimDeadline = Date.now() + claimTtlMs;
+            }
+          }
+          return query<Row>(sql, params);
+        },
+      };
+      const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(mtgjsonFetch());
+      vi.useFakeTimers();
+      const services = createSourceObservationRuntime(
+        { ...harness.deps, db },
+        {} as CatalogItemServices,
+        harness.referenceData,
+      );
+      const turn = services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs });
+      try {
+        await Promise.race([candidateRead, turn]);
+        expect(foundCandidates, JSON.stringify(harness.appendedSourceEvents[0]?.payload.normalized)).toBe(true);
+        await vi.advanceTimersByTimeAsync(claimTtlMs + 5_000);
+        resumeRead();
+        await expect(turn).resolves.toBe(canRenew ? 1 : 0);
+        await vi.advanceTimersByTimeAsync(0);
+        const writes = harness.appendedSourceEvents.map(({ eventType }) => eventType);
+        if (canRenew) {
+          expect(harness.job).toMatchObject({ status: "completed", result: { imported: 1, failed: 0 } });
+          expect(writes).toContain("catalog.merge-candidate.created");
+        } else {
+          expect(harness.job).toMatchObject({ status: "running", result: null, error_message: null });
+          expect(writes).toEqual(["catalog.source-observation.recorded"]);
+        }
+      } finally {
+        resumeRead();
+        await turn.catch(() => undefined);
+        vi.useRealTimers();
+        fetch.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    ["complete", null, null],
+    ["missing-member", null, null],
+    ["metadata-only", "mtgjson", "promoted"],
+    ["identical-payload", "scryfall", "promoted"],
+    ["metadata-only", "mtgjson", "rejected"],
+    ["identical-payload", "scryfall", "rejected"],
+    ["changed-rarity", "mtgjson", "promoted"],
+    ["changed-reference", "scryfall", "promoted"],
+    ["missing-reviewed-revision", "scryfall", "promoted"],
+    ["unknown-member", "mtgjson", "promoted"],
+    ["known-plus-extra-member", "mtgjson", "rejected"],
+  ] as const)(
+    "reconciles Time Spiral child imports without candidate projection catch-up: %s (%s, %s)",
+    async (scenario, replayProvider, terminalStatus) => {
       const { eventStore, streams } = createInMemoryEventStore();
       const storedRows = new Map<string, SourceObservationListRow>();
       const readableRows = new Map<string, SourceObservationListRow>();
@@ -1097,9 +1534,13 @@ describe("source observation runtime: provider integration jobs", () => {
         },
       });
       const snapshots: SourceObservationListRow[] = [];
+      const providers = ["scryfall", "mtgjson"];
+      if (replayProvider) providers.push(replayProvider);
+      let terminalStreamId: string | null = null;
       const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No network permitted by this fixture"));
       try {
-        for (const provider of ["scryfall", "mtgjson"]) {
+        for (const [turn, provider] of providers.entries()) {
+          const replaying = turn === 2;
           const unitKey = `${provider}:mtg:single-card:reference-data`;
           const version = (await profiles.listProfileVersions(provider)).find(
             (item) =>
@@ -1112,27 +1553,28 @@ describe("source observation runtime: provider integration jobs", () => {
                   card: {
                     id: "synthetic-scryfall-card",
                     uri: "https://provider.example/scryfall",
-                    name: "Fury Sliver",
+                    name: "Amrou Scout",
                     lang: "en",
                     set: "tsp",
                     set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
                     set_name: "Time Spiral",
-                    collector_number: "157",
-                    rarity: "rare",
-                    tcgplayer_id: 14240,
+                    collector_number: "1",
+                    rarity: "common",
+                    tcgplayer_id: replaying && scenario === "changed-reference" ? 900002 : 900001,
                     released_at: "2006-10-06",
                   },
                 }
               : {
                   kind: "single-card",
                   sourceUrl: "https://provider.example/mtgjson",
-                  meta: { date: "2026-07-14" },
+                  meta: { date: "2026-07-14", version: replaying ? "5.2.1" : "5.2.0" },
                   set: { code: "TSP", name: "Time Spiral", releaseDate: "2006-10-06" },
                   card: {
-                    uuid: "synthetic-mtgjson-card",
-                    name: "Fury Sliver",
-                    number: "157",
-                    rarity: "uncommon",
+                    uuid:
+                      replaying && scenario === "unknown-member" ? "synthetic-new-member" : "synthetic-mtgjson-card",
+                    name: "Amrou Scout",
+                    number: "1",
+                    rarity: replaying && scenario === "changed-rarity" ? "rare" : "common",
                     identifiers: { scryfallId: "synthetic-scryfall-card" },
                   },
                 };
@@ -1152,10 +1594,19 @@ describe("source observation runtime: provider integration jobs", () => {
               yield {
                 unitKey: plan.unitKey,
                 providerKey: provider,
-                externalKey: "synthetic-157",
+                externalKey: "synthetic-1",
                 payload,
                 provenance: { fetchedAt: "2026-07-14T12:00:00.000Z" },
               };
+              if (replaying && scenario === "known-plus-extra-member" && "meta" in payload) {
+                yield {
+                  unitKey: plan.unitKey,
+                  providerKey: provider,
+                  externalKey: "synthetic-2",
+                  payload: { ...payload, card: { ...payload.card, uuid: "synthetic-new-member" } },
+                  provenance: { fetchedAt: "2026-07-14T12:00:00.000Z" },
+                };
+              }
             },
             getCredentialReadiness: async () => [],
             getTransportDiagnostics: async () => [],
@@ -1163,9 +1614,26 @@ describe("source observation runtime: provider integration jobs", () => {
           // Prior units may be queryable, but the current import is never
           // projected. Candidate discovery stays empty across both units.
           readableRows.clear();
-          if (!missingMember) {
-            for (const [id, row] of storedRows) readableRows.set(id, row);
+          if (scenario !== "missing-member") {
+            for (const [id, row] of storedRows) {
+              readableRows.set(id, { ...row, observed_at: row.observed_at.replace("Z", "000Z") });
+            }
           }
+          if (replaying && scenario === "missing-reviewed-revision") {
+            // A stream with the right hash but no revision from the reviewed run cannot prove equality.
+            const sourceId = sourceObservationStreamId(
+              snapshots.find((row) => row.provider_key === provider)!.observation_id,
+            );
+            streams.set(
+              sourceId,
+              streams.get(sourceId)!.map((event) => ({
+                ...event,
+                payload: { ...event.payload, syncRunId: "job_unreviewed_time_spiral" },
+              })),
+            );
+          }
+          const terminalHistory = terminalStreamId ? [...streams.get(terminalStreamId)!] : null;
+          const syncRunId = replaying ? "job_repeat_time_spiral" : "job_shared_time_spiral";
           const outcome = await importRuntime.importProviderAdapterIntegrationTarget({
             target: {
               targetId: "tsp",
@@ -1176,12 +1644,68 @@ describe("source observation runtime: provider integration jobs", () => {
             },
             providerProfile: version.profile,
             providerProfileVersion: version,
-            syncRunId: "job_shared_time_spiral",
+            syncRunId,
             context,
             adapterOverride: adapter,
-            observedAtForEnvelope: () => "2026-07-14T12:00:00.000Z",
+            observedAtForEnvelope: () => (replaying ? "2026-07-15T12:00:00.000Z" : "2026-07-14T12:00:00.000Z"),
           });
-          if (missingMember && provider === "mtgjson") {
+          if (replaying) {
+            if (scenario === "known-plus-extra-member") {
+              expect([...storedRows.values()].filter((row) => row.sync_run_id === syncRunId)).toHaveLength(2);
+            }
+            if (scenario === "changed-rarity" || scenario === "changed-reference") {
+              const oldRow = snapshots.find((row) => row.provider_key === provider)!;
+              const newRow = storedRows.get(oldRow.observation_id)!;
+              const proposal = (row: SourceObservationListRow) =>
+                buildCatalogMergeCandidatesFromObservations([row], {
+                  addedAt: row.observed_at,
+                  acceptedScopeMappings: mappings,
+                  providerUnitKeyByObservationId: { [row.observation_id]: unitKey },
+                }).candidates[0]!;
+              const before = proposal(oldRow);
+              const after = proposal(newRow);
+              expect(catalogMergeCandidateStreamId(after.candidateId)).toBe(terminalStreamId);
+              expect(after.candidateId).toBe(before.candidateId);
+              if (scenario === "changed-rarity") {
+                expect(before.snapshot.proposedCatalogItemFacts.rarity).toBe("common");
+                expect(after.snapshot.proposedCatalogItemFacts.rarity).toBe("rare");
+              } else {
+                expect(before.snapshot.proposedExternalCatalogItemReferences).toContainEqual(
+                  expect.objectContaining({ providerKey: "tcgplayer", externalKey: "product:900001" }),
+                );
+                expect(after.snapshot.proposedExternalCatalogItemReferences).toContainEqual(
+                  expect.objectContaining({ providerKey: "tcgplayer", externalKey: "product:900002" }),
+                );
+              }
+            }
+            if (scenario !== "metadata-only" && scenario !== "identical-payload") {
+              expect(outcome).toMatchObject({
+                status: "failed",
+                reason: "Terminal Catalog Merge Candidates cannot be changed.",
+              });
+            } else {
+              expect(outcome, outcome.reason ?? "import outcome").toMatchObject({ status: "imported", observed: 1 });
+              const oldRow = snapshots.find((row) => row.provider_key === provider)!;
+              const newRow = storedRows.get(oldRow.observation_id)!;
+              expect(newRow.sync_run_id).toBe(syncRunId);
+              if (scenario === "metadata-only") {
+                expect(newRow.source_record_hash).not.toBe(oldRow.source_record_hash);
+              } else {
+                expect(newRow.source_record_hash).toBe(oldRow.source_record_hash);
+              }
+              expect(streams.get(sourceObservationStreamId(newRow.observation_id))?.at(-1)).toMatchObject({
+                eventType:
+                  scenario === "metadata-only"
+                    ? "catalog.source-observation.recorded"
+                    : "catalog.source-observation.refreshed",
+                payload: { syncRunId, sourceRecordHash: newRow.source_record_hash },
+              });
+            }
+            expect(streams.get(terminalStreamId!)).toEqual(terminalHistory);
+            expect(
+              [...streams.values()].filter((events) => events[0]?.eventType === "catalog.merge-candidate.created"),
+            ).toHaveLength(1);
+          } else if (scenario === "missing-member" && provider === "mtgjson") {
             expect(outcome).toMatchObject({
               status: "failed",
               reason: expect.stringContaining("could not prove every existing member row"),
@@ -1194,13 +1718,16 @@ describe("source observation runtime: provider integration jobs", () => {
           } else {
             expect(outcome, outcome.reason ?? "import outcome").toMatchObject({ status: "imported", observed: 1 });
             snapshots.splice(0, snapshots.length, ...storedRows.values());
-            const oracle = buildCatalogMergeCandidatesFromObservations(snapshots, {
-              addedAt: "2026-07-14T12:00:00.000Z",
-              acceptedScopeMappings: mappings,
-              providerUnitKeyByObservationId: Object.fromEntries(
-                snapshots.map((row) => [row.observation_id, `${row.provider_key}:mtg:single-card:reference-data`]),
-              ),
-            });
+            const oracle = buildCatalogMergeCandidatesFromObservations(
+              snapshots.map((row) => readableRows.get(row.observation_id) ?? row),
+              {
+                addedAt: "2026-07-14T12:00:00.000Z",
+                acceptedScopeMappings: mappings,
+                providerUnitKeyByObservationId: Object.fromEntries(
+                  snapshots.map((row) => [row.observation_id, `${row.provider_key}:mtg:single-card:reference-data`]),
+                ),
+              },
+            );
             expect(oracle.candidates).toHaveLength(1);
             const loaded = await mergeCandidates.loadCatalogMergeCandidateForReview(oracle.candidates[0]!.candidateId);
             const withoutAddedAt = (snapshot: unknown) =>
@@ -1215,6 +1742,24 @@ describe("source observation runtime: provider integration jobs", () => {
                 ? ["catalog.merge-candidate.created"]
                 : ["catalog.merge-candidate.created", "catalog.merge-candidate.refreshed"],
             );
+            if (turn === 1 && terminalStatus) {
+              const candidateId = oracle.candidates[0]!.candidateId;
+              const decision = {
+                candidateId,
+                expectedVersion: loaded.version,
+                reason: "Reviewed both Time Spiral sources",
+                context,
+              };
+              const reviewed =
+                terminalStatus === "promoted"
+                  ? await mergeCandidates.services.promoteCatalogMergeCandidate({
+                      ...decision,
+                      conflictResolutions: [],
+                    })
+                  : await mergeCandidates.services.ignoreCatalogMergeCandidate(decision);
+              expect(reviewed.status).toBe(terminalStatus);
+              terminalStreamId = catalogMergeCandidateStreamId(candidateId);
+            }
           }
         }
         expect(fetch).not.toHaveBeenCalled();
@@ -1298,6 +1843,7 @@ describe("source observation runtime: provider integration jobs", () => {
       globalThis.fetch = originalFetch;
     }
 
+    expect(harness.job.result?.outcomes).toMatchObject([{ status: "imported", reason: null }]);
     expect(harness.job.status).toBe("completed");
     expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
     expect(harness.appendedSourceEvents[0]).toMatchObject({
@@ -2131,7 +2677,7 @@ function ygojsonBeginnerEditionTwoFetch(): typeof globalThis.fetch {
     ),
   ) as { set: Record<string, unknown> };
   const url =
-    "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/individual/sets/000f0093-1847-4db7-a315-5bd07f055c7a.json";
+    "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/refs/heads/v1/individual/sets/000f0093-1847-4db7-a315-5bd07f055c7a.json";
 
   return (async (input: RequestInfo | URL) => {
     if (String(input) !== url) {

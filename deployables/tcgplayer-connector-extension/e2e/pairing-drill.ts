@@ -155,7 +155,11 @@ export type PairingDrillEvidence = Readonly<{
   lifecycle: readonly string[];
   /** Deployed mode only: every row recorded before the refusal, and the profile's fate. */
   deployed?: DeployedDrillRows &
-    Readonly<{ profile: DeployedDrillProfile | null; claimResponses: readonly DeployedClaimResponseRow[] }>;
+    Readonly<{
+      profile: DeployedDrillProfile | null;
+      claimResponses: readonly DeployedClaimResponseRow[];
+      generateClickFailure?: "missing" | "ambiguous" | "disabled" | "hidden" | "other";
+    }>;
   /** The deploy-authority adapter's stop code when it bound no deploy. */
   deployStop?: string;
 }>;
@@ -262,7 +266,7 @@ export type DeployedStepRow = Readonly<{
   bodyCode: string | null;
 }>;
 export type DeployedPageRow = Readonly<{
-  method: string;
+  method: string | null;
   host: string;
   path: string;
   status: number;
@@ -320,6 +324,7 @@ export type DeployedPairingDrillReceipt = DeployedDrillRows &
     artifactDigest: string | null;
     extensionId: string | null;
     connectionIdSuffix: string | null;
+    storageLocationIdSuffix: string | null;
     pairingIdSuffix: string | null;
     generateToClickMs: number | null;
     lifecycle: readonly string[];
@@ -919,6 +924,7 @@ export function deployedInputRefusal(input: DeployedPairingDrillInput): PairingD
 
 type LegOutcome = Readonly<{
   connectionIdSuffix: string | null;
+  storageLocationIdSuffix: string | null;
   pairingIdSuffix: string | null;
   generateToClickMs: number | null;
   cookies: readonly Readonly<{ domain: string; count: number }>[];
@@ -1068,7 +1074,13 @@ export function createDeployedPopupObserver(
 ) {
   type Navigation = { frameId: string; loaderId: string; url: string };
   type Request = Navigation & { method: string };
-  type Document = Request & { requestId: string; status: number; contentType: string | null; at: number };
+  type Document = Navigation & {
+    requestId: string;
+    method: string | null;
+    status: number;
+    contentType: string | null;
+    at: number;
+  };
   type Target = {
     targetId: string;
     type: string;
@@ -1077,6 +1089,7 @@ export function createDeployedPopupObserver(
     sessionId: string;
     parentSessionId?: string;
     waitingForDebugger: boolean;
+    attachedUnpausedAtExpectedUrl: boolean;
     newAfterAction: boolean;
     url: string;
     commands: Map<string, "sent" | "ack" | "error">;
@@ -1089,6 +1102,7 @@ export function createDeployedPopupObserver(
   };
   const targets = new Map<string, Target>();
   const sessions = new Map<string, Target>();
+  const expectedUrl = new URL(expected.path, expected.origin).href;
   const chronology: Record<string, unknown>[] = [];
   let sequence = 0;
   let failure: string | null = null;
@@ -1099,20 +1113,15 @@ export function createDeployedPopupObserver(
   const record = (entry: Record<string, unknown>) => {
     chronology.push({ order: ++sequence, ...entry });
   };
-  const matchesUrl = (value: string) => {
-    try {
-      const url = new URL(value);
-      return url.origin === expected.origin && url.pathname === expected.path;
-    } catch {
-      return false;
-    }
-  };
   const location = (value: string) => {
     try {
       const url = new URL(value);
       return {
         host: url.origin === expected.origin ? url.host : "<other-host>",
-        path: matchesUrl(value) ? "/account/channels/<connectionId>" : "<other-path>",
+        path:
+          url.origin === expected.origin && url.pathname === expected.path
+            ? "/account/channels/<connectionId>"
+            : "<other-path>",
       };
     } catch {
       return { host: null, path: null };
@@ -1169,6 +1178,7 @@ export function createDeployedPopupObserver(
         sessionId: value.sessionId,
         parentSessionId: event.sessionId,
         waitingForDebugger: value.waitingForDebugger === true,
+        attachedUnpausedAtExpectedUrl: value.waitingForDebugger === false && info.url === expectedUrl,
         newAfterAction: preActionTargetIds !== undefined && !preActionTargetIds.has(info.targetId),
         url: typeof info.url === "string" ? info.url : "",
         commands: new Map(),
@@ -1275,7 +1285,15 @@ export function createDeployedPopupObserver(
     } else {
       const response = rawCdpRecord(value.response) ? value.response : undefined;
       const request = target.requests.get(value.requestId);
-      if (!request) return reject("missing-request", target);
+      // Browser-initiated navigation can start before the unpaused page attaches.
+      // Chromium uses the navigation token as both requestId and loaderId for its
+      // Document response. Require that token to match the committing frame below.
+      const lateAttachedResponse =
+        target.attachedUnpausedAtExpectedUrl &&
+        target.rawDocumentRequests === 0 &&
+        value.loaderId !== "" &&
+        value.requestId === value.loaderId;
+      if (!request && !lateAttachedResponse) return reject("missing-request", target);
       if (
         !response ||
         typeof response.url !== "string" ||
@@ -1283,17 +1301,23 @@ export function createDeployedPopupObserver(
         typeof response.mimeType !== "string"
       )
         return reject("malformed-response", target);
-      if (request.frameId !== value.frameId || request.loaderId !== value.loaderId || request.url !== response.url)
+      if (
+        request &&
+        (request.frameId !== value.frameId || request.loaderId !== value.loaderId || request.url !== response.url)
+      )
         return reject("request-response-identity", target);
       target.documents.set(value.requestId, {
-        ...request,
+        url: response.url,
+        frameId: value.frameId,
+        loaderId: value.loaderId,
         requestId: value.requestId,
+        method: request?.method ?? null,
         status: response.status,
         contentType: mediaType(response.mimeType),
         at: Date.now(),
       });
       record({
-        event: "matched-response",
+        event: request ? "matched-response" : "late-attached-response",
         sessionId: target.sessionId,
         requestId: value.requestId,
         frameId: value.frameId,
@@ -1350,9 +1374,9 @@ export function createDeployedPopupObserver(
         return;
       const document = [...target.documents.values()].find(
         (candidate) =>
-          candidate.method === "GET" &&
+          (candidate.method === null ? target.rawDocumentRequests === 0 : candidate.method === "GET") &&
           candidate.status === 200 &&
-          matchesUrl(candidate.url) &&
+          candidate.url === expectedUrl &&
           target.url === candidate.url &&
           page?.url === candidate.url &&
           target.mainFrame?.frameId === candidate.frameId &&
@@ -1639,6 +1663,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
   let profile: DeployedDrillProfile | null = null;
   let signIn: StagingPersonaSignInReceipt | undefined;
   let connectionId: string | null = null;
+  let generateClickFailure: NonNullable<PairingDrillEvidence["deployed"]>["generateClickFailure"];
   let claimPhase: DeployedClaimRow["phase"] = "paused";
   let removeResponses: (() => void) | undefined;
   const sorted = (rows: Map<string, DrillRequestRow>) =>
@@ -1662,6 +1687,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       aborted: sorted(aborted),
       profile,
       claimResponses: [...claimResponses],
+      ...(generateClickFailure ? { generateClickFailure } : {}),
     },
   });
   const fail: (code: PairingDrillRefusalCode) => never = (code) => {
@@ -1799,6 +1825,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     const cookies = await inspectCookies(context);
     return {
       connectionIdSuffix: null,
+      storageLocationIdSuffix: null,
       pairingIdSuffix: null,
       generateToClickMs: null,
       cookies: cookieRows(cookies),
@@ -1870,14 +1897,14 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     )
       fail("connector-drill-persona-refused");
     const locations = await step(page, "storage-locations", "GET", "/api/inventory/storage-locations");
-    const location =
+    const storageLocationId =
       isRecord(locations.body) && Array.isArray(locations.body.items)
         ? locations.body.items.find(
-            (item): item is Record<string, unknown> =>
+            (item): item is { storage_location_id: string } =>
               isRecord(item) && item.is_archived === false && typeof item.storage_location_id === "string",
-          )
+          )?.storage_location_id
         : undefined;
-    if (locations.status !== 200 || !location) fail("connector-drill-persona-refused");
+    if (locations.status !== 200 || storageLocationId === undefined) fail("connector-drill-persona-refused");
 
     const connected = await step(page, "connect", "POST", "/api/channels/connections", { providerKey: "tcgplayer" });
     if (
@@ -1901,7 +1928,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     let paired: Omit<LegOutcome, "cookies" | "heldValues"> | undefined;
     try {
       await transition("activate", `${connectionApi}/activate`, "active", {
-        storageLocationIds: [location!.storage_location_id],
+        storageLocationIds: [storageLocationId],
       });
       await transition("pause", `${connectionApi}/pause`, "paused");
       const beforeCode = await step(page, "pairing-before-code", "GET", pairingApi);
@@ -1911,10 +1938,24 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       if (!(await open(page, connectionPage))) fail("connector-drill-page-status");
       checkIsolation();
       const generatedAt = Date.now();
-      await page
-        .locator(generateButton)
-        .click({ timeout: legMs })
-        .catch(() => fail("connector-drill-pairing-refused"));
+      const generate = page.locator(generateButton);
+      try {
+        await generate.click({ timeout: legMs });
+      } catch {
+        // Snapshot only actionability hints without waiting for a match or retaining the Playwright error.
+        generateClickFailure = await generate
+          .evaluateAll((controls) => {
+            if (controls.length === 0) return "missing";
+            if (controls.length > 1) return "ambiguous";
+            const control = controls[0]!;
+            if (control.matches(":disabled") || control.closest('[aria-disabled="true"]')) return "disabled";
+            const { width, height } = control.getBoundingClientRect();
+            if (!width || !height || getComputedStyle(control).visibility !== "visible") return "hidden";
+            return "other";
+          })
+          .catch(() => "other" as const);
+        fail("connector-drill-pairing-refused");
+      }
       let pairingId = "";
       await waitFor(async () => {
         const read = await call(page, "GET", pairingApi);
@@ -2053,23 +2094,17 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
             if (popupDocument !== undefined || popupPage === undefined || popupTargetId === undefined) return false;
             popupObserver.bindPage(popupTargetId, popupPage.url());
             const document = popupObserver.document();
-            if (!document) return false;
-            popupDocument = pages.find(
-              (row) =>
-                row.host === new URL(document.url).host && row.path === redact(connectionPage) && row.at >= reopenedAt,
-            );
-            if (!popupDocument) {
-              popupDocument = {
-                method: document.method,
-                host: new URL(document.url).host,
-                path: redact(new URL(document.url).pathname),
-                status: document.status,
-                contentType: document.contentType,
-                locationHost: null,
-                at: document.at,
-              };
-              pages.push(popupDocument);
-            }
+            if (!document || document.at < reopenedAt) return false;
+            popupDocument = {
+              method: document.method,
+              host: new URL(document.url).host,
+              path: redact(new URL(document.url).pathname),
+              status: document.status,
+              contentType: document.contentType,
+              locationHost: null,
+              at: document.at,
+            };
+            pages.push(popupDocument);
             console.log(
               `CONNECTOR_DRILL_POPUP_DOCUMENT ${JSON.stringify({
                 targetId: document.targetId,
@@ -2122,12 +2157,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
             // Playwright's launch-pipe action while raw child-session routing stays armed.
             if (!(await triggerAction(context, page))) fail("connector-drill-pairing-refused");
             reopened = await waitFor(
-              async () =>
-                !popupObserver.failure &&
-                (await bindPopupPage()) &&
-                bindPopupDocument() &&
-                popupDocument?.status === 200 &&
-                popupDocument.at >= reopenedAt,
+              async () => !popupObserver.failure && (await bindPopupPage()) && bindPopupDocument(),
             );
           } finally {
             context.off("response", observePopupResponse);
@@ -2203,6 +2233,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
         fail("connector-drill-display-refused");
       paired = {
         connectionIdSuffix: id.slice(-4),
+        storageLocationIdSuffix: storageLocationId.slice(-4),
         pairingIdSuffix: pairingId.slice(-4),
         generateToClickMs: clickedAt - generatedAt,
       };

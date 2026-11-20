@@ -102,6 +102,30 @@ export const representativeProductContentsProjectionPlan = {
   ],
 } as const;
 
+function scopeRepresentativeProjectionRuntime(runtime: ReturnType<typeof createPlatformApiHost>) {
+  const sourceObservationProjection = "catalog-source-observation-projection";
+  const isCommerceGroup = (group: Readonly<{ targetContextName: string; projectionName: string }>) =>
+    group.targetContextName !== "catalog" || group.projectionName !== sourceObservationProjection;
+
+  // Source Observation review is worker-owned and isn't a prerequisite for commerce.
+  return {
+    ...runtime,
+    projectionGroups: runtime.projectionGroups.filter(isCommerceGroup),
+    subscriptionRunners: runtime.subscriptionRunners.filter(isCommerceGroup),
+    // Queued seed reconciliation can rebuild the local group list from these handlers.
+    mountedContexts: runtime.mountedContexts.map((entry) =>
+      entry.contextName === "catalog"
+        ? {
+            ...entry,
+            projectionHandlerSets: entry.projectionHandlerSets.filter(
+              (set) => set.projectionName !== sourceObservationProjection,
+            ),
+          }
+        : entry,
+    ),
+  };
+}
+
 export function assertRepresentativeProductContentsReconciled(reconciled: boolean): void {
   if (!reconciled) {
     throw new Error(
@@ -392,7 +416,7 @@ export async function runRepresentativeCommerceState(
             apiBaseUrl: config.paymentProcessor.apiBaseUrl,
           })
         : createFakePaymentProcessorGateway();
-    const runtime =
+    const hostRuntime =
       options.runtime ??
       createPlatformApiHost({
         pools,
@@ -436,6 +460,7 @@ export async function runRepresentativeCommerceState(
           listingPhotoStorage: createObjectStorage(config!.listingPhotoStorage),
         },
       });
+    const runtime = scopeRepresentativeProjectionRuntime(hostRuntime);
     const syncProjection = (
       contextName: string,
       projectionName: string,

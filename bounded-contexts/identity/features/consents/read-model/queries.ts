@@ -35,8 +35,12 @@ export type CurrentConsentRow = Readonly<{
 
 export type ConsentListParams = ListParams &
   Readonly<{
-    userId?: string;
-    accountId?: string;
+    /**
+     * The actor whose consents are listed. The list keeps the subject rule withdraw applies: a user
+     * consent the actor's user gave, from any account, or an account consent the actor's user gave
+     * for the actor's account. Nothing a caller names widens it.
+     */
+    subject: Readonly<{ userId: string; accountId: string }>;
   }>;
 
 /**
@@ -145,19 +149,11 @@ export async function getConsent(db: PgQueryable, consentId: string): Promise<Co
   return result.rows[0] ?? null;
 }
 
-export async function listConsents(db: PgQueryable, params: ConsentListParams = {}) {
-  const extraConditions: string[] = [];
-  const extraValues: unknown[] = [];
-
-  if (params.userId) {
-    extraConditions.push(`user_id = $${extraValues.length + 1}`);
-    extraValues.push(params.userId);
-  }
-
-  if (params.accountId) {
-    extraConditions.push(`account_id = $${extraValues.length + 1}`);
-    extraValues.push(params.accountId);
-  }
+export async function listConsents(db: PgQueryable, params: ConsentListParams) {
+  const extraConditions = [
+    "((subject_type = 'user' AND user_id = $1) OR (subject_type = 'account' AND user_id = $1 AND account_id = $2))",
+  ];
+  const extraValues: unknown[] = [params.subject.userId, params.subject.accountId];
 
   const query = buildFilteredQuery(
     `(SELECT h.*,

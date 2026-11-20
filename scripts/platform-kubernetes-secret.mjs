@@ -16,14 +16,20 @@ export const managedPostgresCaFieldManager = "chase-sets-managed-postgres-ca";
 
 export function collectPlatformSecretKeys(values, options = {}) {
   values ??= buildPlatformHelmValues({ deploymentEnvironment: options.deploymentEnvironment });
+  const env = options.env ?? process.env;
   const keys = new Set();
 
   for (const component of Object.values(values.components ?? {})) {
     for (const entry of component.env ?? []) {
-      // An optional key is installed by its own field manager (the staging evidence
-      // window), so the deploy neither supplies nor claims it.
-      if (entry.secret && !entry.optional) {
-        keys.add(entry.secretKey ?? entry.name);
+      if (!entry.secret) continue;
+      const key = entry.secretKey ?? entry.name;
+      // The production deploy owns the Payments overlap key only while rotating.
+      // Other optional keys (e.g. the staging evidence window) have their own field manager.
+      if (
+        !entry.optional ||
+        (key === "STRIPE_WEBHOOK_SECRET_PREVIOUS" && options.deploymentEnvironment === "production" && env[key]?.trim())
+      ) {
+        keys.add(key);
       }
     }
   }
@@ -201,7 +207,7 @@ export function buildPlatformSecretBundle(options = {}) {
   const namespace = options.namespace;
   const observabilityEnabled = options.observabilityEnabled ?? env.OBSERVABILITY_ENABLED ?? true;
   const secretKeys =
-    options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled });
+    options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled, env });
   const previewPostgres = buildPreviewPostgresSecretMaterial({ ...options, values, env, secretKeys });
   const collectorTokenKey = values.observability?.exporter?.secretKey;
   const collectorRuntimeEnv =
@@ -585,7 +591,8 @@ export function summarizePlatformSecret(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot, deploymentEnvironment });
   const observabilityEnabled = options.observabilityEnabled ?? options.env?.OBSERVABILITY_ENABLED ?? true;
   const secretKeys =
-    options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled });
+    options.secretKeys ??
+    collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled, env: options.env });
   const previewPostgres = buildPreviewPostgresSecretMaterial({
     ...options,
     values,

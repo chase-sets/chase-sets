@@ -3,6 +3,7 @@ import {
   decideSession,
   evolveSession,
   initialSessionState,
+  SessionRefusalError,
   type SessionEvent,
   type SessionState,
   type StartSessionCommand,
@@ -60,6 +61,47 @@ describe("auth session domain", () => {
         type: "ExpireSession",
       }),
     ).toThrow("Only active sessions can change.");
+  });
+
+  it("names each refusal and lets a revoked session's revoke succeed without an event", () => {
+    const state = apply(
+      decideSession(initialSessionState, {
+        type: "StartSession",
+        sessionId: "ses_1" as never,
+        userId: "usr_1" as never,
+        accountId: "acc_a" as never,
+        availableAccountIds: ["acc_a", "acc_b"],
+        authenticationMethod: "password",
+        expiresAt: "2026-05-01T00:00:00.000Z",
+        sessionGeneration: 0,
+      }),
+    );
+    const refusal = (run: () => unknown) => {
+      try {
+        run();
+      } catch (error) {
+        return error instanceof SessionRefusalError ? error.code : error;
+      }
+      return null;
+    };
+    const revoked = evolveSession(state, { type: "auth.session.revoked", data: {} });
+    const expired = evolveSession(state, { type: "auth.session.expired", data: {} });
+
+    expect(refusal(() => decideSession(state, { type: "SwitchSessionAccount", accountId: "acc_a" as never }))).toBe(
+      "account-current",
+    );
+    expect(refusal(() => decideSession(state, { type: "SwitchSessionAccount", accountId: "acc_c" as never }))).toBe(
+      "account-unavailable",
+    );
+    expect(refusal(() => decideSession(state, { type: "SwitchSessionAccount", accountId: undefined as never }))).toBe(
+      "account-required",
+    );
+    expect(refusal(() => decideSession(revoked, { type: "SwitchSessionAccount", accountId: "acc_b" as never }))).toBe(
+      "not-active",
+    );
+    expect(decideSession(revoked, { type: "RevokeSession" })).toEqual([]);
+    expect(refusal(() => decideSession(expired, { type: "RevokeSession" }))).toBe("not-active");
+    expect(decideSession(state, { type: "RevokeSession" })).toEqual([{ type: "auth.session.revoked", data: {} }]);
   });
 
   describe("Session Generation on the Session aggregate", () => {

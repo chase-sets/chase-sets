@@ -312,6 +312,9 @@ pub struct Screen {
     pub decisions: Option<ReadinessDecisions>,
     /// The last confirm, when it is not known to have finished or finished in part.
     pub attempt: Option<Attempt>,
+    /// The page answers a form the seller sent, which Checkout refused or did not finish: seller
+    /// readiness is then said by the refusal, not by the readiness row.
+    pub posted: bool,
 }
 
 /// A confirm not known to have finished, or finished only in part (marketplace's
@@ -490,6 +493,7 @@ async fn load(
         payout: None,
         decisions: None,
         attempt: None,
+        posted: false,
     };
     let guest = guest_id(headers);
     if account {
@@ -629,6 +633,7 @@ pub(crate) async fn write(
         Err(error) => return read_failed(&req, session.and_then(Session::viewer), error, None),
     };
     screen.values = Values::read(&raw).with_saved(&screen.addresses);
+    screen.posted = true;
     if unknown {
         screen.attempt = Some(Attempt { state: Attempted::Ambiguous, lines: Vec::new(), resend: retained(&raw) });
         return render(&req, session, screen, StatusCode::CONFLICT);

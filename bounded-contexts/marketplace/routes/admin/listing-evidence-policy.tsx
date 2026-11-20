@@ -32,7 +32,8 @@ function isoTimestamp(value: FormDataEntryValue | null) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-const policyRedirect = formActionRedirect(null, "/listing-evidence-policy");
+// admin-web serves this page in its Platform section (context.json's route section).
+const policyRedirect = formActionRedirect(null, "/platform/listing-evidence-policy");
 
 export const action = defineFormAction({
   intents: {

@@ -1970,10 +1970,22 @@ describe("design system components", () => {
   it("renders Rating with correct number of stars", () => {
     const markup = renderToString(<Rating value={3} max={5} label="Product rating" />);
 
-    expect(markup).toContain('aria-label="Product rating"');
+    expect(markup).toContain('role="img" aria-label="Product rating: 3 out of 5"');
     // 3 filled stars have fill="currentColor", 2 empty stars do not
     const filledCount = (markup.match(/fill="currentColor"/g) || []).length;
     expect(filledCount).toBe(3);
+  });
+
+  it("says a read-only Rating's value to assistive technology", () => {
+    render(
+      <ChaseRoot>
+        <Rating value={4} />
+        <Rating value={2} valueText="2 von 5 Sternen" />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByRole("img", { name: "Rating: 4 out of 5" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "2 von 5 Sternen" })).toBeTruthy();
   });
 
   it("renders interactive Rating with radio role", () => {

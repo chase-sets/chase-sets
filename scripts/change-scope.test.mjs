@@ -4073,12 +4073,14 @@ describe("change-scope", () => {
   });
 
   it.each([
+    ["scripts/doks-cluster-addons.mjs", true],
+    ["scripts/doks-preview-node-pool.test.mjs", false],
     ["scripts/digitalocean-platform-config.mjs", true],
     ["scripts/digitalocean-platform-config.test.mjs", false],
     ["scripts/platform-smoke.mjs", true],
     ["scripts/platform-smoke.test.mjs", false],
     ["scripts/platform-smoke.spec.mjs", false],
-  ])("keeps test-only DigitalOcean and platform-smoke paths off cluster preview: %s", (file, expected) => {
+  ])("keeps test-only platform script paths off cluster preview: %s", (file, expected) => {
     expect(classifyChanges({ changedFiles: [file] }).clusterPreviewRequired, file).toBe(expected);
   });
 
@@ -4168,20 +4170,23 @@ describe("change-scope", () => {
     expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("keeps DOKS-only Terraform changes on the plan-only lane, off the cluster-preview surface", () => {
-    const baseDir = path.join(process.cwd(), "repo");
-    const scope = classifyChanges({
-      baseDir,
-      changedFiles: ["infrastructure/digitalocean/doks/main.tf"],
-      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
-    });
+  it.each(["infrastructure/digitalocean/doks/main.tf", "infrastructure/digitalocean/doks/variables.tf"])(
+    "keeps DOKS-only Terraform changes plan-only and off cluster preview: %s",
+    (file) => {
+      const baseDir = path.join(process.cwd(), "repo");
+      const scope = classifyChanges({
+        baseDir,
+        changedFiles: [file],
+        workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+      });
 
-    expect(scope.terraformRequired).toBe(true);
-    expect(scope.deployRequired).toBe(false);
-    expect(scope.dockerImageRequired).toBe(false);
-    expect(scope.clusterPreviewRequired).toBe(false);
-    expect(scope.composeSmokeRequired).toBe(false);
-  });
+      expect(scope.terraformRequired).toBe(true);
+      expect(scope.deployRequired).toBe(false);
+      expect(scope.dockerImageRequired).toBe(false);
+      expect(scope.clusterPreviewRequired).toBe(false);
+      expect(scope.composeSmokeRequired).toBe(false);
+    },
+  );
 
   it("routes Helm chart changes through ordinary staged deployment without a docker image", () => {
     const baseDir = path.join(process.cwd(), "repo");

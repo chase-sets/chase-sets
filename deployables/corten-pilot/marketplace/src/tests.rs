@@ -55,6 +55,9 @@ struct Stand {
     ensured: Arc<Mutex<HashMap<String, Value>>>,
     /// The repricing dry runs started here, by id: the body Pricing keeps (without its name).
     runs: Arc<Mutex<HashMap<String, Value>>>,
+    /// The Listing changes Marketplace prepared, by batch id: what it answers for each, and the
+    /// intent that prepared it.
+    batches: Arc<Mutex<HashMap<String, (String, Value)>>>,
 }
 
 const OVERLAY: &str = "/api/marketplace/items/charizard/seller-overlay";
@@ -655,7 +658,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     // Before Ordering's and the listing page's, whose paths begin the same.
+    if let Some(answer) = listing_batches(&stand, session, &method, &uri, &body) {
+        return answer;
+    }
     if let Some(answer) = listing_list(session, &method, &uri, &headers, &body) {
+        settle(&stand, &headers, &answer);
         return answer;
     }
     if let Some(answer) = public_listings(&method, uri.path(), &headers, &body) {
@@ -693,6 +700,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = seller_listings(&method, uri.path(), &headers, &body) {
+        settle(&stand, &headers, &answer);
         return answer;
     }
     if let Some(rest) = uri.path().strip_prefix(ROLLUPS) {
@@ -2783,7 +2791,8 @@ fn get_json(uri: &str) -> Request<Body> {
 /// answered at a path with no `GET`) see these posts as a browser's.
 const BROWSER_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
-/// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
+/// A form post as the runtime sends it (`corten: action`, asking for a write's own page whole), or
+/// as a browser without JavaScript.
 fn post(uri: &str, session: &str, body: &str, script: bool) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
@@ -2791,7 +2800,7 @@ fn post(uri: &str, session: &str, body: &str, script: bool) -> Request<Body> {
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
-        req = req.header("corten", "action");
+        req = req.header("corten", "action").header("prefer", "corten-draws=whole");
     }
     req.body(Body::from(body.to_owned())).unwrap()
 }
@@ -5139,7 +5148,10 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
     let calls = alert_calls(&pilot);
     assert_eq!(calls.len(), 1, "{calls:?}");
     assert_eq!(calls[0].path, ACCOUNT_ALERTS);
-    let sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    let mut sent: Value = serde_json::from_str(&calls[0].body).unwrap();
+    // A post without the form's attempt is still one (the API applies an attempt once).
+    let attempt = sent.as_object_mut().unwrap().remove("attemptId").expect("an attempt");
+    assert_eq!(attempt.as_str().map(str::len), Some(36), "{attempt}");
     assert_eq!(
         sent,
         json!({
@@ -5169,6 +5181,29 @@ async fn an_account_saves_a_watch_alert_from_the_catalogs_words_and_the_page_say
         (&sent["marketSide"], &sent["thresholdAmount"], &sent["thresholdCurrencyCode"]),
         (&json!("listing"), &Value::Null, &Value::Null)
     );
+}
+
+#[tokio::test]
+async fn each_watch_form_sends_the_attempt_it_was_drawn_with_so_a_resend_is_the_same_alert() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(WATCH_PAGE, Some("watcher"))).await;
+    let attempts: Vec<_> = html.split(ATTEMPT_INPUT).skip(1).map(|rest| rest.split('"').next().unwrap().to_owned()).collect();
+    assert_eq!(attempts.len(), 2, "one attempt per Watch form: {html}");
+    assert_ne!(attempts[0], attempts[1], "{attempts:?}");
+    let body = format!("{}&attempt={}", watch_body("listing", "300", "USD"), attempts[0]);
+    for _ in 0..2 {
+        let (status, _, html) = pilot.send(post(WATCH, "watcher", &body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    }
+    let sent: Vec<Value> = alert_calls(&pilot).iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent.iter().all(|s| s["attemptId"] == json!(attempts[0])), "the same attempt both times: {sent:?}");
+
+    // A guest's intent has no attempt; it dedupes by product and threshold.
+    let (status, _, _) = pilot.send(post_signed_out(WATCH, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let intent: Value = serde_json::from_str(&alert_calls(&pilot)[2].body).unwrap();
+    assert!(intent.get("attemptId").is_none(), "{intent}");
 }
 
 #[tokio::test]
@@ -5712,10 +5747,12 @@ async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
     // Each case its own attempt: an attempt sent again is the one the API kept.
     let attempt = |words: &str| format!("bulk-attempt-{words}-0123456789");
     let sent = |words: &str| format!("q={words}&attempt={}", attempt(words));
-    // Some lines added: the counts, each line that was not, and Review Buy Cart.
+    // Some lines added: the counts, each line that was not, and Review Buy Cart, on the search's
+    // page with the sheet open and the shell's count read after the add, with a script as without.
     let (status, headers, html) = pilot.send(post(BULK, "watcher", &sent("partial"), true)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(!headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
     let sheet = text(&html);
     for said in ["Buy Cart updated", "Card 3: No listings are available.", "1 added, 0 merged", "1 products could not be added."]
     {
@@ -5723,6 +5760,8 @@ async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
     }
     assert!(html.contains(r#"href="/account/cart">Review Buy Cart</a>"#), "{html}");
     assert!(!sheet.contains("Add eligible products"), "{sheet}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
     // Without a script, the search with it open, and the shell's count read after the add.
     let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("partial"), false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -7620,7 +7659,7 @@ fn ordering(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response>
     };
     if side == "buyer" {
         detail["delivery_summary"] =
-            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22 12:00:00+00" });
+            json!({ "shipment_count": 2, "delivered_count": 1, "latest_delivered_at": "2026-03-22T12:00:00.000Z" });
         detail["reviewOutcome"] = json!({ "status": "ready", "opportunity": {
             "author_role": "buyer", "active_review_id": "rev_1", "active_review_revealed_at": "2026-03-23T10:05:00.000Z",
             "submission_state": "allowed", "window_expired": false, "revealed": true,
@@ -7741,7 +7780,7 @@ async fn the_purchases_are_cards_with_their_counts_and_pages_as_links() {
     assert!(shown.contains("205 Purchases 7 Items 1 Pending") || shown.contains("Purchases 205 Items 7 Pending 1"), "{shown}");
     assert!(
         shown.contains(
-            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN pending-payment"
+            "Twilight Masquerade Elite Trainer Box +1 more Purchase \u{b7} Oct 25, 2026 \u{b7} ORD-OPEN Pending payment"
         ),
         "{shown}"
     );
@@ -7819,7 +7858,7 @@ async fn cancelling_redirects_to_the_order_read_after_it_and_a_late_read_reads_a
     assert!(query(&to)["after_write"].contains(r#""commitPosition":"42""#), "{to}");
     let (status, _, html) = pilot.send(get(&to, Some("shopper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(text(&html).contains("Status cancelled"), "{}", text(&html));
+    assert!(text(&html).contains("Status Cancelled"), "{}", text(&html));
     assert!(!html.contains("/cancel\""), "a cancelled purchase has no Cancel: {html}");
     let sent = order_calls(&pilot);
     assert_eq!(sent[0].path, format!("{PURCHASES_API}/ord_open/cancel"));
@@ -7872,7 +7911,10 @@ async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
         "{shown}"
     );
     assert!(!shown.contains("Tax $"), "a seller sees no buyer tax line: {shown}");
-    assert!(shown.contains("Inventory Holds Reserved item Inventory is reserved for this order while fulfillment is prepared. Quantity 1 Status active"), "{shown}");
+    assert!(shown.contains("Inventory Holds Reserved item Inventory is reserved for this order while fulfillment is prepared. Quantity 1 Status Active"), "{shown}");
+    // Ordering's codes in words: the shipping option and, on a hold, its status.
+    assert!(shown.contains("Shipping Preference Standard"), "{shown}");
+    assert!(!html.contains(">standard<") && !html.contains(">active<"), "{html}");
     assert!(shown.contains("Review window closed The feedback window for this order has closed."), "{shown}");
     // The held case and the refund outcome.
     assert!(
@@ -9045,8 +9087,9 @@ const ACCOUNT_HOME: &str = "/account";
 
 /// The stand-in Identity account `acc_seller` and who is signed in to it. A read that waits for 45
 /// is still catching up. A profile update's attempt decides an answer as an address write's does
-/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict and the
-/// marketplace name `Refused` is refused for its fields.
+/// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict, the
+/// marketplace name `Refused` is refused for its fields, and a blank name is refused as Identity
+/// refuses it, naming the field.
 fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     if path == "/api/identity/current-actor-display" {
         return Some(
@@ -9082,6 +9125,16 @@ fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &
             Json(json!({ "outcome": "conflict", "code": "owner-state-conflict", "current": { "id": "acc_seller", "version": 3, "status": "active" } })),
         )
             .into_response(),
+        "PUT" if ["name", "displayName"].iter().any(|f| sent[f].as_str().is_some_and(|v| v.trim().is_empty())) => {
+            let (field, message) = if sent["name"].as_str().is_some_and(|v| v.trim().is_empty()) {
+                ("name", "Legal name is required.")
+            } else {
+                ("displayName", "Marketplace name is required.")
+            };
+            let details = json!([{ "field": field, "code": "required", "message": message }]);
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })))
+                .into_response()
+        }
         "PUT" if sent["displayName"] == "Refused" => {
             (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
         }
@@ -9144,7 +9197,7 @@ async fn the_account_page_shows_the_profile_who_is_signed_in_and_where_to_manage
     );
     assert!(html.contains("<title>Account | Marketplace</title>"), "{html}");
     assert!(html.contains(r#"method="post" action="/account""#), "{html}");
-    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="name" value="Synthetic Legal LLC" required"#) && !html.contains("pattern="), "{html}");
     assert!(html.contains(r#"name="display_name" value="Synthetic Shop" required"#), "{html}");
     assert_eq!(html.matches(ATTEMPT_INPUT).count(), 1, "the update carries an attempt: {html}");
     for (href, words) in [
@@ -9187,6 +9240,23 @@ async fn an_updated_profile_is_read_after_its_write_and_the_page_says_it_was_sav
     assert!(text(&html).contains("Your change was saved"), "{}", text(&html));
     let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == ACCOUNT_API).cloned().unwrap();
     assert_eq!(waits_for(&read.headers).as_deref(), Some("42"), "the account waits for the write");
+}
+
+#[tokio::test]
+async fn a_blank_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    for (name, display_name, field, said) in [
+        ("+++", "Shop", "name", "Legal name is required."),
+        ("Synthetic+Legal+LLC", "+", "display_name", "Marketplace name is required."),
+    ] {
+        let body = format!("attempt={ATTEMPT}&name={name}&display_name={display_name}");
+        let (status, _, html) = pilot.send(post(ACCOUNT_HOME, "addresser", &body, true)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+        assert!(text(&html).contains(said), "{}", text(&html));
+        let input = html.split(&format!(r#"name="{field}""#)).nth(1).unwrap().split('>').next().unwrap();
+        assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    }
+    assert_eq!(profile_writes(&pilot).len(), 2, "each blank name is sent for Identity to refuse");
 }
 
 #[tokio::test]
@@ -9550,7 +9620,9 @@ fn session_row(id: &str, user: &str, status: &str, method: &str, available: &[&s
 /// link), `ses_down` (active, one account, whose revoke fails), and `ses_else`, another user's
 /// whose display name mentions `usr_seller`, which Auth's list matches too. A read that waits for 45
 /// is still catching up; `ses_gone` is not found and `ses_else` forbidden. A revoke of `ses_one`
-/// or a switch of it to `acc_two` is done (a receipt at 42); every other write is Auth's 500.
+/// or a switch of it to `acc_two` is done (a receipt at 42), and a revoke of the revoked `ses_old`
+/// is done with nothing written. Auth names a refusal: a switch to the current or an unavailable
+/// account, or of a session no longer active. `ses_down`'s revoke is a 500.
 fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix(SESSIONS_API)?;
     let failed = || refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
@@ -9583,6 +9655,16 @@ fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) ->
         }
         ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_two" => {
             committed(StatusCode::OK, "auth", "42", json!({ "id": "ses_one", "version": 2, "status": "active" }))
+        }
+        ("POST", "/ses_one/switch-account") if sent["accountId"] == "acc_seller" => {
+            refusal(StatusCode::CONFLICT, "session_account_current", "This session is already using that account.")
+        }
+        ("POST", "/ses_one/switch-account") => {
+            refusal(StatusCode::BAD_REQUEST, "session_account_unavailable", "This session cannot switch to that account.")
+        }
+        ("POST", "/ses_old/revoke") => Json(json!({ "id": "ses_old", "version": 2, "status": "revoked" })).into_response(),
+        ("POST", "/ses_old/switch-account") => {
+            refusal(StatusCode::CONFLICT, "session_not_active", "This session is no longer active.")
         }
         ("POST", _) => failed(),
         _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
@@ -9693,10 +9775,23 @@ async fn a_revoke_or_switch_is_read_after_its_write_and_a_failed_one_says_what_t
 
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_two", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched");
+    let reads = |pilot: &Pilot| {
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.method == Method::GET && c.path.starts_with(SESSIONS_API)).count()
+    };
+    let before = reads(&pilot);
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_bogus", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switch-refused", "Auth's 500, and the account unchanged");
+    assert_eq!(
+        query(headers["location"].to_str().unwrap())["said"],
+        "switch-refused",
+        "Auth's refusal of an unavailable account"
+    );
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_one/switch"), "guard", "account_id=acc_seller", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "switched", "already on that account");
+    let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/switch"), "guard", "account_id=acc_two", false)).await;
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "a switch of a revoked session");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_old/revoke"), "guard", "", false)).await;
-    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "not-active", "Auth's 500 for a revoked session");
+    assert_eq!(query(headers["location"].to_str().unwrap())["said"], "revoked", "a revoked session's revoke is done");
+    assert_eq!(reads(&pilot), before, "a named refusal is not read again");
     let (_, headers, _) = pilot.send(post(&format!("{SESSIONS}/ses_down/revoke"), "guard", "", false)).await;
     let to = headers["location"].to_str().unwrap().to_owned();
     assert_eq!(query(&to)["said"], "failed", "still active after a failed revoke");
@@ -10073,10 +10168,8 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let (status, headers, html) =
         pilot.send(post(&webhook, "buyer", "callback_url=https%3A%2F%2Fagent.example%2Fnew", true)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        headers.contains_key("corten-page") && headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"),
-        "{headers:?}"
-    );
+    // The runtime draws a write's own page whole, so the shell's reads are current too.
+    assert!(html.contains("<html") && headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
     assert!(html.contains("whsec_synthetic_new_secret"), "the page with its secret replaces this one");
 
     let (status, _, html) = pilot.send(post(&webhook, "buyer", "callback_url=http%3A%2F%2Fagent.example", false)).await;
@@ -10417,8 +10510,8 @@ fn multipart_fields(headers: &HeaderMap, body: &str) -> Option<Vec<(String, Opti
 /// The search finds `cat_etb` for "twilight", nothing for "zzz", and fails for "broken";
 /// `cat_card` is a card with options (Inventory's read has no `valueKind`). A guest's draft
 /// `ldi_1` is claimed with an `anon_` owner. The create refuses `purchaseLimits`, as the multipart
-/// create does, answers 500 for a photo named `broken.png`
-/// (chase-sets/chase-sets#10649), and records the rest as the JSON create does.
+/// create does, refuses a photo named `broken.png` as evidence it cannot decode, and records the
+/// rest as the JSON create does.
 fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     let query = uri.query().unwrap_or_default();
@@ -10526,7 +10619,7 @@ fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
                 return Some(refusal(StatusCode::BAD_REQUEST, "listing_request_unknown_field", "Remove unrecognized fields and try again."));
             }
             if photos.iter().any(|p| p["filename"] == "broken.png") {
-                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                return Some(refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again."));
             }
             if sent["inventoryItemId"] == "inv_missing" && sent["inventorySnapshot"].is_null() {
                 return Some(refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item was not found."));
@@ -10705,11 +10798,11 @@ async fn a_photo_the_api_would_not_take_is_refused_with_the_form_and_nothing_is_
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Each photo must be 10 MB or smaller."), "{html}");
     assert_eq!(create_calls(&pilot), 0);
-    // The API's 500 for a photo it cannot decode (chase-sets/chase-sets#10649) is the form again.
+    // A photo the API cannot decode is refused by it, with the form again.
     let (status, _, html) =
         pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &[("evidence", "broken.png", "image/png", PNG)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(text(&html).contains("The photos could not be processed, so nothing was created."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     assert!(pilot.stand.listings.lock().unwrap().is_empty());
 }
 
@@ -10898,9 +10991,7 @@ fn attention_queue() -> Value {
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
 /// the reason `bogus` is refused, as is an order capacity of 1000; one of 999 is another
 /// attempt's (409 `attempt_conflict`), and one of 998 has no confirmed result (409
-/// `history_incomplete`). In a batch, `lst_locked` is an error and `lst_unsure` unknown; a batch
-/// naming `lst_foreign` is refused, one naming `lst_broken` fails, and `lister_ended`'s ended. A
-/// batch applies at 50; every other write at 51.
+/// `history_incomplete`). Every write applies at 51.
 fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const ACCOUNT: &str = "/api/marketplace/account";
     let path = uri.path().strip_prefix(ACCOUNT)?;
@@ -10981,7 +11072,9 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
             refusal(StatusCode::CONFLICT, "attempt_conflict", "Idempotency key was already used with a different request.")
         }
         ("POST", "/order-capacity") if sent["maxOpenOrders"] == 998 => {
-            refusal(StatusCode::CONFLICT, "history_incomplete", "Mutation attempt history is incomplete.")
+            let mut answer = refusal(StatusCode::CONFLICT, "history_incomplete", "Mutation attempt history is incomplete.");
+            answer.headers_mut().insert(UNSETTLED, header::HeaderValue::from_static("1"));
+            answer
         }
         (
             "POST",
@@ -10991,41 +11084,172 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
             | "/order-capacity",
         )
         | ("DELETE", "/listing-availability/away-window" | "/order-capacity") => applied(),
-        ("POST", "/listings/batch") => {
-            let ids: Vec<&str> =
-                sent["listingIds"].as_array().map(|ids| ids.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-            if session == "lister_ended" {
-                refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required.")
-            } else if ids.contains(&"lst_broken") {
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            } else if ids.contains(&"lst_foreign") {
-                refusal(StatusCode::BAD_REQUEST, "id-invalid", "Listing batch targets are invalid.")
-            } else {
-                let items: Vec<Value> = ids
-                    .iter()
-                    .map(|id| {
-                        let outcome = match *id {
-                            "lst_locked" => "error",
-                            "lst_unsure" => "unknown",
-                            _ => "succeeded",
-                        };
-                        json!({ "targetId": id, "outcome": outcome, "version": 2 })
-                    })
-                    .collect();
-                let body = json!({ "batchId": sent["batchId"], "family": sent["family"], "items": items, "total": ids.len() });
-                committed(StatusCode::OK, "marketplace", "50", body)
+        _ => return None,
+    })
+}
+
+/// The intents Marketplace prepares (`listingRecoveryCommands`): each one's mutation family, the
+/// command name its batch id ends with, and whether it is a bulk change.
+fn listing_recovery_command(intent: &str) -> Option<(&'static str, &'static str, bool)> {
+    Some(match intent {
+        "bulk-pause-listings" => ("listing.pause", "bulk-pause-listings", true),
+        "bulk-withdraw-listings" => ("listing.withdraw", "bulk-withdraw-listings", true),
+        "publish" => ("listing.publish", "publishListing", false),
+        "pause" => ("listing.pause", "pauseListing", false),
+        "withdraw" => ("listing.withdraw", "withdrawListing", false),
+        "update-price" => ("listing.update-price", "updateListingPrice", false),
+        "update-quantity-cap" => ("listing.update-quantity", "updateListingQuantityCap", false),
+        "update-purchase-limits" => ("listing.update-purchase-limits", "updateListingPurchaseLimits", false),
+        "disable-listing-availability" => ("seller.availability", "disableSellerListingAvailability", false),
+        "enable-listing-availability" => ("seller.availability", "enableSellerListingAvailability", false),
+        "schedule-away-window" => ("seller.away", "scheduleSellerAwayWindow", false),
+        "cancel-away-window" => ("seller.away", "cancelScheduledAwayWindow", false),
+        "set-order-capacity" => ("seller.order-capacity", "setSellerOrderCapacity", false),
+        "clear-order-capacity" => ("seller.order-capacity", "clearSellerOrderCapacity", false),
+        _ => return None,
+    })
+}
+
+/// Nothing Marketplace can confirm (`ambiguousListingRecovery`).
+fn unconfirmed_recovery() -> Value {
+    json!({ "identity": null, "phase": "ambiguous", "items": [], "retryTargetIds": [] })
+}
+
+/// Marketplace's Listing change routes, as the stand-in answers them (`listing-batch`).
+///
+/// Prepare answers a reference whose batch id is the attempt and the command's name, and keeps
+/// the change as confirming, its form offered again (`reentry`) until a command settles it
+/// (`settle`); an intent it does not prepare has no reference. With a retained reference, only
+/// the form it offers again is prepared; anything else answers its recovery. `lister_ended`'s
+/// session ended, and a bulk change naming `lst_foreign` is refused.
+///
+/// The recovery read answers what was kept; a batch id that begins `readfails` cannot be read
+/// (503), and one never prepared is unconfirmed.
+///
+/// Retry sends a bulk change's listings whose outcome is unknown: `lst_locked` is an error,
+/// `lst_unsure` stays unknown, the others succeed, at 50. A change naming `lst_broken` fails (500).
+fn listing_batches(stand: &Stand, session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    const BATCH: &str = "/api/marketplace/account/listings/batch/";
+    let rest = uri.path().strip_prefix(BATCH)?;
+    if session == "lister_ended" {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let mut batches = stand.batches.lock().unwrap();
+    Some(match (method.as_str(), rest) {
+        ("POST", "prepare") => {
+            let intent = sent["intent"].as_str().unwrap_or_default();
+            let key = sent["idempotencyKey"].as_str().unwrap_or_default();
+            if let Some(retained) = sent["retained"]["batchId"].as_str() {
+                let kept = batches.get(retained).map(|(_, recovery)| recovery.clone());
+                let offered =
+                    kept.as_ref().is_some_and(|r| r["reentry"]["intent"] == intent && r["reentry"]["idempotencyKey"] == key);
+                if !offered {
+                    return Some(Json(json!({ "recovery": kept.unwrap_or_else(unconfirmed_recovery) })).into_response());
+                }
             }
+            let Some((family, name, bulk)) = listing_recovery_command(intent) else {
+                return Some(Json(json!({ "reference": null })).into_response());
+            };
+            if !crate::api::valid_listing_attempt(key) {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_attempt",
+                    "A valid Listing attempt identity is required.",
+                ));
+            }
+            let targets: Vec<Value> = if bulk {
+                let ids: Vec<Value> = sent["listingIds"].as_array().cloned().unwrap_or_default();
+                if ids.iter().any(|id| id == "lst_foreign") {
+                    return Some(refusal(StatusCode::BAD_REQUEST, "id-invalid", "Listing batch targets are invalid."));
+                }
+                ids
+            } else {
+                vec![sent["listingId"].as_str().map_or(json!("acc_seller"), |id| json!(id))]
+            };
+            let batch_id = format!("{key}_{name}");
+            let identity = json!({ "batchId": batch_id, "mutationKind": family, "bulk": bulk });
+            batches.entry(batch_id).or_insert_with(|| {
+                let items: Vec<Value> = targets.iter().map(|id| json!({ "targetId": id, "outcome": "unknown" })).collect();
+                let reentry = (!bulk).then(|| json!({ "intent": intent, "idempotencyKey": key }));
+                let retry = if bulk { targets.clone() } else { Vec::new() };
+                let recovery = json!({
+                    "identity": identity, "phase": "confirming", "items": items, "retryTargetIds": retry, "reentry": reentry,
+                });
+                (intent.to_owned(), recovery)
+            });
+            Json(json!({ "reference": identity })).into_response()
+        }
+        ("POST", "retry") => {
+            let batch_id = sent["batchId"].as_str().unwrap_or_default();
+            let Some((_, recovery)) = batches.get_mut(batch_id) else {
+                return Some(refusal(StatusCode::NOT_FOUND, "listing_batch_not_found", "Listing batch not found."));
+            };
+            let items = recovery["items"].as_array_mut().expect("items");
+            if items.iter().any(|item| item["targetId"] == "lst_broken") {
+                return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+            }
+            let mut sent_now = Vec::new();
+            for item in items.iter_mut().filter(|item| item["outcome"] == "unknown") {
+                sent_now.push(item["targetId"].clone());
+                item["outcome"] = json!(match item["targetId"].as_str().unwrap_or_default() {
+                    "lst_locked" => "error",
+                    "lst_unsure" => "unknown",
+                    _ => "succeeded",
+                });
+            }
+            let count = |outcome: &str| items.iter().filter(|item| item["outcome"] == outcome).count();
+            let (succeeded, total) = (count("succeeded"), items.len());
+            let unknown: Vec<Value> =
+                items.iter().filter(|item| item["outcome"] == "unknown").map(|item| item["targetId"].clone()).collect();
+            recovery["phase"] = json!(match (succeeded, unknown.is_empty()) {
+                (s, true) if s == total => "succeeded",
+                (0, true) => "failed-safe",
+                _ => "partial",
+            });
+            recovery["retryTargetIds"] = json!(unknown);
+            committed(StatusCode::OK, "marketplace", "50", json!({ "recovery": recovery, "sent": sent_now }))
+        }
+        ("GET", batch_id) if batch_id.starts_with("readfails") => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        ("GET", batch_id) => {
+            Json(batches.get(batch_id).map_or_else(unconfirmed_recovery, |(_, recovery)| recovery.clone())).into_response()
         }
         _ => return None,
     })
+}
+
+/// A stand-in answer Marketplace records nothing for (`history_incomplete`).
+const UNSETTLED: &str = "stand-unsettled";
+
+/// What a command sent under a prepared batch id came to, as Marketplace records it: applied, in
+/// conflict (409), or refused (another 4xx). One with no answer it can confirm (a 5xx, or
+/// `UNSETTLED`) stays confirming, its form offered again.
+fn settle(stand: &Stand, headers: &HeaderMap, answer: &Response) {
+    let Some(key) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) else { return };
+    if answer.headers().contains_key(UNSETTLED) {
+        return;
+    }
+    let mut batches = stand.batches.lock().unwrap();
+    let Some((_, recovery)) = batches.get_mut(key) else { return };
+    let (phase, outcome) = match answer.status() {
+        s if s.is_success() => ("succeeded", "succeeded"),
+        StatusCode::CONFLICT => ("conflict", "conflict"),
+        s if s.is_client_error() => ("failed-safe", "error"),
+        _ => return,
+    };
+    recovery["phase"] = json!(phase);
+    recovery["reentry"] = Value::Null;
+    for item in recovery["items"].as_array_mut().expect("items") {
+        item["outcome"] = json!(outcome);
+    }
 }
 
 /// The seller's listing page's calls, as the stand-in answers them. A read that waits for 43 is
 /// still catching up; `lst_missing` is not found. A price of 1.00 is a stale quote (409 with the
 /// current one) and 0.50 is refused; an image description with a text-direction override is
 /// refused with its code; publishing the draft is refused for its evidence (409 with the
-/// readiness now); photos named `broken.png` are a 500 (chase-sets/chase-sets#10649). Every
-/// other write applies at 50.
+/// readiness now); photos named `broken.png` are refused as evidence it cannot decode, and a price
+/// of 5.00 is a 500, whose answer is lost. Every other write applies at 50.
 fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = path.strip_prefix(SELLER_LISTINGS)?;
     let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
@@ -11067,6 +11291,7 @@ fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str)
         ("POST", "price") if sent["priceAmount"] == "0.50" => {
             refusal(StatusCode::BAD_REQUEST, "command-rejected", "Listing price is below the marketplace minimum.")
         }
+        ("POST", "price") if sent["priceAmount"] == "5.00" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         ("POST", a) if a.ends_with("/classify") && sent["altText"].as_str().is_some_and(|t| t.contains('\u{202E}')) => {
             refusal(StatusCode::BAD_REQUEST, "text_direction_override", "Remove hidden text-direction characters.")
         }
@@ -11079,7 +11304,9 @@ fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str)
             } })),
         )
             .into_response(),
-        ("POST", _) if body.contains("filename=\"broken.png\"") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        ("POST", _) if body.contains("filename=\"broken.png\"") => {
+            refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again.")
+        }
         ("POST", _) | ("DELETE", _) => applied(),
         _ => return None,
     })
@@ -11148,6 +11375,119 @@ async fn a_sellers_listing_shows_its_overview_fees_readiness_and_forms_and_only_
     assert!(!html.contains("ph_old"), "{html}");
 }
 
+/// A listing page's address naming the change `reference`.
+fn naming(path: &str, reference: &Value) -> String {
+    let reference = reference.to_string();
+    let reference = percent_encoding::utf8_percent_encode(&reference, percent_encoding::NON_ALPHANUMERIC);
+    format!("{path}?listingRecovery={reference}")
+}
+
+#[tokio::test]
+async fn a_listing_change_names_itself_and_the_page_after_it_says_it_is_confirmed_with_its_writes_off() {
+    let pilot = Pilot::new().await;
+    let attempt = new_attempt();
+    let body = format!("intent=pause&attempt={attempt}");
+    let (status, headers, _) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let reference: Value = serde_json::from_str(&query(&to)["listingRecovery"]).unwrap();
+    assert_eq!(
+        reference,
+        json!({ "batchId": format!("{attempt}_pauseListing"), "mutationKind": "listing.pause", "bulk": false })
+    );
+    let (status, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Your Listing change is confirmed."), "{page}");
+    assert!(page.contains("lst_active: succeeded, will not send again"), "{page}");
+    assert!(html.contains(r#"href="/account/listings/lst_active">Start another change</a>"#), "{html}");
+    // Its writes are off, and its forms post to the page naming the change.
+    assert!(html.contains(r#"value="update-price" disabled>"#), "{html}");
+    assert!(html.contains(r#"type="submit" disabled>Pause listing</button>"#), "{html}");
+    assert!(html.contains(r#"action="/account/listings/lst_active?listingRecovery="#), "{html}");
+    // Another write from it, a photo's too, is not sent: the page says what came of the change.
+    let before = listing_writes(&pilot, "lst_active").len();
+    for body in [format!("intent=withdraw&attempt={}", new_attempt()), "intent=reorder-photos&orderedPhotoIds=ph_2%2Cph_1".into()]
+    {
+        let (status, _, html) = pilot.send(post(&to, "lister", &body, false)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}: {html}");
+        assert!(text(&html).contains("Your Listing change is confirmed."), "{html}");
+    }
+    assert_eq!(listing_writes(&pilot, "lst_active").len(), before);
+}
+
+#[tokio::test]
+async fn a_listing_change_whose_answer_is_lost_is_read_back_and_only_the_same_form_is_sent_under_its_attempt() {
+    let pilot = Pilot::new().await;
+    let body = |price: &str, attempt: &str| {
+        format!("intent=update-price&priceAmount={price}&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing&attempt={attempt}")
+    };
+    let first = new_attempt();
+    let (status, headers, _) = pilot.send(post("/account/listings/lst_active", "lister", &body("5.00", &first), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(query(&to).contains_key("listingRecovery") && !query(&to).contains_key("afterWrite"), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    let page = text(&html);
+    assert!(page.contains("Confirming the result of your Listing change."), "{page}");
+    assert!(page.contains("No result is recorded. Re-enter the same details to retry this attempt"), "{page}");
+    assert!(html.contains(r#"value="update-price">"#), "the same form may be entered again: {html}");
+    // Another form is not sent.
+    let (status, _, _) = pilot.send(post(&to, "lister", &format!("intent=pause&attempt={}", new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    // The same form, drawn again with a new attempt, is sent under the first.
+    let (status, headers, _) = pilot.send(post(&to, "lister", &body("12.00", &new_attempt()), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let keys: Vec<String> =
+        listing_writes(&pilot, "lst_active").iter().map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned()).collect();
+    let batch_id = format!("{first}_updateListingPrice");
+    assert_eq!(keys, [batch_id.clone(), batch_id.clone()]);
+    let prepared = preparations(&pilot);
+    assert_eq!(prepared.len(), 2, "the other form was not prepared: {prepared:?}");
+    assert_eq!(prepared[1]["idempotencyKey"], first.as_str());
+    assert_eq!(prepared[1]["retained"]["batchId"], batch_id.as_str());
+    let (_, _, html) = pilot.send(get(headers[header::LOCATION].to_str().unwrap(), Some("lister"))).await;
+    assert!(text(&html).contains("Your Listing change is confirmed."), "{html}");
+}
+
+#[tokio::test]
+async fn a_listing_change_refused_says_so_and_a_listing_that_cannot_be_read_says_only_what_came_of_its_change() {
+    let pilot = Pilot::new().await;
+    // Refused: not applied, with the API's words, and the page's writes are off.
+    let body = format!("intent=update-price&priceAmount=0.50&priceCurrencyCode=USD&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("The change was not sent. Review your inputs before trying again."), "{page}");
+    assert!(page.contains("lst_active: failed safely, will not send again"), "{page}");
+    assert!(page.contains("Listing price is below the marketplace minimum."), "{page}");
+    assert!(html.contains(r#"value="update-price" disabled>"#), "{html}");
+    // A stale quote is a conflict.
+    let body = format!(
+        "intent=update-price&priceAmount=1.00&priceCurrencyCode=USD&feeQuoteFingerprint=fq_listing&attempt={}",
+        new_attempt()
+    );
+    let (status, _, html) = pilot.send(post("/account/listings/lst_active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("This Listing change conflicts with its recorded result."), "{page}");
+    assert!(page.contains("lst_active: conflict, will not send again"), "{page}");
+    // A listing that cannot be read, on a page naming a change, says only what came of it.
+    let reference =
+        json!({ "batchId": format!("{}_pauseListing", new_attempt()), "mutationKind": "listing.pause", "bulk": false });
+    let (status, _, html) = pilot.send(get(&naming("/account/listings/lst_missing", &reference), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("We could not confirm the result.") && page.contains("Check the recorded result again"), "{page}");
+    assert!(!html.contains("update-price") && html.contains("Listing | Marketplace"), "{html}");
+    // A change whose outcome cannot be read is unconfirmed, and the page's writes are off.
+    let reference =
+        json!({ "batchId": "readfails-0123456789abcdef_pauseListing", "mutationKind": "listing.pause", "bulk": false });
+    let (status, _, html) = pilot.send(get(&naming("/account/listings/lst_active", &reference), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert!(html.contains(r#"type="submit" disabled>Pause listing</button>"#), "{html}");
+}
 #[tokio::test]
 async fn a_sellers_listing_needs_listings_view_to_read_and_listings_manage_to_write() {
     let pilot = Pilot::new().await;
@@ -11220,14 +11560,27 @@ async fn a_listing_write_goes_back_to_the_page_after_its_receipt_and_sends_what_
         let q = query(&to);
         assert!(q.contains_key("afterWrite"), "{to}");
         assert_eq!(q.get("evidenceEvent").map(String::as_str), event, "{intent}: {to}");
+        let photo = event == Some("remediation_completed");
+        // A change Marketplace prepares names itself on the page after it; a photo write does not.
+        assert_eq!(q.contains_key("listingRecovery"), !photo, "{intent}: {to}");
         let call = listing_writes(&pilot, id).pop().unwrap();
         assert_eq!(call.path, format!("{SELLER_LISTINGS}{id}/{path}"), "{intent}");
         let sent: Value = serde_json::from_str(&call.body).unwrap_or_default();
         assert_eq!(sent, body, "{intent}");
-        // The form's attempt and the command's name is the Listing attempt; a photo command has none.
+        // The batch id Marketplace prepared from the form's attempt is the Listing attempt; a photo
+        // command is not prepared and has none.
         let key = call.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned());
-        let photo = event == Some("remediation_completed");
-        assert_eq!(key, (!photo).then(|| format!("{attempt}_{path}")), "{intent}");
+        let named = listing_recovery_command(intent).map(|(_, name, _)| format!("{attempt}_{name}"));
+        assert_eq!(key, named, "{intent}");
+        if !photo {
+            let prepared = preparations(&pilot).pop().unwrap();
+            assert_eq!(prepared["intent"], intent);
+            assert_eq!(prepared["idempotencyKey"], attempt.as_str());
+            assert_eq!(prepared["listingId"], id);
+            if intent == "update-price" {
+                assert_eq!(prepared["fields"], json!({ "priceAmount": "12.00", "priceCurrencyCode": "USD" }));
+            }
+        }
         if intent == "remove-photo" {
             assert_eq!(call.method, Method::DELETE);
         }
@@ -11393,12 +11746,12 @@ async fn a_drafts_photos_are_added_and_replaced_as_multipart_and_a_bad_file_is_r
     assert!(text(&html).contains("Choose a photo to upload."), "{html}");
     assert_eq!(listing_writes(&pilot, "lst_draft").len(), before);
 
-    // A photo the API cannot process (a 500, chase-sets/chase-sets#10649) says so.
+    // A photo the API cannot decode is refused by it, with its words.
     let (status, _, html) = pilot
         .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "broken.png", "image/png", PNG)]))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(text(&html).contains("The photos could not be processed, so nothing was changed."), "{html}");
+    assert!(text(&html).contains("Check the listing photos and try again."), "{html}");
     // Someone who may only read cannot post photos.
     let (status, _, _) = pilot
         .send(post_multipart(photos, "lookout", &[("intent", "add-photos")], &[("evidence", "front.png", "image/png", PNG)]))
@@ -11422,6 +11775,27 @@ fn list_calls(pilot: &Pilot, path: &str) -> Vec<String> {
     calls.iter().filter(|c| c.path.starts_with(path)).map(|c| format!("{} {} {}", c.method, c.path, c.body)).collect()
 }
 
+/// The Listing changes the pilot asked Marketplace to prepare, as it sent them.
+fn preparations(pilot: &Pilot) -> Vec<Value> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.path == "/api/marketplace/account/listings/batch/prepare")
+        .map(|c| serde_json::from_str(&c.body).expect("a preparation is JSON"))
+        .collect()
+}
+
+/// The writes the pilot sent to the account's Marketplace routes, but its preparations.
+fn account_writes(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method != Method::GET && c.path.starts_with("/api/marketplace/account/"))
+        .filter(|c| !c.path.starts_with("/api/marketplace/account/listings/batch/prepare"))
+        .cloned()
+        .collect()
+}
+
 #[tokio::test]
 async fn the_sellers_listings_show_the_settings_counts_reliability_rows_and_fee_report() {
     let pilot = Pilot::new().await;
@@ -11434,7 +11808,7 @@ async fn the_sellers_listings_show_the_settings_counts_reliability_rows_and_fee_
         "Before you turn off listings 2 active listings will be hidden from buyers",
         "Schedule away window",
         "Current cap: 5 open orders Open orders right now: 3 of 5 Counted live from your orders.",
-        "Active listings 2 Visible to buyers Draft listings 1 Not visible yet Paused listings 1 Withdrawn listings 0",
+        "Active listings 2 Visible to buyers Draft listings 1 Not visible yet Paused listings 1 Hidden from buyers until resumed Withdrawn listings 0",
         "Seller reliability Objective, event-derived signals from the last 90 days",
         "On-time shipment rate 94.7% 38 shipments dispatched Cancellation rate 2.5% 40 orders, seller-caused only",
         "Dispute rate Not enough orders yet",
@@ -11506,8 +11880,10 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     let (status, headers, html) = pilot.send(post_in("/account/listings?status=active", "lister", body, "America/Chicago")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/account/listings?status=active&afterWrite="), "{to}");
-    assert!(to.ends_with("&availabilityAction=disabled"), "{to}");
+    let q = query(to);
+    assert!(to.starts_with("/account/listings?status=active&"), "{to}");
+    assert!(q.contains_key("afterWrite") && q.contains_key("listingRecovery"), "after the write, naming the change: {to}");
+    assert_eq!(q.get("availabilityAction").map(String::as_str), Some("disabled"), "{to}");
     let sent = list_calls(&pilot, "/api/marketplace/account/listing-availability/disable");
     assert_eq!(
         sent,
@@ -11582,38 +11958,36 @@ async fn a_setting_that_applies_goes_back_to_the_list_saying_what_it_set() {
     assert!(writes.iter().any(|w| w == r#"POST /api/marketplace/account/order-capacity {"maxOpenOrders":12}"#), "{writes:?}");
     assert!(writes.iter().any(|w| w == "DELETE /api/marketplace/account/order-capacity "), "{writes:?}");
     assert!(writes.iter().any(|w| w == "POST /api/marketplace/account/listing-availability/enable {}"), "{writes:?}");
-    // Each is the Listing attempt made from its form's attempt and the setting's name.
-    let keys: Vec<String> = pilot
-        .stand
-        .calls
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|c| c.method != Method::GET && c.path.starts_with("/api/marketplace/account/"))
-        .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
-        .collect();
+    // Each is sent under the batch id Marketplace prepared from its form's attempt: the attempt
+    // and the command's name.
+    let keys: Vec<String> =
+        account_writes(&pilot).iter().map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned()).collect();
     let names = [
-        "disable",
-        "disable",
-        "disable",
-        "schedule-away-window",
-        "cancel-away-window",
-        "set-capacity",
-        "clear-capacity",
-        "enable",
+        "disableSellerListingAvailability",
+        "disableSellerListingAvailability",
+        "disableSellerListingAvailability",
+        "scheduleSellerAwayWindow",
+        "cancelScheduledAwayWindow",
+        "setSellerOrderCapacity",
+        "clearSellerOrderCapacity",
+        "enableSellerListingAvailability",
     ];
     assert_eq!(keys.len(), names.len(), "{keys:?}");
     for (key, name) in keys.iter().zip(names) {
         let made_from = key.strip_suffix(&format!("_{name}")).unwrap_or_else(|| panic!("{key} is not {name}'s"));
         assert!(crate::recovery::valid_attempt(made_from), "{key}");
     }
+    // Each was prepared with its fields in marketplace's names.
+    let prepared = preparations(&pilot);
+    assert!(prepared.iter().any(|p| p["intent"] == "set-order-capacity" && p["fields"] == json!({ "maxOpenOrders": "12" })));
+    assert!(prepared.iter().all(|p| p["listingId"].is_null() && p["listingIds"] == json!([])), "{prepared:?}");
     // The zone that is not one resent the second form, so it is that form's attempt again.
     assert_eq!(keys[1], keys[2], "{keys:?}");
     assert_eq!(keys.iter().collect::<std::collections::HashSet<_>>().len(), keys.len() - 1, "each other form its own: {keys:?}");
     // A setting with no attempt (a form the page did not draw) is not sent.
     let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=enable-listing-availability", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(list_calls(&pilot, "/api/marketplace/account/").iter().filter(|c| !c.starts_with("GET")).count(), names.len());
+    assert_eq!(account_writes(&pilot).len(), names.len());
 }
 
 #[tokio::test]
@@ -11649,19 +12023,26 @@ async fn a_setting_refused_is_the_list_again_with_the_words_by_its_field() {
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Choose a valid availability reason."), "{html}");
-    // A Listing attempt the API refuses (`listingErrorContract`): sent before with other details,
-    // or with no result it can confirm. Marketplace's words, on the form, kept as a conflict.
-    for (capacity, words) in [
-        (999, "This change was already sent with different details. Reload to see the first result."),
-        (998, "We could not confirm the result. Changes are disabled to avoid duplicating your work."),
-    ] {
-        let body = &format!("intent=set-order-capacity&maxOpenOrders={capacity}&attempt={}", new_attempt());
-        let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
-        assert_eq!(status, StatusCode::CONFLICT, "{capacity}");
-        let page = text(&html);
-        assert!(page.contains(words) && !page.contains("Idempotency key") && !page.contains("history is incomplete"), "{page}");
-        assert!(!html.contains("maxOpenOrders-error"), "a form error, not the field's: {html}");
-    }
+    // A Listing attempt the API refuses as sent before with other details
+    // (`listingErrorContract`): marketplace's words, on the form, kept as a conflict.
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=999&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let page = text(&html);
+    assert!(page.contains("This change was already sent with different details. Reload to see the first result."), "{page}");
+    assert!(!page.contains("Idempotency key"), "{page}");
+    assert!(!html.contains("maxOpenOrders-error"), "a form error, not the field's: {html}");
+    // One with no result Marketplace can confirm is read back: the list names the change, which
+    // is still being confirmed, and the same form may be entered again.
+    let body = &format!("intent=set-order-capacity&maxOpenOrders=998&attempt={}", new_attempt());
+    let (status, headers, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(query(to).contains_key("listingRecovery") && !query(to).contains_key("afterWrite"), "{to}");
+    let (_, _, html) = pilot.send(get(to, Some("lister"))).await;
+    let page = text(&html);
+    assert!(page.contains("Confirming the result of your Listing change."), "{page}");
+    assert!(page.contains("No result is recorded. Re-enter the same details to retry this attempt"), "{page}");
     // Someone who may only read is refused, signed out signs in, and an account without listings
     // is marketplace's "Account access required" page, back to the list.
     let (status, _, html) = pilot.send(post(LISTINGS, "lookout", "intent=clear-order-capacity", false)).await;
@@ -11696,10 +12077,18 @@ async fn while_a_setting_catches_up_the_list_shows_what_was_set() {
     assert!(page.contains("Open order count is temporarily unavailable."), "{page}");
 }
 
+/// The bodies of the calls to `path`, as sent.
+fn sent_to(pilot: &Pilot, path: &str) -> Vec<Value> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path == path).map(|c| serde_json::from_str(&c.body).unwrap_or_default()).collect()
+}
+
+const RETRY: &str = "/api/marketplace/account/listings/batch/retry";
+
 #[tokio::test]
-async fn pause_selected_sends_the_checked_listings_as_one_batch_and_shows_each_outcome() {
+async fn pause_selected_prepares_the_checked_listings_as_one_change_and_the_list_says_what_came_of_each() {
     let pilot = Pilot::new().await;
-    // The bulk form is drawn with its batch id.
+    // The bulk form is drawn with an attempt.
     let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
     let pause = html.find(r#"value="bulk-pause-listings""#).expect("Pause selected");
     let form = &html[html[..pause].rfind("<form").unwrap()..pause];
@@ -11708,67 +12097,120 @@ async fn pause_selected_sends_the_checked_listings_as_one_batch_and_shows_each_o
     let body = format!(
         "intent=bulk-pause-listings&attempt={key}&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_unsure&listingIds=lst_active"
     );
-    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    let page = text(&html);
-    assert!(page.contains("1 succeeded, 1 unconfirmed, 1 failed"), "{page}");
-    assert!(page.contains("Succeeded Listing lst_active"), "{page}");
-    assert!(page.contains("Failed Listing lst_locked Bulk listing action failed."), "{page}");
-    // An unknown outcome is not called a failure: it may have applied, and the page offers the
-    // same batch again.
-    assert!(page.contains("Unconfirmed Listing lst_unsure Not confirmed: this may have applied."), "{page}");
-    let again = html.find(">Send the same batch again</button>").expect("Send the same batch again");
-    let form = &html[html[..again].rfind("<form").unwrap()..again];
-    assert!(form.contains(&format!(r#"name="attempt" value="{key}""#)), "the same batch id: {form}");
-    assert!(!form.contains("data-submit"), "not a fresh attempt: {form}");
-    for id in ["lst_active", "lst_locked", "lst_unsure"] {
-        assert!(form.contains(&format!(r#"name="listingIds" value="{id}""#)), "{id}: {form}");
-    }
-    assert!(
-        form.contains(r#"value="bulk-pause-listings""#) && form.contains(r#"action="/account/listings?status=active""#),
-        "{form}"
-    );
-    // One batch, its id the form's, each listing once; no listing's own command.
-    let batch = format!(
-        r#"POST /api/marketplace/account/listings/batch {{"batchId":"{key}","family":"listing.pause","listingIds":["lst_active","lst_locked","lst_unsure"]}}"#
-    );
-    assert_eq!(list_calls(&pilot, "/api/marketplace/account/listings/batch"), [batch]);
+    let (status, headers, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    // Prepared as the form's attempt, each listing once, then sent; no listing's own command.
+    let expected = json!({
+        "intent": "bulk-pause-listings", "idempotencyKey": key, "listingId": null,
+        "listingIds": ["lst_active", "lst_locked", "lst_unsure"], "fields": {},
+    });
+    assert_eq!(preparations(&pilot), [expected]);
+    let batch_id = format!("{key}_bulk-pause-listings");
+    let reference = json!({ "batchId": batch_id, "mutationKind": "listing.pause", "bulk": true });
+    assert_eq!(sent_to(&pilot, RETRY), std::slice::from_ref(&reference));
     assert!(list_calls(&pilot, "/api/marketplace/account/listings/lst_").is_empty());
-    // The page is read after the batch, with the filters it was posted with.
+    // The list as it was posted, naming the change, after the write.
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let q = query(&to);
+    assert_eq!(q.get("status").map(String::as_str), Some("active"), "{to}");
+    assert_eq!(serde_json::from_str::<Value>(&q["listingRecovery"]).unwrap(), reference, "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let read = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/listings?")).unwrap();
     assert_eq!(read.path, "/api/marketplace/account/listings?limit=100&offset=0&status=active");
     assert_eq!(waits_for(&read.headers).as_deref(), Some("50"));
+    let recovered = format!("/api/marketplace/account/listings/batch/{batch_id}?family=listing.pause&bulk=true");
+    let recovered = calls.iter().rev().find(|c| c.path == recovered).expect("what came of the change is read");
+    assert!(waits_for(&recovered.headers).is_none(), "without the receipt");
+    let page = text(&html);
+    assert!(page.contains("1 of 3 Listings changed. Retry sends only the Listings whose result is unknown."), "{page}");
+    assert!(page.contains("lst_active: succeeded, will not send again"), "{page}");
+    assert!(page.contains("lst_locked: failed safely, will not send again"), "{page}");
+    assert!(page.contains("lst_unsure: unknown, available for explicit retry"), "{page}");
+    // The list's changes are off while it names a recorded change; Start another change leaves it.
+    assert!(html.contains(r#"value="bulk-pause-listings" disabled>"#), "{html}");
+    assert!(html.contains(">Start another change</a>"), "{html}");
+    // Retry sends the change again: Marketplace sends only the listing still unknown.
+    let retry = html.find(">Retry unknown Listings</button>").expect("Retry unknown Listings");
+    let form = &html[html[..retry].rfind("<form").unwrap()..retry];
+    let action = form.split(r#"action=""#).nth(1).unwrap().split('"').next().unwrap().replace("&amp;", "&");
+    assert!(action.contains("listingRecovery="), "{action}");
+    let (status, headers, _) = pilot.send(post(&action, "lister", "intent=retry-listing-batch", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(sent_to(&pilot, RETRY), [reference.clone(), reference]);
+    let (_, _, html) = pilot.send(get(headers[header::LOCATION].to_str().unwrap(), Some("lister"))).await;
+    assert!(text(&html).contains("lst_unsure: unknown, available for explicit retry"), "{html}");
+    // A page naming no bulk change has nothing to retry.
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=retry-listing-batch", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert_eq!(sent_to(&pilot, RETRY).len(), 2);
 }
 
 #[tokio::test]
-async fn a_bulk_change_that_is_refused_fails_or_needs_a_sign_in_says_so() {
+async fn a_bulk_change_that_is_refused_lost_or_needs_a_sign_in_says_so() {
     let pilot = Pilot::new().await;
     // Nothing checked.
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=bulk-withdraw-listings", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Check the listings to pause or withdraw first."), "{html}");
-    assert!(list_calls(&pilot, "/api/marketplace/account/listings/batch").is_empty());
-    // A refused batch fails every listing it named, and a form without a batch id gets one.
-    let body = "intent=bulk-withdraw-listings&listingIds=lst_active&listingIds=lst_foreign";
+    // A form the page did not draw (no attempt) is not prepared or sent.
+    let body = "intent=bulk-withdraw-listings&listingIds=lst_active";
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("The change was not sent. Review your inputs before trying again."), "{html}");
+    assert!(preparations(&pilot).is_empty());
+    // One Marketplace will not prepare is not sent.
+    let body = format!("intent=bulk-withdraw-listings&attempt={}&listingIds=lst_active&listingIds=lst_foreign", new_attempt());
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("The change was not sent."), "{html}");
+    assert_eq!(preparations(&pilot)[0]["intent"], "bulk-withdraw-listings");
+    assert!(sent_to(&pilot, RETRY).is_empty());
+    // One whose answer is lost is read back: the list names it, and offers Retry.
+    let body = format!("intent=bulk-pause-listings&attempt={}&listingIds=lst_broken", new_attempt());
+    let (status, headers, _) = pilot.send(post(LISTINGS, "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(query(to).contains_key("listingRecovery") && !query(to).contains_key("afterWrite"), "{to}");
+    let (_, _, html) = pilot.send(get(to, Some("lister"))).await;
     let page = text(&html);
-    assert!(page.contains("0 succeeded, 2 failed") && page.contains("Failed Listing lst_foreign"), "{page}");
-    let sent = list_calls(&pilot, "/api/marketplace/account/listings/batch");
-    let sent: Value = serde_json::from_str(sent[0].split_once(" {").map(|(_, b)| format!("{{{b}")).unwrap().as_str()).unwrap();
-    assert_eq!(sent["family"], "listing.withdraw");
-    assert!(crate::recovery::valid_attempt(sent["batchId"].as_str().unwrap()), "{sent}");
-    // A failure is the error page; an ended session signs in.
-    let body = "intent=bulk-pause-listings&listingIds=lst_broken";
-    let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY);
-    let (status, headers, _) =
-        pilot.send(post(LISTINGS, "lister_ended", "intent=bulk-pause-listings&listingIds=lst_active", false)).await;
+    assert!(
+        page.contains("lst_broken: unknown, available for explicit retry") && page.contains("Retry unknown Listings"),
+        "{page}"
+    );
+    // An ended session signs in.
+    let body = format!("intent=bulk-pause-listings&attempt={}&listingIds=lst_active", new_attempt());
+    let (status, headers, _) = pilot.send(post(LISTINGS, "lister_ended", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers["location"].to_str().unwrap().starts_with("/sign-in"), "{headers:?}");
 }
 
+#[tokio::test]
+async fn a_list_naming_a_change_it_cannot_read_says_only_that_and_its_changes_are_off() {
+    let pilot = Pilot::new().await;
+    let named = |reference: &str| {
+        let reference = percent_encoding::utf8_percent_encode(reference, percent_encoding::NON_ALPHANUMERIC);
+        format!("{LISTINGS}?listingRecovery={reference}")
+    };
+    // A change whose outcome cannot be read, or a reference that is not one, is unconfirmed.
+    for reference in [r#"{"batchId":"readfails-0123456789abcdef_pauseListing","mutationKind":"listing.pause","bulk":true}"#, "{}"]
+    {
+        let (status, _, html) = pilot.send(get(&named(reference), Some("lister"))).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        let page = text(&html);
+        assert!(page.contains("We could not confirm the result. Changes are disabled to avoid duplicating your work."), "{page}");
+        assert!(page.contains("Check the recorded result again"), "{page}");
+        assert!(html.contains(r#"value="bulk-pause-listings" disabled>"#), "{html}");
+    }
+    // A setting from a page naming a change it does not offer again is not sent.
+    let to = named(r#"{"batchId":"readfails-0123456789abcdef_pauseListing","mutationKind":"listing.pause","bulk":true}"#);
+    let body = format!("intent=clear-order-capacity&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post(&to, "lister", &body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(account_writes(&pilot).is_empty() && preparations(&pilot).is_empty());
+}
 #[tokio::test]
 async fn a_change_to_the_accounts_listings_draws_the_counts_rows_and_report_again() {
     let pilot = Pilot::new().await;
@@ -13021,7 +13463,7 @@ async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_scree
     ] {
         assert!(page.contains(shown), "{shown}: {page}");
     }
-    assert!(!page.contains("offline-sale"), "no raw kind (chase-sets/chase-sets#10673): {page}");
+    assert!(!page.contains("offline-sale"), "no raw kind: {page}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_manual/release""#), "{html}");
     assert!(!html.contains("hld_order/release") && !html.contains("hld_old/release"), "only an active manual hold is released");
     // Adjust Quantity posts to the page itself.
@@ -13537,7 +13979,8 @@ const BULK_SCREEN: &str = "/account/bulk-reprice";
 /// A second upload attempt, for uploads that are not `ATTEMPT` sent again.
 const OTHER_ATTEMPT: &str = "1c7a4e2f-5b3d-4c9e-8a11-2345678901bc";
 
-/// Pricing's bulk reprice routes, as the stand-in answers them: the template; a new job
+/// Pricing's bulk reprice routes, as the stand-in answers them: whether it is on (all 404 once
+/// `bulk-off` is set, as the policy gate answers); the template; a new job
 /// (`job_1`), refused when its rows are bad and a 404 (switched off) when they say `OFF`;
 /// an upload's attempt (`Idempotency-Key`) sent again with the same rows answers its first job,
 /// and with other rows is refused (409 `attempt_conflict`), as Pricing's `createJob` does;
@@ -13556,7 +13999,12 @@ fn bulk_reprice(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap,
         })
     };
     let finished = || stand.runs.lock().unwrap().contains_key("bulk-job_1-done");
+    // Switched off (`bulk-off`), the whole tree answers 404, as Pricing's policy gate does.
+    if stand.runs.lock().unwrap().contains_key("bulk-off") {
+        return Some((StatusCode::NOT_FOUND, "404 Not Found").into_response());
+    }
     Some(match (method.as_str(), rest) {
+        ("GET", "") => Json(json!({ "enabled": true })).into_response(),
         ("GET", "/template.csv") => (
             [
                 (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
@@ -13791,6 +14239,28 @@ async fn a_recommendation_job_is_followed_live_and_the_list_is_read_again_once_i
 }
 
 #[tokio::test]
+async fn while_pricing_has_bulk_reprice_off_its_page_says_so_and_recommendations_do_not_offer_it() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert!(html.contains(r#"href="/account/bulk-reprice""#), "offered while it is on: {html}");
+
+    pilot.stand.runs.lock().unwrap().insert("bulk-off".into(), json!(true));
+    let (status, _, html) = pilot.send(get(RECS_SCREEN, Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"href="/account/bulk-reprice""#), "not offered while it is off: {html}");
+
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(get("/account/bulk-reprice?jobId=job_1", Some("lister"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
+    assert!(!html.contains(r#"action="/account/bulk-reprice""#) && !html.contains(r#"name="file""#), "nothing to upload: {html}");
+    assert!(!html.contains("template.csv") && !html.contains("Job status"), "{html}");
+    assert!(html.contains(r#"href="/account/repricing""#), "{html}");
+    let calls: Vec<_> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
+    assert!(calls.iter().all(|path| !path.contains("/jobs/")), "no job is read: {calls:?}");
+}
+
+#[tokio::test]
 async fn bulk_reprice_is_for_a_seller_who_may_change_listings() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(get(BULK_SCREEN, None)).await;
@@ -13832,7 +14302,8 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
         pilot.send(post_multipart(BULK_SCREEN, "lister", &attempt, &[("file", "prices.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION].to_str().unwrap(), "/account/bulk-reprice?jobId=job_1");
-    let call = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API).cloned().unwrap();
+    let call =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == BULK_API && c.method == Method::POST).cloned().unwrap();
     assert_eq!(call.headers["idempotency-key"].to_str().unwrap(), ATTEMPT, "the form's attempt is Pricing's Idempotency-Key");
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent, json!({ "csvText": "sellerSku,newPrice\nSKU-1,4.50\n", "sourceFilename": "prices.csv" }));
@@ -13854,7 +14325,7 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
         .lock()
         .unwrap()
         .iter()
-        .filter(|c| c.path == BULK_API)
+        .filter(|c| c.path == BULK_API && c.method == Method::POST)
         .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
         .collect();
     assert_eq!(keys, [ATTEMPT; 3], "each send carries the form's one attempt");
@@ -13898,7 +14369,7 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     let (status, _, html) =
         pilot.send(post_multipart(BULK_SCREEN, "lister", &fresh, &[("file", "p.csv", "text/csv", off)])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.replace("&#39;", "'").contains("Bulk reprice isn't available yet."), "{html}");
+    assert!(html.contains("Bulk reprice is not available for your account yet."), "{html}");
     // A file that is not text, or a form without its attempt, is refused here, not sent; a seller
     // who may not change listings is refused.
     let calls = pilot.stand.calls.lock().unwrap().len();
@@ -13909,7 +14380,8 @@ async fn an_upload_starts_a_job_the_page_follows_live_and_a_refused_one_says_why
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     let (status, _, _) = pilot.send(post_multipart(BULK_SCREEN, "lookout", &fresh, &[("file", "p.csv", "text/csv", file)])).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let sent = pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API).count();
+    let sent =
+        pilot.stand.calls.lock().unwrap().iter().skip(calls).filter(|c| c.path == BULK_API && c.method == Method::POST).count();
     assert_eq!(sent, 0);
 }
 
@@ -16015,8 +16487,8 @@ const CONSENTS: &str = "/account/consents";
 
 /// The consents Identity lists for `usr_seller` on `acc_seller`, newest first: a current Terms of
 /// Service, an account's current Seller Agreement, a withdrawn Privacy Policy another one replaced,
-/// a policy the page does not know with a version that is not a token, and another user's consent
-/// (chase-sets/chase-sets#10707). A read that waits for 45 is still catching up. A withdrawal's
+/// and a policy the page does not know with a version that is not a token. A read that waits for 45
+/// is still catching up. A withdrawal's
 /// attempt decides an answer as a team write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`
 /// are `indeterminate`); the old Privacy Policy is refused as superseded.
 fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
@@ -16071,9 +16543,8 @@ fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Respo
                     false,
                 ),
                 consent("cns_odd", "user", "usr_seller", None, "beta-terms", "1.0", None, false),
-                consent("cns_else", "user", "usr_else", Some("acc_seller"), "terms-of-service", "2026-05-01", None, true),
             ];
-            Json(json!({ "items": items, "total": 5, "count": 5 })).into_response()
+            Json(json!({ "items": items, "total": 4, "count": 4 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => {
             (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "outcome": "indeterminate", "code": "INDETERMINATE" })))
@@ -16103,7 +16574,7 @@ fn consent_writes(pilot: &Pilot) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-async fn the_consent_history_shows_only_the_users_own_and_offers_withdraw_on_a_current_one() {
+async fn the_consent_history_lists_the_users_consents_and_offers_withdraw_on_a_current_one() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(CONSENTS, Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -16120,7 +16591,6 @@ async fn the_consent_history_shows_only_the_users_own_and_offers_withdraw_on_a_c
     assert!(html.contains("Privacy Policy · Version 2025-01-01") && html.contains("Withdrawn"), "{html}");
     assert!(html.contains("Unrecognized consent policy: Beta Terms · Version unavailable"), "{html}");
     assert!(html.contains("Recorded Oct 1, 2026") && html.contains("· Withdrawn Oct 5, 2026"), "the moments: {html}");
-    assert!(!html.contains("cns_else"), "another user's consent (#10707): {html}");
     assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_terms""#), "{html}");
     assert!(html.contains(r#"commandfor="withdraw-consent-dialog-cns_seller""#), "{html}");
     assert!(
@@ -18918,6 +19388,13 @@ async fn seller_checkout_shows_the_reviewed_lines_the_payout_and_one_form_from_t
     for words in ["Review sale checkout", "Pikachu", "$95.50", "Selected offer", "Product line"] {
         assert!(page.contains(words), "{words}: {page}");
     }
+    // Seller readiness is not assessed on entry: checkout's confirm tells it, so the row has no
+    // verdict and no status.
+    assert!(page.contains("Not yet assessed"), "{page}");
+    assert!(page.contains("check your account and shipping choices when you review the sale details."), "{page}");
+    for verdict in ["Seller account ready", "Seller account needs review", "Review required"] {
+        assert!(!page.contains(verdict), "{verdict}: {page}");
+    }
     assert!(html.contains(r#"method="post""#) && !html.contains(r#"type="submit" disabled"#), "{html}");
     assert!(html.contains(r#"name="readinessSnapshotId" value="srs_1""#), "{html}");
     // The form carries the snapshot only: the plan and decisions stay with Checkout.
@@ -19026,6 +19503,7 @@ async fn checkouts_reasons_for_a_seller_not_ready_fall_on_their_fields() {
         let (status, _, html) = pilot.send(post(&at, "trader", &sell_form(&[]), false)).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{session}: {html}");
         assert!(text(&html).contains(words), "{session}: {html}");
+        assert!(!text(&html).contains("Not yet assessed"), "the refusal says it, not the row: {session}");
         for name in ["labelPreference", "payoutMethod"] {
             let marked = html.contains(&format!(r#"<select name="{name}" required aria-invalid="true""#));
             assert_eq!(marked, field == Some(name), "{session} {name}: {html}");
@@ -20378,8 +20856,7 @@ const CHANNELS_SCREEN: &str = "/account/channels";
 /// first page with a next page holding a paused one; no paused connection on the paused filter's
 /// first page; the disconnected filter fails on Channels' side; `conn_gone` is not found. Connect
 /// makes `conn_new`; Pause, Resume and Disconnect follow the connection's status and refuse any
-/// other with a 409; Activate makes it active. Every write but Disconnect answers with a receipt, as
-/// Channels does (chase-sets/chase-sets#10779). One publication summary, and `conn_active`'s
+/// other with a 409; Activate makes it active. Every write answers with a receipt. One publication summary, and `conn_active`'s
 /// publication (`channel_publication_api`). `conn_active`'s manual sync has run `run_1` composed
 /// at revision 2 (`manual_sync_api`); `conn_pending`'s is unavailable.
 fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
@@ -20410,8 +20887,6 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     let transition = |refused: bool, id: &str, to: &str| {
         if refused {
             refusal(StatusCode::CONFLICT, "invalid_transition", "invalid_transition")
-        } else if to == "disconnected" {
-            Json(connection(id, to)).into_response()
         } else {
             committed(StatusCode::OK, "channels", "50", connection(id, to))
         }
@@ -21243,11 +21718,10 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     assert_eq!(serde_json::from_str::<Value>(&sent.unwrap()).unwrap(), json!({ "storageLocationIds": ["loc_main"] }));
     let (status, _, _) = pilot.send(post("/account/channels/conn_active", "channel_reader", "intent=pause", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    // Disconnect has no receipt to read after: the page is the connection it returned.
-    let (status, _, html) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    let words = text(&html);
-    assert!(words.contains("Disconnected") && words.contains("No actions are available for this connection."), "{words}");
+    // Disconnect goes to the connection with its receipt, as Pause does.
+    let (status, headers, _) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_paused?after_write="));
 }
 
 const CONNECTION: &str = "/account/channels/conn_active";

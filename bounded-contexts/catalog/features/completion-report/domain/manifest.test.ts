@@ -14,6 +14,14 @@ describe("parseProductionCatalogCompletionManifest", () => {
     expect(() => parseProductionCatalogCompletionManifest(raw)).toThrow(ProductionCatalogCompletionManifestError);
   });
 
+  it("rejects a null counter on a non-failed observed unit", () => {
+    const manifest = completeManifest();
+    const observedUnits = manifest.observedUnits.map((unit) => ({ ...unit, state: "settled", observedCount: null }));
+    expect(() => parseProductionCatalogCompletionManifest({ ...manifest, observedUnits })).toThrow(
+      ProductionCatalogCompletionManifestError,
+    );
+  });
+
   it("rejects an unknown exclusion reason and names the offending path", () => {
     const manifest = completeManifest();
     const raw = {

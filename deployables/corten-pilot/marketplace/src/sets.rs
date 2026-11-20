@@ -1,7 +1,6 @@
 //! A set's page (discovery's `routes/set.tsx`), to anyone: `/sets/{slug}`, the set and its
 //! cataloged items. An old slug moves to the set's own for good, with the address's query; a set
-//! the API does not have is a 404 and a failed read a 502, where marketplace answers both with
-//! 200 (chase-sets/chase-sets#10612).
+//! the API does not have is a 404 and a failed read a 502, as marketplace's are.
 use corten::{
     http::{HeaderMap, StatusCode, Uri},
     prelude::*,

@@ -289,7 +289,7 @@ describe("review recovery through a real data router", () => {
       expect(send).toHaveBeenCalledTimes(1);
       expect(lookup).toHaveBeenCalledTimes(1);
       if (status === "ambiguous" || status === "conflict") {
-        expect(screen.getByRole("status")).toBe(document.activeElement);
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
         fireEvent.click(screen.getByRole("button", { name: "Send" }));
         expect(send).toHaveBeenCalledTimes(1);
       }

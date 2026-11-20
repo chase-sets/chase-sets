@@ -1,6 +1,6 @@
 import { formatDate, formatDisplayIdentity, t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import { data, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import {
   OrderProtectionModule,
   Container,
@@ -252,19 +252,26 @@ function accountReviewRoleHref(currentSearch: string, role: AccountReviewRoleFil
   return `${query ? `?${query}` : ""}#feedback`;
 }
 
+function accountNotFound(reviewRole: AccountReviewRoleFilter, reviewPage: number) {
+  return data(
+    {
+      account: null,
+      notFound: true,
+      canonicalUrl: null,
+      reviewRole,
+      reviewPage,
+      search: "",
+      behavioralMetricsChips: null,
+    },
+    { status: 404 },
+  );
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const slug = params.accountSlug;
 
   if (!slug) {
-    return {
-      account: null,
-      notFound: true,
-      canonicalUrl: null,
-      reviewRole: null,
-      reviewPage: 1,
-      search: "",
-      behavioralMetricsChips: null,
-    };
+    return accountNotFound(null, 1);
   }
 
   const reviewRole = reviewRoleFromRequest(request);
@@ -295,16 +302,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       behavioralMetricsChips,
     };
   } catch (error) {
+    if (error instanceof DiscoveryApiError && error.status === 404) {
+      return accountNotFound(reviewRole, reviewPage);
+    }
     if (error instanceof DiscoveryApiError) {
-      return {
-        account: null,
-        notFound: true,
-        canonicalUrl: null,
-        reviewRole,
-        reviewPage,
-        search: "",
-        behavioralMetricsChips: null,
-      };
+      throw data(null, { status: error.status === 503 ? 503 : 502 });
     }
 
     throw error;
@@ -421,12 +423,14 @@ export default function PublicAccountRoute() {
   );
 }
 
+type PublicAccountLoaderData = ReturnType<typeof useLoaderData<typeof loader>>;
+
 function PublicAccountRealtimeView({
   data,
   reportResult,
   submittingReportId,
 }: {
-  data: Awaited<ReturnType<typeof loader>>;
+  data: PublicAccountLoaderData;
   reportResult?: ReviewReportResult;
   submittingReportId: string | null;
 }) {

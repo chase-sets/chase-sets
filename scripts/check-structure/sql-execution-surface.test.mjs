@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterEach, describe, expect, it } from "vitest";
+import { formatSqlPartition, sqlPartitionPath } from "./sql-execution-surface-partition-format.mjs";
 import {
   SANCTIONED_SQL_RECEIVER_RESOLUTION,
   classifySqlExecutionSurface,
@@ -330,7 +331,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     const anchors = [
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236, "db"],
-      ["infrastructure/event-core-postgres/types.ts", 47, "client"],
+      ["infrastructure/event-core-postgres/types.ts", 49, "client"],
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
@@ -1041,15 +1042,12 @@ describe("repository-wide SQL execution partition", () => {
     );
   }, 120_000);
 
-  it("keeps the committed partition equal to fresh tracked-inventory classification", () => {
+  it("keeps the committed partition equal to fresh tracked-inventory classification", async () => {
     const files = listNonTestTypeScriptModules(repoRoot);
     const result = classify(files);
     expect(result.modules.map((module) => module.file)).toEqual(files);
     const actual = exceptionalSqlPartition(files, result);
-    const expected = readFileSync(
-      path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"),
-      "utf8",
-    );
-    expect(`${JSON.stringify(actual, null, 2)}\n`).toBe(expected);
+    const expected = readFileSync(sqlPartitionPath, "utf8");
+    expect(await formatSqlPartition(actual)).toBe(expected);
   }, 120_000);
 });

@@ -473,13 +473,13 @@ const ygojsonValidationSealedProduct = {
 } as const satisfies YgojsonSealedProductData;
 
 const ygojsonValidationResponses: Readonly<Record<string, unknown>> = {
-  "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/aggregate/sets.json": [ygojsonValidationSet],
-  "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/aggregate/sealedProducts.json": [
+  "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/refs/heads/v1/aggregate/sets.json": [ygojsonValidationSet],
+  "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/refs/heads/v1/aggregate/sealedProducts.json": [
     ygojsonValidationSealedProduct,
   ],
-  [`https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/individual/sets/${ygojsonValidationSet.id}.json`]:
+  [`https://raw.githubusercontent.com/iconmaster5326/YGOJSON/refs/heads/v1/individual/sets/${ygojsonValidationSet.id}.json`]:
     ygojsonValidationSet,
-  [`https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/individual/sealedProducts/${ygojsonValidationSealedProduct.id}.json`]:
+  [`https://raw.githubusercontent.com/iconmaster5326/YGOJSON/refs/heads/v1/individual/sealedProducts/${ygojsonValidationSealedProduct.id}.json`]:
     ygojsonValidationSealedProduct,
 };
 

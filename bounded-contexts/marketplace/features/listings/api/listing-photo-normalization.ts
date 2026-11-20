@@ -9,6 +9,7 @@ import {
 import {
   assertDecodedImageWithinBudget,
   DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
+  MarketplaceEvidenceGovernanceError,
 } from "../domain/evidence-governance";
 
 const LISTING_PHOTO_CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -81,11 +82,11 @@ export async function normalizeListingPhoto(input: NormalizeListingPhotoInput): 
   // Validate the decoded content is a real image with sane dimensions BEFORE
   // any expensive re-encode, so a malformed file or decompression bomb fails
   // safely rather than exhausting memory during normalization.
-  const rawMetadata = await imageProcessor.metadata(input.sourceBody);
+  const rawMetadata = await readableImage(() => imageProcessor.metadata(input.sourceBody));
   assertDecodedImageWithinBudget(rawMetadata, {
     maxSourcePixels: input.maxSourcePixels ?? DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
   });
-  const displayBody = await imageProcessor.normalizeDisplaySource(input.sourceBody);
+  const displayBody = await readableImage(() => imageProcessor.normalizeDisplaySource(input.sourceBody));
   const displayHash = hashBytes(displayBody);
   const sourceMetadata = await imageProcessor.metadata(displayBody);
   assertDecodedImageWithinBudget(sourceMetadata, {
@@ -142,6 +143,17 @@ export async function normalizeListingPhoto(input: NormalizeListingPhotoInput): 
       variants,
     },
   };
+}
+
+// A source the decoder cannot read, or one with no pixels left once trimmed, is the seller's
+// photo to replace, not a server failure: it is refused as evidence, like an oversized one.
+async function readableImage<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof MarketplaceEvidenceGovernanceError) throw error;
+    throw new MarketplaceEvidenceGovernanceError("Listing evidence image could not be read.", "unreadable-image");
+  }
 }
 
 async function storeVariant(input: {

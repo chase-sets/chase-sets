@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { discoveryEnglishTranslations } from "./locales/en/discovery";
 
 const englishDiscoveryKeySet = {
-  count: 1060,
-  sha256: "009ad42fedb8efbee8661d8c370afcd069d299b2de80a69f8365479aec81dec7",
+  count: 1065,
+  sha256: "f0f1645973bf6540a6de2ba5e53287bd5dca0edbad58b7b34341b620a342b5c2",
 } as const;
 
 describe("discovery locale key set", () => {

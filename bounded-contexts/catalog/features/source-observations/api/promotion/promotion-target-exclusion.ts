@@ -79,16 +79,16 @@ export function createPostgresPromotionTargetExclusion(input: {
       await requirePromotionTargetIndexes(input.pool);
     },
     locate: (key) => locatePromotionReferenceStreams(input.pool, key),
-    append: (inputs, validateAuthority) =>
-      withPgTransaction(
-        input.pool,
-        async (client: PgQueryable) => {
-          await client.query(promotionProfileAuthorityLock);
-          await validateAuthority(client);
-          return input.eventStore.appendToStreamsInTransaction(client, inputs);
-        },
-        { isolationLevel: "read committed" },
-      ),
+    append: (inputs, validateAuthority) => {
+      const transaction =
+        input.eventStore.withOwnerPredicateWrite ??
+        ((work) => withPgTransaction(input.pool, work, { isolationLevel: "read committed" }));
+      return transaction(async (client: PgQueryable) => {
+        await client.query(promotionProfileAuthorityLock);
+        await validateAuthority(client);
+        return input.eventStore.appendToStreamsInTransaction(client, inputs);
+      });
+    },
   });
 }
 

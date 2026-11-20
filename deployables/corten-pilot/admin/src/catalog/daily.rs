@@ -86,6 +86,7 @@ use std::collections::BTreeMap;
 use super::{
     Sent,
     api::{Catalog as _, Kind, under},
+    attention::AliasDone,
     command,
     import_context::{ProviderScope, ScopeContext, SourceOptions},
     manages, receipt,
@@ -159,6 +160,8 @@ pub enum Ran {
     /// candidate's ignore or defer (admin-web says `job-queued` for each).
     Queued,
     Cancelled,
+    /// An alias review command: what it did, as admin-web's banner says it.
+    Alias(AliasDone),
 }
 
 impl Ran {
@@ -166,6 +169,10 @@ impl Ran {
         match self {
             Ran::Queued => "queued",
             Ran::Cancelled => "cancelled",
+            Ran::Alias(AliasDone::Accepted) => "alias-accepted",
+            Ran::Alias(AliasDone::Rejected) => "alias-rejected",
+            Ran::Alias(AliasDone::Revoked) => "alias-revoked",
+            Ran::Alias(AliasDone::Deferred) => "alias-deferred",
         }
     }
 
@@ -173,6 +180,10 @@ impl Ran {
         match word {
             "queued" => Some(Ran::Queued),
             "cancelled" => Some(Ran::Cancelled),
+            "alias-accepted" => Some(Ran::Alias(AliasDone::Accepted)),
+            "alias-rejected" => Some(Ran::Alias(AliasDone::Rejected)),
+            "alias-revoked" => Some(Ran::Alias(AliasDone::Revoked)),
+            "alias-deferred" => Some(Ran::Alias(AliasDone::Deferred)),
             _ => None,
         }
     }
@@ -1684,9 +1695,9 @@ pub(crate) async fn evidence(
     let context = context_of(&uri);
     let caller = config.platform.caller(&headers, config.proto, None);
     let shown = read_evidence(&caller, &route.id).await;
-    if req.mode == Mode::Action {
+    if let Some(script) = req.action() {
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
-        return req.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
+        return script.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
     }
     let opened = Opened::Evidence(Box::new(shown));
     match context_value(&context, HOME).filter(|id| !id.is_empty()) {
@@ -2418,10 +2429,13 @@ pub(crate) async fn aliases(
     let caller = config.platform.caller(&headers, config.proto, None);
     let query =
         alias_query(context_value(&context, "providerKey").as_deref(), context_value(&context, "profileVersion").as_deref());
+    let Some(done) = AliasDone::of(&input.intent).map(Ran::Alias) else {
+        return answer(&req, &staff, &config, &headers, &context, Sent::Refused(super::not_offered(req.t())), Ran::Queued).await;
+    };
     let sent = match crate::catalog::attention::alias_command_body(&caller, &input, &query).await {
         Ok(Some(body)) => command(&caller, Method::POST, Kind::AliasReview, "/commands", Some(&body)).await,
         Ok(None) => {
-            let to = at(&home(&context), &with_query(&context, &[("done", Some(Ran::Queued.word()))]));
+            let to = at(&home(&context), &with_query(&context, &[("done", Some(done.word()))]));
             return match Local::parse(&to) {
                 Some(local) => req.redirect(&local),
                 None => req.redirect(&url::Daily),
@@ -2429,7 +2443,7 @@ pub(crate) async fn aliases(
         }
         Err(()) => Sent::Refused(super::not_offered(req.t())),
     };
-    answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
+    answer(&req, &staff, &config, &headers, &context, sent, done).await
 }
 
 #[cfg(test)]

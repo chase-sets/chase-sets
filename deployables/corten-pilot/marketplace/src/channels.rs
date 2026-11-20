@@ -21,8 +21,7 @@
 //! an ingest draws it with Channels' receipt (422 when Channels refused the export), and its address
 //! opened again is the connection. Clamp and download posts to `{id}/manual-sync/download`
 //! and answers Channels' CSV, or, refused, the connection with what was refused, as the other
-//! writes do (`PageOr`; marketplace shows Channels' JSON instead,
-//! [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
+//! writes do (`PageOr`).
 //!
 //! A publication write is made at the configuration version the page was drawn with and answers
 //! the version it made, not a receipt: the page goes to its address with that version and reads
@@ -455,12 +454,8 @@ pub(crate) async fn command(
         }
     };
     match outcome {
-        Ok((connection, Some(receipt))) => req.redirect(&connection_url(&connection.connection_id, Some(&receipt))),
-        // Disconnect sends no receipt to read after (chase-sets/chase-sets#10779): the page is the
-        // connection the write returned, as marketplace's action draws it.
-        Ok((connection, None)) => {
-            render_connection(&req, &viewer, &config, &headers, id, &here, Some(connection), None, StatusCode::OK).await
-        }
+        // A write that changed nothing (a repeat Disconnect) has no receipt and nothing to wait for.
+        Ok((connection, receipt)) => req.redirect(&connection_url(&connection.connection_id, receipt.as_ref())),
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
             Some(status @ (StatusCode::FORBIDDEN | StatusCode::NOT_FOUND)) => Err(corten::Error::new(error).with_status(status)),

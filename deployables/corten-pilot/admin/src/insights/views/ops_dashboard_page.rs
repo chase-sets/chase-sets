@@ -56,7 +56,7 @@ pub fn trend(points: &[(i64, f64)]) -> Option<String> {
 /// A bucket's first day as seconds, and its GMV, when both read.
 fn sample(point: &Point) -> Option<(i64, f64)> {
     let day: jiff::civil::Date = point.day.get(..10)?.parse().ok()?;
-    let at = day.to_zoned(jiff::tz::TimeZone::UTC).ok()?.timestamp().as_second();
+    let at = day.to_zoned_datetime(jiff::tz::TimeZone::UTC).ok()?.timestamp().as_second();
     Some((at, point.gmv_amount.trim().parse().ok()?))
 }
 

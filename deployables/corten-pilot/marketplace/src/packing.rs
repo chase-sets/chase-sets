@@ -375,7 +375,7 @@ async fn set(
             Failed::Unknown(error) => return Err(error),
         },
     };
-    if req.mode == corten::Mode::Action {
+    if let Some(script) = req.action() {
         let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
         // Read after the write; a read that is behind falls back to the page, which waits.
         if let Ok(shipment) = waiting.shipment(Side::Seller, id).await {
@@ -387,7 +387,7 @@ async fn set(
                 scan: scan.map(|s| (s, line.to_owned())),
                 line: Some((line.to_owned(), state)),
             };
-            return patch(req, viewer, id, &screen, StatusCode::OK);
+            return patch(req, script, viewer, id, &screen, StatusCode::OK);
         }
     }
     applied(req, id, attempt, receipt, Some(line), scan)
@@ -395,9 +395,16 @@ async fn set(
 
 /// The parts a line write changes, as a patch: the status, the scan, the line, the progress and
 /// Finish.
-fn patch(req: &Req, viewer: &Viewer, id: &str, screen: &PackingScreen, status: StatusCode) -> HtmlResult {
+fn patch(
+    req: &Req,
+    script: corten::Action<'_>,
+    viewer: &Viewer,
+    id: &str,
+    screen: &PackingScreen,
+    status: StatusCode,
+) -> HtmlResult {
     let t: ShipmentsMsg = req.t();
-    req.patch_with_status(status, html! { <views::PackingParts t={t} p={req.t()} viewer={viewer} id={id} screen={screen} /> })
+    script.patch_with_status(status, html! { <views::PackingParts t={t} p={req.t()} viewer={viewer} id={id} screen={screen} /> })
 }
 
 /// A line write the API refused: the line says why, in place or on the page (422).
@@ -419,12 +426,12 @@ async fn refused(
     let status = StatusCode::UNPROCESSABLE_ENTITY;
     let state = Some((line.to_owned(), LineState::Failed(message)));
     let scan = scan.map(|s| (s, line.to_owned()));
-    if req.mode == corten::Mode::Action {
+    if let Some(script) = req.action() {
         let caller = config.platform.caller(headers, config.proto, None);
         match caller.shipment(Side::Seller, id).await {
             Ok(shipment) => {
                 let screen = PackingScreen { shipment: Some(shipment), after_write: None, outcome, scan, line: state };
-                return patch(req, viewer, id, &screen, status);
+                return patch(req, script, viewer, id, &screen, status);
             }
             Err(error) => return read_failed(req, Some(viewer), error, None),
         }
@@ -517,8 +524,8 @@ pub(crate) async fn scan(
         scan: Some((scanned, line_id.clone())),
         line: line.map(|l| (l, LineState::Matched)),
     };
-    if req.mode == corten::Mode::Action {
-        return patch(&req, &viewer, &id, &screen, StatusCode::OK);
+    if let Some(script) = req.action() {
+        return patch(&req, script, &viewer, &id, &screen, StatusCode::OK);
     }
     let place =
         Place { after_write: screen.after_write.clone(), done: None, check: None, scan: Some(scanned), line: Some(line_id) };

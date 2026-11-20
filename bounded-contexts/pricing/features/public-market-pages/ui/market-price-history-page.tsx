@@ -5,13 +5,14 @@ import {
   Breadcrumbs,
   ChaseRoot,
   Container,
-  Grid,
   Heading,
   LinkButton,
   NumericValue,
   Page,
   PageSection,
   Stack,
+  StatList,
+  StatListItem,
   Text,
   TimeSeriesChart,
   type TimeSeriesSeries,
@@ -136,84 +137,84 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                           : t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats")
                       }
                     >
-                      <Grid columns={{ base: 1, sm: 2, lg: 4 }} gap={4}>
-                        <Stack gap={1}>
-                          <Text size="sm" tone="secondary">
-                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold")}
-                          </Text>
-                          <Heading level={2} visualSize={4}>
-                            {aggregate?.lastSoldPriceAmount ? (
+                      <StatList columns={{ base: 1, sm: 2, lg: 4 }}>
+                        <StatListItem
+                          label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold")}
+                          value={
+                            aggregate?.lastSoldPriceAmount ? (
                               <NumericValue>{money(aggregate.lastSoldPriceAmount, currencyCode)}</NumericValue>
                             ) : (
                               money(null, currencyCode)
-                            )}
-                          </Heading>
-                          {aggregate?.lastSoldAt ? (
-                            <Text size="sm" tone="secondary">
-                              {formatDate(aggregate.lastSoldAt)}
-                            </Text>
-                          ) : null}
-                        </Stack>
-                        <Stack gap={1}>
-                          <Text size="sm" tone="secondary">
-                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day")}
-                          </Text>
-                          <Heading level={2} visualSize={4}>
-                            {aggregate?.medianPrice30d ? (
+                            )
+                          }
+                          detail={
+                            aggregate?.lastSoldAt ? (
+                              <Text size="sm" tone="secondary">
+                                {formatDate(aggregate.lastSoldAt)}
+                              </Text>
+                            ) : null
+                          }
+                        />
+                        <StatListItem
+                          label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day")}
+                          value={
+                            aggregate?.medianPrice30d ? (
                               <NumericValue>{money(aggregate.medianPrice30d, currencyCode)}</NumericValue>
                             ) : (
                               money(null, currencyCode)
-                            )}
-                          </Heading>
-                          <Text size="sm" tone="secondary">
-                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
-                              count: aggregate?.tradeCount30d ?? 0,
-                            })}
-                          </Text>
-                        </Stack>
-                        <Stack gap={1}>
-                          <Text size="sm" tone="secondary">
-                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day")}
-                          </Text>
-                          <Heading level={2} visualSize={4}>
-                            {aggregate?.medianPrice90d ? (
+                            )
+                          }
+                          detail={
+                            <Text size="sm" tone="secondary">
+                              {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
+                                count: aggregate?.tradeCount30d ?? 0,
+                              })}
+                            </Text>
+                          }
+                        />
+                        <StatListItem
+                          label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day")}
+                          value={
+                            aggregate?.medianPrice90d ? (
                               <NumericValue>{money(aggregate.medianPrice90d, currencyCode)}</NumericValue>
                             ) : (
                               money(null, currencyCode)
-                            )}
-                          </Heading>
-                          <Text size="sm" tone="secondary">
-                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
-                              count: aggregate?.tradeCount90d ?? 0,
-                            })}
-                          </Text>
-                        </Stack>
-                        <Stack gap={1}>
-                          <Text size="sm" tone="secondary">
-                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.active.listings")}
-                          </Text>
-                          <Heading level={2} visualSize={4}>
-                            {marketState?.activeListingCount ?? 0}
-                          </Heading>
-                          {index === 0 ? (
-                            page.liveAsks.length ? (
-                              page.liveAsks.map((ask) => (
-                                <Text key={ask.currencyCode} size="sm" tone="secondary">
-                                  {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
-                                    amount: money(ask.minAskAmount, ask.currencyCode),
-                                  })}
-                                </Text>
-                              ))
-                            ) : (
-                              <Text size="sm" tone="secondary">
-                                {page.unpricedBuyableListingCount > 0
-                                  ? t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.unavailable")
-                                  : t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.no.live.asks")}
-                              </Text>
                             )
-                          ) : null}
-                        </Stack>
-                      </Grid>
+                          }
+                          detail={
+                            <Text size="sm" tone="secondary">
+                              {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
+                                count: aggregate?.tradeCount90d ?? 0,
+                              })}
+                            </Text>
+                          }
+                        />
+                        <StatListItem
+                          label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.active.listings")}
+                          value={marketState?.activeListingCount ?? 0}
+                          detail={
+                            index === 0 ? (
+                              page.liveAsks.length ? (
+                                page.liveAsks.map((ask) => (
+                                  <Text key={ask.currencyCode} size="sm" tone="secondary">
+                                    {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
+                                      amount: money(ask.minAskAmount, ask.currencyCode),
+                                    })}
+                                  </Text>
+                                ))
+                              ) : (
+                                <Text size="sm" tone="secondary">
+                                  {page.unpricedBuyableListingCount > 0
+                                    ? t(
+                                        "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.unavailable",
+                                      )
+                                    : t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.no.live.asks")}
+                                </Text>
+                              )
+                            ) : null
+                          }
+                        />
+                      </StatList>
                       {sellThrough30d ? (
                         <Badge tone="info">
                           {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.sell.through", {

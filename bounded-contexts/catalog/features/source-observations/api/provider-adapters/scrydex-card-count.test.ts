@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createScrydexOnePieceProviderAdapter,
   SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as unitKey,
+  SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as onePieceUnitKey,
 } from "./scrydex-one-piece";
 import {
   cacheKeyForProviderOptionQuery,
@@ -17,8 +18,8 @@ import {
   type ProviderSendLedger,
 } from "../providers/provider-send-admission";
 import { SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./scrydex-one-piece";
-import { scrydexCountQuery } from "../providers/scrydex/adapter";
-import type { ScrydexCountEvidence } from "../../../scope-sync-batches/domain/count-acquisition";
+import { acquireScrydexPageOneCount, scrydexCountQuery } from "../providers/scrydex/adapter";
+import { countFingerprint, type ScrydexCountEvidence } from "../../../scope-sync-batches/domain/count-acquisition";
 
 const now = new Date("2026-09-30T12:00:00Z");
 const request: CatalogProviderOptionQueryRequest = {
@@ -53,7 +54,7 @@ function syntheticPage(page: number, total = 3) {
 
 function record(patch: Partial<CatalogProviderOptionQueryCacheRecord> = {}): CatalogProviderOptionQueryCacheRecord {
   return {
-    cacheKey: cacheKeyForProviderOptionQuery(request),
+    cacheKey: cacheKeyForProviderOptionQuery(exactCacheRequest()),
     providerKey: "scrydex",
     profileKey: request.profileKey!,
     profileVersion: request.profileVersion,
@@ -104,19 +105,137 @@ function adapter(cacheStore: CatalogProviderOptionQueryCacheStore, fetch: typeof
   });
 }
 
-describe("Scrydex exact cached card estimate", () => {
-  it("AC5 consumes only the newest exact count source, retaining complete-cache on ties", async () => {
+function currentCountQuery() {
+  return scrydexCountQuery({
+    environment: "runtime",
+    accountRevision: "runtime",
+    productDomain: "lorcana",
+    profileKey: request.profileKey!,
+    profileVersion: request.profileVersion,
+    unitKey,
+    kind: "cards",
+    languageCode: "en",
+    parentValue: "TFC",
+  });
+}
+
+function exactCacheRequest() {
+  return { ...request, requestFingerprint: currentCountQuery().requestFingerprint };
+}
+
+describe("Scrydex expansion card transport parity", () => {
+  it.each([
+    ["lorcana", unitKey, "D23C24", "expansion.id:D23C24"],
+    ["lorcana", unitKey, "TFC", "expansion.id:TFC"],
+    ["one-piece", onePieceUnitKey, "OP01", "printings:OP01"],
+  ] as const)("uses the documented %s predicate for %s / %s (%s)", async (productDomain, key, expansionId, q) => {
+    const requests: URL[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/account/v1/usage") return Response.json({ data: {} });
+      requests.push(url);
+      const page = Number(url.searchParams.get("page"));
+      return Response.json(syntheticPage(page));
+    };
+    const options = {
+      fetch,
+      credentials: { apiKey: "synthetic", teamId: "synthetic" },
+      lorcanaBaseUrl: baseUrl,
+      baseUrl: baseUrl.replace("lorcana", "onepiece"),
+    };
+    const subject = createScrydexOnePieceProviderAdapter(options);
     const query = scrydexCountQuery({
       environment: "runtime",
       accountRevision: "runtime",
-      productDomain: "lorcana",
-      profileKey: request.profileKey!,
-      profileVersion: request.profileVersion,
-      unitKey,
+      productDomain,
+      profileKey: "synthetic",
+      profileVersion: "1",
+      unitKey: key,
       kind: "cards",
       languageCode: "en",
-      parentValue: "TFC",
+      parentValue: expansionId,
     });
+    expect(await acquireScrydexPageOneCount(query, options)).toMatchObject({
+      returnedPage: 1,
+      pageSize: 2,
+      totalCount: 3,
+    });
+    const listed = await subject.listOptions({ unitKey: key, optionKind: "cards", parentValues: { expansionId } });
+    expect(listed.items).toHaveLength(3);
+    expect(listed.validatedPagination).toEqual({ totalCount: 3, pageSize: 2 });
+    const plan = await subject.planImport({
+      unitKey: key,
+      scopeKey: "expansion-cards",
+      values: { expansionId, language: "en" },
+    });
+    const imported = [];
+    for await (const payload of subject.fetchPayloads(plan)) imported.push(payload);
+    expect(imported).toHaveLength(3);
+    const path = `/${productDomain === "lorcana" ? "lorcana" : "onepiece"}/v1/cards`;
+    expect(
+      requests.map((url) => [
+        url.pathname,
+        url.searchParams.get("q"),
+        url.searchParams.get("page_size"),
+        url.searchParams.get("page"),
+      ]),
+    ).toEqual(["1", "1", "2", "1", "2"].map((page) => [path, q, "250", page]));
+  });
+});
+
+describe("Scrydex exact cached card estimate", () => {
+  it("rejects the old Lorcana count query and legacy cache row, but reuses exact replacement evidence", async () => {
+    const query = currentCountQuery();
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) =>
+      Response.json(new URL(String(input)).pathname.endsWith("/usage") ? { data: {} } : syntheticPage(1)),
+    );
+    const credentials = { apiKey: "synthetic", teamId: "synthetic" };
+    await acquireScrydexPageOneCount(query, { fetch, credentials, lorcanaBaseUrl: baseUrl, now: () => now });
+    const url = new URL(String(fetch.mock.calls[0]?.[0]));
+    const parameters = Object.fromEntries(url.searchParams);
+    const fingerprint = (q: string) => countFingerprint({ method: "GET", path: "cards", query: { ...parameters, q } });
+    const oldQuery = { ...query, requestFingerprint: fingerprint("printings:TFC") };
+    expect(query.requestFingerprint).toBe(fingerprint("expansion.id:TFC"));
+    expect(query.requestFingerprint).not.toBe(oldQuery.requestFingerprint);
+    await expect(acquireScrydexPageOneCount(oldQuery, { fetch, credentials })).rejects.toThrow("Count query changed.");
+    expect(fetch).toHaveBeenCalledOnce();
+
+    let evidence: ScrydexCountEvidence = {
+      query: oldQuery,
+      validationKind: "page-1-count",
+      sourceId: "synthetic-debit",
+      totalCount: 3,
+      pageSize: 2,
+      returnedPage: 1,
+      returnedItemCount: 2,
+      observedAt: now.toISOString(),
+      expiresAt: record().expiresAt,
+    };
+    const cache = store(record({ cacheKey: cacheKeyForProviderOptionQuery(request) }));
+    const subject = createScrydexOnePieceProviderAdapter({
+      cacheStore: cache,
+      countReader: { read: async () => evidence },
+      fetch,
+      credentials,
+      now: () => now,
+    });
+    expect((await subject.planImport(scope)).usageEstimate?.countSource).toBeUndefined();
+    evidence = { ...evidence, query };
+    expect((await subject.planImport(scope)).usageEstimate?.countSource).toMatchObject({
+      query,
+      validationKind: "page-1-count",
+    });
+    const exactKey = cacheKeyForProviderOptionQuery(exactCacheRequest());
+    cache.read.mockResolvedValue(record({ cacheKey: exactKey }));
+    expect((await subject.planImport(scope)).usageEstimate?.countSource).toMatchObject({
+      query,
+      validationKind: "complete-cache",
+      sourceId: exactKey,
+    });
+  });
+
+  it("AC5 consumes only the newest exact count source, retaining complete-cache on ties", async () => {
+    const query = currentCountQuery();
     let evidence: ScrydexCountEvidence = {
       query,
       validationKind: "page-1-count",
@@ -206,7 +325,7 @@ describe("Scrydex exact cached card estimate", () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(String(fetch.mock.calls[0]?.[0])).toContain("/account/v1/usage");
-    expect(cache.read).toHaveBeenCalledWith(request);
+    expect(cache.read).toHaveBeenCalledWith(exactCacheRequest());
   });
 
   const invalid: Array<[string, Partial<CatalogProviderOptionQueryCacheRecord> | null]> = [
@@ -264,7 +383,7 @@ describe("Scrydex exact cached card estimate", () => {
         const url = new URL(String(input));
         if (url.pathname.endsWith("/usage")) return Response.json({ data: {} });
         expect(cache.write).not.toHaveBeenCalled();
-        expect(url.searchParams.get("q")).toBe("printings:TFC");
+        expect(url.searchParams.get("q")).toBe("expansion.id:TFC");
         expect(url.searchParams.get("page_size")).toBe("250");
         const page = Number(url.searchParams.get("page"));
         if (page === 2 && mode === "transport failure") throw new Error("synthetic transport failure");
@@ -290,6 +409,7 @@ describe("Scrydex exact cached card estimate", () => {
         expect(cache.write).toHaveBeenCalledTimes(1);
         expect(cache.write.mock.calls[0]?.[0]).toMatchObject({
           ...request,
+          cacheKey: cacheKeyForProviderOptionQuery(exactCacheRequest()),
           itemCount: mode === "no metadata" ? 2 : 3,
           totalCount: mode === "complete" ? 3 : null,
           pageSize: mode === "complete" ? 2 : null,
@@ -304,11 +424,13 @@ describe("Scrydex exact cached card estimate", () => {
   it.each(["complete", "inconsistent", "no metadata", "total_pages", "has_more", "next_page"])(
     "ordinary options retain only completed count evidence for %s",
     async (mode) => {
+      const reads: unknown[] = [];
       const writes: unknown[][] = [];
       const query = async <Row extends Record<string, unknown>>(
         sql: string,
         values?: readonly unknown[],
       ): Promise<{ rows: Row[] }> => {
+        if (sql.includes("WHERE cache_key = $1")) reads.push(values?.[0]);
         if (sql.includes("INSERT INTO catalog_provider_option_query_cache")) writes.push([...(values ?? [])]);
         return { rows: [] };
       };
@@ -344,9 +466,11 @@ describe("Scrydex exact cached card estimate", () => {
         const page = await run();
         expect(page.items).toHaveLength(mode === "complete" ? 3 : 2);
         expect(writes).toHaveLength(1);
+        expect(writes[0]?.[0]).toBe(cacheKeyForProviderOptionQuery(exactCacheRequest()));
         expect(writes[0]?.[9]).toBe(mode === "complete" ? 3 : 2);
         expect(writes[0]?.slice(15, 17)).toEqual(mode === "complete" ? [3, 2] : [null, null]);
       }
+      expect(reads).toEqual([cacheKeyForProviderOptionQuery(exactCacheRequest())]);
       expect(adapterCache.write).not.toHaveBeenCalled();
     },
   );
@@ -367,7 +491,13 @@ describe("Scrydex exact cached card estimate", () => {
       if (mode === "complete") {
         expect((await query()).items).toHaveLength(3);
         expect(cache.write).toHaveBeenCalledTimes(1);
-        expect(cache.write.mock.calls[0]?.[0]).toMatchObject({ ...request, itemCount: 3, totalCount: 3, pageSize: 2 });
+        expect(cache.write.mock.calls[0]?.[0]).toMatchObject({
+          ...request,
+          cacheKey: cacheKeyForProviderOptionQuery(exactCacheRequest()),
+          itemCount: 3,
+          totalCount: 3,
+          pageSize: 2,
+        });
       } else {
         await expect(query()).rejects.toThrow("pagination metadata");
         expect(cache.write).not.toHaveBeenCalled();

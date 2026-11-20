@@ -203,12 +203,15 @@ pub(crate) async fn page(
     let place = route.place;
     let from = url::Notifications { place: place.clone() };
     req.patch_or_with(
-        || async {
-            let receipt = Receipt::from_param(from.place.after_write.as_deref());
-            let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
-            match alerts(&waiting, receipt.is_some()).await {
-                Ok(alerts) => alerts_patch(&req, &alerts, &from),
-                Err(error) => unconfirmed(&req, error),
+        |script| {
+            let (req, config, headers, from) = (&req, &config, &headers, &from);
+            async move {
+                let receipt = Receipt::from_param(from.place.after_write.as_deref());
+                let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
+                match alerts(&waiting, receipt.is_some()).await {
+                    Ok(alerts) => alerts_patch(req, script, &alerts, from),
+                    Err(error) => unconfirmed(req, script, error),
+                }
             }
         },
         || async {
@@ -338,9 +341,9 @@ async fn refused(req: &Req, viewer: &Viewer, caller: &Api<'_>, form: Which, erro
 /// The feed after a write: with a script, the feed the API answered with, in place; without one,
 /// the feed's address.
 fn feed_after(req: &Req, feed: &Feed) -> HtmlResult {
-    if req.mode == corten::Mode::Action {
+    if let Some(script) = req.action() {
         let t: NotificationsMsg = req.t();
-        return req.patch(html! { <views::FeedSection t={t} feed={feed} notice={None} /> });
+        return script.patch(html! { <views::FeedSection t={t} feed={feed} notice={None} /> });
     }
     req.redirect(&url::Notifications::default())
 }
@@ -387,11 +390,13 @@ pub(crate) async fn set_preference(
     let key = route.key;
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.set_preference(&key, input.enabled == "true").await {
-        Ok(preference) if req.mode == corten::Mode::Action => {
-            let t: NotificationsMsg = req.t();
-            req.patch(html! { <views::PreferenceSwitch t={t} preference={&preference} /> })
-        }
-        Ok(_) => req.redirect(&url::Notifications { place: Place::settings(Section::Preferences, None) }),
+        Ok(preference) => match req.action() {
+            Some(script) => {
+                let t: NotificationsMsg = req.t();
+                script.patch(html! { <views::PreferenceSwitch t={t} preference={&preference} /> })
+            }
+            None => req.redirect(&url::Notifications { place: Place::settings(Section::Preferences, None) }),
+        },
         Err(error) => refused(&req, &viewer, &caller, Which::Preferences, error).await,
     }
 }
@@ -401,7 +406,7 @@ pub(crate) async fn set_preference(
 /// from the settings' address with the write's receipt (`ReadAgain::from`), which answers the
 /// section the same way until the read is in; a read after the write that fails says the change
 /// was saved and cannot be shown yet (502, in place). Without a script, the settings at the alerts
-/// with the receipt, which say the same and read themselves again. Carrying the receipt is what marketplace does not do (chase-sets/chase-sets#10627).
+/// with the receipt, which say the same and read themselves again, as marketplace's do.
 pub(crate) async fn change_alert(
     req: Req,
     Caller(Member(viewer)): Caller<Member>,
@@ -471,11 +476,11 @@ async fn apply(
         Err(error) => return refused(req, viewer, &caller, Which::Alerts, error).await,
     };
     let to = url::Notifications { place: Place::settings(Section::ProductAlerts, receipt.as_ref()) };
-    if in_place {
+    if in_place && let Some(script) = req.action() {
         let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
         return match alerts(&waiting, receipt.is_some()).await {
-            Ok(alerts) => alerts_patch(req, &alerts, &to),
-            Err(error) => unconfirmed(req, error),
+            Ok(alerts) => alerts_patch(req, script, &alerts, &to),
+            Err(error) => unconfirmed(req, script, error),
         };
     }
     req.redirect(&to.at(views::ProductAlertsId))
@@ -483,10 +488,10 @@ async fn apply(
 
 /// The alerts' section when the read after a write failed: the write was saved, the section says
 /// so and that a reload shows it (502).
-fn unconfirmed<Kind: corten::answer::PatchingKind>(req: &Req, error: ApiError) -> HtmlResult<Kind> {
+fn unconfirmed<Kind: corten::answer::PatchingKind>(req: &Req, script: corten::Action<'_>, error: ApiError) -> HtmlResult<Kind> {
     tracing::warn!("the product alerts' read after a write failed: {error}");
     let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
-    req.patch_with_status(
+    script.patch_with_status(
         StatusCode::BAD_GATEWAY,
         html! { <views::AlertsSection t={t} p={p} alerts={&Alerts::Unconfirmed} notice={None} focus={false} /> },
     )
@@ -494,10 +499,15 @@ fn unconfirmed<Kind: corten::answer::PatchingKind>(req: &Req, error: ApiError) -
 
 /// The alerts' section as a patch; while the read is catching up with a write it asks to be read
 /// again from `from`, the settings' address with the write's receipt, which answers this again.
-fn alerts_patch<Kind: corten::answer::PatchingKind>(req: &Req, alerts: &Alerts, from: &url::Notifications) -> HtmlResult<Kind> {
+fn alerts_patch<Kind: corten::answer::PatchingKind>(
+    req: &Req,
+    script: corten::Action<'_>,
+    alerts: &Alerts,
+    from: &url::Notifications,
+) -> HtmlResult<Kind> {
     let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
     let again = matches!(alerts, Alerts::CatchingUp).then(|| ReadAgain { after: Duration::from_secs(2) }.from(from));
-    req.patch(html! {
+    script.patch(html! {
         <views::AlertsSection t={t} p={p} alerts={alerts} notice={None} focus={false} />
         {again}
     })

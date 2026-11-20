@@ -7,7 +7,8 @@ import { Card } from "../data-display/card";
 
 export interface MarketplaceEmptyStateProps {
   title: ReactNode;
-  description: ReactNode;
+  /** Leave out when the title says it all; never repeat the title. */
+  description?: ReactNode;
   recoveryActions?: ReactNode;
   recommendationActions?: ReactNode;
   trustCue?: ReactNode;
@@ -27,7 +28,9 @@ export function MarketplaceEmptyState({
       </Center>
       <Stack gap={2}>
         <h2 className="m-0 text-xl font-bold text-foreground">{title}</h2>
-        <div className="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary">{description}</div>
+        {description ? (
+          <div className="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary">{description}</div>
+        ) : null}
       </Stack>
       {trustCue ? <div className="mx-auto w-full max-w-2xl text-left">{trustCue}</div> : null}
       {recommendationActions ? (

@@ -13,6 +13,8 @@
   "manage.secret_unrecoverable": "The key was saved, but its secret cannot be recovered. Explicitly rotate it to create a new secret.",
   "manage.acknowledge_secret": "I have stored this secret",
   "manage.another_change_in_progress": "Another account change is in progress. Wait for it to finish before trying again.",
+  "errors.name.required": "Legal name is required.",
+  "errors.display_name.required": "Marketplace name is required.",
   "badges.founding.account": "Founding Account",
   "badges.manual.payout.review": "Manual Payout Review",
   "badges.trusted.seller": "Trusted Seller",

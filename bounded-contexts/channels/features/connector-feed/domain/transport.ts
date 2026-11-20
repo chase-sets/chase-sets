@@ -12,10 +12,11 @@ import {
   type DerivedTcgplayerSnapshot,
 } from "../../tcgplayer-csv/domain/derived-snapshot";
 import { connectorMaxOperations, type ConnectorPolicy } from "./policy";
+import { canaryReservationPrefix } from "../../outbound-sync/domain/ready-to-ship-canary";
 
 export const connectorInboundKinds = ["order", "export", "channel-order-fulfillment-observation/v1"] as const;
 export type ConnectorInboundKind = (typeof connectorInboundKinds)[number];
-export type ConnectorInbound = Readonly<{ externalReference: string }> &
+export type ConnectorInbound = Readonly<{ externalReference: string; canaryReservationId?: string }> &
   (
     | Readonly<{
         inboundKind: "order" | "channel-order-fulfillment-observation/v1";
@@ -23,7 +24,7 @@ export type ConnectorInbound = Readonly<{ externalReference: string }> &
       }>
     | Readonly<{ inboundKind: "export"; payload: DerivedTcgplayerSnapshot }>
   );
-export type ConnectorClaim = Readonly<{ capabilities?: readonly ConnectorClaimCapability[] }>;
+export type ConnectorClaim = Readonly<{ capabilities?: readonly ConnectorClaimCapability[]; readyToShipCanary?: true }>;
 export type ConnectorReport = Readonly<{
   reservationId: string;
   outcomes: readonly ClaimedSubjectOutcome[];
@@ -36,7 +37,19 @@ export class ConnectorTransportError extends Error {
 }
 
 export function assertConnectorInbound(value: unknown, policy: ConnectorPolicy): asserts value is ConnectorInbound {
-  assertClosedRecord(value, ["inboundKind", "externalReference", "payload"], "connector inbound");
+  assertClosedRecord(
+    value,
+    ["inboundKind", "externalReference", "payload", "canaryReservationId"],
+    "connector inbound",
+  );
+  if (
+    Object.hasOwn(value, "canaryReservationId") &&
+    (value.inboundKind !== "order" ||
+      typeof value.canaryReservationId !== "string" ||
+      !value.canaryReservationId.startsWith(canaryReservationPrefix) ||
+      value.canaryReservationId.length !== 47)
+  )
+    invalid();
   if (
     typeof value.externalReference !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/.test(value.externalReference)
@@ -66,7 +79,8 @@ export function assertConnectorInbound(value: unknown, policy: ConnectorPolicy):
 
 /** An empty claim is incapable; only a declared capability admits connection-subject pull members. */
 export function assertConnectorClaim(value: unknown): asserts value is ConnectorClaim {
-  assertClosedRecord(value, ["capabilities"], "connector claim");
+  assertClosedRecord(value, ["capabilities", "readyToShipCanary"], "connector claim");
+  if (Object.hasOwn(value, "readyToShipCanary") && value.readyToShipCanary !== true) invalid();
   if (!Object.hasOwn(value, "capabilities")) return;
   const capabilities = value.capabilities;
   if (

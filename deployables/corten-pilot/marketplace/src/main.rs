@@ -37,6 +37,7 @@ mod invite;
 mod items;
 mod listing;
 mod listing_new;
+mod listing_recovery;
 mod locations;
 mod market_following;
 mod marketplace_attempt;

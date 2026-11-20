@@ -37,6 +37,7 @@ export type {
   OperationUnit,
 } from "./features/connector-client/domain/operation-protocol";
 export { createTcgplayerLiveExportExecutor } from "./features/connector-client/domain/tcgplayer-live-export-executor";
+export { createReadyToShipCanaryExecutor } from "./features/connector-client/domain/ready-to-ship-canary-executor";
 export {
   isLiveExportAuthorityRequest,
   tcgplayerLiveExportAuthority,

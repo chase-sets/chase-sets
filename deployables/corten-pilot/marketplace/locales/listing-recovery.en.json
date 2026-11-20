@@ -1,0 +1,22 @@
+{
+  "submitting": "Sending your Listing change...",
+  "loading": "Checking the recorded Listing results...",
+  "conflict": "This Listing change conflicts with its recorded result. It was not sent again.",
+  "target": "{target}: {outcome}",
+  "outcome.succeeded": "succeeded, will not send again",
+  "outcome.conflict": "conflict, will not send again",
+  "outcome.error": "failed safely, will not send again",
+  "outcome.unknown": "unknown, available for explicit retry",
+  "outcome.ambiguous": "unconfirmed, changes disabled",
+  "reenter": "No result is recorded. Re-enter the same details to retry this attempt; changed details will not be sent.",
+  "start_another": "Start another change",
+  "check_again": "Check the recorded result again",
+  "confirming": "Confirming the result of your Listing change.",
+  "succeeded": "Your Listing change is confirmed.",
+  "failed_safe": "The change was not sent. Review your inputs before trying again.",
+  "ambiguous": "We could not confirm the result. Changes are disabled to avoid duplicating your work.",
+  "partial": "{succeeded} of {total} Listings changed. Retry sends only the Listings whose result is unknown.",
+  "retry_unknown": "Retry unknown Listings",
+  "attempt_invalid": "This change is missing its attempt identity. Reload and try again.",
+  "attempt_conflict": "This change was already sent with different details. Reload to see the first result."
+}

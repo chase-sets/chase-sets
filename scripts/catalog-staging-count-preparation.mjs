@@ -67,7 +67,13 @@ export function countPreparationInput(env, now) {
   if (mode === "quote") {
     if (approval) throw refuse("approval-not-allowed-in-quote-mode");
     if (cap && !/^\d{1,5}$/.test(cap)) throw refuse("cap-invalid");
-    return { mode, pass, dispatchId, cap: cap ? Number(cap) : undefined };
+    return {
+      mode,
+      pass,
+      dispatchId,
+      cap: cap ? Number(cap) : undefined,
+      observeUsage: env.CATALOG_COUNT_PREPARATION_OBSERVE_USAGE === "true",
+    };
   }
   if (cap) throw refuse("cap-not-allowed-in-acquire-mode");
   return { mode, pass, dispatchId, approval: admitRehearsalCountAcquisition({ approval, pass, dispatchId, now }) };
@@ -146,6 +152,8 @@ export async function runCountPreparation({
 } = {}) {
   const run = countPreparationIdentity(env);
   const input = countPreparationInput(env, now());
+  if (input.mode === "quote" && input.observeUsage && run.runAttempt !== "1")
+    throw refuse("usage-observation-requires-fresh-dispatch");
   const { email, password } = adminCredentials(env);
   const fenced = stagingOriginFetch(fetch);
   const token = await signInStagingAdmin({ email, password, fetch: fenced });
@@ -159,6 +167,7 @@ export async function runCountPreparation({
           dispatchId: input.dispatchId,
           pass: input.pass,
           cap: input.cap,
+          observeUsage: input.observeUsage ? admin.observeUsage : undefined,
           now,
           onQuoteFailure: (failure) => (quoteFailure = failure),
         })

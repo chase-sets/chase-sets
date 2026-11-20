@@ -6,7 +6,7 @@ import { createVitest, parseCLI } from "vitest/node";
 import {
   bootstrapDbEnrollmentManifest,
   derivePlatformApiDbTestCensus,
-  platformApiNonBootstrapDbCensus,
+  platformApiProductDbProofCensus,
 } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
@@ -936,7 +936,7 @@ describe("DB duration scheduling", () => {
       eligible.map((entry) => entry.name).sort(),
     );
     for (const [name, scripts] of [
-      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3"]],
+      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3", "test:db:4"]],
       ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
@@ -965,9 +965,10 @@ describe("DB duration scheduling", () => {
       const partitions = await Promise.all(output.invocations.map((args) => discover(scripts[args[3]])));
       const assertCompleteDisjoint = (groups) => expect(groups.flat().sort()).toEqual(aggregate);
       assertCompleteDisjoint(partitions);
-      expect(partitions.map((files) => files.length)).toEqual([1, 3, 1]);
+      expect(partitions.map((files) => files.length)).toEqual([1, 2, 1, 1]);
+      expect(partitions[3].map((file) => path.basename(file))).toEqual(["marketplace-seed.test.ts"]);
       const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
-      expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
+      expect(() => assertCompleteDisjoint([partitions[0], omittedFile, ...partitions.slice(2)])).toThrow();
       expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
     } finally {
       await vitest.close();
@@ -1012,14 +1013,14 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    // Named members, never a moving total: the bootstrap manifest and the frozen non-bootstrap census each declare
+    // Named members, never a moving total: the bootstrap manifest and the live non-bootstrap census each declare
     // their DB entries and execution units, and the Vitest include rule declares the complete discovered set.
     const declaredUnits = [
       ...Object.entries(bootstrapDbEnrollmentManifest).map(([file, { executionUnit }]) => [
         `__tests__/${file}`,
         executionUnit,
       ]),
-      ...Object.entries(platformApiNonBootstrapDbCensus.entries),
+      ...Object.entries(platformApiProductDbProofCensus.entries),
     ];
     const declaredBootstrap = Object.keys(bootstrapDbEnrollmentManifest)
       .map((file) => `__tests__/${file}`)

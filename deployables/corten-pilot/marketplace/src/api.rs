@@ -1470,9 +1470,9 @@ pub struct AlertIntent {
 /// The Discovery API's Product Alert calls (`/account/product-alerts`,
 /// `/guest/product-alert-intents`).
 pub trait ProductAlerts {
-    /// Creates the account's alert (`CreateProductAlertRequest`). The API checks nothing against
-    /// the catalog (chase-sets/chase-sets#10595) and creates a new alert for each call
-    /// (chase-sets/chase-sets#10596). The answer is the write's receipt.
+    /// Creates the account's alert (`CreateProductAlertRequest`), once per `attemptId` and
+    /// request. The API checks nothing against the catalog (chase-sets/chase-sets#10595). The
+    /// answer is the write's receipt.
     async fn create_product_alert(&self, alert: &impl Serialize) -> Result<Option<Receipt>, ApiError>;
     /// Saves a guest's alert as an intent owned by `guest` (the same fields and `sourcePath`).
     async fn product_alert_intent(&self, guest: &str, alert: &impl Serialize) -> Result<AlertIntent, ApiError>;
@@ -4197,11 +4197,11 @@ const IDEMPOTENCY_KEY: &str = "idempotency-key";
 
 /// A Listing command's attempt (Marketplace's `listingAttemptInput`, sent as `Idempotency-Key`):
 /// Marketplace applies a key once and answers it again with its first result, and refuses a
-/// command without one. The key is made from what makes the command one attempt and the
-/// command's name, as marketplace's `listingFormAttempt` makes it, so two commands never share
-/// one: a seller's form's `SubmitKey`, or the listing id a create names (`listingIdOverride`)
-/// for the create and the publish that follows it. Either sent again is the same attempt; with
-/// neither, the command is an attempt of its own.
+/// command without one. A create's key is made from the listing id it names
+/// (`listingIdOverride`) and the command's name, for the create and the publish that follows it,
+/// so sent again it is the same attempt; without one, the command is an attempt of its own. A
+/// seller's change to a listing or to the account's listing settings is sent under the batch id
+/// Marketplace prepared it as (`listing_recovery`).
 pub fn listing_attempt(made_from: Option<&str>, command: &str) -> String {
     match made_from.map(|from| format!("{from}_{command}")) {
         Some(key) if valid_listing_attempt(&key) => key,
@@ -5358,25 +5358,11 @@ pub struct Consent {
     pub is_current: bool,
 }
 
-impl Consent {
-    /// Whether the consent is the user's own: a user consent of `user`, or an account consent
-    /// `user` gave for `account` (Identity's withdraw rule, `subjectMatchesActor`).
-    pub fn is_of(&self, user: &str, account: &str) -> bool {
-        let by_user = self.user_id.as_deref() == Some(user);
-        match self.subject_type.as_str() {
-            "user" => by_user,
-            "account" => by_user && self.account_id.as_deref() == Some(account),
-            _ => false,
-        }
-    }
-}
-
 /// The user's consent history (Identity's `consents`), as the signed-in user. A withdrawal is an
 /// account-management attempt, as the address book's writes are.
 pub trait ConsentCalls {
-    /// The user's consents for the account, newest first, as marketplace's loader asks (the first
-    /// 50). Workaround for chase-sets/chase-sets#10707: Identity takes the user and account from the
-    /// query for an actor with `security.manage`, so only the user's own consents are kept.
+    /// The user's consents, newest first, as marketplace's loader asks (the first 50). Identity
+    /// lists only the signed-in user's own, whatever the query names.
     async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError>;
     /// Withdraw `consent` as `attempt`.
     async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError>;
@@ -5386,7 +5372,7 @@ impl ConsentCalls for Caller<'_> {
     async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError> {
         let path = format!("/api/identity/consents?limit=50&offset=0&userId={}&accountId={}", segment(user), segment(account));
         let list: TeamList<Consent> = self.read(&path, IDENTITY).await?;
-        Ok(list.items.into_iter().filter(|c| c.is_of(user, account)).collect())
+        Ok(list.items)
     }
 
     async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError> {
@@ -5659,8 +5645,7 @@ struct ErrorCode {
 }
 
 /// The signed-in user's sessions (Auth's `sessions`) and their two writes. Neither write is an
-/// attempt: Auth takes no `Idempotency-Key` for them, and answers every refusal (already revoked,
-/// already that account) with a 500 (chase-sets/chase-sets#10698).
+/// attempt: Auth takes no `Idempotency-Key` for them, and names a refusal by its error code.
 pub trait SessionCalls {
     /// A page of `user`'s sessions, newest first, and how many there are. Auth filters the list
     /// by `search`, which it matches against names and emails too, so only the sessions whose
@@ -6127,40 +6112,117 @@ pub enum ListingCommand {
     Withdraw,
 }
 
-/// The bulk changes a seller makes to many listings at once (`MarketplaceListingBatchFamily`'s
-/// listing families).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub enum BatchFamily {
-    #[serde(rename = "listing.pause")]
-    Pause,
-    #[serde(rename = "listing.withdraw")]
-    Withdraw,
+/// A prepared Listing change (`ListingRecoveryReference`): the batch Marketplace keeps its
+/// outcomes under (its id is the change's Listing attempt), its mutation family, and whether it
+/// is a bulk Pause or Withdraw. A page's address carries it as JSON (`listingRecovery`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListingReference {
+    pub batch_id: String,
+    pub mutation_kind: String,
+    pub bulk: bool,
 }
 
-/// One bulk Pause or Withdraw (`POST /account/listings/batch`): its batch id, which a retry sends
-/// again, and the listings.
+/// A Listing change to prepare before it is sent (`ListingRecoveryPreparation`): the form's
+/// intent and attempt, the listing or the checked listings, the fields it sends in the form's
+/// names (`listingRecoveryFields`), and the reference the page's address carries. Marketplace
+/// works out each target's request hash from them.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListingBatch<'a> {
-    pub batch_id: &'a str,
-    pub family: BatchFamily,
+pub struct ListingPreparation<'a> {
+    pub intent: &'a str,
+    pub idempotency_key: &'a str,
+    pub listing_id: Option<&'a str>,
     pub listing_ids: &'a [String],
+    pub fields: BTreeMap<&'static str, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retained: Option<&'a ListingReference>,
 }
 
-/// What a batch came to (`MarketplaceListingBatchResult`): each listing's terminal outcome.
+/// What a preparation answers (`ListingRecoveryPreparationResult`): the reference to send the
+/// change under (none for an intent Marketplace does not prepare), or what Marketplace already
+/// recorded for the reference the address carries, when the change is not to be sent.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum Prepared {
+    Recovery { recovery: ListingRecovery },
+    Reference { reference: Option<ListingReference> },
+}
+
+/// What came of a prepared change (`ListingRecovery`), as Marketplace classifies it from its
+/// recorded outcomes and each target's owner history.
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct BatchResult {
-    #[serde(default)]
-    pub items: Vec<BatchItem>,
+#[serde(rename_all = "camelCase", default)]
+pub struct ListingRecovery {
+    /// None when Marketplace could not bind the reference to a recorded change.
+    pub identity: Option<ListingReference>,
+    pub phase: RecoveryPhase,
+    pub items: Vec<RecoveredTarget>,
+    /// A bulk change's listings whose outcome is unknown: what Retry sends.
+    pub retry_target_ids: Vec<String>,
+    /// The form to enter again, with the attempt to send it under, while nothing is recorded.
+    pub reentry: Option<Reentry>,
 }
 
-/// A listing's outcome in a batch: `succeeded`, or `conflict`, `error` or `unknown` (the only
-/// one a retry of the batch sends again).
+impl ListingRecovery {
+    /// Nothing could be confirmed (`ambiguousListingRecovery`).
+    pub fn ambiguous() -> Self {
+        ListingRecovery::default()
+    }
+
+    /// The change was not sent (`failedListingPreparation`).
+    pub fn failed_safe() -> Self {
+        ListingRecovery { phase: RecoveryPhase::FailedSafe, ..ListingRecovery::default() }
+    }
+
+    /// Whether the page's changes are off while it shows this (`ListingRecoveryScope`'s
+    /// `blocked`): nothing is confirmed, or a recorded change has no form to enter again.
+    pub fn blocks(&self) -> bool {
+        self.phase == RecoveryPhase::Ambiguous || (self.identity.is_some() && self.reentry.is_none())
+    }
+}
+
+/// A recovery's phase. One Marketplace adds later reads as unconfirmed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecoveryPhase {
+    Confirming,
+    Succeeded,
+    Partial,
+    Conflict,
+    FailedSafe,
+    #[default]
+    #[serde(other)]
+    Ambiguous,
+}
+
+/// One target of a prepared change and its outcome.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BatchItem {
+pub struct RecoveredTarget {
     pub target_id: String,
-    pub outcome: String,
+    pub outcome: TargetOutcome,
+}
+
+/// A target's outcome: `unknown` is the only one Marketplace sends again. One it adds later reads
+/// as unconfirmed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TargetOutcome {
+    Succeeded,
+    Conflict,
+    Error,
+    Unknown,
+    #[serde(other)]
+    Ambiguous,
+}
+
+/// The form a change with nothing recorded is entered again with, and its attempt.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reentry {
+    pub intent: String,
+    pub idempotency_key: String,
 }
 
 /// Why a listing command was not applied.
@@ -6186,18 +6248,24 @@ impl From<ApiError> for CommandError {
 pub trait SellerListings {
     async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError>;
     async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError>;
-    /// Sends `command` as the attempt made from `attempt` (the form's `SubmitKey`; none: an attempt
-    /// of its own). The photo commands take no attempt.
+    /// Sends `command` under `attempt`, the batch id of the reference Marketplace prepared it as.
+    /// The photo commands take no attempt.
     async fn listing_command(
         &self,
         id: &str,
         command: &ListingCommand,
         attempt: Option<&str>,
     ) -> Result<Option<Receipt>, CommandError>;
-    /// Pauses or withdraws many listings as one batch: each one's outcome, and the receipt the
-    /// next read waits for. Marketplace keeps each batch's outcomes, so the same batch sent again
-    /// sends only the listings whose outcome was unknown.
-    async fn listing_batch(&self, batch: &ListingBatch<'_>) -> Result<(BatchResult, Option<Receipt>), ApiError>;
+    /// Prepares a change to a listing, to many, or to the account's listing settings before it is
+    /// sent (`POST /account/listings/batch/prepare`).
+    async fn prepare_listing(&self, change: &ListingPreparation<'_>) -> Result<Prepared, ApiError>;
+    /// What came of a prepared change (`GET /account/listings/batch/{batchId}`). A read: it never
+    /// sends anything.
+    async fn recover_listing(&self, reference: &ListingReference) -> Result<ListingRecovery, ApiError>;
+    /// Sends a prepared bulk Pause or Withdraw's listings whose outcome is unknown, all of them the
+    /// first time (`POST /account/listings/batch/retry`): Marketplace checks each one's history
+    /// again and sends only those still unknown. The receipt the next read waits for.
+    async fn retry_listing_batch(&self, reference: &ListingReference) -> Result<Option<Receipt>, ApiError>;
     /// Adds photos to a draft, each with `alt_text` when there is one.
     async fn add_listing_photos(
         &self,
@@ -6296,18 +6364,8 @@ impl SellerListings for Caller<'_> {
             ListingCommand::Withdraw => (Method::POST, format!("{base}/withdraw"), json!({})),
         };
         let mut req = self.request(method, &path, MARKETPLACE);
-        // The photo commands take no attempt.
-        let name = match command {
-            ListingCommand::Price { .. } => Some("price"),
-            ListingCommand::QuantityCap { .. } => Some("quantity-cap"),
-            ListingCommand::PurchaseLimits { .. } => Some("purchase-limits"),
-            ListingCommand::Publish { .. } => Some("publish"),
-            ListingCommand::Pause => Some("pause"),
-            ListingCommand::Withdraw => Some("withdraw"),
-            ListingCommand::Classify { .. } | ListingCommand::RemovePhoto { .. } | ListingCommand::Reorder { .. } => None,
-        };
-        if let Some(name) = name {
-            req = req.header(IDEMPOTENCY_KEY, listing_attempt(attempt, name));
+        if let Some(attempt) = attempt {
+            req = req.header(IDEMPOTENCY_KEY, attempt);
         }
         if !body.is_null() {
             req = req.json(&body);
@@ -6315,8 +6373,24 @@ impl SellerListings for Caller<'_> {
         answer(req).await
     }
 
-    async fn listing_batch(&self, batch: &ListingBatch<'_>) -> Result<(BatchResult, Option<Receipt>), ApiError> {
-        self.write(self.request(Method::POST, "/api/marketplace/account/listings/batch", MARKETPLACE).json(batch)).await
+    async fn prepare_listing(&self, change: &ListingPreparation<'_>) -> Result<Prepared, ApiError> {
+        let path = "/api/marketplace/account/listings/batch/prepare";
+        Ok(self.write(self.request(Method::POST, path, MARKETPLACE).json(change)).await?.0)
+    }
+
+    async fn recover_listing(&self, reference: &ListingReference) -> Result<ListingRecovery, ApiError> {
+        let path = format!(
+            "/api/marketplace/account/listings/batch/{}?family={}&bulk={}",
+            segment(&reference.batch_id),
+            segment(&reference.mutation_kind),
+            reference.bulk
+        );
+        self.read(&path, MARKETPLACE).await
+    }
+
+    async fn retry_listing_batch(&self, reference: &ListingReference) -> Result<Option<Receipt>, ApiError> {
+        let path = "/api/marketplace/account/listings/batch/retry";
+        Ok(self.write::<serde::de::IgnoredAny>(self.request(Method::POST, path, MARKETPLACE).json(reference)).await?.1)
     }
 
     async fn add_listing_photos(
@@ -6515,8 +6589,8 @@ pub trait SellerListingList {
     async fn seller_metrics(&self) -> Result<SellerMetrics, ApiError>;
     /// Ordering's count of the account's open orders (the "N" of "N of M").
     async fn open_order_count(&self) -> Result<u64, ApiError>;
-    /// Sends `setting` as the attempt made from `attempt` (the form's `SubmitKey`).
-    async fn seller_setting(&self, setting: &SellerSetting, attempt: Option<&str>) -> Result<Option<Receipt>, CommandError>;
+    /// Sends `setting` under `attempt`, the batch id of the reference Marketplace prepared it as.
+    async fn seller_setting(&self, setting: &SellerSetting, attempt: &str) -> Result<Option<Receipt>, CommandError>;
 }
 
 const ACCOUNT: &str = "/api/marketplace/account";
@@ -6549,31 +6623,27 @@ impl SellerListingList for Caller<'_> {
         Ok(self.read::<OpenOrders>(&format!("{ACCOUNT}/sales/order-capacity"), ORDERING).await?.open_order_count)
     }
 
-    async fn seller_setting(&self, setting: &SellerSetting, attempt: Option<&str>) -> Result<Option<Receipt>, CommandError> {
+    async fn seller_setting(&self, setting: &SellerSetting, attempt: &str) -> Result<Option<Receipt>, CommandError> {
         use serde_json::json;
         let availability = format!("{ACCOUNT}/listing-availability");
         let capacity = format!("{ACCOUNT}/order-capacity");
-        let (name, method, path, body) = match setting {
+        let (method, path, body) = match setting {
             SellerSetting::Disable { reason, on, at } => (
-                "disable",
                 Method::POST,
                 format!("{availability}/disable"),
                 json!({ "reasonCategory": reason, "availableAgainOn": on, "availableAgainAt": at }),
             ),
-            SellerSetting::Enable => ("enable", Method::POST, format!("{availability}/enable"), json!({})),
+            SellerSetting::Enable => (Method::POST, format!("{availability}/enable"), json!({})),
             SellerSetting::Schedule { reason, starts_at, ends_at } => (
-                "schedule-away-window",
                 Method::POST,
                 format!("{availability}/away-window"),
                 json!({ "reasonCategory": reason, "startsAt": starts_at, "endsAt": ends_at }),
             ),
-            SellerSetting::CancelWindow => {
-                ("cancel-away-window", Method::DELETE, format!("{availability}/away-window"), serde_json::Value::Null)
-            }
-            SellerSetting::Capacity(max) => ("set-capacity", Method::POST, capacity, json!({ "maxOpenOrders": max })),
-            SellerSetting::ClearCapacity => ("clear-capacity", Method::DELETE, capacity, serde_json::Value::Null),
+            SellerSetting::CancelWindow => (Method::DELETE, format!("{availability}/away-window"), serde_json::Value::Null),
+            SellerSetting::Capacity(max) => (Method::POST, capacity, json!({ "maxOpenOrders": max })),
+            SellerSetting::ClearCapacity => (Method::DELETE, capacity, serde_json::Value::Null),
         };
-        let mut req = self.request(method, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, listing_attempt(attempt, name));
+        let mut req = self.request(method, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, attempt);
         if !body.is_null() {
             req = req.json(&body);
         }
@@ -7788,8 +7858,11 @@ pub struct BulkRepriceResult {
 }
 
 /// Bulk reprice's calls (Pricing's `bulk-reprice` routes). While Pricing has bulk reprice switched
-/// off, every one answers 404 (chase-sets/chase-sets#10772).
+/// off, every one answers 404.
 pub trait BulkRepriceCalls {
+    /// Whether Pricing has bulk reprice on: its tree answers `GET /` only while it is, 404
+    /// otherwise.
+    async fn bulk_reprice_available(&self) -> Result<bool, ApiError>;
     async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
     /// Start a job for `csv_text` (a file's text and name, or pasted rows) as `attempt` (Pricing's
     /// `Idempotency-Key`): the same attempt sent again answers its first job, and different rows
@@ -7802,6 +7875,14 @@ pub trait BulkRepriceCalls {
 }
 
 impl BulkRepriceCalls for Caller<'_> {
+    async fn bulk_reprice_available(&self) -> Result<bool, ApiError> {
+        match self.read::<serde::de::IgnoredAny>(BULK_REPRICE, PRICING).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError> {
         self.read(&format!("{BULK_REPRICE}/jobs/{}", segment(id)), PRICING).await
     }

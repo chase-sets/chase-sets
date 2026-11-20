@@ -2,7 +2,9 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   AccordionOptionTrigger,
+  Banner,
   FormPanel,
+  LinkButton,
   type FormPanelVariant,
   PanelSectionAccordion,
   ProductOptions,
@@ -22,6 +24,8 @@ import {
 type BuyAction = "buy-now" | "add-to-cart" | "make-offer";
 type SellAction = "selected-offer" | "add-product-to-sell-list" | "list-for-sale";
 type WatchAction = "watch-listings" | "watch-offers";
+
+const PRODUCT_ALERT_SETTINGS_HREF = "/account/notifications?view=settings&section=product-alerts";
 
 type CommerceActionOption<TAction extends string> = Readonly<{
   value: TAction;
@@ -356,6 +360,7 @@ export function WatchActionCard({
   productSelectionDetails,
   renderListingAlert,
   renderOfferAlert,
+  alertSaved = false,
 }: {
   formIdPrefix: string;
   panelVariant?: FormPanelVariant;
@@ -365,6 +370,8 @@ export function WatchActionCard({
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
   renderListingAlert: (formId: string) => ReactNode;
   renderOfferAlert: (formId: string) => ReactNode;
+  /** A Product Alert was just saved from this page: say so, with where to manage alerts. */
+  alertSaved?: boolean;
 }) {
   const defaultAction: WatchAction = "watch-listings";
   const [selectedAction, setSelectedAction] = useState<WatchAction | "">(defaultAction);
@@ -423,6 +430,18 @@ export function WatchActionCard({
       accordionEdge={accordionEdge}
       showProductSummary={false}
     >
+      {alertSaved ? (
+        <Banner
+          tone="success"
+          title={t("discovery.routes.itemDetail.watch.saved")}
+          description={t("discovery.routes.itemDetail.watch.saved.description")}
+          actions={
+            <LinkButton href={PRODUCT_ALERT_SETTINGS_HREF} tone="secondary" size="sm">
+              {t("discovery.routes.itemDetail.watch.manage.alerts")}
+            </LinkButton>
+          }
+        />
+      ) : null}
       {selectedContent}
     </ItemDetailActionCard>
   );

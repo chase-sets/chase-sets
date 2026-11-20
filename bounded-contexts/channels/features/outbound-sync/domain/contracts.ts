@@ -228,7 +228,7 @@ export const connectorClaimCapabilities = ["tcgplayer-order-pull", "tcgplayer-li
 export type ConnectorClaimCapability = (typeof connectorClaimCapabilities)[number];
 
 export type ReserveConnectorClaimedOperationsInput = ReserveClaimedOutboundOperationsInput &
-  Readonly<{ capabilities: readonly ConnectorClaimCapability[] }>;
+  Readonly<{ capabilities: readonly ConnectorClaimCapability[]; canaryGrantId?: string }>;
 
 export type ClaimedOperationOutcome = Readonly<{
   operationId: string;

@@ -3,7 +3,11 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { createRoutesStub, type LoaderFunctionArgs } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+} from "@chase-sets/http/responses";
 import { resolveLegacyNotificationCenterHref } from "../web";
 import AccountNotificationsRoute, { loader } from "./account-notifications";
 
@@ -54,10 +58,12 @@ function json(body: unknown, status = 200) {
 
 let sessionActor: typeof accountViewer | null;
 let fetchCalls: Array<Readonly<{ url: string; headers: Headers }>>;
+let productAlertsAnswer: () => Response;
 
 beforeEach(() => {
   sessionActor = accountViewer;
   fetchCalls = [];
+  productAlertsAnswer = () => json({ items: [] });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -67,7 +73,7 @@ beforeEach(() => {
       if (pathname === "/api/auth/session") return json({ actor: sessionActor });
       if (pathname === "/api/notifications/center") return json(populatedFeed);
       if (pathname === "/api/notifications/preferences") return json({ items: [{ key: "web", enabled: true }] });
-      if (pathname === "/api/marketplace/account/product-alerts") return json({ items: [] });
+      if (pathname === "/api/marketplace/account/product-alerts") return productAlertsAnswer();
       throw new Error(`Unexpected request ${url}`);
     }),
   );
@@ -133,6 +139,60 @@ describe("account notifications route", () => {
       expect(call.headers.get("cookie")).toBe("chase_sets_session=ses_1");
       expect(call.headers.get("authorization")).toBe("Bearer token_1");
     }
+  });
+
+  const alertWrite = {
+    commandReceipt: {
+      mode: "eventual",
+      commitPosition: "42",
+      commitEventIds: ["evt_discovery_42"],
+      commitPositions: [{ sourceContextName: "discovery", maxGlobalPosition: "42", eventIds: ["evt_discovery_42"] }],
+    },
+  };
+  const afterAlertWrite = () =>
+    new Request(
+      `http://localhost${appendFreshWriteToken("/account/notifications?view=settings&section=product-alerts", alertWrite)}`,
+    );
+  const catchingUp = () =>
+    json({ error: { code: "projection_freshness_timeout", message: "Projection read model did not catch up" } }, 503);
+
+  it("sends an alert write's receipt to the Product alerts read only", async () => {
+    const data = await loader(loaderArgs(afterAlertWrite()));
+
+    expect(data).toMatchObject({ view: "settings", section: "product-alerts", settings: { status: "loaded" } });
+    const receiptFor = (path: string) =>
+      fetchCalls.find((call) => new URL(call.url).pathname === path)?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+    expect(receiptFor("/api/marketplace/account/product-alerts")).toBeTruthy();
+    expect(receiptFor("/api/notifications/preferences")).toBeNull();
+  });
+
+  it("says an alert write is saved while the Product alerts read catches up with it", async () => {
+    productAlertsAnswer = catchingUp;
+
+    const data = await loader(loaderArgs(afterAlertWrite()));
+
+    expect(data).toMatchObject({
+      view: "settings",
+      settings: { status: "loaded", value: { preferences: [{ key: "web", enabled: true }], productAlerts: null } },
+    });
+  });
+
+  it("fails the settings when the Product alerts read after a write fails outright", async () => {
+    productAlertsAnswer = () => json({ error: { code: "internal_error", message: "Failed" } }, 500);
+
+    const data = await loader(loaderArgs(afterAlertWrite()));
+
+    expect(data).toMatchObject({ view: "settings", settings: { status: "failed" } });
+  });
+
+  it("fails the settings when the Product alerts read fails without a write to catch up with", async () => {
+    productAlertsAnswer = catchingUp;
+
+    const data = await loader(
+      loaderArgs(new Request("http://localhost/account/notifications?view=settings&section=product-alerts")),
+    );
+
+    expect(data).toMatchObject({ view: "settings", settings: { status: "failed" } });
   });
 
   it("keeps accounts.view authorization in front of every notification read", async () => {
