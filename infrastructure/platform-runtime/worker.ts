@@ -2127,13 +2127,18 @@ export async function tryRunWithRenewedLease<T>(
 
   let leaseActive = true;
   const abortController = new AbortController();
+  let renewalTimer: ReturnType<typeof setInterval> | undefined;
+  const stopRenewing = () => {
+    leaseActive = false;
+    clearInterval(renewalTimer);
+  };
   // Chain the held lease off any upstream signal (the operation execution
   // deadline) so an in-flight abort stops lease renewal at once rather than up
   // to one `shouldAbort` poll interval later. Without this a timed-out
   // operation keeps renewing the shared `projection-group:<name>` lease while
   // its leaked work settles, starving the scheduled group runner.
   const abortLease = () => {
-    leaseActive = false;
+    stopRenewing();
     abortController.abort();
   };
   if (input.signal?.aborted) {
@@ -2146,15 +2151,20 @@ export async function tryRunWithRenewedLease<T>(
       throw new Error(`Lost lease '${lease.leaseName}'.`);
     }
   };
-  let renewalTimer: ReturnType<typeof setTimeout> | undefined;
-  const scheduleRenewal = (delayMs: number) => {
-    if (!leaseActive) return;
-    renewalTimer = setTimeout(() => void renew(), delayMs);
+  let renewalInFlight = false;
+  let missedRenewalTick = false;
+  const resetRenewalTimer = () => {
+    clearInterval(renewalTimer);
+    renewalTimer = setInterval(() => void renew(), input.renewIntervalMs);
     renewalTimer.unref?.();
   };
   const renew = async () => {
     if (!leaseActive) return;
-    const startedAt = performance.now();
+    if (renewalInFlight) {
+      missedRenewalTick = true;
+      return;
+    }
+    renewalInFlight = true;
     try {
       if (!(await controlPlane.renewLease(lease, input.ttlMs))) {
         abortLease();
@@ -2163,13 +2173,18 @@ export async function tryRunWithRenewedLease<T>(
     } catch {
       abortLease();
       return;
+    } finally {
+      renewalInFlight = false;
     }
-    // Renewal extends the lease in Postgres before the reply reaches us.
-    // Keep one request in flight, but don't wait for another timer tick if
-    // that reply already took longer than the renewal interval.
-    scheduleRenewal(Math.max(0, Math.ceil(input.renewIntervalMs - (performance.now() - startedAt))));
+    // Postgres extends the lease before the reply reaches us. Catch up on a
+    // missed tick now and time the next tick from that follow-up renewal.
+    if (leaseActive && missedRenewalTick) {
+      missedRenewalTick = false;
+      resetRenewalTimer();
+      void renew();
+    }
   };
-  scheduleRenewal(input.renewIntervalMs);
+  if (leaseActive) resetRenewalTimer();
   const abortPollTimer =
     input.shouldAbort && input.abortPollIntervalMs && input.abortPollIntervalMs > 0
       ? setInterval(() => {
@@ -2196,8 +2211,7 @@ export async function tryRunWithRenewedLease<T>(
     });
     return { acquired: true, result };
   } finally {
-    leaseActive = false;
-    clearTimeout(renewalTimer);
+    stopRenewing();
     if (abortPollTimer) {
       clearInterval(abortPollTimer);
     }
