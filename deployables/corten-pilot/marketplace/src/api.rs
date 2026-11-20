@@ -5645,8 +5645,7 @@ struct ErrorCode {
 }
 
 /// The signed-in user's sessions (Auth's `sessions`) and their two writes. Neither write is an
-/// attempt: Auth takes no `Idempotency-Key` for them, and answers every refusal (already revoked,
-/// already that account) with a 500 (chase-sets/chase-sets#10698).
+/// attempt: Auth takes no `Idempotency-Key` for them, and names a refusal by its error code.
 pub trait SessionCalls {
     /// A page of `user`'s sessions, newest first, and how many there are. Auth filters the list
     /// by `search`, which it matches against names and emails too, so only the sessions whose
@@ -7859,8 +7858,11 @@ pub struct BulkRepriceResult {
 }
 
 /// Bulk reprice's calls (Pricing's `bulk-reprice` routes). While Pricing has bulk reprice switched
-/// off, every one answers 404 (chase-sets/chase-sets#10772).
+/// off, every one answers 404.
 pub trait BulkRepriceCalls {
+    /// Whether Pricing has bulk reprice on: its tree answers `GET /` only while it is, 404
+    /// otherwise.
+    async fn bulk_reprice_available(&self) -> Result<bool, ApiError>;
     async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError>;
     /// Start a job for `csv_text` (a file's text and name, or pasted rows) as `attempt` (Pricing's
     /// `Idempotency-Key`): the same attempt sent again answers its first job, and different rows
@@ -7873,6 +7875,14 @@ pub trait BulkRepriceCalls {
 }
 
 impl BulkRepriceCalls for Caller<'_> {
+    async fn bulk_reprice_available(&self) -> Result<bool, ApiError> {
+        match self.read::<serde::de::IgnoredAny>(BULK_REPRICE, PRICING).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     async fn bulk_reprice_job(&self, id: &str) -> Result<BulkRepriceJob, ApiError> {
         self.read(&format!("{BULK_REPRICE}/jobs/{}", segment(id)), PRICING).await
     }

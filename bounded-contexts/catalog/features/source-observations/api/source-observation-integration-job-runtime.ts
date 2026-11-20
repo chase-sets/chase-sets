@@ -1036,7 +1036,7 @@ export function createSourceObservationIntegrationJobRuntime({
           lastRecordRenewedAt = Date.now();
         }
       },
-      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
+      runImportSideEffect: createSourceObservationSideEffectRunner(jobContext),
       onProgress: async (targetProgress) => {
         throwIfJobRunCancelled(input.context);
         await progressCheckpoint.checkpoint(

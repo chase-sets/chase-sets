@@ -56,4 +56,14 @@ describe("PricingBulkRepricePage", () => {
     expect(upload?.closest(".shadow-tokenSm")).toBeNull();
     expect(html).toContain("Applying price changes.");
   });
+
+  it("says bulk reprice is not available, with nothing to upload or download, while Pricing has it off", () => {
+    const rendered = document.createElement("div");
+    rendered.innerHTML = renderToStaticMarkup(<PricingBulkRepricePage available={false} />);
+
+    expect(rendered.textContent).toContain("Bulk reprice is not available for your account yet.");
+    expect(rendered.querySelector("form")).toBeNull();
+    expect(rendered.querySelector('a[href$="/template.csv"]')).toBeNull();
+    expect(rendered.querySelector('a[href="/account/repricing"]')).not.toBeNull();
+  });
 });

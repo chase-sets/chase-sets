@@ -145,6 +145,49 @@ export async function upsertCatalogScopeSyncUnitState(
   );
 }
 
+export async function failCatalogScopeSyncUnitsLinkedToJob(
+  db: PgQueryable,
+  input: Pick<
+    CatalogScopeSyncUnitStateUpsertInput,
+    | "observedCount"
+    | "changedCount"
+    | "requestedCount"
+    | "failedCount"
+    | "errorMessage"
+    | "startedAt"
+    | "completedAt"
+    | "updatedAt"
+  > & { jobId: string },
+): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE catalog_scope_sync_state
+     SET state = $2,
+         last_operator_status = 'failed',
+         error_message = $3,
+         observed_count = COALESCE($4, observed_count),
+         changed_count = COALESCE($5, changed_count),
+         requested_count = COALESCE($6, requested_count),
+         failed_count = COALESCE($7, failed_count),
+         last_started_at = COALESCE($8::timestamptz, last_started_at),
+         last_completed_at = COALESCE($9::timestamptz, last_completed_at),
+         updated_at = $10::timestamptz
+     WHERE last_job_id = $1`,
+    [
+      input.jobId,
+      deriveCatalogScopeSyncUnitState("failed"),
+      input.errorMessage,
+      input.observedCount ?? null,
+      input.changedCount ?? null,
+      input.requestedCount ?? null,
+      input.failedCount ?? null,
+      input.startedAt ?? null,
+      input.completedAt ?? null,
+      input.updatedAt,
+    ],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function listCatalogScopeSyncState(
   db: PgQueryable,
   scopeKey: string,

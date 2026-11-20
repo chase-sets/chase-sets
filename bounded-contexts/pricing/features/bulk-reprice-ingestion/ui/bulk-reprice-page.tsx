@@ -101,17 +101,42 @@ function BulkRepriceUploadForm({ disabled }: Readonly<{ disabled: boolean }>) {
 }
 
 export function PricingBulkRepricePage({
+  available = true,
   activeJobId,
   initialActiveJob,
   message,
   errorMessage,
 }: {
+  /** False while Pricing has bulk reprice off: the page says so and offers nothing that would fail. */
+  available?: boolean;
   activeJobId?: string | null;
   initialActiveJob?: BulkRepriceJobStatus | null;
   message?: string | null;
   errorMessage?: string | null;
 }) {
-  const { job: activeJob, reconnecting } = useBulkRepriceJob(activeJobId, initialActiveJob);
+  const { job: activeJob, reconnecting } = useBulkRepriceJob(available ? activeJobId : null, initialActiveJob);
+
+  if (!available) {
+    return (
+      <Page>
+        <PageHeader
+          eyebrow={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.seller")}
+          title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.bulk.reprice")}
+          actions={
+            <LinkButton href="/account/repricing" tone="ghost">
+              {t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.recommendations")}
+            </LinkButton>
+          }
+        />
+        <MarketplaceNotice
+          tone="info"
+          title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.bulk.reprice")}
+          description={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.unavailable")}
+        />
+      </Page>
+    );
+  }
+
   const hasActiveJob = activeJob?.status === "queued" || activeJob?.status === "running";
   const isTerminal = activeJob?.status === "completed" || activeJob?.status === "failed";
 

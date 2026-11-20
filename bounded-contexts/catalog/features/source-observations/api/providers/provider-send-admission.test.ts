@@ -91,13 +91,16 @@ describe("Catalog provider-send admission", () => {
     },
   );
 
-  it("retained worker continuations keep payload attribution through real adapter pagination", async () => {
+  it.each([false, true])("retained Scryfall page retries require payload admission (refuse: %s)", async (refuse) => {
     const requests: ProviderSendRequest[] = [];
+    const settle = vi.fn<ProviderSendLedger["settle"]>().mockResolvedValue(undefined);
     const store = ledger({
       debit: async (request) => {
         requests.push(request);
+        if (refuse && requests.length === 3) return { state: "refused", code: "quota-exhausted" };
         return { state: "admitted", windowId: binding.windowId, sequence: requests.length };
       },
+      settle,
     });
     const admission = createProviderSendAdmission({ enabled: true, ledger: store });
     const fixture = composedRuntime();
@@ -111,25 +114,35 @@ describe("Catalog provider-send admission", () => {
         admission,
       },
     };
-    const transport = vi.fn<typeof fetch>(async (input) =>
-      Response.json({
-        data: [{ id: String(input).includes("page=2") ? "synthetic-two" : "synthetic-one", name: "Synthetic card" }],
-        has_more: !String(input).includes("page=2"),
+    const transport = vi.fn<typeof fetch>(async (input) => {
+      const secondPage = String(input).includes("page=2");
+      if (secondPage && transport.mock.calls.length === 2) {
+        throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+      }
+      return Response.json({
+        data: [{ id: secondPage ? "synthetic-two" : "synthetic-one", name: "Synthetic card" }],
+        has_more: !secondPage,
         next_page: "https://api.scryfall.com/cards/search?page=2",
-      }),
-    );
+      });
+    });
     const adapter = new ProviderAdapterRegistry([createScryfallProviderAdapter({ fetch: transport })]).require(
       "scryfall",
     );
     const [unit] = await adapter.listIntegrationUnits();
     if (!unit) throw new Error("Missing Scryfall unit");
-    await runProviderSendJob(deps, "synthetic-integration-or-bulk-job", async () => {
+    const result = runProviderSendJob(deps, "synthetic-integration-or-bulk-job", async () => {
       const plan = await adapter.planImport({ unitKey: unit.unitKey, scopeKey: "set", values: { setCode: "tsp" } });
       const payloads = [];
       for await (const payload of adapter.fetchPayloads(plan)) payloads.push(payload);
-      expect(payloads).toHaveLength(2);
+      return payloads;
     });
-    expect(requests).toHaveLength(2);
+    if (refuse) {
+      await expect(result).rejects.toBeInstanceOf(ProviderSendStoppedError);
+      await expect(result).rejects.toMatchObject({ code: "quota-exhausted" });
+    } else {
+      await expect(result).resolves.toHaveLength(2);
+    }
+    expect(requests).toHaveLength(3);
     expect(
       requests.every(
         (request) =>
@@ -138,7 +151,8 @@ describe("Catalog provider-send admission", () => {
           request.binding?.windowId === binding.windowId,
       ),
     ).toBe(true);
-    expect(transport).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(refuse ? 2 : 3);
+    expect(settle.mock.calls.map(([, sequence]) => sequence)).toEqual(refuse ? [1] : [1, 3]);
   });
 
   it("mirror and promotion asset entry points retain explicit categories before transport", async () => {

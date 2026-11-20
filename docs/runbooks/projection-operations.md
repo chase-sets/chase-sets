@@ -1,6 +1,6 @@
 # Projection Operations
 
-Use `/api/platform/projections` for snapshot-first projection status. The summary endpoint is intentionally cheap during incidents; load blocked stream details with `/api/platform/projections/:projectionKey/blocked-streams` only when needed.
+Use `/api/platform/projections` for snapshot-first projection status. The summary endpoint stays cheap during incidents: it reads blocked stream and poison details only for the projection keys whose counts are above zero, at most 10 poison events per key, so the repair queue and Operations Attention can list them. Load a key's full poison list with `/api/platform/projections/:projectionKey/blocked-streams`.
 
 Projections are normally woken by the push-first pipeline (event-store wake notifications -> relay -> durable wake intents -> wake scheduler); the worker poll loop is the correctness fallback, not the primary trigger. If the question is "why is freshness slow" rather than "why is this projection broken", start with Grafana's `Projection Wake Pipeline` dashboard and the [Push-Wake Operations](./push-wake-operations.md) runbook. Return to this console when the next action is retry, rebuild, cancel, or inspecting durable projection operation state.
 
