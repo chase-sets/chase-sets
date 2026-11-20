@@ -120,7 +120,12 @@ describe("identity membership MCP handlers", () => {
     ).resolves.toMatchObject({
       total: 1,
     });
-    expect(listMemberships).toHaveBeenCalledWith({ search: "acc_1", status: undefined, limit: 3, offset: undefined });
+    expect(listMemberships).toHaveBeenCalledWith({
+      accountId: "acc_1",
+      status: undefined,
+      limit: 3,
+      offset: undefined,
+    });
     f.getMembership.mockResolvedValueOnce({ ...membership, account_id: "acc_other", role_key: "platform-admin" });
     await expect(handlers["identity.get-membership"]!(request({ membershipId: "mbr_1" }))).rejects.toThrow(
       "cannot view",
