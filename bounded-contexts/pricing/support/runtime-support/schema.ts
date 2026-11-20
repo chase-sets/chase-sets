@@ -34,6 +34,7 @@ import {
   pricingRepricingDryRunSchemaMigrations,
 } from "../../features/repricing-engine/read-model/migrations";
 import {
+  pricingEvaluationAuthoritySchemaSql,
   pricingRepricingEngineSchemaSql,
   pricingRepricingEngineSchemaMigrations,
 } from "../../features/repricing-engine/read-model/schema";
@@ -83,6 +84,7 @@ export const pricingSchemaSql = [
   // pricing_market_listing_inputs and pricing_catalog_item_inputs.
   pricingRepricingPolicySchemaSql,
   pricingRepricingEngineSchemaSql,
+  pricingEvaluationAuthoritySchemaSql,
   pricingRepricingDryRunSchemaSql,
   pricingForecastLedgerSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)

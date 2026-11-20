@@ -295,6 +295,16 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
             sessionConsumers: listingConsumer.topology,
             connectionConsumers: listingConsumer.topology,
             stockReservationConsumerPool: pools.marketplace,
+            pricingEvaluationConsumers: listingConsumer.topology,
+            ...(pools.marketplace && pools.inventory && pools.catalog
+              ? {
+                  pricingEvaluationOwners: {
+                    marketplace: pools.marketplace,
+                    inventory: pools.inventory,
+                    catalog: pools.catalog,
+                  },
+                }
+              : {}),
           }
         : {}),
       ...supportEvidenceCleanupHostPort,

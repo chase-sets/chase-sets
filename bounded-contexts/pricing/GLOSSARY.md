@@ -618,3 +618,18 @@ an installed halt. Pending creation never creates an active policy. Closure
 receipts, not time or projection catch-up, permit installation. HTTP 200/201
 requires `applied`; pending is HTTP 202 and supersession is a typed HTTP 409.
 The contract is `features/repricing-policies/domain/configuration-receipt.ts`.
+
+## Pricing Evaluation Authority
+
+The Pricing-owned port that prepares an **Evaluated Decision** for one exact
+Marketplace Listing target acceptance. It binds the installed seller standing,
+base Listing revision, evaluated Product, channel and price pair to the original
+Marketplace request and its database-time window. An evaluation fact, dry run or
+projection is not authority.
+
+An **Evaluated Decision** retains the captured inputs and original-terminal
+binding alongside one share of the existing account/UTC-day change budget.
+Neither a pending configuration value nor a competitor update can substitute
+authority into an existing decision. Only the original Marketplace terminal
+can commit or release the preparation; an unknown terminal keeps the charge
+reserved. The accepted channel price is a derived leaf, not a market anchor.
