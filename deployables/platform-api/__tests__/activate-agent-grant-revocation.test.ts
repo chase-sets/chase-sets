@@ -111,6 +111,15 @@ describe("revocation-floor activation command", () => {
   ])("crosses the pod boundary with only a bounded code for %s", (_name, error, code) => {
     expect(activationRefusalCode(error)).toBe(code);
   });
+  it("does not serialize code-shaped row text as a status or activation refusal", () => {
+    const syntheticRow = "revocation_synthetic_row_value";
+    const error = new Error(syntheticRow);
+    const status = activationDiagnostic(error, undefined, "status");
+    const activation = activationDiagnostic(error);
+    expect(status).toMatchObject({ code: "revocation_status_database_read_failed", failureCategory: "unknown" });
+    expect(activation.code).toBe("revocation_activation_refused");
+    expect(JSON.stringify({ status, activation })).not.toContain(syntheticRow);
+  });
   it("extracts only a typed SQLSTATE class and finite category", () => {
     const error = Object.assign(new Error(`raw ${"secret-marker"}`), {
       code: "42501",
@@ -139,6 +148,7 @@ describe("revocation-floor activation command", () => {
     const error = Object.assign(new Error("raw secret-marker"), { code: sqlCode });
     const diagnostic = activationDiagnostic(error, undefined, "status");
     expect(diagnostic).toMatchObject({ code, failureCategory, identity: { state: "unknown" } });
+    if (sqlCode === "42501") expect(diagnostic.sqlstateClass).toBe("42");
     expect(JSON.stringify(diagnostic)).not.toContain("secret-marker");
     expect(activationRefusalCode(error)).toBe("revocation_activation_refused");
   });

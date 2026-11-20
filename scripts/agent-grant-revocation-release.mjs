@@ -11,7 +11,49 @@ const component = "app.kubernetes.io/component";
 const sha = /^[a-f0-9]{40}$/;
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const instantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-const refusalPattern = /^revocation_[a-z_]{1,64}$/;
+const refusalCodes = new Set([
+  "revocation_activation_arguments_invalid",
+  "revocation_activation_conflict",
+  "revocation_activation_unconfirmed",
+  "revocation_census_incomplete",
+  "revocation_census_invalid_member",
+  "revocation_census_unsupported_member",
+  "revocation_command_protocol_invalid",
+  "revocation_environment_invalid",
+  "revocation_floor_invalid",
+  "revocation_floor_missing",
+  "revocation_membership_changed",
+  "revocation_namespace_invalid",
+  "revocation_release_identity_invalid",
+  "revocation_rollback_floor",
+  "revocation_status_api_pod_missing",
+  "revocation_status_command_refused",
+  "revocation_status_exec_failed",
+  "revocation_status_exec_forbidden",
+  "revocation_status_exec_timeout",
+  "revocation_status_exec_unauthorized",
+  "revocation_status_pods_failed",
+  "revocation_status_pods_forbidden",
+  "revocation_status_pods_invalid",
+  "revocation_status_pods_timeout",
+  "revocation_status_pods_unauthorized",
+  "revocation_status_response_invalid",
+  "revocation_status_unwritten",
+  // Codes emitted by the in-pod Identity CLI, including older serving releases.
+  "revocation_activation_authority_required",
+  "revocation_activation_database_missing",
+  "revocation_activation_environment_mismatch",
+  "revocation_activation_proof_missing",
+  "revocation_activation_refused",
+  "revocation_dormant_request_unresolved",
+  "revocation_status_database_auth_failed",
+  "revocation_status_database_connection_failed",
+  "revocation_status_database_permission_denied",
+  "revocation_status_database_query_cancelled",
+  "revocation_status_database_read_failed",
+  "revocation_status_database_schema_missing",
+  "revocation_support_floor",
+]);
 const recoveryRunner = "auth.agent-grant-revocation-recovery";
 // Auth's Session Generation floor (bounded-contexts/auth/features/sessions/domain/session-generation.ts).
 // The scripts test pins these equal to Auth's own exports; each pod reports them from its compiled code.
@@ -39,7 +81,7 @@ function lastRefusalLine(text) {
     .slice(-4096)
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => refusalPattern.test(line))
+    .filter((line) => refusalCodes.has(line))
     .at(-1);
 }
 
@@ -59,9 +101,9 @@ function lastDiagnosticLine(text) {
     .at(-1);
 }
 
-// Only a bounded code crosses the CLI boundary; raw kubectl, git and pod errors can carry secrets.
+// Only an allowlisted code crosses the CLI boundary; raw kubectl, git and pod errors can carry secrets.
 export function refusalCode(error) {
-  if (error instanceof Error && refusalPattern.test(error.message)) return error.message;
+  if (error instanceof Error && refusalCodes.has(error.message)) return error.message;
   return lastRefusalLine(typeof error?.stderr === "string" ? error.stderr : "") ?? "revocation_release_refused";
 }
 
@@ -458,25 +500,29 @@ function releaseUnactivatedFence(namespace, run) {
 
 function durableFloor(namespace, run) {
   const floor = readFloor(namespace, run);
-  if (floor) return floor;
+  if (floor) return { floor };
   let status;
   try {
     status = activationStatus(namespace, run);
-  } catch {
+  } catch (error) {
     // A first support rollout may have no pod that can report activation.
+    return { floor: null, decisionIdentity: { state: "unknown", code: refusalCode(error) } };
   }
-  return status?.state === "activated"
-    ? admissionResources({
-        namespace,
-        minimumCommit: status.proof?.releaseCommit,
-        imageDigests: [status.proof?.imageDigest],
-        frozen: false,
-      })[0]
-    : null;
+  return {
+    floor:
+      status.state === "activated"
+        ? admissionResources({
+            namespace,
+            minimumCommit: status.proof?.releaseCommit,
+            imageDigests: [status.proof?.imageDigest],
+            frozen: false,
+          })[0]
+        : null,
+  };
 }
 
 function checkRollback(namespace, commit, run) {
-  const floor = durableFloor(namespace, run);
+  const { floor } = durableFloor(namespace, run);
   if (floor && activationStatus(namespace, run).state === "dormant") {
     releaseUnactivatedFence(namespace, run);
     return;
@@ -485,11 +531,11 @@ function checkRollback(namespace, commit, run) {
 }
 
 function prepare(options, run) {
-  const floor = durableFloor(options.namespace, run);
-  if (!floor) return "prepared";
+  const { floor, decisionIdentity } = durableFloor(options.namespace, run);
+  if (!floor) return decisionIdentity;
   if (activationStatus(options.namespace, run).state === "dormant") {
     releaseUnactivatedFence(options.namespace, run);
-    return "prepared";
+    return;
   }
   const minimumCommit = floor.metadata.annotations["chase-sets.com/revocation-minimum-commit"];
   assertCompatible(options.releaseCommit, minimumCommit, run);
@@ -503,7 +549,6 @@ function prepare(options, run) {
     }),
     run,
   );
-  return "prepared";
 }
 
 async function activate(options, { run, spawn }) {
@@ -630,9 +675,17 @@ async function activate(options, { run, spawn }) {
   return "activated";
 }
 
-export function summarizeRuntimeLog(text, tail = logWindow.tail) {
+function runtimeLogLines(text) {
   const lines = text.split(/\r?\n/);
   if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+export function summarizeRuntimeLog(text, tail = logWindow.tail) {
+  return summarizeRuntimeLogLines(runtimeLogLines(text), tail);
+}
+
+function summarizeRuntimeLogLines(lines, tail) {
   const recovery = { completed: 0, failed: 0, firstAt: null, lastAt: null };
   let unparsed = 0;
   let errors = 0;
@@ -668,6 +721,15 @@ export function summarizeRuntimeLog(text, tail = logWindow.tail) {
   return { lines: lines.length, truncated: lines.length >= tail, unparsed, errors, revocationErrors, recovery };
 }
 
+function containsLogTail(lines, tail) {
+  return lines.some(
+    (line, index) =>
+      index + tail.length <= lines.length &&
+      line === tail[0] &&
+      tail.every((entry, offset) => entry === lines[index + offset]),
+  );
+}
+
 function runtimeLogs(namespace, run) {
   const pods = JSON.parse(run("kubectl", ["get", "pods", "-n", namespace, "--chunk-size=0", "-o", "json"]));
   const members = (pods.items ?? []).flatMap((pod) =>
@@ -679,7 +741,7 @@ function runtimeLogs(namespace, run) {
     if (!/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/.test(member.pod))
       return { ...member, pod: null, read: "unknown", code: "revocation_status_pod_invalid" };
     const read = (tail) =>
-      summarizeRuntimeLog(
+      runtimeLogLines(
         run("kubectl", [
           "logs",
           "-n",
@@ -690,20 +752,21 @@ function runtimeLogs(namespace, run) {
           `--since=${logWindow.since}`,
           `--tail=${tail}`,
         ]),
-        tail,
       );
+    let lines;
     let summary;
     try {
-      summary = read(logWindow.tail);
+      lines = read(logWindow.tail);
+      summary = summarizeRuntimeLogLines(lines, logWindow.tail);
     } catch (error) {
       return { ...member, read: "unknown", code: refusalCode(error) };
     }
     if (summary.truncated) {
       try {
         const overflow = read(logWindow.overflowTail);
-        if (overflow.lines < summary.lines)
+        if (!containsLogTail(overflow, lines))
           return { ...member, read: "observed", ...summary, overflowCode: "revocation_status_log_window_changed" };
-        summary = overflow;
+        summary = summarizeRuntimeLogLines(overflow, logWindow.overflowTail);
       } catch {
         return { ...member, read: "observed", ...summary, overflowCode: "revocation_status_log_overflow_failed" };
       }
@@ -779,11 +842,22 @@ function identityStatus(namespace, run) {
 }
 
 /**
- * The post-command record a deploy job retains. Every section is read
- * independently; a failed read is recorded as an unknown code, never as a pass.
+ * The post-command record a deploy job retains. A failed Identity read during
+ * prepare cannot be replaced by a later observation.
  */
 function captureStatus(
-  { environment, namespace, command, outcome, refusal, evidenceId, releaseCommit, imageDigest, failure },
+  {
+    environment,
+    namespace,
+    command,
+    outcome,
+    refusal,
+    evidenceId,
+    releaseCommit,
+    imageDigest,
+    failure,
+    decisionIdentity,
+  },
   { run, now },
 ) {
   const section = (read) => {
@@ -805,7 +879,7 @@ function captureStatus(
     refusal,
     capturedAt: now().toISOString(),
     floor: section(() => floorStatus(namespace, run)),
-    identity: section(() => identityStatus(namespace, run)),
+    identity: decisionIdentity ?? section(() => identityStatus(namespace, run)),
     logs: section(() => runtimeLogs(namespace, run)),
   };
   status.diagnostic = refusal
@@ -873,15 +947,21 @@ export async function main(
     throw new Error("revocation_activation_arguments_invalid");
   let failure;
   let outcome;
+  let decisionIdentity;
   try {
-    outcome = action === "prepare" ? prepare(options, run) : await activate(options, { run, spawn });
+    if (action === "prepare") {
+      decisionIdentity = prepare(options, run);
+      outcome = "prepared";
+    } else {
+      outcome = await activate(options, { run, spawn });
+    }
   } catch (error) {
     failure = error;
   }
   const refusal = failure === undefined ? null : refusalCode(failure);
   let status;
   try {
-    status = captureStatus({ ...options, command: action, outcome, refusal, failure }, { run, now });
+    status = captureStatus({ ...options, command: action, outcome, refusal, failure, decisionIdentity }, { run, now });
     writeJson(values["--status-out"], status);
   } catch {
     // A refusal keeps its own code; a success without its record is not a success.

@@ -21,6 +21,17 @@ const FAILURE_CATEGORIES = new Set([
   "application",
   "unknown",
 ]);
+const ACTIVATION_REFUSAL_CODES = new Set([
+  "revocation_activation_arguments_invalid",
+  "revocation_activation_authority_required",
+  "revocation_activation_conflict",
+  "revocation_activation_database_missing",
+  "revocation_activation_environment_mismatch",
+  "revocation_activation_proof_missing",
+  "revocation_dormant_request_unresolved",
+  "revocation_membership_changed",
+  "revocation_support_floor",
+]);
 type ActivationDiagnosticProof = Readonly<{ environment: string; releaseCommit: string; imageDigest: string }>;
 const activationDiagnosticProof = Symbol("activationDiagnosticProof");
 
@@ -44,9 +55,9 @@ function attachDiagnosticProof(error: unknown, proof: Partial<RevocationActivati
   }
 }
 
-// Only a bounded code crosses this boundary; raw errors can carry connection strings.
+// Only an allowlisted code crosses this boundary; raw errors can carry connection strings.
 export function activationRefusalCode(error: unknown): string {
-  return error instanceof Error && /^revocation_[a-z_]{1,64}$/.test(error.message)
+  return error instanceof Error && ACTIVATION_REFUSAL_CODES.has(error.message)
     ? error.message
     : "revocation_activation_refused";
 }

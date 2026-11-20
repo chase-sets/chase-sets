@@ -32,6 +32,8 @@ import { SESSION_GENERATION_CAPABILITY_VERSION as COMPILED_SESSION_GENERATION_CA
 import { readSessionGenerationCapability } from "../deployables/platform-api/scripts/report-session-generation-capability.mts";
 
 const secretMarker = "synthetic-secret-marker-7f3c";
+const syntheticRow = "revocation_synthetic_row_value";
+const permissionDenied = "revocation_status_database_permission_denied";
 
 describe("revocation release CLI decisions", () => {
   const minimumCommit = "a".repeat(40);
@@ -241,7 +243,7 @@ describe("revocation release CLI decisions", () => {
   it.each(["prepare", "check-rollback"])(
     "%s preserves first support rollout when status is dormant or unavailable",
     async (action) => {
-      for (const status of [dormant, new Error("revocation_status_unavailable")]) {
+      for (const status of [dormant, new Error("synthetic unreadable status")]) {
         const f = fixture({ absent: true, statuses: [status] });
         await main(args(action), f);
         expect(f.calls.some((call) => call.at(-1) === "--status")).toBe(true);
@@ -294,8 +296,8 @@ describe("revocation release CLI decisions", () => {
   it.each(["prepare", "check-rollback"])(
     "%s retains an existing fence when activation status is unavailable",
     async (action) => {
-      const f = fixture({ statuses: [new Error("revocation_status_unavailable")] });
-      await expect(main(args(action), f)).rejects.toThrow("revocation_status_unavailable");
+      const f = fixture({ statuses: [new Error("synthetic unreadable status")] });
+      await expect(main(args(action), f)).rejects.toThrow("revocation_status_exec_failed");
       expect(f.deleted).toEqual([]);
       expect(f.applied).toEqual([]);
     },
@@ -469,13 +471,82 @@ describe("revocation release CLI decisions", () => {
     expect(JSON.stringify(record)).not.toContain(secretMarker);
   });
   it("records an unreadable section as unknown rather than a pass", async () => {
-    const f = fixture({ absent: true, statuses: [new Error("revocation_status_unavailable")] });
+    const f = fixture({ absent: true, statuses: [new Error("synthetic unreadable status")] });
     await main(args("prepare"), f);
     expect(status()).toMatchObject({
       result: "prepared",
       floor: { state: "absent" },
-      identity: { state: "unknown", code: "revocation_status_unavailable" },
+      identity: { state: "unknown", code: "revocation_status_exec_failed" },
     });
+  });
+  it("refuses activation without emitting a code-shaped synthetic row from status stderr", async () => {
+    const unreadable = Object.assign(new Error("synthetic status exec failed"), { stderr: `${syntheticRow}\n` });
+    const f = fixture({ absent: true, statuses: [unreadable] });
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    let failure;
+    let output;
+    try {
+      failure = await main(args("activate"), f).catch((error) => error);
+      output = [...stdout.mock.calls, ...stderr.mock.calls].map(([chunk]) => String(chunk)).join("");
+    } finally {
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+    expect(output).not.toContain(syntheticRow);
+    expect(readFileSync(statusOut, "utf8")).not.toContain(syntheticRow);
+    expect(refusalCode(failure)).toBe("revocation_status_exec_failed");
+    expect(JSON.parse(output)).toMatchObject({ code: "revocation_status_exec_failed" });
+    expect(status()).toMatchObject({ result: "refused", refusal: "revocation_status_exec_failed" });
+    expect(f.spawn).not.toHaveBeenCalled();
+    expect(f.applied).toEqual([]);
+    expect(f.deleted).toEqual([]);
+    expect(existsSync(out)).toBe(false);
+  });
+  it("preserves the permission-denied code and SQLSTATE class when activation refuses unreadable status", async () => {
+    const diagnostic = {
+      schemaVersion: "agent-grant-revocation-diagnostic/v1",
+      code: permissionDenied,
+      identity: { state: "unknown" },
+      sqlstateClass: "42",
+      failureCategory: "schema_permission",
+    };
+    const unreadable = Object.assign(new Error(secretMarker), {
+      stderr: `${permissionDenied}\n${JSON.stringify(diagnostic)}\ncommand terminated with exit code 1\n`,
+    });
+    const f = fixture({ absent: true, statuses: [unreadable] });
+    let output;
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output = JSON.parse(String(chunk));
+      return true;
+    });
+    try {
+      await expect(main(args("activate"), f)).rejects.toThrow(permissionDenied);
+    } finally {
+      stdout.mockRestore();
+    }
+    expect(output).toMatchObject(diagnostic);
+    expect(status()).toMatchObject({ result: "refused", refusal: permissionDenied, diagnostic });
+    expect(f.spawn).not.toHaveBeenCalled();
+    expect(f.applied).toEqual([]);
+    expect(existsSync(out)).toBe(false);
+  });
+  it("keeps the absent-floor prepare decision unknown when a later status could report activation", async () => {
+    const unreadable = Object.assign(new Error(secretMarker), { stderr: `${permissionDenied}\n` });
+    const f = fixture({
+      absent: true,
+      statuses: [unreadable, { state: "activated", proof: { releaseCommit, imageDigest } }],
+    });
+    await main(args("prepare"), f);
+    expect(status()).toMatchObject({
+      result: "prepared",
+      refusal: null,
+      floor: { state: "absent" },
+      identity: { state: "unknown", code: permissionDenied },
+    });
+    expect(f.calls.filter((call) => call.at(-1) === "--status")).toHaveLength(1);
+    expect(f.applied).toEqual([]);
+    expect(f.deleted).toEqual([]);
   });
   it.each([
     [
@@ -541,25 +612,62 @@ describe("revocation release CLI decisions", () => {
     ]);
     expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
   });
-  it.each(["exhausted", "unreadable"])(
-    "keeps the log evidence incomplete when the overflow read is %s",
+  it.each(["rotated", "reordered", "shrunk"])(
+    "keeps the first summary when the overflow log window is %s",
     async (mode) => {
-      const lines = (count) => Array(count).fill("{}").join("\n");
+      const first = [
+        JSON.stringify({ type: "worker.runner.completed", runnerName: "auth.agent-grant-revocation-recovery" }),
+        ...Array(2).fill(
+          JSON.stringify({
+            level: "error",
+            type: "platform-worker.runner.failed",
+            runner: "auth.agent-grant-revocation-recovery",
+            message: secretMarker,
+          }),
+        ),
+        ...Array.from({ length: 197 }, (_, index) => JSON.stringify({ level: "info", index })),
+      ];
+      const unrelated = JSON.stringify({ level: "info", message: "synthetic replacement log file" });
+      const overflow =
+        mode === "rotated"
+          ? Array(201).fill(unrelated)
+          : mode === "reordered"
+            ? [unrelated, ...first.toReversed()]
+            : first.slice(1);
       const f = fixture({
         absent: true,
         statuses: [dormant],
-        logs: (command) => {
-          if (command.includes("--tail=200")) return lines(200);
-          if (mode === "unreadable") throw new Error(secretMarker);
-          return lines(8000);
-        },
+        logs: (command) =>
+          !command.includes("platform-worker") ? "" : (command.includes("--tail=200") ? first : overflow).join("\n"),
       });
       await main(args("prepare"), f);
-      expect(status().logs.complete).toBe(false);
-      expect(status().logs.pods.every((pod) => pod.truncated)).toBe(true);
+      const logs = status().logs;
+      expect(logs.complete).toBe(false);
+      expect(logs.pods.find((pod) => pod.role === "platform-worker")).toMatchObject({
+        lines: 200,
+        truncated: true,
+        overflowCode: "revocation_status_log_window_changed",
+        recovery: { completed: 1, failed: 2 },
+      });
       expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
     },
   );
+  it.each(["exhausted", "ENOBUFS"])("keeps the log evidence incomplete when the overflow read is %s", async (mode) => {
+    const lines = (count) => Array(count).fill("{}").join("\n");
+    const f = fixture({
+      absent: true,
+      statuses: [dormant],
+      logs: (command) => {
+        if (command.includes("--tail=200")) return lines(200);
+        if (mode === "ENOBUFS") throw Object.assign(new Error(secretMarker), { code: "ENOBUFS" });
+        return lines(8000);
+      },
+    });
+    await main(args("prepare"), f);
+    expect(status().logs.complete).toBe(false);
+    expect(status().logs.pods.every((pod) => pod.truncated)).toBe(true);
+    expect(readFileSync(statusOut, "utf8")).not.toContain(secretMarker);
+  });
   it.each([
     ["prepare", "exec"],
     ["prepare", "get"],
@@ -623,6 +731,7 @@ describe("revocation CLI refusal boundary", () => {
     ["a raw connection error", new Error(`postgres://user:${secretMarker}@db`), "revocation_release_refused"],
     ["an unbounded code", new Error(`revocation_${"a".repeat(65)}`), "revocation_release_refused"],
     ["an uppercase code", new Error("revocation_Membership"), "revocation_release_refused"],
+    ["a code-shaped synthetic row", new Error(syntheticRow), "revocation_release_refused"],
     ["a non-error", `revocation_${secretMarker}`, "revocation_release_refused"],
   ])("maps %s to a bounded code", (_name, error, code) => {
     expect(refusalCode(error)).toBe(code);
