@@ -83,6 +83,28 @@ function buildServices(overrides: Partial<InvitationServices> = {}) {
 }
 
 describe("invitation API route", () => {
+  it("lists only the actor's account by equality and keeps search for a platform admin", async () => {
+    const services = buildServices();
+    expect((await buildApp(services).request("/invitations?search=acc_other&status=pending")).status).toBe(200);
+    expect(services.listInvitations).toHaveBeenLastCalledWith({
+      accountId: "acc_1",
+      status: "pending",
+      limit: undefined,
+      offset: undefined,
+    });
+
+    const admin = { ...actor, roleKey: "platform-admin" };
+    expect((await buildApp(services, buildAccounts(), admin).request("/invitations?search=acc_other")).status).toBe(
+      200,
+    );
+    expect(services.listInvitations).toHaveBeenLastCalledWith({
+      search: "acc_other",
+      status: undefined,
+      limit: undefined,
+      offset: undefined,
+    });
+  });
+
   it.each(["owner", "platform-admin"])(
     "rejects platform-admin invitations even from %s before command dispatch",
     async (roleKey) => {

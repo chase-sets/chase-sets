@@ -38,6 +38,8 @@ export type OrderingOrderLineSnapshotPayload = Readonly<{
 export type OrderingOrderCreatedPayload = Readonly<{
   orderId: string;
   reservationRequests: readonly OrderingReservationRequestPayload[];
+  sourceType?: string;
+  sourceReferenceId?: string | null;
   sellerAccountId?: string;
   itemSubtotalAmount?: string;
   shippingChargeAmount?: string;

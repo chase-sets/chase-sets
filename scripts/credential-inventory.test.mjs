@@ -300,6 +300,8 @@ describe("agent tier in the credential inventory (AC1)", () => {
         { name: "EBAY_SANDBOX_SELLER_A", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_ACCESS_ID", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_SECRET_KEY", testPrefixes: [] },
+        { name: "SPACES_PROBE_ACCESS_ID", testPrefixes: [] },
+        { name: "SPACES_PROBE_SECRET_KEY", testPrefixes: [] },
         { name: "STRIPE_P1_PUBLISHABLE_KEY", testPrefixes: ["pk_test_"] },
         { name: "STRIPE_P1_SECRET_KEY", testPrefixes: ["sk_test_", "rk_test_"] },
         { name: "STRIPE_PUBLISHABLE_KEY", testPrefixes: ["pk_test_"] },
@@ -308,6 +310,53 @@ describe("agent tier in the credential inventory (AC1)", () => {
       // tokenExpiresOn is the expiry #10032's closing comment recorded.
       accounts: [{ name: "lanes", machineAccount: "chase-sets-lanes", access: "read", tokenExpiresOn: "2027-01-16" }],
     });
+  });
+
+  it("keeps the Spaces probe pair agent-only and bucket-scoped", () => {
+    const { errors, inventory } = validateCredentialInventory(repositoryInventory);
+    expect(errors).toEqual([]);
+    expect(inventory.byName.get("SPACES_PROBE_ACCESS_ID")).toMatchObject({
+      scope: [],
+      liveness: { kind: "spaces-bucket", bucket: "chase-sets-preview-listing-photos" },
+      pairedWith: ["SPACES_PROBE_SECRET_KEY"],
+    });
+    expect(inventory.byName.get("SPACES_PROBE_SECRET_KEY")).toMatchObject({
+      scope: [],
+      liveness: null,
+      pairedWith: ["SPACES_PROBE_ACCESS_ID"],
+    });
+    expect(
+      checkInventoryAgainstWorkflowSources(inventory, [
+        workflow("env: { KEY: '${{ secrets.SPACES_PROBE_ACCESS_ID }}' }"),
+      ]),
+    ).toContain("SPACES_PROBE_ACCESS_ID: agent-only entries cannot be referenced by .github/workflows/deploy.yml");
+  });
+
+  it("refuses a Spaces probe pair with mismatched scopes or a production bucket", () => {
+    const candidate = structuredClone(repositoryInventory);
+    const access = candidate.secrets.find(({ name }) => name === "SPACES_PROBE_ACCESS_ID");
+    const secret = candidate.secrets.find(({ name }) => name === "SPACES_PROBE_SECRET_KEY");
+    secret.scope = ["preview"];
+    expect(validateCredentialInventory(candidate).errors).toContain(
+      "SPACES_PROBE_ACCESS_ID: Spaces liveness partner SPACES_PROBE_SECRET_KEY must share its scope and carry no liveness",
+    );
+
+    secret.scope = [];
+    access.liveness.bucket = candidate.secrets.find(
+      ({ name }) => name === "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+    ).liveness.bucket;
+    expect(validateCredentialInventory(candidate).errors).toEqual(
+      [access, secret].map(
+        ({ name }) =>
+          `agentTier ${name}: bucket ${access.liveness.bucket} is also used by production-scoped RELEASE_EVIDENCE_SPACES_ACCESS_ID`,
+      ),
+    );
+  });
+
+  it("refuses a name with no GitHub scope unless it is in the agent tier", () => {
+    expect(validateCredentialInventory(fixture([entry("ALPHA_TOKEN", { scope: [] })])).errors).toEqual([
+      "ALPHA_TOKEN: an empty scope requires agent-tier membership",
+    ]);
   });
 
   it("admits test keys, a non-production bucket-scoped Spaces pair and an absent agentTier", () => {
@@ -521,8 +570,8 @@ describe("credential tiers CLI (AC2)", () => {
     const lines = result.stdout.split("\n").filter(Boolean);
     const headings = lines.filter((line) => !/^ {2}[A-Z_][A-Z0-9_]*$/.test(line));
     expect(headings).toEqual([
-      "Agent tier (Bitwarden project chase-sets-agent-dev), 15 names:",
-      `CI/deploy-only, ${repositoryInventory.secrets.length - 15} names:`,
+      "Agent tier (Bitwarden project chase-sets-agent-dev), 17 names:",
+      `CI/deploy-only, ${repositoryInventory.secrets.length - 17} names:`,
     ]);
     const printed = lines.filter((line) => !headings.includes(line)).map((line) => line.trim());
     const names = repositoryInventory.secrets.map((secret) => secret.name);
