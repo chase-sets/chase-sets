@@ -14,6 +14,7 @@ import {
   type ResponseRow,
 } from "../read-model/response-state";
 import { createReportedContentRuntime } from "../api/runtime";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
@@ -239,9 +240,16 @@ describe("reported-content-acknowledgement-lifecycle", () => {
   });
   it("appends one private event, repeats are no-ops, and a stale projection cannot acknowledge a disposed stream", async () => {
     const history: { eventType: string; payload: Record<string, unknown>; streamVersion: number }[] = [];
-    const appendToStream = vi.fn(async ({ events }) => {
-      history.push({ ...events[0], streamVersion: history.length + 1 });
-      return [];
+    const appendToStream = vi.fn(async ({ streamId, events }) => {
+      const stored = {
+        ...events[0],
+        eventId: `evt_ack_${history.length + 1}`,
+        streamId,
+        streamVersion: history.length + 1,
+        globalPosition: String(90 + history.length),
+      };
+      history.push(stored);
+      return [stored];
     });
     const services = createReportedContentRuntime({
       db: {
@@ -259,8 +267,21 @@ describe("reported-content-acknowledgement-lifecycle", () => {
       eventStore: { readStream: vi.fn(async () => history), appendToStream } as unknown as EventStore,
     });
     const command = { targetType: "listing", targetId: "lst_1", operatorUserId: "usr_1" };
-    const first = await services.acknowledge(command, {} as never);
-    expect(await services.acknowledge(command, {} as never)).toEqual(first);
+    const acknowledged = () =>
+      runWithEventCommitMetadata(async () => {
+        const result = await services.acknowledge(command, {} as never);
+        return { result, sources: getEventCommitMetadata().sources };
+      });
+    const first = await acknowledged();
+    const repeat = await acknowledged();
+    expect(repeat.result).toEqual(first.result);
+    // The first and the repeat both answer the acknowledgement's receipt.
+    for (const { sources } of [first, repeat]) {
+      expect(sources).toEqual([
+        { sourceContextName: "platform-operations", eventIds: ["evt_ack_1"], maxGlobalPosition: "90" },
+      ]);
+    }
+    expect(appendToStream.mock.calls[0]![0].wakeSourceContextName).toBe("platform-operations");
     expect(appendToStream).toHaveBeenCalledTimes(1);
     expect(history.map((event) => event.eventType)).toEqual(["platform-operations.reported-content.acknowledged"]);
     expect(appendToStream.mock.calls[0]![0].expectedVersion).toBe("no_stream");

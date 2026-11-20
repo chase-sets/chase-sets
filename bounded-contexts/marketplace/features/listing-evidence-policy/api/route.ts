@@ -1,7 +1,12 @@
 import { t } from "@chase-sets/localization";
+import { PlatformPolicyDomainError } from "@chase-sets/platform-policy/domain";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
-import type { ListingEvidenceEvaluationFacts, ListingEvidencePolicyValue } from "../domain/policy";
+import {
+  ListingEvidencePolicyError,
+  type ListingEvidenceEvaluationFacts,
+  type ListingEvidencePolicyValue,
+} from "../domain/policy";
 import type { ListingEvidencePolicyRuntime } from "./runtime";
 
 type Permission =
@@ -94,7 +99,9 @@ export function createListingEvidencePolicyRoutes(runtime: ListingEvidencePolicy
       const result = await runtime.validateDraft(c.req.param("id"), access.actor.userId, commandContext(c));
       return c.json(result, result.valid ? 200 : 422);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: message(error) } }, 400);
+      // A refusal of the draft is the operator's to fix; anything else is the server's fault.
+      if (!(error instanceof ListingEvidencePolicyError || error instanceof PlatformPolicyDomainError)) throw error;
+      return c.json({ error: { code: "validation_failed", message: error.message } }, 400);
     }
   });
 
