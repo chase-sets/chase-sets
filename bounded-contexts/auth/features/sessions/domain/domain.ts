@@ -15,6 +15,19 @@ function assert(condition: boolean, message: string): asserts condition {
   }
 }
 
+/** A session command the session's state refuses: who asked may be told, and nothing is recorded. */
+export type SessionRefusalCode = "not-active" | "account-required" | "account-unavailable" | "account-current";
+
+export class SessionRefusalError extends Error {
+  constructor(
+    readonly code: SessionRefusalCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SessionRefusalError";
+  }
+}
+
 function assertNever(value: never): never {
   throw new Error(`Unhandled variant: ${JSON.stringify(value)}`);
 }
@@ -126,8 +139,12 @@ export const decideSession: AggregateDecider<SessionState, SessionCommand, Sessi
       ];
     case "SwitchSessionAccount":
       requireActiveSession(state);
-      assert(state.availableAccountIds.includes(command.accountId), "Session cannot switch to an unavailable account.");
-      assert(state.accountId !== command.accountId, "Session is already active for that account.");
+      if (typeof command.accountId !== "string" || !command.accountId)
+        throw new SessionRefusalError("account-required", "Session switch requires an account.");
+      if (!state.availableAccountIds.includes(command.accountId))
+        throw new SessionRefusalError("account-unavailable", "Session cannot switch to an unavailable account.");
+      if (state.accountId === command.accountId)
+        throw new SessionRefusalError("account-current", "Session is already active for that account.");
       return [
         {
           type: "auth.session.account-switched",
@@ -135,6 +152,9 @@ export const decideSession: AggregateDecider<SessionState, SessionCommand, Sessi
         },
       ];
     case "RevokeSession":
+      // A revoke of a revoked session has already happened, so a retry records nothing and succeeds.
+      assert(state.id !== null, "Session must be created first.");
+      if (state.status === "revoked") return [];
       requireActiveSession(state);
       return [{ type: "auth.session.revoked", data: EMPTY_EVENT_DATA }];
     case "ExpireSession":
@@ -171,5 +191,5 @@ export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (stat
 
 function requireActiveSession(state: SessionState) {
   assert(state.id !== null, "Session must be created first.");
-  assert(state.status === "active", "Only active sessions can change.");
+  if (state.status !== "active") throw new SessionRefusalError("not-active", "Only active sessions can change.");
 }

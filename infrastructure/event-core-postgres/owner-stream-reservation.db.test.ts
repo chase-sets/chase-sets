@@ -212,7 +212,7 @@ describeDb("owner-stream reservations across separate real owner and consumer da
   it("AC1 abort-first uses the durable consumer abort CAS outside owner locks and refuses zero events", () =>
     abortFirstScenario());
   it("AC1 named REMOVE_ABORT_CAS mutant fails the same durable ordering oracle", async () => {
-    await expect(abortFirstScenario("REMOVE_ABORT_CAS")).rejects.toThrow("ABORTED");
+    await expect(abortFirstScenario("REMOVE_ABORT_CAS")).rejects.toThrow("expected 'ABORT-REQUESTED' to be 'APPLIED'");
   });
   it("AC1 terminal-first commits all events before the owner change and never reads the owner at COMMIT", async () => {
     const s = store();

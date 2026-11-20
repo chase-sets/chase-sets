@@ -1,4 +1,4 @@
-import type { LoaderFunctionArgs } from "react-router";
+import { data, type LoaderFunctionArgs } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../../request-support/api-client";
 import type { BulkRepriceJobStatus } from "../../../features/bulk-reprice-ingestion/api/runtime";
@@ -9,10 +9,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "listings.manage",
   });
   const api = createPricingRequestApiClient(request);
+  // While Pricing has bulk reprice off, the page says so (404) instead of offering a form whose
+  // every action fails.
+  if (!(await api.isBulkRepriceAvailable())) {
+    return data({ available: false as const, activeJobId: "", activeJob: null }, { status: 404 });
+  }
   const activeJobId = new URL(request.url).searchParams.get("jobId") ?? "";
   const activeJob = activeJobId ? await loadActiveBulkRepriceJob(api, activeJobId) : null;
 
-  return { activeJobId, activeJob };
+  return { available: true as const, activeJobId, activeJob };
 }
 
 async function loadActiveBulkRepriceJob(

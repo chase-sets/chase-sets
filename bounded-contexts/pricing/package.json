@@ -14,6 +14,7 @@
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
     "./server": "./server.ts",
+    "./test-support": "./features/repricing-engine/tests/owner-predicate-test-support.ts",
     "./integration/link-intents": "./support/runtime-support/link-intents.ts"
   },
   "types": "./index.ts",

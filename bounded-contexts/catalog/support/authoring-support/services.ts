@@ -1,4 +1,4 @@
-import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, ownerPredicateKey } from "@chase-sets/event-core-postgres";
 import { createExtensionTcgplayerSealedProductRecorder } from "../../features/source-observations/api/extension-tcgplayer-sealed-products";
 import { createPostgresPromotionTargetExclusion } from "../../features/source-observations/api/promotion/promotion-target-exclusion";
 import { createCatalogProviderSendRuntime } from "../../features/source-observations/api/providers/provider-send-runtime";
@@ -47,6 +47,7 @@ import { createOperatorSessionGrants, type CatalogOperatorAuthority } from "../.
 import type { TcgplayerMarketObservationRequestSource } from "@chase-sets/tcgplayer-market-observations";
 
 export type CatalogHostPorts = Readonly<{
+  pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
   catalogAssetStorage?: CatalogAssetStorage;
   sourceObservationTelemetry?: SourceObservationTelemetry;
   catalogOperatorAuthority?: CatalogOperatorAuthority;
@@ -81,15 +82,42 @@ export type CatalogServices = Readonly<{
   db: PgQueryable;
 }>;
 
+export function createCatalogAuthoringPersistence(pool: PgTransactionalPool, consumerPool?: PgTransactionalPool) {
+  return createPostgresEventStore({
+    pool,
+    ownerPredicates: {
+      ...(consumerPool ? { consumerPool } : {}),
+      keys: (inputs) =>
+        inputs.flatMap(({ streamId, events }) =>
+          events.flatMap((event) => {
+            if (
+              !streamId.startsWith("catalog.item-") ||
+              (event.eventType !== "catalog.catalog-item.category-assigned" &&
+                event.eventType !== "catalog.catalog-item.category-removed")
+            )
+              return [];
+            if (typeof event.payload.categoryId !== "string")
+              throw new Error("Catalog category predicate identity is unavailable.");
+            return [
+              ownerPredicateKey(
+                "repricing-catalog-category",
+                streamId.slice("catalog.item-".length),
+                event.payload.categoryId,
+              ),
+            ];
+          }),
+        ),
+    },
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "catalog" }),
+  });
+}
+
 export function createCatalogServices(
   pool: PgTransactionalPool,
   ports: CatalogHostPorts = {},
   options: BcCreateServicesOptions<PgTransactionalPool> = {},
 ): CatalogServices {
-  const eventStore = createPostgresEventStore({
-    pool,
-    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "catalog" }),
-  });
+  const eventStore = createCatalogAuthoringPersistence(pool, ports.pricingPredicateConsumerPool);
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const countEnvironment = process.env.DEPLOYMENT_ENVIRONMENT?.trim() || process.env.NODE_ENV?.trim() || "runtime";

@@ -93,6 +93,9 @@
       "@chase-sets/catalog/server": [
         "./bounded-contexts/catalog/server.ts"
       ],
+      "@chase-sets/catalog/test-support": [
+        "./bounded-contexts/catalog/features/source-observations/tests/owner-predicate-test-support.ts"
+      ],
       "@chase-sets/catalog/web": [
         "./bounded-contexts/catalog/web.ts"
       ],
@@ -974,6 +977,9 @@
       ],
       "@chase-sets/pricing/server": [
         "./bounded-contexts/pricing/server.ts"
+      ],
+      "@chase-sets/pricing/test-support": [
+        "./bounded-contexts/pricing/features/repricing-engine/tests/owner-predicate-test-support.ts"
       ],
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"

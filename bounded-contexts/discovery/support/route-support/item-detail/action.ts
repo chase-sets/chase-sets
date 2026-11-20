@@ -40,6 +40,7 @@ import type {
   AddToCartAmbiguousActionData,
 } from "../../../features/item-detail/ui/commerce-sections";
 import { canUseAccountCheckoutCart } from "../../../features/item-detail/ui/commerce-sections";
+import { PRODUCT_ALERT_ATTEMPT_ID_PATTERN } from "../../../features/product-alerts/api/contracts";
 import {
   buildRegisterToClaimListingDraftHref,
   buildRegisterToClaimProductAlertHref,
@@ -332,6 +333,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
             .trim()
             .toUpperCase() || null,
       } as const;
+      // A guest's intent already dedupes by product and threshold; an account's create is one
+      // attempt per form, so a resend answers the alert the first send created.
+      const presentedAttemptId = String(formData.get("attemptId") ?? "");
+      const attemptId = PRODUCT_ALERT_ATTEMPT_ID_PATTERN.test(presentedAttemptId) ? presentedAttemptId : null;
 
       const actor = await resolveActorFromAuthApi({ request });
       if (!actor) {
@@ -351,7 +356,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         request,
         permission: "accounts.view",
       });
-      const result = await discoveryApi.createProductAlert(body);
+      const result = await discoveryApi.createProductAlert({ ...body, attemptId });
 
       return redirect(
         appendFreshWriteToken(`/items/${item.slug || item.catalog_item_id}?market=watch&productAlertCreated=1`, result),
