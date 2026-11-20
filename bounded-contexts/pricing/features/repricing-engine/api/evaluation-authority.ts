@@ -21,7 +21,6 @@ import {
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
 import { moneyToCents } from "@chase-sets/primitives/money";
-import { createInventoryStockAuthorityForPool } from "@chase-sets/inventory/server";
 import type { EconomicsServices } from "../../economics/api/services";
 import {
   lockRepricingStanding,
@@ -76,10 +75,29 @@ export type PricingEvaluationListing = Readonly<{
   selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
 }>;
 
-type OwnerPools = Readonly<{
+export type PricingEvaluationOwners = Readonly<{
   marketplace: PgTransactionalPool;
   inventory: PgTransactionalPool;
   catalog: PgTransactionalPool;
+  captureInventoryStock: (
+    target: Pick<EvaluationBinding, "listingId" | "accountId" | "catalogItemId" | "productId"> &
+      Pick<PricingEvaluationListing, "inventoryItemId" | "selectedOptions"> &
+      Readonly<{ channelConnectionId: string }>,
+    context: EventStoreContext,
+  ) => Promise<
+    Readonly<{
+      itemVersion: number;
+      incarnation: string;
+      stock: Readonly<{
+        itemId: string;
+        accountId: string;
+        totalQuantity: number;
+        heldQuantity: number;
+        availableQuantity: number;
+      }>;
+      allocation: Readonly<{ revision: number }>;
+    }>
+  >;
 }>;
 type DecisionRecord = Readonly<{
   terminal_binding: RequestTerminalBinding;
@@ -111,7 +129,7 @@ export type PreparedPricingEvaluation = Readonly<{
 export function createPricingEvaluationAuthority(
   deps: Readonly<{
     pool: PgTransactionalPool;
-    owners: OwnerPools;
+    owners: PricingEvaluationOwners;
     eventStore: PostgresEventStore;
     economy: Pick<EconomicsServices, "resolve">;
     configuration: RepricingConfigurationWriter;
@@ -119,9 +137,9 @@ export function createPricingEvaluationAuthority(
     hasConsumerRoute: (consumer: ConfigurationConsumer) => boolean;
   }>,
 ) {
-  const owners: Readonly<Record<EvaluationOwner, PgTransactionalPool>> = { ...deps.owners, pricing: deps.pool };
+  const { captureInventoryStock, ...ownerPools } = deps.owners;
+  const owners: Readonly<Record<EvaluationOwner, PgTransactionalPool>> = { ...ownerPools, pricing: deps.pool };
   const consumer = owners.marketplace;
-  const stock = createInventoryStockAuthorityForPool(owners.inventory, consumer);
   const terminalRoute = createPostgresOwnerStreamReservationStore({
     ownerPool: deps.pool,
     consumerPool: consumer,
@@ -224,7 +242,7 @@ export function createPricingEvaluationAuthority(
       ]);
       // The enrolled generation was read first. An Inventory write before or after
       // this canonical snapshot makes the later membership reservation fail.
-      const stockCapture = await stock.capture(
+      const stockCapture = await captureInventoryStock(
         {
           listingId: binding.listingId,
           accountId: binding.accountId,

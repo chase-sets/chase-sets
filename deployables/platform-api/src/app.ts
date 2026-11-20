@@ -69,6 +69,7 @@ import type { WalletFundingEligibilityResolver } from "@chase-sets/payments/serv
 import { walletFundingLimitsPolicy } from "@chase-sets/payments/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
+  createInventoryStockAuthorityForPool,
   createStorageLocationAuthority,
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
@@ -748,6 +749,7 @@ export function createPlatformApiHost(
                     marketplace: marketplacePool,
                     inventory: inventoryPool,
                     catalog: catalogPool,
+                    captureInventoryStock: createInventoryStockAuthorityForPool(inventoryPool, marketplacePool).capture,
                   },
                 }
               : {}),

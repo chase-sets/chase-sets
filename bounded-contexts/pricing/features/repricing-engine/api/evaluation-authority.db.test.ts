@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { module as inventoryModule } from "@chase-sets/inventory";
+import { createInventoryStockAuthorityForPool } from "@chase-sets/inventory/server";
 import type { RequestTerminalBinding } from "@chase-sets/event-core/owner-stream-reservation";
 import {
   createPostgresEventStore,
@@ -53,7 +54,10 @@ describeDb("Pricing Evaluated Decision with separate owner stores", () => {
     const ports = {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
       channelConnectionIdentityReader: { resolve: async () => null },
-      pricingEvaluationOwners: pools,
+      pricingEvaluationOwners: {
+        ...pools,
+        captureInventoryStock: createInventoryStockAuthorityForPool(pools.inventory, pools.marketplace).capture,
+      },
       pricingEvaluationConsumers: [{ identity, pool: pools.marketplace }],
       pricingPredicateConsumerPool: pools.marketplace,
     };

@@ -17,7 +17,7 @@ export type EvaluationOwner = "pricing" | "marketplace" | "catalog" | "inventory
 export type EvaluationMember = Readonly<{ owner: EvaluationOwner; key: string; seal: OwnerStreamSeal }>;
 
 export function evaluationOwnerIdentity(pool: PgTransactionalPool, owner: EvaluationOwner) {
-  return withConfigurationEpochTransaction(pool, async (client) => {
+  return withConfigurationEpochTransaction(pool, async (client: PgQueryable) => {
     await client.query(
       "INSERT INTO event_configuration_store_identity (singleton, store_id, incarnation) VALUES (true, $1, $2) ON CONFLICT DO NOTHING",
       [owner, randomUUID()],
@@ -45,7 +45,7 @@ export async function captureEvaluationMembers(client: PgQueryable, owner: Evalu
 }
 
 export async function captureOwnListingMember(pool: PgTransactionalPool, binding: EvaluationBinding) {
-  return withConfigurationEpochTransaction(pool, async (client) => {
+  return withConfigurationEpochTransaction(pool, async (client: PgQueryable) => {
     const members = await captureEvaluationMembers(client, "marketplace", [
       ownerPredicateKey("repricing-listing", binding.listingId),
     ]);

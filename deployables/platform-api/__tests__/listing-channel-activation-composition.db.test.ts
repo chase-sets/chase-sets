@@ -250,8 +250,23 @@ describe("listing channel activation real composition", () => {
     });
   }
 
-  async function fixture() {
-    const runtime = host();
+  function hostWithoutPricingEvaluation() {
+    const createServices = pricingModule.createServices;
+    const omit = vi.spyOn(pricingModule, "createServices").mockImplementationOnce((pool, ports) => {
+      const { pricingEvaluationOwners: _omitted, ...remaining } = ports;
+      return createServices(pool, remaining);
+    });
+    try {
+      const runtime = host();
+      expect(omit).toHaveBeenCalledOnce();
+      expect((runtime.services.pricing as PricingServices).evaluationAuthority).toBeUndefined();
+      return runtime;
+    } finally {
+      omit.mockRestore();
+    }
+  }
+
+  async function fixture(runtime = hostWithoutPricingEvaluation()) {
     await runtime.initializeListingAuthority();
     const identity = runtime.services.identity as IdentityServices;
     const auth = runtime.services.auth as ReturnType<typeof authModule.createServices>;
@@ -428,7 +443,7 @@ describe("listing channel activation real composition", () => {
   async function pricingFixture(categoryScoped = false) {
     await bootstrapContextDatabase(catalogModule, pools.catalog);
     await bootstrapContextDatabase(pricingModule, pools.pricing);
-    const f = await fixture();
+    const f = await fixture(host());
     const pricing = f.runtime.services.pricing as PricingServices;
     const catalog = f.runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
     const streamId = `catalog.item-${f.catalogItemId}`;

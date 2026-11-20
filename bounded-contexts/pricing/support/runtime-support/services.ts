@@ -39,16 +39,13 @@ import {
   createPricingEvaluationAuthority,
   repricingPlatformSelector,
   type PricingEvaluationAuthority,
+  type PricingEvaluationOwners,
 } from "../../features/repricing-engine/api/evaluation-authority";
 import { evaluationOwnerIdentity } from "../../features/repricing-engine/api/evaluation-owner-inputs";
 
 export type PricingHostPorts = Readonly<{
   pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
-  pricingEvaluationOwners?: Readonly<{
-    marketplace: PgTransactionalPool;
-    inventory: PgTransactionalPool;
-    catalog: PgTransactionalPool;
-  }>;
+  pricingEvaluationOwners?: PricingEvaluationOwners;
   pricingEvaluationConsumers?: readonly Readonly<{ identity: ConfigurationConsumer; pool: PgTransactionalPool }>[];
   commercialTermsResolver: CommercialTermsResolver;
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
@@ -133,7 +130,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     const closed = await epochs.driveClosure(repricingPlatformSelector);
     if (closed.epoch !== closing.epoch || closed.pendingConsumers.length)
       throw new Error("Platform pricing policy installation is waiting for its consumers.");
-    return withOwnerPredicateWrite(pool, ports.pricingPredicateConsumerPool, async (db) => {
+    return withOwnerPredicateWrite(pool, ports.pricingPredicateConsumerPool, async (db: PgQueryable) => {
       if ((await lockRepricingStanding(db, repricingPlatformSelector, incarnation)) !== closing.epoch)
         throw new Error("Platform pricing policy installation was superseded.");
       const installed = await epochs.installClosureInTransaction(db, repricingPlatformSelector);

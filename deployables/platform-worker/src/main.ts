@@ -22,7 +22,7 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 
-import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
+import { createInventoryStockAuthorityForPool, createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceServices } from "@chase-sets/marketplace/server";
 import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import type { PricingServices } from "@chase-sets/pricing/server";
@@ -302,6 +302,8 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
                     marketplace: pools.marketplace,
                     inventory: pools.inventory,
                     catalog: pools.catalog,
+                    captureInventoryStock: createInventoryStockAuthorityForPool(pools.inventory, pools.marketplace)
+                      .capture,
                   },
                 }
               : {}),
