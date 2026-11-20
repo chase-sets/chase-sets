@@ -21,8 +21,8 @@ pub const COMPONENTS: &[Component] = &[LookupPage];
 pub const CSAT: &[Component] = &[CsatPage];
 /// Platform Feedback's components: its stylesheet.
 pub const FEEDBACK: &[Component] = &[FeedbackPage];
-/// Customer Feedback's attention queue's components: its stylesheet.
-pub const ATTENTION: &[Component] = &[FeedbackAttentionPage];
+/// Customer Feedback's attention queue's components: the kit's buttons and its stylesheet.
+pub const ATTENTION: &[Component] = &[platform::ui::button::Button, FeedbackAttentionPage];
 /// eBay Deletion Lookup's components: its stylesheet.
 pub const EBAY: &[Component] = &[EbayPage];
 /// Support requests' components: its stylesheet and the sheet's dialog script.
