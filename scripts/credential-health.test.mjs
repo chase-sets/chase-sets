@@ -1069,7 +1069,7 @@ function assertCredentialHealthWorkflow(workflow, inventory) {
   const check = liveness.steps.find((step) => step.name === "Check credential liveness");
   expect(check.run).toContain("node ./scripts/credential-health.mjs liveness");
   const exposed = inventory.entries
-    .filter((candidate) => candidate.liveness)
+    .filter((candidate) => candidate.scope.length > 0 && candidate.liveness)
     .flatMap((candidate) =>
       SPACES_LIVENESS_KINDS.includes(candidate.liveness.kind)
         ? [candidate, inventory.byName.get(candidate.pairedWith[0])]
@@ -1120,6 +1120,10 @@ describe("platform credential health workflow (AC4)", () => {
     [
       "a secret exposed to every row",
       (mutant) => (mutant.jobs.liveness.steps[1].env.PROJECTS_TOKEN = "${{ secrets.PROJECTS_TOKEN }}"),
+    ],
+    [
+      "an agent-only secret bound in the workflow",
+      (mutant) => (mutant.jobs.liveness.steps[1].env.SPACES_PROBE_ACCESS_ID = "${{ secrets.SPACES_PROBE_ACCESS_ID }}"),
     ],
     ["a report gated on success", (mutant) => delete mutant.jobs.report.if],
     [
