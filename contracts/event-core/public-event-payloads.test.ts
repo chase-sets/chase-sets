@@ -1,7 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { createPassthroughDomainEventCodec } from "./codec";
 import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFactType } from "../order-groups/index";
+import type { InventoryItemId } from "../primitives/typed-ids";
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
@@ -53,6 +55,7 @@ import type {
   MarketplaceListingOperatorUnlistedPayload,
   MarketplaceListingPriceUpdatedPayload,
   MarketplaceListingPublishedPayload,
+  MarketplaceOfferAcceptedPayload,
   MarketplaceReviewSubmittedPayload,
   MarketplaceOfferLifecyclePayload,
   MarketplaceOperatorListingEnforcementData,
@@ -92,6 +95,93 @@ import type {
 } from "./public-event-payloads/platform-operations";
 import type { PublicPresenceEventPayloads } from "./public-event-payloads/public-presence";
 import type { SettlementEventPayloads } from "./public-event-payloads/settlement";
+
+describe("public accepted Offer and Order source facts", () => {
+  it("decodes historical Orders and lets a consumer read the Offer source of a fill", () => {
+    const codec = createPassthroughDomainEventCodec<{
+      type: "ordering.order.created";
+      data: ChaseSetsEventPayloads["ordering.order.created"];
+    }>();
+    const readOfferId = (data: OrderingOrderCreatedPayload) =>
+      data.sourceType === "offer-acceptance" ? (data.sourceReferenceId ?? null) : null;
+    const historical = { orderId: "ord_historical", reservationRequests: [] };
+    const fill = { ...historical, sourceType: "offer-acceptance", sourceReferenceId: "off_fill" };
+    const decode = (payload: OrderingOrderCreatedPayload) =>
+      codec.decode({ eventType: "ordering.order.created", payload }).data;
+
+    expect(decode(historical)).toEqual(historical);
+    expect(readOfferId(decode(historical))).toBeNull();
+    expect(readOfferId(decode(fill))).toBe("off_fill");
+    expect(decode({ ...fill, sourceType: "cart-checkout", sourceReferenceId: null }).sourceReferenceId).toBeNull();
+    expectTypeOf<OrderingOrderCreatedPayload["sourceType"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<OrderingOrderCreatedPayload["sourceReferenceId"]>().toEqualTypeOf<string | null | undefined>();
+  });
+
+  it("decodes Offer acceptances with and without an Inventory Item version", () => {
+    const codec = createPassthroughDomainEventCodec<{
+      type: "marketplace.offer.accepted";
+      data: ChaseSetsEventPayloads["marketplace.offer.accepted"];
+    }>();
+    const payload = {
+      offerId: "off_fill",
+      buyerAccountId: "acc_buyer" as MarketplaceOfferAcceptedPayload["buyerAccountId"],
+      sellerAccountId: "acc_seller" as MarketplaceOfferAcceptedPayload["sellerAccountId"],
+      listingId: "lst_fill",
+      inventoryItemId: "inv_fill",
+      listingVersion: 1,
+      catalogItemId: "cat_card",
+      productId: "cat_card::",
+      itemTitle: "Card",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeFixedAmount: "1.00",
+      marketplaceSalesFeeCapAmount: null,
+      marketplaceSalesFeeUnitAmount: "1.00",
+      sellerNetUnitAmount: "9.00",
+      shippingAllowancePercentageBps: 500,
+      shippingDestinationSnapshot: {
+        name: "Synthetic buyer",
+        company: null,
+        line1: "1 Main Street",
+        line2: null,
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+        phone: null,
+        email: null,
+      },
+      termsScheduleId: null,
+      termsAgreementId: null,
+      termsResolvedAt: "2026-10-05T00:00:00.000Z",
+      feeQuoteFingerprint: "sha256:synthetic-fee",
+      listingEvidencePolicyId: null,
+      listingEvidencePolicyVersion: null,
+      listingEvidencePolicyHash: "sha256:synthetic-policy",
+      listingEvidenceSnapshot: {
+        schemaVersion: 1,
+        policyHash: "sha256:synthetic-policy",
+        snapshotHash: "sha256:synthetic-evidence",
+        createdAt: "2026-10-05T00:00:00.000Z",
+        evidence: [],
+      },
+      quantityRequested: 1,
+      acceptanceBatchId: null,
+      acceptanceBatchSize: null,
+      acceptedAt: "2026-10-05T00:00:00.000Z",
+    } satisfies MarketplaceOfferAcceptedPayload;
+    const decode = (payload: MarketplaceOfferAcceptedPayload) =>
+      codec.decode({ eventType: "marketplace.offer.accepted", payload }).data;
+    expect(decode(payload)).toEqual(payload);
+    expect(decode(payload).inventoryItemVersion).toBeUndefined();
+    expect(decode({ ...payload, inventoryItemVersion: 3 }).inventoryItemVersion).toBe(3);
+    expectTypeOf<MarketplaceOfferAcceptedPayload["inventoryItemVersion"]>().toEqualTypeOf<number | undefined>();
+  });
+});
 
 describe("native CSAT source payloads", () => {
   it("exports compatible publication history, native review fields and an optional adjustment request key", () => {
@@ -1195,6 +1285,17 @@ describe("public event payload aggregate composition", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
     expect(aggregateTypeIdentityCoversEveryRegisteredEvent).toBe(true);
     expect(Object.values(inventoryItemCreatedAcquisitionCurrencyContract).every(Boolean)).toBe(true);
+  });
+
+  it("publishes the persisted Inventory stock authority claim payload", () => {
+    expectTypeOf<ChaseSetsEventPayloads["inventory.item.stock-authority-claimed"]>().toEqualTypeOf<
+      Readonly<{
+        itemId: InventoryItemId;
+        authorityRef: string;
+        operation: "hold-placement" | "stock-reduction";
+        quantity: number;
+      }>
+    >();
   });
 
   it("publishes optional External Channel Sale line money on the existing v1 payload", () => {
