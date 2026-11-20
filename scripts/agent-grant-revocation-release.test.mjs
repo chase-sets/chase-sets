@@ -34,6 +34,15 @@ import { readSessionGenerationCapability } from "../deployables/platform-api/scr
 const secretMarker = "synthetic-secret-marker-7f3c";
 const syntheticRow = "revocation_synthetic_row_value";
 const permissionDenied = "revocation_status_database_permission_denied";
+const pnpmStdout = (response) =>
+  [
+    "Scope: all 78 workspace projects",
+    "[WARN] There are cyclic workspace dependencies: /app/bounded-contexts/auth, /app/bounded-contexts/payments",
+    "Lockfile is up to date, resolution step is skipped",
+    "Done in 4s using pnpm v11.0.9",
+    response,
+    "",
+  ].join("\n");
 
 describe("revocation release CLI decisions", () => {
   const minimumCommit = "a".repeat(40);
@@ -80,6 +89,7 @@ describe("revocation release CLI decisions", () => {
   function fixture({
     absent = false,
     statuses = [activated],
+    supportStdout = JSON.stringify({ supportVersion: 1 }),
     ancestor = true,
     supported = true,
     protocol = "revalidate",
@@ -133,13 +143,13 @@ describe("revocation release CLI decisions", () => {
         return supported ? "AGENT_GRANT_REVOCATION_SUPPORT_VERSION = 1;" : "synthetic pre-support source";
       if (file !== "kubectl") throw new Error(`Unexpected synthetic command: ${file}`);
       if (command[0] === "get" && command[1] === "validatingadmissionpolicy") return floor ? JSON.stringify(floor) : "";
-      if (command[0] === "get" && command[1] === "pods") return JSON.stringify(pods);
+      if (command[0] === "get" && command[1] === "pods") return JSON.stringify(pods, null, 2);
       if (command[0] === "exec" && command.at(-1) === "--status") {
         const status = statuses[Math.min(statusIndex++, statuses.length - 1)];
         if (status instanceof Error) throw status;
         return typeof status === "string" ? status : JSON.stringify(status);
       }
-      if (command[0] === "exec" && command.at(-1) === "--support") return JSON.stringify({ supportVersion: 1 });
+      if (command[0] === "exec" && command.at(-1) === "--support") return supportStdout;
       if (command[0] === "logs") return typeof logs === "function" ? logs(command) : logs;
       if (command[0] === "apply") {
         const resource = JSON.parse(input);
@@ -379,7 +389,9 @@ describe("revocation release CLI decisions", () => {
   });
   it("activate replay unfreezes the same release and records the replay artifact", async () => {
     const replayProof = { releaseCommit, imageDigest };
-    const f = fixture({ statuses: [{ state: "activated", proof: replayProof }] });
+    const f = fixture({
+      statuses: [`${pnpmStdout(JSON.stringify({ state: "activated", proof: replayProof }))}trailing pnpm output\n`],
+    });
     await main(args("activate"), f);
     expect(policies(f)).toHaveLength(1);
     expect(policies(f)[0].spec.validations[0].expression).not.toBe("false");
@@ -393,9 +405,24 @@ describe("revocation release CLI decisions", () => {
     expect(f.applied).toEqual([]);
     expect(f.spawn).not.toHaveBeenCalled();
   });
+  it("activate refuses an invalid support response before fencing or spawning", async () => {
+    const f = fixture({ statuses: [dormant], supportStdout: pnpmStdout('{"supportVersion":1}\n{}') });
+    await expect(main(args("activate"), f)).rejects.toThrow("revocation_census_unsupported_member");
+    expect(f.applied).toEqual([]);
+    expect(f.spawn).not.toHaveBeenCalled();
+  });
   it("activate responds to revalidate with a fresh capture before accepting the receipt", async () => {
-    const f = fixture({ statuses: [dormant] });
+    const f = fixture({ statuses: [dormant], supportStdout: pnpmStdout('{"supportVersion":1}') });
     await main(args("activate"), f);
+    const podExecs = [f.spawn.mock.calls[0][1], ...f.calls.filter((call) => call[1] === "exec")];
+    for (const call of podExecs) {
+      expect(call.slice(call.indexOf("--") + 1).slice(0, 4)).toEqual([
+        "env",
+        "pnpm_config_reporter=silent",
+        "pnpm",
+        "--silent",
+      ]);
+    }
     expect(f.writes).toHaveLength(2);
     expect(f.writes[1]).toMatchObject({
       expectedReplicas: ["synthetic-platform-api", "synthetic-platform-worker"],
@@ -479,6 +506,22 @@ describe("revocation release CLI decisions", () => {
       identity: { state: "unknown", code: "revocation_status_exec_failed" },
     });
   });
+  it("records a dormant status despite the pnpm install prelude", async () => {
+    const f = fixture({
+      absent: true,
+      statuses: [
+        pnpmStdout(
+          '{"state":"dormant","proof":null,"activation":null,"nonterminal":{"count":0,"oldestAgeMs":null,"oldestSource":null}}',
+        ),
+      ],
+    });
+    await main(args("prepare", releaseCommit, "staging"), f);
+    expect(status()).toMatchObject({
+      result: "prepared",
+      floor: { state: "absent" },
+      identity: { state: "dormant", proof: null, activation: null, nonterminal: { count: 0 } },
+    });
+  });
   it("refuses activation without emitting a code-shaped synthetic row from status stderr", async () => {
     const unreadable = Object.assign(new Error("synthetic status exec failed"), { stderr: `${syntheticRow}\n` });
     const f = fixture({ absent: true, statuses: [unreadable] });
@@ -555,7 +598,8 @@ describe("revocation release CLI decisions", () => {
     ],
     [Object.assign(new Error(secretMarker), { code: "ETIMEDOUT" }), "revocation_status_exec_timeout"],
     [new Error(secretMarker), "revocation_status_exec_failed"],
-    [`${secretMarker}\n{"state":"dormant"}`, "revocation_status_response_invalid"],
+    [pnpmStdout(`not JSON: ${secretMarker}`), "revocation_status_response_invalid"],
+    [pnpmStdout('{"state":"dormant"}\n{"state":"unknown"}'), "revocation_status_response_invalid"],
     ["", "revocation_status_response_invalid"],
     [null, "revocation_status_response_invalid"],
     [{ state: "unknown" }, "revocation_status_response_invalid"],
@@ -1100,7 +1144,7 @@ describe("session-generation-floor-receipt", () => {
         calls.push([file, ...commandArgs]);
         if (file === "kubectl" && commandArgs[0] === "get" && commandArgs[1] === "pods")
           return JSON.stringify(reads[Math.min(podReads++, reads.length - 1)]);
-        if (file === "kubectl" && commandArgs[0] === "exec") return JSON.stringify(report());
+        if (file === "kubectl" && commandArgs[0] === "exec") return pnpmStdout(JSON.stringify(report()));
         throw new Error(`unexpected command ${file} ${commandArgs.join(" ")}`);
       });
       return { run, calls };
@@ -1128,7 +1172,10 @@ describe("session-generation-floor-receipt", () => {
           "-c",
           pod.spec.containers[0].name,
           "--",
+          "env",
+          "pnpm_config_reporter=silent",
           "pnpm",
+          "--silent",
           "--filter",
           "@chase-sets/app-platform-api",
           "exec",
