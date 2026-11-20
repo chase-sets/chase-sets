@@ -17,6 +17,7 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import type { BulkRepriceJobStatus } from "../api/runtime";
 
 function useBulkRepriceJob(
@@ -68,13 +69,15 @@ function jobPhaseTone(job: BulkRepriceJobStatus | null): "success" | "danger" | 
 
 /**
  * One upload attempt per mounted form: a resent upload carries the same key and lands on its first job.
- * Choosing another file draws a new key, and the form is remounted for each job it starts.
+ * Choosing another file draws a new key, and the form is remounted for each job it starts. The form
+ * submits through the router, so when the reply is lost the error renders into this same form, which
+ * keeps the chosen file and the key for the retry.
  */
 function BulkRepriceUploadForm({ disabled }: Readonly<{ disabled: boolean }>) {
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   return (
-    <Form
+    <RouterForm
       spacing="none"
       method="post"
       encType="multipart/form-data"
@@ -96,7 +99,7 @@ function BulkRepriceUploadForm({ disabled }: Readonly<{ disabled: boolean }>) {
           </Button>
         </Inline>
       </Stack>
-    </Form>
+    </RouterForm>
   );
 }
 
