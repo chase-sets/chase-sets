@@ -5352,25 +5352,11 @@ pub struct Consent {
     pub is_current: bool,
 }
 
-impl Consent {
-    /// Whether the consent is the user's own: a user consent of `user`, or an account consent
-    /// `user` gave for `account` (Identity's withdraw rule, `subjectMatchesActor`).
-    pub fn is_of(&self, user: &str, account: &str) -> bool {
-        let by_user = self.user_id.as_deref() == Some(user);
-        match self.subject_type.as_str() {
-            "user" => by_user,
-            "account" => by_user && self.account_id.as_deref() == Some(account),
-            _ => false,
-        }
-    }
-}
-
 /// The user's consent history (Identity's `consents`), as the signed-in user. A withdrawal is an
 /// account-management attempt, as the address book's writes are.
 pub trait ConsentCalls {
-    /// The user's consents for the account, newest first, as marketplace's loader asks (the first
-    /// 50). Workaround for chase-sets/chase-sets#10707: Identity takes the user and account from the
-    /// query for an actor with `security.manage`, so only the user's own consents are kept.
+    /// The user's consents, newest first, as marketplace's loader asks (the first 50). Identity
+    /// lists only the signed-in user's own, whatever the query names.
     async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError>;
     /// Withdraw `consent` as `attempt`.
     async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError>;
@@ -5380,7 +5366,7 @@ impl ConsentCalls for Caller<'_> {
     async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError> {
         let path = format!("/api/identity/consents?limit=50&offset=0&userId={}&accountId={}", segment(user), segment(account));
         let list: TeamList<Consent> = self.read(&path, IDENTITY).await?;
-        Ok(list.items.into_iter().filter(|c| c.is_of(user, account)).collect())
+        Ok(list.items)
     }
 
     async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError> {
