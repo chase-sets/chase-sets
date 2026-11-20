@@ -1005,6 +1005,88 @@ describe("source observation runtime: provider integration jobs", () => {
     }
   });
 
+  it.each([
+    ["retries a transient second-page transport failure", "reset", 2, null],
+    ["persists a redacted reason after one retry", "timeout", 2, "/cards/search page 2 failed (ETIMEDOUT)"],
+    ["omits an unrecognized cause code", "unknown", 1, "/cards/search page 2 failed"],
+    ["does not retry HTTP 404", 404, 1, "/cards/search page 2 failed (HTTP 404)"],
+    ["does not retry HTTP 429", 429, 1, "/cards/search page 2 failed (HTTP 429)"],
+    ["does not retry HTTP 503", 503, 1, "/cards/search page 2 failed (HTTP 503)"],
+    [
+      "does not retry an invalid HTTP response body",
+      "invalid-json",
+      1,
+      "/cards/search page 2 returned invalid JSON (HTTP 200)",
+    ],
+  ] as const)("Scryfall set import %s", async (_name, failure, pageTwoAttempts, failureReason) => {
+    const secret = "SYNTHETIC_PRIVATE_VALUE";
+    const firstPage = "https://api.scryfall.com/cards/search?q=set%3Atsp&unique=prints";
+    const secondPage = `https://api.scryfall.com/cards/search?page=2&token=${secret}`;
+    const card = (id: string, collectorNumber: string) => ({
+      id,
+      uri: `https://api.scryfall.com/cards/${id}`,
+      name: "Synthetic Time Spiral Card",
+      lang: "en",
+      set: "tsp",
+      set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+      set_name: "Time Spiral",
+      collector_number: collectorNumber,
+      rarity: "common",
+      tcgplayer_id: 900000 + Number(collectorNumber),
+      released_at: "2006-10-06",
+    });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === firstPage) {
+        return jsonResponse({ data: [card("synthetic-one", "1")], has_more: true, next_page: secondPage });
+      }
+      if (String(input) !== secondPage) throw new Error("Unexpected synthetic page request");
+      if (typeof failure === "number") return new Response(secret, { status: failure });
+      if (failure === "invalid-json") return new Response(secret);
+      if (failure === "reset" && fetch.mock.calls.length === 3) {
+        return jsonResponse({ data: [card("synthetic-two", "2")], has_more: false });
+      }
+      const code = failure === "reset" ? "ECONNRESET" : failure === "timeout" ? "ETIMEDOUT" : secret;
+      throw new TypeError(`fetch failed: ${secret}`, { cause: Object.assign(new Error(secret), { code }) });
+    });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "scryfall",
+        profileKey: "mtg-card-print-reference-data",
+        ingestionUnitKey: "scryfall:mtg:single-card:reference-data",
+        setId: "tsp",
+      },
+      renewSucceeds: true,
+    });
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    try {
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        firstPage,
+        ...Array<string>(pageTwoAttempts).fill(secondPage),
+      ]);
+    } finally {
+      fetch.mockRestore();
+    }
+
+    const observed = failureReason === null ? 2 : 0;
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result?.outcomes).toMatchObject([
+      {
+        providerKey: "scryfall",
+        status: failureReason === null ? "imported" : "failed",
+        observed,
+        reason: failureReason === null ? null : `Scryfall ${failureReason}.`,
+      },
+    ]);
+    expect(JSON.stringify(harness.job.result)).not.toContain(secret);
+    expect(
+      harness.appendedSourceEvents.filter((event) => event.eventType === "catalog.source-observation.recorded"),
+    ).toHaveLength(observed);
+  });
+
   it("generates merge candidates from successful catalog-sync child imports without waiting for projection catch-up", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mtgjsonFetch() as typeof globalThis.fetch;
