@@ -4686,7 +4686,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     });
 
     let retainedEnrollment: Promise<DefaultPathEnrollment> | undefined;
-    let naturallyMinimalEnrollment: DefaultPathEnrollment | undefined;
+    let naturallyMinimalEnrollment: Promise<DefaultPathEnrollment> | undefined;
 
     function deriveNaturallyMinimalExecutionUnitFixedCost() {
       const model = {
