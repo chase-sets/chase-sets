@@ -195,6 +195,8 @@ describe("guest payment claim UI", () => {
     expect(
       screen.getByText("This order cannot be saved to an account right now. It stays on its payment page."),
     ).toBeTruthy();
+    expect(screen.getByText("Account options for this order")).toBeTruthy();
+    expect(screen.queryByText("Save this order")).toBeNull();
     expect(screen.queryByRole("button", { name: "Email me a claim link" })).toBeNull();
     expect(screen.queryByLabelText("Contact name")).toBeNull();
   });

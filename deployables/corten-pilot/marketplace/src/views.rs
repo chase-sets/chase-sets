@@ -104,6 +104,7 @@ pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
 pub use guest_claim_page::GuestClaimPage;
+pub(crate) use guest_claim_page::title as guest_claim_title;
 pub use imports_page::ImportsPage;
 pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
