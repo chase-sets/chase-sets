@@ -201,6 +201,45 @@ describe("public listing report", () => {
     expect(document.querySelector(BUY_FORM)).not.toBeNull();
   });
 
+  it("says a repeat report was already reported in place of the form, without JavaScript", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "report_already_submitted", message: "Already reported." } }), {
+            status: 409,
+          }),
+      ),
+    );
+    const served = expectDocument(await serverRender(routes, reportPost()));
+    const document = new DOMParser().parseFromString(served.html, "text/html");
+
+    expect(document.body.textContent).toContain("You have already reported this listing. We will review it.");
+    expect(document.querySelector('input[name="intent"][value="report-listing"]')).toBeNull();
+    expect(document.querySelector(BUY_FORM)).not.toBeNull();
+  });
+
+  it("shows a refused report's message beside the form with the reason and details kept", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: { code: "validation_failed", message: "Sellers cannot report their own listings." },
+            }),
+            { status: 400 },
+          ),
+      ),
+    );
+    const served = expectDocument(await serverRender(routes, reportPost()));
+    const document = new DOMParser().parseFromString(served.html, "text/html");
+
+    expect(document.body.textContent).toContain("Sellers cannot report their own listings.");
+    expect(document.querySelector<HTMLSelectElement>('select[name="reason"]')?.value).toBe("pricing-scam");
+    expect(document.querySelector<HTMLTextAreaElement>('textarea[name="details"]')?.value).toBe("Too cheap");
+  });
+
   it("offers the form and says nothing before a report is sent", async () => {
     const served = await open();
     const document = new DOMParser().parseFromString(served.html, "text/html");
@@ -209,6 +248,20 @@ describe("public listing report", () => {
     expect(served.html).not.toContain("We received your report");
   });
 });
+function reportPost() {
+  return new Request(`http://localhost${LISTING_PATH}`, {
+    method: "POST",
+    headers: { cookie: "chase_sets_anonymous_reports=anon_report_test" },
+    body: new URLSearchParams({
+      intent: "report-listing",
+      listingId: "lst_1",
+      reason: "pricing-scam",
+      details: "Too cheap",
+      attemptId: "visitor_report_attempt_0002",
+    }),
+  });
+}
+
 function publicListing(overrides: Partial<DiscoveryPublicListing> = {}): DiscoveryPublicListing {
   return {
     listing_id: "lst_1",
