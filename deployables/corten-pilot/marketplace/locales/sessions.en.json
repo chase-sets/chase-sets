@@ -9,6 +9,7 @@
   "detail.revoke.confirm.title": "Revoke session for {user}?",
   "detail.session.id": "Session ID",
   "detail.switch.account": "Switch Account",
+  "detail.switch.to": "Switch to",
   "detail.title": "{user} session",
   "detail.user": "User",
   "detail.user.id": "User ID",

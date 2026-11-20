@@ -107,6 +107,41 @@ describe("marketplace repricing route", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    [200, true],
+    [404, false],
+  ])("offers Bulk reprice only while Pricing has it on (bulk reprice answers %s)", async (status, available) => {
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes("/api/auth/session")) {
+        return jsonResponse({
+          actor: {
+            sessionId: "ses_1",
+            tenantId: "tnt_identity",
+            userId: "usr_1",
+            accountId: "acc_1",
+            membershipId: "mbr_1",
+            roleKey: "owner",
+            permissions: ["pricing.view"],
+          },
+        });
+      }
+      if (new URL(url).pathname.endsWith("/account/bulk-reprice")) {
+        return status === 200 ? jsonResponse({ enabled: true }) : jsonResponse({}, 404);
+      }
+      return jsonResponse({ items: [], total: 0, count: 0 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      repricingLoader({
+        request: new Request("https://marketplace.test/account/repricing"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).resolves.toMatchObject({ recommendations: { items: [] }, bulkRepriceAvailable: available });
+  });
+
   it("loads advisory pricing recommendations through the pricing API", async () => {
     const requestedUrls: string[] = [];
     vi.stubGlobal(

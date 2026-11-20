@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { FacilityIntakePage, type FacilityIntakePageProps } from "./facility-intake-page";
 
@@ -96,7 +96,28 @@ function props(overrides: Partial<FacilityIntakePageProps> = {}): FacilityIntake
   };
 }
 
+function CurrentLocation() {
+  const location = useLocation();
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+}
+
 describe("FacilityIntakePage", () => {
+  it("resolves a scanned package at the station admin-web serves under Commerce", () => {
+    render(
+      <MemoryRouter initialEntries={["/commerce/return-intake?facilityId=fac_east"]}>
+        <FacilityIntakePage {...props()} />
+        <CurrentLocation />
+      </MemoryRouter>,
+    );
+    const scan = screen.getByRole("searchbox", { name: /tracking or return shipment identifier/i });
+    fireEvent.change(scan, { target: { value: " 1Z999 " } });
+    fireEvent.submit(scan.closest("form")!);
+
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/commerce/return-intake?facilityId=fac_east&identifier=1Z999",
+    );
+  });
+
   it("renders scanner-first evidence, discrepancy, disposition, and accessibility controls", () => {
     const { container } = render(
       <MemoryRouter>

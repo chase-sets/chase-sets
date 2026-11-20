@@ -7,6 +7,7 @@ import {
   decodeListingEvidencePolicyValue,
   evaluateListingEvidencePolicy,
   LISTING_EVIDENCE_POLICY_SCHEMA_VERSION,
+  ListingEvidencePolicyError,
   listingEvidencePolicyHash,
   marketplaceListingEvidencePolicy,
   type ListingEvidenceEvaluationFacts,
@@ -310,7 +311,7 @@ async function impactPreview(
   for (;;) {
     const page = await db.query<ListingFactRow>(
       `SELECT listing.listing_id,
-              listing.catalog_item_id,
+              listing.catalog_catalog_item_id AS catalog_item_id,
               listing.product_id,
               catalog_item.blueprint_id,
               catalog_item.category_ids,
@@ -320,7 +321,7 @@ async function impactPreview(
               account.rating_count_as_seller,
               account.badges
          FROM marketplace_listing_pages listing
-         LEFT JOIN marketplace_catalog_items catalog_item ON catalog_item.catalog_item_id = listing.catalog_item_id
+         LEFT JOIN marketplace_catalog_items catalog_item ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
          LEFT JOIN marketplace_account_pages account ON account.account_id = listing.account_id
         WHERE listing.listing_id > $1
         ORDER BY listing.listing_id
@@ -361,7 +362,7 @@ export function createListingEvidencePolicyRuntime(
   async function getDocument(documentId: string) {
     const document = await deps.policies.getPolicyDocument(documentId);
     if (!document || document.policy_key !== marketplaceListingEvidencePolicy.policyKey) {
-      throw new Error("Listing Evidence Policy document was not found.");
+      throw new ListingEvidencePolicyError("Listing Evidence Policy document was not found.");
     }
     return document;
   }
@@ -479,7 +480,7 @@ export function createListingEvidencePolicyRuntime(
       const document = await getDocument(documentId);
       const draft = policyFromDocument(document);
       if (document.status !== "inactive" || !["draft", "validated"].includes(draft.lifecycle)) {
-        throw new Error("Only an inactive Listing Evidence Policy draft can be validated.");
+        throw new ListingEvidencePolicyError("Only an inactive Listing Evidence Policy draft can be validated.");
       }
       const validation = await validateValue(draft);
       if (!validation.valid) return { documentId, version: documentVersion(document), ...validation };

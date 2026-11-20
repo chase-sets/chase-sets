@@ -1,5 +1,6 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -263,7 +264,14 @@ export function createChannelConnectionRuntime(
     },
     disconnectChannelConnection: async (input, context) => {
       assertClosedRecord(input, ["accountId", "connectionId"], "disconnect input");
-      if (deps.disconnectChannelConnection) return deps.disconnectChannelConnection(input, context);
+      if (deps.disconnectChannelConnection) {
+        // The installed disconnect appends in its own transaction, outside the command handler that
+        // records Pause's and Resume's events. Record them once it has committed, so Disconnect
+        // answers the same commit receipt and a read after it waits for the disconnect.
+        const result = await deps.disconnectChannelConnection(input, context);
+        recordCommittedEvents(result.storedEvents, "channels");
+        return result;
+      }
       const loaded = await loadOwned(deps.eventStore, input.accountId, input.connectionId);
       return commandHandler({
         streamId: streamId(input.connectionId),

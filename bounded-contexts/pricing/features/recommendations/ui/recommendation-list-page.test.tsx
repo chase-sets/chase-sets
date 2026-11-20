@@ -107,6 +107,17 @@ describe("PricingRecommendationListPage", () => {
     expect(rendered.querySelector("h1")?.textContent).not.toBe(link?.textContent);
   });
 
+  it("offers Bulk reprice only while Pricing has it on", () => {
+    for (const available of [true, false]) {
+      const rendered = parse(
+        renderToString(
+          <PricingRecommendationListPage recommendations={[recommendation]} bulkRepriceAvailable={available} />,
+        ),
+      );
+      expect(Boolean(rendered.querySelector('a[href="/account/bulk-reprice"]'))).toBe(available);
+    }
+  });
+
   it("renders feed signals and flattens batch-control furniture", () => {
     const html = renderToString(<PricingRecommendationListPage recommendations={[recommendation]} />);
 
