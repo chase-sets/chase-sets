@@ -9,9 +9,14 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
+import { t } from "@chase-sets/localization";
 import { recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
 import { cardDeclineSurface, type CardDeclineStore } from "./card-decline-store";
-import type { ProviderWebhookTelemetry, ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
+import {
+  ProviderAdapterError,
+  type ProviderWebhookTelemetry,
+  type ProviderWebhookTelemetryEvent,
+} from "@chase-sets/http/provider-errors";
 import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-errors";
 import type { PaymentTransactionRunner, PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -2477,34 +2482,49 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   savePaymentMethod: providerRequest.savePaymentMethod,
                 });
       } catch (error) {
-        if (confirmationTokenId && !(error instanceof DeferredPaymentNotSent)) {
+        let decline: PaymentsDomainError | null = null;
+        let recovered: ProcessorPaymentReconciliationResult | null = null;
+        if (confirmationTokenId && error instanceof ProviderAdapterError && error.providerStatus === 402) {
+          decline = new PaymentsDomainError(error.message, "payment_declined");
+        } else if (confirmationTokenId && !(error instanceof DeferredPaymentNotSent)) {
           const found = await deps.processorGateway.retrievePaymentResultByPaymentId?.(paymentId).catch(() => null);
           if (!found || found.internalPaymentId !== paymentId || found.processorPaymentKind !== "payment-intent") {
             // Keep the source reservation and pending operation. A finite search miss is not a
             // refusal and must not clear the way for another create + confirm.
             throw new PaymentsDomainError("Payment status is not yet known.", "payment_start_ambiguous");
           }
+          if (found.outcome === "failed" || found.outcome === "cancelled") {
+            decline = new PaymentsDomainError(
+              found.failureMessage ?? t("payments.features.payments.api.runtime.payment.failed"),
+              "payment_declined",
+            );
+          } else {
+            recovered = found;
+          }
+        }
+        if (recovered) {
           processorPayment = {
-            processorName: found.processorName,
-            processorPaymentKind: found.processorPaymentKind,
-            processorPaymentReference: found.processorPaymentReference,
+            processorName: recovered.processorName,
+            processorPaymentKind: recovered.processorPaymentKind,
+            processorPaymentReference: recovered.processorPaymentReference,
             processorClientSecret: null,
-            processorRedirectUrl: found.processorRedirectUrl ?? null,
-            processorStatus: found.processorStatus,
+            processorRedirectUrl: recovered.processorRedirectUrl ?? null,
+            processorStatus: recovered.processorStatus,
           };
         } else {
+          const failure = decline ?? error;
           await recordPaymentProviderOperationFailed(deps.db, {
             operationKey: providerOperationKey,
-            errorMessage: error instanceof Error ? error.message : "Payment processor session creation failed.",
+            errorMessage: failure instanceof Error ? failure.message : "Payment processor session creation failed.",
           });
           await markPaymentCreationReservationInactive(deps.db, { paymentId, status: "failed" });
-          if (error instanceof DeferredPaymentNotSent && compareMoney(balanceCreditAmount, "0.00") > 0) {
+          if ((decline || error instanceof DeferredPaymentNotSent) && compareMoney(balanceCreditAmount, "0.00") > 0) {
             await deps.balanceCreditResolver?.releaseSpendHold?.(
               { paymentId, buyerAccountId: accountId, reason: "payment-cancelled" },
               context,
             );
           }
-          throw error;
+          throw failure;
         }
       }
 

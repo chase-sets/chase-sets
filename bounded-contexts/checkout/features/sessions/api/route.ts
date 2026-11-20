@@ -124,12 +124,9 @@ function errorCode(error: unknown) {
     return error.code;
   }
 
-  const body = errorBody(error);
-  if (body?.error?.code === "account_sign_in_required") {
-    return "account_sign_in_required";
-  }
-  if (body?.error?.code === "payment_start_ambiguous") {
-    return "payment_start_ambiguous";
+  const code = errorBody(error)?.error?.code;
+  if (code === "account_sign_in_required" || code === "payment_start_ambiguous" || code === "payment_declined") {
+    return code;
   }
   return "validation_failed";
 }

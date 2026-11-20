@@ -1927,6 +1927,34 @@ describe("checkout session routes", () => {
     expect(emitted).not.toContain("ctoken_");
   });
 
+  it("passes a deferred decline through as a retryable 400 without recording a payment", async () => {
+    const error = { code: "payment_declined", message: "Your card was declined." };
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingApiWriteResult,
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
+      Object.assign(new Error(error.message), { status: 400, body: { error } }),
+    );
+    const services = createServices();
+    const response = await buildApp(services).fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          confirmationTokenId: "ctoken_fixture",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error });
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("records successful checkout holds before returning line-level reservation failures", async () => {
     const reservation = {
       holdId: "hld_checkout_1",

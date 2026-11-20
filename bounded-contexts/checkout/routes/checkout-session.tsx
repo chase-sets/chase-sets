@@ -1219,6 +1219,14 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         }
 
         if (
+          error instanceof CheckoutApiError &&
+          error.status === 400 &&
+          readApiErrorCode(error.body) === "payment_declined"
+        ) {
+          return { error: readApiErrorMessage(error.body, error.message) };
+        }
+
+        if (
           isPaymentConfirmationTokenId(confirmationTokenId) &&
           (isConfirmPossibleSendLoss(error) ||
             (error instanceof CheckoutApiError && readApiErrorCode(error.body) === "payment_start_ambiguous"))

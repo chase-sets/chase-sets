@@ -215,6 +215,19 @@ describe("checkout web routes: checkout session action", () => {
       expect((result as Response).headers.has("X-Remix-Reload-Document")).toBe(true);
     });
 
+    it("shows a declined new card as a retryable error without looking up payment start", async () => {
+      const message = "Your card was declined.";
+      const read = vi.fn(async () => ({ state: "ambiguous" }));
+      mockCreatePaymentsRequestApiClient.mockReturnValue({ getCheckoutPaymentStart: read });
+      mockConfirmCheckoutSession.mockRejectedValue(
+        new MockCheckoutApiError(400, { error: { code: "payment_declined", message } }),
+      );
+
+      expect(await post({ confirmationTokenId: "ctoken_fixture" })).toEqual({ error: message });
+      expect(read).not.toHaveBeenCalled();
+      expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);
+    });
+
     it.each([
       ["possible send does not resend", { state: "ambiguous" }],
       ["recorded payment reuses identity", { state: "recorded", paymentId: "pay_first" }],
