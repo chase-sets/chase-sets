@@ -962,10 +962,14 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
 }
 
 /// Customer Feedback's CSAT dashboard: a 7-day window with too few answers, a 30-day one with
-/// figures, one trend bucket, one invitation and both pages; a `to` in the future is answered 500,
-/// as the API does (chase-sets/chase-sets#10844).
+/// figures, one trend bucket, one invitation and both pages; a `to` in the future is refused as
+/// the API refuses it (400 `validation_failed`, `range-after-as-of`), and the expired state fails.
 fn csat_dashboard(query: &str) -> Response {
     if query.contains("to=2099") {
+        let body = json!({ "error": { "code": "validation_failed", "reason": "range-after-as-of", "message": "CSAT trendTo cannot be after asOf." } });
+        return (StatusCode::BAD_REQUEST, Json(body)).into_response();
+    }
+    if query.contains("states=expired") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
     }
     let slice = |csat: Value, availability: &str| {
@@ -6097,10 +6101,24 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
 #[tokio::test]
 async fn a_csat_read_that_fails_keeps_the_filters_on_the_page_with_a_banner() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    let (status, _, html) = pilot.send(get("/support/csat?from=2026-10-01&states=expired", Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
-    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2099-01-01""#), "{html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2026-10-01""#), "{html}");
+    assert!(html.contains(r#"<option value="expired" selected>Expired</option>"#), "{html}");
+    assert!(!html.contains("These filters can&#39;t be applied") && !html.contains("These filters can't be applied"), "{html}");
+}
+
+#[tokio::test]
+async fn a_csat_filter_the_api_refuses_keeps_the_filters_and_says_why() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{html}");
+    assert!(html.contains(r#"value="2099-01-01""#), "{html}");
     assert!(html.contains(r#"<option value="issued" selected>Issued</option>"#), "{html}");
+    let alert = html.split(r#"role="alert">"#).nth(1).unwrap_or_default();
+    assert!(alert.contains("These filters can") && alert.contains("The To date can"), "{html}");
+    assert!(alert.contains("be later than today."), "{html}");
+    assert_eq!(html.matches(r#"role="alert""#).count(), 1, "one alert, the reason: {html}");
 }
 
 const FEEDBACK: &str = "/api/experience/platform-feedback";

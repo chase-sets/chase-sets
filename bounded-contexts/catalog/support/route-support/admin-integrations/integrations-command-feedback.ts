@@ -71,6 +71,11 @@ function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryW
     value === "profile-deprecated" ||
     value === "profile-retired" ||
     value === "section-saved" ||
+    value === "refresh-paused" ||
+    value === "refresh-resumed" ||
+    value === "refresh-ran" ||
+    value === "refresh-skipped" ||
+    value === "refresh-run-failed" ||
     value === "section-conflict" ||
     value === "section-invalid" ||
     value === "lifecycle-conflict" ||

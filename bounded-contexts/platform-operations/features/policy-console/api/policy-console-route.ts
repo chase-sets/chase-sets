@@ -1,6 +1,17 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import { getPolicyDocument, listActivePolicyDocuments, listPolicyRegistry } from "@chase-sets/platform-policy/queries";
+import { buildCreatePolicyDocumentCommand } from "@chase-sets/platform-policy/commands";
+import {
+  decidePolicyDocument,
+  initialPolicyDocumentState,
+  PlatformPolicyDomainError,
+} from "@chase-sets/platform-policy/domain";
+import {
+  findOverlappingActivePolicyDocument,
+  getPolicyDocument,
+  listActivePolicyDocuments,
+  listPolicyRegistry,
+} from "@chase-sets/platform-policy/queries";
 import type { PlatformOperationsApiEnv } from "../../../api";
 import type {
   CreatePolicyConsoleRevisionRequest,
@@ -297,7 +308,48 @@ async function loadOverview(entry: PolicyConsoleEntry): Promise<PolicyConsoleOve
  * reuse the owning context's own `PolicyRuntime`, so both go through its
  * bounds validation (`definition.decodeValue`) and its overlap check
  * (`assertNoActiveOverlap`) unchanged.
+ *
+ * The two steps are separate appends, so the scheduled document is checked
+ * before the current window is closed: a refused revision must leave the
+ * policy in effect as it was. If the create still fails after the close (a
+ * concurrent write), the current window is restored before the error is
+ * returned.
  */
+/**
+ * Runs the scheduled document's create decision (bounds, window, status) and
+ * its active-overlap check without writing. The current document is excluded
+ * from the overlap check because its window is about to end where the
+ * scheduled one starts.
+ */
+async function assertScheduledRevisionAccepted(
+  entry: PolicyConsoleEntry,
+  scheduled: Readonly<{
+    value: CreatePolicyConsoleRevisionRequest["value"];
+    status: CreatePolicyConsoleRevisionRequest["status"];
+    effectiveFrom: string;
+    effectiveUntil: string | null;
+    actorUserId: string;
+  }>,
+  currentDocumentId: string,
+) {
+  decidePolicyDocument(
+    initialPolicyDocumentState,
+    buildCreatePolicyDocumentCommand(entry.definition, { ...scheduled, documentId: "pol_scheduled_check" }),
+  );
+  if (scheduled.status !== "active") return;
+  const overlap = await findOverlappingActivePolicyDocument(entry.db, {
+    policyKey: entry.definition.policyKey,
+    effectiveFrom: scheduled.effectiveFrom,
+    effectiveUntil: scheduled.effectiveUntil,
+    excludeDocumentId: currentDocumentId,
+  });
+  if (overlap) {
+    throw new PlatformPolicyDomainError(
+      `Active policy document ${overlap.document_id} already covers policy '${entry.definition.policyKey}' for that effective window.`,
+    );
+  }
+}
+
 async function createScheduledOrImmediateRevision(
   entry: PolicyConsoleEntry,
   body: CreatePolicyConsoleRevisionRequest,
@@ -308,29 +360,39 @@ async function createScheduledOrImmediateRevision(
   const isFutureDated = Date.parse(body.effectiveFrom) > Date.now();
 
   if (isFutureDated && resolved.source === "policy" && resolved.documentId && resolved.effectiveFrom) {
+    const scheduled = {
+      value: body.value,
+      status: body.status,
+      effectiveFrom: body.effectiveFrom,
+      effectiveUntil: body.effectiveUntil,
+      actorUserId,
+    };
+    await assertScheduledRevisionAccepted(entry, scheduled, resolved.documentId);
+    const currentWindow = (effectiveUntil: string | null) => ({
+      value: resolved.value,
+      status: "active" as const,
+      effectiveFrom: resolved.effectiveFrom as string,
+      effectiveUntil,
+      actorUserId,
+    });
     await entry.write.revisePolicyDocument(
       entry.definition,
       resolved.documentId,
-      {
-        value: resolved.value,
-        status: "active",
-        effectiveFrom: resolved.effectiveFrom,
-        effectiveUntil: body.effectiveFrom,
-        actorUserId,
-      },
+      currentWindow(body.effectiveFrom),
       context,
     );
-    const created = await entry.write.createPolicyDocument(
-      entry.definition,
-      {
-        value: body.value,
-        status: body.status,
-        effectiveFrom: body.effectiveFrom,
-        effectiveUntil: body.effectiveUntil,
-        actorUserId,
-      },
-      context,
-    );
+    let created: Awaited<ReturnType<typeof entry.write.createPolicyDocument>>;
+    try {
+      created = await entry.write.createPolicyDocument(entry.definition, scheduled, context);
+    } catch (error) {
+      await entry.write.revisePolicyDocument(
+        entry.definition,
+        resolved.documentId,
+        currentWindow(resolved.effectiveUntil),
+        context,
+      );
+      throw error;
+    }
     return { id: created.documentId, version: created.version, scheduled: true };
   }
 

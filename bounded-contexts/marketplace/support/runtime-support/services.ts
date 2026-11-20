@@ -108,7 +108,7 @@ export function createMarketplaceServices(
   const db = pool as PgQueryable;
   const commercialTermsResolver = options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db);
   const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
-  const policies = createPolicyRuntime({ eventStore, db });
+  const policies = createPolicyRuntime({ eventStore, db, commitSourceContextName: "marketplace" });
   const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
   const deps = {
     ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),

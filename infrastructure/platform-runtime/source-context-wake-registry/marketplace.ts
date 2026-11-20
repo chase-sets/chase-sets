@@ -52,6 +52,7 @@ export const marketplaceWakeRegistryEntry = registryEntry({
     "marketplace.listing-availability-self-refresh",
     "marketplace.listing-create-from-list-to-detail",
     "marketplace.listing-create-to-detail",
+    "marketplace.listing-evidence-policy-write-to-overview",
     "marketplace.listing-fee-lock-self-refresh",
     "marketplace.listing-inventory-self-refresh",
     "marketplace.listing-list-self-refresh",

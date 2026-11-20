@@ -379,4 +379,97 @@ describe("policy console routes", () => {
     expect(body.error.code).toBe("validation_failed");
     expect(body.error.message).toContain("between 0 and 30");
   });
+
+  describe("a refused future-dated revision", () => {
+    const currentPolicy = () =>
+      vi.fn(async () => ({
+        policyKey: testPolicy.policyKey,
+        value: { maxDays: 2 },
+        source: "policy" as const,
+        documentId: "pol_current",
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: null,
+        resolvedAt: new Date().toISOString(),
+      }));
+
+    async function postFuture(entry: PolicyConsoleEntry, value: unknown) {
+      const app = createApp([entry], ["platform-policy.manage"]);
+      return app.request(`/${testPolicy.policyKey}/revisions`, {
+        method: "POST",
+        body: JSON.stringify({
+          value,
+          status: "active",
+          effectiveFrom: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    it("leaves the current window open when the value is outside the policy's bounds", async () => {
+      const revisePolicyDocument = vi.fn(async () => ({ documentId: "pol_current", version: 2 }));
+      const createPolicyDocument = vi.fn(async () => ({ documentId: "pol_scheduled", version: 1 }));
+      const entry = buildEntry({
+        write: { resolvePolicy: currentPolicy(), revisePolicyDocument, createPolicyDocument },
+      });
+
+      const response = await postFuture(entry, { maxDays: 999 });
+
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error: { message: string } };
+      expect(body.error.message).toContain("between 0 and 30");
+      expect(revisePolicyDocument).not.toHaveBeenCalled();
+      expect(createPolicyDocument).not.toHaveBeenCalled();
+    });
+
+    it("leaves the current window open when another active document covers the scheduled window", async () => {
+      const db = createQueryableDb({});
+      const baseQuery = db.query.getMockImplementation()!;
+      db.query.mockImplementation(async (sql: string, values?: unknown) => {
+        if (/^\s*SELECT document_id\s+FROM platform_policy_documents/.test(sql)) {
+          expect(values).toContain("pol_current");
+          return { rows: [{ document_id: "pol_other" }] };
+        }
+        return baseQuery(sql);
+      });
+      const revisePolicyDocument = vi.fn(async () => ({ documentId: "pol_current", version: 2 }));
+      const createPolicyDocument = vi.fn(async () => ({ documentId: "pol_scheduled", version: 1 }));
+      const entry = buildEntry({
+        db,
+        write: { resolvePolicy: currentPolicy(), revisePolicyDocument, createPolicyDocument },
+      });
+
+      const response = await postFuture(entry, { maxDays: 6 });
+
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error: { message: string } };
+      expect(body.error.message).toContain("pol_other");
+      expect(revisePolicyDocument).not.toHaveBeenCalled();
+      expect(createPolicyDocument).not.toHaveBeenCalled();
+    });
+
+    it("restores the current window when the scheduled document cannot be created after the close", async () => {
+      const revisePolicyDocument = vi.fn(async () => ({ documentId: "pol_current", version: 2 }));
+      const createPolicyDocument = vi.fn(async () => {
+        throw new Error("Active policy document pol_raced already covers policy for that effective window.");
+      });
+      const entry = buildEntry({
+        write: { resolvePolicy: currentPolicy(), revisePolicyDocument, createPolicyDocument },
+      });
+
+      const response = await postFuture(entry, { maxDays: 6 });
+
+      expect(response.status).toBe(400);
+      expect(revisePolicyDocument).toHaveBeenCalledTimes(2);
+      expect(revisePolicyDocument).toHaveBeenLastCalledWith(
+        testPolicy,
+        "pol_current",
+        expect.objectContaining({
+          value: { maxDays: 2 },
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+          effectiveUntil: null,
+        }),
+        context,
+      );
+    });
+  });
 });
