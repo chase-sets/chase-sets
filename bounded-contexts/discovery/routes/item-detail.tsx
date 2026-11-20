@@ -2,9 +2,9 @@ import { t } from "@chase-sets/localization";
 import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
 import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 import { MutationFormProvider } from "../support/ui-support/mutation-form";
-import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ClientLoaderFunctionArgs, MetaFunction } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -147,6 +147,33 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
 ];
 
+type ItemDetailLoad = {
+  signal: AbortSignal;
+  itemId?: string;
+  offerPatches: RealtimeProjectionPatch[];
+};
+
+const itemDetailLoadStarts = new Set<(load: ItemDetailLoad) => void>();
+const itemDetailLoads = new WeakMap<DiscoveryItemDetailRouteData, ItemDetailLoad>();
+
+export async function clientLoader({ request, serverLoader }: ClientLoaderFunctionArgs) {
+  const load: ItemDetailLoad = { signal: request.signal, offerPatches: [] };
+  if (!load.signal.aborted) {
+    load.signal.addEventListener(
+      "abort",
+      () => {
+        load.offerPatches.length = 0;
+      },
+      { once: true },
+    );
+    for (const start of itemDetailLoadStarts) start(load);
+  }
+  // Bind the buffer to this response, even when its public book equals a prior one.
+  const data = { ...(await serverLoader<typeof loader>()) };
+  if (!load.signal.aborted) itemDetailLoads.set(data, load);
+  return data;
+}
+
 export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<DiscoveryItemDetailActionData>();
@@ -171,62 +198,59 @@ export default function DiscoveryItemDetailRoute() {
   );
 }
 
-function useItemDetailRealtime(item: DiscoveryItemDetail | null, hasViewer: boolean) {
-  const revalidationState = useRevalidator().state;
-  const navigationState = useNavigation().state;
-  const loading = revalidationState === "loading" || navigationState === "loading";
-  const loadingRef = useRef(loading);
-  loadingRef.current = loading;
-  const revalidate = useDiscoveryRealtimeRevalidation();
-  const reload = useCallback(() => {
-    loadingRef.current = true;
-    revalidate();
-  }, [revalidate]);
-  const itemId = item?.catalog_item_id;
-  const loaderKey = useMemo(() => JSON.stringify(item), [item]);
-  const [state, setState] = useState<{
-    loaderKey: string;
-    visibleItem: DiscoveryItemRealtimeSnapshot | null;
-    overlappingOfferPatches: readonly RealtimeProjectionPatch[];
-  }>(() => ({
-    loaderKey,
-    visibleItem: item,
-    overlappingOfferPatches: [],
-  }));
+function reconcileLoadedItem(data: DiscoveryItemDetailRouteData) {
+  const load = itemDetailLoads.get(data);
+  if (!load || load.itemId !== data.item?.catalog_item_id) return data.item;
+  return load.offerPatches.reduce<DiscoveryItemRealtimeSnapshot | null>(applyDiscoveryItemPatch, data.item);
+}
+
+function useItemDetailRealtime(data: DiscoveryItemDetailRouteData) {
+  const reload = useDiscoveryRealtimeRevalidation();
+  const itemId = data.item?.catalog_item_id;
+  const hasViewer = Boolean(data.viewerAccountId);
+  const pendingLoad = useRef<ItemDetailLoad | null>(null);
+  const [state, setState] = useState(() => ({ data, visibleItem: reconcileLoadedItem(data) }));
 
   let visibleItem = state.visibleItem;
-  if (state.loaderKey !== loaderKey || (!loading && state.overlappingOfferPatches.length > 0)) {
-    // The response can predate patches received while it was loading. Replaying
-    // removals also preserves the IDs used to filter the private seller overlay.
-    if (state.loaderKey !== loaderKey) {
-      visibleItem = state.overlappingOfferPatches.reduce<DiscoveryItemRealtimeSnapshot | null>(
-        applyDiscoveryItemPatch,
-        item,
-      );
-    }
-    setState({ loaderKey, visibleItem, overlappingOfferPatches: [] });
+  if (state.data !== data) {
+    visibleItem = reconcileLoadedItem(data);
+    setState({ data, visibleItem });
   }
+
+  useLayoutEffect(() => {
+    // Keep recording until this response is visible, including between the
+    // loader resolving and React committing the snapshot.
+    if (itemDetailLoads.get(data) === pendingLoad.current) pendingLoad.current = null;
+  }, [data]);
 
   useEffect(() => {
     if (!itemId) return;
+    const start = (load: ItemDetailLoad) => {
+      load.itemId = itemId;
+      pendingLoad.current = load;
+    };
+    itemDetailLoadStarts.add(start);
     const subscription = subscribeRealtimePatches({
       topics: discoveryRealtimeRouteTopics.itemDetail(itemId).topics,
       onPatch: (patch) => {
         const offerChanges = patch.changes.filter((change) => change.entity === "discovery.buyerOffer");
-        const overlapping = loadingRef.current && offerChanges.length > 0;
+        const load = pendingLoad.current;
+        if (load && !load.signal.aborted && offerChanges.length > 0) {
+          load.offerPatches.push({ ...patch, changes: offerChanges });
+        }
         setState((current) => ({
           ...current,
           visibleItem: applyDiscoveryItemPatch(current.visibleItem, patch),
-          overlappingOfferPatches: overlapping
-            ? [...current.overlappingOfferPatches, { ...patch, changes: offerChanges }]
-            : current.overlappingOfferPatches,
         }));
         // Public patches do not carry the seller's account-scoped terms.
         if (hasViewer && offerChanges.some((change) => change.op === "upsert")) reload();
       },
       onSyncRequired: reload,
     });
-    return () => subscription.close();
+    return () => {
+      itemDetailLoadStarts.delete(start);
+      subscription.close();
+    };
   }, [hasViewer, itemId, reload]);
 
   return visibleItem;
@@ -240,7 +264,7 @@ function DiscoveryItemDetailRealtimeView({
   actionData: DiscoveryItemDetailActionData;
 }) {
   const actionErrorMessage = getActionErrorMessage(actionData);
-  const realtimeItem = useItemDetailRealtime(data.item, Boolean(data.viewerAccountId));
+  const realtimeItem = useItemDetailRealtime(data);
   const productJsonLd = realtimeItem
     ? buildItemDetailProductJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
     : null;
