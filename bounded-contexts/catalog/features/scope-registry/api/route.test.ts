@@ -34,13 +34,14 @@ function paldeanFatesRow(overrides: Partial<CatalogScopeRecordRow> = {}): Catalo
 function buildApp(
   services: CatalogScopeRegistryRouteServices,
   actor: CatalogAuthoringEnv["Variables"]["actor"] | null,
+  getAliasReview?: Parameters<typeof catalogScopeRegistryRoutes>[1],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", actor);
     await next();
   });
-  app.route("/scope-records", catalogScopeRegistryRoutes(services));
+  app.route("/scope-records", catalogScopeRegistryRoutes(services, getAliasReview));
   return app;
 }
 
@@ -112,6 +113,82 @@ describe("Catalog scope registry route", () => {
     const app = buildApp({ getScopeRecord, listScopeRecords: vi.fn() }, { permissions: [] });
 
     const response = await app.request("/scope-records/ref_expansion_paldean_fates");
+
+    expect(response.status).toBe(403);
+    expect(getScopeRecord).not.toHaveBeenCalled();
+  });
+});
+
+describe("Catalog scope registry journey route", () => {
+  const pendingJapaneseAlias = {
+    aliasHash: "hash_ja",
+    targetKind: "reference-record",
+    targetId: "ref_expansion_paldean_fates",
+    aliasLanguageCode: "ja",
+    reviewStatus: "pending",
+  };
+
+  it("returns the scope with its language editions and journey, read from its Reference Record's aliases", async () => {
+    const getScopeRecord = vi.fn().mockResolvedValue(paldeanFatesRow());
+    const getAliasReview = vi.fn().mockResolvedValue({ candidates: [pendingJapaneseAlias] });
+    const app = buildApp({ getScopeRecord, listScopeRecords: vi.fn() }, viewActor, getAliasReview);
+
+    const response = await app.request("/scope-records/ref_expansion_paldean_fates/journey");
+
+    expect(response.status).toBe(200);
+    expect(getScopeRecord).toHaveBeenCalledWith("ref_expansion_paldean_fates");
+    expect(getAliasReview).toHaveBeenCalledExactlyOnceWith({
+      generatedAt: expect.any(String),
+      filter: { targetKind: "reference-record", targetId: "ref_expansion_paldean_fates" },
+    });
+    const body = await response.json();
+    expect(body.scope.officialSetCode).toBe("PAF");
+    expect(body.languageEditionReviewFailed).toBe(false);
+    expect(
+      body.languageEditions.editions.map((edition: { languageCode: string; linkState: string }) => [
+        edition.languageCode,
+        edition.linkState,
+      ]),
+    ).toEqual([
+      ["en", "linked"],
+      ["ja", "pending-review"],
+    ]);
+    expect(body.overview.condition).toBe("conflict");
+    expect(body.overview.stages).toContainEqual({ key: "candidates", status: "current" });
+  });
+
+  it("reports a failed alias review instead of failing the read", async () => {
+    const getScopeRecord = vi.fn().mockResolvedValue(paldeanFatesRow());
+    const getAliasReview = vi.fn().mockRejectedValue(new Error("alias review down"));
+    const app = buildApp({ getScopeRecord, listScopeRecords: vi.fn() }, viewActor, getAliasReview);
+
+    const response = await app.request("/scope-records/ref_expansion_paldean_fates/journey");
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.languageEditionReviewFailed).toBe(true);
+    expect(body.overview.condition).toBe("partial-failure");
+  });
+
+  it("returns 404 when the scope record does not exist", async () => {
+    const getAliasReview = vi.fn();
+    const app = buildApp(
+      { getScopeRecord: vi.fn().mockResolvedValue(null), listScopeRecords: vi.fn() },
+      viewActor,
+      getAliasReview,
+    );
+
+    const response = await app.request("/scope-records/ref_missing/journey");
+
+    expect(response.status).toBe(404);
+    expect(getAliasReview).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when the actor lacks catalog.view", async () => {
+    const getScopeRecord = vi.fn();
+    const app = buildApp({ getScopeRecord, listScopeRecords: vi.fn() }, { permissions: [] }, vi.fn());
+
+    const response = await app.request("/scope-records/ref_expansion_paldean_fates/journey");
 
     expect(response.status).toBe(403);
     expect(getScopeRecord).not.toHaveBeenCalled();

@@ -1884,12 +1884,45 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         json!({ "jobId": id, "kind": kind, "status": status, "progress": { "completed": 1, "total": 2 },
                 "result": result, "errorMessage": error })
     };
+    let pending_ja = json!({
+        "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
+        "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
+        "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
+        "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
+    });
+    // The scope as `/scope-records/{id}/journey` answers it: `stages` the five stages' statuses in
+    // order, the editions drawn as the API composed them.
+    let journey = |scope: Value, editions: Value, condition: &str, stages: [&str; 5], pending: usize| {
+        let count = scope["languageEditions"].as_array().map_or(0, Vec::len);
+        let keys = ["coverage", "sync", "jobs", "candidates", "promotion"];
+        let stages: Vec<Value> = keys.iter().zip(stages).map(|(k, s)| json!({ "key": k, "status": s })).collect();
+        json!({ "generatedAt": "2026-11-04T12:00:00.000Z", "languageEditions": editions,
+                "languageEditionReviewFailed": false,
+                "overview": { "scopeRecordId": scope["scopeRecordId"], "condition": condition, "stages": stages,
+                              "editionCount": count, "linkedEditionCount": count - pending.min(count),
+                              "pendingCandidateCount": pending, "promotionReadiness": scope["promotionReadiness"],
+                              "syncFreshness": scope["syncFreshness"] },
+                "scope": scope })
+    };
     let rest = path.strip_prefix(CATALOG)?;
     let answer = match (method.clone(), rest) {
-        (Method::GET, "/scope-records/scp_paf") => Json(scope("scp_paf", &["en", "ja"], "draft")).into_response(),
-        (Method::GET, "/scope-records/scp_one") => Json(scope("scp_one", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_down") => Json(scope("scp_down", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_gone") => refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found."),
+        (Method::GET, "/scope-records/scp_paf/journey") => {
+            let editions = json!({ "scopeRecordId": "scp_paf", "referenceRecordId": "ref_scp_paf", "editions": [
+                { "languageCode": "en", "isCanonical": true, "linkState": "linked", "acceptedAliasCount": 0,
+                  "pendingCandidates": [], "acceptedCandidates": [] },
+                { "languageCode": "ja", "isCanonical": false, "linkState": "pending-review", "acceptedAliasCount": 0,
+                  "pendingCandidates": [pending_ja], "acceptedCandidates": [] },
+            ] });
+            let stages = ["complete", "complete", "complete", "current", "upcoming"];
+            Json(journey(scope("scp_paf", &["en", "ja"], "draft"), editions, "conflict", stages, 1)).into_response()
+        }
+        (Method::GET, path @ ("/scope-records/scp_one/journey" | "/scope-records/scp_down/journey")) => {
+            let id = path.trim_start_matches("/scope-records/").trim_end_matches("/journey");
+            Json(journey(scope(id, &["en"], "active"), Value::Null, "ready", ["complete"; 5], 0)).into_response()
+        }
+        (Method::GET, "/scope-records/scp_gone/journey") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found.")
+        }
         (Method::GET, "/provider-scope-mappings/coverage/scp_down") | (Method::GET, "/source-observations/bulk-jobs/active")
             if query.contains("scp_down") || rest.ends_with("scp_down") =>
         {
@@ -1943,13 +1976,7 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         (Method::GET, "/source-observations/bulk-jobs/active" | "/source-observations/merge-candidate-bulk-jobs/failed") => {
             Json(json!({ "items": [] })).into_response()
         }
-        (Method::GET, "/alias-review") => Json(json!({ "candidates": [{
-            "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
-            "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
-            "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
-            "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
-        }] }))
-        .into_response(),
+        (Method::GET, "/alias-review") => Json(json!({ "candidates": [pending_ja] })).into_response(),
         (Method::POST, "/provider-scope-mappings/commands" | "/provider-scope-mappings/propose") if body.contains("refuse") => {
             refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "The mapping moved meanwhile.")
         }
@@ -4586,15 +4613,15 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.catalog_calls().into_iter().map(|c| c.path).collect();
     for path in [
-        "/api/catalog/scope-records/scp_paf",
+        "/api/catalog/scope-records/scp_paf/journey",
         "/api/catalog/provider-scope-mappings/coverage/scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf&status=completed",
         "/api/catalog/source-observations/merge-candidate-bulk-jobs/failed?scopeRecordId=scp_paf",
-        "/api/catalog/alias-review?targetKind=reference-record&targetId=ref_scp_paf",
     ] {
         assert!(calls.iter().any(|c| c == path), "{path} in {calls:?}");
     }
+    assert!(!calls.iter().any(|c| c.contains("alias-review")), "the API reads the editions' aliases: {calls:?}");
     assert!(html.contains("Paldean Fates") && html.contains(r#"href="/catalog/scopes""#), "{html}");
     // The journey: a pending Japanese alias is a conflict.
     assert!(html.contains(r#"data-status="current""#), "{html}");
@@ -4820,7 +4847,7 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_one", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "one edition has nothing to review");
+    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "the API reads the editions' aliases");
     assert!(!html.contains("scope-editions"), "{html}");
 
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_down", Some("staff"))).await;
