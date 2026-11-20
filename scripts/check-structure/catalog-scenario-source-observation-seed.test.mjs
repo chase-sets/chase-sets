@@ -50,7 +50,7 @@ describe("catalog scenario Source Observation seed boundary", () => {
     }
     expect(composition).toContain('const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");');
     expect(composition).toMatch(
-      /if \(shouldSeedScenarioData\) \{\s*await seedCatalogScenarioData\(pool, authoring\);\s*\}/,
+      /if \(shouldSeedScenarioData\) \{\s*await seedCatalogScenarioData\(pool, services, authoring\);\s*\}/,
     );
     expect(composition.split("seedCatalogScenarioData(")).toHaveLength(3);
   });
