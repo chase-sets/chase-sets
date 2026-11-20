@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { PolicyConsoleOverview } from "../api/contracts";
 import { PolicyConsoleDetailPage } from "./policy-console-detail-page";
@@ -39,6 +39,15 @@ const history = [
   },
 ];
 
+// The operator reads the page in Chicago.
+const zone = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = "America/Chicago";
+});
+afterAll(() => {
+  process.env.TZ = zone;
+});
+
 describe("policy console detail page", () => {
   afterEach(() => {
     cleanup();
@@ -61,5 +70,22 @@ describe("policy console detail page", () => {
 
     expect(screen.getByRole("button", { name: /save revision/i })).toBeTruthy();
     expect(screen.getByText("Bounds violated.")).toBeTruthy();
+  });
+
+  it("writes effective and recorded times in the operator's zone, not raw ISO text", () => {
+    render(<PolicyConsoleDetailPage overview={overview} history={history} canManage={false} />);
+
+    expect(screen.getByText("Scheduled for Jul 31, 2026, 7:00 PM CDT")).toBeTruthy();
+    expect(screen.getAllByText("Apr 30, 2026, 7:00 PM CDT").length).toBeGreaterThan(0);
+    expect(screen.queryByText("2026-05-01T00:00:00.000Z")).toBeNull();
+  });
+
+  it("takes each effective time as the instant the operator's browser read", () => {
+    const { container } = render(<PolicyConsoleDetailPage overview={overview} history={history} canManage />);
+
+    for (const name of ["effectiveFrom", "effectiveUntil"]) {
+      expect(container.querySelector<HTMLInputElement>(`input[name="${name}Local"]`)?.type).toBe("datetime-local");
+      expect(container.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.type).toBe("hidden");
+    }
   });
 });
