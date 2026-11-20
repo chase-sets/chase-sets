@@ -1039,6 +1039,81 @@ describe("source observation runtime: provider integration jobs", () => {
     );
   });
 
+  it.each([true, false])(
+    "reconciles Time Spiral candidates only while the import claim renews: %s",
+    async (canRenew) => {
+      const unitKey = "mtgjson:mtg:single-card:reference-data";
+      const harness = createIntegrationJobClaimHandoffHarness({
+        scope: {
+          provider: "mtgjson",
+          profileKey: "mtg-card-reference-data",
+          ingestionUnitKey: unitKey,
+          setId: "TSP",
+          setName: "Time Spiral",
+        },
+        syncRunId: "job_sync_time_spiral",
+        acceptedScopeRecordId: "scope_time_spiral",
+        acceptedUnitKey: unitKey,
+        renewSucceeds: true,
+      });
+      const query = harness.deps.db.query;
+      const claimTtlMs = 120_000;
+      let claimDeadline = 0;
+      let foundCandidates = false;
+      let markCandidateRead!: () => void;
+      const candidateRead = new Promise<void>((resolve) => (markCandidateRead = resolve));
+      let resumeRead!: () => void;
+      const readResumed = new Promise<void>((resolve) => (resumeRead = resolve));
+      const db: CatalogRuntimeDeps["db"] = {
+        query: async <Row>(sql: string, params: readonly unknown[] = []) => {
+          if (sql.includes("SELECT candidate_id") && sql.includes("FROM catalog_merge_candidates")) {
+            foundCandidates = true;
+            claimDeadline = Date.now() + claimTtlMs;
+            markCandidateRead();
+            await readResumed;
+          }
+          if (foundCandidates && sql.includes("UPDATE catalog_source_observation_integration_durable_jobs")) {
+            if (Date.now() >= claimDeadline) return { rowCount: 0, rows: [] as Row[] };
+            if (sql.includes("SET claimed_until")) {
+              if (!canRenew) return { rowCount: 0, rows: [] as Row[] };
+              claimDeadline = Date.now() + claimTtlMs;
+            }
+          }
+          return query<Row>(sql, params);
+        },
+      };
+      const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(mtgjsonFetch());
+      vi.useFakeTimers();
+      const services = createSourceObservationRuntime(
+        { ...harness.deps, db },
+        {} as CatalogItemServices,
+        harness.referenceData,
+      );
+      const turn = services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs });
+      try {
+        await Promise.race([candidateRead, turn]);
+        expect(foundCandidates, JSON.stringify(harness.appendedSourceEvents[0]?.payload.normalized)).toBe(true);
+        await vi.advanceTimersByTimeAsync(claimTtlMs + 5_000);
+        resumeRead();
+        await expect(turn).resolves.toBe(canRenew ? 1 : 0);
+        await vi.advanceTimersByTimeAsync(0);
+        const writes = harness.appendedSourceEvents.map(({ eventType }) => eventType);
+        if (canRenew) {
+          expect(harness.job).toMatchObject({ status: "completed", result: { imported: 1, failed: 0 } });
+          expect(writes).toContain("catalog.merge-candidate.created");
+        } else {
+          expect(harness.job).toMatchObject({ status: "running", result: null, error_message: null });
+          expect(writes).toEqual(["catalog.source-observation.recorded"]);
+        }
+      } finally {
+        resumeRead();
+        await turn.catch(() => undefined);
+        vi.useRealTimers();
+        fetch.mockRestore();
+      }
+    },
+  );
+
   it.each([
     ["complete", null, null],
     ["missing-member", null, null],
