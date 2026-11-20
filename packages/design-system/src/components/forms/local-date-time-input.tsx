@@ -50,6 +50,11 @@ export function instantToLocalDateTime(instant: string): string {
   )}:${pad(date.getMinutes())}`;
 }
 
+function isoInstant(value: string | null): string {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.toISOString() : "";
+}
+
 export interface LocalDateTimeInputProps extends Omit<
   TextInputProps,
   "type" | "name" | "value" | "defaultValue" | "onChange"
@@ -74,7 +79,8 @@ export const LocalDateTimeInput = forwardRef<HTMLInputElement, LocalDateTimeInpu
   ref,
 ) {
   const [local, setLocal] = useState("");
-  const [instant, setInstant] = useState(defaultInstant ?? "");
+  // A saved time may come as database text ("2026-11-10 09:00:00+00"); it is sent back as ISO UTC.
+  const [instant, setInstant] = useState(() => isoInstant(defaultInstant));
   const hydrated = useRef(false);
 
   useEffect(() => {

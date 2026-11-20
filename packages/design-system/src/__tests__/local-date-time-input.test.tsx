@@ -73,4 +73,15 @@ describe("LocalDateTimeInput", () => {
     fireEvent.change(shown, { target: { value: "" } });
     expect(sent.value).toBe("");
   });
+
+  it("sends a saved time written as database text back as ISO UTC", async () => {
+    const { container } = renderInRoot(
+      <LocalDateTimeInput name="startsAt" label="Starts at" defaultInstant="2026-11-10 15:00:00+00" />,
+    );
+    await act(async () => {});
+    const { shown, sent } = fields(container);
+
+    expect(shown.value).toBe("2026-11-10T09:00");
+    expect(sent.value).toBe("2026-11-10T15:00:00.000Z");
+  });
 });
