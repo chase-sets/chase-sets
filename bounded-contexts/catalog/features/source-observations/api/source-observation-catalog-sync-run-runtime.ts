@@ -41,6 +41,7 @@ import type {
 } from "./source-observation-runtime-contracts";
 import {
   jobMatchesContext,
+  isOperatorCancelledIntegrationJob,
   toSourceObservationIntegrationJob,
   selectedCatalogSyncRunUnits,
   catalogSyncRunIdempotencyKey,
@@ -164,17 +165,15 @@ export function createCatalogScopeSyncStateRuntime({
   }
 
   // Records the initial durable state for every selected unit right after a
-  // sync run's fan-out completes (or fast-forwards). One row write per unit;
-  // safe to call for every run because the upsert is keyed on
-  // (scope, provider, unit) and always reflects the latest known status.
+  // sync run's fan-out completes (or fast-forwards).
   async function recordCatalogScopeSyncStateForRun(run: CatalogSyncRun, recordedAt: string): Promise<void> {
     const scopeKey = computeCatalogSyncScopeKey(catalogScopeSyncStateDescriptor(run.scope));
     await Promise.all(
-      run.childJobs.map((child) => {
+      run.childJobs.map(async (child) => {
         const selectedUnit = run.selectedUnits.find(
           (unit) => unit.providerKey === child.providerKey && unit.unitKey === child.unitKey,
         );
-        return upsertCatalogScopeSyncUnitState(deps.db, {
+        await upsertCatalogScopeSyncUnitState(deps.db, {
           scopeKey,
           providerKey: child.providerKey,
           unitKey: child.unitKey,
@@ -205,6 +204,13 @@ export function createCatalogScopeSyncStateRuntime({
           completedAt: child.job?.completedAt ?? null,
           updatedAt: recordedAt,
         });
+        // The exhaustion sweep may have run before this link was written. Once
+        // the link exists, either this read sees the failure or the sweep links it.
+        if (!child.childJobId) return;
+        const currentJob = await integrationJobStore.get(child.childJobId);
+        if (currentJob?.status === "failed" && !isOperatorCancelledIntegrationJob(currentJob)) {
+          await recordCatalogScopeSyncFailureForLinkedJob(deps.db, currentJob, currentJob.errorMessage, recordedAt);
+        }
       }),
     );
   }

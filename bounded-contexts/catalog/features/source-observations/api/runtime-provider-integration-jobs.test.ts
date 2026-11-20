@@ -91,6 +91,7 @@ function tcgdexBaseSetMappingRow(): Record<string, unknown> {
 function createClaimExhaustionHarness() {
   const harness = createIntegrationJobDedupeHarness({ acceptedScopeMappings: [tcgdexBaseSetMappingRow()] });
   const coverage: Record<string, unknown> = {};
+  let beforeNextCoverageUpsert: (() => Promise<void>) | undefined;
   const scope = {
     scopeVersion: "catalog-sync-scope-v2",
     productDomain: "pokemon",
@@ -142,6 +143,9 @@ function createClaimExhaustionHarness() {
             return result(exhausted);
           }
           if (sql.includes("INSERT INTO catalog_scope_sync_state")) {
+            const beforeUpsert = beforeNextCoverageUpsert;
+            beforeNextCoverageUpsert = undefined;
+            await beforeUpsert?.();
             Object.assign(coverage, {
               scope_key: values[0],
               provider_key: values[1],
@@ -185,6 +189,9 @@ function createClaimExhaustionHarness() {
     coverage,
     scope,
     exhaustedAt,
+    beforeCoverageUpsert(callback: () => Promise<void>) {
+      beforeNextCoverageUpsert = callback;
+    },
     markLastClaimExpired(jobId: string | null) {
       const job = harness.insertedJobs.find((candidate) => candidate.job_id === jobId);
       if (!job) throw new Error("Missing import job in claim exhaustion fixture.");
@@ -290,6 +297,40 @@ describe("source observation runtime: import claim exhaustion", () => {
       expect(report.result).toBe("incomplete");
     },
   );
+
+  it.each([false, true])("retains exhaustion after the fan-out snapshot (existing link: %s)", async (existingLink) => {
+    const { services, coverage, scope, exhaustedAt, beforeCoverageUpsert, markLastClaimExpired } =
+      createClaimExhaustionHarness();
+    const preview = await services.previewCatalogSyncScope({ scope, context });
+    const childScope = preview.units.find((unit) => unit.selected)?.childExecutionScope;
+    if (!childScope) throw new Error("Missing selected provider scope in claim exhaustion fixture.");
+    const child = await services.enqueueIntegrationJob({ action: "import", scope: childScope, context });
+    const errorMessage = "Durable job retry attempts exhausted.";
+    if (existingLink) Object.assign(coverage, { last_job_id: child.jobId, state: "pending" });
+
+    beforeCoverageUpsert(async () => {
+      markLastClaimExpired(child.jobId);
+      await expect(
+        services.processNextIntegrationJob({ claimOwnerId: "worker-next", claimTtlMs: 120_000 }),
+      ).resolves.toBe(0);
+      expect(coverage.state).toBe(existingLink ? "failed" : undefined);
+    });
+
+    const run = await services.enqueueCatalogSyncRun({ scope, context });
+    expect(run.childJobs).toMatchObject([{ childJobId: child.jobId, syncRunLinkState: "reused-active-child-job" }]);
+    await expect(services.getCatalogSyncRun({ syncRunId: run.syncRunId, context })).resolves.toMatchObject({
+      status: "failed",
+      childJobs: [{ childJobId: child.jobId, status: "failed", job: { errorMessage } }],
+    });
+    expect(coverage).toMatchObject({
+      last_job_id: child.jobId,
+      last_sync_run_id: run.syncRunId,
+      state: "failed",
+      last_operator_status: "failed",
+      last_completed_at: exhaustedAt,
+      error_message: errorMessage,
+    });
+  });
 
   it("leaves coverage unchanged when an unlinked or superseded import exhausts its claims", async () => {
     const { services, harness, coverage, scope, markLastClaimExpired } = createClaimExhaustionHarness();
