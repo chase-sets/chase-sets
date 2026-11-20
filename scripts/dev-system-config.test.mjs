@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
+import { buildSandboxEnv, resolveWorktreeSandbox } from "./lib/sandbox.mjs";
 import {
   acquireDevSystemHeavySlot,
   applyCurrentPlatformBootstrapSelectors,
@@ -16,6 +17,7 @@ import {
   browserE2eProductionTarget,
   browserE2eRateLimitEnv,
   browserE2eReadConsistencyEnv,
+  buildPlatformBootstrapEnvironment,
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
@@ -450,6 +452,27 @@ describe("dev system target env overrides", () => {
       PATH: "C:\\tools",
       POSTGRES_DEV_DATABASE_URL: "postgresql://localhost:6520/canonical",
     });
+  });
+
+  it.each([
+    ["@chase-sets/app-platform-api", true, "6520"],
+    ["@chase-sets/app-platform-api", false, undefined],
+    ["@chase-sets/app-platform-worker", true, undefined],
+  ])("hands off only the canonical explicit replay port to %s (replay=%s)", (workspace, replay, expectedPort) => {
+    const sandbox = resolveWorktreeSandbox({
+      env: { CHASE_SETS_SANDBOX_ID: "synthetic-replay", CHASE_SETS_SANDBOX_BASE_PORT: "6500" },
+      contextNames: ["catalog"],
+    });
+    const environment = buildPlatformBootstrapEnvironment(
+      workspace,
+      { POSTGRES_DEV_HOST_PORT: "9999", PGHOSTADDR: "203.0.113.42" },
+      { ...buildSandboxEnv(sandbox), POSTGRES_DEV_HOST_PORT: "8888", POSTGRES_DB: "hostile" },
+      { sandbox, disposableRepresentativeCatalogReplay: replay },
+    );
+    expect(environment.POSTGRES_DEV_HOST_PORT).toBe(expectedPort);
+    expect(environment.DATABASE_URL_CATALOG).toBe(sandbox.contextDatabaseUrls.catalog);
+    expect(environment).not.toHaveProperty("PGHOSTADDR");
+    expect(environment).not.toHaveProperty("POSTGRES_DB");
   });
 
   it("threads representative refresh selectors set after process definitions were composed", () => {

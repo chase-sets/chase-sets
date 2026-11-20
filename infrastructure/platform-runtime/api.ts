@@ -454,6 +454,8 @@ function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module"
   return Boolean(context.module.seed && seedProfilesOverlap(context.module.seedProfiles, options));
 }
 
+export const DISPOSABLE_REPRESENTATIVE_CATALOG_REPLAY_TIMEOUT_MS = 14_400_000;
+
 export type ApiHostSeedOptions = BcSeedOptions &
   Readonly<{
     runtimeProfile?: ApiHostRuntimeProfile;
@@ -468,6 +470,8 @@ export type ApiHostSeedOptions = BcSeedOptions &
      * hanging silently until the deploy quiesce kills the bootstrap job.
      */
     substepTimeoutMs?: number;
+    /** Only the explicit disposable representative rebuild may extend Catalog seed work. */
+    disposableRepresentativeCatalogReplay?: boolean;
     /**
      * Opt in to the full post-seed projection drain even when the enabled data
      * profiles would not trigger it. Worker-less runtimes (for example the
@@ -485,11 +489,12 @@ async function runSeedSubstep<T>(
   label: string,
   timeoutMs: number | undefined,
   action: (signal: AbortSignal) => Promise<T>,
+  settleActionOnTimeout = false,
 ): Promise<T> {
   const startedAt = Date.now();
   console.log(`[seed-api-host] ${label} started.`);
   try {
-    const result = await withSeedSubstepTimeout(label, timeoutMs, action);
+    const result = await withSeedSubstepTimeout(label, timeoutMs, action, settleActionOnTimeout);
     console.log(`[seed-api-host] ${label} completed in ${Date.now() - startedAt}ms.`);
     return result;
   } catch (error) {
@@ -502,6 +507,7 @@ async function withSeedSubstepTimeout<T>(
   label: string,
   timeoutMs: number | undefined,
   action: (signal: AbortSignal) => Promise<T>,
+  settleActionOnTimeout: boolean,
 ): Promise<T> {
   const abortController = new AbortController();
   const inFlight = new Set<Promise<unknown>>();
@@ -525,6 +531,7 @@ async function withSeedSubstepTimeout<T>(
       abortController.abort();
       void actionPromise.catch(() => undefined);
       await Promise.allSettled([...inFlight]);
+      if (settleActionOnTimeout) await Promise.allSettled([actionPromise]);
     }
     throw error;
   } finally {
@@ -556,6 +563,14 @@ export async function seedApiHostIfEmpty(
   runtime: ApiHostRuntime,
   options: ApiHostSeedOptions & Readonly<{ projectionGroupLeasePort: ProjectionGroupLeasePort }>,
 ): Promise<void> {
+  if (
+    options.disposableRepresentativeCatalogReplay &&
+    (hostName !== "platform-api" ||
+      !["dev", "local"].includes(options.environmentName ?? "") ||
+      !options.enabledDataProfiles?.includes("representative-catalog"))
+  ) {
+    throw new Error("Disposable representative Catalog replay requires an explicit local representative bootstrap.");
+  }
   // Untyped callers can still omit the port; refuse before any bootstrap or seed work.
   if (!options.projectionGroupLeasePort) {
     throw new Error("API host seed requires a ProjectionGroupLeasePort; unleased seed drains are not allowed.");
@@ -620,16 +635,24 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     }
 
     const runContextSeed = shouldRunContextSeed(context, options);
+    const isCatalogReplay = contextName === "catalog" && options.disposableRepresentativeCatalogReplay === true;
+    const seedTimeoutMs = isCatalogReplay ? DISPOSABLE_REPRESENTATIVE_CATALOG_REPLAY_TIMEOUT_MS : substepTimeoutMs;
     if (!runContextSeed) {
-      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, (signal) =>
-        seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
+      await runSeedSubstep(
+        `seed:${contextName}`,
+        seedTimeoutMs,
+        (signal) => seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
+        isCatalogReplay,
       );
       continue;
     }
 
     if (context.mountRole === "source-only") {
-      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, (signal) =>
-        seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
+      await runSeedSubstep(
+        `seed:${contextName}`,
+        seedTimeoutMs,
+        (signal) => seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
+        isCatalogReplay,
       );
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async (signal) => {
         await syncLocalProjectionGroups(context, { signal }, runWithLease);
@@ -648,8 +671,11 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
         }),
       );
     }
-    await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, (signal) =>
-      seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
+    await runSeedSubstep(
+      `seed:${contextName}`,
+      seedTimeoutMs,
+      (signal) => seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
+      isCatalogReplay,
     );
     if (runBootstrapDrain) {
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async (signal) => {
@@ -699,7 +725,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
 
 async function seedApiModuleForHostBootstrap(
   context: MountedContextRuntimeEntry,
-  options: BcSeedOptions,
+  options: ApiHostSeedOptions,
   lockAcquisition: SchemaBootstrapLockAcquisition,
   runWithLease: ProjectionGroupLeaseRunner,
   signal: AbortSignal,
@@ -727,7 +753,10 @@ async function seedApiModuleForHostBootstrap(
     return;
   }
 
-  await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+  await seedApiModuleIfEmpty(context.module, context.pool, context.services, {
+    ...options,
+    ...(options.disposableRepresentativeCatalogReplay && context.contextName === "catalog" ? { signal } : {}),
+  });
   if (
     context.mountRole === "active" &&
     shouldRunContextSeed(context, options) &&

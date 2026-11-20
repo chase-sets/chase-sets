@@ -884,6 +884,7 @@ export type BcRetentionExemption = Readonly<{
 export type BcSeedOptions = Readonly<{
   enabledDataProfiles: readonly EnvironmentDataProfile[];
   environmentName?: string | null;
+  signal?: AbortSignal;
 }>;
 
 /**
