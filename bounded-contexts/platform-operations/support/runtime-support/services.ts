@@ -24,6 +24,9 @@ import { createOfferEconomicsRuntime } from "../../features/offer-economics/api/
 import type { OfferEconomicsCrossContextPort } from "../../features/offer-economics/api/offer-economics-contracts";
 import type { PayoutReviewHoldCrossContextPort } from "../../features/risk-alerts/api/cross-context";
 import { rateLimitPolicy } from "../../features/rate-limit-policy/domain/rate-limit-policy";
+import { sellerComplianceCohortPolicy } from "../../features/seller-compliance-cohorts/domain/seller-compliance-cohort-policy";
+import { createCohortEvaluationRuntime } from "../../features/seller-compliance-cohorts/api/cohort-evaluation-runtime";
+import { createPolicyHistoryReader } from "@chase-sets/platform-policy/policy-history-reader";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
@@ -121,6 +124,7 @@ export type PlatformOperationsServices = Readonly<{
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   accountAppeals: AccountAppealRuntime;
+  sellerComplianceCohorts: ReturnType<typeof createCohortEvaluationRuntime>;
   operationsAttentionRuntimeReads?: OperationsAttentionRuntimeReads;
 }>;
 
@@ -167,6 +171,7 @@ export function createPlatformOperationsServices(
     rateLimitPolicy,
     supportDeadlinePolicy,
     platformRemedyPolicy,
+    sellerComplianceCohortPolicy,
   ] as unknown as readonly PolicyDefinition<JsonValue>[];
   const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
     ...ownPolicyDefinitions.map(
@@ -253,6 +258,10 @@ export function createPlatformOperationsServices(
       buildAccountAppealProjectionHandlerSet(db),
     ],
     accountAppeals,
+    sellerComplianceCohorts: createCohortEvaluationRuntime({
+      pool,
+      historyReader: createPolicyHistoryReader({ pool, eventStore }),
+    }),
     operationsAttentionRuntimeReads: ports.operationsAttentionRuntimeReads,
   };
 }

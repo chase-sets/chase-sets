@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
+import type { ComponentProps } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceOfferMatchDetailPage } from "./offer-match-detail-page";
 import type { OfferMatchDetail } from "./contracts";
@@ -43,9 +45,14 @@ const offer: OfferMatchDetail = {
 
 afterEach(cleanup);
 
+function RoutedOfferMatchPage(props: ComponentProps<typeof MarketplaceOfferMatchDetailPage>) {
+  const router = createMemoryRouter([{ path: "*", element: <MarketplaceOfferMatchDetailPage {...props} /> }]);
+  return <RouterProvider router={router} />;
+}
+
 describe("MarketplaceOfferMatchDetailPage", () => {
   it("has no Mute action and retains Decline and Add to Sell List", () => {
-    const markup = renderToString(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
+    const markup = renderToString(<RoutedOfferMatchPage offer={offer} canAccept />);
     expect(markup).not.toMatch(/Mute buyer|mute-offer-buyer/i);
     expect(markup).toContain("decline-offer");
     expect(markup).toContain('value="add-selected-offer"');
@@ -60,7 +67,7 @@ describe("MarketplaceOfferMatchDetailPage", () => {
         evidence: { marketPrice: "private" },
         managed_status,
       });
-      const dom = renderToString(<MarketplaceOfferMatchDetailPage offer={loaderData} canAccept />);
+      const dom = renderToString(<RoutedOfferMatchPage offer={loaderData} canAccept />);
       const hydration = JSON.stringify(loaderData);
       for (const key of [...Object.keys(privatePolicyFields), "policyId", "marketPrice"]) {
         expect(dom).not.toContain(key);
@@ -74,7 +81,7 @@ describe("MarketplaceOfferMatchDetailPage", () => {
     },
   );
   it("renders the offer-match overview as an elevated entity", () => {
-    render(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
+    render(<RoutedOfferMatchPage offer={offer} canAccept />);
 
     expect(screen.getByRole("region", { name: "Checkout" }).textContent).toContain("$20.00");
 
@@ -88,7 +95,7 @@ describe("MarketplaceOfferMatchDetailPage", () => {
   });
 
   it("routes the primary accept action through Checkout Sell List review", () => {
-    const markup = renderToString(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
+    const markup = renderToString(<RoutedOfferMatchPage offer={offer} canAccept />);
 
     expect(markup).toContain('action="/account/sell-list"');
     expect(markup).toContain('name="intent" value="add-selected-offer"');

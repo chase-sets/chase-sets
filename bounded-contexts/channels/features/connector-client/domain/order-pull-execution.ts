@@ -17,12 +17,14 @@ import { OperationProtocolError, refuse, type OperationAttempt, type ExecutorRes
 
 type PullAttempt = Extract<OperationAttempt, { operationKind: "tcgplayer-order-pull" }>;
 export type OrderPullExecution = ReturnType<typeof createOrderPullExecution>;
+const isCanaryReplay = (member: PullAttempt) => Boolean(member.payload.canary) && member.state === "outcome-unknown";
 type Ports = Readonly<{
   current(): PullAttempt;
   save(handoff: OrderPullHandoff): Promise<void>;
   fence(): Promise<boolean>;
   now(): number;
   signal: AbortSignal;
+  postCanary?(bytes: string, signal: AbortSignal): Promise<Response>;
 }>;
 
 /** Admission custody only. Provider traversal and the detail mapper remain injected by the executor owner. */
@@ -32,14 +34,18 @@ export function createOrderPullExecution(ports: Ports) {
   let unknown: OrderPullUnknownReason | undefined;
   const check = async (budgetMs: number) => {
     const member = ports.current();
-    const now = ports.now();
+    const replay = isCanaryReplay(member);
+    const started = ports.now();
+    const fenced = !ports.signal.aborted && (await ports.fence());
+    const now = replay ? ports.now() : started;
     if (
-      ports.signal.aborted ||
-      !(await ports.fence()) ||
+      !fenced ||
       !["dispatched", "outcome-unknown"].includes(member.state) ||
       !member.dispatchedAt ||
-      now + budgetMs + ORDER_PULL_LEASE_MARGIN_MS >= Date.parse(member.leaseExpiresAt) ||
-      now + budgetMs > Date.parse(member.dispatchedAt) + member.payload.bounds.budgetMs ||
+      (replay
+        ? ports.signal.aborted || now >= Date.parse(member.leaseExpiresAt)
+        : now + budgetMs + ORDER_PULL_LEASE_MARGIN_MS >= Date.parse(member.leaseExpiresAt) ||
+          now + budgetMs > Date.parse(member.dispatchedAt) + member.payload.bounds.budgetMs) ||
       !orderPullProviderReady(member.payload, new Date(now).toISOString())
     )
       throw new OperationProtocolError("stale-fence");
@@ -60,9 +66,13 @@ export function createOrderPullExecution(ports: Ports) {
     await ports.save(handoff);
   };
   const consume = async (kind: "providerCalls" | "posts") => {
-    const handoff = ports.current().handoff;
+    const member = ports.current();
+    const { handoff } = member;
     if (!handoff) refuse();
-    if (kind === "providerCalls" && ports.now() < Date.parse(handoff.usage.providerNotBefore))
+    if (
+      (kind === "providerCalls" && ports.now() < Date.parse(handoff.usage.providerNotBefore)) ||
+      (kind === "posts" && isCanaryReplay(member) && handoff.usage.posts >= member.payload.bounds.maxObservationPosts)
+    )
       throw new OperationProtocolError("stale-fence");
     await save({
       ...handoff,
@@ -130,13 +140,19 @@ export function createOrderPullExecution(ports: Ports) {
     await check(handoff.authority.postTimeoutMs + handoff.authority.reportTimeoutMs);
     await consume("posts");
     await capture(reference, index, "dispatched");
-    await check(handoff.authority.postTimeoutMs + handoff.authority.reportTimeoutMs);
-    const signal = AbortSignal.any([ports.signal, AbortSignal.timeout(handoff.authority.postTimeoutMs)]);
+    const member = await check(handoff.authority.postTimeoutMs + handoff.authority.reportTimeoutMs);
+    const timeout = isCanaryReplay(member)
+      ? Math.min(handoff.authority.postTimeoutMs, Date.parse(member.leaseExpiresAt) - ports.now())
+      : handoff.authority.postTimeoutMs;
+    if (timeout <= 0) throw new OperationProtocolError("stale-fence");
+    const signal = AbortSignal.any([ports.signal, AbortSignal.timeout(timeout)]);
     const response = await post(bytes, signal);
     if (signal.aborted || response.status !== 202 || (await response.text()) !== "{}") {
+      if (ports.current().payload.canary) throw new OperationProtocolError("incomplete-authority");
       unknown = "admission-ambiguous";
       return;
     }
+    if (isCanaryReplay(member) && signal.aborted) throw new OperationProtocolError("stale-fence");
     await capture(reference, index, "captured202");
   };
   return {
@@ -161,6 +177,7 @@ export function createOrderPullExecution(ports: Ports) {
     read: <T>(read: (signal: AbortSignal) => Promise<T>) =>
       serial(async () => {
         const member = ports.current();
+        if (member.payload.canary) refuse();
         const handoff = member.handoff;
         if (!handoff) refuse();
         await check(handoff.authority.providerCallTimeoutMs + handoff.authority.reportTimeoutMs);
@@ -171,14 +188,17 @@ export function createOrderPullExecution(ports: Ports) {
         await check(handoff.authority.reportTimeoutMs);
         return result;
       }),
-    sale: (reference: string | null, index: number, post: (bytes: string, signal: AbortSignal) => Promise<Response>) =>
+    sale: (reference: string | null, index: number, post?: (bytes: string, signal: AbortSignal) => Promise<Response>) =>
       serial(async () => {
+        if (ports.current().payload.canary ? post !== undefined : post === undefined) refuse();
+        const send = post ?? ports.postCanary;
+        if (!send) refuse();
         const selectedPost = selected(reference, index).post;
         if (selectedPost.state === "captured202") return;
         if (selectedPost.kind !== "sale") refuse();
         claimAttempt(reference, index);
         await assertSalePostIdentity(selectedPost);
-        await postBytes(reference, index, selectedPost.bytes, post);
+        await postBytes(reference, index, selectedPost.bytes, send);
       }),
     fulfillment: (
       reference: string,

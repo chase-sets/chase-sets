@@ -26,6 +26,7 @@ import {
   type ClaimedOrderPullOutcome,
   type OrderPullAuthority,
   type OrderPullPayload,
+  type OrderPullProgressOutcome,
 } from "../domain/order-pull";
 import { assertOutboundClaimLeaseMs } from "../domain/validation";
 import { payloadDigest } from "./payload-digest";
@@ -528,6 +529,7 @@ export async function settleOrderPullMember(
   report: ClaimedOrderPullOutcome,
   settledAt: string,
 ): Promise<void> {
+  if (report.outcome.kind === "canary-posted") throw new OutboundSyncError("reservation-membership-mismatch");
   const progress = report.outcome.kind !== "abandoned" && report.outcome.kind !== "order-pull-unknown";
   let schedule: ScheduleRow | undefined;
   let checkpoint: OrderPullCheckpoint | undefined;
@@ -547,10 +549,7 @@ export async function settleOrderPullMember(
       orderPullCheckpointDigest(schedule.checkpoint) !== schedule.checkpoint_digest
     )
       throw new OutboundSyncError("stale-fence");
-    const body = report.outcome as Exclude<
-      ClaimedOrderPullOutcome["outcome"],
-      { kind: "abandoned" | "order-pull-unknown" }
-    >;
+    const body = report.outcome as OrderPullProgressOutcome;
     const committed = await commitOrderPullProgress(db, member.payload, body);
     checkpoint = committed.checkpoint;
     settledOutcome = { ...body, kind: committed.kind };

@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLayoutEffect } from "react";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
+import type { InventoryImportBatchJobStatus } from "../api/runtime";
+import { createInventoryMutationRecovery } from "../../../support/request-support/mutation-recovery";
 import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integrations/catalog/queries";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import {
@@ -12,8 +16,275 @@ import {
 } from "../domain/import-source-adapters";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import { InventoryImportBatchPage } from "./import-batch-page";
+import { InventoryMutationProvider } from "../../../support/ui-support/mutation-recovery";
+
+vi.mock("@chase-sets/platform-runtime/durable-job-web", () => ({ subscribeDurableJobStatus: vi.fn() }));
+vi.mock("../../../client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../client")>();
+  return {
+    ...actual,
+    inventoryApi: actual.createInventoryApiClient({ fetch: (input, init) => globalThis.fetch(input, init) }),
+  };
+});
 
 const timestamp = "2026-05-09T00:00:00.000Z";
+
+describe("Import job recovery", () => {
+  type Observer = Parameters<typeof subscribeDurableJobStatus<InventoryImportBatchJobStatus>>[0];
+  const observations: { observer: Observer; close: ReturnType<typeof vi.fn> }[] = [];
+  const replace = vi.fn();
+  const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(null));
+  const authority = { accountId: "acc_1", actorUserId: "usr_1" };
+  const snapshot = (
+    jobId: string,
+    overrides: Partial<InventoryImportBatchJobStatus> = {},
+  ): InventoryImportBatchJobStatus => ({
+    jobId,
+    jobKind: "inventory.import-batch.create",
+    status: "running",
+    progress: { phase: "processing", completed: 0, total: 1, currentRowId: null, message: `Progress ${jobId}` },
+    result: null,
+    errorMessage: null,
+    createdAt: timestamp,
+    startedAt: timestamp,
+    completedAt: null,
+    updatedAt: timestamp,
+    ...overrides,
+  });
+  const view = (jobId: string | null, navigationPending = false) => (
+    <InventoryMutationProvider authority={authority} navigationPending={navigationPending}>
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        detail={null}
+        activeJobId={jobId}
+        currentPath="/account/inventory/imports"
+      />
+    </InventoryMutationProvider>
+  );
+  beforeEach(() => {
+    observations.length = 0;
+    replace.mockClear();
+    fetch.mockClear();
+    sessionStorage.clear();
+    vi.stubGlobal("fetch", fetch);
+    const realWindow = window;
+    vi.stubGlobal(
+      "window",
+      new Proxy(realWindow, {
+        get: (target, key) => (key === "location" ? { ...target.location, replace } : Reflect.get(target, key, target)),
+      }),
+    );
+    vi.mocked(subscribeDurableJobStatus).mockImplementation((observer) => {
+      const close = vi.fn();
+      observations.push({ observer: observer as Observer, close });
+      return { close, current: () => null };
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    sessionStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows accessible loading, disconnect and failed states without enabling another upload", () => {
+    render(view("job_a"));
+    expect(screen.getByText("Waiting for the worker to report progress.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(true);
+    const { observer } = observations[0]!;
+    act(() => observer.onConnectionStateChange?.(false));
+    expect(screen.getByText(/The Inventory result is uncertain/).closest('[role="status"]')).toBeTruthy();
+    expect(document.activeElement?.getAttribute("role")).toBe("status");
+    act(() => observer.onError?.(new Event("error")));
+    expect(screen.getByText(/The Inventory result is uncertain/)).toBeTruthy();
+    act(() => {
+      observer.onConnectionStateChange?.(true);
+      observer.onStatus(snapshot("job_a"));
+    });
+    expect(screen.getByText("Progress job_a")).toBeTruthy();
+    expect(screen.queryByText(/The Inventory result is uncertain/)).toBeNull();
+    act(() => {
+      const failed = snapshot("job_a", { status: "failed", errorMessage: "Import safely refused" });
+      observer.onStatus(failed);
+      observer.onTerminal?.(failed);
+    });
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText("Import safely refused")).toBeTruthy();
+    expect(document.activeElement?.getAttribute("role")).toBe("status");
+    expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("clears replaced/removed jobs and ignores reverse-order callbacks after close and unmount", () => {
+    const rendered = render(view("job_a"));
+    const first = observations[0]!;
+    act(() => first.observer.onStatus(snapshot("job_a")));
+    rendered.rerender(view("job_b"));
+    expect(first.close).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Progress job_a")).toBeNull();
+    expect(screen.getByText("Waiting for the worker to report progress.")).toBeTruthy();
+    const second = observations[1]!;
+    act(() => second.observer.onStatus(snapshot("job_b")));
+    act(() => {
+      first.observer.onStatus(snapshot("job_a"));
+      first.observer.onConnectionStateChange?.(false);
+      first.observer.onError?.(new Event("error"));
+      first.observer.onTerminal?.(snapshot("job_a", { status: "completed", result: { batch: detail([]) } }));
+    });
+    expect(screen.getByText("Progress job_b")).toBeTruthy();
+    expect(screen.queryByText("Progress job_a")).toBeNull();
+    expect(screen.queryByText(/The Inventory result is uncertain/)).toBeNull();
+    expect(replace).not.toHaveBeenCalled();
+    rendered.rerender(view(null));
+    expect(second.close).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Progress job_b")).toBeNull();
+    rendered.unmount();
+    act(() => {
+      second.observer.onStatus(snapshot("job_b"));
+      second.observer.onTerminal?.(snapshot("job_b", { status: "completed" }));
+    });
+    expect(replace).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["replaced", "unmounted"] as const)("ignores a %s job's callbacks during commit", (disposition) => {
+    function CommitWitness({ jobId, onCommit }: { jobId: string | null; onCommit?: () => void }) {
+      useLayoutEffect(() => {
+        onCommit?.();
+      }, [onCommit]);
+      return jobId ? view(jobId) : null;
+    }
+
+    const rendered = render(<CommitWitness jobId="job_old" />);
+    const old = observations[0]!;
+    act(() => old.observer.onStatus(snapshot("job_old")));
+    const duringCommit = vi.fn(() => {
+      old.observer.onStatus(snapshot("job_old"));
+      old.observer.onConnectionStateChange?.(false);
+      old.observer.onError?.(new Event("error"));
+      old.observer.onTerminal?.(snapshot("job_old", { status: "completed" }));
+    });
+    rendered.rerender(
+      <CommitWitness jobId={disposition === "replaced" ? "job_current" : null} onCommit={duringCommit} />,
+    );
+    expect(duringCommit).toHaveBeenCalledOnce();
+    expect(old.close).toHaveBeenCalledOnce();
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText("Progress job_old")).toBeNull();
+    expect(screen.queryByText(/The Inventory result is uncertain/)).toBeNull();
+
+    if (disposition === "unmounted") rendered.rerender(<CommitWitness jobId="job_current" />);
+    const { observer } = observations[1]!;
+    act(() => observer.onStatus(snapshot("job_current")));
+    expect(screen.getByText("Progress job_current")).toBeTruthy();
+    act(() =>
+      observer.onTerminal?.(
+        snapshot("job_current", {
+          status: "completed",
+          result: {
+            batch: detail([]),
+            commandReceipt: {
+              mode: "eventual",
+              commitPosition: "73",
+              commitEventIds: ["evt_73"],
+              commitPositions: [{ sourceContextName: "inventory", maxGlobalPosition: "73", eventIds: ["evt_73"] }],
+            },
+          },
+        }),
+      ),
+    );
+    expect(replace).toHaveBeenCalledOnce();
+    expect(replace.mock.calls[0]![0]).toContain("/account/inventory/imports/imb_1?afterWrite=");
+    act(() => observer.onTerminal?.(snapshot("job_current", { status: "completed" })));
+    expect(replace).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["import-create", "import-resolve-row"] as const)(
+    "restores %s by private reads on remount, without POSTs",
+    async (family) => {
+      fetch.mockImplementation(async (input) =>
+        Response.json(String(input).includes("/catalog-items/") ? catalogSnapshot({ product_schema: null }) : null),
+      );
+      const recoveryView = () =>
+        family === "import-create" ? (
+          view(null)
+        ) : (
+          <InventoryMutationProvider authority={authority}>
+            <InventoryImportBatchPage
+              batches={[]}
+              storageLocations={[storageLocation]}
+              detail={detail([unresolvedRow({ catalog_item_id: "cat_zard" })])}
+              currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
+            />
+          </InventoryMutationProvider>
+        );
+      const attempt = createInventoryMutationRecovery(authority, family, sessionStorage).begin(
+        family === "import-create" ? "draft" : "imr_1",
+      );
+      const rendered = render(recoveryView());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Check original result" })).toBeTruthy());
+      if (family === "import-resolve-row") {
+        await screen.findByText("This catalog item does not require product options.");
+        expect(screen.getByRole("complementary").contains(applyButton())).toBe(true);
+      }
+      expect(document.activeElement?.getAttribute("role")).toBe("status");
+      expect(
+        (family === "import-create" ? screen.getByRole("button", { name: "Validate import" }) : applyButton()).matches(
+          ":disabled",
+        ),
+      ).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Check original result" }));
+      rendered.unmount();
+      render(recoveryView());
+      await waitFor(() =>
+        expect(
+          fetch.mock.calls.filter(([input]) => String(input).includes(`/mutation-attempts/${attempt}`)).length,
+        ).toBeGreaterThanOrEqual(3),
+      );
+      expect(
+        fetch.mock.calls.every(
+          ([input, init]) =>
+            (String(input).includes(`/mutation-attempts/${attempt}`) ||
+              String(input).includes("/catalog-items/cat_zard")) &&
+            (!init?.method || init.method === "GET"),
+        ),
+      ).toBe(true);
+      expect(replace).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["pageshow", "router"])("recovers a lost import submission on %s by reads only", async (completion) => {
+    const rendered = render(view(null));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(false),
+    );
+    const form = rendered.container.querySelector('input[value="create-batch"]')!.closest("form")!;
+    act(() => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    const attempt = new FormData(form).get("inventoryMutationAttemptId");
+    expect(attempt).toMatch(/^[a-f0-9-]{36}$/);
+    await waitFor(() =>
+      expect(screen.getByText("Submitting Inventory change.", { selector: '[role="status"]' })).toBeTruthy(),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    if (completion === "pageshow") {
+      await act(async () => {
+        window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+      });
+    } else {
+      rendered.rerender(view(null, true));
+      rendered.rerender(view(null, false));
+    }
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check original result" })).toBeTruthy());
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(String(fetch.mock.calls[0]![0])).toContain(`/mutation-attempts/${attempt}`);
+    expect(fetch.mock.calls[0]![1]?.method ?? "GET").toBe("GET");
+    expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(true);
+    expect(document.activeElement?.getAttribute("role")).toBe("status");
+  });
+});
 
 function batch(overrides: Partial<InventoryImportBatch> = {}): InventoryImportBatch {
   return {
@@ -68,6 +339,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     needs_seller: false,
     created_at: timestamp,
     updated_at: timestamp,
+    row_version: "2026-05-09T00:00:00.000001Z",
     ...overrides,
   };
 }
@@ -364,6 +636,25 @@ describe("InventoryImportBatchPage", () => {
 
     expect(html).toContain("Import still updating");
     expect(html).toContain("The import batch is still updating. Reload this page in a moment.");
+    expect(html).not.toContain("No imports yet");
+  });
+
+  it("does not present an unavailable recent-import read as empty and keeps retry links read-only", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        detail={null}
+        batchesLoadMessage="Recent imports are temporarily unavailable."
+        storageLocationsLoadMessage="Storage locations are temporarily unavailable."
+        currentPath="/account/inventory/imports?jobId=job_1"
+      />,
+    );
+    expect(html).toContain("Recent imports are temporarily unavailable.");
+    expect(html).toContain("Storage locations are temporarily unavailable.");
+    expect(html).not.toContain("No imports yet");
+    expect(html).toContain('href="/account/inventory/imports?jobId=job_1"');
+    expect(html).toContain('role="status"');
   });
 
   it("preserves import freshness metadata in inventory and listing handoff links", () => {
@@ -514,12 +805,14 @@ function renderResolveRow(
   sourceKey: InventoryImportBatch["source_key"] = "tcgplayer-csv",
 ) {
   render(
-    <InventoryImportBatchPage
-      batches={[batch({ source_key: sourceKey })]}
-      storageLocations={[storageLocation]}
-      detail={{ ...detail([resolveRow]), source_key: sourceKey }}
-      currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
-    />,
+    <InventoryMutationProvider authority={{ accountId: "acc_1", actorUserId: "usr_1" }}>
+      <InventoryImportBatchPage
+        batches={[batch({ source_key: sourceKey })]}
+        storageLocations={[storageLocation]}
+        detail={{ ...detail([resolveRow]), source_key: sourceKey }}
+        currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
+      />
+    </InventoryMutationProvider>,
   );
   const input = screen.getByRole("combobox", { name: "Catalog item" }) as HTMLInputElement;
   return { input, form: input.closest("form")! };
@@ -556,6 +849,35 @@ describe("Import row Catalog picker", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  it.each(["empty", "archived", "missing", "unselected"])(
+    "keeps row writes disabled with a %s storage prerequisite",
+    async (missing) => {
+      const fetch = stubPickerFetch(() => Response.json(catalogSnapshot({ product_schema: null })));
+      render(
+        <InventoryMutationProvider authority={{ accountId: "acc_1", actorUserId: "usr_1" }}>
+          <InventoryImportBatchPage
+            batches={[]}
+            storageLocations={missing === "empty" ? [] : [{ ...storageLocation, is_archived: missing === "archived" }]}
+            detail={detail([
+              unresolvedRow({
+                catalog_item_id: "cat_zard",
+                storage_location_id: missing === "missing" ? "loc_missing" : missing === "unselected" ? null : "loc_1",
+              }),
+            ])}
+            currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
+          />
+        </InventoryMutationProvider>,
+      );
+      await screen.findByText("This catalog item does not require product options.");
+      expect(applyButton().matches(":disabled")).toBe(true);
+      if (missing === "unselected" || missing === "missing") {
+        fireEvent.change(screen.getByRole("combobox", { name: "Storage location" }), { target: { value: "loc_1" } });
+        expect(applyButton().matches(":disabled")).toBe(false);
+      }
+      expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+    },
+  );
 
   it.each([
     {
@@ -695,9 +1017,12 @@ describe("Import row Catalog picker", () => {
     expect(requestedUrls(fetch)).toHaveLength(2);
 
     expect([...new FormData(form).entries()].map(([key, value]) => [key, String(value)])).toEqual([
+      ["inventoryMutationAttemptId", ""],
       ["intent", "resolve-row"],
       ["batchId", "imb_1"],
       ["rowId", "imr_1"],
+      ["expectedRowVersion", "2026-05-09T00:00:00.000001Z"],
+      ["expectedRowFingerprint", "native-csv|2|cat_1"],
       ["catalogItemId", "cat_zard"],
       ["selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }])],
       ["storageLocationId", "loc_1"],

@@ -7,11 +7,6 @@ export function moneyNumber(value: string | null | undefined) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
-export function positiveMoney(value: string | null | undefined) {
-  const amount = moneyNumber(value);
-  return amount > 0 ? amount : null;
-}
-
 export function formatMoney(value: string | number | null) {
   if (value === null) {
     return "-";

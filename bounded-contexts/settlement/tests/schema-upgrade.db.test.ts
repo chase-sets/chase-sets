@@ -35,6 +35,59 @@ describeDb("settlement schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  it("adds the ledger-only risk revision with exact fresh and retained catalogs and skips it on second boot", async () => {
+    const pool = pools.settlement;
+    const migrationId = "20261104_settlement_account_risk_source_revision";
+    const catalog = async () =>
+      (
+        await pool.query(`SELECT data_type, is_nullable, column_default FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'settlement_account_risk_sources'
+          AND column_name = 'revision'`)
+      ).rows;
+    const expected = [{ data_type: "bigint", is_nullable: "NO", column_default: "0" }];
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await catalog()).toEqual(expected);
+    await pool.query(`INSERT INTO settlement_account_risk_sources (account_id, revision, updated_at)
+      VALUES ('acc_schema_revision', 7, '2026-11-04T00:00:00.000Z')`);
+    const ledger = async () =>
+      (await pool.query("SELECT * FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId])).rows;
+    const applied = await ledger();
+    expect(applied).toHaveLength(1);
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await ledger()).toEqual(applied);
+    expect((await pool.query("SELECT revision::text FROM settlement_account_risk_sources")).rows).toEqual([
+      { revision: "7" },
+    ]);
+
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(
+      {
+        ...settlementModule,
+        schemaMigrations: settlementModule.schemaMigrations!.filter(
+          (migration) => migration.migrationId !== migrationId,
+        ),
+      },
+      pool,
+    );
+    expect(await catalog()).toEqual([]);
+    await pool.query(`INSERT INTO settlement_account_risk_sources (account_id, trusted_seller, updated_at)
+      VALUES ('acc_schema_revision', true, '2026-11-04T00:00:00.000Z')`);
+    const before = (await pool.query("SELECT * FROM settlement_account_risk_sources")).rows;
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await catalog()).toEqual(expected);
+    expect((await pool.query("SELECT * FROM settlement_account_risk_sources")).rows).toEqual(
+      before.map((row) => ({ ...row, revision: "0" })),
+    );
+    const retainedLedger = await ledger();
+    expect(retainedLedger).toHaveLength(1);
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await ledger()).toEqual(retainedLedger);
+    expect(await catalog()).toEqual(expected);
+    expect((await pool.query("SELECT * FROM settlement_account_risk_sources")).rows).toEqual(
+      before.map((row) => ({ ...row, revision: "0" })),
+    );
+  });
+
   it("backfills stable hold identities outside boot-time schema SQL", async () => {
     const pool = pools.settlement;
     await bootstrapContextDatabase(settlementModule, pool);

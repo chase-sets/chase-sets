@@ -41,7 +41,7 @@ describe("checkout-closed-start-render", () => {
       source: null,
       cartReadiness: null,
       cartCount: 1,
-      entryAttemptKey: "synthetic-closed",
+      entryAttemptKey: "synthetic-closed-start-20261031",
       signInPath: "/sign-in",
     };
     const router = createMemoryRouter(
@@ -58,6 +58,7 @@ describe("checkout-closed-start-render", () => {
       itemTitle: "Synthetic item",
       selectedOptions: "[]",
       quantity: "1",
+      entryAttemptKey: data.entryAttemptKey,
     }))
       formData.set(key, value);
     await act(async () => {

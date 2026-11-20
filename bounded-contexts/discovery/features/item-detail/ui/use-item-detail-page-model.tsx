@@ -20,7 +20,6 @@ import {
 import {
   buildProductOptionSummaries,
   formatUpdatedAt,
-  getBestAccountOfferMatch,
   getListingAvailableQuantity,
   getCommonPriceCurrencyCode,
   itemDetailRailAnalyticsSelection,
@@ -167,7 +166,8 @@ export function useItemDetailPageModel({
           ? matchesSelectedOptions(offer, selections)
           : true,
     );
-  const bestAccountOfferMatch = getBestAccountOfferMatch(matchingAccountOfferMatches);
+  const bestAccountOfferMatch =
+    matchingAccountOfferMatches.find((offer) => offer.status === "submitted" && offer.can_fulfill) ?? null;
   const defaultSellerOffer =
     marketIntent === "sell" && bestAccountOfferMatch
       ? (matchingOffers.find((offer) => offer.offer_id === bestAccountOfferMatch.offer_id) ?? null)
@@ -180,9 +180,7 @@ export function useItemDetailPageModel({
   const selectedOfferSource: MarketSelectionSource = explicitSelectedOffer ? "explicit" : "implicit";
   const staleSelectedOfferId = selectedOfferId && !explicitSelectedOffer ? selectedOfferId : null;
   const selectedAccountOfferMatch = selectedOffer
-    ? (matchingAccountOfferMatches.find((offer) => offer.offer_id === selectedOffer.offer_id) ??
-      bestAccountOfferMatch ??
-      null)
+    ? (matchingAccountOfferMatches.find((offer) => offer.offer_id === selectedOffer.offer_id) ?? null)
     : (bestAccountOfferMatch ?? null);
   const selectedProductId =
     explicitSelectedProductId ??

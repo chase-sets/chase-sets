@@ -1,6 +1,6 @@
 import { formatDate, formatDisplayIdentity, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { data, redirect, useLoaderData } from "react-router";
 import {
   Badge,
   Container,
@@ -29,6 +29,8 @@ function formatReleaseDate(value: string | null) {
   return formatDate(value, { preset: "long" });
 }
 
+const setNotFound = () => data({ setPage: null, notFound: true, canonicalUrl: null }, { status: 404 });
+
 function browseAllHref(setPage: DiscoveryBrowseSetPage) {
   const params = new URLSearchParams({ [`reference.${setPage.type_key}`]: setPage.reference_record_id });
   return `/search?${params.toString()}`;
@@ -38,7 +40,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const slug = params.setSlug;
 
   if (!slug) {
-    return { setPage: null, notFound: true, canonicalUrl: null };
+    return setNotFound();
   }
 
   try {
@@ -55,8 +57,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       canonicalUrl: new URL(`/sets/${setPage.slug}`, url.origin).toString(),
     };
   } catch (error) {
+    if (error instanceof DiscoveryApiError && error.status === 404) {
+      return setNotFound();
+    }
     if (error instanceof DiscoveryApiError) {
-      return { setPage: null, notFound: true, canonicalUrl: null };
+      throw data(null, { status: error.status === 503 ? 503 : 502 });
     }
 
     throw error;
@@ -76,6 +81,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
       : t("discovery.routes.set.this.set.is.not.available"),
   }),
   ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
+  ...(data?.setPage ? [] : [{ name: "robots", content: "noindex" }]),
 ];
 
 export default function DiscoverySetRoute() {

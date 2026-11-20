@@ -31,18 +31,19 @@ describe("ebay-account-deletion-key-config", () => {
     const runtime = JSON.parse(read("infrastructure/helm/platform/runtime-values.json"));
     const generated = parse(read("infrastructure/helm/platform/values.yaml"));
     const base = buildPlatformHelmValues();
-    for (const values of [
-      runtime,
-      generated,
-      base,
-      buildPlatformHelmStagingValues(),
-      buildPlatformHelmProductionValues(),
-    ]) {
+    const staging = buildPlatformHelmStagingValues();
+    for (const values of [runtime, generated, base, staging, buildPlatformHelmProductionValues()]) {
       for (const [id, component] of Object.entries(values.components)) {
         const env = component.env ?? base.components[id].env;
         if (!env.some((entry) => entry.name === "CHANNELS_CREDENTIAL_KEYRING_JSON")) continue;
-        for (const name of names)
-          expect(env.filter((entry) => entry.name === name)).toEqual([{ name, secret: true, secretKey: name }]);
+        for (const name of names) {
+          const sandboxKeys = {
+            EBAY_APPLICATION_CLIENT_ID: "EBAY_SANDBOX_APP_ID",
+            EBAY_APPLICATION_CLIENT_SECRET: "EBAY_SANDBOX_CERT_ID",
+          };
+          const secretKey = values === staging && id === "platform-api" ? (sandboxKeys[name] ?? name) : name;
+          expect(env.filter((entry) => entry.name === name)).toEqual([{ name, secret: true, secretKey }]);
+        }
       }
     }
     for (const name of names) {

@@ -8,7 +8,6 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { JsonObject } from "@chase-sets/primitives/json";
 import type {
   AcquisitionOccurrence,
   InventoryAdjustmentReason,
@@ -21,8 +20,12 @@ import {
   summarizeSelectedOptions,
   type InventorySelectedOptionEntry,
 } from "../integrations/catalog/versioning";
+import {
+  classifyInventoryGradedSelection,
+  type InventoryGradedClassification,
+} from "../integrations/catalog/graded-selection";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
-import { InventoryDomainError } from "../../../support/runtime-support/common";
+import { InventoryDomainError, normalizeOptionalText } from "../../../support/runtime-support/common";
 import {
   claimInventoryAdjustmentIdempotency,
   completeInventoryAdjustmentIdempotency,
@@ -48,7 +51,6 @@ import {
   type InventoryItemEvent,
   type InventoryItemState,
 } from "../domain/domain";
-import { createInventoryItemAdjustedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { buildInventoryItemProjectionHandlers } from "../read-model/projection";
 import { buildInventoryItemLedgerProjectionHandlers } from "../read-model/ledger-projection";
 import { getInventoryItem, getInventoryItemForListingStock, listInventoryItems } from "../read-model/queries";
@@ -56,6 +58,40 @@ import type { InventoryEnsuredListingStock } from "./contracts";
 
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const LISTING_STOCK_LOCATION_DESCRIPTION = "Auto-managed stock backing standard marketplace listings.";
+
+/**
+ * A Graded item's card comes from its selected Grading Company and Grade; the caller adds only the
+ * certification number. Omitting that member marks a client that predates derivation, so it is refused
+ * rather than stored without the certification number it may have collected.
+ */
+function createItemGradedCard(
+  graded: InventoryGradedClassification,
+  certificationNumber: string | null | undefined,
+): GradedCardDetails | null {
+  const certification = normalizeOptionalText(certificationNumber);
+  if (graded.kind === "raw") {
+    if (certification) {
+      throw new InventoryDomainError("Graded card details are only allowed for graded inventory items.");
+    }
+    return null;
+  }
+
+  if (graded.kind === "unsupported" || certificationNumber === undefined) {
+    throw new InventoryDomainError("Graded inventory items require graded card details.");
+  }
+
+  if (!graded.gradingCompany || !graded.grade) {
+    throw new InventoryDomainError("Choose a grading company and grade before creating a Graded inventory item.");
+  }
+
+  return {
+    gradingCompany: graded.gradingCompany,
+    grade: graded.grade,
+    certificationNumber: certification,
+    population: null,
+    conditionDescriptors: [],
+  };
+}
 
 function createListingStockInventoryItemId(
   input: Readonly<{
@@ -79,7 +115,8 @@ export type InventoryItemServices = Readonly<{
       accountId: AccountId;
       catalogItemId: string;
       selectedOptions: readonly InventorySelectedOptionEntry[];
-      gradedCard?: GradedCardDetails | null;
+      /** Required on a Graded product (null when unknown); the card itself is derived from the selected options. */
+      certificationNumber?: string | null;
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
@@ -211,16 +248,10 @@ export function createInventoryItemRuntime(
         productSchema: catalogItem.product_schema,
         selection: parseSelectedOptionsInput(params.selectedOptions),
       });
-      const productSummary = summarizeSelectedOptions(catalogItem.product_schema, catalogVersion.selection);
-      const isGradedCard = productSummary.includes("Form: Graded");
-
-      if (isGradedCard && !params.gradedCard) {
-        throw new InventoryDomainError("Graded inventory items require graded card details.");
-      }
-
-      if (!isGradedCard && params.gradedCard) {
-        throw new InventoryDomainError("Graded card details are only allowed for graded inventory items.");
-      }
+      const gradedCard = createItemGradedCard(
+        classifyInventoryGradedSelection(catalogItem.product_schema, catalogVersion.selection),
+        params.certificationNumber,
+      );
 
       const itemId = params.itemIdOverride ?? (createId("inv") as InventoryItemId);
       const streamId = `inventory.item-${itemId}`;
@@ -238,15 +269,10 @@ export function createInventoryItemRuntime(
           type: "CreateInventoryItem",
           itemId,
           accountId: params.accountId,
-          csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-            accountId: params.accountId,
-            itemId,
-            idempotencyKey: `inventory:item.adjusted:${itemId}:created`,
-          }),
           catalogItemId: params.catalogItemId as CatalogItemId,
           productId: catalogVersion.productId,
           selectedOptions: catalogVersion.selection,
-          gradedCard: params.gradedCard ?? null,
+          gradedCard,
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,
@@ -319,11 +345,6 @@ export function createInventoryItemRuntime(
 
       let resultVersion: number;
       try {
-        const csatOutcomeFact = createInventoryItemAdjustedCsatOutcomeFact({
-          accountId: params.accountId as AccountId,
-          itemId: params.itemId as InventoryItemId,
-          idempotencyKey: idempotencyKey ?? `inventory:item.adjusted:${params.itemId}:${commandFingerprint}`,
-        });
         if (params.quantityDelta < 0) {
           resultVersion = await appendAuthoritativeNegativeAdjustment({
             deps,
@@ -331,7 +352,7 @@ export function createInventoryItemRuntime(
             codec,
             params,
             context,
-            csatOutcomeFact,
+            ...(idempotencyKey !== null ? { requestIdempotencyKey: idempotencyKey } : {}),
           });
         } else {
           const stock = await loadAuthoritativeInventoryStockSnapshot({
@@ -346,7 +367,7 @@ export function createInventoryItemRuntime(
             streamId: `inventory.item-${params.itemId}`,
             command: {
               type: "AdjustInventoryItemQuantity",
-              csatOutcomeFact,
+              ...(idempotencyKey !== null ? { requestIdempotencyKey: idempotencyKey } : {}),
               quantityDelta: params.quantityDelta,
               heldQuantity: stock.heldQuantity,
               reason: params.reason,
@@ -521,11 +542,6 @@ export function createInventoryItemRuntime(
                 type: "CreateInventoryItem",
                 itemId,
                 accountId: params.accountId,
-                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                  accountId: params.accountId,
-                  itemId,
-                  idempotencyKey: `inventory:item.adjusted:${itemId}:listing-stock-created`,
-                }),
                 catalogItemId: params.catalogItemId as CatalogItemId,
                 productId: catalogVersion.productId,
                 selectedOptions: catalogVersion.selection,
@@ -547,7 +563,6 @@ export function createInventoryItemRuntime(
         totalQuantity = params.quantity;
         availableQuantity = params.quantity;
       } else if (aggregate && availableQuantity < params.quantity) {
-        const adjustedItemId = inventoryItemId;
         adjustedQuantityBy = params.quantity - availableQuantity;
         await child(
           "listing-adjustment",
@@ -568,11 +583,6 @@ export function createInventoryItemRuntime(
               expectedVersion: aggregate.version,
               command: {
                 type: "AdjustInventoryItemQuantity",
-                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                  accountId: params.accountId,
-                  itemId: adjustedItemId,
-                  idempotencyKey: `inventory:item.adjusted:${inventoryItemId}:listing-stock:${params.quantity}`,
-                }),
                 quantityDelta: adjustedQuantityBy,
                 heldQuantity: totalQuantity - availableQuantity,
                 reason: "Automatic listing stock",
@@ -644,7 +654,7 @@ async function appendAuthoritativeNegativeAdjustment(
       sourceRef?: InventoryAdjustmentSourceRef;
     }>;
     context: EventStoreContext;
-    csatOutcomeFact: JsonObject;
+    requestIdempotencyKey?: string;
   }>,
 ): Promise<number> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -660,7 +670,7 @@ async function appendAuthoritativeNegativeAdjustment(
     });
     const events = decideInventoryItem(aggregate.state, {
       type: "AdjustInventoryItemQuantity",
-      csatOutcomeFact: input.csatOutcomeFact,
+      ...(input.requestIdempotencyKey !== undefined ? { requestIdempotencyKey: input.requestIdempotencyKey } : {}),
       quantityDelta: input.params.quantityDelta,
       heldQuantity: stock.heldQuantity,
       reason: input.params.reason,

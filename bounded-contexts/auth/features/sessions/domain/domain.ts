@@ -1,6 +1,8 @@
+import { isSyntheticAuthSessionId } from "@chase-sets/auth-context";
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { AuthMethod } from "./auth-flow";
+import { isSessionGeneration, sessionGenerationOf } from "./session-generation";
 
 type SessionStatus = "active" | "revoked" | "expired";
 type EmptyEventData = Readonly<Record<string, never>>;
@@ -10,6 +12,19 @@ const EMPTY_EVENT_DATA: EmptyEventData = {};
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
+  }
+}
+
+/** A session command the session's state refuses: who asked may be told, and nothing is recorded. */
+export type SessionRefusalCode = "not-active" | "account-required" | "account-unavailable" | "account-current";
+
+export class SessionRefusalError extends Error {
+  constructor(
+    readonly code: SessionRefusalCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SessionRefusalError";
   }
 }
 
@@ -29,6 +44,8 @@ export type SessionState = Readonly<{
   authenticationMethod: AuthMethod | null;
   status: SessionStatus;
   expiresAt: string | null;
+  /** The User Session Authority generation this Session started in; `null` when its start event is malformed. */
+  sessionGeneration: number | null;
 }>;
 
 export const initialSessionState: SessionState = {
@@ -39,9 +56,11 @@ export const initialSessionState: SessionState = {
   authenticationMethod: null,
   status: "active",
   expiresAt: null,
+  sessionGeneration: 0,
 };
 
-export type StartSessionCommand = Readonly<{
+/** What a caller asks for. The generation is never caller-chosen: the start guard reads it from authority. */
+export type StartSessionRequest = Readonly<{
   type: "StartSession";
   sessionId: SessionId;
   userId: UserId;
@@ -51,6 +70,11 @@ export type StartSessionCommand = Readonly<{
   expiresAt: string;
 }>;
 
+export type StartSessionCommand = StartSessionRequest &
+  Readonly<{
+    sessionGeneration: number;
+  }>;
+
 export type SwitchSessionAccountCommand = Readonly<{
   type: "SwitchSessionAccount";
   accountId: AccountId;
@@ -59,11 +83,12 @@ export type SwitchSessionAccountCommand = Readonly<{
 export type RevokeSessionCommand = Readonly<{ type: "RevokeSession" }>;
 export type ExpireSessionCommand = Readonly<{ type: "ExpireSession" }>;
 
-export type SessionCommand =
-  | StartSessionCommand
-  | SwitchSessionAccountCommand
-  | RevokeSessionCommand
-  | ExpireSessionCommand;
+export type SessionLifecycleCommand = SwitchSessionAccountCommand | RevokeSessionCommand | ExpireSessionCommand;
+
+export type SessionCommand = StartSessionCommand | SessionLifecycleCommand;
+
+/** The commands `SessionServices.commandHandler` accepts; a start is completed by its generation guard. */
+export type SessionCommandRequest = StartSessionRequest | SessionLifecycleCommand;
 
 export type SessionStartedEvent = DomainEvent<
   "auth.session.started",
@@ -74,6 +99,8 @@ export type SessionStartedEvent = DomainEvent<
     availableAccountIds: string[];
     authenticationMethod: AuthMethod;
     expiresAt: string;
+    /** Absent on every start recorded before the Session Generation floor; read as 0. */
+    sessionGeneration?: number;
   }>
 >;
 
@@ -94,6 +121,8 @@ export const decideSession: AggregateDecider<SessionState, SessionCommand, Sessi
   switch (command.type) {
     case "StartSession":
       assert(state.id === null, "Session has already been started.");
+      assert(!isSyntheticAuthSessionId(command.sessionId), "A synthetic actor handle cannot start a Session.");
+      assert(isSessionGeneration(command.sessionGeneration), "Session start requires its authority generation.");
       return [
         {
           type: "auth.session.started",
@@ -104,13 +133,18 @@ export const decideSession: AggregateDecider<SessionState, SessionCommand, Sessi
             availableAccountIds: [...toSortedUniqueList(command.availableAccountIds)],
             authenticationMethod: command.authenticationMethod,
             expiresAt: command.expiresAt,
+            sessionGeneration: command.sessionGeneration,
           },
         },
       ];
     case "SwitchSessionAccount":
       requireActiveSession(state);
-      assert(state.availableAccountIds.includes(command.accountId), "Session cannot switch to an unavailable account.");
-      assert(state.accountId !== command.accountId, "Session is already active for that account.");
+      if (typeof command.accountId !== "string" || !command.accountId)
+        throw new SessionRefusalError("account-required", "Session switch requires an account.");
+      if (!state.availableAccountIds.includes(command.accountId))
+        throw new SessionRefusalError("account-unavailable", "Session cannot switch to an unavailable account.");
+      if (state.accountId === command.accountId)
+        throw new SessionRefusalError("account-current", "Session is already active for that account.");
       return [
         {
           type: "auth.session.account-switched",
@@ -118,6 +152,9 @@ export const decideSession: AggregateDecider<SessionState, SessionCommand, Sessi
         },
       ];
     case "RevokeSession":
+      // A revoke of a revoked session has already happened, so a retry records nothing and succeeds.
+      assert(state.id !== null, "Session must be created first.");
+      if (state.status === "revoked") return [];
       requireActiveSession(state);
       return [{ type: "auth.session.revoked", data: EMPTY_EVENT_DATA }];
     case "ExpireSession":
@@ -139,6 +176,7 @@ export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (stat
         authenticationMethod: event.data.authenticationMethod,
         status: "active",
         expiresAt: event.data.expiresAt,
+        sessionGeneration: sessionGenerationOf(event.data),
       };
     case "auth.session.account-switched":
       return { ...state, accountId: event.data.accountId };
@@ -153,5 +191,5 @@ export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (stat
 
 function requireActiveSession(state: SessionState) {
   assert(state.id !== null, "Session must be created first.");
-  assert(state.status === "active", "Only active sessions can change.");
+  if (state.status !== "active") throw new SessionRefusalError("not-active", "Only active sessions can change.");
 }

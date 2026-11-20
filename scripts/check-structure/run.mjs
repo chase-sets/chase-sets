@@ -42,6 +42,10 @@ import { validateRealClockElapsedBounds } from "./real-clock-elapsed-bounds.mjs"
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
 import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
+import { validateContextRegistries } from "./context-registry-guard.mjs";
+import { validateScheduledJobs } from "./scheduled-jobs.mjs";
+import { findContextDependencyCycleViolations } from "./context-dependency-cycles.mjs";
+import { findCustomerFeedbackDependencyViolations } from "./customer-feedback-dependencies.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
@@ -49,6 +53,11 @@ import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
+import {
+  enumerateMarketplaceAttemptCallers,
+  readTrackedMarketplaceCallerSources,
+  unpartitionedMarketplaceOfferCallers,
+} from "./marketplace-attempt-callers.mjs";
 import { scanTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
 
 const roots = workspaceRoots;
@@ -93,7 +102,10 @@ const placeholderFieldTokens = new Set([
   "unknown",
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
+const registeredWorkerFactoryFiles = new Set();
 const nonPackageWorkspaceDirectoryExceptions = new Set([
+  // A Rust (Corten) app; its scripts run with the root workspace's tools.
+  "deployables/corten-pilot",
   "infrastructure/digitalocean",
   "infrastructure/helm",
   "infrastructure/remote-dev",
@@ -1481,6 +1493,7 @@ export function findDeployableBoundaryViolation(relativeFile, content) {
 
 function isAllowedServerSurfaceConsumer(relativeFile) {
   return (
+    registeredWorkerFactoryFiles.has(relativeFile) ||
     relativeFile.includes("/auth-api/") ||
     relativeFile.includes("/support/api-support/") ||
     relativeFile.includes("/routes/") ||
@@ -2040,6 +2053,7 @@ export async function runStructureCheck(options = {}) {
   warnings.length = 0;
   clientSurfaceConsumers.clear();
   supportFileConsumers.clear();
+  registeredWorkerFactoryFiles.clear();
 
   const sqlExecutionSurface = runSqlExecutionSurfaceGuard({ repoRoot });
   violations.push(...sqlExecutionSurface.violations);
@@ -2057,6 +2071,10 @@ export async function runStructureCheck(options = {}) {
   }
 
   const contextManifests = await loadContextManifests();
+  violations.push(
+    ...findContextDependencyCycleViolations([...contextManifests.values()].map(({ manifest }) => manifest)),
+    ...findCustomerFeedbackDependencyViolations([...contextManifests.values()].map(({ manifest }) => manifest)),
+  );
   for (const context of contextManifests.values()) {
     const indexPath = path.join(repoRoot, context.root, "index.ts");
     const violation = findContextRootExportViolation(await readFile(indexPath, "utf8"), context.root);
@@ -2067,6 +2085,10 @@ export async function runStructureCheck(options = {}) {
 
   const jsonImportAttributesResult = await validateJsonImportAttributes({ repoRoot });
   violations.push(...jsonImportAttributesResult.violations);
+  violations.push(...validateContextRegistries({ repoRoot }).violations);
+  const scheduledJobsValidation = validateScheduledJobs({ repoRoot });
+  violations.push(...scheduledJobsValidation.violations);
+  for (const file of scheduledJobsValidation.factoryFiles) registeredWorkerFactoryFiles.add(file);
   const channelConnectionContractProvenance = await validateChannelConnectionContractProvenance({ repoRoot });
   violations.push(...channelConnectionContractProvenance.violations);
   const cancellationProducerUniqueness = validateCancellationProducerUniqueness({ repoRoot });
@@ -3952,6 +3974,11 @@ export async function runStructureCheck(options = {}) {
   const doksIngressChartVersionResult = await validateDoksIngressChartVersion({ repoRoot });
   violations.push(...doksIngressChartVersionResult.violations);
   violations.push(...checkDbDurationBaseline({ repoRoot }).map(({ file, message }) => `${file}: ${message}`));
+  violations.push(
+    ...unpartitionedMarketplaceOfferCallers(
+      enumerateMarketplaceAttemptCallers(readTrackedMarketplaceCallerSources(repoRoot)),
+    ).map(({ path, line, method }) => `${path}:${line}: Unpartitioned Marketplace attempt caller: ${method}`),
+  );
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);

@@ -128,7 +128,7 @@ describe("marketplace layout notification-center compatibility", () => {
     expect(screen.queryByText("Browse home")).toBeNull();
   });
 
-  it("follows the Discovery Product alerts redirect chain to the Product alerts settings section", async () => {
+  it("follows the Discovery Product alerts redirect to the Product alerts settings section", async () => {
     renderMarketplace("/account/product-alerts");
 
     await expectLocation("/account/notifications?view=settings&section=product-alerts");

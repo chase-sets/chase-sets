@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendFreshWriteToken,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -60,11 +60,272 @@ function commitHeaders(position = "42") {
   };
 }
 
+describe("import recovery reads", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const empty = { items: [], total: 0, count: 0 };
+  const recent = { items: [{ batch_id: "imb_recent" }], total: 1, count: 1 };
+  const locations = { items: [{ storage_location_id: "loc_1" }], total: 1, count: 1 };
+  const detail = { batch_id: "imb_1", rows: [], can_commit: false };
+  function stubReads(respond: (path: string, init?: RequestInit) => Promise<Response>) {
+    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/auth/session") {
+        return Promise.resolve(
+          jsonResponse({
+            actor: {
+              sessionId: "ses_1",
+              tenantId: "tnt_identity",
+              userId: "usr_1",
+              accountId: "acc_1",
+              membershipId: "mbr_1",
+              roleKey: "owner",
+              permissions: ["inventory.view"],
+            },
+          }),
+        );
+      }
+      return respond(path, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+  function load(request = new Request("http://localhost/account/inventory/imports/imb_1"), batchId = "imb_1") {
+    return inventoryImportsLoader({ request, params: batchId ? { batchId } : {}, context: undefined } as never);
+  }
+
+  it.each(["recent", "locations", "both"])("retains detail and successful data when %s reads fail", async (failed) => {
+    const fetch = stubReads(async (path) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      if (
+        (path.endsWith("/import-batches") && failed !== "locations") ||
+        (path.endsWith("/storage-locations") && failed !== "recent")
+      )
+        return jsonResponse({}, 503);
+      return jsonResponse(path.endsWith("/import-batches") ? recent : locations);
+    });
+    const result = await load();
+    expect(result.detail).toEqual(detail);
+    expect(result.batches.items).toEqual(failed === "locations" ? recent.items : []);
+    expect(result.storageLocations.items).toEqual(failed === "recent" ? locations.items : []);
+    expect(result.batchesLoadMessage).toEqual(failed === "locations" ? null : expect.stringContaining("unavailable"));
+    expect(result.storageLocationsLoadMessage).toEqual(
+      failed === "recent" ? null : expect.stringContaining("unavailable"),
+    );
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it.each([408, 429, 500, 502, 504, "transport"])("classifies %s as unavailable, not empty", async (status) => {
+    stubReads(async (path) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      if (status === "transport") throw new TypeError("Network unavailable");
+      return jsonResponse({}, status as number);
+    });
+    const result = await load();
+    expect(result.detail).toEqual(detail);
+    expect(result.batchesLoadMessage).toContain("unavailable");
+    expect(result.storageLocationsLoadMessage).toContain("unavailable");
+  });
+
+  it.each([401, 403, 400, 404, 422])("preserves permanent/auth refusal %s", async (status) => {
+    stubReads(async (path) =>
+      jsonResponse(path.endsWith("/imb_1") ? detail : {}, path.endsWith("/imb_1") ? 200 : status),
+    );
+    await expect(load()).rejects.toMatchObject({ status });
+  });
+
+  it("distinguishes successfully empty data", async () => {
+    stubReads(async () => jsonResponse(empty));
+    const result = await load(new Request("http://localhost/account/inventory/imports"), "");
+    expect(result).toMatchObject({
+      batches: empty,
+      storageLocations: empty,
+      batchesLoadMessage: null,
+      storageLocationsLoadMessage: null,
+    });
+  });
+
+  it("retains pending resource recovery even when both secondary reads fail", async () => {
+    stubReads(async (path) =>
+      path.endsWith("/imb_1")
+        ? jsonResponse({ error: { code: "projection_freshness_timeout", message: "Catching up" } }, 503)
+        : jsonResponse({}, 503),
+    );
+    const result = await load(
+      new Request(`http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_1", inventoryCommit())}`),
+    );
+    expect(result.detail).toBeNull();
+    expect(result.detailLoadMessage).toContain("still updating");
+    expect(result.batchesLoadMessage).toContain("unavailable");
+    expect(result.storageLocationsLoadMessage).toContain("unavailable");
+  });
+
+  it.each([403, 404])("preserves detail resource refusal %s despite unavailable secondary reads", async (status) => {
+    stubReads(async (path) => jsonResponse({}, path.endsWith("/imb_1") ? status : 503));
+    await expect(load()).rejects.toMatchObject({ status });
+  });
+
+  it("bounds both never-settling secondary fetches to ten seconds and cancels their signals", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    stubReads(async (path, init) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      signals.push(init!.signal!);
+      return new Promise<Response>(() => undefined);
+    });
+    const pending = load();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await pending;
+    expect(result.detail).toEqual(detail);
+    expect(result.batchesLoadMessage).toContain("unavailable");
+    expect(result.storageLocationsLoadMessage).toContain("unavailable");
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([200, 401, 403, 422])("bounds a stalled %s secondary body by the original read deadline", async (status) => {
+    vi.useFakeTimers();
+    const bodyPulled = vi.fn();
+    const bodyAborted = vi.fn();
+    stubReads(async (path, init) => {
+      if (path.endsWith("/imb_1")) return jsonResponse(detail);
+      if (path.endsWith("/storage-locations")) return jsonResponse(locations);
+      const signal = init!.signal!;
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("{"));
+            signal.addEventListener(
+              "abort",
+              () => {
+                bodyAborted();
+                controller.error(signal.reason);
+              },
+              { once: true },
+            );
+          },
+          pull: bodyPulled,
+        }),
+        { status },
+      );
+    });
+    const pending = load().then(
+      (data) => ({ data }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(bodyPulled).toHaveBeenCalled();
+    expect(bodyAborted).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(bodyAborted).toHaveBeenCalledOnce();
+    if (status === 200) {
+      expect(await pending).toMatchObject({
+        data: {
+          detail,
+          batches: empty,
+          storageLocations: locations,
+          batchesLoadMessage: expect.stringContaining("unavailable"),
+          storageLocationsLoadMessage: null,
+        },
+      });
+    } else {
+      expect(await pending).toMatchObject({ error: { status } });
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains pending detail and recent imports when a secondary body fails after headers", async () => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const bodyPulled = vi.fn();
+    stubReads(async (path) => {
+      if (path.endsWith("/imb_1")) {
+        return jsonResponse({ error: { code: "projection_freshness_timeout", message: "Catching up" } }, 503);
+      }
+      if (path.endsWith("/import-batches")) return jsonResponse(recent);
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            body = controller;
+            controller.enqueue(new TextEncoder().encode("{"));
+          },
+          pull: bodyPulled,
+        }),
+      );
+    });
+    const pending = load(
+      new Request(`http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_1", inventoryCommit())}`),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bodyPulled).toHaveBeenCalled();
+    body.error(new TypeError("Body transport interrupted"));
+    await expect(pending).resolves.toMatchObject({
+      detail: null,
+      detailLoadMessage: expect.stringContaining("still updating"),
+      batches: recent,
+      batchesLoadMessage: null,
+      storageLocations: empty,
+      storageLocationsLoadMessage: expect.stringContaining("unavailable"),
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([false, true])(
+    "cancels the actual detail and secondary fetches (detail pending: %s)",
+    async (pendingDetail) => {
+      vi.useFakeTimers();
+      const signals: AbortSignal[] = [];
+      const cleaned = vi.fn();
+      stubReads(async (path, init) => {
+        if (!pendingDetail && path.endsWith("/imb_1")) return jsonResponse(detail);
+        const signal = init?.signal;
+        if (!signal) throw new Error("Fetch lost cancellation");
+        signals.push(signal);
+        return new Promise<Response>((_, reject) => {
+          const abort = () => {
+            signal.removeEventListener("abort", abort);
+            cleaned();
+            reject(signal.reason);
+          };
+          signal.addEventListener("abort", abort, { once: true });
+        });
+      });
+      const controller = new AbortController();
+      const pending = load(
+        new Request(`http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_1", inventoryCommit())}`, {
+          signal: controller.signal,
+        }),
+      );
+      const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(signals).toHaveLength(pendingDetail ? 3 : 2);
+      controller.abort();
+      await rejected;
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      expect(cleaned).toHaveBeenCalledTimes(signals.length);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+});
+
 describe("marketplace inventory routes", () => {
   it.each(["imr_api_next", null])("resolve-row redirects from next_needs_seller_row_id: %s", async (nextRowId) => {
+    const resolveCalls: Array<{ url: string; body: unknown; attempt: string | null }> = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).includes("/rows/"))
+          resolveCalls.push({
+            url: String(input),
+            body: JSON.parse(String(init?.body)),
+            attempt: new Headers(init?.headers).get("Inventory-Mutation-Attempt"),
+          });
         if (String(input).includes("/api/auth/session"))
           return Promise.resolve(
             jsonResponse({
@@ -103,6 +364,9 @@ describe("marketplace inventory routes", () => {
       catalogItemId: "cat_1",
       storageLocationId: "loc_1",
       selectedOptions: "[]",
+      expectedRowVersion: "2026-11-01T08:00:00.123456Z",
+      expectedRowFingerprint: "native-csv|1",
+      inventoryMutationAttemptId: "7d3d2c8f-963e-4e4b-b6d9-9c5092403b07",
     });
     const result = await inventoryImportsAction({
       request: new Request("http://localhost/account/inventory/imports/imb_1", {
@@ -115,6 +379,20 @@ describe("marketplace inventory routes", () => {
     expect((result as Response).headers.get("Location")).toBe(
       nextRowId ? "/account/inventory/imports/imb_1?resolveRowId=imr_api_next" : "/account/inventory/imports/imb_1",
     );
+    // issue-7169-ac7: the rendered row facts and the form's persisted attempt reach the resolve authority verbatim.
+    expect(resolveCalls).toEqual([
+      {
+        url: expect.stringMatching(/\/import-batches\/imb_1\/rows\/imr_fixed\/resolve$/),
+        body: {
+          catalogItemId: "cat_1",
+          selectedOptions: [],
+          storageLocationId: "loc_1",
+          expectedRowVersion: "2026-11-01T08:00:00.123456Z",
+          expectedRowFingerprint: "native-csv|1",
+        },
+        attempt: "7d3d2c8f-963e-4e4b-b6d9-9c5092403b07",
+      },
+    ]);
   });
   it("loads inventory items and locations through the inventory API", async () => {
     vi.stubGlobal(
@@ -354,19 +632,22 @@ describe("marketplace inventory routes", () => {
     expect(result).toEqual({ error: "Bad inventory input.", intent: "create-item" });
   });
 
-  it.each([
-    null,
-    {
+  describe("forwards cert and refuses stale card", () => {
+    const staleCard = JSON.stringify({
       gradingCompany: "PSA",
       grade: "10",
       certificationNumber: "cert-123",
       population: null,
       conditionDescriptors: [],
-    },
-  ])(
-    "forwards create details as an object and carries the receipt into the detail redirect: %j",
-    async (gradedCard) => {
-      const createRequests: unknown[] = [];
+    });
+    const graded = JSON.stringify([
+      { dimensionId: "dim_form", optionId: "opt_graded" },
+      { dimensionId: "dim_company", optionId: "opt_psa" },
+      { dimensionId: "dim_grade", optionId: "opt_ten" },
+    ]);
+    const raw = JSON.stringify([{ dimensionId: "dim_form", optionId: "opt_raw" }]);
+
+    function stubInventoryApi(createRequests: unknown[]) {
       vi.stubGlobal(
         "fetch",
         vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -388,20 +669,29 @@ describe("marketplace inventory routes", () => {
             );
           }
 
-          createRequests.push(JSON.parse(String(init?.body)));
-          return Promise.resolve(jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("61")));
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          createRequests.push(body);
+          return Promise.resolve(
+            "gradedCard" in body
+              ? jsonResponse(
+                  { error: { code: "inventory_mutation_refused", message: "Inventory request was not accepted." } },
+                  400,
+                )
+              : jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("61")),
+          );
         }),
       );
+    }
 
-      const form = new URLSearchParams();
-      form.set("intent", "create-item");
-      form.set("catalogItemId", "cat_1");
-      form.set("selectedOptions", "[]");
-      form.set("storageLocationId", "loc_1");
-      form.set("totalQuantity", "3");
-      if (gradedCard) form.set("gradedCard", JSON.stringify(gradedCard));
-
-      const response = (await inventoryAction({
+    function submit(fields: Record<string, string>) {
+      const form = new URLSearchParams({
+        intent: "create-item",
+        catalogItemId: "cat_1",
+        storageLocationId: "loc_1",
+        totalQuantity: "3",
+        ...fields,
+      });
+      return inventoryAction({
         request: new Request("http://localhost/account/inventory", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -409,26 +699,46 @@ describe("marketplace inventory routes", () => {
         }),
         params: {},
         context: undefined,
-      } as never)) as Response;
+      } as never);
+    }
+
+    const base = { catalogItemId: "cat_1", storageLocationId: "loc_1", totalQuantity: 3 };
+    const noCost = { acquisitionCostAmount: null, acquisitionCostCurrencyCode: null };
+
+    it.each([
+      [
+        "new cert form",
+        { selectedOptions: graded, certificationNumber: " cert-123 " },
+        { certificationNumber: "cert-123" },
+      ],
+      ["new blank cert form", { selectedOptions: graded, certificationNumber: "   " }, { certificationNumber: null }],
+      ["new raw form", { selectedOptions: raw }, {}],
+      ["new raw-after-cert form", { selectedOptions: raw }, {}],
+      ["new no-metadata form", { selectedOptions: graded }, {}],
+      ["old raw form", { selectedOptions: raw }, {}],
+      ["empty stale card field", { selectedOptions: raw, gradedCard: "" }, {}],
+    ])("sends the %s exactly and carries the receipt into the detail redirect", async (_name, fields, forwarded) => {
+      const createRequests: unknown[] = [];
+      stubInventoryApi(createRequests);
+
+      const response = (await submit(fields)) as Response;
 
       const location = response.headers.get("Location") ?? "";
       expect(location).toContain("/account/inventory/items/inv_created?");
-      expect(location).not.toContain("feedbackWorkflow=");
       expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("61");
-      expect(createRequests).toEqual([
-        {
-          catalogItemId: "cat_1",
-          selectedOptions: "[]",
-          storageLocationId: "loc_1",
-          totalQuantity: 3,
-          acquisitionCostAmount: null,
-          acquisitionCostCurrencyCode: null,
-          ...(gradedCard ? { gradedCard } : {}),
-        },
-      ]);
-    },
-  );
+      expect(createRequests).toEqual([{ ...base, selectedOptions: fields.selectedOptions, ...forwarded, ...noCost }]);
+    });
 
+    it("forwards an old graded form's card unread and shows Inventory's refusal", async () => {
+      const createRequests: unknown[] = [];
+      stubInventoryApi(createRequests);
+
+      const result = await submit({ selectedOptions: graded, gradedCard: staleCard });
+
+      expect(createRequests).toEqual([{ ...base, selectedOptions: graded, gradedCard: staleCard, ...noCost }]);
+      expect(result).toEqual({ error: "Inventory request was not accepted.", intent: "create-item" });
+    });
+  });
   it("returns to Sell List after creating inventory from a Sell List recovery", async () => {
     vi.stubGlobal(
       "fetch",

@@ -32,6 +32,7 @@ function assertImmutableProviderUatAdmission(document) {
     RUN_SHA: "${{ github.sha }}",
     CONFIRMATION: "${{ inputs.confirm }}",
     JOURNEY_SCOPE: "${{ inputs.journey_scope }}",
+    RUN_ATTEMPT: "${{ github.run_attempt }}",
     ADMIN_WEB_URL: "${{ inputs.admin_web_url }}",
     SCRATCH_PARENT: "${{ inputs.scratch_parent }}",
   });

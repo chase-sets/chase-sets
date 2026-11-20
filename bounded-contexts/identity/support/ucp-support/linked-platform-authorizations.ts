@@ -1,5 +1,6 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { withDormantAgentGrantWrite } from "../../features/agent-grants/api/revocation-release";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { assertDormantAgentGrantWrite } from "../../features/agent-grants/api/revocation-release";
+import { createIdentityOwnerEpochs, type IdentityOwnerEpochs } from "../../features/accounts/api/owner-epochs";
 
 export const identityLinkedPlatformAuthorizationSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_linked_platform_authorizations (
@@ -101,11 +102,16 @@ export type LinkedPlatformAuthorizationStore = Readonly<{
   listForAccount: (accountId: string) => Promise<readonly LinkedPlatformAuthorizationRow[]>;
 }>;
 
-export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool): LinkedPlatformAuthorizationStore {
+export function createLinkedPlatformAuthorizationStore(
+  db: PgTransactionalPool,
+  ownerEpochs: IdentityOwnerEpochs = createIdentityOwnerEpochs(db),
+): LinkedPlatformAuthorizationStore {
   return {
-    grant: async (params) => {
-      const result = await db.query<LinkedPlatformAuthorizationRow>(
-        `INSERT INTO identity_linked_platform_authorizations (
+    grant: (params) =>
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
+        await ownerEpochs.enrollDelegation(db, params.authorizationId);
+        const result = await db.query<LinkedPlatformAuthorizationRow>(
+          `INSERT INTO identity_linked_platform_authorizations (
            authorization_id,
            platform_profile_url,
            client_id,
@@ -137,23 +143,23 @@ export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool):
            now()
          )
          RETURNING *`,
-        [
-          params.authorizationId,
-          params.platformProfileUrl,
-          params.clientId,
-          params.userId,
-          params.accountId,
-          JSON.stringify([...new Set(params.scopes)].sort()),
-          params.accessTokenHash,
-          params.refreshTokenHash ?? null,
-          params.accessTokenExpiresAt,
-          params.refreshTokenExpiresAt ?? null,
-          params.absoluteExpiresAt ?? null,
-          params.grantedAt,
-        ],
-      );
-      return mapLinkedPlatformAuthorizationRow(result.rows[0]);
-    },
+          [
+            params.authorizationId,
+            params.platformProfileUrl,
+            params.clientId,
+            params.userId,
+            params.accountId,
+            JSON.stringify([...new Set(params.scopes)].sort()),
+            params.accessTokenHash,
+            params.refreshTokenHash ?? null,
+            params.accessTokenExpiresAt,
+            params.refreshTokenExpiresAt ?? null,
+            params.absoluteExpiresAt ?? null,
+            params.grantedAt,
+          ],
+        );
+        return mapLinkedPlatformAuthorizationRow(result.rows[0]);
+      }),
     resolveAccessToken: async (accessTokenHash) => {
       const result = await db.query<LinkedPlatformAuthorizationRow>(
         `SELECT *
@@ -189,9 +195,15 @@ export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool):
       );
       return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
     },
-    rotateRefreshToken: async (params) => {
-      const result = await db.query<LinkedPlatformAuthorizationRow>(
-        `UPDATE identity_linked_platform_authorizations
+    rotateRefreshToken: (params) =>
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
+        const candidates = await db.query<{ authorization_id: string }>(
+          "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE refresh_token_hash = $1 AND status = 'active' AND refresh_token_expires_at > now()",
+          [params.refreshTokenHash],
+        );
+        for (const row of candidates.rows) await ownerEpochs.enrollDelegation(db, row.authorization_id);
+        const result = await db.query<LinkedPlatformAuthorizationRow>(
+          `UPDATE identity_linked_platform_authorizations
          SET access_token_hash = $2,
              refresh_token_hash = $3,
              access_token_expires_at = LEAST($4::timestamptz, COALESCE(absolute_expires_at, $4::timestamptz)),
@@ -200,39 +212,61 @@ export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool):
              refresh_token_rotated_at = $6::timestamptz,
              updated_at = now()
          WHERE refresh_token_hash = $1
+           AND authorization_id = ANY($7::text[])
            AND status = 'active'
            AND refresh_token_expires_at IS NOT NULL
            AND refresh_token_expires_at > now()
          RETURNING *`,
-        [
-          params.refreshTokenHash,
-          params.newAccessTokenHash,
-          params.newRefreshTokenHash,
-          params.accessTokenExpiresAt,
-          params.refreshTokenExpiresAt,
-          params.refreshedAt,
-        ],
-      );
-      return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
-    },
+          [
+            params.refreshTokenHash,
+            params.newAccessTokenHash,
+            params.newRefreshTokenHash,
+            params.accessTokenExpiresAt,
+            params.refreshTokenExpiresAt,
+            params.refreshedAt,
+            candidates.rows.map((row) => row.authorization_id),
+          ],
+        );
+        return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
+      }),
     revokeToken: (tokenHash, revokedAt) =>
-      withDormantAgentGrantWrite(db, async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
+        await assertDormantAgentGrantWrite(db);
+        const candidates = await db.query<{ authorization_id: string }>(
+          "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE status = 'active' AND (access_token_hash = $1 OR refresh_token_hash = $1) ORDER BY authorization_id",
+          [tokenHash],
+        );
+        for (const row of candidates.rows) await ownerEpochs.enrollDelegation(db, row.authorization_id);
         const result = await db.query(
           `UPDATE identity_linked_platform_authorizations
          SET status = 'revoked', revoked_at = $2::timestamptz,
              revocation_reason = COALESCE(revocation_reason, 'token_revocation'), updated_at = now()
-         WHERE status = 'active' AND (access_token_hash = $1 OR refresh_token_hash = $1)`,
-          [tokenHash, revokedAt],
+         WHERE status = 'active' AND (access_token_hash = $1 OR refresh_token_hash = $1)
+           AND authorization_id = ANY($3::text[])`,
+          [tokenHash, revokedAt, candidates.rows.map((row) => row.authorization_id)],
         );
         return (result.rowCount ?? 0) > 0;
       }),
     revokeAuthorization: (params) =>
-      withDormantAgentGrantWrite(db, async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
+        await assertDormantAgentGrantWrite(db);
+        const candidates = await db.query<{ authorization_id: string }>(
+          "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE authorization_id = $1 AND account_id = $2 AND status = 'active'",
+          [params.authorizationId, params.accountId],
+        );
+        for (const row of candidates.rows) await ownerEpochs.enrollDelegation(db, row.authorization_id);
         const result = await db.query(
           `UPDATE identity_linked_platform_authorizations
          SET status = 'revoked', revoked_at = $3::timestamptz, revocation_reason = $4, updated_at = now()
-         WHERE authorization_id = $1 AND account_id = $2 AND status = 'active'`,
-          [params.authorizationId, params.accountId, params.revokedAt, params.reason ?? "account_consent_revoked"],
+         WHERE authorization_id = $1 AND account_id = $2 AND status = 'active'
+           AND authorization_id = ANY($5::text[])`,
+          [
+            params.authorizationId,
+            params.accountId,
+            params.revokedAt,
+            params.reason ?? "account_consent_revoked",
+            candidates.rows.map((row) => row.authorization_id),
+          ],
         );
         return (result.rowCount ?? 0) > 0;
       }),

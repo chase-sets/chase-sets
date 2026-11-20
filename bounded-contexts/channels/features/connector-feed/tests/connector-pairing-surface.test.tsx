@@ -4,12 +4,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
-import { ConnectorPairingPanel, type GeneratedPairingCode, type PairingPanelState } from "../ui/pairing-panel";
+import { ConnectorPairingPanel, type PairingCodeNotice, type PairingPanelState } from "../ui/pairing-panel";
 
 afterEach(cleanup);
-function renderPanel(state: PairingPanelState, pending = false, generated?: GeneratedPairingCode) {
+function renderPanel(state: PairingPanelState, pending = false, generated?: PairingCodeNotice, available = true) {
   const router = createMemoryRouter([
-    { path: "/", element: <ConnectorPairingPanel state={state} pending={pending} generated={generated} /> },
+    {
+      path: "/",
+      element: <ConnectorPairingPanel state={state} pending={pending} generated={generated} available={available} />,
+    },
   ]);
   render(
     <ChaseRoot linkComponent={RouterLinkAdapter}>
@@ -49,6 +52,25 @@ describe("connector-pairing-surface", () => {
     renderPanel({ kind: "read-error" });
     expect(screen.getByText("Connector pairing unavailable")).toBeTruthy();
     expect(screen.queryByText("Connector paired")).toBeNull();
+  });
+  it("offers neither pairing action when unavailable, even with a known pairing", () => {
+    renderPanel(
+      {
+        kind: "loaded",
+        data: {
+          state: "paired",
+          pairingId: "pair_test",
+          revision: 2,
+          codeExpiresAt: "2026-09-14T12:10:00Z",
+          lastSeenAt: null,
+        },
+      },
+      false,
+      undefined,
+      false,
+    );
+    expect(screen.queryByRole("button", { name: "Generate pairing code" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Unpair connector" })).toBeNull();
   });
   it("disables the action and shows progress during submission", () => {
     renderPanel(

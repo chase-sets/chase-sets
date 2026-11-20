@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import vm from "node:vm";
 import { parse } from "yaml";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -91,6 +93,274 @@ const journeySource = ts.createSourceFile(
 );
 const journeyFunction = (name) =>
   journeySource.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+
+describe("restart-safe scope convergence", () => {
+  const checkpoint = (overrides = {}) =>
+    promoteJob("completed-between-dispatches", [], {
+      createdAt: "2026-11-14T10:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes: [] },
+      ...overrides,
+    });
+
+  it("reuses completed zero work instead of restarting the scope walk", () => {
+    expect(planScopePromotion("scope-1", [], [checkpoint()], 0)).toEqual({
+      kind: "reuse-completed-job",
+      jobIds: ["completed-between-dispatches"],
+    });
+  });
+
+  it.each([
+    { promotionApplicationVersion: null },
+    { createdAt: undefined },
+    { createdAt: "invalid" },
+    { result: { promoted: 1, failed: 0, outcomes: [] } },
+    { result: { promoted: 0, failed: 1, outcomes: [] } },
+    { result: { promoted: 0, failed: 0, outcomes: [{ status: "failed" }] } },
+  ])("never reuses an unproven convergence checkpoint: %j", (override) => {
+    expect(planScopePromotion("scope-1", [], [checkpoint(override)], 0).kind).toBe("submit-promote-all-ready");
+  });
+
+  it("new candidate changes invalidate history and active jobs take precedence", () => {
+    expect(planScopePromotion("scope-1", [], [checkpoint()], 1).kind).toBe("submit-promote-all-ready");
+    expect(planScopePromotion("scope-1", [], [checkpoint({ scopeRecordId: "other" })], 0).kind).toBe(
+      "submit-promote-all-ready",
+    );
+    expect(
+      planScopePromotion("scope-1", [checkpoint({ jobId: "active", status: "running" })], [checkpoint()], 0),
+    ).toEqual({ kind: "adopt-active-job", jobIds: ["active"] });
+  });
+
+  it("a newer nonzero pass invalidates an older checkpoint", () => {
+    const newer = checkpoint({ createdAt: "2026-11-14T11:00:00Z", result: { promoted: 1, outcomes: [] } });
+    expect(planScopePromotion("scope-1", [], [checkpoint(), newer], 0).kind).toBe("submit-promote-all-ready");
+  });
+
+  it("seven jobs finishing between dispatches advance once per scope and then rerun without submission", async () => {
+    const history = new Map();
+    const submitted = [];
+    let pending;
+    const scopes = Array.from({ length: 7 }, (_, index) => `scope-${index + 1}`);
+    const context = vm.createContext({
+      ...rehearsal,
+      Date,
+      URLSearchParams,
+      gotoWholeGamePage: async () => {},
+      readWholeGameBatch: async () =>
+        batch(
+          "completed",
+          scopes.map((scope) => unit(scope, "completed")),
+        ),
+      readActivePromoteJobs: async () => [],
+      readWholeGameJson: async (_page, path) => {
+        const url = new URL(path, rehearsal.wholeGameStagingOrigin);
+        if (url.pathname.endsWith("bulk-jobs/active"))
+          return { items: history.get(url.searchParams.get("scopeRecordId")) ?? [] };
+        if (url.pathname.endsWith("merge-candidates")) return { total: 0, items: [] };
+        throw new Error(`unexpected read ${path}`);
+      },
+      submitPromoteAllReady: async (_page, scopeRecordId) => {
+        submitted.push(scopeRecordId);
+        pending = checkpoint({ scopeRecordId, jobId: `job-${scopeRecordId}` });
+        return pending.jobId;
+      },
+      waitForPromoteJob: async () => null,
+    });
+    const declarations = ["wholeGameSettle", "wholeGameQuery", "promoteJobsPath", "readReadyCandidateCount"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    const run = () =>
+      context.wholeGameSettle(
+        {},
+        settleInput(),
+        { sha: "a".repeat(40), runId: "123", runAttempt: "1" },
+        { deadlineAt: Date.now() + 1000, pollMs: 1 },
+        () => {},
+      );
+    for (const [index, scope] of scopes.entries()) {
+      const result = await run();
+      expect(result).toMatchObject({ state: "running", settle: { scopesPromoted: index, promoteJobsSubmitted: 1 } });
+      expect(result.settle.scopeProgress.at(-1)).toMatchObject({
+        scopeRecordId: scope,
+        state: "promotion-running",
+        jobIds: [`job-${scope}`],
+      });
+      expect(validateWholeGameReceipt(result)).toEqual([]);
+      history.set(scope, [pending]);
+    }
+    for (let rerun = 0; rerun < 2; rerun += 1) {
+      const result = await run();
+      expect(result).toMatchObject({
+        state: "settled",
+        settle: { scopesPromoted: 7, promoteJobsSubmitted: 0, promotedThisDispatch: 0, published: 0 },
+      });
+      expect(
+        result.settle.scopeProgress.every(
+          (progress) => progress.completedJobsObserved === 1 && progress.state === "converged",
+        ),
+      ).toBe(true);
+      expect(validateWholeGameReceipt(result)).toEqual([]);
+    }
+    expect(submitted).toEqual(scopes);
+  });
+});
+
+describe("reference-only settle completeness", () => {
+  const referenceOnly = (candidateId) => ({
+    candidateId,
+    status: "skipped-not-eligible",
+    disposition: "reference-only",
+    catalogItemId: null,
+  });
+  const convergedJob = (outcomes, overrides = {}) =>
+    promoteJob("current-zero", outcomes, {
+      createdAt: "2026-11-12T12:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes },
+      ...overrides,
+    });
+
+  async function count(pages, jobs, status = "ready") {
+    const reads = [];
+    const context = vm.createContext({
+      ...rehearsal,
+      URLSearchParams,
+      readWholeGameJson: async (_page, path) => {
+        reads.push(path);
+        const offset = Number(new URL(path, rehearsal.wholeGameStagingOrigin).searchParams.get("offset") ?? 0);
+        const page = pages[offset] ?? { total: 1, items: [] };
+        return { ...page, items: page.items.map((item) => ({ updated_at: "2026-11-11T12:00:00Z", ...item })) };
+      },
+      readWholeGameTotal: async () => pages[0].total,
+    });
+    const declarations = ["readReadyCandidateCount", "wholeGameQuery"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    return { remaining: await context.readReadyCandidateCount({}, "scope-1", jobs, undefined, status), reads };
+  }
+
+  it.each([
+    ["2026-11-11T12:00:00Z", 1],
+    ["2026-11-12T12:00:01Z", 1],
+    ["invalid", 1],
+    [undefined, 1],
+  ])(
+    "invalidates a checkpoint for approved-but-unapplied candidates absent from its outcomes (%s)",
+    async (updated_at, remaining) => {
+      const result = await count(
+        { 0: { total: 1, items: [{ candidate_id: "approved", updated_at }] } },
+        [convergedJob([])],
+        "promoted",
+      );
+      expect(result.remaining).toBe(remaining);
+      expect(new URL(result.reads[0], rehearsal.wholeGameStagingOrigin).searchParams.get("status")).toBe("promoted");
+    },
+  );
+
+  it.each([
+    ["2026-11-11T12:00:00Z", 0],
+    ["2026-11-12T12:00:00Z", 1],
+    ["2026-11-12T12:00:01Z", 1],
+    ["invalid", 1],
+    [undefined, 1],
+  ])(
+    "reuses a covered approved candidate only while strictly older than its checkpoint (%s)",
+    async (updated_at, remaining) => {
+      const job = convergedJob([referenceOnly("synthetic-approved")]);
+      const result = await count(
+        { 0: { total: 1, items: [{ candidate_id: "synthetic-approved", updated_at }] } },
+        [job],
+        "promoted",
+      );
+      expect(result.remaining).toBe(remaining);
+      expect(planScopePromotion("scope-1", [], [job], result.remaining).kind).toBe(
+        remaining === 0 ? "reuse-completed-job" : "submit-promote-all-ready",
+      );
+    },
+  );
+
+  it("does not borrow approved candidate coverage from an older zero checkpoint", async () => {
+    const result = await count(
+      { 0: { total: 1, items: [{ candidate_id: "synthetic-approved" }] } },
+      [
+        convergedJob([referenceOnly("synthetic-approved")], { jobId: "synthetic-older-zero" }),
+        convergedJob([], { jobId: "synthetic-latest-zero", createdAt: "2026-11-12T13:00:00Z" }),
+      ],
+      "promoted",
+    );
+    expect(result.remaining).toBe(1);
+  });
+
+  it("does not leave the Time Spiral reference-only set candidate blocking settle", async () => {
+    const candidateId = "cand_400f635bd596d757ecda7a4f";
+    const result = await count({ 0: { total: 1, items: [{ candidate_id: candidateId }] } }, [
+      convergedJob([referenceOnly(candidateId)]),
+    ]);
+    expect(result.remaining).toBe(0);
+  });
+
+  it("counts every unresolved ready candidate across pages, not unrelated disposition ids", async () => {
+    const result = await count(
+      {
+        0: { total: 3, items: [{ candidate_id: "reference" }, { candidate_id: "unknown" }] },
+        2: { total: 3, items: [{ candidate_id: "ordinary-skip" }] },
+      },
+      [
+        convergedJob([
+          referenceOnly("reference"),
+          referenceOnly("not-ready"),
+          {
+            candidateId: "ordinary-skip",
+            status: "skipped-not-eligible",
+            catalogItemId: null,
+          },
+        ]),
+      ],
+    );
+    expect(result.remaining).toBe(2);
+    expect(result.reads).toHaveLength(2);
+  });
+
+  it.each([
+    { createdAt: undefined },
+    { createdAt: "invalid" },
+    { status: "failed" },
+    { scopeRecordId: "other-scope" },
+    { promotionApplicationVersion: null },
+    { result: { promoted: 1, failed: 0, outcomes: [referenceOnly("reference")] } },
+    { result: { promoted: 0, failed: 1, outcomes: [referenceOnly("reference")] } },
+  ])("does not exempt candidates from a non-converged or wrong-scope job: %j", async (override) => {
+    const result = await count({ 0: { total: 1, items: [{ candidate_id: "reference" }] } }, [
+      convergedJob([referenceOnly("reference")], override),
+    ]);
+    expect(result.remaining).toBe(1);
+  });
+
+  it.each(["2026-11-12T12:00:01Z", "invalid", undefined])(
+    "keeps candidates edited after disposition or with unknown update time unresolved (%s)",
+    async (updated_at) => {
+      const result = await count({ 0: { total: 1, items: [{ candidate_id: "reference", updated_at }] } }, [
+        convergedJob([referenceOnly("reference")]),
+      ]);
+      expect(result.remaining).toBe(1);
+    },
+  );
+
+  it.each([
+    { 0: { total: 2, items: [{ candidate_id: "reference" }] } },
+    {
+      0: { total: 2, items: [{ candidate_id: "reference" }] },
+      1: { total: 2, items: [{ candidate_id: "reference" }] },
+    },
+    { 0: { total: 2, items: [{ candidate_id: "reference" }] }, 1: { total: 3, items: [{ candidate_id: "other" }] } },
+  ])("refuses truncated, repeated or changing ready pagination", async (pages) => {
+    await expect(count(pages, [convergedJob([referenceOnly("reference")])])).rejects.toMatchObject({
+      code: "ready-candidates-incomplete",
+    });
+  });
+});
 
 describe("whole-game repair regressions", () => {
   it("uses registered admin routes for every whole-game page", () => {
@@ -324,6 +594,27 @@ describe("AC7 exact staging admission", () => {
     readFileSync(new URL("../.github/workflows/catalog-staging-provider-uat.yml", import.meta.url), "utf8"),
   );
   const step = workflow.jobs["admit-reviewed-sha"].steps[0];
+  it("routes both paid modes through the staging-only whole-game job", () => {
+    const dispatch = workflow.on.workflow_dispatch.inputs;
+    const job = workflow.jobs["staging-provider-uat"];
+    const matrix = workflow.jobs["resolve-provider-uat-plan"].steps[0].run;
+    for (const scope of ["full-game-preview", "full-game-confirm"]) {
+      expect(dispatch.journey_scope.options).toContain(scope);
+      expect(matrix).toContain(`|${scope}|`);
+      expect(rehearsal.wholeGameJourneyScopes).toContain(scope);
+    }
+    expect(job["runs-on"]).toBe("ubuntu-24.04");
+    expect(job.env.CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT).toBe("${{ inputs.approved_preview_fingerprint }}");
+    expect(job.env.CATALOG_WHOLE_GAME_BUDGET).toBe("${{ inputs.budget }}");
+  });
+  it("uploads only the whole-game receipt even when the journey fails", () => {
+    const upload = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .find((step) => step.name === "Upload whole-game rehearsal receipt");
+    expect(upload.if).toBe("${{ always() && startsWith(matrix.journey_scope, 'full-game-') }}");
+    expect(upload.with.path).toBe("artifacts/catalog-whole-game-rehearsal/receipt.json");
+    expect(upload.with["if-no-files-found"]).toBe("error");
+  });
   it.each([
     "https://production.invalid",
     "http://admin.staging.chasesets.com",
@@ -331,24 +622,29 @@ describe("AC7 exact staging admission", () => {
     "https://admin.staging.chasesets.com/",
     "https://admin.staging.chasesets.com?next=evil",
   ])("refuses %s before the credential job", (target) => {
-    const failures = [];
-    vm.runInNewContext(step.with.script, {
-      process: {
-        env: {
-          EXPECTED_SHA: "a".repeat(40),
-          RUN_SHA: "a".repeat(40),
-          CONFIRMATION: "run catalog staging provider uat",
-          JOURNEY_SCOPE: "full-game-settle",
-          ADMIN_WEB_URL: target,
+    for (const scope of rehearsal.wholeGameJourneyScopes) {
+      const failures = [];
+      vm.runInNewContext(step.with.script, {
+        process: {
+          env: {
+            EXPECTED_SHA: "a".repeat(40),
+            RUN_SHA: "a".repeat(40),
+            RUN_ATTEMPT: "1",
+            CONFIRMATION: "run catalog staging provider uat",
+            JOURNEY_SCOPE: scope,
+            ADMIN_WEB_URL: target,
+          },
         },
-      },
-      core: { setFailed: (message) => failures.push(message) },
-    });
-    expect(failures).toHaveLength(1);
+        core: { setFailed: (message) => failures.push(message) },
+      });
+      expect(failures).toEqual(["Whole-game and capture journeys require the exact staging origin."]);
+    }
   });
   it("admits the exact staging origin and leaves other journeys unchanged", () => {
     for (const [scope, target] of [
       ["full-game-start", "https://admin.staging.chasesets.com"],
+      ["full-game-preview", "https://admin.staging.chasesets.com"],
+      ["full-game-confirm", "https://admin.staging.chasesets.com"],
       ["one-piece-launch", "https://synthetic.invalid"],
     ]) {
       const failures = [];
@@ -357,6 +653,7 @@ describe("AC7 exact staging admission", () => {
           env: {
             EXPECTED_SHA: "a".repeat(40),
             RUN_SHA: "a".repeat(40),
+            RUN_ATTEMPT: "1",
             CONFIRMATION: "run catalog staging provider uat",
             JOURNEY_SCOPE: scope,
             ADMIN_WEB_URL: target,
@@ -366,6 +663,23 @@ describe("AC7 exact staging admission", () => {
       });
       expect(failures).toEqual([]);
     }
+  });
+  it("refuses a GitHub rerun of paid confirm", () => {
+    const setFailed = vi.fn();
+    vm.runInNewContext(step.with.script, {
+      process: {
+        env: {
+          EXPECTED_SHA: "a".repeat(40),
+          RUN_SHA: "a".repeat(40),
+          RUN_ATTEMPT: "2",
+          CONFIRMATION: "run catalog staging provider uat",
+          JOURNEY_SCOPE: "full-game-confirm",
+          ADMIN_WEB_URL: rehearsal.wholeGameStagingOrigin,
+        },
+      },
+      core: { setFailed },
+    });
+    expect(setFailed.mock.calls).toEqual([["Paid whole-game confirmation requires a fresh dispatch, not a rerun."]]);
   });
   it("refuses redirected effective origins without invoking the guarded action", async () => {
     const action = vi.fn();
@@ -377,30 +691,59 @@ describe("AC7 exact staging admission", () => {
 });
 
 describe("AC8 bounded complete reads", () => {
-  function settleProbe({ delay = 0, stall = false } = {}) {
+  function settleProbe({
+    delay = 0,
+    stall = false,
+    ready = [],
+    zeroOutcomes = [],
+    historicalOutcomes = [],
+    failedJob,
+    receiptPath,
+  } = {}) {
     const file = readFileSync(
       new URL("../deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts", import.meta.url),
       "utf8",
     );
     const source = ts.createSourceFile("journey.ts", file, ts.ScriptTarget.Latest, true);
-    const names = new Set(["wholeGameSettle", "wholeGameQuery", "promoteJobsPath", "draftItemsPath"]);
+    const names = new Set([
+      "wholeGameSettle",
+      "wholeGameQuery",
+      "promoteJobsPath",
+      "draftItemsPath",
+      "readReadyCandidateCount",
+      "runWholeGameJourney",
+      "wholeGameRunIdentity",
+      "writeWholeGameReceipt",
+    ]);
     const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
-    expect(functions).toHaveLength(4);
+    expect(functions).toHaveLength(8);
     const declarations = functions.map((node) => node.getText(source)).join("\n");
     const jobs = [
       promoteJob(
         "history",
-        Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+        [
+          ...Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+          ...historicalOutcomes,
+        ],
         { promotionApplicationVersion: 1 },
       ),
     ];
-    const zeroJob = promoteJob("zero", [], { promotionApplicationVersion: 1 });
+    const zeroJob = promoteJob("zero", zeroOutcomes, {
+      createdAt: "2026-11-12T12:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes: zeroOutcomes },
+    });
     const reads = [];
     const publish = vi.fn();
+    const writeReceipt = vi.fn((receipt) => {
+      if (receiptPath) context.writeWholeGameReceipt(receipt);
+    });
     let deadline;
     const read = async (_page, path) =>
       rehearsal.readBeforeWholeGameDeadline(deadline, async () => {
         reads.push(path);
+        if (path.includes("merge-candidates?"))
+          return { total: ready.length, items: ready.map((item) => ({ updated_at: "2026-11-11T12:00:00Z", ...item })) };
         if (path.includes("bulk-jobs/active")) {
           if (stall) return new Promise(() => {});
           return { items: jobs };
@@ -416,6 +759,23 @@ describe("AC8 bounded complete reads", () => {
       Date,
       Set,
       URLSearchParams,
+      mkdirSync,
+      dirname,
+      writeFileSync,
+      wholeGameReceiptPath: receiptPath,
+      wholeGamePollMs: 1,
+      wholeGameStart: async (_page, _input, run) =>
+        receipt({
+          ...run,
+          journeyScope: "full-game-start",
+          state: "confirmed",
+          settle: null,
+          preview: {
+            planFingerprint: "sha256:fixture-plan",
+            scopeCount: 3,
+            providers: [{ providerKey: "tcgdex", units: 3, plannedRequests: 120 }],
+          },
+        }),
       gotoWholeGamePage: async () => {},
       readWholeGameBatch: async () => ({
         ...batch("completed", [unit("scope-1", "completed")]),
@@ -423,16 +783,57 @@ describe("AC8 bounded complete reads", () => {
       }),
       readActivePromoteJobs: async () => [],
       submitPromoteAllReady: async () => "zero",
-      waitForPromoteJob: async () => zeroJob,
+      waitForPromoteJob: async () => failedJob ?? zeroJob,
       readWholeGameJson: read,
-      readReadyCandidateCount: async () => 0,
       readWholeGameTotal: async () => 0,
       publishThroughCatalogItems: publish,
     });
     vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    const fixtureSink = source.statements
+      .filter(ts.isVariableStatement)
+      .flatMap((node) => [...node.declarationList.declarations])
+      .find((node) => node.name.getText(source) === "fixtureReceiptSink");
+    vm.runInContext(ts.transpile(`const ${fixtureSink.getText(source)};`), context);
     return {
       reads,
       publish,
+      writeReceipt,
+      runLive: (scope) => {
+        deadline = Date.now() + 1000;
+        return context.runWholeGameJourney({}, scope, deadline, writeReceipt, {
+          GITHUB_SHA: "b".repeat(40),
+          GITHUB_RUN_ID: "456",
+          GITHUB_RUN_ATTEMPT: "1",
+          CATALOG_WHOLE_GAME_BATCH_ID: "batch-requested",
+          CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
+        });
+      },
+      runFixture: () => {
+        const calls = [];
+        const visit = (node) => {
+          if (
+            ts.isCallExpression(node) &&
+            node.expression.getText(source) === "wholeGameSettle" &&
+            node.arguments[2]?.getText(source) === "fixtureRun"
+          )
+            calls.push(node);
+          ts.forEachChild(node, visit);
+        };
+        visit(source);
+        expect(calls.length).toBeGreaterThan(0);
+        for (const call of calls) expect(call.arguments[4]?.getText(source)).toBe("fixtureReceiptSink");
+        const failedFixture = calls.find(
+          (call) =>
+            call.arguments[0].getText(source) === "page" &&
+            call.arguments[1].getText(source).includes('batchId: "batch-requested"'),
+        );
+        expect(failedFixture).toBeDefined();
+        context.page = {};
+        context.fixtureRun = { sha: "a".repeat(40), runId: "9220", runAttempt: "1" };
+        context.fixtureRuntime = () => ({ deadlineAt: Date.now() + 1000, pollMs: 1 });
+        deadline = Date.now() + 1000;
+        return vm.runInContext(ts.transpile(failedFixture.getText(source)), context);
+      },
       run: (budget) => {
         deadline = Date.now() + budget;
         return context.wholeGameSettle(
@@ -440,10 +841,117 @@ describe("AC8 bounded complete reads", () => {
           settleInput(),
           { sha: "a".repeat(40), runId: "123", runAttempt: "1" },
           { deadlineAt: deadline, pollMs: 1 },
+          writeReceipt,
         );
       },
     };
   }
+  it.each(["full-game-settle", "full-game-start"])(
+    "preserves the live %s receipt when the expected-failure fixture runs",
+    async (scope) => {
+      const directory = mkdtempSync(join(tmpdir(), "whole-game-isolation-"));
+      const path = join(directory, "receipt.json");
+      try {
+        const probe = settleProbe({
+          receiptPath: path,
+          failedJob: promoteJob("live-failed-job", [
+            {
+              candidateId: "live-failed-candidate",
+              status: "failed",
+              diagnosticCode: "asset-processing-failed",
+            },
+          ]),
+        });
+        if (scope === "full-game-settle") {
+          await expect(probe.runLive(scope)).rejects.toMatchObject({ code: "scope-promotion-failed" });
+        } else {
+          const started = await probe.runLive(scope);
+          probe.writeReceipt(started);
+        }
+        const live = readFileSync(path, "utf8");
+        expect(validateWholeGameReceipt(JSON.parse(live))).toEqual([]);
+        expect(JSON.parse(live)).toMatchObject({
+          journeyScope: scope,
+          state: scope === "full-game-start" ? "confirmed" : "failed",
+          sha: "b".repeat(40),
+          runId: "456",
+        });
+        if (scope === "full-game-settle")
+          expect(JSON.parse(live).promotionFailure.failedOutcomes).toEqual([
+            { candidateId: "live-failed-candidate", reasonCode: "asset-processing-failed" },
+          ]);
+        expect(probe.writeReceipt).toHaveBeenCalledTimes(1);
+        await expect(probe.runFixture()).rejects.toMatchObject({ code: "scope-promotion-failed" });
+        expect(readFileSync(path, "utf8")).toBe(live);
+        expect(probe.writeReceipt).toHaveBeenCalledTimes(1);
+        expect(probe.publish).not.toHaveBeenCalled();
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+  it("wires the canonical failure sink only at the live whole-game journey boundary", () => {
+    const calls = [];
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && node.expression.getText(journeySource) === "runWholeGameJourney")
+        calls.push(node);
+      ts.forEachChild(node, visit);
+    };
+    visit(journeySource);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].arguments[3].getText(journeySource)).toBe("writeWholeGameReceipt");
+    expect(journeyFunction("wholeGameSettle").getText(journeySource)).not.toContain("writeWholeGameReceipt");
+  });
+  it.each([
+    {
+      status: "completed",
+      result: {
+        promoted: 1,
+        failed: 0,
+        outcomes: [
+          {
+            candidateId: "candidate-asset",
+            status: "failed",
+            diagnosticCode: "asset-processing-failed",
+            reason: "https://provider.invalid/private?secret=value",
+          },
+          {
+            candidateId: "candidate-unknown",
+            status: "failed",
+            diagnosticCode: "private-value",
+            reason: "provider body",
+          },
+          applied("candidate-ok", "item-ok"),
+        ],
+      },
+    },
+    { status: "failed", result: null },
+    { status: "completed", result: { promoted: 0, failed: 1, outcomes: [] } },
+  ])("records a redacted failure before refusing, never publishes: %j", async (override) => {
+    const job = promoteJob("failed-job", [], override);
+    const probe = settleProbe({ failedJob: job });
+    await expect(probe.run(1000)).rejects.toMatchObject({ code: "scope-promotion-failed" });
+    expect(probe.publish).not.toHaveBeenCalled();
+    expect(probe.writeReceipt).toHaveBeenCalledTimes(1);
+    const diagnostic = probe.writeReceipt.mock.calls[0][0];
+    expect(diagnostic).toMatchObject({
+      state: "failed",
+      promotionFailure: {
+        code: "scope-promotion-failed",
+        scopeRecordId: "scope-1",
+        jobId: "failed-job",
+        jobStatus: job.status,
+        failedOutcomes: job.result?.outcomes.some((outcome) => outcome.status === "failed")
+          ? [
+              { candidateId: "candidate-asset", reasonCode: "asset-processing-failed" },
+              { candidateId: "candidate-unknown", reasonCode: "unclassified" },
+            ]
+          : [],
+      },
+    });
+    expect(validateWholeGameReceipt(diagnostic)).toEqual([]);
+    expect(JSON.stringify(diagnostic)).not.toMatch(/provider|private|secret|reason"/);
+  });
   it.each([
     [100, false, 250, 3],
     [0, true, 75, 0],
@@ -478,6 +986,26 @@ describe("AC8 bounded complete reads", () => {
       vi.useRealTimers();
     }
   });
+  it.each([true, false])(
+    "actual settle only exempts reference-only dispositions from its current pass (%s)",
+    async (current) => {
+      const outcome = {
+        candidateId: "reference",
+        status: "skipped-not-eligible",
+        disposition: "reference-only",
+        catalogItemId: null,
+      };
+      const probe = settleProbe({
+        ready: [{ candidate_id: "reference" }],
+        zeroOutcomes: current ? [outcome] : [],
+        historicalOutcomes: [outcome],
+      });
+      expect(await probe.run(1000)).toMatchObject({
+        state: current ? "settled" : "running",
+        settle: { promotedThisDispatch: 0, published: 0, readyRemaining: current ? 0 : 1, draftsRemaining: 0 },
+      });
+    },
+  );
   it("stops slow paginated reads at the deadline, never runs the publication continuation", async () => {
     vi.useFakeTimers();
     try {
@@ -596,7 +1124,7 @@ describe("whole-game rehearsal inputs", () => {
 });
 
 describe("AC1 whole-game start confirmation", () => {
-  it("reads rendered participation rows and refuses confirmation when Scrydex participates with a zero limit", () => {
+  it("reads rendered participation rows and refuses ordinary start when Scrydex participates", () => {
     expect(parseProviderParticipation("scrydex", "2 / 40")).toEqual({
       providerKey: "scrydex",
       units: 2,
@@ -613,9 +1141,9 @@ describe("AC1 whole-game start confirmation", () => {
     expect(
       startConfirmationRefusal(preview({ providers: [scrydex] }), {
         ...defaultWholeGameBudget,
-        scrydexRequestLimit: 40,
+        scrydexRequestLimit: 50,
       }),
-    ).toBeNull();
+    ).toBe("scrydex-host-decision-required");
     expect(
       startConfirmationRefusal(preview({ providers: [{ ...scrydex, units: 0 }] }), defaultWholeGameBudget),
     ).toBeNull();
@@ -629,6 +1157,152 @@ describe("AC1 whole-game start confirmation", () => {
     expect(startConfirmationRefusal(preview({ planFingerprint: "" }), defaultWholeGameBudget)).toBe(
       "preview-fingerprint-unreadable",
     );
+  });
+});
+
+describe("paid whole-game preview and confirm dispatches", () => {
+  const fingerprint = "a".repeat(64);
+  const scrydex = { providerKey: "scrydex", units: 2, plannedRequests: 41 };
+
+  function startProbe(live = {}, hidden = {}) {
+    const actions = [];
+    const fields = {};
+    const confirmForm = {
+      count: async () => 1,
+      locator: (selector) => ({
+        inputValue: async () => {
+          if (selector === 'input[name="planFingerprint"]') return hidden.fingerprint ?? fingerprint;
+          if (selector === 'input[name="scrydexRequestLimit"]') return hidden.limit ?? "52";
+          throw new Error(`unexpected confirm field ${selector}`);
+        },
+      }),
+      getByRole: (_role, { name }) => ({ name }),
+    };
+    const form = {
+      locator: (selector) => selector,
+      getByLabel: (label) => ({ fill: async (value) => (fields[label] = value) }),
+      getByRole: (_role, { name }) => ({ name }),
+    };
+    const page = {
+      locator: (selector) => {
+        expect(selector).toBe("form");
+        return { filter: ({ has }) => (has.name === "Preview batch" ? form : confirmForm) };
+      },
+      getByRole: (_role, { name }) => ({ name }),
+      url: () => `${rehearsal.wholeGameStagingOrigin}/catalog/scopes/sync-batches?batchId=batch-requested`,
+      waitForURL: async () => {},
+    };
+    const context = vm.createContext({
+      ...rehearsal,
+      URL,
+      expect: () => ({ toHaveCount: async () => {}, toHaveValue: async () => {} }),
+      pageReadyTimeoutMs: 1,
+      syncTimeoutMs: 1,
+      gotoWholeGamePage: async () => {},
+      chooseDesignSystemSelect: async () => {},
+      clickWholeGameControl: async (_page, control) => actions.push(control.name),
+      readRenderedBatchPreview: async () => preview({ planFingerprint: fingerprint, providers: [scrydex], ...live }),
+      readWholeGameBatch: async (_page, batchId) => {
+        actions.push(`Read ${batchId}`);
+        return { planFingerprint: fingerprint };
+      },
+    });
+    const declarations = ["runWholeGameJourney", "wholeGameRunIdentity", "wholeGameStart"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations), context);
+    return {
+      actions,
+      fields,
+      run: (scope, env = {}) =>
+        context.runWholeGameJourney(page, scope, 0, vi.fn(), {
+          GITHUB_SHA: "b".repeat(40),
+          GITHUB_RUN_ID: "456",
+          GITHUB_RUN_ATTEMPT: "1",
+          CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
+          CATALOG_WHOLE_GAME_LANGUAGE_CODE: "en",
+          CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=52",
+          CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: fingerprint,
+          ...env,
+        }),
+    };
+  }
+
+  it.each([false, true])("returns a redacted receipt and never confirms a preview (confirmable=%s)", async (ready) => {
+    const probe = startProbe({ confirmAllowed: ready });
+    const result = await probe.run("full-game-preview", {
+      CATALOG_WHOLE_GAME_BUDGET: ready ? "scrydexRequestLimit=52" : "",
+      CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: "",
+    });
+    expect(probe.actions).toEqual(["Preview batch"]);
+    expect(result).toEqual({
+      schemaVersion: wholeGameReceiptSchemaVersion,
+      journeyScope: "full-game-preview",
+      sha: "b".repeat(40),
+      runId: "456",
+      runAttempt: "1",
+      batchId: null,
+      state: "previewed",
+      preview: {
+        planFingerprint: fingerprint,
+        scopeCount: 3,
+        providers: [scrydex],
+        confirmAllowed: ready,
+        scrydexRequestLimit: ready ? 52 : 0,
+      },
+      settle: null,
+    });
+    expect(validateWholeGameReceipt(result)).toEqual([]);
+    expect(validateWholeGameReceipt({ ...result, batchId: "batch-requested" })).toContain("preview-only-batch-id");
+  });
+
+  it("confirms exactly once after a fresh match and rounds the 25% buffer up", async () => {
+    const probe = startProbe();
+    const result = await probe.run("full-game-confirm");
+    expect(probe.fields).toMatchObject({ Language: "en", "Scrydex credit limit": "52" });
+    expect(probe.actions).toEqual(["Preview batch", "Confirm and enqueue", "Read batch-requested"]);
+    expect(result).toMatchObject({ journeyScope: "full-game-confirm", state: "confirmed", batchId: "batch-requested" });
+    expect(validateWholeGameReceipt(result)).toEqual([]);
+  });
+
+  it("keeps the zero-limit no-Scrydex start and leaves paid units on hold in ordinary start", async () => {
+    const noScrydex = startProbe({ providers: preview().providers });
+    const result = await noScrydex.run("full-game-start", {
+      CATALOG_WHOLE_GAME_BUDGET: "",
+      CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: "",
+    });
+    expect(noScrydex.fields["Scrydex credit limit"]).toBe("0");
+    expect(noScrydex.actions).toEqual(["Preview batch", "Confirm and enqueue", "Read batch-requested"]);
+    expect(result.preview).not.toHaveProperty("scrydexRequestLimit");
+    expect(validateWholeGameReceipt(result)).toEqual([]);
+
+    const paid = startProbe();
+    await expect(paid.run("full-game-start")).rejects.toMatchObject({ code: "scrydex-host-decision-required" });
+    expect(paid.actions).toEqual(["Preview batch"]);
+  });
+
+  it.each([
+    [{ planFingerprint: "c".repeat(64) }, {}, {}, "scrydex-approved-fingerprint-mismatch"],
+    [{}, {}, { CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=51" }, "scrydex-approved-limit-mismatch"],
+    [{}, {}, { CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=53" }, "scrydex-approved-limit-mismatch"],
+    [{}, {}, { CATALOG_WHOLE_GAME_BUDGET: "" }, "scrydex-approved-limit-mismatch"],
+    [{ confirmAllowed: false }, {}, {}, "preview-not-confirmable"],
+    [{ providers: [] }, {}, {}, "scrydex-participation-required"],
+    [{ providers: [{ ...scrydex, plannedRequests: null }] }, {}, {}, "scrydex-estimate-unavailable"],
+    [{}, { fingerprint: "c".repeat(64) }, {}, "scrydex-confirm-form-mismatch"],
+    [{}, { limit: "53" }, {}, "scrydex-confirm-form-mismatch"],
+  ])("refuses after live preview and never confirms (%j, %j, %j: %s)", async (live, hidden, env, code) => {
+    const probe = startProbe(live, hidden);
+    await expect(probe.run("full-game-confirm", env)).rejects.toMatchObject({ code });
+    expect(probe.actions).toEqual(["Preview batch"]);
+  });
+
+  it.each(["", "invalid"])("requires a valid approval fingerprint before preview (%s)", async (approval) => {
+    const probe = startProbe();
+    await expect(
+      probe.run("full-game-confirm", { CATALOG_WHOLE_GAME_APPROVED_PREVIEW_FINGERPRINT: approval }),
+    ).rejects.toMatchObject({ code: "scrydex-approved-fingerprint-required" });
+    expect(probe.actions).toEqual([]);
   });
 });
 
@@ -796,6 +1470,59 @@ describe("AC4 publish preview guard", () => {
 });
 
 describe("AC5 support-safe receipt schema", () => {
+  const failureReceipt = () =>
+    receipt({
+      state: "failed",
+      promotionFailure: rehearsal.wholeGamePromotionFailure(
+        promoteJob("failed-job", [
+          { candidateId: "candidate-1", status: "failed", diagnosticCode: "asset-processing-failed" },
+          { candidateId: "candidate-2", status: "failed", reason: "untrusted error text" },
+        ]),
+      ),
+    });
+
+  it("writes and reads a validated failure receipt, refusing unsafe replacements before writing", () => {
+    const directory = mkdtempSync(join(tmpdir(), "whole-game-failure-"));
+    const path = join(directory, "receipt.json");
+    try {
+      const context = vm.createContext({
+        validateWholeGameReceipt,
+        mkdirSync,
+        dirname,
+        writeFileSync,
+        wholeGameReceiptPath: path,
+      });
+      vm.runInContext(ts.transpile(journeyFunction("writeWholeGameReceipt").getText(journeySource)), context);
+      const diagnostic = failureReceipt();
+      context.writeWholeGameReceipt(diagnostic);
+      expect(existsSync(path)).toBe(true);
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(diagnostic);
+      const unsafe = { ...diagnostic, promotionFailure: { ...diagnostic.promotionFailure, reason: "provider body" } };
+      expect(() => context.writeWholeGameReceipt(unsafe)).toThrow(/schema validation/);
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(diagnostic);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["reasonCode", "https://provider.invalid/private"],
+    ["reasonCode", "new-unclassified-code"],
+    ["candidateId", "x".repeat(129)],
+    ["candidateId", "https://provider.invalid/candidate"],
+    ["reason", "provider body"],
+  ])("rejects unsafe or non-contract outcome evidence: %s", (key, value) => {
+    const diagnostic = failureReceipt();
+    diagnostic.promotionFailure.failedOutcomes[0][key] = value;
+    expect(validateWholeGameReceipt(diagnostic).length).toBeGreaterThan(0);
+  });
+
+  it("never accepts failure evidence as settled or failed without evidence", () => {
+    expect(validateWholeGameReceipt({ ...failureReceipt(), state: "settled" })).toContain("promotionFailure.state");
+    expect(validateWholeGameReceipt(receipt({ state: "failed" }))).toContain("promotionFailure.state");
+    expect(validateWholeGameReceipt({ ...failureReceipt(), settle: null })).toContain("promotionFailure.settle");
+  });
+
   it("accepts complete start and settle receipts", () => {
     expect(validateWholeGameReceipt(receipt())).toEqual([]);
     expect(

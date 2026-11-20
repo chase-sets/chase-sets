@@ -1,4 +1,81 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "pricing.market-rollups-closer",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "marketRollupsCloserIntervalMs"
+      },
+      "runnerExport": "createPricingMarketRollupsCloserRunners",
+      "group": "scheduled",
+      "order": 114,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:pricing.market-rollups-closer"
+    },
+    {
+      "id": "pricing.repricing-dry-run-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "pricingRepricingDryRunJobLaneCount"
+      },
+      "runnerExport": "createPricingJobRunners",
+      "group": "jobs",
+      "order": 30,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:pricing.repricing-dry-run-jobs.lane-{lane}"
+    },
+    {
+      "id": "pricing.recommendation-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "pricingRecommendationJobLaneCount"
+      },
+      "runnerExport": "createPricingJobRunners",
+      "group": "jobs",
+      "order": 30,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:pricing.recommendation-jobs.lane-{lane}"
+    },
+    {
+      "id": "pricing.repricing-evaluation-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "pricingRepricingEvaluationJobLaneCount"
+      },
+      "runnerExport": "createPricingJobRunners",
+      "group": "jobs",
+      "order": 30,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:pricing.repricing-evaluation-jobs.lane-{lane}"
+    },
+    {
+      "id": "pricing.bulk-reprice-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "pricingBulkRepriceJobLaneCount"
+      },
+      "runnerExport": "createBulkRepriceIngestionJobRunners",
+      "group": "jobs",
+      "order": 40,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:pricing.bulk-reprice-jobs.lane-{lane}"
+    }
+  ],
   "contextName": "pricing",
   "packageName": "@chase-sets/pricing",
   "localeCatalogs": ["contracts/localization/locales/en/pricing.ts"],
@@ -67,7 +144,7 @@
     "pricing-health"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./test-support", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/channels",
     "@chase-sets/commercial-terms",
@@ -962,7 +1039,13 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["pricing-health", "repricing-policies"],
+      "expectedConsumers": [
+        "bulk-reprice-ingestion",
+        "pricing-health",
+        "recommendations",
+        "repricing-engine",
+        "repricing-policies"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

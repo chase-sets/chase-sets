@@ -1,5 +1,17 @@
+import type { SellListReviewSelections } from "../features/sell-list/api/review-plan-contracts";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
+import { data, redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
+import { createHash } from "node:crypto";
+import { submitCheckoutSellListAdd } from "../features/command-attempts/api/sell-list-submission";
+import {
+  submitCheckoutCartAttempt,
+  checkoutCartAttemptCommitSource,
+} from "../features/command-attempts/api/attempt-submission";
+import { isCheckoutCommandAttemptId, mintCheckoutCommandAttemptId } from "../features/command-attempts/api/contracts";
+import {
+  SellListAttemptBoundary,
+  type SellListAttemptState,
+} from "../features/sell-list/ui/sell-list-attempt-boundary";
 import {
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
@@ -31,10 +43,7 @@ import {
   type CheckoutSellListConfirmationRow,
   type CheckoutSellListCompositeReview,
   type CheckoutSellListLineRow,
-  type CheckoutSellListOfferReview,
   type CheckoutSellOfferMatch,
-  type CheckoutSellPayoutReadinessRow,
-  type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
 import {
   appendAnonymousSellListCookie,
@@ -62,32 +71,6 @@ import {
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
 }
-
-type SellListOfferReview = Readonly<{
-  lineId: string;
-  status: "ready" | "unavailable";
-  terms: CheckoutSellListCompositeReview["offerReviews"][number]["terms"];
-  comparison: SellListOfferTermsComparison | null;
-  message: string | null;
-  evidence?: CheckoutSellListCompositeReview["offerReviews"][number]["evidence"];
-}>;
-
-type SellListOfferTermsComparisonField = "seller-net" | "marketplace-fee" | "shipping-allowance" | "terms-source";
-
-type SellListOfferTermsComparison = Readonly<{
-  status: "same" | "changed" | "standard-preview-unavailable" | "final-unavailable";
-  standardPreview: NonNullable<
-    CheckoutSellListCompositeReview["offerReviews"][number]["comparison"]
-  >["standardPreview"];
-  changedFields: readonly SellListOfferTermsComparisonField[];
-}>;
-
-type SellListProductOfferReview = Readonly<{
-  lineId: string;
-  status: "ready" | "unavailable";
-  offers: CheckoutSellListCompositeReview["productOfferReviews"][number]["offers"];
-  message: string | null;
-}>;
 
 type AccountSellList = Readonly<{
   items: readonly CheckoutSellListLineRow[];
@@ -473,68 +456,18 @@ function recoverSellListFreshWriteReadError(
   });
 }
 
-async function loadPayoutReadiness(
-  request: Request,
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-): Promise<CheckoutSellPayoutReadinessRow | null> {
-  const shouldRecordPayoutReadinessHandoff = requestHasFreshWriteSource(request, "settlement");
-  try {
-    const payoutReadiness = await api.getSellListPayoutReadiness();
-    if (shouldRecordPayoutReadinessHandoff) {
-      recordPayoutReadinessPostWriteConsistencyOutcome("projection_hit", freshWriteOutcomeForRequest(request), "none");
-    }
-    return payoutReadiness;
-  } catch {
-    if (shouldRecordPayoutReadinessHandoff) {
-      recordPayoutReadinessPostWriteConsistencyOutcome(
-        "freshness_timeout",
-        freshWriteOutcomeForRequest(request),
-        "reload_prompt",
-      );
-    }
-    return null;
-  }
-}
-
-async function loadSellListCompositeReviewFromCheckout(
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-  options: Readonly<{ includeStandardComparison?: boolean }> = {},
-): Promise<CheckoutSellListCompositeReview> {
-  const client = api as Partial<ReturnType<typeof createCheckoutRequestApiClient>>;
-  if (typeof client.getSellListCompositeReview !== "function") {
-    return { offerReviews: [], productOfferReviews: [], inventoryItems: [] };
-  }
-
-  return client.getSellListCompositeReview(options);
-}
-
-async function loadGuestSellListOfferReviewsFromCheckout(
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-  anonymousSellListId: string | null,
-): Promise<readonly CheckoutSellListOfferReview[]> {
-  const client = api as Partial<ReturnType<typeof createCheckoutRequestApiClient>>;
-  if (typeof client.getGuestSellListOfferReviews !== "function") {
-    return [];
-  }
-
-  return (await client.getGuestSellListOfferReviews(anonymousSellListId)).offerReviews;
-}
-
-async function loadGuestSellListOfferReviewsWithRecovery(
+async function loadGuestSellListCompositeReviewWithRecovery(
   api: ReturnType<typeof createCheckoutRequestApiClient>,
   anonymousSellListId: string | null,
   request: Request,
   actorMode: AccountSellListActorMode,
 ) {
   try {
-    return {
-      offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
-      recovery: null,
-    };
+    return { compositeReview: await api.getGuestSellListCompositeReview(anonymousSellListId), recovery: null };
   } catch (error) {
     const recovery = recoverSellListFreshWriteReadError(request, error, actorMode, "guest-sell-list-offer-reviews");
     if (!recovery) throw error;
-    return { offerReviews: [], recovery };
+    return { compositeReview: null, recovery };
   }
 }
 
@@ -563,7 +496,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "guest",
     );
 
-    const guestOfferReviews = await loadGuestSellListOfferReviewsWithRecovery(
+    const guestCompositeReview = await loadGuestSellListCompositeReviewWithRecovery(
       api,
       anonymousSellListId,
       resolvedRequest,
@@ -576,11 +509,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
       mergeError: null,
       sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
       sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
-      freshnessError: freshnessError ?? guestOfferReviews.recovery?.freshnessError ?? null,
-      sellListRecovery: sellListRecovery ?? guestOfferReviews.recovery?.sellListRecovery ?? null,
+      freshnessError: freshnessError ?? guestCompositeReview.recovery?.freshnessError ?? null,
+      sellListRecovery: sellListRecovery ?? guestCompositeReview.recovery?.sellListRecovery ?? null,
       pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
       sellList,
-      offerReviews: guestOfferReviews.offerReviews,
+      compositeReview: guestCompositeReview.compositeReview,
     };
   }
 
@@ -596,7 +529,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
         "account",
       );
       if (guestSource.sellListRecovery) {
-        const guestOfferReviews = await loadGuestSellListOfferReviewsWithRecovery(
+        const guestCompositeReview = await loadGuestSellListCompositeReviewWithRecovery(
           api,
           anonymousSellListId,
           resolvedRequest,
@@ -609,14 +542,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
           mergeError,
           sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
           sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
-          freshnessError: guestSource.freshnessError ?? guestOfferReviews.recovery?.freshnessError ?? null,
-          sellListRecovery: guestSource.sellListRecovery ?? guestOfferReviews.recovery?.sellListRecovery ?? null,
+          freshnessError: guestSource.freshnessError ?? guestCompositeReview.recovery?.freshnessError ?? null,
+          sellListRecovery: guestSource.sellListRecovery ?? guestCompositeReview.recovery?.sellListRecovery ?? null,
           pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
           sellList: guestSource.sellList,
-          offerReviews: guestOfferReviews.offerReviews,
-          productOfferReviews: [],
-          inventoryItems: [],
-          payoutReadiness: await loadPayoutReadiness(resolvedRequest, api),
+          compositeReview: guestCompositeReview.compositeReview,
         };
       }
 
@@ -654,11 +584,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "sell-checkout-confirmation",
     );
   }
-  let sellListCompositeReview: CheckoutSellListCompositeReview;
+  let sellListCompositeReview: CheckoutSellListCompositeReview | null;
   let compositeReviewRecovery: ReturnType<typeof recoverSellListFreshWriteReadError> = null;
   try {
-    sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
+    sellListCompositeReview = await accountSellListApi.getSellListCompositeReview({
       includeStandardComparison: registrationReturn === "seller-checkout",
+      sellListPath: browserRequestUrl.pathname,
     });
   } catch (error) {
     compositeReviewRecovery = recoverSellListFreshWriteReadError(
@@ -668,7 +599,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "sell-list-composite-review",
     );
     if (!compositeReviewRecovery) throw error;
-    sellListCompositeReview = { offerReviews: [], productOfferReviews: [], inventoryItems: [] };
+    sellListCompositeReview = null;
+  }
+  if (requestHasFreshWriteSource(resolvedRequest, "settlement")) {
+    const available = Boolean(sellListCompositeReview?.screen?.payoutReadiness);
+    recordPayoutReadinessPostWriteConsistencyOutcome(
+      available ? "projection_hit" : "freshness_timeout",
+      freshWriteOutcomeForRequest(resolvedRequest),
+      available ? "none" : "reload_prompt",
+    );
   }
   return {
     isSignedIn: true,
@@ -681,10 +620,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     sellListRecovery: effectiveSellListRecovery ?? compositeReviewRecovery?.sellListRecovery ?? null,
     pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(accountSellListRequest),
     sellList: accountSellList,
-    offerReviews: sellListCompositeReview.offerReviews,
-    productOfferReviews: sellListCompositeReview.productOfferReviews,
-    inventoryItems: sellListCompositeReview.inventoryItems,
-    payoutReadiness: await loadPayoutReadiness(resolvedRequest, accountSellListApi),
+    compositeReview: effectiveSellListRecovery?.kind === "pending-fresh-write" ? null : sellListCompositeReview,
   };
 }
 
@@ -732,7 +668,7 @@ function parsePostedQuantity(formData: FormData) {
   return Number.isInteger(quantity) && quantity > 0 ? Math.min(quantity, 999) : 1;
 }
 
-function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutSellListLineRequest {
+function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): Omit<AddCheckoutSellListLineRequest, "attemptId"> {
   return {
     lineType: "selected-offer",
     offerId: offer.offer_id,
@@ -757,7 +693,7 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
   };
 }
 
-function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSellListLineRequest {
+function selectedOfferLineFromPostedSnapshot(formData: FormData): Omit<AddCheckoutSellListLineRequest, "attemptId"> {
   const offerId = limitedFormValue(formData, "offerId", 160);
   const listingId = limitedFormValue(formData, "listingId", 160);
   const catalogItemId = limitedFormValue(formData, "catalogItemId", 160);
@@ -813,217 +749,49 @@ function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSel
   };
 }
 
-type SellListReviewPlan = Readonly<{
-  version: 1;
-  lines: readonly SellListReviewPlanLine[];
-}>;
-
-type SellListReviewPlanLine = Readonly<{
-  lineId: string;
-  lineType: "selected-offer" | "product";
-  itemTitle: string;
-  productId: string | null;
-  quantity: number;
-  selectedOffer: Readonly<{ offerId: string; listingId: string; feeQuoteFingerprint: string }> | null;
-  productOfferTargets: readonly Readonly<{
-    offerId: string;
-    listingId: string;
-    feeQuoteFingerprint: string;
-    quantity: number;
-  }>[];
-  fallbackListing: Readonly<{
-    inventoryItemId: string;
-    priceAmount: string;
-    priceCurrencyCode: string;
-    quantityCap: number;
-  }> | null;
-  skippedReasons: readonly string[];
-}>;
-
-async function buildSellListReviewPlan(
-  api: ReturnType<typeof createCheckoutRequestApiClient>,
-  lines: readonly CheckoutSellListLineRow[],
-  formData: FormData,
-): Promise<SellListReviewPlan> {
-  const reviewLines: SellListReviewPlanLine[] = [];
-  const bulkOfferIds = new Set(
-    formData
-      .getAll("bulkOfferId")
-      .map((value) => String(value).trim())
-      .filter(Boolean),
+function reviewSelectionsFromForm(formData: FormData): SellListReviewSelections {
+  const prefixes = ["offerFeeQuoteFingerprint:", "productOfferId:", "fallbackMode:"];
+  const lineIds = new Set(
+    [...formData.keys()].flatMap((key) => {
+      const prefix = prefixes.find((prefix) => key.startsWith(prefix));
+      return prefix ? [key.slice(prefix.length)] : [];
+    }),
   );
-  const isBulkOfferReview = bulkOfferIds.size > 0;
-
-  for (const line of lines) {
-    if (line.line_type === "selected-offer") {
-      const skippedReasons: string[] = [];
-      const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
-      let selectedOffer: SellListReviewPlanLine["selectedOffer"] = null;
-
-      if (isBulkOfferReview && (!line.offer_id || !bulkOfferIds.has(line.offer_id))) {
-        // Unselected lines remain durable Sell List intent.
-      } else if (!line.offer_id || !line.listing_id) {
-        skippedReasons.push(
-          t("checkout.routes.accountSellList.selected.offer.missing.detail", { itemTitle: line.item_title }),
-        );
-      } else if (!feeQuoteFingerprint) {
-        skippedReasons.push(
-          t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
-        );
-      } else {
-        selectedOffer = { offerId: line.offer_id, listingId: line.listing_id, feeQuoteFingerprint };
-      }
-
-      reviewLines.push({
-        lineId: line.line_id,
-        lineType: "selected-offer",
-        itemTitle: line.item_title,
-        productId: line.product_id,
-        quantity: line.quantity,
-        selectedOffer,
-        productOfferTargets: [],
-        fallbackListing: null,
-        skippedReasons,
-      });
-      continue;
-    }
-
-    const skippedReasons: string[] = [];
-    const productOfferTargets: Array<{
-      offerId: string;
-      listingId: string;
-      feeQuoteFingerprint: string;
-      quantity: number;
-    }> = [];
-    let plannedRemainingQuantity = line.quantity;
-
-    for (const offerId of [
-      ...new Set(
-        formData
-          .getAll(`productOfferId:${line.line_id}`)
-          .map((value) => String(value).trim())
-          .filter((value) => Boolean(value) && (!isBulkOfferReview || bulkOfferIds.has(value))),
-      ),
-    ]) {
-      try {
-        const offer = await api.getSellListOfferMatch(offerId);
-        if (offer.product_id !== line.product_id) {
-          skippedReasons.push(`${line.item_title}: matching offer ${offerId} no longer matches this product.`);
-          continue;
-        }
-        if (offer.quantity_requested > plannedRemainingQuantity) {
-          skippedReasons.push(`${line.item_title}: matching offer ${offerId} exceeds remaining quantity.`);
-          continue;
-        }
-        const feeQuoteFingerprint = formValue(formData, `productOfferFeeQuoteFingerprint:${line.line_id}:${offerId}`);
-        if (!feeQuoteFingerprint) {
-          skippedReasons.push(`${line.item_title}: matching offer terms need refresh.`);
-          continue;
-        }
-        productOfferTargets.push({
+  return {
+    bulkOfferIds: formData
+      .getAll("bulkOfferId")
+      .map(String)
+      .map((value) => value.trim())
+      .filter(Boolean),
+    lines: [...lineIds].map((lineId) => ({
+      lineId,
+      selectedOfferFeeQuoteFingerprint: formValue(formData, `offerFeeQuoteFingerprint:${lineId}`),
+      productOffers: formData.getAll(`productOfferId:${lineId}`).map((value) => {
+        const offerId = String(value).trim();
+        return {
           offerId,
-          listingId: offer.listing_id,
-          feeQuoteFingerprint,
-          quantity: offer.quantity_requested,
-        });
-        plannedRemainingQuantity -= offer.quantity_requested;
-      } catch (error) {
-        skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "offer match failed"}`);
-      }
-    }
-
-    const createFallbackListing =
-      !isBulkOfferReview && formValue(formData, `fallbackMode:${line.line_id}`) === "create-listing";
-    let fallbackListing: SellListReviewPlanLine["fallbackListing"] = null;
-    if (plannedRemainingQuantity > 0 && createFallbackListing) {
-      const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
-      const priceAmount = formValue(formData, `priceAmount:${line.line_id}`);
-      const priceCurrencyCode = formValue(formData, `priceCurrencyCode:${line.line_id}`);
-      const requestedQuantityCap = Number(
-        formValue(formData, `quantityCap:${line.line_id}`) || plannedRemainingQuantity,
-      );
-      const quantityCap = Math.min(plannedRemainingQuantity, requestedQuantityCap);
-      if (!inventoryItemId || !priceAmount || !priceCurrencyCode || !Number.isFinite(quantityCap) || quantityCap < 1) {
-        skippedReasons.push(`${line.item_title}: listing needs inventory, price, currency, and quantity.`);
-      } else {
-        fallbackListing = { inventoryItemId, priceAmount, priceCurrencyCode, quantityCap };
-      }
-    } else if (plannedRemainingQuantity > 0 && !isBulkOfferReview) {
-      skippedReasons.push(
-        t("checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail", {
-          itemTitle: line.item_title,
-        }),
-      );
-    }
-
-    reviewLines.push({
-      lineId: line.line_id,
-      lineType: "product",
-      itemTitle: line.item_title,
-      productId: line.product_id,
-      quantity: line.quantity,
-      selectedOffer: null,
-      productOfferTargets,
-      fallbackListing,
-      skippedReasons,
-    });
-  }
-
-  return { version: 1, lines: reviewLines };
-}
-
-function readinessDecisionsFromReviewPlan(plan: SellListReviewPlan): SellListReadinessDecisionInput {
-  const lineActions: Array<NonNullable<SellListReadinessDecisionInput["lineActions"]>[number]> = [];
-  const lineOutcomes: Array<NonNullable<SellListReadinessDecisionInput["lineOutcomes"]>[number]> = [];
-
-  for (const line of plan.lines) {
-    if (line.skippedReasons.length > 0) {
-      lineOutcomes.push({ lineId: line.lineId, outcome: "keep-in-list" });
-      continue;
-    }
-
-    if (line.lineType === "selected-offer" && line.selectedOffer) {
-      lineActions.push({ lineId: line.lineId, action: "selected-offer" });
-      continue;
-    }
-
-    if (line.productOfferTargets.length > 0) {
-      lineActions.push({ lineId: line.lineId, action: "smart-match" });
-      continue;
-    }
-
-    if (line.fallbackListing) {
-      lineActions.push({ lineId: line.lineId, action: "fallback-listing" });
-      continue;
-    }
-
-    lineOutcomes.push({ lineId: line.lineId, outcome: "keep-in-list" });
-  }
-
-  return { lineActions, lineOutcomes };
-}
-
-function encodeReadinessDecisions(decisions: SellListReadinessDecisionInput) {
-  return JSON.stringify({
-    lineActions: decisions.lineActions ?? [],
-    lineOutcomes: decisions.lineOutcomes ?? [],
-  });
-}
-
-function encodeSellListReviewPlan(plan: SellListReviewPlan) {
-  return JSON.stringify(plan);
+          feeQuoteFingerprint: formValue(formData, `productOfferFeeQuoteFingerprint:${lineId}:${offerId}`),
+        };
+      }),
+      fallbackListing:
+        formValue(formData, `fallbackMode:${lineId}`) === "create-listing"
+          ? {
+              inventoryItemId: formValue(formData, `inventoryItemId:${lineId}`),
+              priceAmount: formValue(formData, `priceAmount:${lineId}`),
+              priceCurrencyCode: formValue(formData, `priceCurrencyCode:${lineId}`),
+              quantityCap: formValue(formData, `quantityCap:${lineId}`),
+            }
+          : null,
+    })),
+  };
 }
 
 function sellCheckoutRedirectUrl(
   readiness: Readonly<{ readiness: Readonly<{ snapshotId: string; sourceRevision: string }> }>,
-  decisions: SellListReadinessDecisionInput,
-  reviewPlan: SellListReviewPlan,
 ) {
   const query = new URLSearchParams({
     readinessSnapshotId: readiness.readiness.snapshotId,
     readinessSourceRevision: readiness.readiness.sourceRevision,
-    readinessDecisions: encodeReadinessDecisions(decisions),
-    sellListReviewPlan: encodeSellListReviewPlan(reviewPlan),
   });
   return `/checkout/sell/session/${createId("chk")}?${query.toString()}`;
 }
@@ -1033,6 +801,46 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
   const actor = await resolveActorFromAuthApi({ request });
   const useAccountSellList = canUseAccountSellList(actor);
   const anonymousSellListId = readAnonymousSellListId(request);
+  const presented = String(formData.get("attemptId") ?? "");
+  const attemptId = isCheckoutCommandAttemptId(presented) ? presented : mintCheckoutCommandAttemptId();
+  formData.set("attemptId", attemptId);
+  const attemptResult = (
+    state: SellListAttemptState["state"],
+    message: string | null = null,
+    lines: SellListAttemptState["lines"] = [],
+  ) => ({
+    error: message,
+    sellListAttempt: {
+      state,
+      fields: [...formData.entries()].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      lines,
+    } satisfies SellListAttemptState,
+  });
+  async function finishSubmission(
+    submission: Awaited<ReturnType<typeof submitCheckoutCartAttempt>>,
+    ownerId?: string,
+    handoff = false,
+  ) {
+    const headers = new Headers();
+    if (ownerId) appendAnonymousSellListCookie(headers, ownerId, request);
+    if (submission.state !== "succeeded")
+      return data(
+        attemptResult(
+          submission.state,
+          submission.message,
+          (submission.attempt?.vector ?? []).map((line) => ({ id: line.lineId ?? "", status: line.outcome })),
+        ),
+        { headers },
+      );
+    return redirect(
+      await navigateAfterWriteWithPlatformPostWriteToken(
+        checkoutCartAttemptCommitSource(submission),
+        sellListSurfacePath,
+        handoff ? { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF } : undefined,
+      ),
+      { headers },
+    );
+  }
   const sellListSurfacePath =
     new URL(request.url).pathname === "/account/desk/offers" ? "/account/desk/offers" : "/account/sell-list";
 
@@ -1055,64 +863,80 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       }
 
       const marketplaceApi = createMarketplaceRequestApiClient(request);
-      const sellList = await api.getSellList();
-      for (const offerId of offerIds) {
-        await marketplaceApi.declineOfferMatch(offerId);
+      if (!formData.has("declinedLineTargetsCaptured")) {
+        const sellList = await api.getSellList();
+        const declined = new Set(offerIds);
+        formData.delete("declinedLineId");
+        for (const line of sellList.items) {
+          if (line.line_type === "selected-offer" && line.offer_id && declined.has(line.offer_id))
+            formData.append("declinedLineId", line.line_id);
+        }
+        formData.set("declinedLineTargetsCaptured", "true");
       }
-      const declined = new Set(offerIds);
-      for (const line of sellList.items) {
-        if (line.line_type === "selected-offer" && line.offer_id && declined.has(line.offer_id)) {
-          await api.removeSellListLine(line.line_id);
+      const lineIds = formData.getAll("declinedLineId").map(String);
+      const outcomes: { id: string; status: string }[] = [];
+      for (const offerId of offerIds) {
+        try {
+          await marketplaceApi.declineOfferMatch(offerId, {
+            attemptId: createHash("sha256")
+              .update(JSON.stringify(["sell-list-decline", attemptId, offerId]))
+              .digest("base64url"),
+          });
+          outcomes.push({ id: offerId, status: "declined" });
+        } catch (error) {
+          outcomes.push(
+            { id: offerId, status: "ambiguous" },
+            ...offerIds.slice(outcomes.length + 1).map((id) => ({ id, status: "not-attempted" })),
+          );
+          return attemptResult("partial", error instanceof Error ? error.message : null, outcomes);
         }
       }
-
-      return redirect(sellListSurfacePath);
+      if (!lineIds.length) return redirect(sellListSurfacePath);
+      const body = { attemptId, lineIds };
+      return finishSubmission(
+        await submitCheckoutCartAttempt({
+          attemptId,
+          kind: "sell-list-batch",
+          target: "sell-list",
+          body,
+          send: () => api.removeSellListLines(body),
+          lookup: (query) => api.getSellListCommandAttempt(query),
+        }),
+      );
     }
 
     if (intent === "add-selected-offer") {
       if (!useAccountSellList) {
         const anonymousOwnerId = ensureAnonymousSellListId(request);
-        const result = await api.addGuestSellListLine(anonymousOwnerId, selectedOfferLineFromPostedSnapshot(formData));
-        const response = redirect(
-          await navigateAfterWriteWithPlatformPostWriteToken(result, sellListSurfacePath, {
-            handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-          }),
-        );
-        appendAnonymousSellListCookie(response.headers, anonymousOwnerId, request);
-        return response;
+        const body = { ...selectedOfferLineFromPostedSnapshot(formData), attemptId };
+        return finishSubmission(await submitCheckoutSellListAdd(api, body, anonymousOwnerId), anonymousOwnerId, true);
       }
 
       const offerId = String(formData.get("offerId") ?? "");
       const offer = await api.getSellListOfferMatch(offerId);
 
-      const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
-
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(result, sellListSurfacePath, {
-          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
-        }),
-      );
+      const body = { ...selectedOfferLineFromOffer(offer), attemptId };
+      return finishSubmission(await submitCheckoutSellListAdd(api, body), undefined, true);
     }
 
     if (intent === "remove-sell-list-line") {
-      if (!useAccountSellList && anonymousSellListId) {
-        return redirect(
-          await navigateAfterWriteWithPlatformPostWriteToken(
-            await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? "")),
-            sellListSurfacePath,
-          ),
-        );
-      }
-
-      if (!useAccountSellList) {
+      if (!useAccountSellList && !anonymousSellListId) {
         throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
       }
-
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(
-          await api.removeSellListLine(String(formData.get("lineId") ?? "")),
-          sellListSurfacePath,
-        ),
+      const lineId = String(formData.get("lineId") ?? "");
+      const ownerId = useAccountSellList ? undefined : anonymousSellListId!;
+      const body = { attemptId };
+      return finishSubmission(
+        await submitCheckoutCartAttempt({
+          attemptId,
+          kind: "sell-list-line",
+          target: lineId,
+          body,
+          send: () =>
+            ownerId ? api.removeGuestSellListLine(ownerId, lineId, body) : api.removeSellListLine(lineId, body),
+          lookup: (query) => api.getSellListCommandAttempt(query, ownerId),
+        }),
+        ownerId,
       );
     }
 
@@ -1163,27 +987,22 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         return redirect(SELLER_CHECKOUT_REGISTER_HREF);
       }
 
-      const sellList = await api.getSellList();
-      const reviewPlan = await buildSellListReviewPlan(api, sellList.items, formData);
-      const readinessDecisions = readinessDecisionsFromReviewPlan(reviewPlan);
-      const readiness = await api.createSellListReadiness(readinessDecisions);
+      const readiness = await api.createSellListReadiness({ selections: reviewSelectionsFromForm(formData) });
       if (readiness.readiness.status !== "ready" || readiness.readiness.unresolvedLineIds.length > 0) {
         throw new Error("Sell List readiness must be resolved before seller checkout starts.");
       }
 
       return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(
-          readiness,
-          sellCheckoutRedirectUrl(readiness, readinessDecisions, reviewPlan),
-        ),
+        await navigateAfterWriteWithPlatformPostWriteToken(readiness, sellCheckoutRedirectUrl(readiness)),
       );
     }
 
     return null;
   } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : t("checkout.routes.accountSellList.sell.list.request.failed"),
-    };
+    return attemptResult(
+      "failed-safe",
+      error instanceof Error ? error.message : t("checkout.routes.accountSellList.sell.list.request.failed"),
+    );
   }
 }
 
@@ -1209,6 +1028,7 @@ export default function CheckoutAccountSellListRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
+  const navigation = useNavigation();
   const sellListRecovery = "sellListRecovery" in data ? data.sellListRecovery : null;
   const { currentPath, isAutoRevalidating } = usePendingFreshWriteRevalidation(
     sellListRecovery?.kind === "pending-fresh-write",
@@ -1216,38 +1036,37 @@ export default function CheckoutAccountSellListRoute() {
   );
 
   return (
-    <CheckoutSellListPage
-      sellListLines={data.sellList.items}
-      isSignedIn={data.isSignedIn}
-      offerReviews={"offerReviews" in data ? data.offerReviews : []}
-      productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
-      inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}
-      payoutReadiness={"payoutReadiness" in data ? data.payoutReadiness : null}
-      latestConfirmation={"latestConfirmation" in data.sellList ? (data.sellList.latestConfirmation ?? null) : null}
-      registrationReturn={data.registrationReturn}
-      mergedLineCount={data.mergedLineCount}
-      mergeError={data.mergeError}
-      sellerCheckoutRegisterHref={data.sellerCheckoutRegisterHref}
-      sellerCheckoutSignInHref={data.sellerCheckoutSignInHref}
-      errorMessage={actionData?.error ?? ("freshnessError" in data && !sellListRecovery ? data.freshnessError : null)}
-      recoveryMessage={sellListRecovery?.message ?? null}
-      recoveryState={
-        sellListRecovery
-          ? sellListRecovery.kind === "pending-fresh-write"
-            ? {
-                kind: sellListRecovery.kind,
-                message: sellListRecovery.message,
-                refreshHref: currentPath,
-                isAutoRevalidating,
-              }
-            : {
-                kind: sellListRecovery.kind,
-                message: sellListRecovery.message,
-                refreshHref: "/account/sell-list",
-              }
-          : null
-      }
-      sellListPath={location.pathname === "/account/desk/offers" ? location.pathname : "/account/sell-list"}
-    />
+    <SellListAttemptBoundary attempt={actionData?.sellListAttempt} pending={navigation.state !== "idle"}>
+      <CheckoutSellListPage
+        sellListLines={data.sellList.items}
+        isSignedIn={data.isSignedIn}
+        compositeReview={data.compositeReview}
+        latestConfirmation={"latestConfirmation" in data.sellList ? (data.sellList.latestConfirmation ?? null) : null}
+        registrationReturn={data.registrationReturn}
+        mergedLineCount={data.mergedLineCount}
+        mergeError={data.mergeError}
+        sellerCheckoutRegisterHref={data.sellerCheckoutRegisterHref}
+        sellerCheckoutSignInHref={data.sellerCheckoutSignInHref}
+        errorMessage={actionData?.error ?? ("freshnessError" in data && !sellListRecovery ? data.freshnessError : null)}
+        recoveryMessage={sellListRecovery?.message ?? null}
+        recoveryState={
+          sellListRecovery
+            ? sellListRecovery.kind === "pending-fresh-write"
+              ? {
+                  kind: sellListRecovery.kind,
+                  message: sellListRecovery.message,
+                  refreshHref: currentPath,
+                  isAutoRevalidating,
+                }
+              : {
+                  kind: sellListRecovery.kind,
+                  message: sellListRecovery.message,
+                  refreshHref: "/account/sell-list",
+                }
+            : null
+        }
+        sellListPath={location.pathname === "/account/desk/offers" ? location.pathname : "/account/sell-list"}
+      />
+    </SellListAttemptBoundary>
   );
 }

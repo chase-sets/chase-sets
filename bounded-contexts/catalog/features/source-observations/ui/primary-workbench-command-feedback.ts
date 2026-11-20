@@ -17,6 +17,10 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
   result:
     | "job-queued"
     | "job-cancelled"
+    | "alias-accepted"
+    | "alias-rejected"
+    | "alias-revoked"
+    | "alias-deferred"
     | "preview-ready"
     | "draft-created"
     | "profile-activated"
@@ -27,6 +31,7 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "section-conflict"
     | "section-invalid"
     | "lifecycle-conflict"
+    | "candidate-stale"
     | "confirmation-required"
     | "preview-required"
     | "job-required"
@@ -62,6 +67,18 @@ export function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedba
   if (result === "section-saved") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title");
   }
+  if (result === "alias-accepted") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.title");
+  }
+  if (result === "alias-rejected") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.title");
+  }
+  if (result === "alias-revoked") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.title");
+  }
+  if (result === "alias-deferred") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.title");
+  }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
 }
@@ -92,6 +109,18 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
     if (feedback.result === "section-saved") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.description");
     }
+    if (feedback.result === "alias-accepted") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.accepted.description");
+    }
+    if (feedback.result === "alias-rejected") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.rejected.description");
+    }
+    if (feedback.result === "alias-revoked") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.revoked.description");
+    }
+    if (feedback.result === "alias-deferred") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.alias.deferred.description");
+    }
 
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");
   }
@@ -111,6 +140,8 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.invalid");
     case "lifecycle-conflict":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.lifecycle.conflict");
+    case "candidate-stale":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.candidate.stale");
     case "confirmation-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required");
     case "unsupported-command":

@@ -2691,6 +2691,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       if (!order) {
         throw new OrderingDomainError("Purchase not found.");
       }
+      // A recorded payment without a terminal failure may still be captured, so its
+      // holds stay until Payments reports the payment terminal; a client never decides.
+      if (order.cancellation_unavailable_reason === "payment-unresolved") {
+        throw new OrderingDomainError(
+          "This purchase's payment is still being confirmed, so it cannot be cancelled until the payment completes or fails.",
+        );
+      }
       if (!isCancelableOrderStatus(order.status) && !order.self_service_cancellation_available) {
         throw new OrderingDomainError(
           order.cancellation_unavailable_reason === "fulfillment-started"

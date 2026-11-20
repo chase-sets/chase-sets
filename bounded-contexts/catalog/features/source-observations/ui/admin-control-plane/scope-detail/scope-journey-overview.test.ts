@@ -10,8 +10,6 @@ import {
   type CatalogScopeJourneyStageStatus,
 } from "./scope-journey-overview";
 
-const NOW = "2026-07-14T12:00:00.000Z";
-
 function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeRecordDetail {
   return {
     scopeRecordId: "scope_expansion_paldean_fates",
@@ -28,8 +26,10 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
     officialSetCode: "PAF",
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
-    // 11 days before NOW → fresh (inside the two-week stale threshold).
     updatedAt: "2026-07-03T12:00:00.000Z",
+    // The Catalog API derives both row facts; the overview reads them as given.
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -72,7 +72,6 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
       scope: scope(),
       languageEditionReview: linkedReview,
       languageEditionReviewFailed: false,
-      generatedAt: NOW,
     });
 
     expect(model.condition).toBe("ready");
@@ -100,7 +99,6 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
         }),
       ]),
       languageEditionReviewFailed: false,
-      generatedAt: NOW,
     });
 
     expect(model.condition).toBe("conflict");
@@ -110,10 +108,9 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
 
   it("reports projection-lag and a current sync stage when the projection is stale", () => {
     const model = buildCatalogScopeJourneyOverviewReadModel({
-      scope: scope({ updatedAt: "2026-01-01T00:00:00.000Z" }),
+      scope: scope({ updatedAt: "2026-01-01T00:00:00.000Z", syncFreshness: "stale" }),
       languageEditionReview: linkedReview,
       languageEditionReviewFailed: false,
-      generatedAt: NOW,
     });
 
     expect(model.condition).toBe("projection-lag");
@@ -123,12 +120,11 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
   });
 
   it("blocks promotion for a deprecated or archived scope", () => {
-    for (const lifecycleStatus of ["deprecated", "archived"]) {
+    for (const lifecycleStatus of ["deprecated", "archived"] as const) {
       const model = buildCatalogScopeJourneyOverviewReadModel({
-        scope: scope({ lifecycleStatus }),
+        scope: scope({ lifecycleStatus, promotionReadiness: lifecycleStatus }),
         languageEditionReview: linkedReview,
         languageEditionReviewFailed: false,
-        generatedAt: NOW,
       });
 
       expect(model.condition).toBe("blocked");
@@ -138,10 +134,9 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
 
   it("marks promotion upcoming for an unpublished draft scope", () => {
     const model = buildCatalogScopeJourneyOverviewReadModel({
-      scope: scope({ lifecycleStatus: "draft" }),
+      scope: scope({ lifecycleStatus: "draft", promotionReadiness: "unpublished" }),
       languageEditionReview: linkedReview,
       languageEditionReviewFailed: false,
-      generatedAt: NOW,
     });
 
     expect(model.promotionReadiness).toBe("unpublished");
@@ -150,10 +145,9 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
 
   it("surfaces partial-failure ahead of a stale sync when the alias review degraded", () => {
     const model = buildCatalogScopeJourneyOverviewReadModel({
-      scope: scope({ updatedAt: "2026-01-01T00:00:00.000Z" }),
+      scope: scope({ updatedAt: "2026-01-01T00:00:00.000Z", syncFreshness: "stale" }),
       languageEditionReview: linkedReview,
       languageEditionReviewFailed: true,
-      generatedAt: NOW,
     });
 
     expect(model.condition).toBe("partial-failure");
@@ -164,7 +158,6 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
       scope: scope({ languageEditions: ["en"] }),
       languageEditionReview: null,
       languageEditionReviewFailed: false,
-      generatedAt: NOW,
     });
 
     expect(model.condition).toBe("ready");
@@ -178,7 +171,6 @@ describe("buildCatalogScopeJourneyOverviewReadModel", () => {
       scope: scope({ languageEditions: [] }),
       languageEditionReview: null,
       languageEditionReviewFailed: false,
-      generatedAt: NOW,
     });
 
     expect(model.condition).toBe("empty");

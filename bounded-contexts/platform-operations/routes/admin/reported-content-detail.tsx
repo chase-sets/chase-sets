@@ -6,6 +6,7 @@ import {
   type ReportedContentModerationAction,
 } from "../../features/reported-content/api/contracts";
 import { ReportedContentAdminDetailPage } from "../../features/reported-content/ui/admin-pages";
+import { reportedContentTargetPath } from "../../features/reported-content/ui/admin-paths";
 import { createReportedContentRequestApiClient } from "../../support/request-support/reported-content-client";
 
 export function resolveReportedContentMarketplaceOrigin() {
@@ -34,13 +35,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const targetType = params.targetType ?? "";
   const targetId = params.targetId ?? "";
   const note = String(formData.get("note") ?? "").trim() || null;
+  if (formData.get("action") === "acknowledge") {
+    await createReportedContentRequestApiClient(request).acknowledgeReportedContent(targetType, targetId);
+    return redirect(reportedContentTargetPath(targetType, targetId));
+  }
   await createReportedContentRequestApiClient(request).recordReportedContentAction(
     targetType,
     targetId,
     normalizeAction(formData.get("action")),
     note,
   );
-  return redirect(`/reported-content/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}`);
+  return redirect(reportedContentTargetPath(targetType, targetId));
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [

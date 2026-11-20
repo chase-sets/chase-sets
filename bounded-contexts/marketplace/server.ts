@@ -1,4 +1,15 @@
-export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export { listingFormAttempt, listingCommandInput } from "./support/request-support/listing-attempt";
+export { submitReviewReport } from "./support/route-support/review-report-action";
+export { submitListingReport } from "./support/route-support/listing-report-action";
+export type { MarketplaceApiClient, MarketplaceCreateListingInput } from "./client";
+export {
+  createMarketplaceApiClient,
+  createMarketplaceRequestApiClient,
+  MarketplaceApiError,
+} from "./support/request-support/api-client";
+export { hashMarketplaceRequest } from "./features/mutation-recovery/api/attempt";
+export { marketplaceOfferCanonicalRequest } from "./features/mutation-recovery/domain/contracts";
+export { marketplaceListingCanonicalRequest } from "./features/mutation-recovery/domain/contracts";
 export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
 export {
@@ -113,8 +124,33 @@ export type {
   MarketplaceLockedFeeListingCohortWeeklyPoint,
 } from "./features/listings/read-model/queries";
 export type { ManagedOfferPricing } from "./features/offers/api/managed-authority";
+export { createMarketplaceOfferRuntime } from "./features/offers/api/runtime";
+export { createManagedOfferWork } from "./features/offers/integrations/managed-work";
 export {
   MARKETPLACE_OFFER_LIFECYCLE_ANCHOR_EVENT_TYPE,
   MARKETPLACE_OFFER_LIFECYCLE_EVENT_TYPES,
   type MarketplaceOfferLifecycleAdmission,
 } from "./features/offers/api/lifecycle-admission";
+
+export {
+  createMarketplaceReviewOpportunityPublicationRunners,
+  createMarketplaceManagedOfferWorkRunners,
+  createMarketplaceReviewWindowSweepRunners,
+  createMarketplaceReviewOpportunityReminderSweepRunners,
+  createMarketplaceSellerAvailabilityRestoreSweepRunners,
+  createMarketplaceSellerAwayWindowStartSweepRunners,
+} from "./support/runtime-support/worker-jobs";
+export { createMarketplaceListingConsumer } from "./features/listings/api/listing-consumer";
+export { ListingRequestConflictError } from "./features/listings/api/listing-request";
+export { ListingTargetCommandError } from "./features/listings/api/target-contracts";
+export type {
+  ListingTargetAuthority,
+  ListingTargetPrincipal,
+  ListingAuthorizationEvidence,
+  ListingTargetServices,
+  AcceptListingTargetPriceInput,
+  ActivateListingForChannelInput,
+  ListingTargetPriceAcceptanceResult,
+  ListingMutationResult,
+  AcceptedListingTargetPriceRead,
+} from "./features/listings/api/target-contracts";

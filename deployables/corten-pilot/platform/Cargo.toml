@@ -1,0 +1,22 @@
+[package]
+name = "corten-pilot-platform"
+description = "What the pilot's apps share: the platform API as the signed-in user, read-after-write, the session and the design system's tokens."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "platform"
+
+[dependencies]
+bytes.workspace = true
+corten.workspace = true
+corten-ui.workspace = true
+futures-util.workspace = true
+percent-encoding.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true

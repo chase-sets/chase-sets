@@ -1,3 +1,8 @@
+import {
+  createPricingMarketRollupsCloserRunners,
+  createPricingJobRunners,
+  createBulkRepriceIngestionJobRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -39,7 +44,7 @@ import { composePricingInventoryEconomicsProjectionHandlers } from "./features/e
 
 const pricingContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, PricingHostPorts>({
+const contextModule = defineBoundedContextModule<PricingServices, PgTransactionalPool, PricingHostPorts>({
   manifest: pricingContextManifest,
   schemaSql: pricingSchemaSql,
   // Evolve feature tables before applying their physical replay posture. This
@@ -102,3 +107,12 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
   },
   seed: seedPricingDatabase,
 });
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createPricingMarketRollupsCloserRunners,
+    createPricingJobRunners,
+    createBulkRepriceIngestionJobRunners,
+  },
+};

@@ -214,6 +214,14 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.payment.deadline.description":
     "Complete payment by {deadline} to keep this order.",
   "ordering.features.orders.ui.orderDetailPage.payment.state": "Payment State",
+  "ordering.features.orders.ui.orderDetailPage.payment.unresolved.title": "Payment is still being confirmed",
+  "ordering.features.orders.ui.orderDetailPage.payment.unresolved.description":
+    "A payment was started for this {projectionLabel}. Its items stay reserved until the payment succeeds or fails, so it cannot be cancelled yet.",
+  "ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.title":
+    "Verify your email to cancel this {projectionLabel}",
+  "ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.description":
+    "Cancelling needs a verified email. We will email you a link; opening it verifies your email and brings you back here.",
+  "ordering.features.orders.ui.orderDetailPage.verify.email": "Verify email",
   "ordering.features.orders.ui.orderDetailPage.purchase": "Purchase",
   "ordering.features.orders.ui.orderDetailPage.quantity": "Quantity",
   "ordering.features.orders.ui.orderDetailPage.quantity.2": "Quantity",
@@ -240,6 +248,17 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.delivered": "Delivered",
   "ordering.features.orders.ui.orderDetailPage.delivered.at": "Delivered at",
   "ordering.features.orders.ui.orderDetailPage.status.2": "Status",
+  "ordering.features.orders.ui.orderDetailPage.order.status.pending.reservation": "Pending reservation",
+  "ordering.features.orders.ui.orderDetailPage.order.status.pending.payment": "Pending payment",
+  "ordering.features.orders.ui.orderDetailPage.order.status.ready.for.fulfillment": "Ready for fulfillment",
+  "ordering.features.orders.ui.orderDetailPage.order.status.cancelled": "Cancelled",
+  "ordering.features.orders.ui.orderDetailPage.shipping.option.standard": "Standard",
+  "ordering.features.orders.ui.orderDetailPage.shipping.option.expedited": "Expedited",
+  "ordering.features.orders.ui.orderDetailPage.shipping.option.priority": "Priority",
+  "ordering.features.orders.ui.orderDetailPage.hold.status.active": "Active",
+  "ordering.features.orders.ui.orderDetailPage.hold.status.released": "Released",
+  "ordering.features.orders.ui.orderDetailPage.hold.status.consumed": "Used",
+  "ordering.features.orders.ui.orderDetailPage.hold.status.expired": "Expired",
   "ordering.features.orders.ui.orderDetailPage.support.reference": "Support reference",
   "ordering.features.orders.ui.orderDetailPage.tax": "Tax",
   "ordering.features.orders.ui.orderDetailPage.terms.resolved": "Terms resolved",

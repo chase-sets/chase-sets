@@ -9,10 +9,13 @@ import {
   type ReviseRepricingPolicyCommand,
 } from "../domain/domain";
 import type { RepricingScopePreviewInput } from "../read-model/controls";
+import { RepricingConfigurationConflict } from "./configuration";
 
 export function createRepricingPolicyRoutes(services: RepricingPolicyServices & RepricingPolicyActivationServices) {
   const app = new Hono<PricingApiEnv>();
   app.onError((error, c) => {
+    if (error instanceof RepricingConfigurationConflict)
+      return c.json({ error: { code: "concurrency_conflict" } }, 409);
     if (error instanceof PolicyControlValidationError && error.cause instanceof RepricingPolicyValidationError)
       return c.json(validationFailedResponse("Invalid policy command.", [{ message: error.cause.message }]), 400);
     if (error instanceof SyntaxError || error instanceof PolicyControlValidationError)
@@ -33,17 +36,36 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
     const loaded = await Promise.all(
       policies.map(({ policyId }) => services.loadOwnedRepricingPolicy(policyId, accountId)),
     );
+    const states = loaded.flatMap((policy) => (policy ? [policy.state] : []));
     return c.json(
-      loaded.flatMap((policy) => (policy ? [{ ...policy.state, changesUsedToday: budget.changesUsed }] : [])),
+      await Promise.all(
+        states.map(async (state) => {
+          const configuration = await services.getPolicyConfigurationStatus(accountId, state.policyId!);
+          return { ...(configuration.installedState ?? state), changesUsedToday: budget.changesUsed, configuration };
+        }),
+      ),
     );
   });
-  app.get("/halt", async (c) => c.json(await services.getHalt(c.get("actor")!.accountId)));
+  app.get("/halt", async (c) => {
+    const accountId = c.get("actor")!.accountId;
+    const configuration = await services.getHaltConfigurationStatus(accountId);
+    return c.json({ ...configuration.installedState, configuration });
+  });
+  app.get("/configuration-requests", async (c) =>
+    c.json(await services.listConfigurationRequests(c.get("actor")!.accountId)),
+  );
   app.post("/halt", async (c) => {
     const context = c.get("context");
     if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
     const body = await c.req.json<{ engaged: boolean }>();
     if (typeof body?.engaged !== "boolean") return c.json({ error: { code: "validation_failed" } }, 400);
-    return c.json(await services.setHalt(c.get("actor")!.accountId, body.engaged, context));
+    const result = await services.setHalt(
+      c.get("actor")!.accountId,
+      body.engaged,
+      context,
+      c.req.header("Idempotency-Key"),
+    );
+    return c.json(result, result.status === "accepted-pending" ? 202 : result.status === "applied" ? 200 : 409);
   });
   app.get("/budget", async (c) => {
     const day = c.req.query("day") ?? new Date().toISOString().slice(0, 10);
@@ -84,10 +106,17 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
       return c.json({ error: { code: "validation_failed" } }, 400);
     try {
       const state = await services.activateRepricingPolicy(
-        { accountId: c.get("actor")!.accountId, dryRunId: body.dryRunId, name: body.name },
+        {
+          accountId: c.get("actor")!.accountId,
+          dryRunId: body.dryRunId,
+          name: body.name,
+          requestKey: c.req.header("Idempotency-Key"),
+        },
         context,
       );
-      return state ? c.json(state, 201) : c.json({ error: { code: "not_found" } }, 404);
+      return state
+        ? c.json(state, state.status === "accepted-pending" ? 202 : state.status === "applied" ? 201 : 409)
+        : c.json({ error: { code: "not_found" } }, 404);
     } catch (error) {
       if (error instanceof DryRunRequiredError) return c.json({ error: { code: "dry_run_required" } }, 409);
       throw error;
@@ -99,7 +128,9 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
     if (!(await services.getAccountRepricingPolicy({ accountId, policyId })))
       return c.json({ error: { code: "not_found" } }, 404);
     const loaded = await services.loadOwnedRepricingPolicy(policyId, accountId);
-    return loaded ? c.json(loaded.state) : c.json({ error: { code: "not_found" } }, 404);
+    if (!loaded) return c.json({ error: { code: "not_found" } }, 404);
+    const configuration = await services.getPolicyConfigurationStatus(accountId, policyId);
+    return c.json({ ...(configuration.installedState ?? loaded.state), configuration });
   });
   app.post("/:policyId/revise", async (c) => {
     const context = c.get("context");
@@ -113,9 +144,12 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
       policyId,
       accountId,
       context,
+      requestKey: c.req.header("Idempotency-Key"),
       command: { ...body, type: "ReviseRepricingPolicy", revisedAt: new Date().toISOString() },
     });
-    return state ? c.json(state) : c.json({ error: { code: "not_found" } }, 404);
+    return state
+      ? c.json(state, state.status === "accepted-pending" ? 202 : state.status === "applied" ? 200 : 409)
+      : c.json({ error: { code: "not_found" } }, 404);
   });
   const lifecycle =
     (action: "pause" | "resume" | "delete"): Handler<PricingApiEnv, `/:policyId/${"pause" | "resume" | "delete"}`> =>
@@ -133,9 +167,12 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
         policyId: c.req.param("policyId"),
         accountId: c.get("actor")!.accountId,
         context,
+        requestKey: c.req.header("Idempotency-Key"),
         command,
       });
-      return state ? c.json(state) : c.json({ error: { code: "not_found" } }, 404);
+      return state
+        ? c.json(state, state.status === "accepted-pending" ? 202 : state.status === "applied" ? 200 : 409)
+        : c.json({ error: { code: "not_found" } }, 404);
     };
   app.post("/:policyId/pause", lifecycle("pause"));
   app.post("/:policyId/resume", lifecycle("resume"));

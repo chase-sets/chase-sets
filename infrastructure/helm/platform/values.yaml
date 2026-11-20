@@ -580,6 +580,10 @@ components:
       - name: "STRIPE_WEBHOOK_SECRET"
         secret: true
         secretKey: "STRIPE_WEBHOOK_SECRET"
+      - name: "STRIPE_WEBHOOK_SECRET_PREVIOUS"
+        secret: true
+        secretKey: "STRIPE_WEBHOOK_SECRET_PREVIOUS"
+        optional: true
       - name: "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
         value: "false"
       - name: "UCP_BUSINESS_SIGNING_ALG"

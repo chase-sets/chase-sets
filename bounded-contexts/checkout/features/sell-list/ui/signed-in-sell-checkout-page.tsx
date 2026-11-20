@@ -27,6 +27,7 @@ import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
 import { CheckoutPolicyLinks } from "../../sessions/ui/checkout-policy-links";
+import type { SellListAttemptState } from "./sell-list-attempt-boundary";
 
 export type SignedInSellCheckoutRecoveryKind =
   | "access-required"
@@ -80,11 +81,6 @@ export type SignedInSellCheckoutFormValues = Readonly<{
   payoutMethod: string;
   labelPreference: string;
   termsAccepted: boolean;
-  payoutState: string;
-  payoutEstimateState: string;
-  riskState: string;
-  labelState: string;
-  sellerReadinessState: string;
 }>;
 
 export type SignedInSellCheckoutFieldErrors = Partial<Record<keyof SignedInSellCheckoutFormValues | "form", string>>;
@@ -98,6 +94,7 @@ export type SignedInSellCheckoutActionState =
       values: SignedInSellCheckoutFormValues;
       fieldErrors: SignedInSellCheckoutFieldErrors;
       recovery?: SignedInSellCheckoutRecovery | null;
+      attempt?: SellListAttemptState;
     }>;
 
 export type SignedInSellCheckoutEditSection = "contact" | "ship-from" | "payout" | "label";
@@ -110,8 +107,6 @@ export type SignedInSellCheckoutPageProps = Readonly<{
   defaultValues: SignedInSellCheckoutFormValues;
   savedShipFromAddresses: readonly SignedInSellCheckoutShipFromAddress[];
   payoutSummary: SignedInSellCheckoutPayoutSummary | null;
-  readinessDecisions: string;
-  sellListReviewPlan: string;
   actionState?: SignedInSellCheckoutActionState | null;
   initialEditSection?: SignedInSellCheckoutEditSection | null;
 }>;
@@ -132,11 +127,6 @@ export const signedInSellCheckoutDefaultValues: SignedInSellCheckoutFormValues =
   payoutMethod: "saved-payout",
   labelPreference: "prepaid-label",
   termsAccepted: false,
-  payoutState: "ready",
-  payoutEstimateState: "current",
-  riskState: "clear",
-  labelState: "ready",
-  sellerReadinessState: "ready",
 };
 
 function moneyNumber(value: string | null | undefined) {
@@ -292,18 +282,6 @@ function editRowAction(section: SignedInSellCheckoutEditSection, label: string, 
   );
 }
 
-function hiddenCheckoutState(defaultValues: SignedInSellCheckoutFormValues) {
-  return (
-    <>
-      <HiddenInput type="hidden" name="payoutState" value={defaultValues.payoutState} />
-      <HiddenInput type="hidden" name="payoutEstimateState" value={defaultValues.payoutEstimateState} />
-      <HiddenInput type="hidden" name="riskState" value={defaultValues.riskState} />
-      <HiddenInput type="hidden" name="labelState" value={defaultValues.labelState} />
-      <HiddenInput type="hidden" name="sellerReadinessState" value={defaultValues.sellerReadinessState} />
-    </>
-  );
-}
-
 function hiddenContact(values: SignedInSellCheckoutFormValues) {
   return (
     <>
@@ -338,8 +316,6 @@ export function SignedInSellCheckoutPage({
   defaultValues,
   savedShipFromAddresses,
   payoutSummary,
-  readinessDecisions,
-  sellListReviewPlan,
   actionState = { status: "idle" },
   initialEditSection = null,
 }: SignedInSellCheckoutPageProps) {
@@ -351,13 +327,14 @@ export function SignedInSellCheckoutPage({
   const formId = "signed-in-sell-checkout-form";
   const contactReady = values.sellerName.trim().length > 0 && values.email.trim().length > 0;
   const shipFromReady = addressIsComplete(values);
-  const payoutReady = values.payoutState === "ready" && payoutSummary?.status === "ready";
-  const sellerReadinessReady = values.sellerReadinessState === "ready";
-  const labelReady = values.labelState === "ready";
+  const payoutReady = payoutSummary?.status === "ready" && !fieldErrors.payoutMethod;
+  const labelSelected =
+    !fieldErrors.labelPreference &&
+    (values.labelPreference === "prepaid-label" || values.labelPreference === "seller-label-later");
   const showContactForm = !contactReady || editingSection === "contact";
   const showShipFromForm = !shipFromReady || editingSection === "ship-from";
   const showPayoutForm = !payoutReady || editingSection === "payout";
-  const showLabelForm = !labelReady || editingSection === "label";
+  const showLabelForm = !labelSelected || editingSection === "label";
   const primaryAction = (
     <Button type="submit" form={formId} leadingIcon="check" disabled={Boolean(activeRecovery)}>
       {t("checkout.features.sellList.ui.signedInSellCheckoutPage.review.sale")}
@@ -377,6 +354,10 @@ export function SignedInSellCheckoutPage({
             </LinkButton>
           }
         />
+
+        <LinkButton href="/sell/shipping-setup" tone="secondary">
+          {t("fulfillment.shippingSetup.title")}
+        </LinkButton>
 
         {activeRecovery ? (
           <CheckoutReadinessPrompt
@@ -423,9 +404,6 @@ export function SignedInSellCheckoutPage({
               <HiddenInput type="hidden" name="sessionId" value={sessionId} />
               <HiddenInput type="hidden" name="readinessSnapshotId" value={readiness?.snapshotId ?? ""} />
               <HiddenInput type="hidden" name="readinessSourceRevision" value={readiness?.sourceRevision ?? ""} />
-              <HiddenInput type="hidden" name="readinessDecisions" value={readinessDecisions} />
-              <HiddenInput type="hidden" name="sellListReviewPlan" value={sellListReviewPlan} />
-              {hiddenCheckoutState(values)}
 
               {fieldErrors.form ? (
                 <CheckoutStateNotice
@@ -481,23 +459,17 @@ export function SignedInSellCheckoutPage({
                     )}
                   />
                 ) : null}
-                <CheckoutSavedInfoRow
-                  icon="shield"
-                  label={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.title")}
-                  value={
-                    sellerReadinessReady
-                      ? t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.ready")
-                      : t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.needs.review")
-                  }
-                  supportingText={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.detail")}
-                  status={
-                    sellerReadinessReady
-                      ? t("checkout.features.sellList.ui.signedInSellCheckoutPage.ready")
-                      : t("checkout.features.sellList.ui.signedInSellCheckoutPage.review.required")
-                  }
-                  statusTone={sellerReadinessReady ? "success" : "warning"}
-                />
-                {labelReady ? (
+                {actionState?.status !== "error" ? (
+                  <CheckoutSavedInfoRow
+                    icon="shield"
+                    label={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.title")}
+                    value={t(
+                      "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.not.yet.assessed",
+                    )}
+                    supportingText={t("checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.detail")}
+                  />
+                ) : null}
+                {labelSelected ? (
                   <CheckoutSavedInfoRow
                     icon="truck"
                     label={t("checkout.features.sellList.ui.signedInSellCheckoutPage.label.title")}
@@ -507,8 +479,6 @@ export function SignedInSellCheckoutPage({
                         : t("checkout.features.sellList.ui.signedInSellCheckoutPage.label.prepaid")
                     }
                     supportingText={t("checkout.features.sellList.ui.signedInSellCheckoutPage.label.row.supporting")}
-                    status={t("checkout.features.sellList.ui.signedInSellCheckoutPage.ready")}
-                    statusTone="success"
                     action={editRowAction(
                       "label",
                       t("checkout.features.sellList.ui.signedInSellCheckoutPage.edit.label"),

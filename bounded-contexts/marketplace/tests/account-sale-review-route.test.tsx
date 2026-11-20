@@ -117,6 +117,7 @@ describe("marketplace account sale review route", () => {
     );
 
     const form = new FormData();
+    form.set("attemptId", "sale_review_attempt_0001");
     form.set("rating", "4");
     form.set("feedback", "Prompt buyer.");
 

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  bootstrapContextDatabase,
   composeModuleSchemaSql,
   createCheckpointKey,
   createProjectionAwarePool,
@@ -74,7 +75,7 @@ describeDb("listing moderation reaction real runner", () => {
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.marketplace.query(composeModuleSchemaSql(marketplaceModule));
+    await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     await pools["platform-operations"].query(composeModuleSchemaSql({ schemaSql: "" }));
   });
   afterAll(async () => {
@@ -403,6 +404,7 @@ const evidenceRequirements = {
 } as const;
 const publish: PublishListingCommand = {
   type: "PublishListing",
+  publishedAt: "2026-05-09T14:00:00.000Z",
   readiness: {
     ready: true,
     requirementHash: evidenceRequirements.requirementHash,

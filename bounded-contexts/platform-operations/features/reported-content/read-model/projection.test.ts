@@ -26,6 +26,9 @@ function createDb() {
   const rows = new Map<string, Record<string, unknown>>();
   const db = {
     query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
+      // Response derivation has pure matrix coverage and PostgreSQL replay coverage;
+      // this stand-in only models the original report/action merge below.
+      if (sql.includes("response_actions = (") || sql.includes("SELECT q.*")) return { rows: [], rowCount: 0 };
       if (sql.includes("INSERT INTO") && sql.includes("last_action_note")) {
         const key = `${params[0]}:${params[1]}`;
         const existing = rows.get(key);
@@ -111,7 +114,7 @@ function createDb() {
         return { rows: [], rowCount: 1 };
       }
 
-      if (sql.includes("SET status = 'manually-unlisted'")) {
+      if (sql.includes("THEN 'manually-unlisted' ELSE status END")) {
         const key = `listing:${params[0]}`;
         const existing = rows.get(key);
         if (existing && (existing.last_action_at === null || String(existing.last_action_at) <= String(params[1]))) {
@@ -359,7 +362,7 @@ describe("reported content projection", () => {
     );
     expect(db.rows.get("listing:lst_1")).toEqual(before);
     expect(db.query).toHaveBeenLastCalledWith(
-      expect.stringContaining("AND (last_action_at IS NULL OR last_action_at <= $2::timestamptz)"),
+      expect.stringContaining("CASE WHEN last_action_at IS NULL OR last_action_at <= $2::timestamptz"),
       ["lst_1", removalAt],
     );
   });

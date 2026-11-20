@@ -119,6 +119,7 @@ describe("production release lock monitor", () => {
       issues = [
         {
           ...value,
+          type: { name: "Bug", is_enabled: true },
           id: 1000,
           number: 100,
           state: "open",
@@ -160,7 +161,14 @@ describe("production release lock monitor", () => {
       fetch: async (url, init) => {
         if (!init.method) return searchResponse([{ number: 101, state: "open", body: null }]);
         created = true;
-        return response({ id: 102, number: 102, state: "open", body: init.body, html_url: "url" });
+        return response({
+          id: 102,
+          number: 102,
+          state: "open",
+          body: init.body,
+          html_url: "url",
+          type: { name: "Bug", is_enabled: true },
+        });
       },
     });
     expect(created).toBe(true);
@@ -179,6 +187,7 @@ describe("production release lock monitor", () => {
               number: 100,
               state: "open",
               html_url: "https://github.com/chase-sets/chase-sets/issues/100",
+              type: { name: "Bug", is_enabled: true },
             }),
     });
     expect(recovered.issue.id).toBe(1000);
@@ -286,6 +295,7 @@ describe("production release lock monitor", () => {
           number: 1,
           state: "open",
           html_url: "https://github.com/chase-sets/chase-sets/issues/1",
+          type: { name: "Bug", is_enabled: true },
         });
       },
     });

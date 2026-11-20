@@ -1,3 +1,11 @@
+import {
+  createChannelsEbayAccountDeletionReceiptExpiryRunners,
+  createChannelsEbayAccountDeletionConsumerRunners,
+  createChannelsConnectorLivenessSweepRunners,
+  createChannelsEbayCredentialRefreshRunners,
+  createChannelsOutboundRunners,
+  createChannelsScheduledReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export {
@@ -97,8 +105,28 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import contextManifest from "./context.json" with { type: "json" };
 import { buildChannelsApi } from "./api";
 import { createEbayAccountDeletionRuntime } from "./features/ebay-account-deletion/api/runtime";
+import { createEbayConnectionRuntime } from "./features/ebay-connection/api/runtime";
+import { ebayConnectionRetentionSweeps } from "./features/ebay-connection/read-model/retention-policy";
+import {
+  ebayCredentialRefreshSchemaSql,
+  ebayCredentialRefreshSchemaMigrations,
+} from "./features/ebay-connection/read-model/refresh-schema";
+import {
+  ebayConnectionSchemaSql,
+  ebayConnectionSchemaMigrations,
+  ebaySellerSetupSchemaSql,
+  ebaySellerSetupSchemaMigrations,
+} from "./features/ebay-connection/read-model/schema";
+import { createEbaySellerSetupRuntime } from "./features/ebay-connection/api/setup-runtime";
+import { ebaySetupDeclaration, type EbayOAuthConfiguration } from "./features/ebay-connection/domain/configuration";
 import { createEbayReceiptStaffRoutes } from "./features/ebay-account-deletion/api/staff-route";
 import { createEbayReceiptExpiryStore } from "./features/ebay-account-deletion/read-model/expiry";
+import { createEbayAccountDeletionConsumer } from "./features/ebay-account-deletion/api/consumer";
+import {
+  ebayDeletionConsumerSchemaSql,
+  ebayDeletionConsumerSchemaMigrations,
+} from "./features/ebay-account-deletion/read-model/consumer-schema";
+import { accountScopedWorkerContext } from "./support/runtime-support/worker-jobs";
 import { ebayReceiptCustomRetention } from "./features/ebay-account-deletion/read-model/retention-policy";
 import { ebayReceiptSchemaSql, ebayReceiptSchemaMigrations } from "./features/ebay-account-deletion/read-model/schema";
 import { createChannelConnectionRuntime } from "./features/connections/api/runtime";
@@ -181,6 +209,12 @@ import {
 } from "./features/connection-attention/read-model/schema";
 import type { ConnectorOAuthService } from "./support/request-support/connector-oauth";
 import { createConnectorFeedRuntime } from "./features/connector-feed/api/runtime";
+import {
+  createConnectionEpochs,
+  createConnectionPersistence,
+  type ConnectionConsumerTopology,
+} from "./features/connections/api/owner-epochs";
+import { createVersionedConnectionAuthority } from "./features/connections/api/versioned-connection-authority";
 import { createConnectorCredentialRoutes } from "./features/connector-feed/api/routes";
 import { connectorFeedSchemaMigrations, connectorFeedSchemaSql } from "./features/connector-feed/read-model/schema";
 import {
@@ -233,23 +267,30 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
   Readonly<{
     channelCredentialKeyring?: ChannelCredentialKeyring | null;
     ebayAccountDeletionConfiguration?: EbayAccountDeletionConfiguration | null;
+    ebayOAuthConfiguration?: EbayOAuthConfiguration | null;
     webhookTelemetry?: ProviderWebhookTelemetry;
     channelCredentialCapabilities?: readonly ChannelCredentialCapabilityBinding[];
     marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability;
     channelSaleRecorder: RecordExternalChannelSale;
     readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
     connectorOAuth?: ConnectorOAuthService;
+    readyToShipCanaryOwnerUserId?: string;
+    connectionConsumers?: ConnectionConsumerTopology;
     /** Governed TCGplayer order-pull authority; absent until bound, which denies scheduling. */
     resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
   }>;
 
-export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
+const contextModule = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}\n${ebayConnectionSchemaSql}\n${ebaySellerSetupSchemaSql}\n${ebayCredentialRefreshSchemaSql}\n${ebayDeletionConsumerSchemaSql}`,
   schemaMigrations: [
     ...ebayReceiptSchemaMigrations,
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
+    ...ebayConnectionSchemaMigrations,
+    ...ebayCredentialRefreshSchemaMigrations,
+    ...ebaySellerSetupSchemaMigrations,
+    ...ebayDeletionConsumerSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
@@ -264,7 +305,11 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...connectorLivenessSchemaMigrations,
     ...fulfillmentObservationSchemaMigrations,
   ],
-  retentionSweeps: [...connectorInboundRetentionSweeps, ...fulfillmentObservationRetentionSweeps],
+  retentionSweeps: [
+    ...connectorInboundRetentionSweeps,
+    ...fulfillmentObservationRetentionSweeps,
+    ...ebayConnectionRetentionSweeps,
+  ],
   retentionExemptions: [
     ...ebayReceiptCustomRetention,
     ...manualSyncRetentionExemptions,
@@ -282,7 +327,31 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       pool,
       wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
     });
-    const connectorFeed = createConnectorFeedRuntime({ db: pool, eventStore, oauth: ports?.connectorOAuth });
+    const connectionEpochs = createConnectionEpochs(pool, ports.connectionConsumers);
+    const connectionStore = createConnectionPersistence(eventStore, connectionEpochs);
+    const connectionHealth = createConnectionHealthRuntime({
+      db: pool,
+      eventStore,
+      connectorLiveness: createConnectorLivenessReader(pool),
+      resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
+    });
+    const ebayConnection = createEbayConnectionRuntime({
+      db: pool,
+      eventStore,
+      connectionEpochs,
+      connectionHealth,
+      configuration: ports.ebayOAuthConfiguration ?? null,
+      keyring: ports.channelCredentialKeyring ?? null,
+    });
+    const connectorFeed = createConnectorFeedRuntime({
+      db: pool,
+      eventStore,
+      oauth: ports?.connectorOAuth,
+      readyToShipCanaryOwnerUserId: ports.readyToShipCanaryOwnerUserId,
+      connectionEpochs,
+      beforeConnectionLock: ebayConnection.beforeConnectionLock,
+      disconnectEffect: ebayConnection.disconnectEffect,
+    });
     const policies = createPolicyRuntime({ eventStore, db: pool });
     const storageLocationAuthority: ChannelStorageLocationAuthorityResolver = {
       resolve: async (input) => {
@@ -295,24 +364,26 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     };
     const connections = createChannelConnectionRuntime(
       {
-        eventStore,
+        eventStore: connectionStore,
         db: pool,
         disconnectChannelConnection: connectorFeed.disconnectChannelConnection,
       },
       {
         ...(ports ?? {}),
-        setupResolver: ports?.setupResolver ?? channelProviderRegistry.setupResolver,
-        policyAuthority: ports.policyAuthority ?? createConnectionPolicyAuthority(policies),
+        setupResolver: {
+          resolve: async (input) =>
+            input.providerKey === "ebay"
+              ? ebayConnection.enabled && input.environment === "sandbox"
+                ? ebaySetupDeclaration
+                : null
+              : (ports.setupResolver ?? channelProviderRegistry.setupResolver).resolve(input),
+        },
+        policyAuthority: ports.policyAuthority ?? createConnectionPolicyAuthority(policies, pool),
+        credentialAuthority: ports.credentialAuthority ?? ebayConnection.credentialAuthority,
         storageLocationAuthority,
       },
     );
     const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
-    const connectionHealth = createConnectionHealthRuntime({
-      db: pool,
-      eventStore,
-      connectorLiveness: createConnectorLivenessReader(pool),
-      resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
-    });
     const readChannelHealthHold =
       ports.readChannelHealthHold ??
       (async (connectionId: string) => {
@@ -403,6 +474,15 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     const ebayAccountDeletionReceipts = createEbayAccountDeletionRuntime(pool, ports.channelCredentialKeyring);
     return {
       connections,
+      connectionAuthority: createVersionedConnectionAuthority(pool, eventStore, connectionEpochs),
+      ebayConnection,
+      ebaySellerSetup: createEbaySellerSetupRuntime({
+        db: pool,
+        eventStore,
+        ebayConnection,
+        storageLocationAuthority,
+        connectionEpochs,
+      }),
       ebayAccountDeletion: {
         config: ports.ebayAccountDeletionConfiguration ?? null,
         telemetry: ports.webhookTelemetry,
@@ -416,6 +496,13 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
       ebayAccountDeletionReceipts,
       ebayReceiptExpiry: createEbayReceiptExpiryStore(pool),
+      ebayAccountDeletionConsumer: createEbayAccountDeletionConsumer({
+        db: pool,
+        connectionEpochs,
+        ebayConnection,
+        connectorFeed,
+        context: accountScopedWorkerContext,
+      }),
       connectionHealth,
       connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
       listingComposition,
@@ -450,6 +537,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
           authority: connectorFeed,
           outboundSync,
           registry: channelProviderRegistry,
+          readyToShipCanaryOwnerUserId: ports.readyToShipCanaryOwnerUserId,
           resolvePolicy: () => policies.resolvePolicy(connectorTransportPolicy),
         }),
       },
@@ -466,10 +554,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     {
       mountPath: "/api/channels",
       contextMountOrdinal: 1,
-      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route(
-        "/",
-        buildChannelsApi(services, { storageLocationAuthority: services.storageLocationAuthority }),
-      ),
+      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route("/", buildChannelsApi(services)),
     },
     {
       mountPath: "/channel-connector/oauth",
@@ -526,3 +611,15 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     }),
   ],
 });
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createChannelsEbayAccountDeletionReceiptExpiryRunners,
+    createChannelsEbayAccountDeletionConsumerRunners,
+    createChannelsConnectorLivenessSweepRunners,
+    createChannelsEbayCredentialRefreshRunners,
+    createChannelsOutboundRunners,
+    createChannelsScheduledReconciliationRunners,
+  },
+};

@@ -1,5 +1,5 @@
 // Settlement-owned public event payloads.
-import type { AccountId } from "../../primitives/typed-ids";
+import type { AccountId, PayoutId } from "../../primitives/typed-ids";
 import type { AccountLinkageClearedPayload, AccountLinkageFlaggedPayload } from "../account-linkage-facts";
 import type { PayoutReviewHoldPayload } from "../payout-review-hold-facts";
 import type {
@@ -121,7 +121,20 @@ export type SettlementSupportHoldConsumedPayload = SettlementSupportHoldFactEnve
     resolutionType: string;
   }>;
 
+export type PayoutCompletedPayload = Readonly<{
+  payoutId: PayoutId;
+  accountId: AccountId;
+  providerStatus: string | null;
+  amount: string;
+  requestedAmount: string;
+  feeAmount: string;
+  netAmount: string;
+  notificationEmail: string | null;
+  completedAt: string;
+}>;
+
 export type SettlementEventPayloads = Readonly<{
+  "settlement.payout.completed": PayoutCompletedPayload;
   "settlement.account-linkage.flagged": AccountLinkageFlaggedPayload;
   "settlement.account-linkage.cleared": AccountLinkageClearedPayload;
   "settlement.payout-readiness.recorded": PayoutReadinessRecordedPayload;

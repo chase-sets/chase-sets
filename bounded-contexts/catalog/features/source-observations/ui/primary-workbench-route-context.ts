@@ -2,6 +2,10 @@ import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workben
 import { catalogPrimaryWorkbenchSections } from "../api/primary-workbench-admin-contracts";
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
 import {
+  parseCatalogEvidenceReference,
+  serializeCatalogEvidenceReference,
+} from "./primary-workbench-evidence-reference";
+import {
   CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
@@ -18,6 +22,10 @@ const canonicalKeys = new Set([
   "importScope",
   ...catalogPrimaryWorkbenchScopeQueryKeys,
   "profileVersion",
+  "aliasType",
+  "reviewStatuses",
+  "targetKind",
+  "targetId",
   "selectedObservationIds",
   "selectedObservationCount",
   "reviewOffset",
@@ -26,6 +34,7 @@ const canonicalKeys = new Set([
   "promotionPreviewId",
   "promoteAsDraft",
   "scopeRecordId",
+  "evidenceRef",
   "returnPath",
 ]);
 
@@ -95,6 +104,7 @@ function surfaceDefaultSectionForPathname(pathname: string | null | undefined): 
 // the surface default. Direct visits to /integrations/providers therefore open
 // profile authoring without any query state.
 function resolveSectionFromLocation(searchParams: URLSearchParams, pathname: string | null | undefined): string {
+  if (pathname === "/catalog/integrations/settings") return "governance-controls";
   const explicitSection = searchParams.get("section");
   if (explicitSection?.trim()) {
     return normalizeCatalogPrimaryWorkbenchSection(explicitSection);
@@ -107,6 +117,18 @@ export function parseCatalogPrimaryWorkbenchRouteContext(url: string | URL): Cat
   const parsedUrl = typeof url === "string" ? new URL(url) : url;
 
   return routeContextFromLocation(parsedUrl.searchParams, parsedUrl.pathname, true);
+}
+
+// Only the provider-detail path supplies provider identity.
+export function catalogProviderKeyFromPath(pathname: string | null | undefined): string | null {
+  const segment = pathname?.match(/^\/catalog\/providers\/([^/]+)\/?$/)?.[1];
+  if (!segment) return null;
+  try {
+    const value = decodeURIComponent(segment);
+    return value.trim() ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 // Request intent the parsed context does not keep: whether the operator named a
@@ -194,8 +216,11 @@ function routeContextFromLocation(
   pathname: string | null | undefined,
   includeReturnPath: boolean,
 ): CatalogPrimaryWorkbenchRouteContext {
-  const providerKey = nullableParam(searchParams, "providerKey");
+  const providerKey =
+    catalogProviderKeyFromPath(pathname) ??
+    (searchParams.get("providerKey") ? nullableParam(searchParams, "providerKey") : null);
   const importScope = nullableParam(searchParams, "importScope");
+  const evidenceReference = parseCatalogEvidenceReference(searchParams.get("evidenceRef"));
   const sourceObservationFilters = parseSourceObservationFilters(searchParams);
   const scope = scopeContextFromSearchParams({
     searchParams,
@@ -213,6 +238,10 @@ function routeContextFromLocation(
       ? importScopeFromScopeContext(scope)
       : (importScope ?? importScopeFromScopeContext(scope)),
     profileVersion: nullableParam(searchParams, "profileVersion"),
+    aliasType: nullableParam(searchParams, "aliasType"),
+    reviewStatuses: parseCsvParam(searchParams, "reviewStatuses"),
+    targetKind: nullableParam(searchParams, "targetKind"),
+    targetId: nullableParam(searchParams, "targetId"),
     sourceObservationFilters,
     selectedObservationIds: parseCsvParam(searchParams, "selectedObservationIds"),
     reviewOffset: nonNegativeIntParam(searchParams, "reviewOffset"),
@@ -221,6 +250,11 @@ function routeContextFromLocation(
     promotionPreviewId: nullableParam(searchParams, "promotionPreviewId"),
     promoteAsDraft: searchParams.get("promoteAsDraft") === "true",
     scopeRecordId: nullableParam(searchParams, "scopeRecordId"),
+    evidenceRef: searchParams.has("evidenceRef")
+      ? evidenceReference
+        ? serializeCatalogEvidenceReference(evidenceReference)
+        : "invalid"
+      : null,
     returnPath: includeReturnPath ? sanitizeReturnPath(nullableParam(searchParams, "returnPath")) : null,
   };
 }
@@ -251,6 +285,12 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   setNullable(searchParams, "expansionId", context.scope?.expansionId ?? null);
   setNullable(searchParams, "expansionName", context.scope?.expansionName ?? null);
   setNullable(searchParams, "profileVersion", context.profileVersion);
+  setNullable(searchParams, "aliasType", context.aliasType ?? null);
+  if (context.reviewStatuses?.length) {
+    searchParams.set("reviewStatuses", context.reviewStatuses.join(","));
+  }
+  setNullable(searchParams, "targetKind", context.targetKind ?? null);
+  setNullable(searchParams, "targetId", context.targetId ?? null);
   if (
     context.selectedObservationIds.length > 0 &&
     context.selectedObservationIds.length <= MAX_URL_SELECTED_OBSERVATION_IDS
@@ -275,6 +315,7 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   // Only the explicit true choice is emitted; false is the default and never a parameter.
   setNullable(searchParams, "promoteAsDraft", context.promoteAsDraft === true ? "true" : null);
   setNullable(searchParams, "scopeRecordId", context.scopeRecordId ?? null);
+  setNullable(searchParams, "evidenceRef", context.evidenceRef ?? null);
   setNullable(searchParams, "returnPath", sanitizeReturnPath(context.returnPath));
 
   for (const [key, value] of Object.entries(context.sourceObservationFilters).sort(([left], [right]) =>

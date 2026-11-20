@@ -31,6 +31,7 @@ export type OperationsAttentionSourceId =
   | "projection-blocked-stream"
   | "wake-stalled-job"
   | "support-request-deadline"
+  | "reported-content-response"
   | "platform-feedback-unreviewed";
 
 // The thing that needs an operator's attention.
@@ -39,10 +40,15 @@ export type OperationsAttentionEntity =
   | "blocked-stream"
   | "wake-job"
   | "support-request"
+  | "reported-content"
   | "platform-feedback";
 
 // The existing admin surface an item routes to, opened in one click.
-export type OperationsAttentionSurfaceId = "projection-operations" | "support-operations" | "platform-feedback";
+export type OperationsAttentionSurfaceId =
+  | "projection-operations"
+  | "support-operations"
+  | "platform-feedback"
+  | "reported-content";
 
 export type OperationsAttentionSourceDescriptor = Readonly<{
   id: OperationsAttentionSourceId;
@@ -57,11 +63,25 @@ export type OperationsAttentionSourceDescriptor = Readonly<{
   // enforced by omitting a source the operator cannot view, so a viewer never
   // sees work they lack authority to reach.
   requiredPermission: string;
-  // Builds the one-click deep link into the owning surface for an entity.
+  // Builds the one-click deep link into the owning surface for an entity: the
+  // admin-web path, with its section (`/platform`, `/support`), as admin-web
+  // serves it.
   buildHref: (entityId: string) => string;
 }>;
 
 export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDescriptor[] = [
+  {
+    id: "reported-content-response",
+    ownerSlice: "reported-content",
+    entity: "reported-content",
+    surface: "reported-content",
+    peakSeverity: "critical",
+    requiredPermission: "reported-content.view",
+    buildHref: (entityId) =>
+      entityId === "incomplete"
+        ? "/support/reported-content"
+        : `/support/reported-content/${entityId.split(":").map(encodeURIComponent).join("/")}`,
+  },
   {
     id: "projection-poison-event",
     ownerSlice: "projection-operations",
@@ -69,7 +89,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "projection-operations",
     peakSeverity: "critical",
     requiredPermission: "projection-operations.view",
-    buildHref: () => "/projections?tab=blocked",
+    buildHref: () => "/platform/projections?tab=blocked",
   },
   {
     id: "projection-blocked-stream",
@@ -78,7 +98,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "projection-operations",
     peakSeverity: "warning",
     requiredPermission: "projection-operations.view",
-    buildHref: () => "/projections?tab=blocked",
+    buildHref: () => "/platform/projections?tab=blocked",
   },
   {
     id: "wake-stalled-job",
@@ -87,7 +107,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "projection-operations",
     peakSeverity: "critical",
     requiredPermission: "projection-operations.view",
-    buildHref: () => "/projections?tab=wake",
+    buildHref: () => "/platform/projections?tab=wake",
   },
   {
     id: "support-request-deadline",
@@ -96,7 +116,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "support-operations",
     peakSeverity: "critical",
     requiredPermission: "support.manage",
-    buildHref: (entityId) => `/requests?requestId=${encodeURIComponent(entityId)}`,
+    buildHref: (entityId) => `/support/requests?requestId=${encodeURIComponent(entityId)}`,
   },
   {
     id: "platform-feedback-unreviewed",
@@ -105,7 +125,7 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
     surface: "platform-feedback",
     peakSeverity: "info",
     requiredPermission: "platform-feedback.view",
-    buildHref: (entityId) => `/platform-feedback/${encodeURIComponent(entityId)}`,
+    buildHref: (entityId) => `/support/platform-feedback/${encodeURIComponent(entityId)}`,
   },
 ] as const;
 
@@ -113,10 +133,11 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
 // (a poisoned or blocked projection) and stalled wake work outrank an unreviewed
 // feedback note — the policy the operator surface presents.
 export const OPERATIONS_ATTENTION_SOURCE_PRIORITY: Readonly<Record<OperationsAttentionSourceId, number>> = {
-  "projection-poison-event": 5,
-  "projection-blocked-stream": 4,
-  "wake-stalled-job": 3,
+  "projection-poison-event": 6,
+  "projection-blocked-stream": 5,
+  "wake-stalled-job": 4,
   "support-request-deadline": 2,
+  "reported-content-response": 3,
   "platform-feedback-unreviewed": 1,
 };
 

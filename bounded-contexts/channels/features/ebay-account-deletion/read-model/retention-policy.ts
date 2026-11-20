@@ -2,6 +2,12 @@ import type { BcRetentionExemption } from "@chase-sets/bounded-context-module";
 
 export const ebayReceiptCustomRetention: readonly BcRetentionExemption[] = [
   {
+    tableName: "channels_ebay_account_deletion_completions",
+    owner: "channels",
+    reason:
+      "Completion records cascade-delete with their receipt in the registered receipt-expiry runner; no subject is retained here.",
+  },
+  {
     tableName: "channels_ebay_account_deletion_receipts",
     owner: "channels",
     reason:

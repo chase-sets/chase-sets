@@ -69,9 +69,14 @@ describe("Shipment mutation caller census", () => {
     ]);
     const services = source("support/runtime-support/services.ts");
     expect(services.match(/returnTrackingFallback/g)).toHaveLength(1);
-    const worker = source("deployables/platform-worker/src/scheduled-runners.ts", repoRoot);
-    expect(worker.match(/listStalePostageOperationLocators/g)).toHaveLength(3);
-    expect(worker.match(/reconcilePostageOperationLocator/g)).toHaveLength(3);
+    const worker = source("support/runtime-support/worker-jobs.ts");
+    expect(worker).toContain('import type { FulfillmentServices } from "./services"');
+    expect(worker).toContain("fulfillment?.shipments?.listStalePostageOperationLocators &&");
+    expect(worker).toContain('typeof fulfillment.shipments.reconcilePostageOperationLocator === "function"');
+    expect(worker.match(/await fulfillment\.shipments!\.listStalePostageOperationLocators!\(/g)).toHaveLength(1);
+    expect(worker.match(/await fulfillment\.shipments!\.reconcilePostageOperationLocator!\(locator\)/g)).toHaveLength(
+      1,
+    );
     const seed = source("support/runtime-support/seed.ts");
     expect(seed.match(/services\.shipments\.commandHandler/g)).toHaveLength(1);
   });

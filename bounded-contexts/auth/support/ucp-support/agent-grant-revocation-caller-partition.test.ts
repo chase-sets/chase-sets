@@ -12,7 +12,7 @@ const allowed = new Set([
   ownerPath,
   "bounded-contexts/identity/support/ucp-support/linked-platform-authorizations.ts",
   "bounded-contexts/auth/features/agent-grants/api/revocation.ts",
-  "deployables/platform-worker/src/agent-webhook-runners.ts",
+  "bounded-contexts/auth/support/runtime-support/worker-jobs.ts",
 ]);
 function callers(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -41,7 +41,7 @@ function assertPartition(sources: ReadonlyMap<string, string>) {
     "agentGrantRevocations: identityServices.identity.agentGrantRevocations",
   );
   expect(sources.get(identityServicesPath)).toContain(
-    "agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore)",
+    "agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore, undefined, ownerEpochs)",
   );
   expect(sources.get(oauthPath)?.match(/return withMode\(async\s*\(?activated\)?/g)).toHaveLength(2);
   expect(sources.get(oauthPath)?.match(/if \(!activated\)/g)).toHaveLength(2);
@@ -83,10 +83,20 @@ describe("agent-grant-revocation-caller-partition", () => {
       sources
         .get(identityServicesPath)!
         .replace(
-          "createAgentGrantRevocations(pool, postgresEventStore)",
-          "createAgentGrantRevocations(pool, eventStore)",
+          "createAgentGrantRevocations(pool, postgresEventStore, undefined, ownerEpochs)",
+          "createAgentGrantRevocations(pool, eventStore, undefined, ownerEpochs)",
         ),
     );
     expect(() => assertPartition(nonTransactionalStore)).toThrow();
+    const omittedTopology = new Map(sources).set(
+      identityServicesPath,
+      sources
+        .get(identityServicesPath)!
+        .replace(
+          "createAgentGrantRevocations(pool, postgresEventStore, undefined, ownerEpochs)",
+          "createAgentGrantRevocations(pool, postgresEventStore)",
+        ),
+    );
+    expect(() => assertPartition(omittedTopology)).toThrow();
   });
 });

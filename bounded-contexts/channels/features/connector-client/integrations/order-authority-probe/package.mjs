@@ -1,6 +1,6 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createDecipheriv, createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,10 +11,18 @@ export const PROBE = "https://github.com/chase-sets/chase-sets/issues/9115";
 const SUCCESSOR = `${PROBE}#issuecomment-6065311293`;
 const coreFiles = ["capture.html", "helper.js", "manifest.json", "worker.js"];
 const packageFiles = ["capture-config.json", ...coreFiles];
+const sealKeyFile = "canary-seal-key";
+const handoffFile = "ready-to-ship-handoff.json";
 const exportFiles = ["selector-inventory.json", "selector-receipt.json"];
+const offlineCanaryManifest = {
+  host_permissions: [],
+  content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self'" },
+};
+const canaryDetailLimit = 3;
 const chromeExecutable = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+const powershellLiteral = (value) => `'${value.replaceAll("'", "''")}'`;
 const launchCommand = (profileDirectory) =>
-  `& '${chromeExecutable}' '--user-data-dir=${profileDirectory}' '--no-first-run' '--no-default-browser-check'`;
+  `& ${powershellLiteral(chromeExecutable)} ${powershellLiteral(`--user-data-dir=${profileDirectory}`)} '--no-first-run' '--no-default-browser-check'`;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
 const fail = (code = "export_schema_refused") => {
@@ -25,9 +33,10 @@ const check = (condition, code) => {
 };
 const git = (...args) =>
   execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-function readJson(file, canonical = false) {
+function readJson(file, canonical = false, maxBytes = 65536) {
   try {
-    check(lstatSync(file).size <= 65536, "artifact_refused");
+    const stat = lstatSync(file);
+    check(stat.isFile() && stat.nlink === 1 && stat.size <= maxBytes, "artifact_refused");
     const text = readFileSync(file, "utf8");
     const value = JSON.parse(text);
     // Generated artifacts have one exact JSON encoding. This also rejects
@@ -73,6 +82,28 @@ function assertRealDirectory(directory) {
     if (path.dirname(current) === current) break;
   }
 }
+export function windowsRunCustody(action, directory) {
+  assertRealDirectory(directory);
+  check(process.platform === "win32", "windows_custody_refused");
+  try {
+    execFileSync(
+      path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        path.join(source, "windows-run-custody.ps1"),
+        "-Action",
+        action,
+        "-Path",
+        directory,
+      ],
+      { windowsHide: true, stdio: "ignore" },
+    );
+  } catch {
+    fail("windows_custody_refused");
+  }
+}
 function inventory(directory) {
   try {
     return Object.fromEntries(
@@ -92,7 +123,33 @@ function same(value, expected, code = "export_schema_refused") {
   check(json(value) === json(expected), code);
 }
 
-export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }) {
+function assertCanaryTarget(target, synthetic) {
+  closed(target, ["connectionId", "pairingId"], "custody_refused");
+  check(
+    Object.values(target).every(
+      (id) =>
+        typeof id === "string" &&
+        (synthetic
+          ? /^synthetic-[\w-]{1,96}$/.test(id)
+          : /^[A-Za-z0-9][\w-]{0,127}$/.test(id) && !id.startsWith("synthetic-")),
+    ),
+    "custody_refused",
+  );
+}
+
+export function prepare({
+  out,
+  cadenceMs,
+  cadenceSource,
+  t0,
+  synthetic = false,
+  canary = false,
+  target,
+  reviewedHead,
+}) {
+  if (canary && !synthetic)
+    check(typeof reviewedHead === "string" && /^[a-f0-9]{40}$/.test(reviewedHead), "reviewed_head_required");
+  if (canary) assertCanaryTarget(target, synthetic);
   check(
     Number.isSafeInteger(cadenceMs) &&
       cadenceMs > 0 &&
@@ -110,19 +167,40 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
     "clean_reviewed_seat_and_destination_required",
   );
   const head = git("rev-parse", "HEAD");
+  if (canary && !synthetic) check(head === reviewedHead, "reviewed_head_required");
   check(synthetic || existsSync(chromeExecutable), "chrome_executable_missing");
+  if (canary && !synthetic) {
+    mkdirSync(parent, { recursive: true });
+    windowsRunCustody("Create", out);
+  }
   const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const key = publicKey.export({ type: "spki", format: "der" }).toString("base64");
-  const manifest = { ...readJson(path.join(source, "manifest.json")), key };
+  const manifest = {
+    ...readJson(path.join(source, "manifest.json")),
+    key,
+    ...(canary && synthetic && offlineCanaryManifest),
+  };
   const id = extensionId(key);
   const packageDirectory = path.join(out, "package");
   const receiptDirectory = path.join(out, "receipt");
   const profileDirectory = path.join(out, "profile");
   for (const directory of [packageDirectory, receiptDirectory, profileDirectory])
-    mkdirSync(directory, { recursive: true });
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (canary) mkdirSync(path.join(out, "custody"), { mode: 0o700 });
   writeFileSync(path.join(packageDirectory, "manifest.json"), json(manifest), { flag: "wx" });
   for (const name of ["worker.js", "helper.js", "capture.html"])
     writeFileSync(path.join(packageDirectory, name), readFileSync(path.join(source, name)), { flag: "wx" });
+  const files = inventory(packageDirectory);
+  let sealKeyDigest;
+  if (canary) {
+    const key = randomBytes(32);
+    try {
+      writeFileSync(path.join(packageDirectory, sealKeyFile), key, { flag: "wx", mode: 0o600 });
+      sealKeyDigest = hash(key);
+    } finally {
+      key.fill(0);
+    }
+  }
   const config = {
     format: "order-authority-package/v4",
     head,
@@ -132,7 +210,8 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
     cadenceSource,
     extensionId: id,
     evidence: synthetic ? "synthetic" : "operator",
-    files: inventory(packageDirectory),
+    files,
+    ...(canary && { mode: "canary", sealKeyDigest, target }),
   };
   writeFileSync(path.join(packageDirectory, "capture-config.json"), json(config), { flag: "wx" });
   const preparation = {
@@ -160,9 +239,26 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
       "receipt/selector-inventory.json",
     ],
     qualification: "PENDING_HOST_VERIFIER",
+    ...(canary && { mode: "canary" }),
   };
   const cli = path.join(source, "package.mjs");
-  const runbook = `# One isolated HUMAN-operated selector capture for ${PROBE}
+  const runbook = canary
+    ? `# ${synthetic ? "Synthetic" : "Founder"} Ready to Ship canary
+
+Head: ${head}. ${synthetic ? "Offline fixture only. Do not load for an operator window." : "NO-GO without the independent exact-head review, the founder's separate authorization, and the runbook preflight."}
+The encrypted handoff is private. Keep it in custody/, never receipt/.
+The package's canary-seal-key is also private. Never export it.
+This package grants neither live authority nor sale effects. Follow docs/runbooks/channels-pilot-operations.md.
+
+One lookup, one LastTwoYears first page, fresh Ready to Ship quick-filter brackets, and at
+most three matching details. No range correction, fallback, pagination or retry.
+The receipt contains aggregate observations and an opaque page claim, not sale authority.
+
+Verify package: node "${cli}" --verify --out "${out}"
+Verify the scrubbed export: node "${cli}" --verify-export --out "${out}"
+${synthetic ? "Synthetic removal tests do not prove operator UI absence or permit a live run." : `Only after preflight: launch ${preparation.launchCommand}\nLoad only ${packageDirectory} (extension ${id}), then open ${preparation.captureUrl}.`}
+`
+    : `# One isolated HUMAN-operated selector capture for ${PROBE}
 
 Evidence: ${config.evidence}. Head: ${head}. Extension: ${id}.
 Cadence: ${cadenceMs} ms, probe-only authority ${AUTHORITY}, not production cadence.
@@ -242,6 +338,9 @@ or raw network data. The visible Chrome window and native dialogs are HUMAN-only
 export function verifyPackage(out) {
   assertRealDirectory(out);
   const preparation = readJson(path.join(out, "preparation.json"), true);
+  const canary = preparation.mode === "canary";
+  const protectedRun = canary && preparation.evidence === "operator";
+  if (protectedRun) windowsRunCustody("VerifyRoot", out);
   closed(
     preparation,
     [
@@ -262,30 +361,56 @@ export function verifyPackage(out) {
       "packageDigests",
       "retainedFiles",
       "qualification",
+      ...(canary ? ["mode"] : []),
     ],
     "package_mismatch",
   );
   const expectedNames = ["RUNBOOK.md", "preparation-inventory.json", "preparation.json", "package", "receipt"];
+  if (canary) expectedNames.push("custody");
   if (existsSync(path.join(out, "profile"))) expectedNames.push("profile");
   same(readdirSync(out).sort(), expectedNames.sort(), "inventory_mismatch");
   for (const name of expectedNames) check(!lstatSync(path.join(out, name)).isSymbolicLink(), "symlink_refused");
   const directory = path.join(out, "package");
+  if (protectedRun) {
+    for (const name of ["package", "receipt", "custody", "profile"])
+      if (name !== "profile" || expectedNames.includes(name)) {
+        const child = path.join(out, name);
+        check(lstatSync(child).isDirectory(), "windows_custody_refused");
+        windowsRunCustody("Verify", child);
+      }
+    windowsRunCustody("Verify", path.join(directory, sealKeyFile));
+    const seal = path.join(out, "custody", handoffFile);
+    if (existsSync(seal)) windowsRunCustody("Verify", seal);
+  }
   const actual = inventory(directory);
-  same(Object.keys(actual), packageFiles, "inventory_mismatch");
+  same(Object.keys(actual), [...packageFiles, ...(canary ? [sealKeyFile] : [])].sort(), "inventory_mismatch");
   same(actual, preparation.packageDigests, "digest_mismatch");
   const manifest = readJson(path.join(directory, "manifest.json"), true);
   const config = readJson(path.join(directory, "capture-config.json"), true);
   closed(
     config,
-    ["format", "head", "probe", "t0", "cadenceMs", "cadenceSource", "extensionId", "evidence", "files"],
+    [
+      "format",
+      "head",
+      "probe",
+      "t0",
+      "cadenceMs",
+      "cadenceSource",
+      "extensionId",
+      "evidence",
+      "files",
+      ...(canary ? ["mode", "sealKeyDigest", "target"] : []),
+    ],
     "package_mismatch",
   );
+  if (canary) assertCanaryTarget(config.target, config.evidence === "synthetic");
   check(
     config.format === "order-authority-package/v4" &&
       preparation.format === "order-authority-preparation/v4" &&
       config.probe === PROBE &&
       preparation.probe === PROBE &&
       ["synthetic", "operator"].includes(config.evidence) &&
+      (!canary || (config.mode === "canary" && config.sealKeyDigest === actual[sealKeyFile])) &&
       config.evidence === preparation.evidence &&
       config.extensionId === extensionId(manifest.key) &&
       preparation.extensionId === config.extensionId &&
@@ -309,7 +434,7 @@ export function verifyPackage(out) {
       preparation.qualification === "PENDING_HOST_VERIFIER",
     "package_mismatch",
   );
-  const core = Object.fromEntries(Object.entries(actual).filter(([name]) => name !== "capture-config.json"));
+  const core = Object.fromEntries(coreFiles.map((name) => [name, actual[name]]));
   same(core, config.files, "digest_mismatch");
   for (const file of coreFiles) {
     const relative = path.posix.join(
@@ -321,7 +446,15 @@ export function verifyPackage(out) {
         ? execFileSync("git", ["show", `${config.head}:${relative}`], { cwd: repo, stdio: ["ignore", "pipe", "pipe"] })
         : readFileSync(path.join(source, file));
     if (file === "manifest.json")
-      same(manifest, { ...JSON.parse(expected.toString()), key: manifest.key }, "package_mismatch");
+      same(
+        manifest,
+        {
+          ...JSON.parse(expected.toString()),
+          key: manifest.key,
+          ...(canary && config.evidence === "synthetic" && offlineCanaryManifest),
+        },
+        "package_mismatch",
+      );
     else check(hash(expected) === actual[file], "digest_mismatch");
   }
   const expected = {
@@ -377,6 +510,7 @@ const failures = new Set([
   "aborted",
   "completeness_unproven",
   "page_ceiling_exceeded",
+  "detail_mismatch",
 ]);
 const reasons = new Set([
   ...failures,
@@ -409,6 +543,7 @@ const fields = {
   ],
 };
 function assertReceipt(receipt, preparation) {
+  const canary = preparation.mode === "canary";
   closed(receipt, [
     "format",
     "evidence",
@@ -429,6 +564,7 @@ function assertReceipt(receipt, preparation) {
     "failures",
     "selector",
     "completeness",
+    ...(canary ? ["canary"] : []),
   ]);
   const start = Date.parse(receipt.startedAt);
   const finish = Date.parse(receipt.finishedAt);
@@ -448,15 +584,12 @@ function assertReceipt(receipt, preparation) {
       deadline === Math.min(start + 900000, Date.parse(preparation.t0) + 900000) &&
       receipt.completeness === "unknown",
   );
-  same(
-    receipt.digests,
-    Object.fromEntries(Object.entries(preparation.packageDigests).filter(([name]) => name !== "capture-config.json")),
-  );
+  same(receipt.digests, Object.fromEntries(coreFiles.map((name) => [name, preparation.packageDigests[name]])));
   closed(receipt.counts, ["lookup", "list", "detail"]);
   check(
     integer(receipt.counts.lookup, 1) &&
-      integer(receipt.counts.list, 2) &&
-      receipt.counts.detail === 0 &&
+      integer(receipt.counts.list, canary ? 1 : 2) &&
+      integer(receipt.counts.detail, canary ? canaryDetailLimit : 0) &&
       integer(receipt.totalBytes, 8388608 + 1048576),
   );
   check(
@@ -464,8 +597,8 @@ function assertReceipt(receipt, preparation) {
       receipt.failures.length <= 3 &&
       receipt.failures.every((code) => failures.has(code)),
   );
-  check(Array.isArray(receipt.requests) && receipt.requests.length <= 3);
-  const counts = { lookup: 0, list: 0 };
+  check(Array.isArray(receipt.requests) && receipt.requests.length <= (canary ? 2 + canaryDetailLimit : 3));
+  const counts = { lookup: 0, list: 0, detail: 0 };
   let previousStart = null;
   let bytes = 0;
   for (const request of receipt.requests) {
@@ -494,16 +627,19 @@ function assertReceipt(receipt, preparation) {
     check(Object.hasOwn(counts, request.kind));
     counts[request.kind] += 1;
     const lookup = request.kind === "lookup";
+    const detail = request.kind === "detail";
+    check(!detail || (canary && counts.list === 1 && request.shape === null));
     const from = Date.parse(request.startedAt);
     const to = Date.parse(request.endedAt);
     check(
-      request.method === (lookup ? "GET" : "POST") &&
+      request.method === (request.kind === "list" ? "POST" : "GET") &&
         request.host === (lookup ? "sp-api.tcgplayer.com" : "order-management-api.tcgplayer.com") &&
         request.version === (lookup ? "1.0" : "2.0") &&
-        request.pathTemplate === (lookup ? "/account/auth-detail" : "/orders/search") &&
+        request.pathTemplate ===
+          (lookup ? "/account/auth-detail" : detail ? "/orders/{encodedOrderNumber}" : "/orders/search") &&
         request.credentials === "include" &&
         request.authorizationPresent === false &&
-        request.ceilingBytes === (lookup ? 65536 : 1048576) &&
+        request.ceilingBytes === (lookup ? 65536 : detail ? 524288 : 1048576) &&
         utc(request.startedAt) &&
         utc(request.endedAt) &&
         from >= start &&
@@ -558,7 +694,12 @@ function assertReceipt(receipt, preparation) {
     previousStart = from;
     bytes += request.requestBytes + request.responseBytes;
   }
-  check(receipt.totalBytes === bytes && receipt.counts.lookup >= counts.lookup && receipt.counts.list >= counts.list);
+  check(
+    receipt.totalBytes === bytes &&
+      receipt.counts.lookup >= counts.lookup &&
+      receipt.counts.list >= counts.list &&
+      receipt.counts.detail >= counts.detail,
+  );
   closed(receipt.selector, ["identity", "searches"]);
   check(
     receipt.selector.identity === "tcgplayer-ready-to-ship-selector/v1" &&
@@ -602,7 +743,7 @@ function assertReceipt(receipt, preparation) {
       check(
         integer(bracket.count, 999999999) &&
           bracket.dateFilter === search.searchRange &&
-          typeof bracket.reprompted === "boolean" &&
+          (canary ? bracket.reprompted === false : typeof bracket.reprompted === "boolean") &&
           bracket.countSurface === "ready-to-ship-quick-filter" &&
           utc(bracket.observedAt) &&
           bracket.settled === true &&
@@ -679,13 +820,65 @@ function assertReceipt(receipt, preparation) {
       );
     }
   }
+  if (canary) {
+    closed(receipt.canary, ["pageClaim", "matchedDetails", "sameSession"]);
+    const search = receipt.selector.searches[0];
+    const details = receipt.requests.filter((request) => request.kind === "detail");
+    check(
+      typeof receipt.canary.pageClaim === "string" &&
+        /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(receipt.canary.pageClaim) &&
+        integer(receipt.canary.matchedDetails, details.filter((request) => request.failure === null).length) &&
+        typeof receipt.canary.sameSession === "boolean",
+    );
+    if (details.length)
+      check(
+        search?.after &&
+          search.rowCount <= canaryDetailLimit &&
+          details.length <= search.rowCount &&
+          search.before.count === search.totalOrders &&
+          search.totalOrders === search.rowCount &&
+          search.rowCount === search.distinctCount &&
+          search.rowCount === search.after.count &&
+          search.listStatuses.reduce((sum, item) => sum + item.count, 0) === search.rowCount &&
+          Date.parse(details[0].startedAt) >= Date.parse(search.after.observedAt),
+      );
+    if (search?.qualification === "qualified")
+      check(
+        receipt.canary.sameSession &&
+          receipt.requests[0]?.kind === "lookup" &&
+          receipt.requests[0].failure === null &&
+          receipt.requests.every(
+            (request, index, requests) =>
+              index === 0 || Date.parse(request.startedAt) >= Date.parse(requests[index - 1].endedAt),
+          ) &&
+          receipt.canary.matchedDetails === search.rowCount &&
+          receipt.counts.detail === search.rowCount &&
+          details.length === search.rowCount,
+      );
+    else check(!receipt.canary.sameSession);
+  }
   if (start < Date.parse(preparation.t0) || finish >= deadline)
     check(receipt.failures.includes("deadline") || receipt.failures.includes("response_timeout"));
 }
 
 export function verifyExport(out) {
   const preparation = verifyPackage(out);
-  const directory = path.join(out, "receipt");
+  const index = verifyPreparedExport(preparation);
+  if (preparation.evidence === "operator" && preparation.mode === "canary") {
+    const receipt = readJson(path.join(preparation.receiptDirectory, "selector-receipt.json"), true);
+    const outDirectory = path.dirname(preparation.packageDirectory);
+    const seal = path.join(outDirectory, "custody", handoffFile);
+    if (!qualifiedCanary(receipt)) check(!existsSync(seal), "custody_refused");
+    else {
+      const config = readJson(path.join(preparation.packageDirectory, "capture-config.json"), true);
+      assertCanarySeal(readJson(seal, true, 1048576), canaryHeader(receipt, config));
+    }
+  }
+  return index;
+}
+
+function verifyPreparedExport(preparation) {
+  const directory = preparation.receiptDirectory;
   const files = inventory(directory);
   same(Object.keys(files), exportFiles, "inventory_mismatch");
   const receipt = readJson(path.join(directory, "selector-receipt.json"), true);
@@ -744,27 +937,194 @@ export function recordRemoval(out, extensionAbsent, extensionAbsentAt) {
   return index;
 }
 
+function qualifiedCanary(receipt) {
+  return (
+    receipt.failures.length === 0 &&
+    receipt.canary.sameSession &&
+    receipt.selector.searches[0]?.qualification === "qualified"
+  );
+}
+
+function canaryHeader(receipt, config) {
+  return {
+    format: "ready-to-ship-sale-handoff/v1",
+    pageClaim: receipt.canary.pageClaim,
+    head: config.head,
+    extensionId: config.extensionId,
+    range: "LastTwoYears",
+    target: config.target,
+    finishedAt: receipt.finishedAt,
+    expiresAt: new Date(
+      Math.min(Date.parse(receipt.finishedAt) + 300000, Date.parse(receipt.deadlineAt)),
+    ).toISOString(),
+  };
+}
+
+function assertCanarySeal(seal, header) {
+  closed(seal, ["header", "iv", "ciphertext"], "custody_refused");
+  same(seal.header, header, "custody_refused");
+  check(
+    typeof seal.iv === "string" &&
+      /^[a-f0-9]{24}$/.test(seal.iv) &&
+      typeof seal.ciphertext === "string" &&
+      /^(?:[a-f0-9]{2}){16,}$/.test(seal.ciphertext),
+    "custody_refused",
+  );
+}
+
+function takeCanaryHandoff(out, authorization, now, evidence) {
+  try {
+    const preparation = verifyPackage(out);
+    check(preparation.mode === "canary" && preparation.evidence === evidence, "custody_refused");
+    if (evidence === "operator")
+      check(git("rev-parse", "HEAD") === preparation.head && !git("status", "--porcelain"), "custody_refused");
+    const directory = path.join(out, "custody");
+    assertRealDirectory(directory);
+    const file = path.join(directory, handoffFile);
+    // Consume before decrypting or returning input. No refusal, replay or concurrent take can release it again.
+    writeFileSync(path.join(directory, "authorization-consumed"), "", { flag: "wx", mode: 0o600 });
+    let seal;
+    try {
+      seal = readJson(file, true, 1048576);
+    } finally {
+      if (existsSync(file)) unlinkSync(file);
+    }
+    const index = verifyPreparedExport(preparation);
+    const receipt = readJson(path.join(out, "receipt", "selector-receipt.json"), true);
+    const config = readJson(path.join(out, "package", "capture-config.json"), true);
+    check(index.removal.profileDisposed && qualifiedCanary(receipt), "custody_refused");
+    closed(authorization, ["pageClaim", "connectionId", "pairingId"], "custody_refused");
+    check(
+      authorization.pageClaim === receipt.canary.pageClaim &&
+        authorization.connectionId === config.target.connectionId &&
+        authorization.pairingId === config.target.pairingId,
+      "custody_refused",
+    );
+    const header = canaryHeader(receipt, config);
+    assertCanarySeal(seal, header);
+    check(utc(now) && now >= index.removal.extensionAbsentAt && now < header.expiresAt, "custody_refused");
+    const key = readFileSync(path.join(out, "package", sealKeyFile));
+    try {
+      check(key.length === 32 && hash(key) === config.sealKeyDigest, "custody_refused");
+      const bytes = Buffer.from(seal.ciphertext, "hex");
+      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(seal.iv, "hex"));
+      decipher.setAAD(Buffer.from(JSON.stringify(header)));
+      decipher.setAuthTag(bytes.subarray(-16));
+      const plaintext = decipher.update(bytes.subarray(0, -16));
+      try {
+        check(decipher.final().length === 0, "custody_refused");
+        const orders = JSON.parse(plaintext.toString("utf8"));
+        check(Array.isArray(orders) && orders.length === receipt.canary.matchedDetails, "custody_refused");
+        const { format, pageClaim, target, finishedAt, expiresAt } = header;
+        const sealDigest = createHash("sha256")
+          .update(JSON.stringify([format, pageClaim, target.connectionId, target.pairingId, finishedAt, expiresAt]))
+          .update("\n")
+          .update(plaintext)
+          .digest("hex");
+        return {
+          pageClaim,
+          sealDigest,
+          finishedAt,
+          expiresAt,
+          target,
+          sales: orders.map(({ orderNumber, soldAt, lines }) => ({
+            version: 1,
+            kind: "order",
+            pullId: `ready-to-ship-canary:${pageClaim}`,
+            orderNumber,
+            soldAt,
+            cancelled: false,
+            lines,
+          })),
+        };
+      } finally {
+        plaintext.fill(0);
+      }
+    } finally {
+      key.fill(0);
+    }
+  } catch {
+    fail("custody_refused");
+  }
+}
+
+/** Offline custody control; synthetic data cannot use the founder release path. */
+export function takeSyntheticCanaryHandoff(out, authorization, now) {
+  return takeCanaryHandoff(out, authorization, now, "synthetic");
+}
+
+function releaseFounderCanary(out, authorization) {
+  const saleInput = takeCanaryHandoff(out, authorization, new Date().toISOString(), "operator");
+  check(saleInput.sales.length > 0, "custody_refused");
+  const file = path.join(out, "custody", "ready-to-ship-owner-request.json");
+  writeFileSync(file, JSON.stringify(saleInput), { flag: "wx", mode: 0o600 });
+  try {
+    windowsRunCustody("Verify", file);
+  } catch {
+    unlinkSync(file);
+    fail("custody_refused");
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
     const flags = new Map();
-    const values = ["--out", "--cadence-ms", "--cadence-source", "--t0", "--extension-absent-at"];
+    const values = [
+      "--out",
+      "--cadence-ms",
+      "--cadence-source",
+      "--t0",
+      "--extension-absent-at",
+      "--reviewed-head",
+      "--connection-id",
+      "--pairing-id",
+      "--page-claim",
+    ];
     for (let index = 0; index < args.length; index += 1) {
       const key = args[index];
       check(
         !flags.has(key) &&
-          [...values, "--verify", "--verify-export", "--record-removal", "--extension-absent"].includes(key),
+          [
+            ...values,
+            "--prepare-founder-canary",
+            "--release-founder-canary",
+            "--verify",
+            "--verify-export",
+            "--record-removal",
+            "--extension-absent",
+          ].includes(key),
         "invalid_arguments",
       );
       flags.set(key, values.includes(key) ? args[++index] : true);
     }
     const out = flags.get("--out");
     check(
-      ["--verify", "--verify-export", "--record-removal"].filter((key) => flags.has(key)).length <= 1,
+      [
+        "--prepare-founder-canary",
+        "--release-founder-canary",
+        "--verify",
+        "--verify-export",
+        "--record-removal",
+      ].filter((key) => flags.has(key)).length <= 1,
+      "invalid_arguments",
+    );
+    check(
+      flags.has("--prepare-founder-canary") === flags.has("--reviewed-head") &&
+        flags.has("--release-founder-canary") === flags.has("--page-claim") &&
+        ["--connection-id", "--pairing-id"].every(
+          (key) => flags.has(key) === (flags.has("--prepare-founder-canary") || flags.has("--release-founder-canary")),
+        ),
       "invalid_arguments",
     );
     if (flags.has("--record-removal"))
       recordRemoval(out, flags.get("--extension-absent"), flags.get("--extension-absent-at"));
+    else if (flags.has("--release-founder-canary"))
+      releaseFounderCanary(out, {
+        pageClaim: flags.get("--page-claim"),
+        connectionId: flags.get("--connection-id"),
+        pairingId: flags.get("--pairing-id"),
+      });
     else if (flags.has("--verify-export")) verifyExport(out);
     else if (flags.has("--verify")) verifyPackage(out);
     else
@@ -773,6 +1133,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         cadenceMs: Number(flags.get("--cadence-ms")),
         cadenceSource: flags.get("--cadence-source"),
         t0: flags.get("--t0"),
+        ...(flags.has("--prepare-founder-canary") && {
+          canary: true,
+          reviewedHead: flags.get("--reviewed-head"),
+          target: { connectionId: flags.get("--connection-id"), pairingId: flags.get("--pairing-id") },
+        }),
       });
     console.log("order-authority: completed; qualification remains host-owned");
   } catch {

@@ -493,9 +493,9 @@ export const catalogPrimaryWorkbenchBlockerCopy = {
   }),
   "profile-lifecycle-conflict": copy({
     label: catalogPrimaryWorkbenchCopyLabels.profileLifecycleConflict,
-    reason: "The selected profile lifecycle does not match the requested recovery action.",
+    reason: "The selected profile version's lifecycle does not allow this action.",
     nextStep:
-      "Open lifecycle recovery and select the active, inactive, deprecated, or previous profile version required by the action.",
+      "Select the profile version this action needs, or open lifecycle recovery to change which version is active.",
     supportTarget: "lifecycle-recovery",
     group: "profile",
   }),

@@ -1,4 +1,126 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "marketplace.review-opportunity-publication",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 1000
+      },
+      "runnerExport": "createMarketplaceReviewOpportunityPublicationRunners",
+      "group": "scheduled",
+      "order": 102,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-opportunity-publication"
+    },
+    {
+      "id": "marketplace.review-opportunity-backfill",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createMarketplaceReviewOpportunityPublicationRunners",
+      "group": "scheduled",
+      "order": 102,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-opportunity-backfill"
+    },
+    {
+      "id": "marketplace.managed-offer-work",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 1000
+      },
+      "runnerExport": "createMarketplaceManagedOfferWorkRunners",
+      "group": "scheduled",
+      "order": 103,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.managed-offer-work"
+    },
+    {
+      "id": "marketplace.managed-offer-recovery",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createMarketplaceManagedOfferWorkRunners",
+      "group": "scheduled",
+      "order": 103,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.managed-offer-recovery"
+    },
+    {
+      "id": "marketplace.review-window-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "reviewWindowSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceReviewWindowSweepRunners",
+      "group": "scheduled",
+      "order": 110,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-window-sweep"
+    },
+    {
+      "id": "marketplace.review-opportunity-reminder-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "reviewOpportunityReminderSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceReviewOpportunityReminderSweepRunners",
+      "group": "scheduled",
+      "order": 111,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-opportunity-reminder-sweep"
+    },
+    {
+      "id": "marketplace.seller-availability-restore-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "sellerAvailabilityRestoreSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceSellerAvailabilityRestoreSweepRunners",
+      "group": "scheduled",
+      "order": 112,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.seller-availability-restore-sweep"
+    },
+    {
+      "id": "marketplace.seller-away-window-start-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "sellerAwayWindowStartSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceSellerAwayWindowStartSweepRunners",
+      "group": "scheduled",
+      "order": 113,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.seller-away-window-start-sweep"
+    }
+  ],
   "contextName": "marketplace",
   "packageName": "@chase-sets/marketplace",
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
@@ -19,6 +141,7 @@
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
   "slices": [
+    "mutation-recovery",
     "offer-policy",
     "channel-inbound-clamp",
     "listing-evidence-policy",
@@ -48,7 +171,6 @@
   ],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",
-    "@chase-sets/customer-feedback",
     "@chase-sets/inventory"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
@@ -560,6 +682,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "listingTargetAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Compose Auth Session, Identity Membership, Channels configuration grants and Inventory reservations for channel-only Listing target commands."
+    },
     {
       "portName": "managedOfferPricing",
       "providedBy": "pricing",
@@ -1248,13 +1375,56 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "marketplace.listing-recovery-preparation",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/marketplace/client.ts:POST H967996563c95#1",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/batch/prepare"
+      ],
+      "visibleDestination": {
+        "description": "The browser installs the opaque recovery reference after Marketplace prepares the Listing vector. The authorized loader renders Marketplace's classified recovery response before a Listing command is sent."
+      },
+      "proof": {
+        "authoritativeResponse": "Marketplace derives each request hash from the command and persists a durable owner-bound vector. Preparation cannot overwrite terminal outcomes, execute a Listing command, or persist request bytes.",
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/listing-batch.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/listing-recovery.test.ts",
+          "bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.listing-recovery-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/marketplace/client.ts:POST H8b8ec8f405d2#1",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/batch/retry",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-batch-recovery.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "description": "The Listing recovery notice renders the command-owned terminal vector. Only explicit unknown targets have a retry action; projected Listing rows never authorize a resend."
+      },
+      "proof": {
+        "authoritativeResponse": "Marketplace checks owner history, sends only targets whose outcome is unknown, and returns classified outcomes. A possible send is recovered through a read, not by repeating the command.",
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
+          "bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "marketplace.offer-policy-command-snapshots",
       "owner": "marketplace",
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/offer-policy/api/route.ts:POST /:id/commands",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H866d6ce86bc5#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H2cf4506767d6#1",
         "route-action:bounded-contexts/marketplace/routes/account-offers-submitted.tsx",
         "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:H0093c9d7d3b9#1",
         "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:Hd927c539992e#1"
@@ -1263,7 +1433,7 @@
         "description": "Submitted Offer list/detail controls render the authoritative command or detail snapshot, stream version and exact preview. Route revalidation refreshes Offer summaries but never replaces the reviewed policy snapshot with a projected list row."
       },
       "proof": {
-        "authoritativeResponse": "The runtime folds committed events into the loaded aggregate, or reloads authoritative state for an exact operation retry. Detail reads also load the stream; lists are explicitly projected summaries.",
+        "authoritativeResponse": "The runtime retains the first command snapshot atomically with its completed attempt and replays that snapshot for an exact attempt retry. Detail reads load the owner stream; a recovery lookup resolves only the matching retained receipt and version. Lists remain projected summaries.",
         "tests": [
           "bounded-contexts/marketplace/features/offer-policy/api/route.test.ts",
           "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts",
@@ -1281,10 +1451,11 @@
         "api-client:bounded-contexts/marketplace/client.ts:POST H5299f933f64b#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST Hc5a69ee641c4#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H59449737c72f#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST Ha89eae8adbd2#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H89eae60aa986#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H9128ca46a67f#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST Hd04fea5e8409#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H16769e552476#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H4a1145fd8cfd#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H001da4a79811#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H7597c41e7906#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Hba9838a1cf4b#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H98464d79b40c#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H9b81d7eb5cbd#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H55d128bee0de#1",
@@ -1316,6 +1487,8 @@
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-availability/enable",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-draft-intents/:id/claim",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/target-price",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/activate-channel",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/pause",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/photos",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/photos/:photoId/classify",
@@ -1330,6 +1503,7 @@
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/evidence-readiness/preview",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/preview",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/prices/bulk",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/batch",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /order-capacity",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:DELETE /order-capacity",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /terms/public-standard/listing-preview"
@@ -1338,10 +1512,12 @@
         "description": "Listing API commands return command-owned ids, versions, statuses, draft intent snapshots, or fee quote snapshots; browser form destinations use the returned receipt for fresh detail/list reads. Order Capacity set/clear are additive and inert -- no browser destination consumes them in this slice (no seller-facing UI yet); they return the same command-owned accountId/version/maxOpenOrders snapshot shape as the other listing commands."
       },
       "proof": {
-        "authoritativeResponse": "POST /listings returns the committed Listing aggregate state and matching version, folded from the events appended atomically with inventory-listing registration; exact retries return loaded aggregate state, never a Listing projection. Listing update/publish/pause/withdraw and availability commands respond from the committed command result with id/version/status; draft intent and claim routes return the draft snapshot; fee preview routes return the computed terms snapshot, with stale fee quote responses carrying the current quote; setSellerOrderCapacity/clearSellerOrderCapacity respond from the committed command result with accountId/version/maxOpenOrders.",
+        "authoritativeResponse": "POST /listings returns the committed Listing aggregate state and matching version, folded from the events appended atomically with inventory-listing registration; exact retries return loaded aggregate state, never a Listing projection. POST /listings/:id/target-price and POST /listings/:id/activate-channel return the committed aggregate state and version recorded atomically with their request result, without projection reads. Listing update/publish/pause/withdraw and availability commands respond from the committed command result with id/version/status; draft intent and claim routes return the draft snapshot; fee preview routes return the computed terms snapshot, with stale fee quote responses carrying the current quote; setSellerOrderCapacity/clearSellerOrderCapacity respond from the committed command result with accountId/version/maxOpenOrders.",
         "tests": [
           "bounded-contexts/marketplace/features/listings/api/route.test.ts",
           "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/target-runtime.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/listing-request.test.ts",
           "bounded-contexts/marketplace/tests/account-listing-route.test.ts",
           "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
         ]
@@ -1376,7 +1552,7 @@
         "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /drafts/:id/activate",
         "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /documents/:id/rollback-draft",
         "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /evaluation",
-        "api-client:bounded-contexts/marketplace/features/listing-evidence-policy/api/client.ts:POST Hd8d108712ea1#1",
+        "api-client:bounded-contexts/marketplace/features/listing-evidence-policy/api/client.ts:POST Haa1c04f43ca0#1",
         "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#1",
         "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#2",
         "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#3",
@@ -1449,7 +1625,7 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#2"
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H5572ea7ef0df#1"
       ],
       "visibleDestination": {
         "routeId": "account-offer-matches",
@@ -1466,6 +1642,7 @@
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
           "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
           "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-offer-match-recovery-route.test.tsx",
           "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
         ]
       }
@@ -1691,7 +1868,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:H14b7ab8ab869#1",
         "route-action:bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
         "route-action:bounded-contexts/marketplace/routes/marketplace/account-sale-review.tsx"
       ],
@@ -1719,7 +1896,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-detail-page.tsx:H14b7ab8ab869#1",
         "route-action:bounded-contexts/marketplace/routes/marketplace/account-review.tsx"
       ],
       "visibleDestination": {
@@ -1747,7 +1924,7 @@
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /listings/:id/report",
         "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /reviews/:id/report",
-        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx:H14b7ab8ab869#1",
         "route-action:bounded-contexts/marketplace/routes/marketplace/account-received-reviews.tsx",
         "route-action:bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx",
         "route-action:bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx"
@@ -2311,6 +2488,11 @@
     }
   ],
   "directoryIntent": {
+    "mutation-recovery": {
+      "classification": "slice",
+      "purpose": "Own Marketplace command attempts, retained first results, complete validating history and read-only actor-bound recovery.",
+      "expectedConsumers": ["Marketplace Offer and Offer Policy commands", "Marketplace account API and clients"]
+    },
     "offer-policy": {
       "classification": "slice",
       "purpose": "Own private Buyer Offer Policy previews, buyer consent, lifecycle and permanent Offer membership authority.",
@@ -2372,7 +2554,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["listings", "reviews"],
+      "expectedConsumers": ["listings"],
       "crossCuttingRuntimeComposition": true
     },
     "realtime-support": {

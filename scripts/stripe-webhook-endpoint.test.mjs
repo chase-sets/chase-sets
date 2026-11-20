@@ -1,4 +1,8 @@
 import { EventEmitter } from "node:events";
+import { createHash, createHmac } from "node:crypto";
+import { mkdtemp, rm, rmdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION,
@@ -6,10 +10,12 @@ import {
   createCanonicalStripePaymentsWebhookEndpoint,
   parseStripePaymentsWebhookEndpointArgs,
   repointStagingStripePaymentsWebhookEndpoint,
+  replaceStripePaymentsWebhookEndpointVersion,
   runStripePaymentsWebhookEndpointCommand,
   verifyStripePaymentsWebhookEndpoint,
 } from "./stripe-webhook-endpoint.mjs";
 import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS } from "./stripe-webhook-events.mjs";
+import registry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -24,12 +30,26 @@ function endpoint(overrides = {}) {
     url: canonicalStagingUrl,
     status: "enabled",
     livemode: false,
+    api_version: registry.apiVersion,
     enabled_events: [...STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS],
     ...overrides,
   };
 }
 
 describe("Stripe shared Payments webhook endpoint", () => {
+  it.each([null, undefined, "2026-03-25.dahlia", "2026-09-30.endive"])(
+    "rejects API version %s on verification and canonical reuse",
+    async (api_version) => {
+      const input = { environment: "staging", stripeApiKey: "sk_test_fixture" };
+      const fetch = async () => response({ data: [endpoint({ api_version })], has_more: false });
+      const result = await verifyStripePaymentsWebhookEndpoint(input, { fetch });
+      expect(result.ok).toBe(false);
+      expect(result.endpoints[0].apiVersion).toBe(api_version ?? null);
+      await expect(createCanonicalStripePaymentsWebhookEndpoint(input, { fetch })).rejects.toThrow(
+        "must pin API version",
+      );
+    },
+  );
   it("retains row 4 exact-mode unrestricted-key admission and restricted refusal", async () => {
     const fetch = async () => response({ data: [], has_more: false });
     await expect(
@@ -228,6 +248,303 @@ describe("Stripe shared Payments webhook endpoint", () => {
   });
 });
 
+describe("Stripe endpoint version replacement", () => {
+  it.each([
+    "valid",
+    "wrong key",
+    "expired",
+    "old version",
+    "wrong mode",
+    "tampered",
+    "malformed",
+    "malformed signed body",
+  ])("authenticates a %s captured endpoint delivery without depending on account defaults", async (control) => {
+    const h = harness();
+    await replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies);
+    h.oldEvent();
+    const directory = await mkdtemp(join(tmpdir(), "stripe-endive-synthetic-"));
+    try {
+      const file = join(directory, "delivery.json");
+      const timestamp = Math.floor(Date.now() / 1000) - (control === "expired" ? 600 : 0);
+      let rawBody = JSON.stringify({
+        id: "evt_endive",
+        api_version: control === "old version" ? "2026-03-25.dahlia" : registry.apiVersion,
+        type: "payment_method.detached",
+        livemode: control === "wrong mode",
+        data: { object: { id: "pm_synthetic" } },
+      });
+      if (control === "malformed signed body") rawBody = "SYNTHETIC_PRIVATE_PAYLOAD";
+      const digest = createHmac("sha256", control === "wrong key" ? "whsec_old" : "whsec_new")
+        .update(`${timestamp}.${rawBody}`)
+        .digest("hex");
+      if (control === "tampered") rawBody += " ";
+      await writeFile(
+        file,
+        control === "malformed"
+          ? '{"signatureHeader":"SYNTHETIC_PRIVATE_SIGNATURE",broken'
+          : JSON.stringify({ rawBody, signatureHeader: `t=${timestamp},v1=${digest}` }),
+      );
+      const operation = replaceStripePaymentsWebhookEndpointVersion(
+        { ...h.complete(), deliveryFile: file },
+        h.dependencies,
+      );
+      if (control === "valid") await expect(operation).resolves.toMatchObject({ verification: { ok: true } });
+      else {
+        if (control.startsWith("malformed"))
+          await expect(operation).rejects.toThrow("Malformed delivery capture; old endpoint retained.");
+        else await expect(operation).rejects.toThrow();
+        expect(h.endpoints()).toHaveLength(2);
+      }
+      expect(h.calls.some((call) => call.url.includes("/v1/events/"))).toBe(false);
+    } finally {
+      await rm(join(directory, "delivery.json"), { force: true });
+      await rmdir(directory);
+    }
+  });
+  it("isolates sandbox targets and refuses shared origins and live keys before any request", async () => {
+    const urls = [
+      "https://marketplace.staging.chasesets.com",
+      "https://marketplace.staging.chasesets.com.",
+      "https://marketplace.chasesets.com",
+      "http://localhost",
+      "https://isolated.test/path",
+      "https://user:password@isolated.test",
+    ];
+    for (const baseUrl of urls) {
+      await expect(
+        verifyStripePaymentsWebhookEndpoint({ environment: "sandbox", baseUrl, stripeApiKey: "sk_test_fixture" }),
+      ).rejects.toThrow("isolated HTTPS origin");
+    }
+    await expect(
+      verifyStripePaymentsWebhookEndpoint({
+        environment: "sandbox",
+        baseUrl: "https://isolated.test",
+        stripeApiKey: "sk_live_fixture",
+      }),
+    ).rejects.toThrow("test-mode");
+    const url = "https://isolated.test/api/payments/provider/webhooks";
+    await expect(
+      verifyStripePaymentsWebhookEndpoint(
+        { environment: "sandbox", baseUrl: "https://isolated.test", stripeApiKey: "sk_test_fixture" },
+        { fetch: async () => response({ data: [endpoint({ url })], has_more: false }) },
+      ),
+    ).resolves.toMatchObject({ ok: true, canonicalUrl: url });
+  });
+  function harness() {
+    let endpoints = [endpoint({ id: "we_old", api_version: "2026-03-25.dahlia" })];
+    const writes = [];
+    const calls = [];
+    let failWrite = false;
+    let deliveryStatus = 200;
+    let deliveryBody = { received: true };
+    let failTransport = false;
+    let eventVersion = registry.apiVersion;
+    const input = {
+      environment: "staging",
+      stripeApiKey: "sk_test_fixture",
+      phase: "prepare",
+      currentSigningSecret: "whsec_old",
+      previousSigningSecrets: "whsec_earlier",
+    };
+    const dependencies = {
+      signingSecretDestinationReady: true,
+      writeSigningSecret: async (secret, _environment, name) => {
+        if (failWrite) throw new Error("unavailable");
+        writes.push({ name, secret });
+      },
+      fetch: async (url, init = {}) => {
+        calls.push({ url, method: init.method ?? "GET" });
+        const path = new URL(url).pathname;
+        if (url === canonicalStagingUrl) {
+          if (failTransport) throw new Error("Synthetic replay transport failure");
+          const rawBody = String(init.body);
+          const [time, signature] = init.headers["Stripe-Signature"].split(",");
+          expect(signature).toBe(
+            `v1=${createHmac("sha256", "whsec_new")
+              .update(`${time.slice(2)}.${rawBody}`)
+              .digest("hex")}`,
+          );
+          expect(JSON.parse(rawBody).api_version).toBe(registry.apiVersion);
+          return typeof deliveryBody === "string"
+            ? new Response(deliveryBody, { status: deliveryStatus })
+            : response(deliveryBody, deliveryStatus);
+        }
+        if (path.startsWith("/v1/events/"))
+          return response({
+            id: "evt_endive",
+            type: "payment_method.detached",
+            api_version: eventVersion,
+            livemode: false,
+            data: { object: { id: "pm_synthetic" } },
+          });
+        if (init.method === "DELETE") {
+          endpoints = endpoints.filter((item) => !path.endsWith(`/${item.id}`));
+          return response({ deleted: true });
+        }
+        if (init.method === "POST") {
+          const body = new URLSearchParams(init.body);
+          expect(body.has("api_version")).toBe(path === "/v1/webhook_endpoints");
+          if (path === "/v1/webhook_endpoints") {
+            endpoints.push(
+              endpoint({ id: "we_new", metadata: { replacement_for: body.get("metadata[replacement_for]") } }),
+            );
+            return response({ ...endpoints.at(-1), secret: "whsec_new" });
+          }
+          const target = endpoints.find((item) => path.endsWith(`/${item.id}`));
+          target.metadata.signing_handoff = body.get("metadata[signing_handoff]");
+          target.metadata.signing_key_digest = body.get("metadata[signing_key_digest]");
+          return response(target);
+        }
+        return response({ data: endpoints, has_more: false });
+      },
+    };
+    return {
+      input,
+      dependencies,
+      calls,
+      writes,
+      endpoints: () => endpoints,
+      failWrite: () => {
+        failWrite = true;
+      },
+      failDelivery: () => {
+        deliveryStatus = 400;
+      },
+      setDelivery: (body, status) => {
+        deliveryBody = body;
+        deliveryStatus = status;
+      },
+      failTransport: () => {
+        failTransport = true;
+      },
+      oldEvent: () => {
+        eventVersion = "2026-03-25.dahlia";
+      },
+      complete: () => ({
+        ...input,
+        phase: "complete",
+        currentSigningSecret: "whsec_new",
+        previousSigningSecrets: "whsec_old,whsec_earlier",
+        deliveryEventId: "evt_endive",
+      }),
+    };
+  }
+
+  it("hands off keys in order, resumes without multiplication, proves signed replay then retires only old", async () => {
+    const h = harness();
+    const prepared = await replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies);
+    expect(prepared).toMatchObject({ pendingDelivery: true, endpointId: "we_new" });
+    expect(h.writes).toEqual([
+      { name: "STRIPE_WEBHOOK_SECRET_PREVIOUS", secret: "whsec_old,whsec_earlier" },
+      { name: "STRIPE_WEBHOOK_SECRET", secret: "whsec_new" },
+    ]);
+    expect(h.endpoints().map((item) => item.id)).toEqual(["we_old", "we_new"]);
+    await expect(replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies)).resolves.toMatchObject({
+      changed: false,
+      pendingDelivery: true,
+    });
+    expect(h.writes).toHaveLength(2);
+    const result = await replaceStripePaymentsWebhookEndpointVersion(h.complete(), h.dependencies);
+    expect(result.verification.ok).toBe(true);
+    expect(h.calls.findIndex((call) => call.url === canonicalStagingUrl)).toBeLessThan(
+      h.calls.findIndex((call) => call.method === "DELETE"),
+    );
+    expect(h.endpoints().map((item) => item.id)).toEqual(["we_new"]);
+    await expect(replaceStripePaymentsWebhookEndpointVersion(h.complete(), h.dependencies)).resolves.toMatchObject({
+      changed: false,
+      verification: { ok: true },
+    });
+    expect(JSON.stringify({ prepared, result })).not.toMatch(/whsec_|sk_test_/);
+  });
+
+  it("rolls back only new on secret-write failure", async () => {
+    const h = harness();
+    h.failWrite();
+    await expect(replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies)).rejects.toThrow(
+      "old endpoint is retained",
+    );
+    expect(h.endpoints().map((item) => item.id)).toEqual(["we_old"]);
+  });
+
+  it("names the overlap secret on a failed write without exposing its contents", async () => {
+    const h = harness();
+    const calls = [];
+    const args = ["replace-version", "--environment", "staging", "--phase", "prepare"];
+    const env = {
+      STRIPE_SECRET_KEY: "sk_test_fixture",
+      STRIPE_WEBHOOK_SECRET: "whsec_old",
+      STRIPE_WEBHOOK_SECRET_PREVIOUS: "whsec_prior",
+    };
+    await expect(
+      runStripePaymentsWebhookEndpointCommand(args, env, {
+        ...h.dependencies,
+        writeSigningSecret: undefined,
+        spawn: (_command, argv) => {
+          calls.push(argv[2]);
+          const child = new EventEmitter();
+          child.stdin = new EventEmitter();
+          child.stdin.end = () => queueMicrotask(() => child.emit("close", 1, null));
+          return child;
+        },
+      }),
+    ).rejects.toThrow(
+      /^Replacement handoff failed; the old endpoint is retained and the new endpoint was rolled back\. gh secret set STRIPE_WEBHOOK_SECRET_PREVIOUS failed\.$/,
+    );
+    expect(calls).toEqual(["STRIPE_WEBHOOK_SECRET_PREVIOUS"]);
+    expect(h.endpoints().map((item) => item.id)).toEqual(["we_old"]);
+  });
+
+  it.each([
+    ["schema failure", { received: false, failure_class: "schema-invalid" }, 400],
+    ["handler failure", { received: true, ignored: true, failure_class: "handler-failure" }, 200],
+    ["empty failure class", { received: true, ignored: true, failure_class: "" }, 200],
+    ["non-ignored conflict", { received: true, ignored: false, failure_class: "inbox-conflict" }, 200],
+    ["inexact conflict", { received: true, ignored: true, failure_class: "inbox-conflict", extra: true }, 200],
+    ["non-2xx conflict", { received: true, ignored: true, failure_class: "inbox-conflict" }, 409],
+    ["malformed receipt", "not JSON", 200],
+  ])("retains old after a replay %s", async (_control, body, status) => {
+    const h = harness();
+    await replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies);
+    h.setDelivery(body, status);
+    await expect(replaceStripePaymentsWebhookEndpointVersion(h.complete(), h.dependencies)).rejects.toThrow(
+      "old endpoint retained",
+    );
+    expect(h.calls.some((call) => call.method === "DELETE")).toBe(false);
+    expect(h.endpoints()).toHaveLength(2);
+  });
+
+  it("retains old when verifier transport fails", async () => {
+    const h = harness();
+    await replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies);
+    h.failTransport();
+    await expect(replaceStripePaymentsWebhookEndpointVersion(h.complete(), h.dependencies)).rejects.toThrow(
+      "Synthetic replay transport failure",
+    );
+    expect(h.calls.some((call) => call.method === "DELETE")).toBe(false);
+    expect(h.endpoints()).toHaveLength(2);
+  });
+
+  it.each(["failed delivery", "old event", "old key"])("retains old endpoint after %s", async (failure) => {
+    const h = harness();
+    await replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies);
+    const complete = h.complete();
+    if (failure === "failed delivery") h.failDelivery();
+    if (failure === "old event") h.oldEvent();
+    if (failure === "old key") complete.currentSigningSecret = "whsec_old";
+    await expect(replaceStripePaymentsWebhookEndpointVersion(complete, h.dependencies)).rejects.toThrow();
+    expect(h.calls.some((call) => call.method === "DELETE")).toBe(false);
+    expect(h.endpoints()).toHaveLength(2);
+  });
+
+  it("replaces an unprepared interrupted create rather than multiplying endpoints", async () => {
+    const h = harness();
+    h.endpoints().push(endpoint({ id: "we_interrupted", metadata: { replacement_for: "we_old" } }));
+    await replaceStripePaymentsWebhookEndpointVersion(h.input, h.dependencies);
+    expect(h.endpoints().map((item) => item.id)).toEqual(["we_old", "we_new"]);
+    expect(h.endpoints()[1].metadata.signing_key_digest).toBe(createHash("sha256").update("whsec_new").digest("hex"));
+  });
+});
+
 describe("create-canonical Stripe Payments webhook endpoint", () => {
   const productionUrl = "https://marketplace.chasesets.com/api/payments/provider/webhooks";
   const productionInput = {
@@ -365,6 +682,7 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
     expect(writtenSecrets).toEqual([{ secret: "whsec_sensitive_fixture", environment: "production" }]);
     expect(calls.map((call) => call.init.method ?? "GET")).toEqual(["GET", "POST", "GET"]);
     const createBody = new URLSearchParams(calls[1].init.body);
+    expect(createBody.get("api_version")).toBe("2026-10-28.endive");
     expect(createBody.get("url")).toBe(productionUrl);
     expect(createBody.getAll("enabled_events[]")).toEqual(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS);
     expect(JSON.stringify(result)).not.toContain("whsec_sensitive_fixture");
@@ -458,7 +776,7 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
     expect(spawned).toEqual([
       {
         command: "gh",
-        args: ["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", "production"],
+        args: ["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", "production", "--repo", "chase-sets/chase-sets"],
         options: { stdio: ["pipe", "inherit", "inherit"] },
         stdinWrites: [signingSecret],
       },

@@ -11,6 +11,30 @@ import type { AuthServices } from "../runtime-support/services";
 import { AUTH_GUEST_CHECKOUT_PERMISSIONS, AUTH_GUEST_CHECKOUT_ROLE_KEY } from "../runtime-support/runtime";
 import { registerGuestCheckoutRoutes } from "./guest-checkout-routes";
 import type { AuthApiEnv } from "./support";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "@chase-sets/typescript-compiler-api";
+
+it("pins the stable issued-link builder and rejects the new-URL builder mutant", () => {
+  const source = readFileSync(new URL("./guest-checkout-routes.ts", import.meta.url), "utf8");
+  const parsed = ts.createSourceFile("guest-checkout-routes.ts", source, ts.ScriptTarget.Latest, true);
+  const builder = parsed.statements.find(
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "buildClaimContinuationLink",
+  );
+  if (!builder) throw new Error("Missing claim continuation link builder.");
+  const execute = (text: string): unknown =>
+    runInNewContext(
+      ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } })
+        .outputText + '; buildClaimContinuationLink("https://marketplace.test", "pay_1", "issued");',
+      { URL, encodeURIComponent },
+    );
+  const assertCompatible = (url: unknown) =>
+    expect(url).toBe("https://marketplace.test/checkout/payments/pay_1?claimContinuation=issued");
+  assertCompatible(execute(builder.getText(parsed)));
+  expect(() =>
+    assertCompatible(execute(builder.getText(parsed).replace("/checkout/payments/", "/checkout/claim/"))),
+  ).toThrow();
+});
 
 const {
   mockClaimGuestAccount,
@@ -657,6 +681,80 @@ describe("guest checkout auth routes", () => {
     expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("SET revoked_at = now()"), [
       "hashed:guest_token",
     ]);
+  });
+
+  it("starts and claims a guest account without minting or submitting registration consent", async () => {
+    const identityClient = {
+      createGuestAccount: vi.fn(async () => ({ accountId: "acc_guest_unregistered" })),
+      createUser: vi.fn(async () => ({ userId: "usr_claimed_guest" })),
+      claimGuestAccount: vi.fn(async () => ({ membershipId: "mem_claimed_guest" })),
+      resolveRegistrationConsent: vi.fn(),
+      createPersonalIdentity: vi.fn(),
+    };
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityClient);
+    mockStartInteractiveAuth.mockResolvedValue({
+      type: "session-started",
+      userId: "usr_claimed_guest",
+      sessionId: "ses_claimed_guest",
+      sessionToken: "session_token",
+      session: { session_id: "ses_claimed_guest", expires_at: "2030-05-04T16:00:00.000Z" },
+      memberships: [],
+    });
+
+    const started = await buildApp(createServices({ existingUser: null })).request("/guest-checkout/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Buyer Example", email: "buyer@example.com" }),
+    });
+    expect(started.status).toBe(201);
+
+    const services = createServices({ existingUser: null });
+    vi.mocked(services.db.query).mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM identity_guest_checkout_tokens")) {
+        return { rows: [guestTokenRecord({ account_id: "acc_guest_unregistered" })] };
+      }
+      if (sql.includes("UPDATE identity_guest_checkout_claim_tokens")) {
+        return {
+          rows: [
+            {
+              token_id: "cmd_claim",
+              account_id: "acc_guest_unregistered",
+              payment_id: "pay_guest",
+              email: "buyer@example.com",
+              display_name: "Buyer Example",
+              expires_at: "2030-05-04T16:00:00.000Z",
+              consumed_at: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const claimed = await buildApp(services, createGuestActor("acc_guest_unregistered")).request(
+      "/guest-checkout/claim-with-magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: "chase_sets_guest_checkout=guest_token" },
+        body: JSON.stringify({ paymentId: "pay_guest", token: "claim_token", displayName: "Buyer Example" }),
+      },
+    );
+    expect(claimed.status).toBe(200);
+
+    expect(identityClient.createGuestAccount).toHaveBeenCalledWith({
+      email: "buyer@example.com",
+      displayName: "Buyer Example",
+    });
+    expect(identityClient.createUser).toHaveBeenCalledWith({
+      email: "buyer@example.com",
+      displayName: "Buyer Example",
+    });
+    expect(identityClient.claimGuestAccount).toHaveBeenCalledWith({
+      accountId: "acc_guest_unregistered",
+      userId: "usr_claimed_guest",
+      roleKey: "owner",
+    });
+    expect(identityClient.resolveRegistrationConsent).not.toHaveBeenCalled();
+    expect(identityClient.createPersonalIdentity).not.toHaveBeenCalled();
   });
 
   it("preserves guest-token revocation after a successful passkey claim", async () => {

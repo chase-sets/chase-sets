@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { SettlementApiEnv } from "../../../api";
+import { createSettlementApiClient, SettlementApiError } from "../../../client";
 import { createPayoutReviewHoldRoutes } from "./payout-review-hold-route";
 import { createPayoutReviewHoldRuntime } from "./payout-review-hold-runtime";
 
@@ -50,6 +51,37 @@ const json = (method: "POST" | "DELETE", body: unknown) => ({
 });
 
 describe("payout review hold routes", () => {
+  it("round-trips place, read and release through the typed Settlement client", async () => {
+    const { app } = createApp(["payout-review-holds.manage"]);
+    const client = createSettlementApiClient({
+      baseUrl: "https://settlement.example",
+      fetch: async (input, init) => app.request(input, init),
+    });
+    const reason = "Synthetic review";
+
+    await expect(client.placePayoutReviewHold(heldAccountId, { reason })).resolves.toMatchObject({
+      outcome: "placed",
+      version: 1,
+    });
+    await expect(client.getPayoutReviewHold(heldAccountId)).resolves.toMatchObject({
+      accountId: heldAccountId,
+      active: true,
+      version: 1,
+    });
+    await expect(client.releasePayoutReviewHold(heldAccountId, { reason })).resolves.toMatchObject({
+      outcome: "released",
+      version: 2,
+    });
+    await expect(client.getPayoutReviewHold(heldAccountId)).resolves.toMatchObject({ active: false, version: 2 });
+
+    const seller = createApp(["payouts.view"]);
+    const sellerClient = createSettlementApiClient({
+      baseUrl: "https://settlement.example",
+      fetch: async (input, init) => seller.app.request(input, init),
+    });
+    await expect(sellerClient.getPayoutReviewHold(heldAccountId)).rejects.toBeInstanceOf(SettlementApiError);
+  });
+
   it("payout review hold routes require permission and reason", async () => {
     // Seller self-scope payouts.view must never read another account's hold.
     for (const permissions of [["payouts.view"], ["payouts.view", "payouts.request"], []]) {

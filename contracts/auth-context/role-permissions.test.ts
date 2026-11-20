@@ -26,14 +26,19 @@ function gitGrep(args: readonly string[]): readonly string[] {
 }
 
 function assertHistoricalPermissionsWithHold(roles: Readonly<Record<string, readonly string[]>>) {
-  expect(roles).toEqual({
+  expect({
+    ...roles,
+    "platform-admin": roles["platform-admin"]!.filter(
+      (key) => key !== "customer-feedback.privacy.export-sensitive-feedback",
+    ),
+  }).toEqual({
     ...preMove.rolePermissions,
     "platform-admin": ["payout-review-holds.manage", ...preMove.rolePermissions["platform-admin"]!],
   });
 }
 
 describe("canonical role-to-permission table", () => {
-  it("canonical role table equals the pre-move Auth table plus the platform-admin hold grant", () => {
+  it("canonical role table preserves the pre-move Auth table plus the authorized platform-admin additions", () => {
     expect(preMove.source).toEqual({
       commit: "15e1e56fc71665b8aabb699c8f00688233136be8",
       path: "bounded-contexts/auth/support/auth-support/constants.ts",
@@ -98,6 +103,19 @@ describe("role permission grants", () => {
     }
     for (const permissions of Object.values(PERMISSION_PRESETS)) {
       expect(permissions).not.toContain("payout-review-holds.manage");
+    }
+  });
+
+  it("grants canonical sensitive feedback export once to platform-admin only, never through presets", () => {
+    const capability = "customer-feedback.privacy.export-sensitive-feedback";
+    expect(PERMISSION_KEYS.filter((key) => key === capability)).toEqual([capability]);
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(permissions.filter((key) => key.startsWith("customer-feedback.privacy."))).toEqual(
+        role === "platform-admin" ? [capability] : [],
+      );
+    }
+    for (const permissions of Object.values(PERMISSION_PRESETS)) {
+      expect(permissions.filter((key) => key.startsWith("customer-feedback.privacy."))).toEqual([]);
     }
   });
 
@@ -353,7 +371,15 @@ describe("pricing preset contract", () => {
       for (const key of ["pricing.view", "pricing.manage"]) {
         expect(new Set<string>(permissions).has(key), role + ":" + key).toBe(expected[role]!.includes(key));
       }
-      const other = [...new Set(permissions.filter((key) => !key.startsWith("pricing.")))].sort();
+      const other = [
+        ...new Set(
+          permissions.filter(
+            (key) =>
+              !key.startsWith("pricing.") &&
+              !(role === "platform-admin" && key === "customer-feedback.privacy.export-sensitive-feedback"),
+          ),
+        ),
+      ].sort();
       expect(createHash("sha256").update(JSON.stringify(other)).digest("hex")).toBe(
         predecessor[role as keyof typeof predecessor],
       );

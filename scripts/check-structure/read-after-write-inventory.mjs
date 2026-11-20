@@ -750,7 +750,7 @@ export async function collectMutationConsistencySurfaces(options) {
     }
 
     const postFormPattern =
-      /<(?:RouterForm|Form|fetcher\.Form|form)\b[\s\S]{0,800}?\bmethod\s*=\s*(?:"post"|'post'|\{\s*["']post["']\s*\})/g;
+      /<(?:RouterForm|Form|ReviewMutationForm|fetcher\.Form|form)\b[\s\S]{0,800}?\bmethod\s*=\s*(?:"post"|'post'|\{\s*["']post["']\s*\})/g;
     for (const match of content.matchAll(postFormPattern)) {
       const line = lineNumberAt(content, match.index ?? 0);
       const detail = occurrenceDetail(occurrenceCounts, "post-form", stableSnippetId(match[0]));
@@ -1597,6 +1597,7 @@ function validateMutationConsistencyInventory(options) {
 function validateInventoryEntry(options) {
   const {
     context,
+    contextsByName,
     entry,
     index,
     freshnessRoutesByContext,
@@ -1747,13 +1748,14 @@ function validateInventoryEntry(options) {
     violations,
   });
 
+  const apiContext = contextsByName.get(destination.apiContextName);
   validateFreshnessRouteDependencies({
-    context: context,
-    contextLabel: `${context.root}/context.json`,
+    context: apiContext,
+    contextLabel: `${apiContext.root}/context.json`,
     apiRoutePathsByContext,
     projectionGroupsByContext,
     route: freshnessRoute.route,
-    routeLabel: `${context.root}/context.json readFreshnessRoutes ${destination.apiRoutePath}`,
+    routeLabel: `${apiContext.root}/context.json readFreshnessRoutes ${destination.apiRoutePath}`,
     tableOwnersByContext,
     violations,
   });
@@ -1816,6 +1818,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
 
     const validatedEntry = validateInventoryEntry({
       context,
+      contextsByName: indexes.contextsByName,
       entry,
       index,
       freshnessRoutesByContext: indexes.freshnessRoutesByContext,

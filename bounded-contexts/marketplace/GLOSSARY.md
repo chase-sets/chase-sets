@@ -1,5 +1,15 @@
 # Marketplace Domain Glossary
 
+## Listing Published
+
+**Listing Published** records the listing identity, its seller account and the server's
+publication time (`publishedAt`). Historical empty and nested-only publications remain
+replayable. Repricing an already active listing does not emit another publication.
+
+## Marketplace Mutation Attempt
+
+A **Marketplace Mutation Attempt** binds one opaque command identity to its actor, target and canonical request. Marketplace records its first result atomically with the business facts. An exact replay returns that result without another command; a changed request conflicts. Owner lookup is read-only and never treats connectivity or projection presence as command success.
+
 ## Inventory Draft Listing Message
 
 An **Inventory Draft Listing Message** is the recursively closed, versioned committed-row snapshot defined by `contracts/inventory-draft-listing`. Its message identity is the Inventory import-row identity; the target draft identity is derived from that row, never supplied by delivery. Trusted delivery authority must match its tenant, account and acting User.
@@ -43,6 +53,18 @@ Notes:
 ## Channel-Only Listing
 
 A **Channel-Only Listing** is created as a draft with native visibility disabled and native fee state not enrolled. Its complete normalized amount and ISO-4217 currency pair is a hidden reference price, not native publication or channel activation authority. Creation resolves no native Terms or fee quote and enrolls no fee lock. Native publication, Resume, price, purchase-limit and capacity commands refuse it; withdrawal remains available and terminal. Channel target acceptance and activation are separate capabilities.
+
+## Accepted Target Price
+
+An **Accepted Target Price** is Marketplace's immutable complete amount/currency pair for one Listing and channel connection. It retains the accepting User, time, source event, Listing and target revisions, seller-reference decision and captured connection identity. Equal amounts with different authority remain different acceptances. Pricing evaluation is not enrolled in channel-only acceptance.
+
+## Channel Activation
+
+**Channel Activation** makes a channel-only draft active for an exact accepted connection target and Inventory allocation revision. It does not publish natively, enroll a native fee lock or clear a pause. Other connection targets remain independent.
+
+## Listing Request Result
+
+A **Listing Request Result** binds a complete command fingerprint and real principal to immutable authorization evidence and the committed aggregate snapshot. The result and Listing events commit atomically. Inventory authority also requires the original consumer-local Request Terminal, opened with its complete durable reservation manifest and committed only by the shared fenced append. A failed or interrupted preparation is aborted through that same terminal on recovery, never released by elapsed time. An exact retry returns the original committed result before recapturing authority; changed input conflicts.
 
 ## Listing Price
 
@@ -248,7 +270,6 @@ An **Open Order** is an order that has been created and is neither cancelled nor
 
 **At Capacity** is the seller state when Open Order count meets or exceeds Order Capacity: new order intake pauses while everything already in flight proceeds unaffected. At Capacity is computed and enforced by Ordering, analogous to Seller Listing Availability but driven by order volume rather than a seller-declared away period.
 
-
 ## Away Window
 
 An **Away Window** is a seller-scheduled future away period on Seller Listing Availability: a start instant and an optional end instant, set in advance so listings disable and resume automatically without a same-day manual action.
@@ -443,6 +464,7 @@ Seller Reliability, On-Time Shipment Rate, the Seller-Responsible Issue Rate, an
 Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window also moved out of this Planned section (m127 seller time-away audit's scheduled-window feature): it is shipped behavior now -- see the main glossary body above.
 
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.
+
 ## Channel Inbound Clamp
 
 A **Channel Inbound Clamp** is Marketplace's revision-fenced ownership record for Listings paused while a Channel cannot observe inbound sales; recovery restores only an unchanged, solely clamp-owned pause.

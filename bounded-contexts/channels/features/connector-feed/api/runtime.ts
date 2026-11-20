@@ -17,6 +17,11 @@ import {
 } from "../../../support/request-support/connector-oauth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
+import { createConnectionEpochs, type ConnectionEpochs } from "../../connections/api/owner-epochs";
+import { armReadyToShipCanary } from "../../outbound-sync/api/ready-to-ship-canary";
+import { assertCanaryHandoff } from "../../outbound-sync/domain/ready-to-ship-canary";
+import { loadOwned } from "../../connections/api/runtime";
+import type { EbayConnectionServices } from "../../ebay-connection/api/runtime";
 import {
   decideChannelConnection,
   evolveChannelConnection,
@@ -57,10 +62,15 @@ export function createConnectorFeedRuntime(
     db: PgTransactionalPool;
     eventStore: PostgresEventStore;
     oauth?: ConnectorOAuthService;
+    readyToShipCanaryOwnerUserId?: string;
     now?: () => Date;
+    connectionEpochs?: ConnectionEpochs;
+    beforeConnectionLock?: (db: PgQueryable, input: ConnectionQuery) => Promise<void>;
+    disconnectEffect?: EbayConnectionServices["disconnectEffect"];
   }>,
 ) {
   const now = deps.now ?? (() => new Date());
+  const connectionEpochs = deps.connectionEpochs ?? createConnectionEpochs(deps.db);
   function oauth(): ConnectorOAuthService {
     if (!deps.oauth) throw new ConnectorPairingError("unavailable");
     return deps.oauth;
@@ -72,9 +82,12 @@ export function createConnectorFeedRuntime(
   async function transact<T>(
     input: ConnectionQuery,
     work: (db: PgQueryable, state: ChannelConnectionState, version: number) => Promise<T>,
+    changingConnection = false,
+    transaction?: PgQueryable,
   ): Promise<T> {
     const checked = query(input);
-    return withPgTransaction(deps.db, async (db) => {
+    const perform = async (db: PgQueryable) => {
+      await deps.beforeConnectionLock?.(db, checked);
       const streamId = `channels.connection-${checked.connectionId}`;
       await db.query("SELECT stream_id FROM event_store_streams WHERE stream_id = $1 FOR UPDATE", [streamId]);
       const reader = createPostgresEventStore({
@@ -91,7 +104,12 @@ export function createConnectorFeedRuntime(
         checked.connectionId,
       ]);
       return work(db, state, events.at(-1)?.streamVersion ?? 0);
-    });
+    };
+    // The installed disconnect closes before pairing/token or stream effects.
+    if (transaction) return perform(transaction);
+    return changingConnection
+      ? connectionEpochs.transaction([`connection/${checked.connectionId}`], perform)
+      : withPgTransaction(deps.db, perform);
   }
   async function latest(db: PgQueryable, connectionId: string): Promise<PairingRow | null> {
     const rows = await db.query<PairingRow>(
@@ -353,37 +371,56 @@ export function createConnectorFeedRuntime(
       await close(db, pairing);
     });
   }
-  const disconnectChannelConnection: ChannelConnectionServices["disconnectChannelConnection"] = async (
-    input,
+  async function disconnect(
+    input: ConnectionQuery,
     context: EventStoreContext,
-  ) => {
+    transaction?: PgQueryable,
+    remoteRevocation?: "unconfirmed",
+  ) {
     try {
-      return await transact(input, async (db, state, version) => {
-        const pairing = await latest(db, input.connectionId);
-        if (pairing) await close(db, pairing);
-        const newEvents = decideChannelConnection(state, { type: "DisconnectChannelConnection" });
-        const storedEvents = newEvents.length
-          ? await deps.eventStore.appendToStreamInTransaction(db, {
-              streamId: `channels.connection-${input.connectionId}`,
-              expectedVersion: version,
-              events: newEvents.map(channelConnectionEventCodec.encode),
-              context,
-              wakeSourceContextName: "channels",
-            })
-          : [];
-        return {
-          state: newEvents.reduce(evolveChannelConnection, state),
-          version: version + newEvents.length,
-          newEvents,
-          storedEvents,
-        };
-      });
+      const checked = query(input);
+      await loadOwned(deps.eventStore, checked.accountId, checked.connectionId);
+      return await transact(
+        input,
+        async (db, state, version) => {
+          const pairing = await latest(db, input.connectionId);
+          if (pairing) await close(db, pairing);
+          if (state.status !== "disconnected") await deps.disconnectEffect?.(db, state, remoteRevocation);
+          const newEvents = decideChannelConnection(state, { type: "DisconnectChannelConnection" });
+          const storedEvents = newEvents.length
+            ? await deps.eventStore.appendToStreamInTransaction(db, {
+                streamId: `channels.connection-${input.connectionId}`,
+                expectedVersion: version,
+                events: newEvents.map(channelConnectionEventCodec.encode),
+                context,
+                wakeSourceContextName: "channels",
+              })
+            : [];
+          return {
+            state: newEvents.reduce(evolveChannelConnection, state),
+            version: version + newEvents.length,
+            newEvents,
+            storedEvents,
+          };
+        },
+        true,
+        transaction,
+      );
     } catch (error) {
       if (error instanceof ConnectorPairingError && error.code === "connection-not-found")
         throw new ChannelConnectionError("connection-not-found");
       throw error;
     }
-  };
+  }
+  const disconnectChannelConnection: ChannelConnectionServices["disconnectChannelConnection"] = (input, context) =>
+    disconnect(input, context);
+  // Internal callers must already hold the Connection epoch closure transaction.
+  const disconnectChannelConnectionInTransaction = (
+    db: PgQueryable,
+    input: ConnectionQuery,
+    context: EventStoreContext,
+    remoteRevocation: "unconfirmed",
+  ) => disconnect(input, context, db, remoteRevocation);
   async function withAuthority<T>(
     input: Readonly<{ token: string; connectionId: string; operation: ConnectorOperation }>,
     work: (authority: ConnectorAuthority, db: PgQueryable) => Promise<T>,
@@ -435,6 +472,51 @@ export function createConnectorFeedRuntime(
     });
   }
   return {
+    async startReadyToShipCanary(
+      input: ConnectionQuery,
+      actor: NonNullable<Awaited<ReturnType<ConnectorOAuthService["resolveSeller"]>>>,
+      value: unknown,
+    ): Promise<void> {
+      if (
+        !deps.readyToShipCanaryOwnerUserId ||
+        actor.userId !== deps.readyToShipCanaryOwnerUserId ||
+        actor.roleKey !== "owner" ||
+        actor.agentGrant
+      )
+        throw new ConnectorPairingError("authorization-refused");
+      await sellerAllowed(actor, input);
+      try {
+        assertCanaryHandoff(value);
+      } catch {
+        throw new ConnectorPairingError("invalid-request");
+      }
+      const {
+        target: { connectionId, pairingId },
+      } = value;
+      if (connectionId !== input.connectionId) throw new ConnectorPairingError("authorization-refused");
+      await transact(input, async (db, state) => {
+        const authority = await readAuthorityLocked(db, input, state);
+        if (
+          state.providerKey !== "tcgplayer" ||
+          state.status !== "active" ||
+          authority.inbound !== "live" ||
+          !authority.claimReportAllowed ||
+          authority.pairingId !== pairingId ||
+          authority.grant?.userId !== actor.userId
+        )
+          throw new ConnectorPairingError("authorization-refused");
+        await armReadyToShipCanary(
+          db,
+          {
+            connectionId: input.connectionId,
+            pairingId,
+            grantId: authority.grant.grantId,
+          },
+          value,
+          now().toISOString(),
+        );
+      });
+    },
     readAuthority,
     withAuthority,
     async withGrantAuthority<T>(
@@ -452,6 +534,7 @@ export function createConnectorFeedRuntime(
     validateAuthorization: (input: unknown) => oauth().validateAuthorization(input),
     unpair,
     disconnectChannelConnection,
+    disconnectChannelConnectionInTransaction,
     exchange,
     revoke,
     register: (input: unknown) => oauth().register(input),

@@ -1,4 +1,6 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import { z } from "zod";
+import { marketplaceAttemptIdSchema, recoveryHashSchema } from "../../mutation-recovery/domain/contracts";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence-policy/domain/policy";
 import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
@@ -279,7 +281,13 @@ export interface MarketplaceListingPriceInput {
   priceCurrencyCode: string;
 }
 
-export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput {
+/** The shipped Listing carrier every browser, MCP, Discovery, Checkout and Pricing command sends. */
+export interface MarketplaceListingAttemptInput {
+  idempotencyKey: string;
+  requestHash?: string;
+}
+
+export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput, MarketplaceListingAttemptInput {
   inventoryItemId: string;
   quantityCap: number;
   purchaseLimits?: Readonly<{
@@ -291,7 +299,8 @@ export interface MarketplaceCreateListingInput extends MarketplaceListingPriceIn
   listingIdOverride?: string;
 }
 
-export interface MarketplaceUpdateListingPriceInput extends MarketplaceListingPriceInput {
+export interface MarketplaceUpdateListingPriceInput
+  extends MarketplaceListingPriceInput, MarketplaceListingAttemptInput {
   feeQuoteFingerprint?: string | null;
 }
 
@@ -343,15 +352,130 @@ export interface MarketplaceBulkListingPriceUpdateInput {
    */
   expectedVersion?: number;
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
+  /** The target's attempt: the batch id, a caller-owned target attempt, or an exempt engine `repricing:` key. */
   idempotencyKey?: string;
+  /** Canonical listingId + amount + currency hash; a changed value under the same key conflicts. */
+  requestHash?: string;
 }
 
-/** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */
+/**
+ * Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never
+ * prevents the others from applying. `unknown` means the append may have committed: only those targets are re-sent.
+ */
 export interface MarketplaceBulkListingPriceUpdateOutcome {
   listingId: string;
-  outcome: "applied" | "no_op" | "conflict" | "error";
+  outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
   version: number;
   message?: string;
+}
+
+/** Listing families whose recovery vector Marketplace persists under one batch id. */
+export type MarketplaceListingBatchFamily =
+  | "listing.publish"
+  | "listing.update-quantity"
+  | "listing.update-purchase-limits"
+  | "listing.update-price"
+  | "listing.pause"
+  | "listing.withdraw"
+  | "seller.availability"
+  | "seller.away"
+  | "seller.order-capacity";
+
+/** A batch target's terminal outcome; `unknown` is the only outcome a retry re-drives. */
+export type MarketplaceListingBatchOutcome = "succeeded" | "conflict" | "error" | "unknown";
+
+export interface MarketplaceListingBatchItem {
+  /** The Listing id, or the seller account id for seller families. */
+  targetId: string;
+  outcome: MarketplaceListingBatchOutcome;
+  version: number;
+  message?: string;
+  requestHash?: string;
+  attemptKeyFingerprint?: string;
+  noOp?: true;
+}
+
+export const listingRecoveryReferenceSchema = z.strictObject({
+  batchId: marketplaceAttemptIdSchema,
+  mutationKind: z.enum([
+    "listing.publish",
+    "listing.update-price",
+    "listing.update-quantity",
+    "listing.update-purchase-limits",
+    "listing.pause",
+    "listing.withdraw",
+    "seller.availability",
+    "seller.away",
+    "seller.order-capacity",
+  ]),
+  bulk: z.boolean(),
+});
+export type ListingRecoveryReference = z.infer<typeof listingRecoveryReferenceSchema>;
+
+const MAX_LISTING_RECOVERY_TARGETS = 500;
+export const listingRecoveryFields = [
+  "priceAmount",
+  "priceCurrencyCode",
+  "quantityCap",
+  "maxUnitsPerOrder",
+  "maxUnitsPerDay",
+  "maxUnitsPerCustomerAccount",
+  "reasonCategory",
+  "availableAgainOn",
+  "availableAgainAt",
+  "awayWindowStartsAt",
+  "awayWindowEndsAt",
+  "awayWindowReasonCategory",
+  "maxOpenOrders",
+] as const;
+export const listingRecoveryPreparationSchema = z.strictObject({
+  intent: z.string().max(128),
+  idempotencyKey: z.string().nullable(),
+  listingId: z.string().nullable(),
+  listingIds: z.array(z.string().max(512)).max(MAX_LISTING_RECOVERY_TARGETS),
+  fields: z.partialRecord(z.enum(listingRecoveryFields), z.string()),
+  retained: listingRecoveryReferenceSchema.optional(),
+});
+export type ListingRecoveryPreparation = z.infer<typeof listingRecoveryPreparationSchema>;
+
+export type ListingRecoveryOutcome = MarketplaceListingBatchOutcome | "ambiguous";
+export type ListingRecovery = {
+  identity: ListingRecoveryReference | null;
+  phase: "confirming" | "succeeded" | "partial" | "conflict" | "failed-safe" | "ambiguous";
+  items: { targetId: string; outcome: ListingRecoveryOutcome }[];
+  retryTargetIds: string[];
+  reentry?: { intent: string; idempotencyKey: string };
+};
+export const ambiguousListingRecovery: ListingRecovery = {
+  identity: null,
+  phase: "ambiguous",
+  items: [],
+  retryTargetIds: [],
+};
+export type ListingRecoveryPreparationResult =
+  | { reference: ListingRecoveryReference | null }
+  | { recovery: ListingRecovery };
+
+export const listingRecoveryIdentitySchema = listingRecoveryReferenceSchema
+  .extend({
+    targets: z
+      .array(z.strictObject({ id: z.string().regex(/^[A-Za-z0-9_-]{1,512}$/), requestHash: recoveryHashSchema }))
+      .min(1)
+      .max(MAX_LISTING_RECOVERY_TARGETS),
+  })
+  .refine(
+    (value) =>
+      new Set(value.targets.map((target) => target.id)).size === value.targets.length &&
+      (value.bulk
+        ? value.mutationKind === "listing.pause" || value.mutationKind === "listing.withdraw"
+        : value.targets.length === 1),
+  );
+export type ListingRecoveryIdentity = z.infer<typeof listingRecoveryIdentitySchema>;
+
+export interface MarketplaceListingBatchResult {
+  batchId: string;
+  family: MarketplaceListingBatchFamily;
+  items: readonly MarketplaceListingBatchItem[];
 }
 
 export interface MarketplacePublicStandardTermsPreview {

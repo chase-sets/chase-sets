@@ -21,6 +21,7 @@ import {
   listSourceObservationIntegrationScopes,
 } from "../read-model/queries";
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
 import { createPostgresDurableJobWorkUnitStore } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createCatalogIntegrationDryRunProofRegistry } from "./governance/catalog-integration-dry-run-proofs";
@@ -91,6 +92,7 @@ import { createSourceObservationPromotionReapplyRuntime } from "./source-observa
 import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
 import {
   createCatalogScopeSyncStateRuntime,
+  recordCatalogScopeSyncFailureForLinkedJob,
   createCatalogSyncRunFanoutRuntime,
 } from "./source-observation-catalog-sync-run-runtime";
 import { createSourceObservationIntegrationJobRuntime } from "./source-observation-integration-job-runtime";
@@ -180,9 +182,12 @@ export type {
   SourceObservationAliasCandidateSink,
   SourceObservationAliasPromotion,
 } from "./source-observation-runtime-contracts";
+export type { CatalogMergeCandidateReviewCommandErrorCode } from "./source-observation-runtime-contracts";
 export {
+  CatalogMergeCandidateReviewCommandError,
   SourceObservationIntegrationJobLifecycleCommandError,
   catalogMergeCandidateBulkJobKinds,
+  isCatalogMergeCandidateReviewCommandError,
   isSourceObservationIntegrationJobLifecycleCommandError,
 } from "./source-observation-runtime-contracts";
 
@@ -259,6 +264,48 @@ export function createSourceObservationRuntime(
       eventSnapshot: toSourceObservationBulkJobEventSnapshot,
     },
   );
+  // The same stores over one transaction's client: a bulk promotion admission
+  // enqueues inside the transaction whose reads it checked. Waiters and the
+  // retention sweeps stay on the pooled stores above. The stores get only the
+  // client's query: a pg client also has connect(), which they would take for a
+  // pool's and call to open a transaction of their own on it.
+  const bulkReviewStoresIn = (client: PgQueryable) => bulkReviewStoresOn({ query: client.query.bind(client) });
+  const bulkReviewStoresOn = (db: PgQueryable) => ({
+    jobStore: createPostgresDurableJobStore<
+      SourceObservationBulkJobPayload,
+      BulkSourceObservationProgress,
+      SourceObservationBulkJobResult,
+      SourceObservationBulkJob
+    >(
+      db,
+      {
+        jobsTable: "catalog_source_observation_bulk_review_jobs",
+        eventsTable: "catalog_source_observation_bulk_review_job_events",
+        notifyChannel: "catalog_source_observation_durable_job_events",
+      },
+      { eventSnapshot: toSourceObservationBulkJobEventSnapshot },
+    ),
+    workUnitStore: createPostgresDurableJobWorkUnitStore<
+      SourceObservationBulkJobPayload,
+      BulkSourceObservationProgress,
+      SourceObservationBulkJobResult,
+      SourceObservationBulkWorkUnitPayload,
+      SourceObservationBulkWorkUnitResult,
+      SourceObservationBulkJob
+    >(
+      db,
+      {
+        jobsTable: "catalog_source_observation_bulk_review_jobs",
+        eventsTable: "catalog_source_observation_bulk_review_job_events",
+        workUnitsTable: "catalog_source_observation_bulk_review_work_units",
+        notifyChannel: "catalog_source_observation_durable_job_events",
+      },
+      {
+        workflowName: "catalog.source-observation-bulk-review",
+        eventSnapshot: toSourceObservationBulkJobEventSnapshot,
+      },
+    ),
+  });
   // Catalog Merge Candidate scope jobs share the bulk review tables and claim
   // budget; their own typed views keep candidate payloads out of the
   // observation job serializers.
@@ -313,6 +360,11 @@ export function createSourceObservationRuntime(
     },
     {
       eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
+      onClaimExhausted: async (queryable, job, reason) => {
+        if (job.jobKind === "import") {
+          await recordCatalogScopeSyncFailureForLinkedJob(queryable, job, reason, job.updatedAt);
+        }
+      },
       notificationWaiterPool: deps.notificationWaiterPool,
     },
   );
@@ -436,6 +488,7 @@ export function createSourceObservationRuntime(
     rolloutControlPolicy,
     bulkReviewJobStore,
     bulkReviewWorkUnitStore,
+    bulkReviewStoresIn,
     promotionReapply,
     processNextMergeCandidateBulkJob: mergeCandidateBulkJobs.services.processNextCatalogMergeCandidateBulkJob,
   });
@@ -509,6 +562,17 @@ export function createSourceObservationRuntime(
         return { bulkReviewJobs: bulkReviewJobsPruned, integrationJobs: integrationJobsPruned };
       },
       getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
+      ...(productContents
+        ? {
+            listProductContentsEvidenceLabels: async () => {
+              const [contentTypes, inclusionPolicies] = await Promise.all([
+                productContents.listProductContentTypes(),
+                productContents.listProductContentInclusionPolicies(),
+              ]);
+              return { contentTypes, inclusionPolicies };
+            },
+          }
+        : {}),
       recordControlPlaneTelemetry: (event) => {
         deps.sourceObservationTelemetry?.recordControlPlaneEvent?.(normalizeCatalogControlPlaneTelemetryEvent(event));
       },

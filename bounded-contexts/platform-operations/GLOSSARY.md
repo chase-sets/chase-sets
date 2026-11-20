@@ -130,7 +130,31 @@ Disabling delivery retains the Listing aggregate reader and all visibility consu
 
 ## Moderation Queue
 
-**Moderation Queue** is the Platform Operations queue that groups content reports by target and highlights auto-unlisted targets for operator review.
+**Moderation Queue** is the Platform Operations queue that groups content reports by target and orders human work by severity, then the earliest response deadline.
+
+## Reported Content Severity
+
+**Reported Content Severity** is the maximum reason-derived tier of a target's reports: critical, high or standard. Unknown policy is critical with `policy-incomplete`. It orders human work and never authorizes enforcement.
+
+## Acknowledgement
+
+**Acknowledgement** is a private, idempotent operator fact that stops the acknowledgement clock for one open response cycle. Disposition stops both clocks. A distinct later report reopens non-removal dispositions and starts a new cycle; exact report redelivery changes nothing.
+
+## Response Due Time
+
+**Response Due Time** is the deadline derived from the response start and its effective policy revision. Critical targets use one and four staffed hours; high uses four staffed hours and one local calendar day; standard uses one and three eight-hour business days.
+
+## Response Policy Revision
+
+**Response Policy Revision** is an immutable effective-dated code policy. Coverage is Monday to Friday, 09:00 to 17:00 America/Chicago, excluding observed US federal holidays. The first revision covers retained historical reports as well as new reports. Critical escalation uses the operator-configured `REPORTED_CONTENT_CRITICAL_ESCALATION_CHANNEL`; no notification is sent by this slice.
+
+## Accountable Role
+
+**Accountable Role** is the primary Founder role for Reported Content response. The backup Host agent triages and pages the Founder but never decides moderation alone.
+
+## Repeat-Owner Priority
+
+**Repeat-Owner Priority** raises severity to at least high after two prior non-dismiss dispositions against the same owner within 180 days of the report. It never emits an enforcement command.
 
 ## Risk Alert
 
@@ -272,6 +296,14 @@ A **Support Reference Lookup** is the Platform Operations admin surface that res
 A **Seller Compliance Sale** is one recorded, replayable fact about a platform-processed sale: the `(payment_id, order_id)` pair a Payments capture creates against an Ordering order, together with Ordering's authoritative seller, the capture occurrence instant, the gross money decomposition in cents when every source value is present and reconciles, the recorded per-line classification inputs, cancellation, and the cumulative refund total and cap when a refund has affected that order.
 
 It is an observation, not a verdict. It asserts no statutory applicability, evaluates no threshold, and classifies no seller; a later policy evaluator reads these facts. It is distinct from **Risk Alert**, which is an operator-facing Trust & Safety queue item raised by velocity thresholds, whereas a Seller Compliance Sale raises nothing and simply records what Ordering and Payments published.
+
+## Seller Compliance Cohort
+
+A **Seller Compliance Cohort** is the policy-configured rolling-window membership and disclosure band computed from Seller Compliance Sales. Its guarded state row and immutable transition ledger retain the causal effective instant separately from the observation instant and identify the policy revision that produced each transition. It is not statutory applicability or a Risk Alert. Inactive or uncovered policy inputs freeze persisted state; the approved default remains inert.
+
+## Seller Compliance Cohort Replay
+
+**Seller Compliance Cohort Replay** consumes complete policy history through a fixed event-store horizon before evaluating seller sales at the scheduled tick. It retains raw policy identity on decode failures, records deduplicated durable failures, and resumes bounded seller changes from its retained snapshot and page cursors. Later policy revisions apply prospectively without rewriting prior transition envelopes.
 
 ## Appealable Enforcement Action
 

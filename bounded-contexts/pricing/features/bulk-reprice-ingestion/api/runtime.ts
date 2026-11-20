@@ -1,3 +1,5 @@
+import type { MarketplaceApiClient } from "../../../support/request-support/marketplace-listings";
+import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -16,6 +18,7 @@ import { chunkItems, defaultLaneYield } from "@chase-sets/platform-runtime/bulk-
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import { normalizeMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { applyBulkRepriceWaveUpdates, bulkRepriceRowDecision } from "./wave-outcomes";
 import {
   parseBulkRepriceCsv,
   parseBulkRepriceJsonRows,
@@ -38,6 +41,46 @@ export class BulkRepriceIngestionDomainError extends Error {
   }
 }
 
+/** The attempt identity already names a job for different parsed rows. */
+export class BulkRepriceAttemptConflictError extends BulkRepriceIngestionDomainError {
+  constructor() {
+    super("This upload attempt was already used for different rows. Start a new upload attempt.");
+    this.name = "BulkRepriceAttemptConflictError";
+  }
+}
+
+const BULK_REPRICE_ATTEMPT_KEY = /^[A-Za-z0-9_-]{22,128}$/;
+
+function bulkRepriceDigest(parts: readonly unknown[]): string {
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}
+
+/**
+ * One job per account and upload attempt. The job id binds the attempt; the input id also binds the canonical
+ * parsed rows, so an identical retry shares its input and a changed retry can never overwrite the first one.
+ */
+function bulkRepriceAttempt(accountId: string, idempotencyKey: string, rows: readonly BulkRepriceInputRow[]) {
+  if (!BULK_REPRICE_ATTEMPT_KEY.test(idempotencyKey)) {
+    throw new BulkRepriceIngestionDomainError("The upload attempt identity is invalid.");
+  }
+  const attempt = bulkRepriceDigest(["bulk-reprice-attempt", accountId, idempotencyKey]).slice(0, 40);
+  const rowsHash = bulkRepriceDigest(["bulk-reprice-rows", rows]);
+  return {
+    jobId: `job_bri_${attempt}`,
+    inputId: `bri_${attempt}_${rowsHash.slice(0, 24)}`,
+    rowsHash,
+  };
+}
+
+/** One target attempt per job row: a re-claimed wave replays each row's first Listing receipt. */
+function bulkRepriceTargetKey(jobId: string, listingId: string, rowNumber: number): string {
+  return `bri_row_${bulkRepriceDigest(["bulk-reprice-row", jobId, listingId, rowNumber]).slice(0, 48)}`;
+}
+
+function bulkRepriceWaveBatchId(jobId: string, waveIndex: number): string {
+  return `bri_wave_${bulkRepriceDigest(["bulk-reprice-wave", jobId, waveIndex]).slice(0, 48)}`;
+}
+
 /**
  * The Marketplace port this feature drives to apply the diffed deltas --
  * the SAME chunked-append + per-account-terms-session path (the m113 throughput lane)
@@ -47,15 +90,13 @@ export class BulkRepriceIngestionDomainError extends Error {
  */
 export type BulkRepriceListingOutcome = Readonly<{
   listingId: string;
-  outcome: "applied" | "no_op" | "conflict" | "error";
+  outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
   message?: string;
 }>;
 
 export type BulkRepriceMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
-    body: Readonly<{
-      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
-    }>,
+    ...args: Parameters<MarketplaceApiClient["applyBulkListingPriceUpdates"]>
   ) => Promise<Readonly<{ items: readonly BulkRepriceListingOutcome[] }>>;
 }>;
 
@@ -79,6 +120,8 @@ export type BulkRepriceJobPayload = Readonly<{
   accountId: string;
   inputId: string;
   rowCount: number;
+  /** Present on attempt-keyed jobs: the canonical parsed-row hash an identical retry must match. */
+  rowsHash?: string;
 }>;
 
 export type BulkRepriceJobProgress = Readonly<{
@@ -147,6 +190,8 @@ export type BulkRepriceIngestionServices = Readonly<{
       csvText?: string;
       rows?: readonly Readonly<{ sellerSku?: unknown; listingId?: unknown; newPriceAmount?: unknown }>[];
       sourceFilename?: string | null;
+      /** Upload attempt identity: an identical retry returns the first job, changed rows conflict. */
+      idempotencyKey?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<BulkRepriceJob>;
@@ -209,24 +254,32 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
   }
 
   async function finalizeCancelledJob(job: BulkRepriceJob, inputRows: readonly BulkRepriceInputRow[]) {
-    await upsertBulkRepriceRows(deps.db, {
-      jobId: job.jobId,
-      rows: inputRows.map((row) => ({
-        rowNumber: row.rowNumber,
-        sellerSku: row.sellerSku,
-        listingId: row.listingId,
-        requestedPriceAmount: storableMoneyOrNull(row.newPriceAmount),
-        resolvedListingId: null,
-        previousPriceAmount: null,
-        outcome: "failed" as const,
-        errorMessage:
-          row.validationErrors.length > 0
-            ? row.validationErrors.join(" ")
-            : "Row was not processed because the bulk reprice job was cancelled.",
-      })),
-    });
+    // The cancelled record, not the pre-cancel read, proves whether a worker could have sent updates.
+    if (job.startedAt === null && job.attemptCount === 0) {
+      await upsertBulkRepriceRows(deps.db, {
+        jobId: job.jobId,
+        rows: inputRows.map((row) => ({
+          rowNumber: row.rowNumber,
+          sellerSku: row.sellerSku,
+          listingId: row.listingId,
+          requestedPriceAmount: storableMoneyOrNull(row.newPriceAmount),
+          resolvedListingId: null,
+          previousPriceAmount: null,
+          outcome: "failed" as const,
+          errorMessage:
+            row.validationErrors.length > 0
+              ? row.validationErrors.join(" ")
+              : "Row was not processed because the bulk reprice job was cancelled.",
+        })),
+      });
+    }
     const summary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: job.jobId });
-    const progress = jobProgress("failed", summary.total, inputRows.length, "Cancelled by account.");
+    const unresolved = inputRows.length - summary.total;
+    const message =
+      unresolved > 0
+        ? `Cancelled by account. ${unresolved} price update outcome(s) remain unknown; these updates may already have applied.`
+        : "Cancelled by account.";
+    const progress = jobProgress("failed", summary.total, inputRows.length, message);
     const result = { ...summary, total: inputRows.length };
     await deps.db.query(
       `UPDATE pricing_bulk_reprice_jobs
@@ -257,24 +310,52 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       );
     }
 
-    const inputId = createInternalId("bri");
+    const attempt =
+      params.idempotencyKey === undefined ? null : bulkRepriceAttempt(params.accountId, params.idempotencyKey, rows);
+    const adopt = (job: BulkRepriceJob) => {
+      if (job.payload.accountId !== params.accountId || job.payload.rowsHash !== attempt?.rowsHash) {
+        throw new BulkRepriceAttemptConflictError();
+      }
+      return job;
+    };
+    if (attempt) {
+      const existing = await jobStore.get(attempt.jobId);
+      if (existing) return adopt(existing);
+    }
+    const inputId = attempt?.inputId ?? createInternalId("bri");
     await deps.db.query(
       `INSERT INTO pricing_bulk_reprice_job_inputs (input_id, account_id, rows, row_count, source_filename, created_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, now())`,
+       VALUES ($1, $2, $3::jsonb, $4, $5, now())
+       ON CONFLICT (input_id) DO NOTHING`,
       [inputId, params.accountId, JSON.stringify(rows), rows.length, params.sourceFilename ?? null],
     );
 
     try {
       return await jobStore.enqueue({
-        jobId: createInternalId("job"),
+        jobId: attempt?.jobId ?? createInternalId("job"),
         jobKind: BULK_REPRICE_JOB_KIND,
-        payload: { accountId: params.accountId, inputId, rowCount: rows.length },
+        payload: {
+          accountId: params.accountId,
+          inputId,
+          rowCount: rows.length,
+          ...(attempt ? { rowsHash: attempt.rowsHash } : {}),
+        },
         progress: jobProgress("queued", 0, rows.length, "Bulk reprice job queued."),
         eventContext: context,
       });
     } catch (error) {
+      // An identical attempt that won the race owns this input; only an unreferenced input is removed.
+      const raced = attempt ? await jobStore.get(attempt.jobId) : null;
+      if (raced) return adopt(raced);
       await deps.db
-        .query(`DELETE FROM pricing_bulk_reprice_job_inputs WHERE input_id = $1`, [inputId])
+        .query(
+          `DELETE FROM pricing_bulk_reprice_job_inputs AS input
+            WHERE input.input_id = $1
+              AND NOT EXISTS (
+                SELECT 1 FROM pricing_bulk_reprice_jobs AS job WHERE job.payload->>'inputId' = input.input_id
+              )`,
+          [inputId],
+        )
         .catch(() => undefined);
       if (isActiveJobUniqueConflict(error)) {
         throw new BulkRepriceIngestionDomainError(
@@ -297,6 +378,11 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       allowedStatuses: ["queued", "running"],
     });
     if (!cancelled) {
+      // A cancel whose response was lost converges on the recorded cancellation instead of failing.
+      const current = await jobStore.get(jobId);
+      if (current?.status === "failed" && current.errorMessage === BULK_REPRICE_CANCELLED_ERROR) {
+        return finalizeCancelledJob(current, await loadInputRows(current.payload.inputId));
+      }
       throw new BulkRepriceIngestionDomainError("Bulk reprice job could not be cancelled.");
     }
     return finalizeCancelledJob(cancelled, await loadInputRows(cancelled.payload.inputId));
@@ -318,6 +404,21 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
     }
 
     let inputRows: readonly BulkRepriceInputRow[] = [];
+    let unknown = 0;
+    let latestProgress = claimed.progress;
+    let latestResult = claimed.result;
+    const unknownWarning = () =>
+      `${unknown} Marketplace price update outcome(s) remain unknown after retry; these updates may already have applied.`;
+    const finishHandoff = async () => {
+      const current = await jobStore.get(claimed.jobId);
+      if (current?.status === "failed" && current.errorMessage === BULK_REPRICE_CANCELLED_ERROR) {
+        await finalizeCancelledJob(
+          current,
+          inputRows.length > 0 ? inputRows : await loadInputRows(current.payload.inputId),
+        );
+      }
+      return 0;
+    };
     try {
       input.throwIfLeaseLost?.();
       if (input.signal?.aborted) {
@@ -352,11 +453,9 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       inputRows = await loadInputRows(claimed.payload.inputId);
 
       const waves = chunkItems(inputRows, policy.chunkSize);
-      let completed = 0;
-
-      for (const wave of waves) {
+      for (const [waveIndex, wave] of waves.entries()) {
         jobContext.throwIfCancelled();
-        await runDurableJobSideEffect(
+        const waveUnknown = await runDurableJobSideEffect(
           jobContext,
           () =>
             processBulkRepriceWave({
@@ -364,26 +463,39 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
               jobId: claimed.jobId,
               accountId,
               wave,
+              batchId: bulkRepriceWaveBatchId(claimed.jobId, waveIndex),
               marketplaceGateway,
               inventoryGateway,
             }),
           { renewIntervalMs: 5_000, claimLostMessage: "Bulk reprice job claim was lost while applying a wave." },
         );
-        completed += wave.length;
+        unknown += waveUnknown;
         const runningSummary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: claimed.jobId });
-        await progressCheckpoint.checkpoint(
-          jobProgress("processing", completed, inputRows.length, "Processed a wave of rows."),
-          {
-            applied: runningSummary.applied,
-            unchanged: runningSummary.unchanged,
-            failed: runningSummary.failed,
-            total: inputRows.length,
-          },
-        );
+        latestProgress = jobProgress("processing", runningSummary.total, inputRows.length, "Processed a wave of rows.");
+        latestResult = { ...runningSummary, total: inputRows.length };
+        await progressCheckpoint.checkpoint(latestProgress, latestResult);
         await defaultLaneYield(policy.yieldIntervalMs);
       }
 
       const summary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: claimed.jobId });
+      if (unknown > 0) {
+        const message = unknownWarning();
+        const progress = jobProgress("failed", summary.total, inputRows.length, message);
+        await progressCheckpoint.flush(progress, {
+          applied: summary.applied,
+          unchanged: summary.unchanged,
+          failed: summary.failed,
+          total: inputRows.length,
+        });
+        const failed = await jobStore.fail({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress,
+          errorMessage: message,
+        });
+        if (!failed) throw new Error("Bulk reprice job claim was lost before recording unknown outcomes.");
+        return 1;
+      }
       const succeeded = await jobStore.complete({
         jobId: claimed.jobId,
         claimOwnerId: input.claimOwnerId,
@@ -401,24 +513,28 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       return 1;
     } catch (error) {
       if (isDurableJobHandoffError(error, input)) {
-        const current = await jobStore.get(claimed.jobId);
-        if (current?.status === "failed" && current.errorMessage === BULK_REPRICE_CANCELLED_ERROR) {
-          await finalizeCancelledJob(
-            current,
-            inputRows.length > 0 ? inputRows : await loadInputRows(current.payload.inputId),
-          );
-        }
-        return 0;
+        return finishHandoff();
+      }
+      const cause = error instanceof Error ? error.message : "Bulk reprice job failed.";
+      const message = unknown > 0 ? `${cause} ${unknownWarning()}` : cause;
+      const progress = { ...latestProgress, phase: "failed" as const, message };
+      if (
+        latestResult &&
+        !(await jobStore.updateProgress({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          progress,
+          result: latestResult,
+        }))
+      ) {
+        return finishHandoff();
       }
       await jobStore.fail({
         jobId: claimed.jobId,
         claimOwnerId: input.claimOwnerId,
-        progress: {
-          ...claimed.progress,
-          phase: "failed",
-          message: error instanceof Error ? error.message : "Bulk reprice job failed.",
-        },
-        errorMessage: error instanceof Error ? error.message : "Bulk reprice job failed.",
+        progress,
+        errorMessage: message,
       });
       return 1;
     }
@@ -455,11 +571,13 @@ async function processBulkRepriceWave(params: {
   jobId: string;
   accountId: string;
   wave: readonly BulkRepriceInputRow[];
+  batchId: string;
   marketplaceGateway: BulkRepriceMarketplaceListingGateway;
   inventoryGateway: BulkRepriceInventorySkuGateway;
-}): Promise<void> {
-  const { db, jobId, accountId, wave, marketplaceGateway, inventoryGateway } = params;
+}): Promise<number> {
+  const { db, jobId, accountId, wave, batchId, marketplaceGateway, inventoryGateway } = params;
   const outcomes: BulkRepriceRowUpsert[] = [];
+  let unknown = 0;
 
   const invalidRows = wave.filter((row) => row.validationErrors.length > 0);
   for (const row of invalidRows) {
@@ -648,45 +766,38 @@ async function processBulkRepriceWave(params: {
   }
 
   if (updatesByListingId.size > 0) {
+    // One batch per job wave plus one target attempt per row, so a re-claimed wave re-sends only unknown targets.
     const updates = [...updatesByListingId.entries()].map(([listingId, entry]) => ({
       listingId,
       priceAmount: entry.priceAmount,
       priceCurrencyCode: entry.priceCurrencyCode,
+      idempotencyKey: bulkRepriceTargetKey(jobId, listingId, entry.rowNumber),
     }));
-    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({ updates });
-    const outcomeByListingId = new Map(bulkResult.items.map((item) => [item.listingId, item] as const));
+    const outcomeByListingId = await applyBulkRepriceWaveUpdates(marketplaceGateway, { batchId, updates });
 
     for (const [listingId, entry] of updatesByListingId) {
       const marketplaceOutcome = outcomeByListingId.get(listingId);
+      const decision = bulkRepriceRowDecision(marketplaceOutcome);
+      if (!decision) {
+        unknown += 1;
+        continue;
+      }
       const rowNumber = entry.rowNumber;
       const sourceRow = candidateRowByNumber.get(rowNumber);
       const previousPrice = normalizeMoney(listingsByListingId.get(listingId)?.price_amount ?? "0");
 
-      if (marketplaceOutcome && (marketplaceOutcome.outcome === "applied" || marketplaceOutcome.outcome === "no_op")) {
-        outcomes.push({
-          rowNumber,
-          sellerSku: sourceRow?.sellerSku ?? null,
-          listingId: sourceRow?.listingId ?? null,
-          requestedPriceAmount: entry.priceAmount,
-          resolvedListingId: listingId,
-          previousPriceAmount: previousPrice,
-          outcome: marketplaceOutcome.outcome === "applied" ? "applied" : "unchanged",
-          errorMessage: null,
-        });
-      } else {
-        outcomes.push({
-          rowNumber,
-          sellerSku: sourceRow?.sellerSku ?? null,
-          listingId: sourceRow?.listingId ?? null,
-          requestedPriceAmount: entry.priceAmount,
-          resolvedListingId: listingId,
-          previousPriceAmount: previousPrice,
-          outcome: "failed",
-          errorMessage: marketplaceOutcome?.message ?? "Marketplace did not apply this price update.",
-        });
-      }
+      outcomes.push({
+        rowNumber,
+        sellerSku: sourceRow?.sellerSku ?? null,
+        listingId: sourceRow?.listingId ?? null,
+        requestedPriceAmount: entry.priceAmount,
+        resolvedListingId: listingId,
+        previousPriceAmount: previousPrice,
+        ...decision,
+      });
     }
   }
 
   await upsertBulkRepriceRows(db, { jobId, rows: outcomes });
+  return unknown;
 }

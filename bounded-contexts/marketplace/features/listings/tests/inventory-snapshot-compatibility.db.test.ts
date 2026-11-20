@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./listing-attempt-test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
@@ -122,7 +123,13 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
     const response = await routes.request("/account/listings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ priceAmount: "10.00", priceCurrencyCode: "USD", quantityCap: 1, inventorySnapshot }),
+      body: JSON.stringify({
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        idempotencyKey: "inventory_snapshot_attempt_0000000000000001",
+        inventorySnapshot,
+      }),
     });
     return { response, services };
   }
@@ -168,14 +175,14 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
   it("keeps explicit nulls and legacy amount-only direct/batch/import inputs as unknown denomination", async () => {
     const services = owner();
     const nullResult = await services.listings.createListingFromInventorySnapshot(
-      {
+      listingTestCommand("listing.create", {
         ...snapshot(),
         inventoryItemId: "inv_null",
         listingIdOverride: "lst_null" as never,
         acquisitionCostAmount: null,
         acquisitionCostCurrencyCode: null,
         shipFromAddress: { ...syntheticAddress, verification: null },
-      },
+      }),
       draftContext,
     );
     expect(nullResult.state.shipFromAddress?.verification).toBeNull();
@@ -239,7 +246,9 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
           },
         },
       ]) {
-        await expect(create({ ...snapshot(), ...change }, draftContext)).rejects.toThrow();
+        await expect(
+          create({ ...snapshot(), ...change, idempotencyKey: "snapshot_validation_attempt_0001" }, draftContext),
+        ).rejects.toThrow();
         expect(await counts()).toEqual({ items: 0, locations: 0, events: 0 });
       }
     }

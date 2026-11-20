@@ -385,6 +385,122 @@ describe("projection wake scheduler", () => {
     expect(completed[0]).toMatchObject({ outcome: "ran", checkpointPosition: "105" });
   });
 
+  it("window A: completes from the claimed durable checkpoint after an older refresh overwrites shared status", async () => {
+    const projection = checkoutProjection({ position: 0n, headPosition: 4n });
+    const subscription = projection.group.subscriptionRunners[0];
+    let durablePosition = 0n;
+    let sharedPosition = 0n;
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const refreshStatus = vi.fn(async () => {
+      const checkpoint = durablePosition;
+      if (refreshStatus.mock.calls.length === 2) await refreshGate;
+      sharedPosition = checkpoint;
+      return subscriptionStatus(checkpoint, 0);
+    });
+    vi.spyOn(subscription, "refreshStatus").mockImplementation(refreshStatus);
+    vi.spyOn(subscription, "getStatus").mockImplementation(() => subscriptionStatus(sharedPosition, 0));
+    vi.spyOn(subscription, "runOnce").mockImplementation(async () => {
+      const olderRefresh = subscription.refreshStatus();
+      durablePosition = 4n;
+      sharedPosition = 4n;
+      releaseRefresh();
+      await olderRefresh;
+      expect(sharedPosition).toBe(0n);
+      return { processed: 0, lastGlobalPosition: "4" as never, state: "caught-up" };
+    });
+    const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 4n })]);
+    const completed: ProjectionWakeIntentCompletedEvent[] = [];
+    const [runner] = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: recordingControlPlane().controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+      observer: { wakeIntentCompleted: (event) => completed.push(event) },
+      now: () => NOW,
+    });
+
+    await runner.runOnce();
+
+    expect(store.failures).toEqual([]);
+    expect(store.deferrals).toEqual([]);
+    expect(store.completions).toHaveLength(1);
+    expect(store.readiness).toMatchObject([{ readyPosition: 4n, checkpointKey: subscription.checkpointKey }]);
+    expect(completed).toMatchObject([{ outcome: "ran", checkpointPosition: "4" }]);
+    expect(refreshStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not certify a behind claimed subscription from another subscription's higher group position", async () => {
+    const projection = checkoutProjection({ position: 0n, headPosition: 0n, blockedStreamCount: 1 });
+    const claimed = projection.group.subscriptionRunners[0];
+    const unrelated: ContextSubscriptionRunner = {
+      ...claimed,
+      checkpointKey: "checkout-session-pages:catalog:v1",
+      sourceContextName: "catalog",
+      subscriptionName: "checkout.checkout-session-pages.catalog",
+      runOnce: async () => ({ processed: 0, lastGlobalPosition: "9" as never, state: "caught-up" }),
+      getStatus: () => ({ ...subscriptionStatus(9n, 0), checkpointKey: "checkout-session-pages:catalog:v1" }),
+      refreshStatus: vi.fn(async () => subscriptionStatus(9n, 0)),
+    };
+    const group: ContextProjectionGroup = {
+      ...projection.group,
+      sourceContextNames: ["checkout", "catalog"],
+      subscriptionRunners: [claimed, unrelated],
+    };
+    const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 4n })]);
+    const [runner] = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: recordingControlPlane().controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+    });
+
+    await runner.runOnce();
+
+    expect(store.completions).toEqual([]);
+    expect(store.readiness).toEqual([]);
+    expect(store.deferrals).toEqual([]);
+    expect(store.failures).toMatchObject([
+      {
+        retryAfterMs: 1_000,
+        error: { reason: "checkpoint-not-ready", checkpointPosition: "0", requiredPosition: "4" },
+      },
+    ]);
+    expect(unrelated.refreshStatus).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the acquired run's post-run durable checkpoint read fails", async () => {
+    const projection = checkoutProjection({ position: 0n, headPosition: 0n });
+    const refreshStatus = vi
+      .spyOn(projection.group.subscriptionRunners[0], "refreshStatus")
+      .mockResolvedValueOnce(subscriptionStatus(0n, 0))
+      .mockRejectedValueOnce(new Error("post-run checkpoint read failed"));
+    const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 4n })]);
+    const controlPlane = recordingControlPlane();
+    const [runner] = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: controlPlane.controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+    });
+
+    await runner.runOnce();
+
+    expect(store.completions).toEqual([]);
+    expect(store.readiness).toEqual([]);
+    expect(store.deferrals).toEqual([]);
+    expect(store.failures).toMatchObject([
+      { retryAfterMs: 1_000, error: { reason: "projection-run-failed", message: "post-run checkpoint read failed" } },
+    ]);
+    expect(controlPlane.released).toBe(1);
+    expect(refreshStatus).toHaveBeenCalledTimes(2);
+  });
+
   it("completes already-satisfied intents without running the projection group", async () => {
     const projection = checkoutProjection({ position: 200n, headPosition: 200n });
     const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 102n })]);
@@ -404,6 +520,7 @@ describe("projection wake scheduler", () => {
 
     expect(result).toMatchObject({ processed: 1 });
     expect(projection.runCount()).toBe(0);
+    expect(projection.subscriptionRefreshCount()).toBe(1);
     expect(controlPlane.acquiredLeaseNames).toEqual([]);
     expect(store.completions).toHaveLength(1);
     expect(completed[0]).toMatchObject({
@@ -434,6 +551,7 @@ describe("projection wake scheduler", () => {
 
     expect(result).toMatchObject({ processed: 0, state: "caught-up" });
     expect(projection.runCount()).toBe(1);
+    expect(projection.subscriptionRefreshCount()).toBe(2);
     expect(store.completions).toHaveLength(0);
     expect(store.failures).toHaveLength(1);
     expect(store.failures[0]).toMatchObject({ retryAfterMs: 4_000 });
@@ -472,6 +590,7 @@ describe("projection wake scheduler", () => {
 
     expect(result).toMatchObject({ processed: 0 });
     expect(projection.runCount()).toBe(1);
+    expect(projection.subscriptionRefreshCount()).toBe(2);
     expect(store.failures[0]).toMatchObject({ retryAfterMs: 750 });
     expect(store.failures[0].error).toMatchObject({
       reason: "checkpoint-progressing",

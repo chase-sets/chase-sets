@@ -101,6 +101,7 @@
     "/api/marketplace/account/checkout-sessions": { "post": { "tags": ["Cart and Checkout"], "summary": "Create a checkout session from cart or buy-now intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/checkout-sessions/{sessionId}": {"get":{"tags":["Cart and Checkout"],"summary":"Get checkout session state.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/checkout-sessions/{sessionId}/shipping-option": { "post": { "tags": ["Cart and Checkout"], "summary": "Select checkout shipping option.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/checkout-sessions/{sessionId}/cancel": { "post": { "tags": ["Cart and Checkout"], "summary": "Cancel a reservations-only checkout session and release its Inventory holds; a repeat answers already-cancelled.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/checkout-sessions/{sessionId}/confirm": { "post": { "tags": ["Cart and Checkout"], "summary": "Confirm checkout and create orders/payment intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
 
     "/api/inventory/items/listing-stock/ensure": { "post": { "tags": ["Inventory"], "summary": "Create or reuse automatic Inventory stock backing a standard listing.", "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
@@ -127,7 +128,7 @@
     "/api/marketplace/account/offers/matches/{id}/accept": { "post": { "tags": ["Listings and Offers"], "summary": "Accept a matched offer with confirmed feeQuoteFingerprint.", "responses": { "201": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/FeeQuoteStale" } } } },
 
     "/api/marketplace/account/purchases/checkout": { "post": { "tags": ["Orders and Shipments"], "summary": "Create orders from checkout.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/marketplace/account/purchases": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer purchases.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/purchases": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer purchases.", "parameters": [{ "$ref": "#/components/parameters/ReadAfterWrite" }, { "$ref": "#/components/parameters/ReadTargetContext" }], "responses": { "200": { "$ref": "#/components/responses/List" }, "503": { "$ref": "#/components/responses/ProjectionFreshnessTimeout" } } } },
     "/api/marketplace/account/purchases/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer purchase detail.", "parameters": [{ "$ref": "#/components/parameters/ReadAfterWrite" }, { "$ref": "#/components/parameters/ReadTargetContext" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "503": { "$ref": "#/components/responses/ProjectionFreshnessTimeout" } } } },
     "/api/marketplace/account/purchases/{id}/cancel": { "post": { "tags": ["Orders and Shipments"], "summary": "Cancel a buyer purchase.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/sales": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller sales.", "parameters": [{ "$ref": "#/components/parameters/ReadAfterWrite" }, { "$ref": "#/components/parameters/ReadTargetContext" }], "responses": { "200": { "$ref": "#/components/responses/List" }, "503": { "$ref": "#/components/responses/ProjectionFreshnessTimeout" } } } },
@@ -136,6 +137,7 @@
     "/api/marketplace/account/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/sales/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/sales/shipments/command-center": { "get": { "tags": ["Orders and Shipments"], "summary": "Get the seller's fulfillment command center: buckets, Seller Desk order and each shipment's action plan.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/sales/shipments/packing-slips": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller packing slips for selected shipments.", "responses": { "200": { "$ref": "#/components/responses/List" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
     "/api/marketplace/account/sales/shipments/{id}": {"get":{"tags":["Orders and Shipments"],"summary":"Get seller shipment detail.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/sales/shipments/{id}/pack": { "post": { "tags": ["Orders and Shipments"], "summary": "Pack seller shipment.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
@@ -490,13 +492,14 @@
       "OutboundConnection": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["connectionId", "providerKey", "environment", "status", "createdAt"],
+        "required": ["connectionId", "providerKey", "environment", "status", "createdAt", "allowedActions"],
         "properties": {
           "connectionId": { "type": "string" },
           "providerKey": { "type": "string" },
           "environment": { "type": "string", "enum": ["sandbox", "production"] },
           "status": { "type": "string", "enum": ["pending-setup", "active", "paused", "disconnected"] },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "createdAt": { "type": "string", "format": "date-time" },
+          "allowedActions": { "type": "array", "items": { "type": "string", "enum": ["pause", "resume", "disconnect"] } }
         }
       },
       "OutboundOperationCompleteness": {

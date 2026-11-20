@@ -384,6 +384,41 @@ describe("ordering purchase routes", () => {
     );
   });
 
+  it.each([
+    ["an unverified member, whose orders.manage Auth withholds", ["orders.view"], 403, false],
+    ["another account's purchase", ["orders.view", "orders.manage"], 400, true],
+    ["a purchase whose payment is unresolved", ["orders.view", "orders.manage"], 400, true],
+  ] as const)("refuses buyer cancellation for %s", async (label, permissions, status, reachesRuntime) => {
+    const services = createServices();
+    vi.mocked(services.cancelPurchase).mockRejectedValueOnce(
+      new Error(
+        label.startsWith("another")
+          ? "Purchase not found."
+          : "This purchase's payment is still being confirmed, so it cannot be cancelled until the payment completes or fails.",
+      ),
+    );
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions,
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://ordering.test/account/purchases/ord_1/cancel", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(status);
+    expect(await response.json()).not.toMatchObject({ status: "cancelled" });
+    expect(vi.mocked(services.cancelPurchase).mock.calls.length > 0).toBe(reachesRuntime);
+  });
+
   it("cancels a seller sale through the documented API action", async () => {
     const services = {
       ...createServices(),

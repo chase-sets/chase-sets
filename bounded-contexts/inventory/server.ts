@@ -4,6 +4,9 @@ export {
   withInventoryMutationAttempt,
 } from "./support/runtime-support/mutation-attempt";
 export { createStorageLocationAuthority } from "./features/storage-locations/api/authority";
+export { createInventoryStockAuthorityForPool } from "./support/runtime-support/services";
+export { InventoryStockChangePending } from "./features/inventory-items/api/stock-reservations";
+export type { InventoryStockAuthority, InventoryStockTarget } from "./features/inventory-items/api/stock-authority";
 export type {
   InventoryAccountSellerSkuItemResolution,
   InventoryCatalogItemSnapshot,
@@ -12,7 +15,6 @@ export type {
   InventoryItemListItem,
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
-export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
 export type { InventoryServices } from "./support/runtime-support/services";
 export type { InventoryCheckoutReservationAuthority } from "./features/holds/api/checkout-reservation-authority";
 export type {
@@ -76,3 +78,11 @@ export type { InventoryRestockDecision } from "./features/restock-decisions/api/
 export { createImportResolutionAttentionSourceFromReadModel } from "./features/import-batches/read-model/seller-attention-source";
 export { inventorySeedIds } from "./support/seed-support/ids";
 export { createInventoryRepresentativeSeedServices } from "./support/seed-support/representative-services";
+
+export {
+  createInventoryProductResolutionMaintenanceRunners,
+  createInventoryJobRunners,
+  type InventoryJobRunnerConfig,
+} from "./support/runtime-support/worker-jobs";
+
+export { createInventoryImportProductResolutionMaintenanceEnqueueRunners } from "./support/runtime-support/worker-jobs";

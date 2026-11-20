@@ -1,8 +1,12 @@
 import { EventEmitter } from "node:events";
+import { createHmac } from "node:crypto";
 import { Writable } from "node:stream";
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { loadStripeProviderConfig } from "../infrastructure/platform-runtime/config-schema.ts";
+import { createStripePaymentProcessorGateway } from "../infrastructure/stripe-payments/index.ts";
+import registry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 import {
   applyPlatformSecretManifest,
   applyManagedPostgresCaSecret,
@@ -137,6 +141,117 @@ describe("platform Kubernetes secret", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
   });
 
+  describe("production Payments webhook overlap key", () => {
+    const key = "STRIPE_WEBHOOK_SECRET_PREVIOUS";
+    const current = "whsec_synthetic_current";
+    const previous = "whsec_synthetic_previous";
+
+    it("admits just the production Secret-apply step and renders an optional API Secret reference", () => {
+      const workflow = parseYaml(readFileSync(".github/workflows/platform-production.yml", "utf8"));
+      expect(workflow.jobs["deploy-production"].environment).toBe("production");
+      const uses = Object.entries(workflow.jobs).flatMap(([id, job]) => [
+        ...(Object.hasOwn(job.env ?? {}, key) ? [[id, "job"]] : []),
+        ...(job.steps ?? []).filter((step) => Object.hasOwn(step.env ?? {}, key)).map((step) => [id, step.name]),
+      ]);
+      expect(uses).toEqual([["deploy-production", "Apply production Kubernetes runtime secrets"]]);
+      const step = workflow.jobs["deploy-production"].steps.find((candidate) =>
+        Object.hasOwn(candidate.env ?? {}, key),
+      );
+      expect(step.env[key]).toBe(`\${{ secrets.${key} }}`);
+      expect(step.run).toContain("--deployment-environment production");
+      const authority = JSON.parse(
+        readFileSync(".github/authority/platform-production/deploy-production.json", "utf8"),
+      );
+      expect(authority.grants.filter((grant) => grant.secretName === key)).toEqual([
+        {
+          file: ".github/workflows/platform-production.yml",
+          jobId: "deploy-production",
+          stepAnchor: "name:Apply production Kubernetes runtime secrets#36",
+          secretName: key,
+          purpose: "application-runtime",
+        },
+      ]);
+      const values = parseYaml(readFileSync("infrastructure/helm/platform/values.yaml", "utf8"));
+      const api = values.components["platform-api"].env;
+      expect(api.filter((entry) => entry.name === "STRIPE_WEBHOOK_SECRET" || entry.name === key)).toEqual([
+        { name: "STRIPE_WEBHOOK_SECRET", secret: true, secretKey: "STRIPE_WEBHOOK_SECRET" },
+        { name: key, secret: true, secretKey: key, optional: true },
+      ]);
+      expect(values.components["platform-worker"].env.some((entry) => entry.name === key)).toBe(false);
+    });
+
+    it.each([undefined, "", previous])(
+      "installs and verifies only the configured Payments keys (%s)",
+      async (overlap) => {
+        const values = buildPlatformHelmValues({ deploymentEnvironment: "production" });
+        const options = { values, deploymentEnvironment: "production", observabilityEnabled: false };
+        const env = Object.fromEntries(
+          collectPlatformSecretKeys(values, { ...options, env: {} }).map((name) => [name, ""]),
+        );
+        Object.assign(env, {
+          STRIPE_SECRET_KEY: "sk_live_synthetic_server",
+          STRIPE_PUBLISHABLE_KEY: "pk_live_synthetic_public",
+          STRIPE_WEBHOOK_SECRET: current,
+          STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_synthetic_connect",
+          ...(overlap !== undefined ? { [key]: overlap } : {}),
+        });
+        const manifest = buildPlatformSecretManifest({ ...options, env });
+        expect(manifest.kind).toBe("Secret");
+        expect(Object.hasOwn(manifest.data, key)).toBe(Boolean(overlap));
+        expect(collectPlatformSecretKeys(values, { deploymentEnvironment: "staging", env })).not.toContain(key);
+        try {
+          for (const name of [
+            "STRIPE_SECRET_KEY",
+            "STRIPE_PUBLISHABLE_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_CONNECT_WEBHOOK_SECRET",
+            key,
+            "STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS",
+            "STRIPE_API_BASE_URL",
+            "STRIPE_CONNECT_ACCOUNTS_API",
+          ]) {
+            // Model the API container's Secret-backed env; Kubernetes omits missing optional keys.
+            const ref = values.components["platform-api"].env.find((entry) => entry.name === name && entry.secret);
+            const value = ref && manifest.data[ref.secretKey];
+            vi.stubEnv(name, value ? Buffer.from(value, "base64").toString("utf8") : undefined);
+          }
+          const config = loadStripeProviderConfig({
+            productionLike: true,
+            deploymentEnvironment: "production",
+            productionMissingConfigError:
+              "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
+          });
+          expect(config.paymentProcessor.previousWebhookSecrets).toEqual(overlap ? [previous] : []);
+          expect(config.moneyMovement.previousWebhookSecrets).toEqual([]);
+          const gateway = createStripePaymentProcessorGateway(config.paymentProcessor);
+          const timestamp = Math.floor(Date.now() / 1000);
+          const rawBody = JSON.stringify({
+            id: "evt_synthetic_overlap",
+            type: "payment_intent.canceled",
+            api_version: registry.apiVersion,
+            livemode: true,
+            created: timestamp,
+            data: {
+              object: { id: "pi_synthetic_overlap", status: "canceled", metadata: { payment_id: "pay_synthetic" } },
+            },
+          });
+          const signedWith = (secret) => {
+            const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+            return gateway.parseWebhook({ rawBody, signatureHeader: `t=${timestamp},v1=${digest}` });
+          };
+          await expect(signedWith(current)).resolves.toMatchObject({ eventId: "evt_synthetic_overlap" });
+          if (overlap) await expect(signedWith(previous)).resolves.toMatchObject({ eventId: "evt_synthetic_overlap" });
+          else await expect(signedWith(previous)).rejects.toThrow("Stripe webhook signature verification failed");
+          await expect(signedWith("whsec_synthetic_unrelated")).rejects.toThrow(
+            "Stripe webhook signature verification failed",
+          );
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      },
+    );
+  });
+
   describe("optional evidence-window admission key", () => {
     const windowKey = "EVIDENCE_WINDOW_ADMISSION_SECRET";
     const optionalEntry = { name: windowKey, secret: true, secretKey: windowKey, optional: true };
@@ -174,7 +289,7 @@ describe("platform Kubernetes secret", () => {
       const optionalNames = Object.values(values.components).flatMap((component) =>
         component.env.filter((entry) => entry.optional !== undefined).map((entry) => entry.name),
       );
-      expect(optionalNames).toEqual([windowKey, windowKey]);
+      expect(optionalNames).toEqual([windowKey, "STRIPE_WEBHOOK_SECRET_PREVIOUS", windowKey]);
       expect(collectPlatformSecretKeys(values)).not.toContain(windowKey);
     });
   });

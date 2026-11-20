@@ -313,6 +313,8 @@ function validationDryRunEvidenceFor(input: {
   if (unitEvidence.length === 0) {
     return [
       {
+        providerKey: input.profile.providerKey,
+        profileVersion: input.profile.profileVersion,
         externalKey:
           input.routeContext.providerKey ??
           input.profile.providerKey ??
@@ -337,6 +339,8 @@ function validationDryRunEvidenceFor(input: {
       .map(([key, value]) => ({ key, value }));
 
     return {
+      providerKey: input.profile!.providerKey,
+      profileVersion: input.profile!.profileVersion,
       externalKey: evidence.externalKey,
       sourceUrl: evidence.sourceUrl,
       sourceHash: evidence.sourceHash,
@@ -655,13 +659,23 @@ function validationActivationDecisionFor(input: {
   if (migrationEvidenceRequired && input.activationReadiness.referenceCount > 0 && !migrationEvidenceRecorded) {
     blockers.add("reference-impact-review-required");
   }
+  if (profile?.active) {
+    blockers.add("profile-lifecycle-conflict");
+  }
 
+  // Section edits are taken only on draft or test versions, and not while a job runs.
   const saveEvidenceBlockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
   if (!profile) {
     saveEvidenceBlockers.add("profile-version-missing");
   }
   if (!input.canManage) {
     saveEvidenceBlockers.add("permission-denied");
+  }
+  if (profile && profile.lifecycle !== "draft" && profile.lifecycle !== "test") {
+    saveEvidenceBlockers.add("profile-section-read-only");
+  }
+  if (input.activeJobCount > 0) {
+    saveEvidenceBlockers.add("active-job-conflict");
   }
 
   const blockerList = [...blockers];

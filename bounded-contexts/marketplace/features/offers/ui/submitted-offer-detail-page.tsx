@@ -250,7 +250,8 @@ export function MarketFollowingOfferControls({
   const attempt = useRef(false);
   const draftId = useRef<string | null>(null);
   const feedback = useRef<HTMLDivElement>(null);
-  const pending = fetcher.state !== "idle";
+  const ambiguous = error === "ambiguous";
+  const pending = fetcher.state !== "idle" || ambiguous;
   const selectedOffers = offers.filter((offer) => selected.includes(offer.offer_id) && offer.status === "submitted");
   const currency = selectedOffers[0]?.price_currency_code ?? policy?.currency;
   const bound = new Set(policies.flatMap((item) => (item.authority?.offers ?? []).map((offer) => offer.offerId)));
@@ -342,6 +343,7 @@ export function MarketFollowingOfferControls({
       {
         type: "PreviewBuyerOfferPolicy",
         operationId: crypto.randomUUID(),
+        attemptId: crypto.randomUUID(),
         expectedVersion: policy?.version ?? 0,
         terms,
       },
@@ -350,14 +352,26 @@ export function MarketFollowingOfferControls({
   }
   function manage(type: "PauseBuyerOfferPolicy" | "StopBuyerOfferPolicy" | "AuthorizeBuyerOfferPolicy") {
     if (!policy?.policyId) return;
-    const operation = { operationId: crypto.randomUUID(), expectedVersion: policy.version };
+    const operation = {
+      operationId: crypto.randomUUID(),
+      attemptId: crypto.randomUUID(),
+      expectedVersion: policy.version,
+    };
     if (type === "AuthorizeBuyerOfferPolicy") {
       if (!review || !consent || !policy.preview) return;
       send({ ...operation, type, previewId: policy.preview.previewId, consent: true }, policy.policyId);
     } else send({ ...operation, type }, policy.policyId);
   }
   const errorCopy = error
-    ? t(error === "stale_preview" ? "marketplace.marketFollowing.stale" : "marketplace.marketFollowing.error")
+    ? t(
+        error === "ambiguous"
+          ? "marketplace.recovery.ambiguous"
+          : error === "failed-safe"
+            ? "marketplace.recovery.failedSafe"
+            : error === "stale_preview"
+              ? "marketplace.marketFollowing.stale"
+              : "marketplace.marketFollowing.error",
+      )
     : undefined;
   const reviewTerms = policy?.preview?.terms;
   return (
@@ -372,7 +386,13 @@ export function MarketFollowingOfferControls({
             />
           ) : null}
           <Badge>{t(`marketplace.marketFollowing.status.${policy?.status ?? "draft"}`)}</Badge>
-          {pending ? <Text>{t("marketplace.marketFollowing.pending")}</Text> : null}
+          {fetcher.state !== "idle" ? (
+            <Text>
+              {t(
+                fetcher.state === "submitting" ? "marketplace.recovery.submitting" : "marketplace.recovery.confirming",
+              )}
+            </Text>
+          ) : null}
         </Stack>
         <MarketplaceNotice
           tone="info"

@@ -310,6 +310,11 @@ export type CatalogPrimaryWorkbenchAuditEvidenceTargetType =
   | "control-plane";
 
 export type CatalogPrimaryWorkbenchAuditEvidenceReadModel = Readonly<{
+  selection: Readonly<{
+    reference: string | null;
+    state: "resolved" | "no-associated-evidence" | "not-requested";
+    deepLinkOpen: boolean;
+  }>;
   status: CatalogPrimaryWorkbenchAuditEvidenceStatus;
   freshness: CatalogAdminControlPlaneFreshnessState;
   generatedAt: string;
@@ -534,6 +539,17 @@ export function assertPrimaryWorkbenchAuditEvidence(
 ): void {
   if (!value) {
     throw new Error("Primary workbench audit evidence contract is required.");
+  }
+  if (
+    !value.selection ||
+    !["resolved", "no-associated-evidence", "not-requested"].includes(value.selection.state) ||
+    (value.selection.deepLinkOpen && value.selection.state !== "resolved") ||
+    (value.selection.state === "no-associated-evidence" &&
+      (value.timeline.length > 0 || value.evidenceLinks.length > 0))
+  ) {
+    throw new Error(
+      "Primary workbench audit evidence must resolve entity membership before opening or exposing records.",
+    );
   }
   if (!["ready", "partial", "blocked", "unavailable"].includes(value.status)) {
     throw new Error("Primary workbench audit evidence status must be explicit.");

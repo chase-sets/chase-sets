@@ -3,105 +3,105 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retained diagnostic DNS state#3",
+      "stepAnchor": "name:Plan retained diagnostic DNS state#5",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retained diagnostic DNS state#3",
+      "stepAnchor": "name:Plan retained diagnostic DNS state#5",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retained diagnostic DNS state#3",
+      "stepAnchor": "name:Plan retained diagnostic DNS state#5",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retained diagnostic DNS state#3",
+      "stepAnchor": "name:Plan retained diagnostic DNS state#5",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retained diagnostic DNS state#3",
+      "stepAnchor": "name:Plan retained diagnostic DNS state#5",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retired staging and production applications#4",
+      "stepAnchor": "name:Plan retired staging and production applications#6",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retired staging and production applications#4",
+      "stepAnchor": "name:Plan retired staging and production applications#6",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retired staging and production applications#4",
+      "stepAnchor": "name:Plan retired staging and production applications#6",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retired staging and production applications#4",
+      "stepAnchor": "name:Plan retired staging and production applications#6",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Plan retired staging and production applications#4",
+      "stepAnchor": "name:Plan retired staging and production applications#6",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Summarize and upload decommission plans#5",
+      "stepAnchor": "name:Summarize and upload decommission plans#7",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Summarize and upload decommission plans#5",
+      "stepAnchor": "name:Summarize and upload decommission plans#7",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Summarize and upload decommission plans#5",
+      "stepAnchor": "name:Summarize and upload decommission plans#7",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Summarize and upload decommission plans#5",
+      "stepAnchor": "name:Summarize and upload decommission plans#7",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "decommission-live-plan",
-      "stepAnchor": "name:Summarize and upload decommission plans#5",
+      "stepAnchor": "name:Summarize and upload decommission plans#7",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },

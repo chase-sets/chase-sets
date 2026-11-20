@@ -10,14 +10,16 @@ const databaseUrlMarker = ["TEST", "DATABASE", "URL"].join("_");
 const transportHarnessMarker = ["transport", "test", "support"].join("-");
 const dbHarnessMarker = new RegExp(`\\b${databaseUrlMarker}\\b|${transportHarnessMarker}`);
 
-type Scripts = Readonly<Record<"test:db" | "test:unit", string>>;
+type Scripts = Readonly<Record<string, string>>;
 
 /**
  * A test that reaches the DB harness must be a `.db.test.ts` file, run once by the DB profile and be
  * excluded from the URL-less unit profile. Otherwise it is either skipped everywhere or leaks into unit CI.
  */
 function enrollmentViolations(files: ReadonlyMap<string, string>, scripts: Scripts): string[] {
-  const dbArguments = scripts["test:db"].split(/\s+/);
+  const dbArguments = Object.entries(scripts)
+    .filter(([name]) => /^test:db:\d+$/.test(name))
+    .flatMap(([, script]) => script.split(/\s+/));
   const unitArguments = scripts["test:unit"].split(/\s+/);
   const violations: string[] = [];
   for (const [file, source] of files) {
@@ -64,14 +66,22 @@ describe("order-pull-producer-schema-and-profiles", () => {
       [producerDbTest, `import { describeDb } from "../../connector-feed/tests/${transportHarnessMarker}";`],
     ]);
     expect(
-      enrollmentViolations(files, {
-        "test:db": scripts["test:db"].replace(` ${producerDbTest}`, ""),
-        "test:unit": scripts["test:unit"],
-      }),
+      enrollmentViolations(
+        files,
+        Object.fromEntries(
+          Object.entries(scripts).map(([name, script]) => [
+            name,
+            /^test:db:\d+$/.test(name) ? script.replace(` ${producerDbTest}`, "") : script,
+          ]),
+        ),
+      ),
     ).toEqual([`${producerDbTest}: not discovered exactly once by test:db`]);
+    expect(enrollmentViolations(files, { ...scripts, "test:db:999": `vitest run ${producerDbTest}` })).toEqual([
+      `${producerDbTest}: not discovered exactly once by test:db`,
+    ]);
     expect(
       enrollmentViolations(files, {
-        "test:db": scripts["test:db"],
+        ...scripts,
         "test:unit": scripts["test:unit"].replace(` --exclude ${producerDbTest}`, ""),
       }),
     ).toEqual([`${producerDbTest}: not excluded from test:unit`]);

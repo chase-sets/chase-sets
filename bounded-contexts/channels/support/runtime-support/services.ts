@@ -1,11 +1,15 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { EbayConnectionServices } from "../../features/ebay-connection/api/runtime";
+import type { EbaySellerSetupServices } from "../../features/ebay-connection/api/setup-runtime";
 import type { EbayAccountDeletionOptions } from "../../features/ebay-account-deletion/api/route";
 import type { EbayAccountDeletionServices } from "../../features/ebay-account-deletion/api/runtime";
 import type { createEbayReceiptExpiryStore } from "../../features/ebay-account-deletion/read-model/expiry";
+import type { EbayAccountDeletionConsumer } from "../../features/ebay-account-deletion/api/consumer";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type {
   ChannelConnectionServices,
   ChannelStorageLocationAuthorityResolver,
+  VersionedConnectionAuthority,
 } from "../../features/connections/domain/contracts";
 import type { ConnectionHealthServices } from "../../features/connection-health/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../features/listing-composition/api/runtime";
@@ -24,11 +28,15 @@ import type { TcgplayerLiveExportSnapshotServices } from "../../features/live-ex
 import type { FulfillmentObservationServices } from "../../features/order-fulfillment-observations/api/runtime";
 
 export type ChannelsServices = Readonly<{
+  ebayConnection?: EbayConnectionServices;
+  ebaySellerSetup?: EbaySellerSetupServices;
   ebayAccountDeletion: EbayAccountDeletionOptions;
   ebayAccountDeletionReceipts: EbayAccountDeletionServices;
   ebayReceiptExpiry: ReturnType<typeof createEbayReceiptExpiryStore>;
+  ebayAccountDeletionConsumer: EbayAccountDeletionConsumer;
   credentials: ChannelCredentialServices;
   connections: ChannelConnectionServices;
+  connectionAuthority: VersionedConnectionAuthority;
   storageLocationAuthority: ChannelStorageLocationAuthorityResolver;
   connectionHealth: ConnectionHealthServices;
   connectionAttention: ConnectionAttentionServices;
@@ -49,11 +57,15 @@ export type ChannelsServices = Readonly<{
 }>;
 
 export const channelsServicesMembers = defineChannelsServicesMembers([
+  "ebayConnection",
+  "ebaySellerSetup",
   "ebayAccountDeletion",
   "ebayAccountDeletionReceipts",
   "ebayReceiptExpiry",
+  "ebayAccountDeletionConsumer",
   "credentials",
   "connections",
+  "connectionAuthority",
   "storageLocationAuthority",
   "connectionHealth",
   "connectionAttention",
@@ -74,6 +86,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   if (!isObject(value) || !channelsServicesMembers.every((member) => Object.hasOwn(value, member))) return false;
 
   const connections = Reflect.get(value, "connections");
+  const connectionAuthority = Reflect.get(value, "connectionAuthority");
   const storageLocationAuthority = Reflect.get(value, "storageLocationAuthority");
   const credentials = Reflect.get(value, "credentials");
   const ebayAccountDeletionReceipts = Reflect.get(value, "ebayAccountDeletionReceipts");
@@ -91,6 +104,11 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const db = Reflect.get(value, "db");
 
   return (
+    isObject(Reflect.get(value, "ebayConnection")) &&
+    typeof Reflect.get(Reflect.get(value, "ebayConnection"), "callback") === "function" &&
+    isObject(Reflect.get(value, "ebaySellerSetup")) &&
+    typeof Reflect.get(Reflect.get(value, "ebaySellerSetup"), "load") === "function" &&
+    typeof Reflect.get(Reflect.get(value, "ebaySellerSetup"), "select") === "function" &&
     isObject(Reflect.get(value, "ebayAccountDeletion")) &&
     isObject(ebayAccountDeletionReceipts) &&
     typeof Reflect.get(ebayAccountDeletionReceipts, "recordEbayAccountDeletionReceipt") === "function" &&
@@ -99,6 +117,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     isObject(ebayReceiptExpiry) &&
     typeof Reflect.get(ebayReceiptExpiry, "cutoff") === "function" &&
     typeof Reflect.get(ebayReceiptExpiry, "batch") === "function" &&
+    isObject(Reflect.get(value, "ebayAccountDeletionConsumer")) &&
+    typeof Reflect.get(Reflect.get(value, "ebayAccountDeletionConsumer"), "consume") === "function" &&
+    typeof Reflect.get(Reflect.get(value, "ebayAccountDeletionConsumer"), "batch") === "function" &&
     isObject(credentials) &&
     typeof Reflect.get(credentials, "resolve") === "function" &&
     typeof Reflect.get(credentials, "create") === "function" &&
@@ -106,6 +127,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(credentials, "rewrap") === "function" &&
     isObject(connections) &&
     typeof Reflect.get(connections, "getConnection") === "function" &&
+    isObject(connectionAuthority) &&
+    typeof Reflect.get(connectionAuthority, "capture") === "function" &&
+    typeof Reflect.get(connectionAuthority, "registerConsumer") === "function" &&
     isObject(storageLocationAuthority) &&
     typeof Reflect.get(storageLocationAuthority, "resolve") === "function" &&
     isObject(connectionHealth) &&

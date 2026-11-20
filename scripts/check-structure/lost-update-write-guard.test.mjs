@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { discoverWrites, validateLostUpdateWriteGuard as candidateGuard } from "./lost-update-write-guard.mjs";
+import { readTrackedSidecarPaths } from "../lib/git-listing.mjs";
 
 const roots = [];
 const repoRoot = process.cwd();
@@ -66,19 +67,60 @@ const validateLostUpdateWriteGuard = process.env.LOST_UPDATE_BASE_CONTROL === "1
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("owner-local lost-update exceptions", () => {
+  it("accepts delayed correct tracked-sidecar output without elapsed-time assertions", async () => {
+    const source = "const sql = `DELETE FROM category_rows WHERE category_id = $1`;";
+    const root = await fixture(siblingPath, source);
+    const entries = await exceptions(root, siblingPath, source);
+    await mkdir(path.join(root, ".git"), { recursive: true });
+    const runGit = (_file, args, options) =>
+      options.timeout === undefined && options.killSignal === undefined
+        ? { status: 0, stdout: `${siblingPath}.lost-update-exceptions.json\0` }
+        : {
+            status: null,
+            signal: "SIGTERM",
+            stdout: "",
+            error: Object.assign(new Error("spawnSync git ETIMEDOUT"), { code: "ETIMEDOUT" }),
+          };
+    expect((await candidateGuard({ repoRoot: root, runGit })).violations).toEqual([]);
+    expect(entries).toHaveLength(1);
+  });
+
+  it.each([
+    ["nonzero", () => ({ status: 1, stdout: "", stderr: "fatal" }), "status 1"],
+    ["terminated", () => ({ status: null, signal: "SIGTERM", stdout: "" }), "terminated by SIGTERM"],
+    ["error", () => ({ status: null, stdout: "", error: new Error("spawnSync git ETIMEDOUT") }), "ETIMEDOUT"],
+    ["missing", () => undefined, "no result"],
+    ["malformed", () => ({ status: 0, stdout: null }), "malformed output"],
+  ])("rejects %s Git inspection state", (_name, runGit, message) => {
+    expect(() => readTrackedSidecarPaths({ cwd: repoRoot, runGit })).toThrow(message);
+  });
+
+  it("does not retain the removed tracked-sidecar deadline", async () => {
+    const source = await readFile("scripts/lib/git-listing.mjs", "utf8");
+    expect(source).not.toMatch(/(?:timeout|killSignal)\s*:/);
+  });
+
   it("enrols the actual credential store SQL and rejects loss of its two-counter guard", async () => {
     const source = await readFile(credentialsPath, "utf8");
     const root = await fixture(credentialsPath, source);
     const result = await candidateGuard({ repoRoot: root });
     expect(result.violations).toEqual([]);
     expect(result.rows).toEqual([
-      expect.objectContaining({ table: "channels_connection_credentials", classification: "guarded" }),
+      expect.objectContaining({ table: "channels_connection_credentials", kind: "UPDATE", classification: "guarded" }),
+      expect.objectContaining({ table: "channels_connection_credentials", kind: "DELETE", classification: "guarded" }),
     ]);
-    for (const column of credentialColumns.filter((name) => name !== "row_id")) {
-      const unguarded = source.replace(new RegExp(`AND ${column} = \\$\\d+`), "");
-      expect(unguarded).not.toBe(source);
-      await put(root, credentialsPath, unguarded);
-      expect((await candidateGuard({ repoRoot: root })).violations).toHaveLength(1);
+    for (const kind of ["UPDATE", "DELETE FROM"]) {
+      const start = source.indexOf(`${kind} channels_connection_credentials`);
+      const end = source.indexOf("`", start);
+      for (const column of credentialColumns.filter((name) => name !== "row_id")) {
+        const unguarded =
+          source.slice(0, start) +
+          source.slice(start, end).replace(new RegExp(`AND ${column} = \\$\\d+`), "") +
+          source.slice(end);
+        expect(unguarded, `${kind} ${column}`).not.toBe(source);
+        await put(root, credentialsPath, unguarded);
+        expect((await candidateGuard({ repoRoot: root })).violations, `${kind} ${column}`).toHaveLength(1);
+      }
     }
   });
 

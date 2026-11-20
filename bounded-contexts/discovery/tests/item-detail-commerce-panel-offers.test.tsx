@@ -430,6 +430,98 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     expect(selectedOfferAction.getAttribute("aria-disabled")).not.toBe("true");
   });
 
+  describe("seller offer selection", () => {
+    const offerX = {
+      ...baseOffer,
+      product_id: "cat_charizard::form=raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+    };
+    const offerY = {
+      ...alternateOffer,
+      product_id: "cat_charizard::form=graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+    };
+    const matchX = { ...baseAccountOfferMatch, ...offerX };
+    const matchY = { ...alternateAccountOfferMatch, ...offerY };
+
+    it.each([
+      {
+        name: "keeps selected X when only Y has a seller match",
+        selectedOfferId: offerX.offer_id,
+        accountOfferMatches: [matchY],
+        expectedOffer: offerX,
+        canFulfill: false,
+      },
+      {
+        name: "uses selected X's own match instead of the best match Y",
+        selectedOfferId: offerX.offer_id,
+        accountOfferMatches: [matchY, matchX],
+        expectedOffer: offerX,
+        canFulfill: true,
+      },
+      {
+        name: "defaults to best seller match Y when no offer is selected",
+        selectedOfferId: null,
+        accountOfferMatches: [matchY],
+        expectedOffer: offerY,
+        canFulfill: true,
+      },
+      {
+        name: "keeps selected X when the seller has no matches",
+        selectedOfferId: offerX.offer_id,
+        accountOfferMatches: [],
+        expectedOffer: offerX,
+        canFulfill: false,
+      },
+    ])("$name", async ({ selectedOfferId, accountOfferMatches, expectedOffer, canFulfill }) => {
+      renderItemDetailRoute({
+        item: createItem({
+          product_schema: variantSchema,
+          market_listings: [
+            { ...baseListing, product_id: offerY.product_id, selected_options: offerY.selected_options },
+          ],
+          offer_demand_matches: [offerX, offerY],
+        }),
+        accountOfferMatches,
+        sellerInventoryItems: [],
+        sellerAccountId: "seller_1",
+        hasListingStockLocation: true,
+        listingSetupLoadState: "ready",
+        viewerAccountId: "seller_1",
+        initialMarketIntent: "sell",
+        initialSelectedOfferId: selectedOfferId,
+        initialSelectedOptions: [],
+        hasInitialSelectedOptionFilters: true,
+        showSellerTab: true,
+        canUseSellerFeatures: true,
+        canUseListingFeatures: true,
+        canSubmitOffers: true,
+        registerToSellHref: "/register",
+        notFound: false,
+        error: null,
+        canonicalUrl: null,
+      });
+
+      const rail = await screen.findByRole("complementary", { name: "Commerce options" });
+      const acceptOffer = within(rail).getByRole("button", { name: "Accept offer" });
+      const form = acceptOffer.closest("form");
+
+      expect(form).not.toBeNull();
+      expect(new FormData(form!).get("offerId")).toBe(expectedOffer.offer_id);
+      expect(within(form!).getByText(selectedOfferId ? "Selected offer" : "Best offer")).toBeTruthy();
+      expect(within(form!).getByText(expectedOffer.buyer_display_name!)).toBeTruthy();
+      expect(within(form!).getByText(`$${expectedOffer.price_amount} offer`)).toBeTruthy();
+      expect(Boolean(within(form!).queryByText("Can fulfill"))).toBe(canFulfill);
+      expect(within(form!).queryByText("Needs supply")).toBeNull();
+      expect(acceptOffer.getAttribute("value")).toBe("sell-now");
+      expect(
+        screen.getByRole("button", {
+          name: `Selected ${expectedOffer.buyer_display_name} offer at $${expectedOffer.price_amount}`,
+        }),
+      ).toBeTruthy();
+    });
+  });
+
   it("routes signed-out sell rail Accept offer through the Sell List handoff intent", async () => {
     renderItemDetailRoute({
       item: createItem({
@@ -525,14 +617,89 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     ).toBeTruthy();
   });
 
+  it("takes the first eligible account offer in input order without re-sorting", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({ offer_demand_matches: [baseOffer, alternateOffer] })}
+        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        initialMarketIntent="sell"
+        renderCommerce={(context) => ({
+          buy: null,
+          sell: (
+            <input data-testid="selected-offer-id" readOnly value={context.selectedAccountOfferMatch?.offer_id ?? ""} />
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard");
+    expect(screen.getByRole("button", { name: "Selected Ash Ketchum offer at $350.00" })).toBeTruthy();
+  });
+
+  it("skips ineligible leading account offers before taking the first eligible row", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({ offer_demand_matches: [alternateOffer] })}
+        accountOfferMatches={[
+          { ...baseAccountOfferMatch, offer_id: "offer_unfulfillable", can_fulfill: false },
+          { ...baseAccountOfferMatch, offer_id: "offer_unsubmitted", status: "cancelled" },
+          alternateAccountOfferMatch,
+        ]}
+        initialMarketIntent="sell"
+        renderCommerce={(context) => ({
+          buy: null,
+          sell: (
+            <>
+              <input data-testid="best-offer-id" readOnly value={context.bestAccountOfferMatch?.offer_id ?? ""} />
+              <input
+                data-testid="selected-offer-id"
+                readOnly
+                value={context.selectedAccountOfferMatch?.offer_id ?? ""}
+              />
+            </>
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("best-offer-id")).toHaveProperty("value", "offer_charizard_alt");
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard_alt");
+  });
+
+  it.each([
+    { accountOfferMatches: [] },
+    {
+      accountOfferMatches: [
+        { ...baseAccountOfferMatch, can_fulfill: false },
+        { ...alternateAccountOfferMatch, status: "cancelled" },
+      ],
+    },
+  ])("keeps account offer selection null when no eligible row exists (%#)", ({ accountOfferMatches }) => {
+    render(
+      <ItemDetailPage
+        data={createItem({ offer_demand_matches: [] })}
+        accountOfferMatches={accountOfferMatches}
+        initialMarketIntent="sell"
+        renderCommerce={(context) => ({
+          buy: null,
+          sell: (
+            <input data-testid="selected-offer-id" readOnly value={context.selectedAccountOfferMatch?.offer_id ?? ""} />
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "");
+  });
+
   it("uses explicit offer URL state instead of the implicit best offer default", () => {
     render(
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          offer_demand_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [alternateOffer, baseOffer],
         })}
-        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        accountOfferMatches={[alternateAccountOfferMatch, baseAccountOfferMatch]}
         initialMarketIntent="sell"
         initialSelectedOfferId="offer_charizard"
         renderCommerce={(context) => ({
@@ -566,9 +733,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          offer_demand_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [alternateOffer, baseOffer],
         })}
-        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        accountOfferMatches={[alternateAccountOfferMatch, baseAccountOfferMatch]}
         initialMarketIntent="sell"
         initialSelectedOfferId="offer_missing"
         renderCommerce={(context) => ({
@@ -605,9 +772,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          offer_demand_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [alternateOffer, baseOffer],
         })}
-        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        accountOfferMatches={[alternateAccountOfferMatch, baseAccountOfferMatch]}
         renderCommerce={(context) => ({
           buy: <div>Buy selected product</div>,
           offer: <div>Make an offer</div>,

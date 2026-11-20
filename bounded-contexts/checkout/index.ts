@@ -49,6 +49,7 @@ const baseModule = defineBoundedContextModule<CheckoutServices, PgTransactionalP
       sessions: services.sessions ?? {
         cancelSession: missingCheckoutMcpService,
         getSession: missingCheckoutMcpService,
+        readSessionForCancellation: missingCheckoutMcpService,
         setShippingAddress: missingCheckoutMcpService,
       },
       listSavedShippingAddresses: services.sellList?.listShipFromAddresses ?? missingCheckoutMcpService,

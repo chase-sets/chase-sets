@@ -5,7 +5,7 @@ import type { EventRecordToStore, StoredEvent } from "@chase-sets/event-core/sto
 import type { JsonObject } from "@chase-sets/primitives/json";
 import {
   parseCheckoutCommandAttemptResult,
-  type CheckoutCartAttemptKind,
+  type CheckoutCommandAttemptKind,
   type CheckoutCommandAttemptResult,
 } from "./contracts";
 
@@ -14,7 +14,7 @@ export const CHECKOUT_COMMAND_ATTEMPT_COMPLETED = "checkout.command-attempt.comp
 
 export type CheckoutCommandAttemptBinding = Readonly<{
   ownerKey: string;
-  kind: CheckoutCartAttemptKind;
+  kind: CheckoutCommandAttemptKind;
   target: string;
   attemptId: string;
 }>;

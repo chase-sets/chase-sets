@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  operatorEvidenceIdentity,
   operatorFileInventory,
   prepareOperatorEvidence,
   scanOperatorPayload,
@@ -160,6 +161,42 @@ function fixture() {
 }
 
 describe("operator-only hosted evidence", () => {
+  it("accepts delayed correct exact-head output without elapsed-time assertions", () => {
+    const f = fixture();
+    const runGit = (_file, args, options) =>
+      options.timeout === undefined && options.killSignal === undefined
+        ? { status: 0, stdout: `${f.identity.checkoutHead}\n` }
+        : {
+            status: null,
+            signal: "SIGTERM",
+            stdout: "",
+            error: Object.assign(new Error("spawnSync git ETIMEDOUT"), { code: "ETIMEDOUT" }),
+          };
+    const env = {
+      OPERATOR_EVIDENCE_SOURCE_HEAD: f.identity.sourceHead,
+      GITHUB_RUN_ID: f.identity.runId,
+      GITHUB_RUN_ATTEMPT: f.identity.runAttempt,
+      GITHUB_JOB: f.identity.job,
+      OPERATOR_EVIDENCE_JOB_INDEX: f.identity.jobIndex,
+    };
+    expect(operatorEvidenceIdentity(f.input, env, { runGit })).toEqual(f.identity);
+  });
+
+  it.each([
+    ["malformed identity", () => ({ status: 0, stdout: "not-a-head\n" }), "malformed HEAD"],
+    ["nonzero", () => ({ status: 1, stdout: "", stderr: "fatal" }), "status 1"],
+    ["terminated", () => ({ status: null, signal: "SIGTERM", stdout: "" }), "terminated by SIGTERM"],
+    ["error", () => ({ status: null, stdout: "", error: new Error("spawnSync git ETIMEDOUT") }), "ETIMEDOUT"],
+    ["missing", () => undefined, "no result"],
+  ])("rejects %s exact-head Git state", (_name, runGit, message) => {
+    expect(() => operatorEvidenceIdentity(fixture().input, {}, { runGit })).toThrow(message);
+  });
+
+  it("does not retain the removed exact-head deadline", async () => {
+    const source = readFileSync("scripts/lib/git-listing.mjs", "utf8");
+    expect(source).not.toMatch(/(?:timeout|killSignal)\s*:/);
+  });
+
   it("publishes only validated closed JSON with source and distinct checkout/run/job identity and every emitted digest", () => {
     const f = fixture();
     const summary = prepareOperatorEvidence(f);

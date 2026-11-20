@@ -21,6 +21,17 @@ describe("channels-services-guard-negative", () => {
   it("accepts the complete aggregate candidate", () => {
     expect(isChannelsServices(validCandidate())).toBe(true);
   });
+  it.each(["capture", "registerConsumer"])("rejects a missing Connection authority %s", (method) => {
+    const candidate = validCandidate();
+    expect(
+      isChannelsServices({
+        ...candidate,
+        connectionAuthority: Object.fromEntries(
+          Object.entries(candidate.connectionAuthority).filter(([key]) => key !== method),
+        ),
+      }),
+    ).toBe(false);
+  });
   it.each(["scheduleDueOrderPulls", "scheduleDueLiveExports"] as const)(
     "rejects missing %s worker scheduler",
     (method) => {
@@ -111,6 +122,8 @@ describe("channels-services-guard-negative", () => {
 
 function validCandidate() {
   return {
+    ebayConnection: { callback: vi.fn() },
+    ebaySellerSetup: { load: vi.fn(), select: vi.fn() },
     ebayAccountDeletion: { config: null },
     ebayAccountDeletionReceipts: {
       recordEbayAccountDeletionReceipt:
@@ -123,6 +136,10 @@ function validCandidate() {
       cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
       batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
     } satisfies ChannelsServices["ebayReceiptExpiry"],
+    ebayAccountDeletionConsumer: {
+      batch: vi.fn<ChannelsServices["ebayAccountDeletionConsumer"]["batch"]>(),
+      consume: vi.fn<ChannelsServices["ebayAccountDeletionConsumer"]["consume"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletionConsumer"],
     credentials: { create: vi.fn(), replace: vi.fn(), rewrap: vi.fn(), resolve: vi.fn() },
     connections: { getConnection: async () => null },
     storageLocationAuthority: { resolve: async () => null },
@@ -169,6 +186,10 @@ function validCandidate() {
       readConnectorLivenessAuthorityInTransaction:
         vi.fn<ChannelsServices["connectorFeed"]["readConnectorLivenessAuthorityInTransaction"]>(),
       listConnectorLivenessCandidates: vi.fn<ChannelsServices["connectorFeed"]["listConnectorLivenessCandidates"]>(),
+    },
+    connectionAuthority: {
+      capture: vi.fn<ChannelsServices["connectionAuthority"]["capture"]>(),
+      registerConsumer: vi.fn<ChannelsServices["connectionAuthority"]["registerConsumer"]>(),
     },
     projectors: [],
     db: {},

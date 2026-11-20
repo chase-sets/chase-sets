@@ -1,6 +1,21 @@
 import { MarketplaceListingRequestError } from "./listing-request-error";
+import { createHash } from "node:crypto";
+import { getCookie } from "hono/cookie";
+import { AUTH_SESSION_COOKIE_NAME, currentAuthSessionIdOf } from "@chase-sets/auth-context";
+import {
+  acceptListingTargetPriceSchema,
+  activateListingForChannelSchema,
+  readAcceptedListingTargetPricesSchema,
+} from "./target-validation";
+import { ListingRequestConflictError, ListingRequestIndeterminateError } from "./listing-request";
+import { ListingTargetCommandError } from "./target-contracts";
+import { ZodError } from "zod";
+import { listingRecoveryPreparationSchema, listingRecoveryReferenceSchema } from "../ui/contracts";
+import { listingRecoveryResult } from "./listing-recovery";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
-import { authoredTextListingErrors, listingErrorResponse } from "./listing-errors";
+import { authoredTextListingErrors, listingAttemptErrors, listingErrorResponse } from "./listing-errors";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
+import { marketplaceAttemptIdSchema, recoveryHashSchema } from "../../mutation-recovery/domain/contracts";
 import { t } from "@chase-sets/localization";
 import {
   createPolicyBackedRateLimiter,
@@ -12,6 +27,7 @@ import { Hono } from "hono";
 import { parseStrictTypedUlid, type AccountId, type ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
+  MARKETPLACE_LISTING_BATCH_MAX_TARGETS,
   type MarketplaceBulkListingPriceUpdateInput,
   type MarketplaceListingPhotoUpload,
   type MarketplaceListingServices,
@@ -76,6 +92,27 @@ function requireListingAccess(
 function requireAnonymousListingDraftOwnerId(c: { req: { header(name: string): string | undefined } }) {
   const ownerId = c.req.header("x-marketplace-anonymous-listing-draft-id")?.trim() ?? "";
   return ownerId.startsWith("anon_") ? ownerId : null;
+}
+
+/**
+ * The Listing attempt a browser, API or MCP command must carry: from the body, or from the
+ * `Idempotency-Key` / `Chase-Sets-Request-Hash` headers on bodiless commands. Engine `repricing:` keys
+ * are internal and never accepted over HTTP.
+ */
+function listingAttemptInput(
+  c: Readonly<{ req: Readonly<{ header: (name: string) => string | undefined }> }>,
+  body: Record<string, unknown> = {},
+): Readonly<{ idempotencyKey: string; requestHash?: string }> {
+  const idempotencyKey = body.idempotencyKey ?? c.req.header("Idempotency-Key");
+  const requestHash = body.requestHash ?? c.req.header("Chase-Sets-Request-Hash") ?? undefined;
+  if (!marketplaceAttemptIdSchema.safeParse(idempotencyKey).success)
+    throw new MarketplaceAttemptError("invalid_attempt", "A valid Listing attempt identity is required.");
+  if (requestHash !== undefined && !recoveryHashSchema.safeParse(requestHash).success)
+    throw new MarketplaceAttemptError("invalid_attempt", "The Listing request hash is malformed.");
+  return {
+    idempotencyKey: idempotencyKey as string,
+    ...(requestHash === undefined ? {} : { requestHash: requestHash as string }),
+  };
 }
 
 function assertClosedObject(value: Record<string, unknown>, allowedKeys: readonly string[], label: string) {
@@ -295,48 +332,99 @@ function parseAnonymousListingDraftBody(body: Record<string, unknown>) {
   };
 }
 
-function parseBulkListingPriceUpdates(body: Record<string, unknown>): MarketplaceBulkListingPriceUpdateInput[] {
-  assertClosedObject(body, ["updates"], "Bulk listing price update request");
+/**
+ * One batch id plus one target attempt per Listing: every target's attempt is the batch id bound
+ * to that Listing, so a retried batch replays succeeded targets and only runs targets it never recorded.
+ */
+function parseBulkListingPriceUpdates(
+  body: Record<string, unknown>,
+  headerBatchId?: string,
+): Readonly<{ batchId: string; updates: MarketplaceBulkListingPriceUpdateInput[] }> {
+  assertClosedObject(body, ["batchId", "updates"], "Bulk listing price update request");
+  const batchId = body.batchId ?? headerBatchId;
+  if (!marketplaceAttemptIdSchema.safeParse(batchId).success)
+    throw new MarketplaceAttemptError("invalid_attempt", "A valid bulk batch id is required.");
   const rawUpdates = Array.isArray(body.updates) ? body.updates : [];
 
-  return rawUpdates.flatMap((entry): MarketplaceBulkListingPriceUpdateInput[] => {
-    if (!entry || typeof entry !== "object") {
-      return [];
-    }
-    const record = entry as Record<string, unknown>;
-    assertClosedObject(
-      record,
-      [
-        "listingId",
-        "listing_id",
-        "priceAmount",
-        "price_amount",
-        "priceCurrencyCode",
-        "price_currency_code",
-        "feeQuoteFingerprint",
-        "fee_quote_fingerprint",
-      ],
-      "Bulk listing price update",
+  return {
+    batchId: batchId as string,
+    updates: rawUpdates.flatMap((entry): MarketplaceBulkListingPriceUpdateInput[] => {
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+      const record = entry as Record<string, unknown>;
+      assertClosedObject(
+        record,
+        [
+          "listingId",
+          "listing_id",
+          "priceAmount",
+          "price_amount",
+          "priceCurrencyCode",
+          "price_currency_code",
+          "feeQuoteFingerprint",
+          "fee_quote_fingerprint",
+          "idempotencyKey",
+          "requestHash",
+        ],
+        "Bulk listing price update",
+      );
+      if (record.requestHash !== undefined && !recoveryHashSchema.safeParse(record.requestHash).success)
+        throw new MarketplaceAttemptError("invalid_attempt", "The Listing request hash is malformed.");
+      if (record.idempotencyKey !== undefined && !marketplaceAttemptIdSchema.safeParse(record.idempotencyKey).success)
+        throw new MarketplaceAttemptError("invalid_attempt", "A bulk target attempt is malformed.");
+      const listingId = String(record.listingId ?? record.listing_id ?? "").trim();
+      const priceAmount = String(record.priceAmount ?? record.price_amount ?? "");
+      const priceCurrencyCode = String(record.priceCurrencyCode ?? record.price_currency_code ?? "");
+      const rawFingerprint = record.feeQuoteFingerprint ?? record.fee_quote_fingerprint;
+
+      if (!listingId) {
+        return [];
+      }
+      assertPriceCurrencyInput(priceCurrencyCode);
+
+      return [
+        {
+          listingId,
+          priceAmount,
+          priceCurrencyCode,
+          feeQuoteFingerprint: typeof rawFingerprint === "string" ? rawFingerprint : null,
+          // A caller-owned target attempt (e.g. one per Pricing recommendation) refines the batch id.
+          idempotencyKey: typeof record.idempotencyKey === "string" ? record.idempotencyKey : (batchId as string),
+          ...(typeof record.requestHash === "string" ? { requestHash: record.requestHash } : {}),
+        },
+      ];
+    }),
+  };
+}
+
+/** A bulk pause or withdraw: one batch id whose target attempts are that id bound to each Listing. */
+function parseListingLifecycleBatch(
+  body: Record<string, unknown>,
+  headerBatchId?: string,
+): Readonly<{ batchId: string; family: "listing.pause" | "listing.withdraw"; listingIds: string[] }> {
+  assertClosedObject(body, ["batchId", "family", "listingIds"], "Listing batch request");
+  const batchId = body.batchId ?? headerBatchId;
+  if (!marketplaceAttemptIdSchema.safeParse(batchId).success)
+    throw new MarketplaceAttemptError("invalid_attempt", "A valid bulk batch id is required.");
+  const family = body.family;
+  if (family !== "listing.pause" && family !== "listing.withdraw")
+    throw new MarketplaceListingRequestError(
+      "unknown-field",
+      "Listing batch family must be listing.pause or listing.withdraw.",
     );
-    const listingId = String(record.listingId ?? record.listing_id ?? "").trim();
-    const priceAmount = String(record.priceAmount ?? record.price_amount ?? "");
-    const priceCurrencyCode = String(record.priceCurrencyCode ?? record.price_currency_code ?? "");
-    const rawFingerprint = record.feeQuoteFingerprint ?? record.fee_quote_fingerprint;
-
-    if (!listingId) {
-      return [];
-    }
-    assertPriceCurrencyInput(priceCurrencyCode);
-
-    return [
-      {
-        listingId,
-        priceAmount,
-        priceCurrencyCode,
-        feeQuoteFingerprint: typeof rawFingerprint === "string" ? rawFingerprint : null,
-      },
-    ];
-  });
+  const listingIds = Array.isArray(body.listingIds) ? body.listingIds : [];
+  if (
+    listingIds.length < 1 ||
+    listingIds.length > MARKETPLACE_LISTING_BATCH_MAX_TARGETS ||
+    !listingIds.every((listingId) => typeof listingId === "string" && listingId.trim().length > 0)
+  )
+    throw new MarketplaceListingRequestError("id-invalid", "Listing batch targets are invalid.");
+  return {
+    batchId: batchId as string,
+    family,
+    listingIds: [...new Set((listingIds as string[]).map((listingId) => listingId.trim()))],
+  };
 }
 
 function parseJsonObject(value: string): unknown {
@@ -463,6 +551,86 @@ export function createAccountListingRoutes(
   resolveRateLimitRule?: RateLimitRuleResolver,
 ) {
   const app = new Hono<MarketplaceApiEnv>();
+  app.get("/listings/target-prices", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) return access.response;
+    try {
+      const query = c.req.query("targets") ?? "[]";
+      if (query.length > 512000) return c.json({ error: { code: "invalid_input" } }, 400);
+      const input = readAcceptedListingTargetPricesSchema.parse({
+        accountId: access.actor.accountId,
+        targets: JSON.parse(query),
+      });
+      const items = await services.readAcceptedListingTargetPrices(input);
+      return c.json({ items, count: items.length, complete: true });
+    } catch (error) {
+      if (error instanceof ZodError || error instanceof SyntaxError)
+        return c.json({ error: { code: "invalid_input" } }, 400);
+      return c.json({ error: { code: "target_read_refused" } }, 409);
+    }
+  });
+  app.post("/listings/:id/target-price", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    const sessionId = currentAuthSessionIdOf(access.actor);
+    const token = getCookie(c, AUTH_SESSION_COOKIE_NAME);
+    if (!context || !sessionId || !token) return c.json({ error: { code: "authentication_required" } }, 401);
+    try {
+      const body = await c.req.json<Record<string, unknown>>();
+      const input = acceptListingTargetPriceSchema.parse({
+        ...body,
+        accountId: access.actor.accountId,
+        listingId: c.req.param("id"),
+      });
+      const result = await services.acceptListingTargetPrice(input, context, {
+        userId: access.actor.userId,
+        membershipId: access.actor.membershipId,
+        sessionId,
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ZodError || error instanceof SyntaxError)
+        return c.json({ error: { code: "invalid_input" } }, 400);
+      if (error instanceof ListingRequestConflictError) return c.json({ error: { code: "request_conflict" } }, 409);
+      if (error instanceof ListingRequestIndeterminateError)
+        return c.json({ error: { code: "request_indeterminate" } }, 503);
+      if (error instanceof ListingTargetCommandError) return c.json({ error: { code: error.code } }, 404);
+      return c.json({ error: { code: "target_acceptance_refused" } }, 409);
+    }
+  });
+  app.post("/listings/:id/activate-channel", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    const sessionId = currentAuthSessionIdOf(access.actor);
+    const token = getCookie(c, AUTH_SESSION_COOKIE_NAME);
+    if (!context || !sessionId || !token) return c.json({ error: { code: "authentication_required" } }, 401);
+    try {
+      const body = await c.req.json<Record<string, unknown>>();
+      const input = activateListingForChannelSchema.parse({
+        ...body,
+        accountId: access.actor.accountId,
+        listingId: c.req.param("id"),
+      });
+      const result = await services.activateListingForChannel(input, context, {
+        userId: access.actor.userId,
+        membershipId: access.actor.membershipId,
+        sessionId,
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ZodError || error instanceof SyntaxError)
+        return c.json({ error: { code: "invalid_input" } }, 400);
+      if (error instanceof ListingRequestConflictError) return c.json({ error: { code: "request_conflict" } }, 409);
+      if (error instanceof ListingRequestIndeterminateError)
+        return c.json({ error: { code: "request_indeterminate" } }, 503);
+      if (error instanceof ListingTargetCommandError) return c.json({ error: { code: error.code } }, 404);
+      return c.json({ error: { code: "channel_activation_refused" } }, 409);
+    }
+  });
   const jpegRateLimiter = createPolicyBackedRateLimiter(
     LISTING_PHOTO_JPEG_RATE_LIMIT_SURFACE,
     { max: 30, windowMs: 600_000 },
@@ -634,13 +802,14 @@ export function createAccountListingRoutes(
           reasonCategory: parseSellerListingAvailabilityReason(body.reasonCategory),
           availableAgainOn: parseAvailableAgainOn(body.availableAgainOn),
           availableAgainAt: parseAvailableAgainAt(body.availableAgainAt),
+          ...listingAttemptInput(c, body),
         },
         context,
       );
 
       return c.json(result);
     } catch (error) {
-      return listingErrorResponse(error, ["availability-reason-invalid", "command-rejected"]);
+      return listingErrorResponse(error, ["availability-reason-invalid", "command-rejected", ...listingAttemptErrors]);
     }
   });
 
@@ -664,11 +833,14 @@ export function createAccountListingRoutes(
         );
       }
 
-      const result = await services.enableSellerListingAvailability({ accountId: access.actor.accountId }, context);
+      const result = await services.enableSellerListingAvailability(
+        { accountId: access.actor.accountId, ...listingAttemptInput(c, await c.req.json().catch(() => ({}))) },
+        context,
+      );
 
       return c.json(result);
     } catch (error) {
-      return listingErrorResponse(error, ["command-rejected"]);
+      return listingErrorResponse(error, ["command-rejected", ...listingAttemptErrors]);
     }
   });
 
@@ -714,13 +886,14 @@ export function createAccountListingRoutes(
         {
           accountId: access.actor.accountId,
           maxOpenOrders: parseMaxOpenOrders(body.maxOpenOrders ?? body.max_open_orders),
+          ...listingAttemptInput(c, body),
         },
         context,
       );
 
       return c.json(result);
     } catch (error) {
-      return listingErrorResponse(error, ["order-capacity-invalid", "command-rejected"]);
+      return listingErrorResponse(error, ["order-capacity-invalid", "command-rejected", ...listingAttemptErrors]);
     }
   });
 
@@ -744,11 +917,14 @@ export function createAccountListingRoutes(
         );
       }
 
-      const result = await services.clearSellerOrderCapacity({ accountId: access.actor.accountId }, context);
+      const result = await services.clearSellerOrderCapacity(
+        { accountId: access.actor.accountId, ...listingAttemptInput(c) },
+        context,
+      );
 
       return c.json(result);
     } catch (error) {
-      return listingErrorResponse(error, ["command-rejected"]);
+      return listingErrorResponse(error, ["command-rejected", ...listingAttemptErrors]);
     }
   });
 
@@ -780,6 +956,7 @@ export function createAccountListingRoutes(
           startsAt: parseAwayWindowInstant(body.startsAt),
           endsAt: parseAwayWindowEndInstant(body.endsAt),
           reasonCategory: parseRequiredSellerListingAvailabilityReason(body.reasonCategory),
+          ...listingAttemptInput(c, body),
         },
         context,
       );
@@ -791,6 +968,7 @@ export function createAccountListingRoutes(
         "away-window-reason-required",
         "away-window-instant-required",
         "command-rejected",
+        ...listingAttemptErrors,
       ]);
     }
   });
@@ -815,11 +993,14 @@ export function createAccountListingRoutes(
         );
       }
 
-      const result = await services.cancelScheduledAwayWindow({ accountId: access.actor.accountId }, context);
+      const result = await services.cancelScheduledAwayWindow(
+        { accountId: access.actor.accountId, ...listingAttemptInput(c) },
+        context,
+      );
 
       return c.json(result);
     } catch (error) {
-      return listingErrorResponse(error, ["command-rejected"]);
+      return listingErrorResponse(error, ["command-rejected", ...listingAttemptErrors]);
     }
   });
 
@@ -1024,6 +1205,8 @@ export function createAccountListingRoutes(
           "evidence",
           "listingPhotoAltText",
           "publicationScope",
+          "idempotencyKey",
+          "requestHash",
         ]);
         const unknownKey = [...formData.keys()].find((key) => !allowedFormKeys.has(key));
         if (unknownKey)
@@ -1044,6 +1227,8 @@ export function createAccountListingRoutes(
             inventorySnapshot: formValue(formData, "inventorySnapshot"),
             listingIdOverride: formValue(formData, "listingIdOverride"),
             publicationScope: formValue(formData, "publicationScope") || undefined,
+            idempotencyKey: formValue(formData, "idempotencyKey") || undefined,
+            requestHash: formValue(formData, "requestHash") || undefined,
           }
         : await c.req.json();
       const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
@@ -1062,6 +1247,8 @@ export function createAccountListingRoutes(
           "inventorySnapshot",
           "listingIdOverride",
           "publicationScope",
+          "idempotencyKey",
+          "requestHash",
         ],
         "Listing create",
       );
@@ -1081,6 +1268,7 @@ export function createAccountListingRoutes(
         );
       }
       const inventorySnapshot = parseInventorySnapshot(body);
+      const attempt = listingAttemptInput(c, body);
       const result = inventorySnapshot
         ? await services.createListingFromInventorySnapshot(
             {
@@ -1093,6 +1281,7 @@ export function createAccountListingRoutes(
               publicationScope: body.publicationScope as "native" | "channel-only" | undefined,
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
+              ...attempt,
             },
             context,
           )
@@ -1107,6 +1296,7 @@ export function createAccountListingRoutes(
               publicationScope: body.publicationScope as "native" | "channel-only" | undefined,
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
+              ...attempt,
             },
             context,
           );
@@ -1132,6 +1322,7 @@ export function createAccountListingRoutes(
         "command-rejected",
         "evidence-invalid",
         ...authoredTextListingErrors,
+        ...listingAttemptErrors,
       ]);
     }
   });
@@ -1371,7 +1562,11 @@ export function createAccountListingRoutes(
 
       const body = await c.req.json();
 
-      assertClosedObject(body, ["priceAmount", "priceCurrencyCode", "feeQuoteFingerprint"], "Listing price update");
+      assertClosedObject(
+        body,
+        ["priceAmount", "priceCurrencyCode", "feeQuoteFingerprint", "idempotencyKey", "requestHash"],
+        "Listing price update",
+      );
       assertPriceCurrencyInput(body.priceCurrencyCode);
       const result = await services.updateListingPrice(
         {
@@ -1380,6 +1575,7 @@ export function createAccountListingRoutes(
           priceAmount: String(body.priceAmount ?? ""),
           priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
           feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
+          ...listingAttemptInput(c, body),
         },
         context,
       );
@@ -1392,6 +1588,7 @@ export function createAccountListingRoutes(
         "listing-not-found",
         "command-rejected",
         "fee-quote-stale",
+        ...listingAttemptErrors,
       ]);
     }
   });
@@ -1417,12 +1614,10 @@ export function createAccountListingRoutes(
       }
 
       const body = await c.req.json().catch(() => ({}));
+      const batch = parseBulkListingPriceUpdates(body, c.req.header("Idempotency-Key"));
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
-          accountId: access.actor.accountId,
-          updates: parseBulkListingPriceUpdates(body),
-        },
+        { accountId: access.actor.accountId, batchId: batch.batchId, updates: batch.updates },
         context,
       );
 
@@ -1432,7 +1627,125 @@ export function createAccountListingRoutes(
       }));
       return c.json({ items, total: items.length, count: items.length });
     } catch (error) {
-      return listingErrorResponse(error, ["unknown-field", "price-currency-invalid", "bulk-price-update-invalid"]);
+      return listingErrorResponse(error, [
+        "unknown-field",
+        "price-currency-invalid",
+        "bulk-price-update-invalid",
+        ...listingAttemptErrors,
+      ]);
+    }
+  });
+
+  app.get("/listings/batch/:batchId", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.view");
+      if (access.response) return access.response;
+      const bulk = c.req.query("bulk");
+      const reference = listingRecoveryReferenceSchema.safeParse({
+        batchId: c.req.param("batchId"),
+        mutationKind: c.req.query("family"),
+        bulk: bulk === "true" ? true : bulk === "false" ? false : undefined,
+      });
+      if (!reference.success)
+        throw new MarketplaceAttemptError("invalid_attempt", "A valid Listing recovery reference is required.");
+      return c.json(await services.recoverListingBatch(access.actor.accountId, reference.data));
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "id-invalid", ...listingAttemptErrors]);
+    }
+  });
+
+  app.post("/listings/batch/prepare", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) return access.response;
+      const context = c.get("context");
+      if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
+      const parsed = listingRecoveryPreparationSchema.safeParse(await c.req.json().catch(() => null));
+      if (!parsed.success) throw new MarketplaceAttemptError("invalid_attempt", "Invalid Listing preparation.");
+      return c.json(await services.prepareListingRecovery(access.actor.accountId, parsed.data, context));
+    } catch (error) {
+      if (error instanceof ZodError)
+        return listingErrorResponse(new MarketplaceAttemptError("invalid_attempt", "Invalid Listing preparation."), [
+          ...listingAttemptErrors,
+        ]);
+      return listingErrorResponse(error, ["unknown-field", "id-invalid", ...listingAttemptErrors]);
+    }
+  });
+
+  app.post("/listings/batch/retry", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) return access.response;
+      const context = c.get("context");
+      if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
+      const parsed = listingRecoveryReferenceSchema.safeParse(await c.req.json().catch(() => null));
+      if (!parsed.success || !parsed.data.bulk)
+        throw new MarketplaceAttemptError("invalid_attempt", "A bulk Listing recovery reference is required.");
+      const reference = parsed.data;
+      const accountId = access.actor.accountId;
+      const recovery = await services.recoverListingBatch(accountId, reference);
+      if (recovery.retryTargetIds.length === 0) return c.json({ recovery, sent: [] });
+      const batch = parseListingLifecycleBatch({
+        batchId: reference.batchId,
+        family: reference.mutationKind,
+        listingIds: recovery.retryTargetIds,
+      });
+      const result = await services.applyListingBatch({ accountId, ...batch }, context);
+      const outcomes = new Map(result.items.map((item) => [item.targetId, item.outcome]));
+      return c.json({
+        recovery: listingRecoveryResult(
+          reference,
+          recovery.items.map((item) =>
+            item.outcome === "unknown"
+              ? { targetId: item.targetId, outcome: outcomes.get(item.targetId) ?? "ambiguous" }
+              : item,
+          ),
+        ),
+        sent: recovery.retryTargetIds.map((targetId) => ({
+          targetId,
+          outcome: outcomes.get(targetId) ?? ("ambiguous" as const),
+        })),
+      });
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "id-invalid", ...listingAttemptErrors]);
+    }
+  });
+
+  app.post("/listings/batch", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) {
+        return access.response;
+      }
+
+      const context = c.get("context");
+      if (!context) {
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.route.authentication.context.missing.7"),
+            },
+          },
+          401,
+        );
+      }
+
+      const batch = parseListingLifecycleBatch(await c.req.json().catch(() => ({})), c.req.header("Idempotency-Key"));
+      const result = await services.applyListingBatch({ accountId: access.actor.accountId, ...batch }, context);
+      const items = result.items.map(({ message, ...item }) => ({
+        ...item,
+        ...(message === undefined ? {} : { message: t("marketplace.features.listings.api.route.request.failed") }),
+      }));
+      return c.json({
+        batchId: result.batchId,
+        family: result.family,
+        items,
+        total: items.length,
+        count: items.length,
+      });
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "id-invalid", ...listingAttemptErrors]);
     }
   });
 
@@ -1466,6 +1779,7 @@ export function createAccountListingRoutes(
           purchaseLimits:
             body.purchaseLimits && typeof body.purchaseLimits === "object" ? parsePurchaseLimits(body) : undefined,
           feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
+          ...listingAttemptInput(c, body),
         },
         context,
       );
@@ -1477,6 +1791,7 @@ export function createAccountListingRoutes(
         "inventory-item-not-found",
         "command-rejected",
         "fee-quote-stale",
+        ...listingAttemptErrors,
       ]);
     }
   });
@@ -1508,13 +1823,14 @@ export function createAccountListingRoutes(
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
           purchaseLimits: parsePurchaseLimits(body),
+          ...listingAttemptInput(c, body),
         },
         context,
       );
 
       return c.json({ id: result.listingId, version: result.version, status: "purchase-limits-updated" });
     } catch (error) {
-      return listingErrorResponse(error, ["listing-not-found", "command-rejected"]);
+      return listingErrorResponse(error, ["listing-not-found", "command-rejected", ...listingAttemptErrors]);
     }
   });
 
@@ -1545,6 +1861,7 @@ export function createAccountListingRoutes(
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
           feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
+          ...listingAttemptInput(c, body),
         },
         context,
       );
@@ -1557,6 +1874,7 @@ export function createAccountListingRoutes(
         "command-rejected",
         "evidence-incomplete",
         "fee-quote-stale",
+        ...listingAttemptErrors,
       ]);
     }
   });
@@ -1585,13 +1903,14 @@ export function createAccountListingRoutes(
         {
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
+          ...listingAttemptInput(c, await c.req.json().catch(() => ({}))),
         },
         context,
       );
 
       return c.json({ id: result.listingId, version: result.version, status: "paused" });
     } catch (error) {
-      return listingErrorResponse(error, ["listing-not-found", "command-rejected"]);
+      return listingErrorResponse(error, ["listing-not-found", "command-rejected", ...listingAttemptErrors]);
     }
   });
 
@@ -1619,13 +1938,14 @@ export function createAccountListingRoutes(
         {
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
+          ...listingAttemptInput(c, await c.req.json().catch(() => ({}))),
         },
         context,
       );
 
       return c.json({ id: result.listingId, version: result.version, status: "withdrawn" });
     } catch (error) {
-      return listingErrorResponse(error, ["listing-not-found", "command-rejected"]);
+      return listingErrorResponse(error, ["listing-not-found", "command-rejected", ...listingAttemptErrors]);
     }
   });
 

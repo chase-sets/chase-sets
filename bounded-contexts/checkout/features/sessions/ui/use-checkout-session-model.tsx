@@ -51,6 +51,10 @@ export function useCheckoutSessionModel({
   const guestBuyCheckout = !isSignedInBuyer && !isOfferIntent;
   const preview = fulfillmentPreview ?? null;
   const payment = walletUnavailable && !hasPayment ? null : (paymentPreview ?? null);
+  // Confirm posts the revision its orders were bound to; once they exist the preview is gone and the Session keeps it.
+  const confirmationPreviewRevision =
+    preview?.revision ??
+    (!hasPayment && session.order_ids.length > 0 ? (session.fulfillment_preview_revision ?? null) : null);
   const fulfillmentPreviewChanged = Boolean(
     !isOfferIntent &&
     preview?.revision &&
@@ -63,6 +67,11 @@ export function useCheckoutSessionModel({
   const hasAcknowledgedVisibleFulfillmentPreview = Boolean(
     preview?.materialChangeReasons.length || fulfillmentPreviewChanged,
   );
+  // While orders wait for payment, confirm posts the acknowledgement their hash was bound to, as the Session kept it.
+  const confirmationAcknowledgedMaterialChanges =
+    !hasPayment && session.order_ids.length > 0 && typeof session.order_acknowledged_material_changes === "boolean"
+      ? session.order_acknowledged_material_changes
+      : hasAcknowledgedVisibleFulfillmentPreview;
   const [hasPendingReviewChanges, setHasPendingReviewChanges] = useState(false);
   const [editingSection, setEditingSection] = useState<CheckoutEditSection | null>(initialEditSection);
   const [reservationClock, setReservationClock] = useState(() => Date.now());
@@ -75,6 +84,15 @@ export function useCheckoutSessionModel({
   const reservationExpired = Boolean(
     activeReservations.length > 0 && reservationMsRemaining !== null && reservationMsRemaining <= 0,
   );
+  const checkoutCancelled = Boolean(session.cancelled_at);
+  // Cancel checkout is the owner's release for holds alone; once orders, payment
+  // or purchase intent exist, those holds belong to the purchase instead.
+  const canCancelCheckout =
+    !checkoutCancelled &&
+    !hasPayment &&
+    session.order_ids.length === 0 &&
+    !session.submitted_offer_id &&
+    activeReservations.length > 0;
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
   const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const needsPaymentQuote = !isOfferIntent && !hasPayment && !payment;
@@ -286,11 +304,15 @@ export function useCheckoutSessionModel({
     hasPayment,
     preview,
     payment,
+    confirmationPreviewRevision,
+    confirmationAcknowledgedMaterialChanges,
     hasAcknowledgedVisibleFulfillmentPreview,
     canConfirm,
     reservationExpired,
     reservationMsRemaining,
     activeReservations,
+    checkoutCancelled,
+    canCancelCheckout,
     firstDeliveryGroup,
     savedAddressesForCheckout,
     canManageAddressBookInCheckout,

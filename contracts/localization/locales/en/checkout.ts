@@ -103,12 +103,22 @@ export const checkoutEnglishTranslations = {
     "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
   "checkout.features.sessions.api.route.checkout.session.not.found": "Checkout session not found.",
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
+  "checkout.features.sessions.api.route.confirmation.changed":
+    "This checkout already started with different order or payment details. Nothing new was sent.",
+  "checkout.features.sessions.api.route.entry.attempt.conflict":
+    "This checkout was already started with different details. Nothing new was started.",
+  "checkout.features.sessions.api.route.entry.attempt.required":
+    "Start checkout again from the item or your Buy Cart so it is started only once.",
   "checkout.features.sessions.api.route.checkout.reservation.unavailable":
     "One or more checkout items were just reserved by another buyer.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
   "checkout.features.sessions.api.route.payment.summary.not.found": "Payment summary not found.",
   "checkout.features.sessions.api.route.payment.quote.required":
     "Review the latest payable total before payment starts.",
+  "checkout.features.sessions.api.route.payment.email.verification.required":
+    "Verify your email before you pay. Nothing was reserved or ordered.",
+  "checkout.features.sessions.api.route.payment.authority.required":
+    "This account cannot pay for purchases. Nothing was reserved or ordered.",
   "checkout.features.sessions.api.route.payment.start.pending":
     "Payment setup is still catching up. Review checkout again before payment starts.",
   "checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent":
@@ -132,6 +142,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.cart": "Buy cart",
   "checkout.features.sessions.ui.checkoutPage.catalog.item": "Catalog item: ",
   "checkout.features.sessions.ui.checkoutPage.checkout": "Checkout",
+  "checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.description":
+    "We could not confirm whether your order went through. Placing the order is paused until you refresh this checkout and see its current status.",
+  "checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.refresh": "Refresh checkout",
+  "checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title": "We couldn't confirm your order yet",
   "checkout.features.sessions.ui.checkoutPage.checkout.issue": "Checkout issue",
   "checkout.features.sessions.ui.checkoutPage.checkout.status": "Checkout status",
   "checkout.features.sessions.ui.checkoutPage.checkout.summary": "Checkout Summary",
@@ -219,6 +233,13 @@ export const checkoutEnglishTranslations = {
     "Retry to check your current wallet balance before starting payment. Your checkout details are saved.",
   "checkout.features.sessions.ui.checkoutPage.retry.wallet": "Retry wallet balance",
   "checkout.features.sessions.ui.checkoutPage.reserved.for.you": "Reserved for you - {time}",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout": "Cancel checkout",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout.title": "Not buying now?",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout.description":
+    "Cancel this checkout to release the items held for you so other buyers can get them.",
+  "checkout.features.sessions.ui.checkoutPage.checkout.cancelled": "Checkout cancelled",
+  "checkout.features.sessions.ui.checkoutPage.checkout.cancelled.description":
+    "The items held for this checkout were released for other buyers.",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired": "Reservation expired",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired.description":
     "Reserve again to continue checkout if the item is still available.",
@@ -339,6 +360,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.no.available.supply": "No available supply",
   "checkout.features.sessions.ui.checkoutPage.place.purchase.intent": "Submit offer",
   "checkout.features.sessions.ui.checkoutPage.pay.now": "Pay now",
+  "checkout.features.sessions.ui.checkoutPage.verify.email.to.pay": "Verify your email to pay",
   "checkout.features.sessions.ui.checkoutPage.pay.now.with.saved.payment": "Pay now with {paymentMethodCategory}",
   "checkout.features.sessions.ui.checkoutPage.pending": "Pending",
   "checkout.features.sessions.ui.checkoutPage.placing.purchase.intent": "Submitting offer",
@@ -473,6 +495,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.seller.desk": "Seller Desk",
   "checkout.features.sellList.ui.sellListPage.offers.and.sell.list": "Offers & sell list",
   "checkout.features.sellList.ui.sellListPage.estimated.net": "Estimated net {amount}",
+  "checkout.features.sellList.ui.sellListPage.best.offer.net": "Best offer net {amount}",
+  "checkout.features.sellList.ui.sellListPage.not.quoted.yet": "Not quoted yet",
+  "checkout.features.sellList.ui.sellListPage.expected.seller.payout.all.offers": "Expected seller payout (all offers)",
+  "checkout.features.sellList.ui.sellListPage.expected.payout.all.offers.before.checkout":
+    "Expected payout from all offers before seller checkout",
   "checkout.features.sellList.ui.sellListPage.card.summary": "Quantity {quantity} · Best offer {offer}",
   "checkout.features.sellList.ui.sellListPage.review.offers.and.terms": "Review offers and terms",
   "checkout.features.sellList.ui.sellListPage.review.item.offers.and.terms": "Review {item} offers and terms",
@@ -502,7 +529,21 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.set.up.payouts": "Set up payouts",
   "checkout.features.sellList.ui.sellListPage.setup.required": "Setup required",
   "checkout.features.sellList.ui.sellListPage.payout.setup.required.description":
-    "Resolve payout requirements before accepting offers or creating fallback listings: {requirements}.",
+    "Complete payout setup before accepting offers or creating fallback listings.",
+  "checkout.features.sellList.ui.sellListPage.offer.acceptance.unavailable": "Offer acceptance unavailable",
+  "checkout.features.sellList.ui.sellListPage.payout.blocks.acceptance":
+    "Offer acceptance is unavailable until payout setup is ready.",
+  "checkout.features.sellList.ui.sellListPage.payout.verification.pending": "Verification pending",
+  "checkout.features.sellList.ui.sellListPage.payout.restricted": "Restricted",
+  "checkout.features.sellList.ui.sellListPage.payout.pending.description": "Payout verification is pending.",
+  "checkout.features.sellList.ui.sellListPage.payout.restricted.description":
+    "Payouts are restricted. Review payout setup to resolve the restrictions.",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.onboarding": "Complete payout provider onboarding",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.agreement": "Accept the seller agreement",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.bank.account": "Add a bank account for payouts",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.identity.documents":
+    "Provide identity verification documents",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.other": "Review additional payout setup requirements",
   "checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description":
     "Payout readiness could not be loaded. Refresh payout setup before accepting offers or creating fallback listings.",
   "checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail":
@@ -525,7 +566,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.ready": "Ready",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout": "Ready for seller checkout",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description":
-    "Every line has a pre-checkout sale action and payout setup is ready.",
+    "Every item has a pre-checkout sale action and payout setup is ready. Offer acceptance is available.",
   "checkout.features.sellList.ui.sellListPage.review.sell.list": "Review Sell List",
   "checkout.features.sellList.ui.sellListPage.readiness.needs.action": "{count} need action",
   "checkout.features.sellList.ui.sellListPage.readiness.ready": "{count} ready",
@@ -539,7 +580,9 @@ export const checkoutEnglishTranslations = {
     "Your account is ready. Review final seller terms, payout setup, and ship-from details before continuing.",
   "checkout.features.sellList.ui.sellListPage.registration.return.review.title": "Review final seller details",
   "checkout.features.sellList.ui.sellListPage.resolve.before.seller.checkout":
-    "Resolve {count} line(s) before seller checkout starts.",
+    "Resolve {count} items before seller checkout starts. Offer acceptance is unavailable.",
+  "checkout.features.sellList.ui.sellListPage.resolve.one.before.seller.checkout":
+    "Resolve {count} item before seller checkout starts. Offer acceptance is unavailable.",
   "checkout.features.sellList.ui.sellListPage.resolve.items": "Resolve items",
   "checkout.features.sellList.ui.sellListPage.review.items": "Review items",
   "checkout.features.sellList.ui.sellListPage.expected.seller.payout": "Expected seller payout",
@@ -714,7 +757,6 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.review.sale": "Review sale details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.fix.details": "Fix seller checkout details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.ready": "Ready",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.review.required": "Review required",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.standard": "Standard",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.saved.title": "Seller checkout details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.edit.section": "Edit {section}",
@@ -778,10 +820,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.payout.unavailable.description":
     "Payout readiness could not be loaded. Refresh payout setup before seller checkout.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.title": "Seller readiness",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.ready": "Seller account ready",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.needs.review": "Seller account needs review",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.not.yet.assessed": "Not yet assessed",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.seller.readiness.detail":
-    "Risk and account status are checked before the final sale step.",
+    "We'll check your account and shipping choices when you review the sale details.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.title": "Label",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.description":
     "Choose how label preparation should be handled after review.",
@@ -921,6 +962,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.sellCheckoutSession.confirmation.line.completed": "{itemTitle}: sale review recorded.",
   "checkout.routes.sellCheckoutSession.confirmation.line.partial":
     "{itemTitle}: sale review recorded for part of the line; remaining quantity stays in the Sell List.",
+  "checkout.routes.sellCheckoutSession.handoff.not.attempted": "Not attempted.",
   "checkout.routes.checkoutSession.checkout.marketplace": "Checkout | Marketplace",
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",
@@ -934,6 +976,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutSession.checkout.belongs.to.another.account": "Checkout belongs to another account",
   "checkout.routes.checkoutSession.checkout.belongs.to.another.account.description":
     "Sign in with the account that started this checkout, or start checkout again.",
+  "checkout.routes.checkoutSession.confirmation.changed":
+    "This checkout already started with different order or payment details, so nothing new was sent. Review the checkout as it is now before you continue.",
   "checkout.routes.checkoutSession.checkout.unavailable": "Checkout unavailable",
   "checkout.routes.checkoutSession.checkout.unavailable.description": "We could not open this checkout.",
   "checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment":
@@ -955,6 +999,9 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.buyCheckoutConfirmation.title": "Checkout received | Marketplace",
   "checkout.routes.buyCheckoutConfirmation.description": "Continue to the secure payment step for this checkout.",
   "checkout.routes.checkoutRecovery.browse.marketplace": "Browse marketplace",
+  "checkout.routes.checkoutRecovery.checkout.attempt.changed": "This checkout page is out of date",
+  "checkout.routes.checkoutRecovery.checkout.attempt.changed.description":
+    "Nothing new was started. Refresh this page, then continue to start checkout once with its current details.",
   "checkout.routes.checkoutRecovery.checkout.closed": "Checkout is closed",
   "checkout.routes.checkoutRecovery.checkout.closed.description":
     "Buying opens at public launch. Your Buy Cart is saved, and you can continue browsing.",
@@ -1028,6 +1075,9 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.price.confirmed.before.payment": "Price confirmed before payment",
   "checkout.routes.checkoutStart.quantity": "Quantity",
   "checkout.routes.checkoutStart.quantity.confirmed.before.payment": "Quantity confirmed before payment",
+  "checkout.routes.checkoutStart.entry.ambiguous.description":
+    "We could not confirm whether your checkout started. Continuing is paused on this page so checkout is not started twice.",
+  "checkout.routes.checkoutStart.entry.ambiguous.title": "We couldn't confirm your checkout started",
   "checkout.routes.checkoutStart.ready": "Ready",
   "checkout.routes.checkoutStart.register.or.sign.in": "Register or sign in",
   "checkout.routes.checkoutStart.register.or.sign.in.purchase.intent.copy":
@@ -1106,4 +1156,11 @@ export const checkoutEnglishTranslations = {
   "checkout.shared.policyLinks.refunds": "Refunds and returns",
   "checkout.shared.policyLinks.terms": "Terms of service",
   "checkout.shell.cart.label": "Buy Cart",
+  "checkout.sellList.attempt.confirming": "Confirming this Sell List action. Do not submit it again.",
+  "checkout.sellList.attempt.ambiguous":
+    "This action could not be confirmed. Other actions are disabled. Explicitly retry the same action to resolve it.",
+  "checkout.sellList.attempt.partial":
+    "This action completed only partly. Review each result before explicitly retrying.",
+  "checkout.sellList.attempt.failedSafe": "This action was refused without an unconfirmed write.",
+  "checkout.sellList.attempt.retry": "Retry the same action",
 } as const;

@@ -10,12 +10,14 @@ const dbFiles = [
   "features/connector-client/tests/extension-connector-scope-separation.db.test.ts",
   "features/connector-client/tests/extension-pairing-redirect-and-scope.db.test.ts",
 ];
-type Scripts = { "test:db": string; "test:unit": string };
+type Scripts = Readonly<Record<string, string>>;
 function selection(scripts: Scripts, dbFile: string) {
-  const dbArgs = scripts["test:db"].split(" ");
+  const dbArgs = Object.entries(scripts)
+    .filter(([name]) => /^test:db:\d+$/.test(name))
+    .flatMap(([, script]) => script.split(/\s+/));
   const unitArgs = scripts["test:unit"].split(" ");
   return {
-    dbListed: dbArgs.includes(dbFile),
+    dbListed: dbArgs.filter((argument) => argument === dbFile).length === 1,
     unitExcluded: unitArgs.some((arg, index) => arg === "--exclude" && unitArgs[index + 1] === dbFile),
   };
 }
@@ -24,7 +26,7 @@ const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../packa
 };
 
 describe("extension-db-enrollment", () => {
-  it.each(dbFiles)("unnumbered DB caller lists %s and ordinary units exclude it without a DB URL", (dbFile) => {
+  it.each(dbFiles)("numbered DB partitions list %s once and ordinary units exclude it without a DB URL", (dbFile) => {
     expect(selection(pkg.scripts, dbFile)).toEqual({ dbListed: true, unitExcluded: true });
     const dbSource = readFileSync(resolve(import.meta.dirname, "../../../", dbFile), "utf8");
     expect(dbSource).toContain('from "@chase-sets/auth/server"');
@@ -48,14 +50,20 @@ describe("extension-db-enrollment", () => {
     expect((await fixture.background.status()).state).toBe("unpaired");
   });
   it.each(dbFiles)("unlisted-importer control and missing unit exclusion cannot certify %s enrollment", (dbFile) => {
-    const unlisted = {
-      ...pkg.scripts,
-      "test:db": pkg.scripts["test:db"]
-        .split(" ")
-        .filter((arg) => arg !== dbFile)
-        .join(" "),
-    };
+    const unlisted = Object.fromEntries(
+      Object.entries(pkg.scripts).map(([name, script]) => [
+        name,
+        /^test:db:\d+$/.test(name)
+          ? script
+              .split(/\s+/)
+              .filter((arg) => arg !== dbFile)
+              .join(" ")
+          : script,
+      ]),
+    );
     expect(selection(unlisted, dbFile).dbListed).toBe(false);
+    const duplicated = { ...pkg.scripts, "test:db:999": `vitest run ${dbFile}` };
+    expect(selection(duplicated, dbFile).dbListed).toBe(false);
     const unexcluded = { ...pkg.scripts, "test:unit": pkg.scripts["test:unit"].replace(` --exclude ${dbFile}`, "") };
     expect(selection(unexcluded, dbFile).unitExcluded).toBe(false);
   });

@@ -21,6 +21,7 @@ import {
   type AccountStatus,
   type AccountType,
 } from "../../../support/runtime-support/common";
+import { AccountProfileFieldError, type AccountProfileField } from "./errors";
 
 export type AccountState = Readonly<{
   id: AccountId | null;
@@ -178,8 +179,8 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
         {
           type: "identity.account.profile-updated",
           data: {
-            name: normalizeLabel(command.name),
-            displayName: normalizeLabel(command.displayName ?? command.name),
+            name: requiredProfileLabel(command.name, "name"),
+            displayName: requiredProfileLabel(command.displayName ?? command.name, "displayName"),
           },
         },
       ];
@@ -342,6 +343,13 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
 
 function requireCreatedAccount(state: AccountState) {
   assert(state.id !== null, "Account must be created first.");
+}
+
+// An account's legal and marketplace names are shown wherever the account is named, so neither may be blank.
+function requiredProfileLabel(value: string, field: AccountProfileField): string {
+  const label = normalizeLabel(value);
+  if (!label) throw new AccountProfileFieldError(field);
+  return label;
 }
 
 export function parseAccountEnforcementData<Reason extends string>(

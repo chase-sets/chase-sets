@@ -75,6 +75,45 @@ After a complete suite run, artifact validation rejects missing, stale,
 substituted, duplicate, cross-claim, and unknown-field payloads. Validation remains part of the E2E command, but the
 validated files remain local to the runner until the separately reviewed publication boundary is available.
 
+## Market-following journey package
+
+The `e2e-tests` job keeps a closed, trace-free package for one target: the test in
+`deployables/marketplace/e2e/market-following-offers.spec.ts` under `marketplace-chromium`. The target is enrolled only
+when its first attempt attaches a v1 `market-following-command-timeline` JSON timeline. Each capture is attached as
+`testInfo.attach(<checkpoint>, { body, contentType: "image/png" })` after its matching `capture` timeline entry:
+`journey-review-390`, `journey-review-1440`, `journey-active-390`, `journey-active-1440` (buyer,
+`/account/offers/submitted`) and `journey-checkout-confirmation-1440` (seller,
+`/checkout/sell/session/:sessionId/confirmation`), at 390x844 or 1440x1000. The closed timeline, result and manifest
+schemas, enums and caps live in `scripts/lib/journey-package-contract.mjs`.
+
+`scripts/lib/journey-package-reporter.mjs` records only the target's attempts in the runner-local
+`artifacts/playwright/test-results/journey-package-record/`; it is inert under `--list`, a command-line `--reporter`,
+and for every other test. After every non-cancelled producer run, `Prepare journey package` runs
+`node ./scripts/prepare-journey-package.mjs`, which rebuilds `artifacts/journey-package/` (`result.json`,
+`timeline.json`, `captures/<checkpoint>.png`, `manifest.json`) from parsed values, validates the staged copy, and
+renames it into place:
+
+| Producer | Target (first attempt) | Upload | Step exit |
+| --- | --- | --- | --- |
+| success | passed, complete timeline, all five captures | `journey-package-<run>-<attempt>-<job-index>` | 0 |
+| success | skipped, expected failure, retry-recovered | `journey-package-diagnostics-<run>-<attempt>-<job-index>` | 0 |
+| failure | failed, timed out, interrupted, not executed | diagnostics, `partial: true` | 0 (job stays red) |
+| either | absent or unenrolled | none; step summary only | 0 |
+| success | passed but incomplete | none | non-zero |
+| either | unsafe, conflicting, stale or over-cap content | none | non-zero |
+
+Caps are 12 MiB per PNG, 256 KiB for the timeline and 64 KiB for `result.json` and `manifest.json`; over cap refuses
+and nothing is truncated. PNGs are rebuilt from CRC-checked critical chunks, and text or EXIF chunks refuse. Traces,
+video, the HTML report, error text, `error-context`, logs and every automatic or unlisted attachment stay on the
+runner; the step summary counts the excluded attachments. The raw `report` and `test-results` roots are still never
+uploaded.
+
+Check a downloaded package before relying on it:
+
+```powershell
+node scripts/prepare-journey-package.mjs --inspect <download-dir> --expect-test deployables/marketplace/e2e/market-following-offers.spec.ts --expect-run <run> --expect-attempt <attempt> --expect-job <check-run-id> --expect-job-index <job-index> --expect-source-head <sha>
+```
+
 ## Deployed Targets
 
 Playwright can run against an already deployed environment without starting the local sandbox server:

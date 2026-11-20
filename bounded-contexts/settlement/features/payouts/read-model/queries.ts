@@ -31,6 +31,9 @@ export type SettlementPayoutRow = Readonly<{
   retry_count: number;
   next_retry_at: string | null;
   retry_reason: string | null;
+  /** Settlement-owned operations signals returned by reconciliation reads. */
+  operations_state?: "retry-queued" | "needs-provider-reference" | "ready-to-reconcile" | "review";
+  operations_severity?: "critical" | "warning" | "normal";
 }>;
 
 export type SettlementPayoutRiskSummaryRow = Readonly<{

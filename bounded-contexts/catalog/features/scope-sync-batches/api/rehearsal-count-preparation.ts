@@ -1,10 +1,12 @@
-import type { z } from "zod";
+import { z } from "zod";
 import {
   countFingerprint,
   countPreparationViewSchema,
   countQueryKey,
+  countQuoteRefusalReasonSchema,
   countQuoteSchema,
   countTimeIsCurrent,
+  type CountQuoteRefusalReason,
 } from "../domain/count-acquisition";
 import {
   parseRehearsalCountPreparationApproval,
@@ -14,6 +16,7 @@ import {
   rehearsalCountPreparationMaxTargets,
   rehearsalCountPreparationReceiptSchemaVersion,
   rehearsalCountPreparationSelection,
+  rehearsalCountUsageObservationSchema,
   RehearsalCountPreparationRefusal,
   type RehearsalCountPreparationAccounting,
   type RehearsalCountPreparationApproval,
@@ -22,14 +25,15 @@ import {
   type RehearsalCountPreparationReceipt,
   type RehearsalCountPreparationRefusalCode,
 } from "../domain/rehearsal-count-preparation-receipt";
+import { scrydexPeriodDecisionSchema, type ScrydexPeriodDecision } from "../domain/scrydex-billing-period";
 
 // Staging-only preparation of governed Scrydex counts before a whole-game
-// rehearsal pass reserves and starts its batch. It drives only the existing
-// count routes: one quote, or one host-approved whole-quote acquisition between
-// two preparation reads of current authority and quote debits. It never
-// previews, confirms, enqueues, refreshes usage, discovers, retries, follows
-// redirects or reads a second page, and it never holds provider credentials;
-// the server's locked admission and claims own every debit and send.
+// rehearsal pass reserves and starts its batch. The host may authorize one
+// Admin usage observation (one general credit if sent) before the quote.
+// Acquire never observes usage: it submits one host-approved whole quote
+// between two reads of retained authority and quote debits. Neither path
+// previews, confirms, enqueues, discovers, retries, follows redirects, reads
+// a second page or holds provider credentials.
 
 // A maximum 10000-target quote with 10000 debits and long but valid query fields
 // serializes to roughly 15 MiB; anything larger is refused rather than truncated.
@@ -41,10 +45,35 @@ const acquireTimeoutMs = 8 * 60 * 1000;
 const ageLimitMs = 15 * 60 * 1000;
 
 export type RehearsalCountAdminResponse = Readonly<{ status: number; body: unknown }>;
+const quoteErrorSchema = z.object({
+  error: z.object({
+    code: z.enum(["invalid-count-request", "unauthenticated", "forbidden", "count-acquisition-refused"]),
+    reason: countQuoteRefusalReasonSchema.optional().catch(undefined),
+  }),
+});
+type QuoteFailure =
+  | { kind: "request-failed" }
+  | {
+      kind: "http";
+      status: number;
+      code: z.infer<typeof quoteErrorSchema>["error"]["code"] | null;
+      reason?: CountQuoteRefusalReason;
+    };
+type UsageObservation = NonNullable<RehearsalCountPreparationReceipt["usageObservation"]>;
+const usageReadinessSchema = z.object({
+  readiness: z.object({
+    providerUsage: z.array(z.object({ providerKey: z.string(), observedAt: z.unknown(), attemptState: z.unknown() })),
+  }),
+});
+
 export type RehearsalCountAdmin = Readonly<{
   quote(input: { selection: unknown; cap?: number }): Promise<RehearsalCountAdminResponse>;
   readPreparation(quoteId: string): Promise<RehearsalCountAdminResponse>;
-  acquire(input: { quoteId: string; fingerprint: string }): Promise<RehearsalCountAdminResponse>;
+  acquire(input: {
+    quoteId: string;
+    fingerprint: string;
+    periodReserve: unknown;
+  }): Promise<RehearsalCountAdminResponse>;
 }>;
 export type RehearsalCountRunIdentity = Readonly<{ sha: string; runId: string; runAttempt: string }>;
 
@@ -73,16 +102,16 @@ async function readBounded(response: Response, maxBytes: number): Promise<string
   return Buffer.concat(chunks).toString("utf8");
 }
 
-/** Same-origin Admin client for the existing count routes; redirects are returned, never followed. */
+/** Same-origin Admin client for the existing count and usage reads; never follows redirects. */
 export function createRehearsalCountAdminClient(deps: {
   origin: string;
   cookie: string;
   fetch: typeof globalThis.fetch;
   maxResponseBytes?: number;
-}): RehearsalCountAdmin {
-  const base = `${deps.origin}/api/catalog/scope-sync-batches/counts`;
+}): RehearsalCountAdmin & { observeUsage(): Promise<RehearsalCountAdminResponse> } {
+  const countsPath = "/api/catalog/scope-sync-batches/counts";
   async function call(path: string, body?: unknown, timeoutMs = readTimeoutMs): Promise<RehearsalCountAdminResponse> {
-    const response = await deps.fetch(`${base}${path}`, {
+    const response = await deps.fetch(`${deps.origin}${path}`, {
       method: body === undefined ? "GET" : "POST",
       headers: {
         cookie: deps.cookie,
@@ -94,7 +123,9 @@ export function createRehearsalCountAdminClient(deps: {
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (response.status < 200 || response.status >= 300) {
+    // Read the count route's structured quote refusals and the acquisition's 409 period decision.
+    const quoteRefusal = path === `${countsPath}/quote` && [400, 401, 403].includes(response.status);
+    if ((response.status < 200 || response.status >= 300) && response.status !== 409 && !quoteRefusal) {
       await response.body?.cancel().catch(() => undefined);
       return { status: response.status, body: null };
     }
@@ -106,13 +137,19 @@ export function createRehearsalCountAdminClient(deps: {
     }
   }
   return {
-    quote: (input) => call("/quote", input.cap === undefined ? { selection: input.selection } : input),
-    readPreparation: (quoteId) => call(`/quote/${encodeURIComponent(quoteId)}?view=preparation`),
+    observeUsage: () => call("/api/catalog/source-observations/integration-control-plane/overview?audience=daily"),
+    quote: (input) => call(`${countsPath}/quote`, input.cap === undefined ? { selection: input.selection } : input),
+    readPreparation: (quoteId) => call(`${countsPath}/quote/${encodeURIComponent(quoteId)}?view=preparation`),
     // Preparation only ever submits whole-quote admission; stripping it is the server's to refuse.
     acquire: (input) =>
       call(
-        "/acquire",
-        { quoteId: input.quoteId, fingerprint: input.fingerprint, admission: "whole-quote" },
+        `${countsPath}/acquire`,
+        {
+          quoteId: input.quoteId,
+          fingerprint: input.fingerprint,
+          admission: "whole-quote",
+          periodReserve: input.periodReserve,
+        },
         acquireTimeoutMs,
       ),
   };
@@ -213,6 +250,29 @@ function parseQuote(response: RehearsalCountAdminResponse): ParsedQuote | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * The acquire response: a 200 quote carrying the admission's period decision, or
+ * the locked 409 refusal that may carry it. A malformed decision is never kept.
+ */
+function submissionOf(response: RehearsalCountAdminResponse): {
+  quote: ParsedQuote | null;
+  periodDecision: ScrydexPeriodDecision | null;
+} {
+  const body = response.body && typeof response.body === "object" ? (response.body as Record<string, unknown>) : {};
+  if (response.status === 200) {
+    const { periodDecision, ...quote } = body;
+    const decision = scrydexPeriodDecisionSchema.safeParse(periodDecision);
+    return {
+      quote: parseQuote({ status: 200, body: quote }),
+      periodDecision: decision.success ? decision.data : null,
+    };
+  }
+  const refusal = response.status === 409 ? (body.error as Record<string, unknown> | undefined) : undefined;
+  const decision =
+    refusal?.code === "usage-period-cap" ? scrydexPeriodDecisionSchema.safeParse(refusal.decision) : null;
+  return { quote: null, periodDecision: decision?.success ? decision.data : null };
+}
+
 function parseView(response: RehearsalCountAdminResponse): ParsedView | null {
   if (response.status !== 200) return null;
   const parsed = countPreparationViewSchema.safeParse(response.body);
@@ -234,7 +294,10 @@ const quoteWithheld = new Set<RehearsalCountPreparationRefusalCode>([
   "reused-source-expired",
 ]);
 
-type ReceiptBase = Pick<RehearsalCountPreparationReceipt, "mode" | "dispatchId" | "pass" | "approval">;
+type ReceiptBase = Pick<
+  RehearsalCountPreparationReceipt,
+  "mode" | "dispatchId" | "pass" | "approval" | "usageObservation"
+>;
 
 function receipt(
   run: RehearsalCountRunIdentity,
@@ -251,6 +314,7 @@ function receipt(
     dispatchId: base.dispatchId,
     pass: base.pass,
     selection: rehearsalCountPreparationSelection(base.pass),
+    ...(base.usageObservation && { usageObservation: base.usageObservation }),
     approval: base.approval,
     quote: null,
     authority: null,
@@ -283,34 +347,71 @@ function quoteSummary(
   };
 }
 
-/**
- * Quote mode: one zero-provider quote of the pass's complete selection, for the
- * host's pre-spend notice. It spends nothing and approves nothing.
- */
+async function observeScrydexUsage(read: () => Promise<RehearsalCountAdminResponse>): Promise<UsageObservation> {
+  const unavailable: UsageObservation = { requested: true, observedAt: null, attemptState: "unavailable" };
+  try {
+    const response = await read();
+    if (response.status !== 200) return unavailable;
+    const parsed = usageReadinessSchema.safeParse(response.body);
+    const snapshots = parsed.data?.readiness.providerUsage.filter(({ providerKey }) => providerKey === "scrydex");
+    if (snapshots?.length !== 1) return unavailable;
+    const { observedAt, attemptState } = snapshots[0]!;
+    return (
+      rehearsalCountUsageObservationSchema.safeParse({ requested: true, observedAt, attemptState }).data ?? unavailable
+    );
+  } catch {
+    return unavailable;
+  }
+}
+
+/** Quote the pass's complete selection without buying counts or approving spend. */
 export async function quoteRehearsalCounts(input: {
   admin: RehearsalCountAdmin;
   run: RehearsalCountRunIdentity;
   dispatchId: string;
   pass: RehearsalCountPreparationPass;
   cap?: number;
+  observeUsage?: () => Promise<RehearsalCountAdminResponse>;
   now: () => string;
+  onQuoteFailure?: (failure: QuoteFailure) => void;
 }): Promise<RehearsalCountPreparationReceipt> {
-  const base: ReceiptBase = { mode: "quote", dispatchId: input.dispatchId, pass: input.pass, approval: null };
   if (input.cap !== undefined && (!Number.isSafeInteger(input.cap) || input.cap < 0 || input.cap > 10_000))
     throw new RehearsalCountPreparationRefusal("cap-invalid");
+  const usageObservation = input.observeUsage ? await observeScrydexUsage(input.observeUsage) : undefined;
+  const base: ReceiptBase = {
+    mode: "quote",
+    dispatchId: input.dispatchId,
+    pass: input.pass,
+    approval: null,
+    usageObservation,
+  };
+  if (usageObservation && usageObservation.attemptState !== "checked")
+    return receipt(input.run, base, input.now(), { outcome: "refused", refusal: "usage-observation-not-checked" });
   let response: RehearsalCountAdminResponse;
   try {
     response = await input.admin.quote({ selection: rehearsalCountPreparationSelection(input.pass), cap: input.cap });
   } catch (error) {
     const refusal = error instanceof RehearsalCountResponseOverflow ? "response-overflow" : "quote-unavailable";
+    if (refusal === "quote-unavailable") input.onQuoteFailure?.({ kind: "request-failed" });
     return receipt(input.run, base, input.now(), { outcome: "refused", refusal });
   }
   const quote = parseQuote(response);
-  if (!quote)
+  if (!quote) {
+    if (response.status !== 200 && input.onQuoteFailure) {
+      const error = quoteErrorSchema.safeParse(response.body).data?.error;
+      const reason = response.status === 409 && error?.code === "count-acquisition-refused" ? error.reason : undefined;
+      input.onQuoteFailure({
+        kind: "http",
+        status: response.status,
+        code: error?.code ?? null,
+        ...(reason && { reason }),
+      });
+    }
     return receipt(input.run, base, input.now(), {
       outcome: "refused",
       refusal: response.status === 200 ? "quote-invalid" : "quote-unavailable",
     });
+  }
   const at = input.now();
   const inspection = inspect(quote, input.pass, at);
   const unpaid = inspection.unpaid.cards + inspection.unpaid.sealed;
@@ -350,8 +451,17 @@ export function admitRehearsalCountAcquisition(input: {
   const approval = parseRehearsalCountPreparationApproval(input.approval);
   if (countFingerprint(approval.pass) !== countFingerprint(input.pass))
     throw new RehearsalCountPreparationRefusal("approval-pass-mismatch");
-  if (approval.dispatchId !== input.dispatchId)
+  if (approval.dispatchId !== input.dispatchId || approval.periodReserve.runId !== input.dispatchId)
     throw new RehearsalCountPreparationRefusal("approval-dispatch-mismatch");
+  // The reserve must be known and for the billing period in force now; the server
+  // re-checks it against its retained snapshot under the headroom lock.
+  const reserve = approval.periodReserve;
+  if (
+    reserve.credits === null ||
+    Date.parse(reserve.startsAt) > Date.parse(input.now) ||
+    Date.parse(reserve.endsAt) <= Date.parse(input.now)
+  )
+    throw new RehearsalCountPreparationRefusal("approval-invalid");
   if (approval.perKindCost.cards + approval.perKindCost.sealed !== approval.plannedCredits)
     throw new RehearsalCountPreparationRefusal("approval-invalid");
   if (approval.plannedCredits < 1) throw new RehearsalCountPreparationRefusal("nothing-to-acquire");
@@ -361,7 +471,7 @@ export function admitRehearsalCountAcquisition(input: {
   if (approval.authority.headroom < approval.plannedCredits)
     throw new RehearsalCountPreparationRefusal("headroom-below-planned");
   if (!currentAt(approval.approvedAt, input.now)) throw new RehearsalCountPreparationRefusal("approval-stale");
-  if (!currentAt(approval.authority.observedAt, input.now))
+  if (!currentAt(approval.authority.observedAt, input.now) || !currentAt(reserve.observedAt, input.now))
     throw new RehearsalCountPreparationRefusal("authority-stale");
   if (Date.parse(approval.quote.expiresAt) < Date.parse(input.now))
     throw new RehearsalCountPreparationRefusal("quote-expired");
@@ -512,12 +622,16 @@ export async function acquireRehearsalCounts(input: {
     status: null,
     state: null,
   };
+  let periodDecision: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["periodDecision"] = null;
   try {
     const result = await input.admin.acquire({
       quoteId: pending.quote.quoteId,
       fingerprint: pending.quote.fingerprint,
+      periodReserve: approval.periodReserve,
     });
-    response = { status: result.status, state: parseQuote(result)?.state ?? null };
+    const submitted = submissionOf(result);
+    response = { status: result.status, state: submitted.quote?.state ?? null };
+    periodDecision = submitted.periodDecision;
   } catch {
     // An interrupted or overflowing submission may have sent; it stays uncertain.
   }
@@ -540,12 +654,13 @@ export async function acquireRehearsalCounts(input: {
     quote,
     authority,
     roster: inspection.roster,
-    acquisition: { admission: "whole-quote", submittedAt, response, readback },
+    acquisition: { admission: "whole-quote", submittedAt, response, readback, periodDecision },
     sources,
     accounting,
     outcome: rehearsalCountAcquisitionOutcome({
       response,
       readback,
+      periodDecision,
       accounting,
       sourced: sources.length === inspection.roster.length,
     }),

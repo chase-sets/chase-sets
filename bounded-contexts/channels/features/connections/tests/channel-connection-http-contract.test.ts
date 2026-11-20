@@ -3,7 +3,12 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import { channelConnectionRoutes } from "../api/route";
-import type { ChannelConnectionServices, ChannelConnectionState, PublicChannelConnection } from "../domain/contracts";
+import {
+  ChannelConnectionError,
+  type ChannelConnectionServices,
+  type ChannelConnectionState,
+  type PublicChannelConnection,
+} from "../domain/contracts";
 import { testContext } from "./test-support";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
@@ -14,6 +19,7 @@ const dto: PublicChannelConnection = {
   environment: "sandbox",
   status: "active",
   createdAt: "2026-09-05T00:00:00.000Z",
+  allowedActions: ["pause", "disconnect"],
 };
 
 describe("channel-connection-http-contract", () => {
@@ -23,6 +29,7 @@ describe("channel-connection-http-contract", () => {
       "POST /",
       "POST /:id/activate",
       "GET /",
+      "GET /providers",
       "GET /:id",
       "POST /:id/pause",
       "POST /:id/resume",
@@ -32,18 +39,39 @@ describe("channel-connection-http-contract", () => {
 
   it("returns the exact closed DTO across list, detail, and all three committed mutations", async () => {
     const app = createApp(createServices());
-    for (const request of [
-      new Request("http://local/api/channels/connections"),
-      new Request("http://local/api/channels/connections/connection_1"),
-      new Request("http://local/api/channels/connections/connection_1/pause", { method: "POST" }),
-      new Request("http://local/api/channels/connections/connection_1/resume", { method: "POST" }),
-      new Request("http://local/api/channels/connections/connection_1/disconnect", { method: "POST" }),
-    ]) {
+    for (const [request, expectedStatus] of [
+      [
+        new Request("http://local/api/channels/connections", {
+          method: "POST",
+          body: JSON.stringify({ providerKey: "fixture-provider" }),
+        }),
+        201,
+      ],
+      [
+        new Request("http://local/api/channels/connections/connection_1/activate", {
+          method: "POST",
+          body: JSON.stringify({ storageLocationIds: [] }),
+        }),
+        200,
+      ],
+      [new Request("http://local/api/channels/connections"), 200],
+      [new Request("http://local/api/channels/connections/connection_1"), 200],
+      [new Request("http://local/api/channels/connections/connection_1/pause", { method: "POST" }), 200],
+      [new Request("http://local/api/channels/connections/connection_1/resume", { method: "POST" }), 200],
+      [new Request("http://local/api/channels/connections/connection_1/disconnect", { method: "POST" }), 200],
+    ] as const) {
       const response = await app.request(request);
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(expectedStatus);
       const body = await response.json();
       const item = "items" in body ? body.items[0] : body;
-      expect(Object.keys(item)).toEqual(["connectionId", "providerKey", "environment", "status", "createdAt"]);
+      expect(Object.keys(item)).toEqual([
+        "connectionId",
+        "providerKey",
+        "environment",
+        "status",
+        "createdAt",
+        "allowedActions",
+      ]);
       expect(item).toEqual(dto);
       expect(JSON.stringify(body)).not.toMatch(/accountId|credentialReference|bindings|adversarial-secret-marker/);
     }
@@ -75,6 +103,21 @@ describe("channel-connection-http-contract", () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({
       error: { code: "connection-not-found", message: "connection-not-found" },
+    });
+  });
+  it.each(["pause", "disconnect"])("reports %s closure pending as a conflict, never an applied DTO", async (action) => {
+    const services = createServices();
+    const pending = async () => {
+      throw new ChannelConnectionError("connection-change-pending");
+    };
+    services.pauseChannelConnection = pending;
+    services.disconnectChannelConnection = pending;
+    const response = await createApp(services).request(`http://local/api/channels/connections/connection_1/${action}`, {
+      method: "POST",
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: { code: "connection-change-pending", message: "connection-change-pending" },
     });
   });
 });

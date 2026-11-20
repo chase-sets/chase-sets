@@ -193,6 +193,7 @@ describe("payout operations trusted loader and action", () => {
       payoutReadiness: null,
       filter: "failed",
     });
+    expect(result.payouts.attention).toEqual(expect.objectContaining({ basis: "returned-items" }));
     expect(s.listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({
       accountId: null,
       limit: 100,

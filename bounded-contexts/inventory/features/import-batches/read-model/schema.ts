@@ -186,6 +186,16 @@ ${inventoryDraftListingOutboxSchemaSql}
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20261101_inventory_import_draft_handoff_scan",
+    description: "Index the bounded draft handoff resume-window scan and its outbox lineage read.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_handoff_scan_idx
+  ON inventory_import_batch_rows (created_at, row_id)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_draft_listing_outbox_lineage_idx
+  ON inventory_import_draft_listing_outbox (created_at, message_id)`,
+    ],
+  },
+  {
     migrationId: "20261028_inventory_import_row_commit_fences",
     description: "Fence frozen import row effects to one durable work-unit claim.",
     statements: [

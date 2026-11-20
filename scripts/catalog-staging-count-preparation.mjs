@@ -67,7 +67,13 @@ export function countPreparationInput(env, now) {
   if (mode === "quote") {
     if (approval) throw refuse("approval-not-allowed-in-quote-mode");
     if (cap && !/^\d{1,5}$/.test(cap)) throw refuse("cap-invalid");
-    return { mode, pass, dispatchId, cap: cap ? Number(cap) : undefined };
+    return {
+      mode,
+      pass,
+      dispatchId,
+      cap: cap ? Number(cap) : undefined,
+      observeUsage: env.CATALOG_COUNT_PREPARATION_OBSERVE_USAGE === "true",
+    };
   }
   if (cap) throw refuse("cap-not-allowed-in-acquire-mode");
   return { mode, pass, dispatchId, approval: admitRehearsalCountAcquisition({ approval, pass, dispatchId, now }) };
@@ -146,13 +152,25 @@ export async function runCountPreparation({
 } = {}) {
   const run = countPreparationIdentity(env);
   const input = countPreparationInput(env, now());
+  if (input.mode === "quote" && input.observeUsage && run.runAttempt !== "1")
+    throw refuse("usage-observation-requires-fresh-dispatch");
   const { email, password } = adminCredentials(env);
   const fenced = stagingOriginFetch(fetch);
   const token = await signInStagingAdmin({ email, password, fetch: fenced });
   const admin = createRehearsalCountAdminClient({ origin, cookie: `chase_sets_session=${token}`, fetch: fenced });
+  let quoteFailure;
   const receipt =
     input.mode === "quote"
-      ? await quoteRehearsalCounts({ admin, run, dispatchId: input.dispatchId, pass: input.pass, cap: input.cap, now })
+      ? await quoteRehearsalCounts({
+          admin,
+          run,
+          dispatchId: input.dispatchId,
+          pass: input.pass,
+          cap: input.cap,
+          observeUsage: input.observeUsage ? admin.observeUsage : undefined,
+          now,
+          onQuoteFailure: (failure) => (quoteFailure = failure),
+        })
       : await acquireRehearsalCounts({ admin, run, approval: input.approval, now });
   const text = `${JSON.stringify(receipt, null, 2)}\n`;
   const verdict = validateRehearsalCountPreparationReceiptText(text, {
@@ -163,7 +181,10 @@ export async function runCountPreparation({
   mkdirSync(dirname(receiptPath), { recursive: true });
   writeFileSync(receiptPath, text);
   // A quote awaiting approval or a validated handoff ends successfully; every stop fails the run.
-  return { ok: rehearsalCountPreparationContinuation(receipt) !== "stop", summary: summarizeCountPreparation(receipt) };
+  return {
+    ok: rehearsalCountPreparationContinuation(receipt) !== "stop",
+    summary: { ...summarizeCountPreparation(receipt), ...(quoteFailure && { quoteFailure }) },
+  };
 }
 
 /** Pre-upload gate: the exact regular receipt file, bound to this run, free of admitted credential values. */

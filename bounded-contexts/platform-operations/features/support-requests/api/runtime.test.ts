@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import type { PgQueryable, PgQueryFunction } from "@chase-sets/event-core-postgres";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -13,12 +14,20 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSupportRequestRuntime } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
-import { actorContext, operationsResponseFixture, responseCases } from "./participant-attempt.test-support";
+import {
+  actorContext,
+  operationsResponseFixture,
+  responseCases,
+  legacyCsatResolutionFixture,
+  attemptId,
+  responseSeller,
+} from "./participant-attempt.test-support";
 import {
   attachmentManifestReferences,
   attachmentOperationStreamId,
   createAttachmentManifest,
 } from "../domain/attachment-operation";
+import { getSupportResponsibilityReasonDefinitions } from "../domain/responsibility";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -45,10 +54,211 @@ const operatorSellerNonShipmentFinding = {
   responsibilityReasonCode: "product-not-received.seller-did-not-ship",
 } as const;
 
+type RuntimeFixtureQuery = (...args: Parameters<PgQueryFunction>) => Promise<Readonly<{ rows: readonly unknown[] }>>;
+
+function runtimeFixtureDb(query: RuntimeFixtureQuery): PgQueryable {
+  return { query: query as PgQueryFunction };
+}
+
+// Method syntax so fixtures may declare the optional `values` parameter as required, as `pg` callers pass it.
+type RuntimeFixtureDb = Readonly<{
+  query(...args: Parameters<PgQueryFunction>): Promise<Readonly<{ rows: readonly unknown[] }>>;
+}>;
+
+function completeRuntimeDb(db: RuntimeFixtureDb): PgQueryable {
+  return runtimeFixtureDb(async (...args) => {
+    const result = await db.query(...args);
+    return {
+      ...result,
+      rows: result.rows.map((row) => {
+        if (!row || typeof row !== "object") return row;
+        const value = row as Record<string, unknown>;
+        return {
+          ...value,
+          flow_type: value.flow_type ?? "product-not-received",
+          status: value.status ?? "open",
+        };
+      }),
+    };
+  });
+}
+
+const OPERATOR_POLICY_NOW = "2026-06-01T01:00:00.000Z";
+
+function operatorPolicyRow(overrides: Readonly<Record<string, unknown>> = {}): Record<string, unknown> {
+  return {
+    support_request_id: "sup_1",
+    flow_type: "product-not-received",
+    status: "open",
+    seller_response_due_at: null,
+    support_review_due_at: null,
+    seller_condition_attestation_due_at: null,
+    affected_line_items: [],
+    pending_offer: null,
+    offers: [],
+    resolution: null,
+    remedy_approval: null,
+    ...overrides,
+  };
+}
+
+async function readOperatorPolicy(row: Readonly<Record<string, unknown>>) {
+  const { eventStore } = createInMemoryEventStore();
+  const runtime = createSupportRequestRuntime({
+    eventStore,
+    checkpointStore: createCheckpointStore(),
+    db: runtimeFixtureDb(vi.fn(async () => ({ rows: [row] }))),
+  });
+  const result = await runtime.getSupportOperationsRequest("sup_1", OPERATOR_POLICY_NOW);
+  return result?.operatorPolicy;
+}
+
+describe("support operations runtime policy contract", () => {
+  const selectableReasons = (flowType: Parameters<typeof getSupportResponsibilityReasonDefinitions>[0]) =>
+    getSupportResponsibilityReasonDefinitions(flowType).filter((reason) => reason.operatorSelectable);
+
+  it.each([
+    ["all deadlines null", operatorPolicyRow(), null, "response", "product-not-received"],
+    [
+      "seller response only",
+      operatorPolicyRow({ seller_response_due_at: "2026-06-01T03:00:00.000Z" }),
+      "2026-06-01T03:00:00.000Z",
+      "response",
+      "product-not-received",
+    ],
+    [
+      "support review only",
+      operatorPolicyRow({ support_review_due_at: "2026-06-01T03:00:00.000Z" }),
+      "2026-06-01T03:00:00.000Z",
+      "response",
+      "product-not-received",
+    ],
+    [
+      "seller attestation only",
+      operatorPolicyRow({ seller_condition_attestation_due_at: "2026-06-01T03:00:00.000Z" }),
+      "2026-06-01T03:00:00.000Z",
+      "response",
+      "product-not-received",
+    ],
+    [
+      "all deadlines earliest in each column",
+      operatorPolicyRow({
+        seller_response_due_at: "2026-06-01T04:00:00.000Z",
+        support_review_due_at: "2026-06-01T02:00:00.000Z",
+        seller_condition_attestation_due_at: "2026-06-01T03:00:00.000Z",
+      }),
+      "2026-06-01T02:00:00.000Z",
+      "response",
+      "product-not-received",
+    ],
+    [
+      "equal earliest deadlines",
+      operatorPolicyRow({
+        seller_response_due_at: "2026-06-01T02:00:00.000Z",
+        support_review_due_at: "2026-06-01T02:00:00.000Z",
+        seller_condition_attestation_due_at: "2026-06-01T03:00:00.000Z",
+      }),
+      "2026-06-01T02:00:00.000Z",
+      "response",
+      "product-not-received",
+    ],
+    [
+      "deadline exactly now escalates",
+      operatorPolicyRow({ seller_response_due_at: OPERATOR_POLICY_NOW }),
+      OPERATOR_POLICY_NOW,
+      "escalate",
+      "product-not-received",
+    ],
+    [
+      "deadline one millisecond future responds",
+      operatorPolicyRow({ seller_response_due_at: "2026-06-01T01:00:00.001Z" }),
+      "2026-06-01T01:00:00.001Z",
+      "response",
+      "product-not-received",
+    ],
+    [
+      "deadline before now escalates",
+      operatorPolicyRow({ seller_response_due_at: "2026-06-01T00:59:59.999Z" }),
+      "2026-06-01T00:59:59.999Z",
+      "escalate",
+      "product-not-received",
+    ],
+    [
+      "ready for support resolves",
+      operatorPolicyRow({ status: "ready-for-support", seller_response_due_at: "2026-05-31T00:00:00.000Z" }),
+      "2026-05-31T00:00:00.000Z",
+      "resolve",
+      "product-not-received",
+    ],
+    [
+      "offset timestamps compare by instant",
+      operatorPolicyRow({
+        seller_response_due_at: "2026-06-01 06:00:00+05:30",
+        support_review_due_at: "2026-06-01 01:00:00+00",
+      }),
+      "2026-06-01 06:00:00+05:30",
+      "escalate",
+      "product-damaged",
+    ],
+  ] as const)("returns complete policy for %s", async (_label, row, deadlineAt, recommendedAction, flowType) => {
+    const policy = await readOperatorPolicy({ ...row, flow_type: flowType });
+    expect(policy).toEqual({
+      deadlineAt,
+      recommendedAction,
+      responsibilityReasons: selectableReasons(flowType),
+      refundCap: null,
+      refundPrefill: null,
+    });
+  });
+
+  it.each([
+    ["no lines", {}, null, null],
+    ["line sum", { affected_line_items: [{ amount: "12.34", currencyCode: "USD" }] }, "12.34", "12.34"],
+    [
+      "pending offer takes precedence",
+      { affected_line_items: [{ amount: "40.00", currencyCode: "USD" }], pending_offer: { refundAmount: "9.00" } },
+      "40.00",
+      "9.00",
+    ],
+    [
+      "newest in-cap history offer",
+      {
+        affected_line_items: [{ amount: "40.00", currencyCode: "USD" }],
+        offers: [
+          { offeredAt: "2026-05-31T00:00:00.000Z", refundAmount: "8.00" },
+          { offeredAt: "2026-06-01T00:00:00.000Z", refundAmount: "10.00" },
+        ],
+      },
+      "40.00",
+      "10.00",
+    ],
+    [
+      "over-cap offer clamps",
+      { affected_line_items: [{ amount: "12.00", currencyCode: "USD" }], pending_offer: { refundAmount: "15.00" } },
+      "12.00",
+      "12.00",
+    ],
+    [
+      "malformed amount has no cap",
+      { affected_line_items: [{ amount: "not-money", currencyCode: "USD" }], pending_offer: { refundAmount: "5.00" } },
+      null,
+      "5.00",
+    ],
+    ["offer without a cap", { pending_offer: { refundAmount: "5.00" } }, null, "5.00"],
+  ] as const)("returns complete refund policy for %s", async (_label, overrides, refundCap, refundPrefill) => {
+    const policy = await readOperatorPolicy(operatorPolicyRow(overrides));
+    expect(policy?.refundCap).toBe(refundCap);
+    expect(policy?.refundPrefill).toBe(refundPrefill);
+  });
+});
+
 describe("operations response preservation", () => {
   for (const scenario of responseCases) {
     it(`operations empty resolution remains refused: ${scenario.responseType}`, async () => {
       const f = await operationsResponseFixture(scenario.responseType, "Offer");
+      f.db.query.mockResolvedValue({
+        rows: [{ support_request_id: f.id, flow_type: scenario.flowType, status: "open", resolution: null }],
+      } as never);
       const before = f.allEvents.length;
       await expect(
         f.runtime.recordResponse(
@@ -68,6 +278,9 @@ describe("operations response preservation", () => {
     for (const field of [{}, { offerResolutionType: null }]) {
       it(`operations offer omission remains refused: ${scenario.responseType} ${JSON.stringify(field)}`, async () => {
         const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        f.db.query.mockResolvedValue({
+          rows: [{ support_request_id: f.id, flow_type: scenario.flowType, status: "open", resolution: null }],
+        } as never);
         const before = f.allEvents.length;
         const action = f.runtime.recordResponse(
           {
@@ -92,6 +305,9 @@ describe("operations response preservation", () => {
     if (scenario.resolutionType) {
       it(`operations explicit offer remains supported: ${scenario.responseType}`, async () => {
         const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        f.db.query.mockResolvedValue({
+          rows: [{ support_request_id: f.id, flow_type: scenario.flowType, status: "open", resolution: null }],
+        } as never);
         await f.runtime.recordResponse(
           {
             ...f.body,
@@ -112,6 +328,17 @@ describe("operations response preservation", () => {
 });
 
 describe("support request runtime", () => {
+  it("platform-operations replays a stream with legacy CSAT events through the runtime visibility reader", async () => {
+    const f = await legacyCsatResolutionFixture();
+    await expect(f.lookup("record-response", f.body, f.id, attemptId, responseSeller)).resolves.toEqual({
+      outcome: "committed",
+      actionKind: "record-response",
+      result: f.result,
+    });
+    expect(f.allEvents.filter((event) => event.eventType === "platform-operations.csat-outcome-fact.v1")).toHaveLength(
+      1,
+    );
+  });
   it("opens, evidences, and resolves an Honor Offline case idempotently", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -138,7 +365,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
     const input = {
       orderId: "ord_1",
@@ -239,7 +466,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
       attachmentStorage: storage,
     });
 
@@ -296,7 +523,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
       now: () => "2026-05-09T12:00:00.000Z",
     });
 
@@ -331,7 +558,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
       policies: { resolvePolicy: resolvePolicy as never },
     });
 
@@ -360,7 +587,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     const flows = await runtime.listFlowDefinitions();
@@ -410,7 +637,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -480,7 +707,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     await expect(runtime.getSupportOrderContext({ orderId: "ord_1", accountId: "acc_buyer" })).resolves.toMatchObject({
@@ -522,7 +749,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     const result = await runtime.openSupportRequest(
@@ -586,7 +813,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
     const opened = await runtime.openSupportRequest(
       { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-damaged" },
@@ -644,7 +871,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -691,7 +918,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
       policies: { resolvePolicy: resolvePolicy as never },
     });
 
@@ -742,7 +969,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     await runtime.openSupportRequest(
@@ -773,7 +1000,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -803,7 +1030,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -844,7 +1071,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -906,7 +1133,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: db as never,
+      db: completeRuntimeDb(db),
     });
 
     const opened = await runtime.openSupportRequest(
@@ -961,7 +1188,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       const result = await runtime.escalateOverdueSupportRequests(
@@ -991,7 +1218,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       const result = await runtime.escalateOverdueSupportRequests(
@@ -1039,7 +1266,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1105,7 +1332,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1165,7 +1392,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1248,7 +1475,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       const responseCase = await runtime.openSupportRequest(
@@ -1332,7 +1559,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1497,7 +1724,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       await openAndResolveReturnRequest(
@@ -1547,7 +1774,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: db as never,
+        db: completeRuntimeDb(db),
       });
 
       await openAndResolveReturnRequest(

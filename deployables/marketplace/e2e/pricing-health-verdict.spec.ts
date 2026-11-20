@@ -58,7 +58,9 @@ async function createPolicy(
     .toBe("completed");
   const created = await request.post(policiesApi, { data: { dryRunId, name } });
   expect(created.status()).toBe(201);
-  const { policyId, accountId } = await created.json();
+  const receipt = await created.json();
+  expect(receipt.status).toBe("applied");
+  const { policyId, accountId } = receipt.state;
   expect(typeof policyId).toBe("string");
   createdIds.push({ policyId, accountId });
   await projectSyntheticPricingHealthPolicy(pool, { accountId, policyId });

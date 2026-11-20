@@ -11,6 +11,8 @@ import {
   type ReportedContentActionId,
   type TypedUlid,
   type UserId,
+  type OrderId,
+  type SupportRequestId,
 } from "../../primitives/typed-ids";
 import type {
   SupportRequestPlatformCoverageRequestedV1Payload,
@@ -293,7 +295,28 @@ export type PlatformFeedbackOperatorNoteRecordedPayload = Readonly<{
   recordedAt: string;
 }>;
 
+export type SupportRequestResolvedPayload = Readonly<{
+  supportRequestId: SupportRequestId;
+  orderId: OrderId;
+  buyerAccountId: AccountId;
+  sellerAccountId: AccountId;
+  flowType: string;
+  resolution: Readonly<{
+    resolutionType: string;
+    summary: string;
+    refundAmount: string | null;
+    resolvedByAccountId: AccountId | null;
+    resolvedByRole: string | null;
+    resolvedAt: string;
+    responsibility: string;
+    evidenceBasis: Readonly<{ type: string; reference: string }>;
+    responsibilityReasonCode: string;
+  }>;
+  autoCloseDueAt: string;
+}>;
+
 export type PlatformOperationsEventPayloads = Readonly<{
+  "support.support-request.resolved": SupportRequestResolvedPayload;
   "platform-operations.reported-content.listing-removal-directed": PlatformOperationsListingRemovalDirectedPayload;
   "experience.platform-feedback.submitted": PlatformFeedbackSubmittedPayload;
   "experience.platform-feedback.prompt-dismissed": PlatformFeedbackPromptDismissedPayload;

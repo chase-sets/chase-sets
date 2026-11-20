@@ -1,5 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
-import { compareMoneyAmounts } from "@chase-sets/primitives/money";
+import { compareMoneyAmounts, tryMoneyToCents, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, RepricingPolicyId } from "@chase-sets/primitives/typed-ids";
 import { worstCaseRepricingFloorAmount } from "./floor-resolution";
 import { bindAuthoringIntent, recognizeAuthoringIntent, type RepricingAuthoringIntent } from "./authoring-intent";
@@ -52,8 +52,9 @@ function assertNever(value: never): never {
 
 function normalizeMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal amount.`);
-  assert(Number.parseFloat(normalized) > 0, `${fieldName} must be greater than zero.`);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid decimal amount.`);
+  assert(cents > 0n, `${fieldName} must be greater than zero.`);
   return normalized;
 }
 
@@ -281,7 +282,7 @@ function normalizeOffset(offset: RepricingOffset): RepricingOffset {
 
 function normalizeSignedMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
-  assert(/^-?\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid signed decimal amount.`);
+  assert(trySignedMoneyToCents(normalized) !== null, `${fieldName} must be a valid signed decimal amount.`);
   return normalized;
 }
 
@@ -327,7 +328,7 @@ function normalizeTolerance(tolerance: RepricingTolerance): RepricingTolerance {
     return { mode: "percent", percent: normalizePercentMagnitude(tolerance.percent, "Tolerance percent", { min: 0 }) };
   }
   const normalized = tolerance.amount.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Tolerance amount must be a valid non-negative decimal amount.");
+  assert(tryMoneyToCents(normalized) !== null, "Tolerance amount must be a valid non-negative decimal amount.");
   return { mode: "absolute", amount: normalized };
 }
 

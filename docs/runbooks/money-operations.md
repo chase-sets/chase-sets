@@ -78,6 +78,66 @@ Webhook callbacks are mounted by the platform API at `/api/payments/provider/web
 
 Rotate Payments and Connect endpoint secrets independently. Before changing a current secret, copy it into the matching comma-separated `*_WEBHOOK_SECRET_PREVIOUS` variable and deploy. Roll the endpoint secret in Stripe, promote the new value into the current variable, and deploy again while retaining the prior value. Confirm signed deliveries succeed, then clear the previous-secret variable and deploy once more. Never log or paste webhook secrets or raw `Stripe-Signature` headers into deployment evidence.
 
+### Replace the Payments endpoint API version
+
+Stripe endpoint API versions cannot be updated in place. Verification checks
+the registry's exact API version, including when `create-canonical` reuses an
+existing endpoint. Do not manually edit or replace shared endpoints.
+
+Use `stripe:webhook-endpoint -- replace-version --environment <environment>
+--phase prepare` through the protected deployment entry point. Production
+also requires the existing exact creation confirmation. The production
+creation workflow offers `replace-version` with `prepare` and `complete` phases;
+both remain main-only and environment-approved. Preparation retains the old
+enabled endpoint, writes its current secret plus existing overlap keys to
+`STRIPE_WEBHOOK_SECRET_PREVIOUS`, then writes the new key to
+`STRIPE_WEBHOOK_SECRET` through the write-only destination. It never prints
+either key. A failed handoff removes only the new endpoint. A prepared retry
+reuses the new endpoint; an interrupted unprepared create is replaced rather
+than multiplying endpoints.
+
+Deploy both current and previous keys and confirm that the API rollout has
+consumed them before running `--phase complete --delivery-event <event-id>`.
+Use the protected deployment's force-deploy option if redeploying the same
+release; the deploy refreshes the API pods even when the image is unchanged.
+With only an event ID, completion retrieves the Event from Stripe. It rejects
+mismatched identity, mode or API version, then replays with the new key through
+the canonical deployed verifier. It retires the old endpoint only on success
+or the verifier's exact acknowledgement that the event ID is already in the
+Payments inbox. That acknowledgement is not a second domain write or evidence
+that the original event's domain processing succeeded. Confirm Stripe-originated
+delivery to the new endpoint separately before clearing previous keys.
+Failed replay retains both endpoints and is safe to retry. Do not clear prior
+keys until old in-flight deliveries have drained. Keep deployment approvals
+and use isolated test mode for implementation evidence, never shared staging
+or production from an implementation seat.
+The same script supports `--environment sandbox --base-url <isolated-https-origin>`
+for that evidence. It refuses live keys and shared Chase Sets origins in sandbox
+mode. Use an isolated write-only secret sink when exercising the exported
+operation from the test-mode verifier.
+
+If the stored Stripe Event has the account's older API version, use the
+production creation workflow's `use_signed_delivery_capture` switch on
+`replace-version` / `complete`, with the same `delivery_event` ID. In the
+approved rotation window, the production operator obtains the exact request
+body and `Stripe-Signature` header of a fresh delivery to the new endpoint
+through approved private capture. Do not reconstruct the body from a JSON
+viewer. If exact bytes and header cannot be obtained privately, stop and retain
+the old endpoint. Do not change Workbench defaults or rewrite the Event.
+
+Write a private temporary JSON file with string fields `rawBody` (the
+unmodified body) and `signatureHeader` (the complete header), at most 48 KiB
+in UTF-8. From that file, set the write-only `STRIPE_WEBHOOK_DELIVERY_CAPTURE`
+secret in the GitHub `production` Environment (for example, with
+`gh secret set STRIPE_WEBHOOK_DELIVERY_CAPTURE --env production < "$capture_file"`
+from a trusted Bash terminal). Never use a dispatch string, log, or artifact for
+the capture. Coordinate Environment approval and a fresh delivery so replay
+starts within the five-minute signature window. The runner passes a private
+temporary file as `--delivery-file`, removes it on exit, and authenticates the
+original bytes with the target key before accepting the capture's event facts.
+Delete the Environment secret and the local capture promptly after the run,
+including on failure, timeout, or cancellation. Use a new capture for retry.
+
 When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET` into the current worktree's `.env.sandbox.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `pnpm run stripe:listen` manually if you want the listener in a separate terminal; it forwards payment events to `/api/payments/provider/webhooks` and Connect events to `/api/settlement/provider/money-movement/webhooks` by default.
 
 ## Stripe Connect Notes

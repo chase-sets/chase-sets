@@ -1,0 +1,29 @@
+/* A Source Observation: the review form, the image and the values, one under another. The form's
+   buttons wrap on a phone; the image never grows past its column. */
+.observation {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.review {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 32rem;
+  margin: 0;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.reject {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+.image {
+  max-inline-size: 100%;
+  block-size: auto;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+}

@@ -18,6 +18,29 @@ describe("marketplace account gate context", () => {
     });
   });
 
+  it("explains the email verification a purchase cancel is waiting on", () => {
+    expect(marketplaceAccountGateContextMessage("/account/purchases/ord_1?verifyEmail=cancel-purchase")).toEqual({
+      title: "Verify your email to cancel this purchase",
+      description:
+        "Enter the email on your account. Opening the link we send verifies that email and brings you back to your purchase, where you can cancel it.",
+    });
+  });
+
+  it("keeps an ordinary purchase sign-in return a plain sign-in", () => {
+    expect(marketplaceAccountGateContextMessage("/account/purchases/ord_1")).toBeNull();
+    expect(marketplaceAccountGateContextMessage("/account/purchases?verifyEmail=cancel-purchase")).toBeNull();
+  });
+
+  it("explains the email verification a checkout payment is waiting on", () => {
+    expect(marketplaceAccountGateContextMessage("/checkout/buy/session/chk_1?verifyEmail=pay-checkout")).toEqual({
+      title: "Verify your email to pay for this checkout",
+      description:
+        "Enter the email on your account. Opening the link we send verifies that email and brings you back to your checkout, where you can pay.",
+    });
+    expect(marketplaceAccountGateContextMessage("/checkout/buy/session/chk_1")).toBeNull();
+    expect(marketplaceAccountGateContextMessage("/checkout/buy/session/chk_1?verifyEmail=cancel-purchase")).toBeNull();
+  });
+
   it("does not classify external return paths", () => {
     expect(
       marketplaceAccountGateContextMessage("https://example.test/account/sell-list?registrationReturn=seller-checkout"),

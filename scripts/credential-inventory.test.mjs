@@ -63,7 +63,17 @@ describe("credential inventory check (AC1)", () => {
   it("passes on the repository inventory, workflows and actions", () => {
     expect(checkCredentialInventory(resolve("."))).toEqual([]);
     const { inventory } = validateCredentialInventory(repositoryInventory);
-    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(13);
+    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(15);
+    for (const secret of ["STRIPE_WEBHOOK_SECRET_PREVIOUS", "STRIPE_WEBHOOK_DELIVERY_CAPTURE"]) {
+      expect(inventory.entries.find(({ name }) => name === secret)).toMatchObject({
+        scope: ["production"],
+        kind: "credential",
+        rotation: "assisted",
+        maxAgeDays: 365,
+        optional: true,
+      });
+      expect(inventory.agentTier.keys.map(({ name }) => name)).not.toContain(secret);
+    }
   });
 
   it("names a referenced secret that has no entry", () => {
@@ -279,15 +289,19 @@ describe("agent tier in the credential inventory (AC1)", () => {
     expect(inventory.agentTier).toEqual({
       project: "chase-sets-agent-dev",
       keys: [
+        { name: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET", testPrefixes: ["cs_stg_persona_"] },
         { name: "EASYPOST_API_KEY", testPrefixes: ["EZTK"] },
         { name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON", testPrefixes: [] },
         { name: "EBAY_SANDBOX_APP_ID", testPrefixes: [] },
+        { name: "EBAY_SANDBOX_BUYER_A", testPrefixes: [] },
         { name: "EBAY_SANDBOX_CERT_ID", testPrefixes: ["SBX-"] },
         { name: "EBAY_SANDBOX_DEV_ID", testPrefixes: [] },
         { name: "EBAY_SANDBOX_RUNAME", testPrefixes: [] },
         { name: "EBAY_SANDBOX_SELLER_A", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_ACCESS_ID", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_SECRET_KEY", testPrefixes: [] },
+        { name: "STRIPE_P1_PUBLISHABLE_KEY", testPrefixes: ["pk_test_"] },
+        { name: "STRIPE_P1_SECRET_KEY", testPrefixes: ["sk_test_", "rk_test_"] },
         { name: "STRIPE_PUBLISHABLE_KEY", testPrefixes: ["pk_test_"] },
         { name: "STRIPE_SECRET_KEY", testPrefixes: ["sk_test_", "rk_test_"] },
       ],
@@ -507,8 +521,8 @@ describe("credential tiers CLI (AC2)", () => {
     const lines = result.stdout.split("\n").filter(Boolean);
     const headings = lines.filter((line) => !/^ {2}[A-Z_][A-Z0-9_]*$/.test(line));
     expect(headings).toEqual([
-      "Agent tier (Bitwarden project chase-sets-agent-dev), 11 names:",
-      `CI/deploy-only, ${repositoryInventory.secrets.length - 11} names:`,
+      "Agent tier (Bitwarden project chase-sets-agent-dev), 15 names:",
+      `CI/deploy-only, ${repositoryInventory.secrets.length - 15} names:`,
     ]);
     const printed = lines.filter((line) => !headings.includes(line)).map((line) => line.trim());
     const names = repositoryInventory.secrets.map((secret) => secret.name);

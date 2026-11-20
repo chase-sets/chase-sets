@@ -17,6 +17,7 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
   "terraform-provider-or-state",
   "staging-dns",
   "staging-advisory-seed-or-e2e",
+  "staging-browser-install",
   "blocking-staging-verification",
   "production-verification",
   "superseded-pre-mutation",
@@ -52,6 +53,13 @@ const ROOT_CAUSES = Object.freeze({
       "Inspect the redacted seed or E2E evidence and repair the advisory check without weakening blocking gates.",
     phase: "staging-advisory",
     affectedComponent: "staging-advisory",
+  },
+  "staging-browser-install": {
+    summary: "The bounded Playwright Chromium install for staging did not complete.",
+    remediation:
+      "Inspect the bounded installer diagnostic and cache state, then repair the browser install before retrying staging promotion.",
+    phase: "staging-browser-install",
+    affectedComponent: "staging-browser-install",
   },
   "blocking-staging-verification": {
     summary: "A blocking staging verification did not pass.",
@@ -375,6 +383,8 @@ export function classifyDeploymentRootCause(input = {}) {
     /Schema bootstrap|bootstrap (?:command )?(?:timed out|failed)|lock_timeout|lock was not acquired|migration.{0,60}(?:failed|timeout)|seed-api-host.{0,60}exceeded/i;
   const stagingAdvisoryPattern =
     /advisory.{0,40}(?:seed|e2e)|(?:seed|e2e).{0,40}advisory|end-to-end.{0,80}auth(?:entication|orization)|e2e.{0,80}(?:login|auth(?:entication|orization))/i;
+  const stagingBrowserInstallPattern =
+    /staging-browser-install|Playwright Chromium install failed|provider-browser-install-(?:refused|authority)|provider-boundary-setup-refused/i;
   const stagingVerificationPattern =
     /projection.{0,80}(?:convergence|checkpoint|freshness).{0,80}(?:timed out|timeout|failed)|blocking verification/i;
 
@@ -432,6 +442,15 @@ export function classifyDeploymentRootCause(input = {}) {
       providerOverridesForMatch(steps, text, stagingAdvisoryPattern),
     );
   }
+  if (/staging-browser-install/.test(phaseHint) || stagingBrowserInstallPattern.test(allText)) {
+    return rootCauseRecord(
+      "staging-browser-install",
+      input,
+      steps,
+      text,
+      providerOverridesForMatch(steps, text, stagingBrowserInstallPattern),
+    );
+  }
   if (/staging-verification|blocking-staging/.test(phaseHint) || stagingVerificationPattern.test(allText)) {
     return rootCauseRecord(
       "blocking-staging-verification",
@@ -471,6 +490,7 @@ export function parsePlatformDeployIncidentOptions(argv, env = process.env) {
     deployStagingResult: readOption(argv, "--deploy-staging-result") ?? readEnv("DEPLOY_STAGING_RESULT", env),
     stagingApplied: readOption(argv, "--staging-applied") ?? readEnv("STAGING_APPLIED", env),
     stagingDeployed: readOption(argv, "--staging-deployed") ?? readEnv("STAGING_DEPLOYED", env),
+    stagingSuperseded: readOption(argv, "--staging-superseded") ?? readEnv("STAGING_SUPERSEDED", env),
     deployProductionResult: readOption(argv, "--deploy-production-result") ?? readEnv("DEPLOY_PRODUCTION_RESULT", env),
     productionSuperseded: readOption(argv, "--production-superseded") ?? readEnv("PRODUCTION_SUPERSEDED", env),
     recordStagingHealthResult:
@@ -525,15 +545,11 @@ export function classifyPlatformDeployRun(input = {}) {
   const stagingApplied = parseBoolean(input.stagingApplied);
   const stagingDeployed = parseBoolean(input.stagingDeployed);
   const stagingWasNotApplied = stagingApplied === false || (stagingApplied === null && stagingDeployed === false);
-  const legacyStagingNoOp =
-    stagingApplied === null &&
-    stagingDeployed === null &&
-    input.deployStagingResult === "success" &&
-    input.deployProductionResult === "skipped";
   const stagingSuperseded =
+    parseBoolean(input.stagingSuperseded) === true &&
     input.deployStagingResult === "success" &&
     input.deployProductionResult === "skipped" &&
-    (stagingWasNotApplied || legacyStagingNoOp);
+    stagingWasNotApplied;
   const supersededNoOp = successfulPrerequisites && (productionSuperseded || stagingSuperseded);
 
   let rootCause;
@@ -604,7 +620,7 @@ export function buildSupersededNoOpResolutionComment({
 - Superseding commit: ${supersededByCommit || "unavailable"}
 - Classification: ${reason || "superseded-pre-mutation"}
 
-This deploy run was intentionally superseded before its release was applied. The newer release owns the deploy lane, so no failed deploy action remains for this incident.`;
+The superseded candidate was not applied by this run. This is not evidence that the newer release deployed; its own staging and production gates must succeed. Automatic ancestor candidates continue deploying rather than being superseded just because main advances.`;
 }
 
 function parseBoolean(value) {

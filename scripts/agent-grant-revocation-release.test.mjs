@@ -14,10 +14,22 @@ import {
   main,
   proofDigest,
   refusalCode,
+  SESSION_GENERATION_CAPABILITY_FLOOR,
+  SESSION_GENERATION_FLOOR_ACTION,
+  SESSION_GENERATION_REPORT_SCHEMA,
+  SESSION_GENERATION_SCHEMA_MIGRATION_ID,
   sqlstateClass,
   summarizeRuntimeLog,
 } from "./agent-grant-revocation-release.mjs";
+import {
+  SESSION_GENERATION_CAPABILITY_VERSION,
+  SESSION_GENERATION_SCHEMA_MIGRATION_ID as AUTH_SESSION_GENERATION_SCHEMA_MIGRATION_ID,
+  sessionGenerationCapabilityReport,
+} from "../bounded-contexts/auth/features/sessions/domain/session-generation.ts";
 import { classifyDeploymentRootCause, DEPLOY_ROOT_CAUSE_CODES } from "./platform-deploy-incident.mjs";
+import { module as authModule } from "../bounded-contexts/auth/index.ts";
+import { SESSION_GENERATION_CAPABILITY_VERSION as COMPILED_SESSION_GENERATION_CAPABILITY_VERSION } from "../bounded-contexts/auth/server.ts";
+import { readSessionGenerationCapability } from "../deployables/platform-api/scripts/report-session-generation-capability.mts";
 
 const secretMarker = "synthetic-secret-marker-7f3c";
 
@@ -669,6 +681,302 @@ describe("revocation-floor serving membership and admission", () => {
   });
 });
 
+describe("pod Session Generation capability reporter", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const reporter = "deployables/platform-api/scripts/report-session-generation-capability.mts";
+  const identity = {
+    CHASE_SETS_IMPLEMENTATION_SHA: "f".repeat(40),
+    CHASE_SETS_DEPLOYMENT_INSTANCE: "synthetic-session-generation-reporter-release",
+  };
+  const schemaLedger = authModule.schemaMigrations.map((migration) => migration.migrationId);
+  const expected = {
+    schemaVersion: "auth-session-generation-capability/v1",
+    capabilityVersion: COMPILED_SESSION_GENERATION_CAPABILITY_VERSION,
+    commit: identity.CHASE_SETS_IMPLEMENTATION_SHA,
+    release: identity.CHASE_SETS_DEPLOYMENT_INSTANCE,
+    schemaLedger,
+  };
+
+  it("reports synthetic identity with Auth's real compiled capability and complete ordered migration ledger", () => {
+    expect(schemaLedger).toContain(AUTH_SESSION_GENERATION_SCHEMA_MIGRATION_ID);
+    expect(readSessionGenerationCapability(identity)).toEqual(expected);
+  });
+
+  it.each([
+    ["missing", {}],
+    ["undefined", { CHASE_SETS_IMPLEMENTATION_SHA: undefined, CHASE_SETS_DEPLOYMENT_INSTANCE: undefined }],
+    ["empty", { CHASE_SETS_IMPLEMENTATION_SHA: "", CHASE_SETS_DEPLOYMENT_INSTANCE: "" }],
+  ])("reports null identity for %s values without losing Auth metadata", (_name, env) => {
+    expect(readSessionGenerationCapability(env)).toEqual({ ...expected, commit: null, release: null });
+  });
+
+  function runReporter(args = []) {
+    const necessities = Object.fromEntries(
+      ["SystemRoot", "WINDIR", "TEMP", "TMP"].flatMap((key) =>
+        process.env[key] === undefined ? [] : [[key, process.env[key]]],
+      ),
+    );
+    return spawnSync(process.execPath, ["--import", "tsx", reporter, ...args], {
+      cwd: root,
+      env: { ...necessities, TSX_DISABLE_CACHE: "1", ...identity },
+      encoding: "utf8",
+    });
+  }
+
+  it("runs the real tsx CLI and emits exactly one newline-terminated JSON record", () => {
+    const child = runReporter();
+    expect(child.error).toBeUndefined();
+    expect(child.signal).toBeNull();
+    expect(child.status).toBe(0);
+    expect(child.stderr).toBe("");
+    expect(child.stdout).toBe(`${JSON.stringify(expected)}\n`);
+  });
+
+  it("refuses an extra CLI argument without emitting a report", () => {
+    const child = runReporter(["synthetic-unexpected-argument"]);
+    expect(child.error).toBeUndefined();
+    expect(child.signal).toBeNull();
+    expect(child.status).toBe(1);
+    expect(child.stdout).toBe("");
+    expect(child.stderr).toBe("revocation_activation_arguments_invalid\n");
+  });
+});
+
+describe("session-generation-floor-receipt", () => {
+  const imageDigest = `sha256:${"c".repeat(64)}`;
+  const releaseCommit = "d".repeat(40);
+  const release = '["support-deployment-instance/v1","synthetic","synthetic-release"]';
+  const options = {
+    environment: "staging",
+    namespace: "synthetic",
+    releaseCommit,
+    imageDigest,
+    evidenceId: "7422/1",
+    fenceId: SESSION_GENERATION_FLOOR_ACTION,
+    now: new Date("2026-11-02T00:00:00.000Z"),
+  };
+  const member = (name, role) => ({
+    metadata: { name, namespace: "synthetic", uid: `uid-${name}` },
+    spec: { containers: [{ name: role, image: `registry.example/platform@${imageDigest}` }] },
+    status: {
+      phase: "Running",
+      containerStatuses: [
+        { name: role, ready: true, state: { running: {} }, imageID: `registry.example/platform@${imageDigest}` },
+      ],
+    },
+  });
+  const pods = () => ({
+    metadata: {},
+    items: [
+      member("platform-api-a", "platform-api"),
+      member("platform-api-b", "platform-api"),
+      member("platform-worker-a", "platform-worker"),
+    ],
+  });
+  const report = (overrides = {}) => ({
+    schemaVersion: SESSION_GENERATION_REPORT_SCHEMA,
+    capabilityVersion: SESSION_GENERATION_CAPABILITY_FLOOR,
+    commit: releaseCommit,
+    release,
+    schemaLedger: ["20260710_auth_unlogged_projections", SESSION_GENERATION_SCHEMA_MIGRATION_ID],
+    ...overrides,
+  });
+  const reports = () => new Map(pods().items.map((pod) => [pod.metadata.uid, report()]));
+
+  it("merges every serving member's own capability report into one floor receipt", () => {
+    const receipt = captureServingSet({ ...options, pods: pods(), sessionGeneration: reports() });
+
+    expect(receipt).toMatchObject({
+      releaseCommit,
+      imageDigest,
+      expectedReplicas: ["platform-api-a", "platform-api-b", "platform-worker-a"],
+      sessionGenerationFloor: {
+        capabilityVersion: 1,
+        schemaMigrationId: SESSION_GENERATION_SCHEMA_MIGRATION_ID,
+        release,
+      },
+    });
+    for (const replica of receipt.replicas) {
+      expect(replica).toEqual({
+        id: replica.id,
+        uid: `uid-${replica.id}`,
+        role: replica.id.replace(/-[ab]$/, ""),
+        commit: releaseCommit,
+        digest: imageDigest,
+        release,
+        schemaLedger: report().schemaLedger,
+        sessionGenerationCapability: 1,
+      });
+    }
+    // The revocation census is unchanged when no generation reports are supplied.
+    const support = new Map(pods().items.map((pod) => [pod.metadata.uid, 1]));
+    const census = captureServingSet({ ...options, pods: pods(), support });
+    expect(census).not.toHaveProperty("sessionGenerationFloor");
+    expect(census.replicas.every((replica) => replica.supportVersion === 1 && !("release" in replica))).toBe(true);
+  });
+
+  it.each([
+    "one-replica",
+    "missing-report",
+    "revocation-support-only",
+    "wrong-commit",
+    "pre-floor-capability",
+    "unknown-schema",
+    "missing-ledger-migration",
+    "malformed-ledger",
+    "missing-release",
+    "mismatched-release",
+    "changed-digest",
+  ])("refuses %s instead of extrapolating the floor", (poison) => {
+    const census = pods();
+    const generation = reports();
+    const support = new Map(census.items.map((pod) => [pod.metadata.uid, 1]));
+    const worker = "uid-platform-worker-a";
+    if (poison === "one-replica") census.items = [census.items[0]];
+    if (poison === "missing-report" || poison === "revocation-support-only") generation.delete("uid-platform-api-b");
+    if (poison === "wrong-commit") generation.set(worker, report({ commit: "e".repeat(40) }));
+    if (poison === "pre-floor-capability") generation.set(worker, report({ capabilityVersion: 0 }));
+    if (poison === "unknown-schema") generation.set(worker, report({ schemaVersion: "auth-session-generation/v0" }));
+    if (poison === "missing-ledger-migration")
+      generation.set(worker, report({ schemaLedger: ["20260710_auth_unlogged_projections"] }));
+    if (poison === "malformed-ledger")
+      generation.set(worker, report({ schemaLedger: SESSION_GENERATION_SCHEMA_MIGRATION_ID }));
+    if (poison === "missing-release") generation.set(worker, report({ release: null }));
+    if (poison === "mismatched-release") generation.set(worker, report({ release: `${release}-previous` }));
+    if (poison === "changed-digest")
+      census.items[2].status.containerStatuses[0].imageID = "registry.example/platform@sha256:previous";
+
+    expect(() => captureServingSet({ ...options, pods: census, support, sessionGeneration: generation })).toThrow(
+      /^revocation_census_(incomplete|unsupported_member)$/,
+    );
+  });
+
+  it("pins the floor to Auth's compiled capability, migration, and report schema", () => {
+    expect(SESSION_GENERATION_CAPABILITY_FLOOR).toBe(SESSION_GENERATION_CAPABILITY_VERSION);
+    expect(SESSION_GENERATION_SCHEMA_MIGRATION_ID).toBe(AUTH_SESSION_GENERATION_SCHEMA_MIGRATION_ID);
+    expect(
+      sessionGenerationCapabilityReport({
+        implementationSha: releaseCommit,
+        deploymentInstance: release,
+        schemaMigrationIds: [],
+      }).schemaVersion,
+    ).toBe(SESSION_GENERATION_REPORT_SCHEMA);
+    const reporter = readFileSync(
+      resolve(
+        fileURLToPath(new URL("..", import.meta.url)),
+        "deployables/platform-api/scripts/report-session-generation-capability.mts",
+      ),
+      "utf8",
+    );
+    expect(reporter).toContain('import { module as authModule } from "@chase-sets/auth";');
+    expect(reporter).toContain("sessionGenerationCapabilityReport({");
+    expect(reporter).not.toMatch(/supportVersion|SUPPORT_VERSION|replicas|createPgPool|DATABASE_URL/);
+  });
+
+  describe(`${SESSION_GENERATION_FLOOR_ACTION} CLI`, () => {
+    let directory;
+    let out;
+    beforeEach(() => {
+      directory = mkdtempSync(join(tmpdir(), "synthetic-session-generation-floor-"));
+      out = join(directory, "receipt.json");
+      vi.stubEnv("GITHUB_RUN_ID", "7422");
+      vi.stubEnv("GITHUB_RUN_ATTEMPT", "1");
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      rmSync(directory, { recursive: true, force: true });
+    });
+    const args = (extra = []) => [
+      SESSION_GENERATION_FLOOR_ACTION,
+      "--environment",
+      "staging",
+      "--namespace",
+      "synthetic",
+      "--release-commit",
+      releaseCommit,
+      "--image-digest",
+      imageDigest,
+      "--out",
+      out,
+      ...extra,
+    ];
+    function cluster(reads) {
+      const calls = [];
+      let podReads = 0;
+      const run = vi.fn((file, commandArgs) => {
+        calls.push([file, ...commandArgs]);
+        if (file === "kubectl" && commandArgs[0] === "get" && commandArgs[1] === "pods")
+          return JSON.stringify(reads[Math.min(podReads++, reads.length - 1)]);
+        if (file === "kubectl" && commandArgs[0] === "exec") return JSON.stringify(report());
+        throw new Error(`unexpected command ${file} ${commandArgs.join(" ")}`);
+      });
+      return { run, calls };
+    }
+
+    it("asks each serving pod's own reporter and writes the receipt", async () => {
+      const f = cluster([pods(), pods()]);
+
+      await main(args(), { run: f.run, now: () => options.now });
+
+      const receipt = JSON.parse(readFileSync(out, "utf8"));
+      expect(receipt).toMatchObject({
+        evidenceId: "7422/1",
+        fenceId: SESSION_GENERATION_FLOOR_ACTION,
+        expectedReplicas: ["platform-api-a", "platform-api-b", "platform-worker-a"],
+        sessionGenerationFloor: { release },
+      });
+      expect(f.calls.filter(([, verb]) => verb === "exec")).toEqual(
+        pods().items.map((pod) => [
+          "kubectl",
+          "exec",
+          "-n",
+          "synthetic",
+          pod.metadata.name,
+          "-c",
+          pod.spec.containers[0].name,
+          "--",
+          "pnpm",
+          "--filter",
+          "@chase-sets/app-platform-api",
+          "exec",
+          "tsx",
+          "scripts/report-session-generation-capability.mts",
+        ]),
+      );
+      expect(
+        existsSync(
+          resolve(
+            fileURLToPath(new URL("..", import.meta.url)),
+            "deployables/platform-api/scripts/report-session-generation-capability.mts",
+          ),
+        ),
+      ).toBe(true);
+    });
+
+    it("refuses a membership change between the reports and the census", async () => {
+      const grown = pods();
+      grown.items.push(member("platform-api-c", "platform-api"));
+      const f = cluster([pods(), grown]);
+
+      await expect(main(args(), { run: f.run, now: () => options.now })).rejects.toThrow(
+        "revocation_membership_changed",
+      );
+      expect(existsSync(out)).toBe(false);
+    });
+
+    it.each([
+      ["missing out", (input) => input.slice(0, -2)],
+      ["revocation status flag", (input) => [...input, "--status-out", "status.json"]],
+    ])("refuses %s before any cluster read", async (_label, mutate) => {
+      const f = cluster([pods()]);
+      await expect(main(mutate(args()), { run: f.run, now: () => options.now })).rejects.toThrow(
+        "revocation_activation_arguments_invalid",
+      );
+      expect(f.run).not.toHaveBeenCalled();
+    });
+  });
+});
+
 const root = fileURLToPath(new URL("..", import.meta.url));
 const workflowFile = ".github/workflows/platform-production.yml";
 const productionWorkflow = parse(readFileSync(resolve(root, workflowFile), "utf8"));
@@ -976,8 +1284,25 @@ function executeStep(step, env = {}) {
     trace() { printf '%s\\n' "$*" >> "$TRACE"; }
     node() { trace node "$@"; [[ -z "\${FAIL_ON:-}" || "$*" != *"$FAIL_ON"* ]] || { echo revocation_membership_changed >&2; return 1; }; }
     pnpm() { trace pnpm "$@"; }
-    git() { trace git "$@"; [[ "$1" != rev-parse ]] || printf '%s\\n' "$LATEST_MAIN"; }
+    git() {
+      trace git "$@"
+      case "$1" in
+        fetch) return "\${FETCH_STATUS:-0}" ;;
+        rev-parse) printf '%s\\n' "$LATEST_MAIN" ;;
+        merge-base) return "\${ANCESTRY_STATUS:-0}" ;;
+      esac
+    }
     terraform() { printf 'synthetic\\n'; }
+    kubectl() {
+      trace kubectl "$@"
+      case "$*" in
+        '-n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json')
+          printf '%s\\n' '{"items":[{"status":{"phase":"Running"},"spec":{"nodeName":"synthetic-ingress-node"}}]}' ;;
+        'get nodes -o json')
+          printf '%s\\n' '{"items":[{"metadata":{"name":"synthetic-ingress-node","annotations":{"network.cilium.io/ipv4-pod-cidr":"192.0.2.0/24"}},"spec":{}}]}' ;;
+        *) echo 'unexpected synthetic kubectl command' >&2; return 1 ;;
+      esac
+    }
     ${drainingJqStub}
   `;
   try {
@@ -992,6 +1317,7 @@ function executeStep(step, env = {}) {
         CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: "1m",
         ARGO_ROLLOUTS_ENABLED: "false",
         PLATFORM_IMAGE_REF: "registry.example/synthetic@sha256:synthetic",
+        CORTEN_ADMIN_IMAGE: `registry.example/synthetic-corten@sha256:${"c".repeat(64)}`,
         ADMISSION_RETRY_READINESS_RESULT: "success",
         ADMISSION_RETRY_ROLLBACK_COMMIT: "a".repeat(40),
         RELEASE_COMMIT: "a".repeat(40),
@@ -1004,7 +1330,13 @@ function executeStep(step, env = {}) {
     });
     if (result.error) throw result.error;
     const read = (name) => (existsSync(join(directory, name)) ? readFileSync(join(directory, name), "utf8") : "");
-    return { status: result.status, stderr: result.stderr, trace: read("trace").trim().split("\n"), env: read("env") };
+    return {
+      status: result.status,
+      stderr: result.stderr,
+      trace: read("trace").trim().split("\n"),
+      env: read("env"),
+      outputs: read("output"),
+    };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -1026,6 +1358,7 @@ function eligibilityViolations(document) {
       AGENT_GRANT_REVOCATION_ACTIVATION: selection,
       AUTOMATIC_RELEASE: "true",
       LATEST_MAIN: "c".repeat(40),
+      ANCESTRY_STATUS: "1",
     });
     const skipped = coalesced.env.includes("SHOULD_DEPLOY=false");
     if (selection === "none" ? !skipped || coalesced.status !== 0 : skipped || coalesced.status === 0)
@@ -1046,6 +1379,71 @@ function eligibilityViolations(document) {
 }
 
 describe("revocation-caller-partition workflow caller", () => {
+  it.each(selections)("activates an automatic ancestor even while main keeps advancing (%s)", (selection) => {
+    const step = stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation");
+    for (const latest of ["a", "c", "d", "e"]) {
+      const result = executeStep(step, {
+        AUTOMATIC_RELEASE: "true",
+        AGENT_GRANT_REVOCATION_ACTIVATION: selection,
+        LATEST_MAIN: latest.repeat(40),
+      });
+      expect(result.status).toBe(0);
+      expect(result.env).not.toContain("SHOULD_DEPLOY=false");
+      expect(result.outputs).toContain("superseded=false");
+      expect(result.outputs).toContain(`active_release_commit=${"a".repeat(40)}`);
+      expect(result.outputs).toContain(`active_image_digest=sha256:${"b".repeat(64)}`);
+      if (latest !== "a")
+        expect(result.trace).toContain(`git merge-base --is-ancestor ${"a".repeat(40)} ${latest.repeat(40)}`);
+    }
+  });
+
+  it("records a removed-lineage automatic candidate as superseded without activating it", () => {
+    const result = executeStep(
+      stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation"),
+      {
+        AUTOMATIC_RELEASE: "true",
+        AGENT_GRANT_REVOCATION_ACTIVATION: "none",
+        LATEST_MAIN: "c".repeat(40),
+        ANCESTRY_STATUS: "1",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.env).toContain("SHOULD_DEPLOY=false");
+    expect(result.outputs).toContain("superseded=true");
+    expect(result.outputs).toContain(`latest_main=${"c".repeat(40)}`);
+    expect(result.outputs).not.toContain("active_release_commit=");
+  });
+
+  it("keeps manual activation independent of main freshness", () => {
+    const result = executeStep(
+      stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation"),
+      { AUTOMATIC_RELEASE: "false", AGENT_GRANT_REVOCATION_ACTIVATION: "staging" },
+    );
+    expect(result.status).toBe(0);
+    expect(result.trace.some((line) => line.startsWith("git "))).toBe(false);
+    expect(result.outputs).toContain(`active_release_commit=${"a".repeat(40)}`);
+  });
+
+  it("refuses activation on invalid digest or unavailable ancestry instead of reporting a no-op", () => {
+    const step = stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation");
+    for (const overrides of [
+      { RELEASE_IMAGE_DIGEST: "mutable-tag" },
+      { FETCH_STATUS: "128" },
+      { ANCESTRY_STATUS: "128" },
+    ]) {
+      const result = executeStep(step, {
+        AUTOMATIC_RELEASE: "true",
+        AGENT_GRANT_REVOCATION_ACTIVATION: "none",
+        LATEST_MAIN: "c".repeat(40),
+        ...overrides,
+      });
+      expect(result.status).not.toBe(0);
+      expect(result.env).not.toContain("SHOULD_DEPLOY=false");
+      expect(result.outputs).not.toContain("active_release_commit=");
+      expect(result.outputs).not.toContain("superseded=true");
+    }
+  });
+
   it("proves the jq seam drains piped Terraform output under pipefail", () => {
     expect(runPipeSafetyControl(nonConsumingJqStub).status).toBe(141);
     expect(runPipeSafetyControl(drainingJqStub).status).toBe(0);

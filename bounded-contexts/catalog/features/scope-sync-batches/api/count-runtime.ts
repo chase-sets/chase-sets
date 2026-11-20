@@ -15,20 +15,41 @@ import {
   runProviderSendRequest,
 } from "../../source-observations/api/providers/provider-send-admission";
 import type { CatalogProviderSendRuntime } from "../../source-observations/api/providers/provider-send-runtime";
+import { boundCountCaptureRequest } from "../../source-observations/api/providers/count-capture-transport";
 import {
   CountAcquisitionRefused,
+  CountPeriodCapRefused,
   countFingerprint,
   countQueryKey,
   type CountAdmission,
+  type CountPeriodAuthority,
   type CountPreparationView,
   type CountQuote,
   type CountTarget,
 } from "../domain/count-acquisition";
+import { scrydexPeriodReserveSchema } from "../domain/scrydex-billing-period";
 import type { ScopeSyncBatchSelection } from "../domain/batch";
 import { createCountStore, lockCountHeadroom } from "../read-model/count-store";
 import { createScopeSyncBatchStore } from "../read-model/store";
 import { createCountAcquisition } from "./count-acquisition";
 import { resolveScopeSyncCountMembership } from "./planner";
+
+/**
+ * Resolves a staging acquisition's period gate before anything is read or sent.
+ * A capture run is honored, ungated here, only inside its own bound acquisition
+ * request, where its bootstrap decision and per-debit store check gate every
+ * send; anything but a well-formed reserve is unknown U and refuses.
+ */
+function stagingPeriod(authority: CountPeriodAuthority | undefined) {
+  if (authority?.kind === "capture-run") {
+    const bound = boundCountCaptureRequest();
+    if (bound?.runId !== authority.runId || bound.phase !== "acquisition") throw new CountPeriodCapRefused(null);
+    return null;
+  }
+  const reserve = authority?.kind === "reserve" ? scrydexPeriodReserveSchema.safeParse(authority.reserve) : null;
+  if (!reserve?.success) throw new CountPeriodCapRefused(null);
+  return { reserve: reserve.data, runId: reserve.data.runId };
+}
 
 export function createScopeSyncCountRuntime(deps: {
   pool: PgTransactionalPool;
@@ -61,28 +82,35 @@ export function createScopeSyncCountRuntime(deps: {
             : null;
         if (!kind) continue;
         if (record.product_domain !== "one-piece" && record.product_domain !== "lorcana")
-          throw new CountAcquisitionRefused();
-        if (kind === "sealed" && record.product_domain === "lorcana") throw new CountAcquisitionRefused();
+          throw new CountAcquisitionRefused("unsupported-product-domain");
+        if (kind === "sealed" && record.product_domain === "lorcana")
+          throw new CountAcquisitionRefused("unsupported-product-form");
         if (
           mapping.unit_key !==
           `scrydex:${record.product_domain}:${kind === "cards" ? "single-card" : "sealed-product"}:source-observation-import`
         )
-          throw new CountAcquisitionRefused();
+          throw new CountAcquisitionRefused("unexpected-unit-key");
         const matches = versions.filter(
           (version) =>
             isActiveProviderOptionQueryProfileVersion(version) &&
             catalogProviderProfileVersionIngestionUnitKey(version) === mapping.unit_key,
         );
-        const version = matches.length === 1 ? matches[0] : null;
+        const [version, duplicate] = matches;
+        if (!version) throw new CountAcquisitionRefused("active-option-query-profile-missing");
+        if (duplicate) throw new CountAcquisitionRefused("active-option-query-profile-ambiguous");
         if (
-          !version ||
           !version.profile.optionQueries.some(
             (entry) => entry.queryKind === (kind === "sealed" ? "sealed-products" : "cards"),
-          ) ||
-          !mapping.set_id ||
-          !["set", "expansion"].includes(record.scope_kind)
+          )
         )
-          throw new CountAcquisitionRefused();
+          throw new CountAcquisitionRefused("profile-option-query-missing");
+        const setId = mapping.set_id?.trim();
+        const setName = version.profile.supportedScopes.includes("set-name") ? mapping.set_name?.trim() : null;
+        const parentValue = setId || setName;
+        if (!parentValue || parentValue === "." || parentValue === ".." || (!setId && /[\\"]/.test(parentValue)))
+          throw new CountAcquisitionRefused("provider-set-id-missing");
+        if (!["set", "expansion"].includes(record.scope_kind))
+          throw new CountAcquisitionRefused("unsupported-scope-kind");
         for (const capability of ["provider-transport", "provider-option-query", "import"] as const) {
           policy.assertAllowed({
             capability,
@@ -102,7 +130,7 @@ export function createScopeSyncCountRuntime(deps: {
           kind,
           languageCode:
             (membership.selection.mode === "matching-scope" ? membership.selection.query.languageCode : null) ?? "en",
-          parentValue: mapping.set_id,
+          parentValue,
         });
         const source = await readScrydexCountSource(query, { ...deps.adapterOptions, countReader: deps.store });
         const blocked = !source && (await deps.store.blocked(query));
@@ -134,10 +162,11 @@ export function createScopeSyncCountRuntime(deps: {
   const engine = createCountAcquisition({
     ledger: {
       ...deps.store,
-      admit: (quote, owner, authority) => deps.store.admit(deps.pool, quote, owner, authority),
+      admit: (quote, owner, authority, period) => deps.store.admit(deps.pool, quote, owner, authority, period),
+      admitPeriod: (quote, owner, period) => deps.store.admitPeriod(deps.pool, quote, owner, period),
       approve: (id, fingerprint, owner) => deps.store.approve(deps.pool, id, fingerprint, owner),
-      claim: (quote, target, owner, authority, executionId) =>
-        deps.store.claim(deps.pool, quote, target, owner, authority, executionId),
+      claim: (quote, target, owner, authority, executionId, period) =>
+        deps.store.claim(deps.pool, quote, target, owner, authority, executionId, period),
       end: (quoteId, executionId, owner, state) => deps.store.end(deps.pool, quoteId, executionId, owner, state),
     },
     resolve,
@@ -167,15 +196,24 @@ export function createScopeSyncCountRuntime(deps: {
   return {
     quoteCounts: (input: { selection: ScopeSyncBatchSelection; cap?: number; context: EventStoreContext }) =>
       engine.quote({ ...input, owner: owner(input.context) }),
-    acquireCounts: async (input: {
+    acquireCounts: async ({
+      periodAuthority,
+      ...input
+    }: {
       quoteId: string;
       fingerprint: string;
       admission?: CountAdmission;
+      periodAuthority?: CountPeriodAuthority;
       context: EventStoreContext;
     }) => {
       // Whole-quote admission exists for staging count preparation only.
       if (input.admission && deps.environment !== "staging") throw new CountAcquisitionRefused();
-      return engine.acquire({ ...input, owner: owner(input.context) });
+      // Outside staging nothing is period-gated, and a period reserve is refused.
+      if (deps.environment !== "staging") {
+        if (periodAuthority?.kind === "reserve") throw new CountAcquisitionRefused();
+        return engine.acquire({ ...input, owner: owner(input.context) });
+      }
+      return engine.acquire({ ...input, owner: owner(input.context), period: stagingPeriod(periodAuthority) });
     },
     getCountQuote: async (input: {
       quoteId: string;

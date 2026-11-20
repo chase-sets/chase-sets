@@ -86,13 +86,17 @@ import {
   assertWholeGameOrigin,
   readBeforeWholeGameDeadline,
   wholeGameStagingOrigin,
+  assertPaidWholeGameConfirmation,
+  assertPaidWholeGamePreview,
   assertPublishPreviewGuard,
   assertRequestedBatch,
+  parseApprovedWholeGameFingerprint,
   parseProviderParticipation,
   parseWholeGameSettleInput,
   parseWholeGameStartInput,
   planScopePromotion,
   planWholeGameSettle,
+  scopePromotionCheckpoint,
   promotedCatalogItems,
   publishFilters,
   readAllCompletedPromoteJobs,
@@ -101,6 +105,7 @@ import {
   wholeGameJourneyScopes,
   wholeGameReceiptPath,
   wholeGameReceiptSchemaVersion,
+  wholeGamePromotionFailure,
   type WholeGameBatchView,
   type WholeGameJobPage,
   type WholeGameJourneyScope,
@@ -109,6 +114,7 @@ import {
   type WholeGamePublishFilter,
   type WholeGamePublishPreview,
   type WholeGameReceipt,
+  type WholeGameScopeProgress,
   type WholeGameSettleInput,
   type WholeGameStartInput,
 } from "./support/whole-game-rehearsal";
@@ -3587,6 +3593,9 @@ test.describe("catalog staging provider sync UAT", () => {
 
     if (isWholeGameJourneyScope(providerUatJourneyScope)) {
       if (testInfo.retry > 0) throw new WholeGameRehearsalRefusal("automatic-retry-refused");
+      if (providerUatJourneyScope === "full-game-confirm" && process.env.GITHUB_RUN_ATTEMPT !== "1") {
+        throw new WholeGameRehearsalRefusal("paid-confirm-rerun-refused");
+      }
       await signInWholeGame(page, process.env.ADMIN_WEB_URL ?? "");
       // Live-run boundary receipts (#9957): emitted only here, never from shared sign-in helpers.
       const boundary = `[catalog-staging-provider-uat] journey=${providerUatJourneyScope} run=${process.env.GITHUB_RUN_ID ?? ""} sha=${process.env.GITHUB_SHA ?? ""}`;
@@ -3596,6 +3605,7 @@ test.describe("catalog staging provider sync UAT", () => {
         page,
         providerUatJourneyScope,
         startedAt + testInfo.timeout - wholeGameDeadlineMarginMs,
+        writeWholeGameReceipt,
       );
       writeWholeGameReceipt(receipt);
       return;
@@ -4931,7 +4941,7 @@ async function promoteSelectedScopeFromSharedImporter(
   const promotionPreviewId = await tryPromotionPreviewReady(page, 15_000);
   if (!promotionPreviewId) {
     console.log(
-      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce a routable preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
+      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce an action-bound preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
     );
   }
   const freshPreview = await executePromotionFromFreshPreview(page, selectedScope, {
@@ -4948,7 +4958,7 @@ async function promoteSelectedScopeFromSharedImporter(
     unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: [],
-    promotionPreviewId: promotionPreviewId ?? currentSearchParam(page, "promotionPreviewId"),
+    promotionPreviewId,
     jobId,
   };
 }
@@ -5089,7 +5099,9 @@ async function clickCommandFormButtonIfEnabled(form: Locator): Promise<boolean> 
 async function expectPromotionPreviewReady(page: Page): Promise<string> {
   const promotionPreviewId = await tryPromotionPreviewReady(page, syncTimeoutMs);
   if (!promotionPreviewId) {
-    throw new Error("Expected promotion preview to be ready with a routable promotionPreviewId before the timeout.");
+    throw new Error(
+      "Expected promotion preview to be ready with an action-bound promotionPreviewId before the timeout.",
+    );
   }
 
   return promotionPreviewId;
@@ -5111,7 +5123,16 @@ async function tryPromotionPreviewReady(page: Page, timeout: number): Promise<st
       .first(),
   ).toBeVisible({ timeout });
 
-  return waitForSearchParamOrNull(page, "promotionPreviewId", timeout);
+  const executeForm = page
+    .locator('form[data-catalog-primary-workbench-command="observation.promote"]')
+    .filter({
+      has: page.locator('input[name="promotionPhase"][value="execute"]'),
+    })
+    .first();
+  await expect
+    .poll(() => hiddenInputValue(executeForm, "promotionPreviewId").then(emptyToNull), { timeout })
+    .not.toBeNull();
+  return hiddenInputValue(executeForm, "promotionPreviewId").then(emptyToNull);
 }
 
 async function waitForFreshPromotionPreviewOrOperatorBlocker(
@@ -7308,8 +7329,8 @@ function previewProbeScopeSkipsMutatingJourney(scope: string): boolean {
   return scope === scopeSyncBatchPreviewProbeJourneyScope;
 }
 
-// Whole-game rehearsal (#9220): `full-game-start` previews and confirms one
-// matching-scope Scope Sync Batch; `full-game-settle` advances exactly the
+// Whole-game rehearsal (#9220): start previews and confirms without Scrydex;
+// paid preview and confirm are separate dispatches. Settle advances exactly the
 // requested batch through retry/resume, scope promotion and bulk publish. Every
 // decision lives in ./support/whole-game-rehearsal and progress is read back
 // from the server, so a killed dispatch is rerun with the same batch id.
@@ -7321,11 +7342,15 @@ type WholeGameRuntime = Readonly<{ deadlineAt: number; pollMs: number }>;
 type WholeGameBatchSnapshot = WholeGameBatchView & Readonly<{ planFingerprint: string }>;
 
 type WholeGameRunIdentity = Pick<WholeGameReceipt, "sha" | "runId" | "runAttempt">;
+type WholeGameReceiptSink = (receipt: WholeGameReceipt) => void;
+type WholeGameStartMode =
+  | Readonly<{ scope: "full-game-start" | "full-game-preview" }>
+  | Readonly<{ scope: "full-game-confirm"; approvedFingerprint: string }>;
 
 type WholeGameSettleCounts = {
   -readonly [Key in Exclude<
     keyof NonNullable<WholeGameReceipt["settle"]>,
-    "batchStatus" | "units" | "resumed"
+    "batchStatus" | "units" | "resumed" | "scopeProgress"
   >]: number;
 };
 
@@ -7345,12 +7370,22 @@ async function runWholeGameJourney(
   page: Page,
   scope: WholeGameJourneyScope,
   deadlineAt: number,
+  receiptSink: WholeGameReceiptSink,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<WholeGameReceipt> {
   const run = wholeGameRunIdentity(env);
-  return scope === "full-game-start"
-    ? wholeGameStart(page, parseWholeGameStartInput(env), run)
-    : wholeGameSettle(page, parseWholeGameSettleInput(env), run, { deadlineAt, pollMs: wholeGamePollMs });
+  if (scope === "full-game-settle") {
+    return wholeGameSettle(
+      page,
+      parseWholeGameSettleInput(env),
+      run,
+      { deadlineAt, pollMs: wholeGamePollMs },
+      receiptSink,
+    );
+  }
+  const mode: WholeGameStartMode =
+    scope === "full-game-confirm" ? { scope, approvedFingerprint: parseApprovedWholeGameFingerprint(env) } : { scope };
+  return wholeGameStart(page, parseWholeGameStartInput(env), run, mode);
 }
 
 async function signInWholeGame(
@@ -7533,6 +7568,7 @@ async function wholeGameStart(
   page: Page,
   input: WholeGameStartInput,
   run: WholeGameRunIdentity,
+  mode: WholeGameStartMode = { scope: "full-game-start" },
 ): Promise<WholeGameReceipt> {
   await gotoWholeGamePage(page, "/catalog/scopes/sync-batches");
   const form = page.locator("form").filter({ has: page.getByRole("button", { name: "Preview batch", exact: true }) });
@@ -7552,13 +7588,43 @@ async function wholeGameStart(
     ["Circuit-breaker failures", input.budget.providerFailureThreshold],
   ];
   for (const [label, value] of budgetFields) await form.getByLabel(label, { exact: true }).fill(String(value));
-  await form.getByRole("button", { name: "Preview batch", exact: true }).click();
+  await clickWholeGameControl(page, form.getByRole("button", { name: "Preview batch", exact: true }));
 
-  const preview = await readRenderedBatchPreview(page);
-  const refusal = startConfirmationRefusal(preview, input.budget);
-  if (refusal) throw new WholeGameRehearsalRefusal(refusal);
   assertWholeGameOrigin(page.url());
-  await clickWholeGameControl(page, page.getByRole("button", { name: "Confirm and enqueue", exact: true }));
+  const preview = await readRenderedBatchPreview(page);
+  const { planFingerprint, scopeCount, providers, confirmAllowed } = preview;
+  const { scrydexRequestLimit } = input.budget;
+  const receipt = {
+    schemaVersion: wholeGameReceiptSchemaVersion,
+    journeyScope: mode.scope,
+    ...run,
+    preview: { planFingerprint, scopeCount, providers },
+    settle: null,
+  } as const;
+  const paidPreview = { ...receipt.preview, confirmAllowed, scrydexRequestLimit };
+  if (mode.scope === "full-game-preview") {
+    assertPaidWholeGamePreview(preview);
+    return { ...receipt, batchId: null, state: "previewed", preview: paidPreview };
+  }
+
+  let confirm = page.getByRole("button", { name: "Confirm and enqueue", exact: true });
+  if (mode.scope === "full-game-confirm") {
+    assertPaidWholeGameConfirmation(preview, mode.approvedFingerprint, scrydexRequestLimit);
+    const confirmationForm = page.locator("form").filter({ has: confirm });
+    if (
+      (await confirmationForm.count()) !== 1 ||
+      (await confirmationForm.locator('input[name="planFingerprint"]').inputValue()) !== planFingerprint ||
+      (await confirmationForm.locator('input[name="scrydexRequestLimit"]').inputValue()) !== String(scrydexRequestLimit)
+    ) {
+      throw new WholeGameRehearsalRefusal("scrydex-confirm-form-mismatch");
+    }
+    confirm = confirmationForm.getByRole("button", { name: "Confirm and enqueue", exact: true });
+  } else {
+    const refusal = startConfirmationRefusal(preview, input.budget);
+    if (refusal) throw new WholeGameRehearsalRefusal(refusal);
+  }
+  assertWholeGameOrigin(page.url());
+  await clickWholeGameControl(page, confirm);
   await page.waitForURL(/[?&]batchId=/, { timeout: syncTimeoutMs });
   const batchId = new URL(page.url()).searchParams.get("batchId") ?? "";
   const batch = await readWholeGameBatch(page, batchId);
@@ -7566,13 +7632,10 @@ async function wholeGameStart(
     throw new WholeGameRehearsalRefusal("confirmed-fingerprint-mismatch");
   }
   return {
-    schemaVersion: wholeGameReceiptSchemaVersion,
-    journeyScope: "full-game-start",
-    ...run,
+    ...receipt,
     batchId,
     state: "confirmed",
-    preview: { planFingerprint: preview.planFingerprint, scopeCount: preview.scopeCount, providers: preview.providers },
-    settle: null,
+    preview: mode.scope === "full-game-confirm" ? paidPreview : receipt.preview,
   };
 }
 
@@ -7606,6 +7669,7 @@ async function wholeGameSettle(
   input: WholeGameSettleInput,
   run: WholeGameRunIdentity,
   runtime: WholeGameRuntime,
+  receiptSink: WholeGameReceiptSink,
 ): Promise<WholeGameReceipt> {
   const batchPath = `/catalog/scopes/sync-batches?${wholeGameQuery({ batchId: input.batchId })}`;
   let batch: WholeGameBatchSnapshot;
@@ -7646,6 +7710,7 @@ async function wholeGameSettle(
     draftsRemaining: 0,
   };
   let resumed = false;
+  const scopeProgress: WholeGameScopeProgress[] = [];
   const unitCount = (state: WholeGameBatchView["units"][number]["state"]) =>
     batch.units.filter((unit) => unit.state === state).length;
   const receipt = (state: WholeGameReceipt["state"]): WholeGameReceipt => ({
@@ -7666,6 +7731,7 @@ async function wholeGameSettle(
       },
       resumed,
       ...counts,
+      scopeProgress,
     },
   });
 
@@ -7687,17 +7753,65 @@ async function wholeGameSettle(
     }
 
     const observedJobs: WholeGamePromoteJob[] = [];
+    const convergedJobs = new Map<string, WholeGamePromoteJob[]>();
+    const history = new Map<string, readonly WholeGamePromoteJob[]>();
     for (const scopeRecordId of step.scopeRecordIds) {
+      const progress: WholeGameScopeProgress = {
+        scopeRecordId,
+        state: "pending",
+        completedJobsObserved: 0,
+        promotedOutcomes: 0,
+        jobIds: [],
+        startedAt: new Date().toISOString(),
+        waitStartedAt: null,
+        finishedAt: null,
+        deadlineAt: new Date(runtime.deadlineAt).toISOString(),
+        readyRemaining: null,
+        changedPromotedRemaining: null,
+      };
+      scopeProgress.push(progress);
+      const completed = [
+        ...(await readAllCompletedPromoteJobs(scopeRecordId, (cursor) =>
+          readWholeGameJson<WholeGameJobPage>(page, promoteJobsPath(scopeRecordId, "completed", cursor), runtime),
+        )),
+      ];
+      history.set(scopeRecordId, completed);
+      progress.completedJobsObserved = completed.length;
+      progress.promotedOutcomes = promotedCatalogItems(completed).promotedOutcomes;
+      counts.promotedOutcomes = promotedCatalogItems([...history.values()].flat()).promotedOutcomes;
       let converged = false;
       while (!converged) {
+        const passJobs: WholeGamePromoteJob[] = [];
         const active = await readActivePromoteJobs(page, scopeRecordId, runtime);
-        const plan = planScopePromotion(scopeRecordId, active);
+        const checkpoint = scopePromotionCheckpoint(scopeRecordId, completed);
+        let changedCandidates = 1;
+        if (active.length === 0 && checkpoint) {
+          progress.readyRemaining = await readReadyCandidateCount(page, scopeRecordId, [checkpoint], runtime);
+          progress.changedPromotedRemaining = await readReadyCandidateCount(
+            page,
+            scopeRecordId,
+            [checkpoint],
+            runtime,
+            "promoted",
+          );
+          changedCandidates = progress.readyRemaining + progress.changedPromotedRemaining;
+        }
+        const plan = planScopePromotion(scopeRecordId, active, completed, changedCandidates);
+        if (plan.kind === "reuse-completed-job") {
+          progress.jobIds = plan.jobIds;
+          convergedJobs.set(scopeRecordId, [checkpoint!]);
+          converged = true;
+          break;
+        }
         const jobIds =
           plan.kind === "adopt-active-job"
             ? plan.jobIds
             : [await submitPromoteAllReady(page, scopeRecordId, active, runtime)];
         if (plan.kind === "adopt-active-job") counts.promoteJobsAdopted += jobIds.length;
         else counts.promoteJobsSubmitted += 1;
+        progress.state = "promotion-running";
+        progress.jobIds = jobIds;
+        progress.waitStartedAt = new Date().toISOString();
         for (const jobId of jobIds) {
           const job = await waitForPromoteJob(page, jobId, runtime);
           if (!job) return receipt("running");
@@ -7707,15 +7821,24 @@ async function wholeGameSettle(
             job.result.failed ||
             job.result.outcomes.some((outcome) => outcome.status === "failed")
           ) {
+            receiptSink({ ...receipt("failed"), promotionFailure: wholeGamePromotionFailure(job) });
             throw new WholeGameRehearsalRefusal("scope-promotion-failed");
           }
           if (job.promotionApplicationVersion !== 1)
             throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
           observedJobs.push(job);
+          passJobs.push(job);
+          completed.push(job);
+          progress.completedJobsObserved = new Set(completed.map((entry) => entry.jobId)).size;
+          progress.promotedOutcomes = promotedCatalogItems(completed).promotedOutcomes;
+          counts.promotedOutcomes = promotedCatalogItems([...history.values()].flat()).promotedOutcomes;
           counts.promotedThisDispatch = promotedCatalogItems(observedJobs).promotedOutcomes;
-          converged = job.result.promoted === 0;
         }
+        converged = passJobs.every((job) => job.result?.promoted === 0);
+        if (converged) convergedJobs.set(scopeRecordId, passJobs);
       }
+      progress.state = "converged";
+      progress.finishedAt = new Date().toISOString();
       counts.scopesPromoted += 1;
     }
 
@@ -7759,7 +7882,12 @@ async function wholeGameSettle(
     }
 
     for (const scopeRecordId of step.scopeRecordIds) {
-      counts.readyRemaining += await readReadyCandidateCount(page, scopeRecordId, runtime);
+      counts.readyRemaining += await readReadyCandidateCount(
+        page,
+        scopeRecordId,
+        convergedJobs.get(scopeRecordId) ?? [],
+        runtime,
+      );
     }
     for (const filter of filters)
       counts.draftsRemaining += await readWholeGameTotal(page, draftItemsPath(filter), runtime);
@@ -7795,12 +7923,65 @@ async function readActivePromoteJobs(
   return (await readWholeGameJson<WholeGameJobPage>(page, promoteJobsPath(scopeRecordId, "active"), runtime)).items;
 }
 
-async function readReadyCandidateCount(page: Page, scopeRecordId: string, runtime?: WholeGameRuntime): Promise<number> {
-  return readWholeGameTotal(
-    page,
-    `/api/catalog/source-observations/merge-candidates?${wholeGameQuery({ scopeRecordId, status: "ready", limit: "1" })}`,
-    runtime,
+async function readReadyCandidateCount(
+  page: Page,
+  scopeRecordId: string,
+  convergedJobs: readonly WholeGamePromoteJob[],
+  runtime?: WholeGameRuntime,
+  status: "ready" | "promoted" = "ready",
+): Promise<number> {
+  // Historical dispositions are reusable only until the candidate changes.
+  // Approved candidates use the stored `promoted` status, including unapplied approvals.
+  const checkpoint = scopePromotionCheckpoint(scopeRecordId, convergedJobs);
+  const checkpointAt = Date.parse(checkpoint?.createdAt ?? "");
+  const checkpointCandidates = new Set(checkpoint?.result?.outcomes.map((outcome) => outcome.candidateId) ?? []);
+  const referenceOnly = new Map(
+    convergedJobs.flatMap((job) =>
+      job.scopeRecordId === scopeRecordId &&
+      job.kind === "merge-candidate-promote" &&
+      job.status === "completed" &&
+      job.promotionApplicationVersion === 1 &&
+      job.result?.promoted === 0 &&
+      !job.result.failed
+        ? job.result.outcomes.flatMap((outcome) =>
+            outcome.status === "skipped-not-eligible" && outcome.disposition === "reference-only" && outcome.candidateId
+              ? [[outcome.candidateId, Date.parse(job.createdAt ?? "")] as const]
+              : [],
+          )
+        : [],
+    ),
   );
+  const seen = new Set<string>();
+  let total: number | undefined;
+  let remaining = 0;
+  for (let offset = 0; ; ) {
+    const result = await readWholeGameJson<{
+      total: number;
+      items: readonly { candidate_id: string; updated_at: string }[];
+    }>(
+      page,
+      `/api/catalog/source-observations/merge-candidates?${wholeGameQuery({ scopeRecordId, status, limit: "100", offset: String(offset) })}`,
+      runtime,
+    );
+    if (!Number.isSafeInteger(result.total) || result.total < 0 || (total !== undefined && total !== result.total))
+      throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+    total = result.total;
+    for (const candidate of result.items) {
+      if (!candidate.candidate_id || seen.has(candidate.candidate_id))
+        throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+      seen.add(candidate.candidate_id);
+      // An edit after job creation invalidates its disposition; unknown dates fail closed.
+      const unchanged =
+        status === "promoted"
+          ? checkpointCandidates.has(candidate.candidate_id) && Date.parse(candidate.updated_at) < checkpointAt
+          : Date.parse(candidate.updated_at) <= (referenceOnly.get(candidate.candidate_id) ?? Number.NEGATIVE_INFINITY);
+      if (!unchanged) remaining += 1;
+    }
+    offset += result.items.length;
+    if (offset > total || (offset < total && result.items.length === 0))
+      throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+    if (offset === total) return remaining;
+  }
 }
 
 // Acts only through the form carrying the requested batch id, so another batch
@@ -7817,6 +7998,8 @@ async function submitBatchCommand(
   for (const [name, value] of Object.entries(fields)) {
     form = form.filter({ has: page.locator(`input[name=${cssString(name)}][value=${cssString(value)}]`) });
   }
+  // The batch DataTable renders a desktop and a mobile copy; act on the one shown.
+  form = form.filter({ visible: true });
   await expect(form).toHaveCount(1, { timeout: pageReadyTimeoutMs });
   assertWholeGameOrigin(page.url());
   const [response] = await Promise.all([
@@ -8078,6 +8261,7 @@ function fixturePublishPreview(
 }
 
 const fixtureRun: WholeGameRunIdentity = { sha: "a".repeat(40), runId: "9220", runAttempt: "1" };
+const fixtureReceiptSink: WholeGameReceiptSink = () => {};
 const fixtureRuntime = (): WholeGameRuntime => ({ deadlineAt: Date.now() + 60_000, pollMs: 10 });
 
 const fixtureAppliedOutcome = (candidateId = "candidate-create", itemId = "created-item") => ({
@@ -8700,6 +8884,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         { batchId: requested.batchId, retryFailed, resumeCancelled },
         fixtureRun,
         fixtureRuntime(),
+        fixtureReceiptSink,
       );
       expect(result.state).toBe(expectedState);
       expect(result.settle).toMatchObject({
@@ -8748,6 +8933,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
           { batchId: requested.batchId, retryFailed: intent === "retry-unit", resumeCancelled: intent === "resume" },
           fixtureRun,
           fixtureRuntime(),
+          fixtureReceiptSink,
         ).then((receipt) => receipts.push(receipt)),
       ).rejects.toMatchObject({ code: "batch-command-refused" });
       expect(receipts).toEqual([]);
@@ -8764,21 +8950,21 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       const recoveredOutcome = fixtureAppliedOutcome("candidate-create", "recovered-item");
       const admin = await serveWholeGameApplicationFixture(page, { abortAt, recoveredOutcome });
       const input = { batchId: "batch-requested", retryFailed: false, resumeCancelled: false };
-      await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).rejects.toThrow();
+      await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).rejects.toThrow();
       expect(admin.applicationComplete()).toBe(true);
       expect(admin.terminalComplete()).toBe(abortAt === "completed-before-publication");
       expect(admin.calls.filter((call) => call.startsWith("POST /catalog/scopes/scope-1"))).toHaveLength(
         abortAt === "active-after-application" ? 1 : 2,
       );
       expect(admin.calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/confirm"))).toEqual([]);
-      const recovered = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+      const recovered = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
       expect(recovered).toMatchObject({
         state: "settled",
         settle: { published: 1, promotedOutcomes: 1, promotedWithoutCatalogItem: 0 },
       });
       expect(admin.calls.some((call) => call.startsWith("GET /api/catalog/items/recovered-item"))).toBe(true);
       expect(admin.calls.some((call) => call.includes("/api/catalog/items/null"))).toBe(false);
-      const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+      const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
       expect(rerun).toMatchObject({ state: "settled", settle: { promotedThisDispatch: 0, published: 0 } });
       expect(
         admin.calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/confirm")),
@@ -8809,11 +8995,11 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         history: historyKind === "mixed" ? [legacy, applied] : [legacy],
       });
       const input = { batchId: "batch-requested", retryFailed: false, resumeCancelled: false };
-      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).toMatchObject({
+      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).toMatchObject({
         state: "settled",
         settle: { promotedOutcomes: 1, published: 1 },
       });
-      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).toMatchObject({
+      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).toMatchObject({
         state: "settled",
         settle: { promotedThisDispatch: 0, published: 0 },
       });
@@ -8847,6 +9033,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
           { batchId: "batch-requested", retryFailed: false, resumeCancelled: false },
           fixtureRun,
           fixtureRuntime(),
+          fixtureReceiptSink,
         ),
       ).rejects.toMatchObject({
         code: defect === "failed-catch-up" ? "scope-promotion-failed" : "promoted-catalog-item-unresolved",
@@ -8854,9 +9041,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       expect(admin.calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/confirm"))).toEqual([]);
     });
   }
-  test("AC1 start records fingerprint, scope count and planned requests, returns batch_id, and refuses a zero Scrydex limit", async ({
-    page,
-  }) => {
+  test("AC1 start refuses Scrydex and records the no-Scrydex preview and batch ID", async ({ page }) => {
     const providers = [
       ["tcgdex", 3, 120],
       ["scrydex", 2, 40],
@@ -8866,7 +9051,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         return { html: fixtureNewBatchForm() };
       }
       if (request.path === "/catalog/scopes/sync-batches" && request.body.includes("intent=preview")) {
-        return { html: fixturePreview(providers) };
+        return { html: fixturePreview(request.body.includes("productDomain=pokemon") ? [providers[0]] : providers) };
       }
       if (request.path === "/catalog/scopes/sync-batches" && request.body.includes("intent=confirm")) {
         return {
@@ -8883,37 +9068,42 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
 
-    const receipt = await wholeGameStart(
-      page,
-      parseWholeGameStartInput({
-        CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
-        CATALOG_WHOLE_GAME_LANGUAGE_CODE: "ja",
-        CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=40,maxScopesPerTurn=2",
-      }),
-      fixtureRun,
-    );
+    const paid = parseWholeGameStartInput({
+      CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
+      CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=50",
+    });
+    await expect(wholeGameStart(page, paid, fixtureRun)).rejects.toMatchObject({
+      code: "scrydex-host-decision-required",
+    });
+    expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
+
+    const noScrydex = parseWholeGameStartInput({
+      CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "pokemon",
+      CATALOG_WHOLE_GAME_LANGUAGE_CODE: "ja",
+      CATALOG_WHOLE_GAME_BUDGET: "maxScopesPerTurn=2",
+    });
+    const receipt = await wholeGameStart(page, noScrydex, fixtureRun);
     expect(receipt).toMatchObject({
       batchId: "batch-requested",
       state: "confirmed",
       preview: {
         planFingerprint: "sha256:fixture-plan",
         scopeCount: 3,
-        providers: [
-          { providerKey: "tcgdex", units: 3, plannedRequests: 120 },
-          { providerKey: "scrydex", units: 2, plannedRequests: 40 },
-        ],
+        providers: [{ providerKey: "tcgdex", units: 3, plannedRequests: 120 }],
       },
     });
     expect(validateWholeGameReceipt(receipt)).toEqual([]);
     const previewCall = calls.filter((call) => call.includes("intent=preview")).at(-1) ?? "";
     for (const field of [
-      "productDomain=one-piece",
+      "productDomain=pokemon",
+      "scopeKind=expansion",
       "languageCode=ja",
-      "scrydexRequestLimit=40",
+      "scrydexRequestLimit=0",
       "maxScopesPerTurn=2",
     ]) {
       expect(previewCall).toContain(field);
     }
+    expect(calls.filter((call) => call.includes("intent=confirm"))).toHaveLength(1);
   });
 
   test("AC1 Pokemon start selects canonical expansion scopes before preview", async ({ page }) => {
@@ -8966,7 +9156,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     const input = { batchId: "batch-requested", retryFailed: true, resumeCancelled: false };
 
-    const receipt = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+    const receipt = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
     expect(receipt).toMatchObject({ state: "running", settle: { batchStatus: "partial", retriedUnits: 1 } });
     const posts = calls.filter((call) => call.startsWith("POST "));
     expect(posts).toHaveLength(1);
@@ -8974,7 +9164,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     expect(posts[0]).toContain("scopeRecordId=scope-2");
 
     apiBatch = other;
-    await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).rejects.toMatchObject({
+    await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).rejects.toMatchObject({
       code: "batch-id-mismatch",
     });
     expect(calls.filter((call) => call.startsWith("POST "))).toHaveLength(1);
@@ -9049,7 +9239,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     const input = { batchId: "batch-requested", retryFailed: false, resumeCancelled: false };
 
-    const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+    const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
     expect(rerun).toMatchObject({
       state: "settled",
       settle: {
@@ -9067,7 +9257,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     expect(validateWholeGameReceipt(rerun)).toEqual([]);
 
-    const further = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+    const further = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
     expect(further).toMatchObject({
       state: "settled",
       settle: { promotedThisDispatch: 0, published: 0, promoteJobsSubmitted: 1, promoteJobsAdopted: 0 },

@@ -20,6 +20,8 @@ export type PgPoolClient = PgQueryable &
 export type PgTransactionalPool = PgQueryable &
   Readonly<{
     connect: () => Promise<PgPoolClient>;
+    /** The real pool behind a transaction-scoped adapter whose COMMIT only releases a savepoint. */
+    independentConnectionPool?: PgTransactionalPool;
     idleInTransactionSessionTimeoutMillis?: number;
   }>;
 

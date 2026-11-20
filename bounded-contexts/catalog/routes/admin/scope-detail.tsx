@@ -7,6 +7,7 @@ import { loader } from "../../support/route-support/admin-scope-detail/scope-det
 import type { action as scopeDetailAction } from "../../support/route-support/admin-scope-detail/scope-detail-action";
 import { commandResultNeedsRoutableHandoff } from "../../support/route-support/admin-integrations/integrations-command-result";
 import { scopeDetailCommandHref } from "../../support/route-support/admin-scope-detail/scope-detail-route-context";
+import { useOriginalPromotionReceipt } from "../../features/source-observations/ui/integrations-surface-route-view";
 
 export { loader } from "../../support/route-support/admin-scope-detail/scope-detail-loader";
 export { action } from "../../support/route-support/admin-scope-detail/scope-detail-action";
@@ -35,6 +36,7 @@ export default function ScopeDetailRoute() {
   const navigation = useNavigation();
   const navigate = useNavigate();
   const commandFeedback = actionData && "feedback" in actionData ? actionData.feedback : null;
+  const journeyReadModel = useOriginalPromotionReceipt(journey, actionData ?? null, navigation.state !== "idle");
 
   useEffect(() => {
     if (actionData && "feedback" in actionData && commandResultNeedsRoutableHandoff(actionData)) {
@@ -52,7 +54,7 @@ export default function ScopeDetailRoute() {
       loading={navigation.state !== "idle"}
       coverageMatrix={coverageMatrix}
       coverageMatrixFailed={coverageMatrixFailed}
-      journey={journey}
+      journey={{ ...journey, readModel: journeyReadModel }}
       commandFeedback={commandFeedback}
       candidateReviewJobs={candidateReviewJobs}
       candidateReviewJobsCursor={candidateReviewJobsCursor}

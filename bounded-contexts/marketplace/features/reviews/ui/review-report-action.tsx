@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
+import { ReviewMutationForm, type ReviewMutationPhase } from "./review-mutation-form";
 import {
   Button,
   Dialog,
-  Form,
   HiddenInput,
   MarketplaceNotice,
   NativeSelect,
@@ -15,6 +15,9 @@ export type ReviewReportResult = Readonly<{
   status: "submitted" | "already-submitted" | "error";
   message?: string;
   values?: Readonly<{ reason: string; details: string }>;
+  attemptId?: string;
+  mutationPhase?: ReviewMutationPhase;
+  error?: string;
 }>;
 
 const reviewReportReasons = [
@@ -91,7 +94,7 @@ export function ReviewReportAction({
           </Button>
         }
       >
-        <Form spacing="none" method="post">
+        <ReviewMutationForm spacing="none" method="post">
           <HiddenInput type="hidden" name="intent" value="report-review" readOnly />
           <HiddenInput type="hidden" name="reviewId" value={reviewId} readOnly />
           <Stack gap={3}>
@@ -116,7 +119,7 @@ export function ReviewReportAction({
                 : t("reputation.features.reviews.ui.reviewReportAction.submit")}
             </Button>
           </Stack>
-        </Form>
+        </ReviewMutationForm>
       </Dialog>
     </Stack>
   );

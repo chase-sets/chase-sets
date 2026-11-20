@@ -1,12 +1,15 @@
 import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { createListingTargetRuntime } from "./target-runtime";
+import type { ListingTargetServices } from "./target-contracts";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
-import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import type { AggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createPassthroughDomainEventCodec, type DomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { applyEvents } from "@chase-sets/event-core/domain";
-import type { EventStoreError } from "@chase-sets/event-core/event-store";
+import { applyEvents, type DomainEvent } from "@chase-sets/event-core/domain";
+import { createEventStoreError, type EventStoreError } from "@chase-sets/event-core/event-store";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
@@ -43,6 +46,8 @@ import type {
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
+  MarketplaceListingBatchFamily,
+  MarketplaceListingBatchResult,
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
@@ -74,7 +79,6 @@ import {
   selectEvidenceGarbageCollectionTargets,
   type EvidenceGarbageCollectionEntry,
 } from "../domain/evidence-garbage-collection";
-import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
 import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
@@ -114,6 +118,28 @@ import {
   type SellerOrderCapacityState,
 } from "../domain/seller-order-capacity";
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
+import type { MarketplaceListingMutationKind } from "../../mutation-recovery/domain/contracts";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
+import {
+  isRepricingEngineKey,
+  listingAttempt,
+  listingAttemptMetadata,
+  readListingAttemptReceipt,
+  stampListingAttemptEvents,
+  type ListingAttempt,
+} from "./listing-attempt";
+import {
+  assertListingBatchId,
+  assertPreparedListingAttempt,
+  lookupListingBatch as lookupPersistedListingBatch,
+  runBoundListingAttempt as runListingAttempt,
+  runListingBatch,
+  type ListingBatchDecision,
+  type ListingBatchTarget,
+} from "./listing-batch";
+import { createListingRecovery } from "./listing-recovery";
+import { MarketplaceListingRequestError } from "./listing-request-error";
+import { TypedIdBoundaryDomainError } from "@chase-sets/http/typed-id";
 import {
   getInventoryItemSupply,
   getMarketplaceAccountRisk,
@@ -170,6 +196,40 @@ function assert(condition: unknown, message: string): asserts condition {
   }
 }
 
+/** At most this many Listing targets per lifecycle batch. */
+export const MARKETPLACE_LISTING_BATCH_MAX_TARGETS = 500;
+
+const listingBatchUnknownDecision: ListingBatchDecision = {
+  outcome: "unknown",
+  version: 0,
+  message: "The target's outcome is unknown; retry the batch.",
+};
+
+/**
+ * A failed batch target is terminal only when the failure provably wrote nothing: a changed request or a stale
+ * stream version is `conflict`, a domain or request rejection is `error`. Anything else (infrastructure, an
+ * unreadable owner history) may have committed and is `unknown`, the one outcome a retry re-drives.
+ */
+function listingBatchFailure(error: unknown, version = 0): ListingBatchDecision {
+  const message = error instanceof Error ? error.message : "Listing batch target failed.";
+  if (error instanceof MarketplaceAttemptError) {
+    const outcome =
+      error.code === "attempt_conflict" ? "conflict" : error.code === "invalid_attempt" ? "error" : "unknown";
+    return { outcome, version, message };
+  }
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "concurrency_conflict") return { outcome: "conflict", version, message };
+  const rejected =
+    error instanceof MarketplaceListingDomainError ||
+    error instanceof MarketplaceListingRequestError ||
+    error instanceof TypedIdBoundaryDomainError ||
+    error instanceof MarketplaceSalesFeeQuoteStaleError ||
+    error instanceof MarketplaceListingEvidenceIncompleteError ||
+    // The runtime's own precondition asserts throw plain errors before any append.
+    (error instanceof Error && error.constructor === Error && code === undefined);
+  return { outcome: rejected ? "error" : "unknown", version, message };
+}
+
 export class MarketplaceSalesFeeQuoteStaleError extends Error {
   public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
     super("Fee quote is stale. Refresh the fee preview before continuing.");
@@ -187,17 +247,57 @@ export class MarketplaceListingEvidenceIncompleteError extends Error {
 export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
 export { marketplaceListingCommandTypes as marketplaceListingCommandInventory } from "../domain/domain";
 
-type MarketplaceCreateListingParams = Readonly<{
-  accountId: AccountId;
-  inventoryItemId: string;
-  priceAmount: string;
-  priceCurrencyCode: string;
-  publicationScope?: "native" | "channel-only";
-  quantityCap: number;
-  purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
-  listingIdOverride?: ListingId;
-}>;
+/**
+ * The shipped Listing carrier: `idempotencyKey` stamps the command's owner-stream events and
+ * `requestHash`, when supplied, must equal the canonical request. Omitted only by proved internal exemptions.
+ */
+export type MarketplaceListingAttemptParams = Readonly<{ idempotencyKey: string; requestHash?: string }>;
+
+/** One bulk lifecycle or seller batch; seller families carry exactly one target, the seller account. */
+export type MarketplaceListingBatchInput = Readonly<{ accountId: string; batchId: string }> &
+  (
+    | Readonly<{ family: "listing.pause" | "listing.withdraw"; listingIds: readonly string[] }>
+    | Readonly<{
+        family: "seller.availability";
+        availability:
+          | Readonly<{ status: "available" }>
+          | Readonly<{
+              status: "unavailable";
+              reasonCategory: SellerListingAvailabilityReasonCategory | null;
+              availableAgainOn: string | null;
+              availableAgainAt?: string | null;
+            }>;
+      }>
+    | Readonly<{
+        family: "seller.away";
+        away:
+          | Readonly<{ action: "cancel" }>
+          | Readonly<{
+              action: "schedule";
+              reasonCategory: SellerListingAvailabilityReasonCategory;
+              startsAt: string;
+              endsAt: string | null;
+            }>;
+      }>
+    | Readonly<{ family: "seller.order-capacity"; maxOpenOrders: number | null }>
+  );
+
+export type MarketplaceAuthoritativeListing =
+  | Readonly<{ kind: "absent" }>
+  | Readonly<{ kind: "present"; state: MarketplaceListingState; version: number }>;
+
+type MarketplaceCreateListingParams = MarketplaceListingAttemptParams &
+  Readonly<{
+    accountId: AccountId;
+    inventoryItemId: string;
+    priceAmount: string;
+    priceCurrencyCode: string;
+    publicationScope?: "native" | "channel-only";
+    quantityCap: number;
+    purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+    listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
+    listingIdOverride?: ListingId;
+  }>;
 type MarketplaceCreateListingResult<Fingerprint extends string | null = string | null> = Readonly<{
   listingId: ListingId;
   version: number;
@@ -216,7 +316,11 @@ type MarketplaceCreateListing = {
   (params: MarketplaceCreateListingParams, context: EventStoreContext): Promise<MarketplaceCreateListingResult>;
 };
 
-export type MarketplaceListingServices = Readonly<{
+export type MarketplaceListingServices = MarketplaceListingCoreServices &
+  ListingTargetServices &
+  ReturnType<typeof createListingRecovery>;
+
+type MarketplaceListingCoreServices = Readonly<{
   operatorUnlistListing: (
     params: Readonly<{
       listingId: ListingId;
@@ -273,29 +377,30 @@ export type MarketplaceListingServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
   createListingFromInventorySnapshot: (
-    params: Readonly<{
-      accountId: string;
-      inventoryItemId: string;
-      catalogItemId: string;
-      productId: string;
-      selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      gradedCard?: MarketplaceListingState["gradedCard"];
-      storageLocationId: string;
-      storageLocationName: string;
-      shipFromCode: string;
-      shipFromAddress: AddressSnapshot;
-      totalQuantity: number;
-      availableQuantity?: number;
-      acquisitionCostAmount: string | null;
-      acquisitionCostCurrencyCode?: string | null;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      quantityCap: number;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
-      publicationScope?: "native" | "channel-only";
-      listingIdOverride?: ListingId;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        inventoryItemId: string;
+        catalogItemId: string;
+        productId: string;
+        selectedOptions: readonly { dimensionId: string; optionId: string }[];
+        gradedCard?: MarketplaceListingState["gradedCard"];
+        storageLocationId: string;
+        storageLocationName: string;
+        shipFromCode: string;
+        shipFromAddress: AddressSnapshot;
+        totalQuantity: number;
+        availableQuantity?: number;
+        acquisitionCostAmount: string | null;
+        acquisitionCostCurrencyCode?: string | null;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        quantityCap: number;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+        listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
+        publicationScope?: "native" | "channel-only";
+        listingIdOverride?: ListingId;
+      }>,
     context: EventStoreContext,
   ) => Promise<{
     listingId: ListingId;
@@ -403,13 +508,16 @@ export type MarketplaceListingServices = Readonly<{
     }>,
   ) => Promise<MarketplaceAnonymousListingDraftIntent>;
   updateListingPrice: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      feeQuoteFingerprint?: string | null;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        listingId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        feeQuoteFingerprint?: string | null;
+        /** System callers bind the repair to the stream version they decided from; a moved stream conflicts. */
+        expectedVersion?: number;
+      }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   /**
@@ -440,83 +548,123 @@ export type MarketplaceListingServices = Readonly<{
   applyBulkListingPriceUpdates: (
     params: Readonly<{
       accountId: string;
+      /**
+       * The batch identity whose terminal vector Marketplace persists; each update's attempt defaults to it.
+       * Omitted only by the exempt repricing engine (`repricing:` keys) and keyless internal callers.
+       */
+      batchId?: string;
       updates: readonly MarketplaceBulkListingPriceUpdateInput[];
     }>,
     context: EventStoreContext,
   ) => Promise<readonly MarketplaceBulkListingPriceUpdateOutcome[]>;
+  /**
+   * One bulk lifecycle or seller batch: one batch id, one target attempt per target (the batch id bound to that
+   * target), and a persisted terminal vector. A retry returns every terminal target as recorded and re-drives only
+   * the targets the vector holds as `unknown`.
+   */
+  applyListingBatch: (
+    params: MarketplaceListingBatchInput,
+    context: EventStoreContext,
+  ) => Promise<MarketplaceListingBatchResult>;
+  /** The persisted terminal vector of a batch, or null when it never recorded one; read-only. */
+  lookupListingBatch: (
+    params: Readonly<{ accountId: string; family: MarketplaceListingBatchFamily; batchId: string }>,
+  ) => Promise<MarketplaceListingBatchResult | null>;
+  /**
+   * A Listing's complete authoritative stream for seed and clamp decisions that must never trust a projection.
+   * An empty stream is `absent`; a history that does not open with this Listing's creation for this owner, or
+   * cannot be folded, throws `history_incomplete` so the caller writes nothing.
+   */
+  readAuthoritativeListing: (
+    params: Readonly<{ listingId: string; accountId: string }>,
+  ) => Promise<MarketplaceAuthoritativeListing>;
   updateListingQuantityCap: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      quantityCap: number;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-      feeQuoteFingerprint?: string | null;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        listingId: string;
+        quantityCap: number;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+        feeQuoteFingerprint?: string | null;
+      }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   updateListingPurchaseLimits: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        listingId: string;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   publishListing: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      feeQuoteFingerprint?: string | null;
-      idempotencyKey?: string;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        listingId: string;
+        feeQuoteFingerprint?: string | null;
+        /** System callers bind the publication to the stream version they decided from; a moved stream conflicts. */
+        expectedVersion?: number;
+      }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   pauseListing: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      reason?: "seller" | "policy-input-missing";
-      idempotencyKey?: string;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        listingId: string;
+        reason?: "seller" | "policy-input-missing" | "channel-inbound-dark";
+        /** System callers bind the pause to the stream version they decided from; a moved stream conflicts. */
+        expectedVersion?: number;
+      }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
+  ) => Promise<{ listingId: string; version: number; noOp?: true }>;
   withdrawListing: (
-    params: Readonly<{ accountId: string; listingId: string }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        listingId: string;
+        /** System callers bind the withdrawal to the stream version they decided from; a moved stream conflicts. */
+        expectedVersion?: number;
+      }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
+  ) => Promise<{ listingId: string; version: number; noOp?: true }>;
   getSellerListingAvailability: (accountId: string) => ReturnType<typeof getSellerListingAvailability>;
   disableSellerListingAvailability: (
-    params: Readonly<{
-      accountId: string;
-      reasonCategory: SellerListingAvailabilityReasonCategory | null;
-      availableAgainOn: string | null;
-      /**
-       * The authoritative resume instant, captured client-side (seller-local
-       * start-of-day for the chosen date). Optional for back-compat with
-       * system callers and non-JS form submits, which fall back to the
-       * informational-only `availableAgainOn` date.
-       */
-      availableAgainAt?: string | null;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        reasonCategory: SellerListingAvailabilityReasonCategory | null;
+        availableAgainOn: string | null;
+        /**
+         * The authoritative resume instant, captured client-side (seller-local
+         * start-of-day for the chosen date). Optional for back-compat with
+         * system callers and non-JS form submits, which fall back to the
+         * informational-only `availableAgainOn` date.
+         */
+        availableAgainAt?: string | null;
+      }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "unavailable" }>;
   enableSellerListingAvailability: (
-    params: Readonly<{
-      accountId: string;
-      /** Defaults to `"seller"`; the auto-resume sweep passes `"scheduled"`. */
-      enabledBy?: SellerListingAvailabilityEnabledBy;
-      /** Compare-and-swap guard for a scheduled enable; see the domain command's `dueBy` doc comment. */
-      dueBy?: string | null;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        /** Defaults to `"seller"`; the auto-resume sweep passes `"scheduled"`. */
+        enabledBy?: SellerListingAvailabilityEnabledBy;
+        /** Compare-and-swap guard for a scheduled enable; see the domain command's `dueBy` doc comment. */
+        dueBy?: string | null;
+      }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "available" }>;
   getSellerOrderCapacity: (accountId: string) => ReturnType<typeof getSellerOrderCapacity>;
   setSellerOrderCapacity: (
-    params: Readonly<{ accountId: string; maxOpenOrders: number }>,
+    params: MarketplaceListingAttemptParams & Readonly<{ accountId: string; maxOpenOrders: number }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; maxOpenOrders: number }>;
   clearSellerOrderCapacity: (
-    params: Readonly<{ accountId: string }>,
+    params: MarketplaceListingAttemptParams & Readonly<{ accountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; maxOpenOrders: null }>;
   /**
@@ -543,17 +691,18 @@ export type MarketplaceListingServices = Readonly<{
    * to reschedule.
    */
   scheduleSellerAwayWindow: (
-    params: Readonly<{
-      accountId: string;
-      startsAt: string;
-      endsAt: string | null;
-      reasonCategory: SellerListingAvailabilityReasonCategory;
-    }>,
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        startsAt: string;
+        endsAt: string | null;
+        reasonCategory: SellerListingAvailabilityReasonCategory;
+      }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number }>;
   /** Cancels the pending Away Window, if any; no-ops when none exists. */
   cancelScheduledAwayWindow: (
-    params: Readonly<{ accountId: string }>,
+    params: MarketplaceListingAttemptParams & Readonly<{ accountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number }>;
   /**
@@ -717,7 +866,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     codec: listingCodec,
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
-    decide: decideMarketplaceListing,
+    decide: decideUnfencedMarketplaceListing,
     snapshots: {
       store: createPostgresAggregateSnapshotStore<MarketplaceListingState>({ db: deps.db }),
       schemaVersion: MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION,
@@ -732,21 +881,101 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     evolve: evolveInventoryListingCapacity,
     decide: decideInventoryListingCapacity,
   });
+  const sellerAvailabilityCodec = createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>();
   const { commandHandler: sellerAvailabilityCommandHandler, repository: sellerAvailabilityRepository } =
     createAggregateCommandHandler({
       eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
+      codec: sellerAvailabilityCodec,
       initialState: () => initialSellerListingAvailabilityState,
       evolve: evolveSellerListingAvailability,
       decide: decideSellerListingAvailability,
     });
-  const { commandHandler: orderCapacityCommandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<SellerOrderCapacityEvent>(),
-    initialState: () => initialSellerOrderCapacityState,
-    evolve: evolveSellerOrderCapacity,
+  const orderCapacityCodec = createPassthroughDomainEventCodec<SellerOrderCapacityEvent>();
+  const { commandHandler: orderCapacityCommandHandler, repository: orderCapacityRepository } =
+    createAggregateCommandHandler({
+      eventStore: deps.eventStore,
+      codec: orderCapacityCodec,
+      initialState: () => initialSellerOrderCapacityState,
+      evolve: evolveSellerOrderCapacity,
+      decide: decideSellerOrderCapacity,
+    });
+
+  function attemptFor(
+    mutationKind: MarketplaceListingMutationKind,
+    params: Readonly<{ idempotencyKey?: string; requestHash?: string; accountId: string }>,
+    request: Record<string, unknown>,
+    targetId?: string,
+    listingIdOverride?: string | null,
+  ): ListingAttempt | null {
+    return listingAttempt({
+      idempotencyKey: params.idempotencyKey ?? "",
+      requestHash: params.requestHash,
+      mutationKind,
+      accountId: params.accountId,
+      targetId,
+      listingIdOverride,
+      request,
+    });
+  }
+
+  /** One owner-stream append whose events carry the attempt's deterministic ids and recorded hash. */
+  async function appendAttemptCommand<State, Command, Event extends DomainEvent>(
+    owner: Readonly<{
+      handler: CommandHandler<Command, State, Event>;
+      repository: AggregateRepository<State, Event>;
+      decide: (state: State, command: Command) => readonly Event[];
+      evolve: (state: State, event: Event) => State;
+      codec: DomainEventCodec<Event>;
+    }>,
+    input: Readonly<{ streamId: string; command: Command; context: EventStoreContext; expectedVersion?: number }>,
+    attempt: ListingAttempt | null,
+  ): Promise<Readonly<{ state: State; version: number; newEvents: readonly Event[] }>> {
+    if (!attempt) return owner.handler(input);
+    const loaded = await owner.repository.load(input.streamId);
+    assertExpectedListingVersion(input.streamId, input.expectedVersion, loaded.version);
+    const newEvents = owner.decide(loaded.state, input.command);
+    if (newEvents.length === 0) return { state: loaded.state, version: loaded.version, newEvents };
+    const storedEvents = await deps.eventStore.appendToStream({
+      streamId: input.streamId,
+      expectedVersion: loaded.version,
+      context: input.context,
+      events: stampListingAttemptEvents(attempt, newEvents.map(owner.codec.encode)),
+    });
+    recordCommittedEvents(storedEvents);
+    const state = applyEvents(loaded.state, owner.evolve, newEvents);
+    const version = storedEvents.at(-1)?.streamVersion ?? loaded.version;
+    owner.repository.scheduleSnapshot?.({ streamId: input.streamId, priorVersion: loaded.version, version, state });
+    return { state, version, newEvents };
+  }
+  function assertExpectedListingVersion(streamId: string, expected: number | undefined, actual: number) {
+    if (expected !== undefined && actual !== expected)
+      throw createEventStoreError("concurrency_conflict", "The Listing changed after the caller decided.", {
+        streamId,
+        expectedVersion: expected,
+        actualVersion: actual,
+      });
+  }
+  const listingOwner = {
+    handler: commandHandler,
+    repository,
+    decide: decideMarketplaceListing,
+    evolve: evolveMarketplaceListing,
+    codec: listingCodec,
+  };
+  const sellerAvailabilityOwner = {
+    handler: sellerAvailabilityCommandHandler,
+    repository: sellerAvailabilityRepository,
+    decide: decideSellerListingAvailability,
+    evolve: evolveSellerListingAvailability,
+    codec: sellerAvailabilityCodec,
+  };
+  const orderCapacityOwner = {
+    handler: orderCapacityCommandHandler,
+    repository: orderCapacityRepository,
     decide: decideSellerOrderCapacity,
-  });
+    evolve: evolveSellerOrderCapacity,
+    codec: orderCapacityCodec,
+  };
 
   /**
    * Resolves the marketplace listing-gate policy currently in effect. When
@@ -807,6 +1036,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     inventoryItemId: string,
     command: Extract<MarketplaceListingCommand, { type: "CreateListing" }>,
     context: EventStoreContext,
+    stamp: ListingAttempt | null = null,
   ): Promise<{ version: number; state: MarketplaceListingState }> {
     const appendToStreams = deps.eventStore.appendToStreams;
     assert(appendToStreams, "Atomic inventory listing registration is unavailable.");
@@ -845,7 +1075,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             streamId: listingStreamId,
             expectedVersion: listing.version,
             context,
-            events: listingEvents.map(listingCodec.encode),
+            events: stampListingAttemptEvents(stamp, listingEvents.map(listingCodec.encode)),
           },
         ]);
         recordCommittedEvents(results.flatMap((result) => result.storedEvents));
@@ -872,6 +1102,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           intent: "pause" | "recover";
         }>,
     context: EventStoreContext,
+    stamp: ListingAttempt | null = null,
+    expectedListingVersion?: number,
   ): Promise<number> {
     const appendToStreams = deps.eventStore.appendToStreams;
     assert(appendToStreams, "Atomic inventory listing capacity writes are unavailable.");
@@ -882,6 +1114,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       if (listing.state.listingId === null || listing.state.accountId !== accountId) {
         throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
       }
+      assertExpectedListingVersion(listingStreamId, expectedListingVersion, listing.version);
       assert(listing.state.inventoryItemId, "Listing inventory item is missing.");
       const inventoryItemId = listing.state.inventoryItemId;
       const capacityStreamId = inventoryListingCapacityStreamId(inventoryItemId);
@@ -964,7 +1197,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             streamId: listingStreamId,
             expectedVersion: listing.version,
             context,
-            events: listingEvents.map(listingCodec.encode),
+            events: stampListingAttemptEvents(stamp, listingEvents.map(listingCodec.encode)),
           },
         ]);
         recordCommittedEvents(results.flatMap((result) => result.storedEvents));
@@ -1069,6 +1302,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         ...decideMarketplaceListing(applyEvents(listing, evolveMarketplaceListing, refreshed), {
           type: "PublishListing",
           readiness,
+          publishedAt: now,
         }),
       ];
     } catch {
@@ -1085,14 +1319,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }
 
     return listing;
-  }
-
-  async function findReplayedListingMutation(listingId: string, idempotencyKey: string) {
-    const eventId = `${idempotencyKey}:0`;
-    const events = await readCompleteStream(deps.eventStore, {
-      streamId: `marketplace.listing-${listingId}`,
-    });
-    return events.find((event) => event.eventId === eventId) ?? null;
   }
 
   async function resolveEvidenceRequirementsForListing(
@@ -1577,8 +1803,57 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   async function createListing(
     params: Parameters<MarketplaceListingServices["createListing"]>[0],
     context: EventStoreContext,
-  ) {
-    const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
+  ): Promise<MarketplaceCreateListingResult> {
+    const attempt = attemptFor(
+      "listing.create",
+      params,
+      {
+        inventoryItemId: params.inventoryItemId,
+        listingIdOverride: params.listingIdOverride ?? null,
+        publicationScope: params.publicationScope ?? "native",
+        priceAmount: params.priceAmount,
+        priceCurrencyCode: params.priceCurrencyCode,
+        quantityCap: params.quantityCap,
+        purchaseLimits: params.purchaseLimits ?? null,
+      },
+      params.inventoryItemId,
+      params.listingIdOverride,
+    );
+    const listingId = (attempt?.receiptId ?? params.listingIdOverride ?? createId("lst")) as ListingId;
+    return runListingAttempt(
+      deps.eventStore,
+      attempt,
+      async (receipt) => {
+        const current = await repository.load(`marketplace.listing-${listingId}`);
+        return {
+          listingId,
+          version: receipt.version,
+          feeQuoteFingerprint: current.state.feeQuoteFingerprint,
+          state: current.state,
+        };
+      },
+      async () => {
+        // The attempt owns this Listing id; a Listing already on it under another inventory item or kind is a
+        // changed request under the same key, never a resume (only an explicit override may resume a draft).
+        if (attempt && !params.listingIdOverride) {
+          const existing = await repository.load(`marketplace.listing-${listingId}`);
+          if (existing.state.listingId !== null)
+            throw new MarketplaceAttemptError(
+              "attempt_conflict",
+              "Marketplace attempt identity was already used for a different command.",
+            );
+        }
+        return createListingOnce(params, listingId, attempt, context);
+      },
+    );
+  }
+
+  async function createListingOnce(
+    params: Parameters<MarketplaceListingServices["createListing"]>[0],
+    listingId: ListingId,
+    attempt: ListingAttempt | null,
+    context: EventStoreContext,
+  ): Promise<MarketplaceCreateListingResult> {
     const streamId = `marketplace.listing-${listingId}`;
     const existing = await repository.load(streamId);
     if (existing.state.listingId !== null) {
@@ -1674,6 +1949,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         evidence,
       },
       context,
+      attempt,
     );
 
     return {
@@ -1712,7 +1988,235 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     return { listingId: params.listingId, version: result.version, state: result.state };
   }
 
-  return {
+  type BulkPriceTarget = Readonly<{
+    targetId: string;
+    update: MarketplaceBulkListingPriceUpdateInput;
+    attempt: ListingAttempt | null;
+  }>;
+
+  /**
+   * Drives price targets through the chunked lane, wave by wave. A recorded target attempt returns its first
+   * receipt; a lane failure leaves its wave `unknown`; a non-applied lane outcome re-reads the target's receipt so
+   * an identical concurrent retry that won the append is reported as the success it is.
+   */
+  async function driveBulkPriceUpdates(
+    accountId: string,
+    targets: readonly BulkPriceTarget[],
+    context: EventStoreContext,
+  ): Promise<ReadonlyMap<string, ListingBatchDecision>> {
+    const decided = new Map<string, ListingBatchDecision>();
+    if (targets.length === 0) return decided;
+    const policy = await resolveBulkPriceUpdatePolicy();
+    let termsSession: Awaited<ReturnType<typeof openMarketplaceListingTermsSession>> | undefined;
+    const waves = chunkItems(targets, policy.chunkSize);
+    const attemptsByListingId = new Map(targets.map((target) => [target.targetId, target.attempt] as const));
+
+    for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
+      const laneItems: BulkAppendLaneItem<MarketplaceListingCommand>[] = [];
+      for (const { update, attempt } of waves[waveIndex]!) {
+        try {
+          await assertPreparedListingAttempt(deps.eventStore, attempt);
+          const first = await readListingAttemptReceipt(deps.eventStore, attempt);
+          if (first) {
+            decided.set(update.listingId, { outcome: "succeeded", version: first.version });
+            continue;
+          }
+          const listing = await loadOwnedListingState(update.listingId, accountId);
+          assertNativeListingCommand(listing);
+          assert(listing.priceAmount !== null, "Listing price is missing.");
+          termsSession ??= await openMarketplaceListingTermsSession(deps.commercialTermsResolver, { accountId });
+          const quote = termsSession.quote(update.priceAmount);
+          if (update.feeQuoteFingerprint) {
+            assertConfirmedFeeQuote(update.feeQuoteFingerprint, quote);
+          }
+          const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, update.priceAmount));
+          laneItems.push({
+            streamId: `marketplace.listing-${update.listingId}`,
+            expectedVersion: update.expectedVersion,
+            eventIdPrefix: attempt?.eventIdPrefix,
+            eventMetadata: attempt ? listingAttemptMetadata(attempt) : undefined,
+            command: {
+              type: "UpdateListingPrice",
+              priceAmount: update.priceAmount,
+              priceCurrencyCode: update.priceCurrencyCode,
+              feeLocks,
+              minimumChange: update.minimumChange,
+              changeSource: isRepricingEngineKey(update.idempotencyKey) ? "repricing-engine" : undefined,
+            },
+            context,
+          });
+        } catch (error) {
+          decided.set(update.listingId, listingBatchFailure(error));
+        }
+      }
+
+      if (laneItems.length > 0) {
+        // One chunk's worth of items per lane call -- the lane's own internal chunking degenerates to a single
+        // chunk here since `laneItems.length <= policy.chunkSize`, preserving the "one advisory-lock window and
+        // one multi-row event INSERT per chunk" invariant. The inter-chunk yield happens below, between waves.
+        const lane = createBulkAppendLane({
+          eventStore: deps.eventStore,
+          repository,
+          codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+          evolve: evolveMarketplaceListing,
+          decide: decideMarketplaceListing,
+          chunkSize: laneItems.length,
+          yieldIntervalMs: 0,
+          telemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" },
+        });
+        let laneOutcomes: Awaited<ReturnType<typeof lane>>;
+        try {
+          laneOutcomes = await lane(laneItems);
+        } catch {
+          // The chunk's one transaction may have committed: every target in it is unknown.
+          laneOutcomes = [];
+        }
+        for (const laneOutcome of laneOutcomes) {
+          const listingId = laneOutcome.streamId.slice("marketplace.listing-".length);
+          if (laneOutcome.outcome === "applied" || laneOutcome.outcome === "no_op") {
+            decided.set(listingId, {
+              outcome: "succeeded",
+              version: laneOutcome.version,
+              ...(laneOutcome.outcome === "no_op" ? { noOp: true as const } : {}),
+            });
+            continue;
+          }
+          const raced = await readListingAttemptReceipt(deps.eventStore, attemptsByListingId.get(listingId)).catch(
+            () => null,
+          );
+          if (raced) decided.set(listingId, { outcome: "succeeded", version: raced.version });
+          else if (laneOutcome.outcome === "conflict")
+            decided.set(listingId, {
+              outcome: "conflict",
+              version: laneOutcome.version,
+              message: laneOutcome.error?.message ?? "The Listing changed before this price update applied.",
+            });
+          else decided.set(listingId, listingBatchFailure(laneOutcome.error, laneOutcome.version));
+        }
+      }
+
+      if (waveIndex < waves.length - 1) {
+        await defaultLaneYield(policy.yieldIntervalMs);
+      }
+    }
+    return decided;
+  }
+
+  type ListingBatchRunTarget = ListingBatchTarget &
+    Readonly<{ run: () => Promise<Readonly<{ version: number; noOp?: true }>> }>;
+
+  /** Each target's attempt is the batch id bound to that target, exactly as the single command derives it. */
+  function listingBatchTargets(
+    params: MarketplaceListingBatchInput,
+    context: EventStoreContext,
+  ): readonly ListingBatchRunTarget[] {
+    const keyed = { accountId: params.accountId, idempotencyKey: params.batchId };
+    const seller = (
+      mutationKind: MarketplaceListingMutationKind,
+      request: Record<string, unknown>,
+      run: () => Promise<Readonly<{ version: number }>>,
+    ): readonly ListingBatchRunTarget[] => [
+      { targetId: params.accountId, attempt: attemptFor(mutationKind, keyed, request)!, run },
+    ];
+    switch (params.family) {
+      case "listing.pause":
+      case "listing.withdraw": {
+        if (params.listingIds.length > MARKETPLACE_LISTING_BATCH_MAX_TARGETS)
+          throw new MarketplaceAttemptError("invalid_attempt", "A Listing batch has too many targets.");
+        const pause = params.family === "listing.pause";
+        return params.listingIds.map((listingId) => ({
+          targetId: listingId,
+          attempt: attemptFor(
+            params.family,
+            keyed,
+            pause ? { listingId, reason: "seller" } : { listingId },
+            listingId,
+          )!,
+          run: () =>
+            pause
+              ? services.pauseListing({ ...keyed, listingId }, context)
+              : services.withdrawListing({ ...keyed, listingId }, context),
+        }));
+      }
+      case "seller.availability": {
+        const availability = params.availability;
+        if (availability.status === "available")
+          return seller("seller.availability", { status: "available" }, () =>
+            services.enableSellerListingAvailability(keyed, context),
+          );
+        return seller(
+          "seller.availability",
+          {
+            status: "unavailable",
+            reasonCategory: availability.reasonCategory,
+            availableAgainOn: availability.availableAgainOn,
+            availableAgainAt: availability.availableAgainAt ?? null,
+          },
+          () => services.disableSellerListingAvailability({ ...keyed, ...availability }, context),
+        );
+      }
+      case "seller.away": {
+        const away = params.away;
+        if (away.action === "cancel")
+          return seller("seller.away", { action: "cancel" }, () => services.cancelScheduledAwayWindow(keyed, context));
+        return seller(
+          "seller.away",
+          { action: "schedule", startsAt: away.startsAt, endsAt: away.endsAt, reasonCategory: away.reasonCategory },
+          () =>
+            services.scheduleSellerAwayWindow(
+              { ...keyed, startsAt: away.startsAt, endsAt: away.endsAt, reasonCategory: away.reasonCategory },
+              context,
+            ),
+        );
+      }
+      case "seller.order-capacity": {
+        const maxOpenOrders = params.maxOpenOrders;
+        return seller("seller.order-capacity", { maxOpenOrders }, () =>
+          maxOpenOrders === null
+            ? services.clearSellerOrderCapacity(keyed, context)
+            : services.setSellerOrderCapacity({ ...keyed, maxOpenOrders }, context),
+        );
+      }
+    }
+  }
+
+  function unusableListingHistory(reason: string): never {
+    throw new MarketplaceAttemptError("history_incomplete", `Listing history is unusable: ${reason}.`, "unsafe");
+  }
+
+  async function readAuthoritativeListing(
+    params: Readonly<{ listingId: string; accountId: string }>,
+  ): Promise<MarketplaceAuthoritativeListing> {
+    const streamId = `marketplace.listing-${params.listingId}`;
+    let history: Awaited<ReturnType<typeof readCompleteStream>>;
+    try {
+      history = await readCompleteStream(deps.eventStore, { streamId });
+    } catch {
+      throw new MarketplaceAttemptError("history_incomplete", "Listing history is unusable: history incomplete.");
+    }
+    if (history.length === 0) return { kind: "absent" };
+    const created = history[0]!;
+    // A history must open with this Listing's own creation: a later fact alone is a promoted-only history.
+    if (
+      created.eventType !== "marketplace.listing.created" ||
+      (created.payload as Record<string, unknown>).listingId !== params.listingId
+    )
+      unusableListingHistory("history does not open with this Listing's creation");
+    let state = initialMarketplaceListingState;
+    for (const event of history) {
+      if (event.streamId !== streamId) unusableListingHistory("history changed stream identity");
+      try {
+        state = evolveMarketplaceListing(state, listingCodec.decode(event));
+      } catch {
+        unusableListingHistory("history cannot be folded");
+      }
+    }
+    if (state.listingId !== params.listingId || state.accountId !== params.accountId)
+      unusableListingHistory("history names another Listing or owner");
+    return { kind: "present", state, version: history.at(-1)!.streamVersion };
+  }
+
+  const services: MarketplaceListingServices = {
     commandHandler,
     sellerAvailabilityCommandHandler,
     orderCapacityCommandHandler,
@@ -1725,6 +2229,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       await upsertBatchInventorySnapshot(params);
       return createListing(
         {
+          idempotencyKey: createHash("sha256")
+            .update(JSON.stringify(["inventory-draft", params.accountId, params.importBatchId, params.importRowId]))
+            .digest("hex"),
           accountId: params.accountId as AccountId,
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
@@ -1738,6 +2245,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       );
     },
     createListingFromInventorySnapshot: async (params, context) => {
+      attemptFor("listing.create", params, { ...params }, params.inventoryItemId, params.listingIdOverride);
       assert(
         params.quantityCap <= (params.availableQuantity ?? params.totalQuantity),
         "Listing quantity caps cannot exceed available listing stock.",
@@ -1754,6 +2262,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
           listingPhotoUploads: params.listingPhotoUploads,
+          idempotencyKey: params.idempotencyKey,
+          requestHash: params.requestHash,
         },
         context,
       );
@@ -1995,225 +2505,314 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getAnonymousListingDraftIntent,
     claimAnonymousListingDraftIntent,
     updateListingPrice: async (params, context) => {
-      const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      assertNativeListingCommand(listing);
-      const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, params.priceAmount));
-
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: {
-          type: "UpdateListingPrice",
-          priceAmount: params.priceAmount,
-          priceCurrencyCode: params.priceCurrencyCode,
-          feeLocks,
+      const attempt = attemptFor(
+        "listing.update-price",
+        params,
+        { listingId: params.listingId, priceAmount: params.priceAmount, priceCurrencyCode: params.priceCurrencyCode },
+        params.listingId,
+      );
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+        async () => {
+          const listing = await loadOwnedListingState(params.listingId, params.accountId);
+          assertNativeListingCommand(listing);
+          const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, params.priceAmount));
+          const result = await appendAttemptCommand(
+            listingOwner,
+            {
+              streamId: `marketplace.listing-${params.listingId}`,
+              command: {
+                type: "UpdateListingPrice",
+                priceAmount: params.priceAmount,
+                priceCurrencyCode: params.priceCurrencyCode,
+                feeLocks,
+              },
+              context,
+              ...(params.expectedVersion === undefined ? {} : { expectedVersion: params.expectedVersion }),
+            },
+            attempt,
+          );
+          return { listingId: params.listingId, version: result.version };
         },
-        context,
-      });
-
-      return { listingId: params.listingId, version: result.version };
+      );
     },
     applyBulkListingPriceUpdates: async (params, context) => {
       if (params.updates.length === 0) {
         return [];
       }
+      if (params.batchId !== undefined) assertListingBatchId(params.batchId);
 
-      const policy = await resolveBulkPriceUpdatePolicy();
-      let termsSession: Awaited<ReturnType<typeof openMarketplaceListingTermsSession>> | undefined;
-      const waves = chunkItems(params.updates, policy.chunkSize);
-      const outcomesByListingId = new Map<string, MarketplaceBulkListingPriceUpdateOutcome>();
-
-      for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
-        const wave = waves[waveIndex]!;
-
-        const laneItems: BulkAppendLaneItem<MarketplaceListingCommand>[] = [];
-        for (const update of wave) {
-          try {
-            const listing = await loadOwnedListingState(update.listingId, params.accountId);
-            assertNativeListingCommand(listing);
-            assert(listing.priceAmount !== null, "Listing price is missing.");
-            if (update.idempotencyKey && tryMoneyToCents(listing.priceAmount) === tryMoneyToCents(update.priceAmount)) {
-              const replayed = await findReplayedListingMutation(update.listingId, update.idempotencyKey);
-              if (replayed) {
-                outcomesByListingId.set(update.listingId, {
-                  listingId: update.listingId,
-                  outcome: "applied",
-                  version: replayed.streamVersion,
-                });
-                continue;
-              }
-            }
-            termsSession ??= await openMarketplaceListingTermsSession(deps.commercialTermsResolver, {
-              accountId: params.accountId,
-            });
-            const quote = termsSession.quote(update.priceAmount);
-            if (update.feeQuoteFingerprint) {
-              assertConfirmedFeeQuote(update.feeQuoteFingerprint, quote);
-            }
-            const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, update.priceAmount));
-
-            laneItems.push({
-              streamId: `marketplace.listing-${update.listingId}`,
-              expectedVersion: update.expectedVersion,
-              eventIdPrefix: update.idempotencyKey,
-              command: {
-                type: "UpdateListingPrice",
-                priceAmount: update.priceAmount,
-                priceCurrencyCode: update.priceCurrencyCode,
-                feeLocks,
-                minimumChange: update.minimumChange,
-                changeSource: update.idempotencyKey?.startsWith("repricing:") ? "repricing-engine" : undefined,
-              },
-              context,
-            });
-          } catch (error) {
-            outcomesByListingId.set(update.listingId, {
+      // One target attempt per Listing: the batch id, or a caller-owned target attempt, bound to that Listing.
+      type PreparedPriceTarget =
+        | Readonly<{ kind: "runnable"; target: BulkPriceTarget }>
+        | Readonly<{ kind: "rejected"; targetId: string; decision: ListingBatchDecision }>;
+      const prepared = params.updates.map((update): PreparedPriceTarget => {
+        try {
+          const attempt = attemptFor(
+            "listing.update-price",
+            { ...update, idempotencyKey: update.idempotencyKey ?? params.batchId, accountId: params.accountId },
+            {
               listingId: update.listingId,
-              outcome: "error",
-              version: 0,
-              message: error instanceof Error ? error.message : "Bulk listing price update failed.",
-            });
-          }
+              priceAmount: update.priceAmount,
+              priceCurrencyCode: update.priceCurrencyCode,
+            },
+            update.listingId,
+          );
+          return { kind: "runnable", target: { targetId: update.listingId, update, attempt } };
+        } catch (error) {
+          return { kind: "rejected", targetId: update.listingId, decision: listingBatchFailure(error) };
         }
+      });
+      const runnable = prepared.flatMap((entry) => (entry.kind === "runnable" ? [entry.target] : []));
+      const priceOutcome = (
+        listingId: string,
+        decision: ListingBatchDecision,
+      ): MarketplaceBulkListingPriceUpdateOutcome => ({
+        listingId,
+        outcome: decision.outcome === "succeeded" ? (decision.noOp ? "no_op" : "applied") : decision.outcome,
+        version: decision.version,
+        ...(decision.outcome === "succeeded" || decision.message === undefined ? {} : { message: decision.message }),
+      });
 
-        if (laneItems.length > 0) {
-          // One chunk's worth of items per lane call -- the lane's own
-          // internal chunking degenerates to a single chunk here since
-          // `laneItems.length <= policy.chunkSize`, preserving the "one
-          // advisory-lock window and one multi-row event INSERT per
-          // chunk" invariant the chunked multi-listing append path
-          // established. The inter-chunk yield happens below, between
-          // waves, instead of inside the lane.
-          const lane = createBulkAppendLane({
-            eventStore: deps.eventStore,
-            repository,
-            codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
-            evolve: evolveMarketplaceListing,
-            decide: decideMarketplaceListing,
-            chunkSize: laneItems.length,
-            yieldIntervalMs: 0,
-            telemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" },
-          });
-          const laneOutcomes = await lane(laneItems);
-          for (const laneOutcome of laneOutcomes) {
-            const listingId = laneOutcome.streamId.slice("marketplace.listing-".length);
-            outcomesByListingId.set(listingId, {
-              listingId,
-              outcome: laneOutcome.outcome,
-              version: laneOutcome.version,
-              ...(laneOutcome.error ? { message: laneOutcome.error.message } : {}),
-            });
-          }
-        }
-
-        const isLastWave = waveIndex === waves.length - 1;
-        if (!isLastWave) {
-          await defaultLaneYield(policy.yieldIntervalMs);
-        }
+      if (params.batchId === undefined) {
+        // Exempt engine and keyless internal callers carry no batch vector.
+        const decided = await driveBulkPriceUpdates(params.accountId, runnable, context);
+        return prepared.map((entry) =>
+          entry.kind === "rejected"
+            ? priceOutcome(entry.targetId, entry.decision)
+            : priceOutcome(entry.target.targetId, decided.get(entry.target.targetId) ?? listingBatchUnknownDecision),
+        );
       }
 
-      return params.updates.map((update) => {
-        return (
-          outcomesByListingId.get(update.listingId) ?? {
-            listingId: update.listingId,
-            outcome: "error" as const,
-            version: 0,
-            message: "Bulk listing price update did not run.",
-          }
+      // Decisions return in target order, so each input row keeps its own decision even for a repeated Listing.
+      const vectorTargets: (BulkPriceTarget & ListingBatchTarget)[] = [];
+      const vectorIndexByInput = new Map<number, number>();
+      prepared.forEach((entry, inputIndex) => {
+        if (entry.kind !== "runnable" || entry.target.attempt === null) return;
+        vectorIndexByInput.set(inputIndex, vectorTargets.length);
+        vectorTargets.push({ ...entry.target, attempt: entry.target.attempt });
+      });
+      const decisions = await runListingBatch({
+        store: deps.eventStore,
+        batch: { accountId: params.accountId, family: "listing.update-price", batchId: params.batchId },
+        context,
+        targets: vectorTargets,
+        drive: (pending) => driveBulkPriceUpdates(params.accountId, pending, context),
+      });
+      return prepared.map((entry, inputIndex) => {
+        if (entry.kind === "rejected") return priceOutcome(entry.targetId, entry.decision);
+        const vectorIndex = vectorIndexByInput.get(inputIndex);
+        return priceOutcome(
+          entry.target.targetId,
+          (vectorIndex === undefined ? undefined : decisions[vectorIndex]) ?? listingBatchUnknownDecision,
         );
       });
     },
+    applyListingBatch: async (params, context) => {
+      assertListingBatchId(params.batchId);
+      const targets = listingBatchTargets(params, context);
+      const decisions = await runListingBatch({
+        store: deps.eventStore,
+        batch: { accountId: params.accountId, family: params.family, batchId: params.batchId },
+        context,
+        targets,
+        drive: async (pending) => {
+          const decided = new Map<string, ListingBatchDecision>();
+          for (const target of pending) {
+            try {
+              const result = await target.run();
+              decided.set(target.targetId, {
+                outcome: "succeeded",
+                version: result.version,
+                ...(result.noOp ? { noOp: true as const } : {}),
+              });
+            } catch (error) {
+              decided.set(target.targetId, listingBatchFailure(error));
+            }
+          }
+          return decided;
+        },
+      });
+      return {
+        batchId: params.batchId,
+        family: params.family,
+        items: targets.map((target, index) => {
+          const decision = decisions[index]!;
+          return {
+            targetId: target.targetId,
+            outcome: decision.outcome,
+            version: decision.version,
+            ...(decision.message === undefined ? {} : { message: decision.message }),
+          };
+        }),
+      };
+    },
+    ...createListingRecovery(deps.eventStore),
+    lookupListingBatch: (params) =>
+      lookupPersistedListingBatch(deps.eventStore, {
+        accountId: params.accountId,
+        family: params.family,
+        batchId: params.batchId,
+      }),
+    readAuthoritativeListing,
     updateListingQuantityCap: async (params, context) => {
-      const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      assertNativeListingCommand(listing);
-      assert(listing.priceAmount, "Listing price is missing.");
-      const addedUnitCount = Math.max(0, params.quantityCap - listing.quantityCap);
-      const quote = addedUnitCount > 0 ? await quoteListingTerms(params.accountId, listing.priceAmount) : null;
-      if (quote) {
-        assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
-      }
+      const attempt = attemptFor(
+        "listing.update-quantity",
+        params,
+        { listingId: params.listingId, quantityCap: params.quantityCap, purchaseLimits: params.purchaseLimits ?? null },
+        params.listingId,
+      );
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+        async () => {
+          const listing = await loadOwnedListingState(params.listingId, params.accountId);
+          assertNativeListingCommand(listing);
+          assert(listing.priceAmount, "Listing price is missing.");
+          const addedUnitCount = Math.max(0, params.quantityCap - listing.quantityCap);
+          const quote = addedUnitCount > 0 ? await quoteListingTerms(params.accountId, listing.priceAmount) : null;
+          if (quote) {
+            assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
+          }
 
-      const command = {
-        type: "UpdateListingQuantityCap",
-        quantityCap: params.quantityCap,
-        purchaseLimits: params.purchaseLimits,
-        addedUnitsFeeLock: quote ? feeLockFromMarketplaceTermsQuote(addedUnitCount, quote) : null,
-      } as const satisfies MarketplaceListingCommand;
-      const version =
-        listing.status === "active"
-          ? await commitCapacityBoundListingCommand(params.listingId, params.accountId, command, context)
-          : (
-              await commandHandler({
-                streamId: `marketplace.listing-${params.listingId}`,
-                command,
-                context,
-              })
-            ).version;
+          const command = {
+            type: "UpdateListingQuantityCap",
+            quantityCap: params.quantityCap,
+            purchaseLimits: params.purchaseLimits,
+            addedUnitsFeeLock: quote ? feeLockFromMarketplaceTermsQuote(addedUnitCount, quote) : null,
+          } as const satisfies MarketplaceListingCommand;
+          const version =
+            listing.status === "active"
+              ? await commitCapacityBoundListingCommand(params.listingId, params.accountId, command, context, attempt)
+              : (
+                  await appendAttemptCommand(
+                    listingOwner,
+                    { streamId: `marketplace.listing-${params.listingId}`, command, context },
+                    attempt,
+                  )
+                ).version;
 
-      return { listingId: params.listingId, version };
+          return { listingId: params.listingId, version };
+        },
+      );
     },
     updateListingPurchaseLimits: async (params, context) => {
-      await loadOwnedListingState(params.listingId, params.accountId);
-
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: {
-          type: "UpdateListingPurchaseLimits",
-          purchaseLimits: params.purchaseLimits ?? null,
+      const attempt = attemptFor(
+        "listing.update-purchase-limits",
+        params,
+        { listingId: params.listingId, purchaseLimits: params.purchaseLimits ?? null },
+        params.listingId,
+      );
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+        async () => {
+          await loadOwnedListingState(params.listingId, params.accountId);
+          const result = await appendAttemptCommand(
+            listingOwner,
+            {
+              streamId: `marketplace.listing-${params.listingId}`,
+              command: { type: "UpdateListingPurchaseLimits", purchaseLimits: params.purchaseLimits ?? null },
+              context,
+            },
+            attempt,
+          );
+          return { listingId: params.listingId, version: result.version };
         },
-        context,
-      });
-
-      return { listingId: params.listingId, version: result.version };
+      );
     },
     publishListing: async (params, context) => {
-      const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      assertNativeListingCommand(listing);
-      assert(listing.inventoryItemId, "Listing inventory item is missing.");
-      assert(listing.priceAmount, "Listing price is missing.");
-      assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
-      const evaluatedAt = new Date().toISOString();
-      const evidenceRequirements = await resolveEvidenceRequirementsForListing(listing, evaluatedAt);
-      await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: { type: "RefreshListingEvidenceRequirements", evidenceRequirements },
-        context,
-      });
-      const readiness = await evaluateListingReadiness(listing, evidenceRequirements, evaluatedAt);
-      if (!readiness.ready) {
-        const evidenceReadiness = buildMarketplaceListingEvidenceReadiness(
-          evidenceRequirements,
-          listing.evidence,
-          readiness,
-        );
-        throw new MarketplaceListingEvidenceIncompleteError(evidenceReadiness);
-      }
-      const version = await commitCapacityBoundListingCommand(
-        params.listingId,
-        params.accountId,
-        {
-          type: "PublishListing",
-          readiness,
-          allowAlreadyActiveNoOp: params.idempotencyKey?.startsWith("repricing:"),
-          csatOutcomeFact: createListingPublishedCsatOutcomeFact({
-            accountId: params.accountId,
-            listingId: params.listingId,
-          }),
-        },
-        context,
-      );
+      // Repricing-engine keys keep their shipped already-active no-op and carry no attempt.
+      const repricing = isRepricingEngineKey(params.idempotencyKey);
+      const attempt = repricing
+        ? null
+        : attemptFor("listing.publish", params, { listingId: params.listingId }, params.listingId);
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+        async () => {
+          const listing = await loadOwnedListingState(params.listingId, params.accountId);
+          assertNativeListingCommand(listing);
+          assert(listing.inventoryItemId, "Listing inventory item is missing.");
+          assert(listing.priceAmount, "Listing price is missing.");
+          assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
+          const evaluatedAt = new Date().toISOString();
+          const evidenceRequirements = await resolveEvidenceRequirementsForListing(listing, evaluatedAt);
+          // The refresh is a preliminary fact, not the attempt's decisive write; only the publish append is stamped.
+          const refreshed = await commandHandler({
+            streamId: `marketplace.listing-${params.listingId}`,
+            command: { type: "RefreshListingEvidenceRequirements", evidenceRequirements },
+            context,
+            ...(params.expectedVersion === undefined ? {} : { expectedVersion: params.expectedVersion }),
+          });
+          if (params.expectedVersion !== undefined && refreshed.newEvents.length === 0)
+            assertExpectedListingVersion(
+              `marketplace.listing-${params.listingId}`,
+              params.expectedVersion,
+              refreshed.version,
+            );
+          const readiness = await evaluateListingReadiness(listing, evidenceRequirements, evaluatedAt);
+          if (!readiness.ready) {
+            const evidenceReadiness = buildMarketplaceListingEvidenceReadiness(
+              evidenceRequirements,
+              listing.evidence,
+              readiness,
+            );
+            throw new MarketplaceListingEvidenceIncompleteError(evidenceReadiness);
+          }
+          const version = await commitCapacityBoundListingCommand(
+            params.listingId,
+            params.accountId,
+            {
+              type: "PublishListing",
+              readiness,
+              publishedAt: evaluatedAt,
+              allowAlreadyActiveNoOp: repricing,
+            },
+            context,
+            attempt,
+            params.expectedVersion === undefined ? undefined : refreshed.version,
+          );
 
-      return { listingId: params.listingId, version };
+          return { listingId: params.listingId, version };
+        },
+      );
     },
     pauseListing: async (params, context) => {
-      await loadOwnedListingState(params.listingId, params.accountId);
-
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: { type: "PauseListing", reason: params.reason },
-        context,
-      });
-
-      return { listingId: params.listingId, version: result.version };
+      const attempt = attemptFor(
+        "listing.pause",
+        params,
+        { listingId: params.listingId, reason: params.reason ?? "seller" },
+        params.listingId,
+      );
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+        async () => {
+          await loadOwnedListingState(params.listingId, params.accountId);
+          const result = await appendAttemptCommand(
+            listingOwner,
+            {
+              streamId: `marketplace.listing-${params.listingId}`,
+              command: { type: "PauseListing", reason: params.reason },
+              context,
+              ...(params.expectedVersion === undefined ? {} : { expectedVersion: params.expectedVersion }),
+            },
+            attempt,
+          );
+          return {
+            listingId: params.listingId,
+            version: result.version,
+            ...(result.newEvents.length === 0 ? { noOp: true as const } : {}),
+          };
+        },
+      );
     },
     operatorUnlistListing: async (params, context) => {
       const result = await commandHandler({
@@ -2229,93 +2828,142 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       return { listingId: params.listingId, version: result.version };
     },
     withdrawListing: async (params, context) => {
-      await loadOwnedListingState(params.listingId, params.accountId);
-
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: { type: "WithdrawListing" },
-        context,
-      });
-
-      return { listingId: params.listingId, version: result.version };
+      const attempt = attemptFor("listing.withdraw", params, { listingId: params.listingId }, params.listingId);
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+        async () => {
+          await loadOwnedListingState(params.listingId, params.accountId);
+          const result = await appendAttemptCommand(
+            listingOwner,
+            {
+              streamId: `marketplace.listing-${params.listingId}`,
+              command: { type: "WithdrawListing" },
+              context,
+              ...(params.expectedVersion === undefined ? {} : { expectedVersion: params.expectedVersion }),
+            },
+            attempt,
+          );
+          return {
+            listingId: params.listingId,
+            version: result.version,
+            ...(result.newEvents.length === 0 ? { noOp: true as const } : {}),
+          };
+        },
+      );
     },
     getSellerListingAvailability: (accountId) => getSellerListingAvailability(deps.db, accountId),
     disableSellerListingAvailability: async (params, context) => {
-      const result = await sellerAvailabilityCommandHandler({
-        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
-        command: {
-          type: "DisableSellerListingAvailability",
-          accountId: params.accountId,
-          reasonCategory: params.reasonCategory,
-          availableAgainOn: params.availableAgainOn,
-          availableAgainAt: params.availableAgainAt ?? null,
-          disabledAt: new Date().toISOString(),
-          // A manual (seller-facing) disable; the Away Window start sweep
-          // calls the command handler directly with "scheduled" instead of
-          // routing through this public method.
-          disabledBy: "seller",
-        },
-        context,
-      });
-
-      return {
-        accountId: params.accountId,
-        version: result.version,
+      const attempt = attemptFor("seller.availability", params, {
         status: "unavailable",
-      };
+        reasonCategory: params.reasonCategory,
+        availableAgainOn: params.availableAgainOn,
+        availableAgainAt: params.availableAgainAt ?? null,
+      });
+      const done = (version: number) => ({ accountId: params.accountId, version, status: "unavailable" as const });
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => done(receipt.version),
+        async () => {
+          const result = await appendAttemptCommand(
+            sellerAvailabilityOwner,
+            {
+              streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+              command: {
+                type: "DisableSellerListingAvailability",
+                accountId: params.accountId,
+                reasonCategory: params.reasonCategory,
+                availableAgainOn: params.availableAgainOn,
+                availableAgainAt: params.availableAgainAt ?? null,
+                disabledAt: new Date().toISOString(),
+                // A manual (seller-facing) disable; the Away Window start sweep
+                // calls the command handler directly with "scheduled" instead of
+                // routing through this public method.
+                disabledBy: "seller",
+              },
+              context,
+            },
+            attempt,
+          );
+          return done(result.version);
+        },
+      );
     },
     enableSellerListingAvailability: async (params, context) => {
-      const result = await sellerAvailabilityCommandHandler({
-        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
-        command: {
-          type: "EnableSellerListingAvailability",
-          accountId: params.accountId,
-          enabledAt: new Date().toISOString(),
-          enabledBy: params.enabledBy ?? "seller",
-          dueBy: params.dueBy,
+      const attempt = attemptFor("seller.availability", params, { status: "available" });
+      const done = (version: number) => ({ accountId: params.accountId, version, status: "available" as const });
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => done(receipt.version),
+        async () => {
+          const result = await appendAttemptCommand(
+            sellerAvailabilityOwner,
+            {
+              streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+              command: {
+                type: "EnableSellerListingAvailability",
+                accountId: params.accountId,
+                enabledAt: new Date().toISOString(),
+                enabledBy: params.enabledBy ?? "seller",
+                dueBy: params.dueBy,
+              },
+              context,
+            },
+            attempt,
+          );
+          return done(result.version);
         },
-        context,
-      });
-
-      return {
-        accountId: params.accountId,
-        version: result.version,
-        status: "available",
-      };
+      );
     },
     getSellerOrderCapacity: (accountId) => getSellerOrderCapacity(deps.db, accountId),
     setSellerOrderCapacity: async (params, context) => {
-      const result = await orderCapacityCommandHandler({
-        streamId: `marketplace.seller-order-capacity-${params.accountId}`,
-        command: {
-          type: "SetSellerOrderCapacity",
-          accountId: params.accountId,
-          maxOpenOrders: params.maxOpenOrders,
+      const attempt = attemptFor("seller.order-capacity", params, { maxOpenOrders: params.maxOpenOrders });
+      const done = (version: number) => ({ accountId: params.accountId, version, maxOpenOrders: params.maxOpenOrders });
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => done(receipt.version),
+        async () => {
+          const result = await appendAttemptCommand(
+            orderCapacityOwner,
+            {
+              streamId: `marketplace.seller-order-capacity-${params.accountId}`,
+              command: {
+                type: "SetSellerOrderCapacity",
+                accountId: params.accountId,
+                maxOpenOrders: params.maxOpenOrders,
+              },
+              context,
+            },
+            attempt,
+          );
+          return done(result.version);
         },
-        context,
-      });
-
-      return {
-        accountId: params.accountId,
-        version: result.version,
-        maxOpenOrders: params.maxOpenOrders,
-      };
+      );
     },
     clearSellerOrderCapacity: async (params, context) => {
-      const result = await orderCapacityCommandHandler({
-        streamId: `marketplace.seller-order-capacity-${params.accountId}`,
-        command: {
-          type: "ClearSellerOrderCapacity",
-          accountId: params.accountId,
+      const attempt = attemptFor("seller.order-capacity", params, { maxOpenOrders: null });
+      const done = (version: number) => ({ accountId: params.accountId, version, maxOpenOrders: null });
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => done(receipt.version),
+        async () => {
+          const result = await appendAttemptCommand(
+            orderCapacityOwner,
+            {
+              streamId: `marketplace.seller-order-capacity-${params.accountId}`,
+              command: { type: "ClearSellerOrderCapacity", accountId: params.accountId },
+              context,
+            },
+            attempt,
+          );
+          return done(result.version);
         },
-        context,
-      });
-
-      return {
-        accountId: params.accountId,
-        version: result.version,
-        maxOpenOrders: null,
-      };
+      );
     },
     sweepDueSellerAvailabilityRestores: async (params, context) => {
       const now = params?.now ?? new Date().toISOString();
@@ -2349,33 +2997,60 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       return { checked: candidates.length, restored, skipped };
     },
     scheduleSellerAwayWindow: async (params, context) => {
-      const result = await sellerAvailabilityCommandHandler({
-        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
-        command: {
-          type: "ScheduleSellerAwayWindow",
-          accountId: params.accountId,
-          startsAt: params.startsAt,
-          endsAt: params.endsAt,
-          reasonCategory: params.reasonCategory,
-          scheduledAt: new Date().toISOString(),
-        },
-        context,
+      const attempt = attemptFor("seller.away", params, {
+        action: "schedule",
+        startsAt: params.startsAt,
+        endsAt: params.endsAt,
+        reasonCategory: params.reasonCategory,
       });
-
-      return { accountId: params.accountId, version: result.version };
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ accountId: params.accountId, version: receipt.version }),
+        async () => {
+          const result = await appendAttemptCommand(
+            sellerAvailabilityOwner,
+            {
+              streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+              command: {
+                type: "ScheduleSellerAwayWindow",
+                accountId: params.accountId,
+                startsAt: params.startsAt,
+                endsAt: params.endsAt,
+                reasonCategory: params.reasonCategory,
+                scheduledAt: new Date().toISOString(),
+              },
+              context,
+            },
+            attempt,
+          );
+          return { accountId: params.accountId, version: result.version };
+        },
+      );
     },
     cancelScheduledAwayWindow: async (params, context) => {
-      const result = await sellerAvailabilityCommandHandler({
-        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
-        command: {
-          type: "CancelScheduledAwayWindow",
-          accountId: params.accountId,
-          cancelledAt: new Date().toISOString(),
+      const attempt = attemptFor("seller.away", params, { action: "cancel" });
+      return runListingAttempt(
+        deps.eventStore,
+        attempt,
+        (receipt) => ({ accountId: params.accountId, version: receipt.version }),
+        async () => {
+          const result = await appendAttemptCommand(
+            sellerAvailabilityOwner,
+            {
+              streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+              command: {
+                type: "CancelScheduledAwayWindow",
+                accountId: params.accountId,
+                cancelledAt: new Date().toISOString(),
+              },
+              context,
+            },
+            attempt,
+          );
+          return { accountId: params.accountId, version: result.version };
         },
-        context,
-      });
-
-      return { accountId: params.accountId, version: result.version };
+      );
     },
     sweepDueSellerAwayWindowStarts: async (params, context) => {
       const now = params?.now ?? new Date().toISOString();
@@ -2499,6 +3174,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryItemSupply: (itemId, accountId) => getInventoryItemSupply(deps.db, itemId, accountId),
+    ...createListingTargetRuntime({ eventStore: deps.eventStore, authority: deps.listingTargetAuthority }),
     loadListingState: async (listingId) => (await repository.load(`marketplace.listing-${listingId}`)).state,
     reconcileInventoryCapacity,
     projectors: [
@@ -2508,4 +3184,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       }),
     ],
   };
+  return services;
 }
+
+const decideUnfencedMarketplaceListing: typeof decideMarketplaceListing = (state, command) => {
+  assert(
+    command.type !== "AcceptListingTargetPrice" && command.type !== "ActivateListingForChannel",
+    "Target commands require owner-fenced Listing services.",
+  );
+  return decideMarketplaceListing(state, command);
+};

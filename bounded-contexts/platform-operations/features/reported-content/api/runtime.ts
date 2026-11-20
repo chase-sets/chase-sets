@@ -1,12 +1,15 @@
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { EVENT_STORE_READ_PAGE_SIZE_MAX, type StoredEvent } from "@chase-sets/event-core/storage";
 import {
   parsePlatformOperationsListingRemovalDirectedPayload,
   parsePlatformOperationsReportedContentActionRecordedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { parseReportedContentAcknowledgement } from "./acknowledgement";
 import {
   parseReportedContentModerationCommand,
   ReportedContentActionRejectedError,
@@ -31,6 +34,10 @@ export type ReportedContentServices = Readonly<{
   ) => ReturnType<typeof listReportedContentQueue>;
   getReportedContentQueueItem: (targetType: string, targetId: string) => ReturnType<typeof getReportedContentQueueItem>;
   getReportedContentQueueMetrics: () => ReturnType<typeof getReportedContentQueueMetrics>;
+  acknowledge: (
+    params: Readonly<{ targetType: string; targetId: string; operatorUserId: string | null }>,
+    context: EventStoreContext,
+  ) => Promise<{ acknowledgedAt: string }>;
   /** Rejects with a `ReportedContentActionRejectedError` before appending anything. */
   recordModerationAction: (
     params: Readonly<{
@@ -50,6 +57,61 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
     listReportedContentQueue: (params) => listReportedContentQueue(deps.db, params),
     getReportedContentQueueItem: (targetType, targetId) => getReportedContentQueueItem(deps.db, targetType, targetId),
     getReportedContentQueueMetrics: () => getReportedContentQueueMetrics(deps.db),
+    acknowledge: async (params, context) => {
+      // The same stream version as disposition serializes the two commands even
+      // while its projection is stale. A conflict is retried against fresh history.
+      const streamId = `platform-operations.reported-content-${params.targetType}-${params.targetId}`;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const item = await getReportedContentQueueItem(deps.db, params.targetType, params.targetId);
+        if (!item) throw new ReportedContentActionRejectedError("target-not-queued");
+        const history: StoredEvent[] = [];
+        for (;;) {
+          const page = await deps.eventStore.readStream({
+            streamId,
+            fromVersion: (history.at(-1)?.streamVersion ?? 0) + 1,
+            limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+          });
+          history.push(...page);
+          if (page.length < EVENT_STORE_READ_PAGE_SIZE_MAX) break;
+        }
+        const startedAt = item.response_started_at ?? item.first_reported_at;
+        const action = [...history]
+          .reverse()
+          .find((event) => event.eventType === "platform-operations.reported-content.action-recorded");
+        if (!item.response_open || (action && Date.parse(String(action.payload.recordedAt)) >= Date.parse(startedAt))) {
+          throw new ReportedContentActionRejectedError("target-disposed");
+        }
+        const prior = history.find(
+          (event) =>
+            event.eventType === "platform-operations.reported-content.acknowledged" &&
+            Date.parse(String(event.payload.startedAt)) === Date.parse(startedAt),
+        );
+        if (prior) {
+          // A repeated acknowledgement answers the first one's receipt, so a read after it waits for it too.
+          recordCommittedEvents([prior], "platform-operations");
+          return { acknowledgedAt: String(prior.payload.acknowledgedAt) };
+        }
+        const payload = parseReportedContentAcknowledgement({
+          ...params,
+          startedAt,
+          acknowledgedAt: new Date().toISOString(),
+        });
+        try {
+          const stored = await deps.eventStore.appendToStream({
+            streamId,
+            wakeSourceContextName: "platform-operations",
+            expectedVersion: history.at(-1)?.streamVersion ?? "no_stream",
+            events: [{ eventType: "platform-operations.reported-content.acknowledged", payload: { ...payload } }],
+            context,
+          });
+          recordCommittedEvents(stored, "platform-operations");
+          return { acknowledgedAt: payload.acknowledgedAt };
+        } catch (error) {
+          if ((error as { code?: string }).code !== "concurrency_conflict") throw error;
+        }
+      }
+      throw new Error("reported-content-acknowledgement-conflict");
+    },
     recordModerationAction: async (params, context) => {
       const command = parseReportedContentModerationCommand(params);
       if (!(await isReportedContentTargetQueued(deps.db, command.targetType, command.targetId))) {
@@ -76,8 +138,9 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
               directedAt: recordedAt,
             })
           : null;
-      await deps.eventStore.appendToStream({
+      const stored = await deps.eventStore.appendToStream({
         streamId: `platform-operations.reported-content-${audit.targetType}-${audit.targetId}` as never,
+        wakeSourceContextName: "platform-operations",
         expectedVersion: "any",
         events: [
           {
@@ -95,6 +158,7 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
         ],
         context,
       });
+      recordCommittedEvents(stored, "platform-operations");
       return { actionId, recordedAt };
     },
     projectors: [

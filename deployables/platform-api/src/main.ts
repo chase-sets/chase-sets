@@ -344,6 +344,7 @@ const runtime = createPlatformApiHost({
     deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
     ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
+    ebayOAuthConfiguration: config.ebayOAuthConfiguration,
     offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, db: pools.control }),
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
@@ -366,6 +367,7 @@ const runtime = createPlatformApiHost({
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
+    stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
     evidenceWindowCorrelation,
     evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
@@ -385,6 +387,7 @@ try {
 } catch {
   throw new Error("Identity capability administration authority receipt refused boot.");
 }
+await runtime.initializeListingAuthority();
 const realtimeStores = runtime.mountedContexts
   .filter(
     (entry) =>

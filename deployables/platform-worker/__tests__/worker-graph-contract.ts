@@ -35,7 +35,7 @@ export function readWorkerContractJson<T>(path: string | URL): T {
 }
 
 // Admission comes from workspace packages and context manifests, never from the
-// generated registry or the presence of an expectation file. Source-only members
+// worker context registry or the presence of an expectation file. Source-only members
 // are admitted too, including manifests reserved for another runtime profile.
 export function discoverWorkerContexts(
   repoRoot = fileURLToPath(new URL("../../../", import.meta.url)),

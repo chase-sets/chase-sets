@@ -4,6 +4,10 @@ This file is the cross-context index for marketplace language. Detailed definiti
 
 Aggregate language and projection language may differ. When they do, each model name must stay within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
 
+## Scheduled Job Declaration
+
+A **Scheduled Job Declaration** is a context's `scheduledJobs` manifest contribution: an existing runner's identity, scheduling metadata, factory binding, runtime-profile eligibility, runner group and lock scope. The owning context defines its work; infrastructure composes it through the static worker context registry and retains scheduling and lease mechanics. See [Bounded Context Module](../contracts/bounded-context-module/README.md#scheduled-jobs).
+
 ## Language Constitution
 
 Bounded contexts own behavior and the words for that behavior. A context-local `GLOSSARY.md` is the source of truth for local terms; this master glossary indexes cross-context terms, external-facing terms, and language families that are easy to confuse.
@@ -50,6 +54,10 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Guard History | Event Core | Canonical per-key, per-incarnation epoch records; caches and snapshots never seed it. |
 | CLOSED-THROUGH Receipt | Event Core | Durable consumer acknowledgement that a source epoch is no longer observable in that store incarnation. |
 | Store Incarnation | Event Core | The identity of one consumer or owner store lifetime used to reject stale grants. |
+| Owner-Stream Reservation | Event Core | Owner-local promise for one consumer request, target and command fingerprint; it is not an Owner-Stream Seal. |
+| Owner-Stream Seal | Event Core | Canonical owner-state version and store incarnation captured by a reservation. |
+| Request Terminal | Event Core | Consumer-local final CAS record that moves one request from OPEN to COMMITTED or ABORTED. |
+| Invalidation Intent | Event Core | Durable owner-side request to close a generation after affected request terminals settle. |
 | Source Topology | Event Core | Registered consumer store incarnations and their topology revision for one configuration key. |
 | Account | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Root identity for marketplace participation. |
 | Shipping Address | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Account-owned recipient destination reused during checkout; not an Inventory storage location or Fulfillment ship-from location. |

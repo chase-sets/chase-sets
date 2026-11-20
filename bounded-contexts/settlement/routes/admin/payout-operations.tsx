@@ -3,12 +3,7 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  type SettlementProviderIdempotencyKeyRow,
-  type SettlementPayoutRow,
-  type SettlementPayoutReadinessRow,
-  createSettlementRequestApiClient,
-} from "../../support/request-support/api-client";
+import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
 import { SettlementPayoutOperationsPage } from "../../features/payouts/ui/payout-operations-page";
 
 type ReconciliationJobSnapshot = Readonly<{
@@ -76,10 +71,11 @@ export default function AdminPayoutOperationsRoute() {
 
   return (
     <SettlementPayoutOperationsPage
-      payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
+      payouts={data.payouts.items ?? []}
+      operationsAttention={data.payouts.attention}
       canReconcile={data.canReconcile}
-      idempotencyKeys={data.idempotencyKeys?.items as SettlementProviderIdempotencyKeyRow[] | undefined}
-      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow | null}
+      idempotencyKeys={data.idempotencyKeys?.items}
+      payoutReadiness={data.payoutReadiness}
       runResult={actionData}
       currentFilter={data.filter}
       lastCheckedAt={actionData ? new Date().toISOString() : null}

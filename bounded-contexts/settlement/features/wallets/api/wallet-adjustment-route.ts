@@ -21,13 +21,16 @@ import {
   WalletAdjustmentLimitExceededError,
   type WalletAdjustmentServices,
 } from "./wallet-adjustment-runtime";
-import { normalizeWalletAdjustmentReasonCode, type WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
+import {
+  normalizeWalletAdjustmentReasonCode,
+  WalletAdjustmentRefusal,
+  type WalletAdjustmentReasonCode,
+} from "../domain/wallet-adjustment";
 import {
   compareMoney,
   normalizeCurrencyCode,
   normalizeLedgerEntryDirection,
   normalizeMoneyAmount,
-  SettlementDomainError,
   type CurrencyCode,
   type LedgerEntryDirection,
 } from "../../../support/runtime-support/common";
@@ -395,7 +398,7 @@ function handleWriteError(c: { json: (body: unknown, status: number) => Response
       400,
     );
   }
-  if (error instanceof StaleWalletBalanceError) {
+  if (error instanceof StaleWalletBalanceError || error instanceof WalletAdjustmentRefusal) {
     return c.json(apiErrorResponse("conflict", error.message, [{ code: error.code, message: error.message }]), 409);
   }
   if (error instanceof WalletAdjustmentHaltedError) {
@@ -412,9 +415,6 @@ function handleWriteError(c: { json: (body: unknown, status: number) => Response
       },
       429,
     );
-  }
-  if (error instanceof SettlementDomainError) {
-    return c.json(conflictResponse(error.message), 409);
   }
   if (error instanceof Error) {
     return c.json(conflictResponse(error.message), 409);

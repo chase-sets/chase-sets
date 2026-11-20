@@ -1,4 +1,23 @@
 export { createFulfillmentRequestApiClient } from "./support/request-support/api-client";
+export {
+  createSellerShippingSetupServices,
+  createSellerCheckoutReadinessReader,
+} from "./features/seller-checkout-readiness/api/runtime";
+export type {
+  SellerShippingSetupServices,
+  SellerShippingSetupResult,
+  SellerShippingOriginResolution,
+} from "./features/seller-checkout-readiness/api/runtime";
+export type {
+  SellerShippingOrigin,
+  SellerShippingSetupInput,
+} from "./features/seller-checkout-readiness/domain/shipping-setup";
+export type {
+  SellerCheckoutReadinessOwner,
+  SellerCheckoutReadinessKey,
+  SellerCheckoutReadinessReader,
+  SellerCheckoutReadinessResult,
+} from "./features/seller-checkout-readiness/domain/contract";
 /**
  * Support-safe shipment-by-reference lookups for the unified
  * support-reference router, assembled in the `platform-api` composition
@@ -11,3 +30,12 @@ export {
 } from "./features/shipments/read-model/support-lookup";
 export type { FulfillmentSupportLookupRow } from "./features/shipments/read-model/support-lookup";
 export { createShipByAttentionSourceFromReadModel } from "./features/shipments/read-model/seller-attention-source";
+
+export type { FulfillmentServices } from "./support/runtime-support/services";
+
+export {
+  createFulfillmentPostageOperationReconciliationRunners,
+  createFulfillmentPostageLabelVoidReconciliationRunners,
+  createFulfillmentReturnShipmentDeadlineSweepRunners,
+  createFulfillmentReturnLabelPurchaseReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";

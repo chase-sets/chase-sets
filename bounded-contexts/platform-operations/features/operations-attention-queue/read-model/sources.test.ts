@@ -30,7 +30,7 @@ describe("mapPoisonEventsToItems", () => {
     expect(item?.severity).toBe("critical");
     expect(item?.dueAt).toBeNull();
     expect(item?.observedAt).toBe("2026-07-14T06:00:00.000Z");
-    expect(item?.deepLink.href).toBe("/projections?tab=blocked");
+    expect(item?.deepLink.href).toBe("/platform/projections?tab=blocked");
   });
 });
 
@@ -98,7 +98,7 @@ describe("mapSupportRequestsToItems", () => {
     );
     expect(item?.severity).toBe("critical");
     expect(item?.dueAt).toBe("2026-07-14T09:00:00.000Z");
-    expect(item?.deepLink.href).toBe("/requests?requestId=req-7");
+    expect(item?.deepLink.href).toBe("/support/requests?requestId=req-7");
   });
 
   it("marks a request still within its window as a warning", () => {
@@ -146,7 +146,7 @@ describe("mapPlatformFeedbackToItems", () => {
       CONTEXT,
     );
     expect(item?.severity).toBe("info");
-    expect(item?.deepLink.href).toBe("/platform-feedback/fb-3");
+    expect(item?.deepLink.href).toBe("/support/platform-feedback/fb-3");
   });
 });
 

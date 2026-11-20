@@ -599,6 +599,8 @@ describeDb("Import Product durable maintenance AC-04 through AC-09", () => {
           accountId,
           batchId: batch.batch_id,
           rowId: batch.rows[0]!.row_id,
+          expectedRowVersion: batch.rows[0]!.row_version,
+          expectedRowFingerprint: batch.rows[0]!.row_fingerprint,
           catalogItemId: "cat_active",
           selectedOptions: [],
           storageLocationId: "loc_import",

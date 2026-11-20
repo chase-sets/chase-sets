@@ -1,4 +1,5 @@
 import { formatBpsPercent, formatDate, formatMoney, t } from "@chase-sets/localization";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   HiddenInput,
   Form,
@@ -21,6 +22,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchListItem } from "./contracts";
+import { useOfferMatchDeclineAttemptIds } from "./offer-match-decline-attempt-provider";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 import { formatPriceGap } from "./price-gap";
 
@@ -33,6 +35,18 @@ function statusTone(status: string) {
   }
 }
 
+function DeclineOfferMatchForm({ offer, attemptId }: { offer: OfferMatchListItem; attemptId: string }) {
+  return (
+    <RouterForm spacing="none" method="post" action={`/account/offers/matches/${offer.offer_id}`}>
+      <HiddenInput type="hidden" name="intent" value="decline-offer" />
+      <HiddenInput type="hidden" name="attemptId" value={attemptId} />
+      <Button type="submit" tone="secondary" size="sm" disabled={offer.status !== "submitted"}>
+        {t("marketplace.features.offers.ui.offerMatchListPage.decline")}
+      </Button>
+    </RouterForm>
+  );
+}
+
 export function MarketplaceOfferMatchListPage({
   data,
   errorMessage,
@@ -40,6 +54,7 @@ export function MarketplaceOfferMatchListPage({
   data: { items: readonly OfferMatchListItem[] };
   errorMessage?: string | null;
 }) {
+  const declineAttemptIdFor = useOfferMatchDeclineAttemptIds();
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
   const atOrAboveAskCount = data.items.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
   const bestMatchPercentage = data.items.length
@@ -244,12 +259,7 @@ export function MarketplaceOfferMatchListPage({
                   <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
                     {t("marketplace.features.offers.ui.offerMatchListPage.open")}
                   </LinkButton>
-                  <Form spacing="none" method="post" action={`/account/offers/matches/${row.offer_id}`}>
-                    <HiddenInput type="hidden" name="intent" value="decline-offer" />
-                    <Button type="submit" tone="secondary" size="sm" disabled={row.status !== "submitted"}>
-                      {t("marketplace.features.offers.ui.offerMatchListPage.decline")}
-                    </Button>
-                  </Form>
+                  <DeclineOfferMatchForm key={row.offer_id} offer={row} attemptId={declineAttemptIdFor(row)} />
                 </Stack>
               ),
             },

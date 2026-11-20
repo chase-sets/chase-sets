@@ -478,6 +478,14 @@ export type CatalogMergeCandidateEvent =
   | CatalogMergeCandidatePromotionPlannedEvent
   | CatalogMergeCandidatePromotionAppliedEvent;
 
+// The facts an operator can correct as free text: the string-valued ones. Structured facts keep
+// their provider provenance.
+export function catalogMergeCandidateEditableFactKeys(facts: JsonObject): readonly string[] {
+  return Object.keys(facts)
+    .filter((key) => typeof facts[key] === "string")
+    .sort();
+}
+
 export const decideCatalogMergeCandidate: AggregateDecider<
   CatalogMergeCandidateState,
   CatalogMergeCandidateCommand,
@@ -949,6 +957,67 @@ function requireReviewActionable(state: CatalogMergeCandidateState): asserts sta
 function requireSnapshot(state: CatalogMergeCandidateState): CatalogMergeCandidateReviewSnapshot {
   assert(state.snapshot !== null, "Catalog Merge Candidate must be created first.");
   return state.snapshot;
+}
+
+/** Matcher-backed Catalog facts are scalar; the review form carries existing alternatives as a list. */
+export function normalizeConflictResolutionValues(
+  resolutions: readonly CatalogMergeCandidateConflictResolution[],
+):
+  | { status: "resolved"; resolutions: readonly CatalogMergeCandidateConflictResolution[] }
+  | { status: "ambiguous"; fieldPath: string } {
+  const normalized: CatalogMergeCandidateConflictResolution[] = [];
+  for (const resolution of resolutions) {
+    if (!resolution.fieldPath?.match(/^catalogItem\.[^.]+$/) || !Array.isArray(resolution.chosenValue)) {
+      normalized.push(resolution);
+      continue;
+    }
+    const [value] = resolution.chosenValue;
+    if (resolution.chosenValue.length !== 1 || value === undefined || (value !== null && typeof value === "object")) {
+      return { status: "ambiguous", fieldPath: resolution.fieldPath };
+    }
+    normalized.push({ ...resolution, chosenValue: value });
+  }
+  return { status: "resolved", resolutions: normalized };
+}
+
+/** Apply normalized fact choices without changing the source evidence or merge identity. */
+export function snapshotWithConflictResolutions(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  resolutions: readonly CatalogMergeCandidateConflictResolution[],
+): CatalogMergeCandidateReviewSnapshot {
+  const facts = { ...snapshot.proposedCatalogItemFacts };
+  let fieldProvenance = [...snapshot.fieldProvenance];
+  for (const resolution of resolutions) {
+    const fieldPath = resolution.fieldPath;
+    const factKey = fieldPath?.match(/^catalogItem\.([^.]+)$/)?.[1];
+    if (!factKey || !fieldPath) continue;
+    const conflict = snapshot.conflicts.find((entry) => entry.code === resolution.conflictCode);
+    if (conflict && conflict.fieldPath !== fieldPath) continue;
+    facts[factKey] = resolution.chosenValue;
+    const anchor =
+      snapshot.membership.find((member) => resolution.observationIds.includes(member.observationId)) ??
+      snapshot.membership[0] ??
+      snapshot.fieldProvenance.find((entry) => entry.fieldPath === fieldPath);
+    if (!anchor) continue;
+    fieldProvenance = [
+      ...fieldProvenance.filter((entry) => entry.fieldPath !== fieldPath),
+      {
+        fieldPath,
+        value: resolution.chosenValue,
+        observationId: anchor.observationId,
+        providerKey: anchor.providerKey,
+        sourceProfileKey: anchor.sourceProfileKey,
+        sourceProfileVersion: anchor.sourceProfileVersion,
+        confidence: "manual",
+        evidence: {
+          conflictCode: resolution.conflictCode,
+          reason: resolution.reason,
+          observationIds: [...resolution.observationIds],
+        },
+      },
+    ];
+  }
+  return { ...snapshot, proposedCatalogItemFacts: facts, fieldProvenance };
 }
 
 function normalizeReviewSnapshot(snapshot: CatalogMergeCandidateReviewSnapshot): CatalogMergeCandidateReviewSnapshot {

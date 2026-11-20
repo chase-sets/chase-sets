@@ -5,6 +5,7 @@ import type {
 } from "../api/primary-workbench-admin-contracts";
 import type { CatalogPrimaryWorkbenchCore, CatalogPrimaryWorkbenchDerived } from "./primary-workbench-core-read-model";
 import type { LifecycleOperationRow } from "./primary-workbench-lifecycle-recovery";
+import { promotionCommandPreviewFor } from "./primary-workbench-scope-context";
 
 // The workbench command states every surface renders, derived from the core and
 // the profile-authoring, validation and lifecycle slices whose blockers gate them.
@@ -35,7 +36,11 @@ export function buildSurfaceActions(
       cloneProfileBlockers: slices.profileAuthoring.cloneDraft.blockers,
       lifecycleOperations: slices.lifecycleRecovery.operations,
       promotionBlockers: core.promotionPreview.blockers,
-    }),
+    }).map((action) =>
+      action.key === "observation.promote"
+        ? { ...action, commandPreview: promotionCommandPreviewFor(core.routeContext) }
+        : action,
+    ),
   ];
 }
 

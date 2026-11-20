@@ -33,6 +33,10 @@ import {
 import { buildBuyerOfferPolicyProjectionHandlers } from "../read-model/projection";
 import type { ManagedOfferPricing } from "../../offers/api/managed-authority";
 import { buyerOfferPolicyOutcomeSchema } from "../domain/contracts";
+import { createMarketplaceAttempt } from "../../mutation-recovery/api/attempt";
+import { offerPolicyAttemptResultSchema } from "./attempt-result";
+import { marketplaceRecoveryLoader } from "../../mutation-recovery/api/repository";
+import { marketplaceOfferRecoveryCodec } from "../../offers/domain/recovery-codec";
 
 function hash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -75,7 +79,7 @@ export function createBuyerOfferPolicyRuntime(
     enforcement?: Readonly<{ assertInstalled(): void }>;
   }>,
 ) {
-  const { repository } = createAggregateCommandHandler({
+  const { repository: rawPolicyRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: buyerOfferPolicyCodec,
     initialState: () => initialBuyerOfferPolicyState,
@@ -83,13 +87,31 @@ export function createBuyerOfferPolicyRuntime(
     decide: decideBuyerOfferPolicy,
   });
   const offerCodec = createPassthroughDomainEventCodec<MarketplaceOfferEvent>();
-  const { repository: offers } = createAggregateCommandHandler({
+  const { repository: rawOfferRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: offerCodec,
     initialState: () => initialMarketplaceOfferState,
     evolve: evolveMarketplaceOffer,
     decide: decideMarketplaceOffer,
   });
+  const repository = {
+    ...rawPolicyRepository,
+    load: marketplaceRecoveryLoader(
+      deps.eventStore,
+      initialBuyerOfferPolicyState,
+      buyerOfferPolicyCodec,
+      evolveBuyerOfferPolicy,
+    ),
+  };
+  const offers = {
+    ...rawOfferRepository,
+    load: marketplaceRecoveryLoader(
+      deps.eventStore,
+      initialMarketplaceOfferState,
+      marketplaceOfferRecoveryCodec,
+      evolveMarketplaceOffer,
+    ),
+  };
 
   async function owned(policyId: string, buyerAccountId: string) {
     buyerOfferPolicyIdSchema.parse(policyId);
@@ -121,13 +143,32 @@ export function createBuyerOfferPolicyRuntime(
     buyerOfferPolicyIdSchema.parse(policyId);
     const request = buyerOfferPolicyRequestSchema.parse(input);
     const buyerAccountId = context.audit.forAccountId;
+    const { attemptId, ...canonicalRequest } = request;
+    const attempt = createMarketplaceAttempt(
+      deps.eventStore,
+      {
+        attemptId,
+        mutationKind: "offer-policy.command",
+        accountId: buyerAccountId,
+        target: { kind: "offer-policy", id: policyId },
+        request: canonicalRequest,
+      },
+      offerPolicyAttemptResultSchema,
+    );
+    const first = await attempt.read();
+    if (first) return first;
     const current =
       request.type === "CreateBuyerOfferPolicy"
         ? await repository.load(streamId(policyId))
         : await owned(policyId, buyerAccountId);
     if (current.state.policyId && current.state.buyerAccountId !== buyerAccountId)
       throw new BuyerOfferPolicyError("not_found", "Buyer Offer Policy not found.");
-    const requestHash = hash({ policyId, actorUserId: context.audit.performedByUserId, buyerAccountId, request });
+    const requestHash = hash({
+      policyId,
+      actorUserId: context.audit.performedByUserId,
+      buyerAccountId,
+      request: canonicalRequest,
+    });
     const prior = current.events.find((event) => event.data.operationId === request.operationId);
     if (prior) {
       if (prior.data.requestHash !== requestHash)
@@ -135,7 +176,13 @@ export function createBuyerOfferPolicyRuntime(
           "operation_conflict",
           "Operation identity was already used for different authority.",
         );
-      return snapshot(current.state, current.version);
+      const result = await snapshot(current.state, current.version);
+      return attempt.commit(
+        [{ streamId: streamId(policyId), expectedVersion: current.version, events: [], context }],
+        result,
+        { id: policyId, version: result.version },
+        context,
+      );
     }
     if (request.expectedVersion !== current.version)
       throw new BuyerOfferPolicyError("stale_preview", "Policy version changed. Refresh before continuing.");
@@ -182,7 +229,10 @@ export function createBuyerOfferPolicyRuntime(
         buyerOfferPolicyOutcomeSchema.parse({
           offerId: terms.offers[index]!.offerId,
           currentUnitItemAmount: loadedOffers[index]!.state.priceAmount,
-          result,
+          result:
+            result.status === "target"
+              ? { status: result.status, unitItemAmount: result.unitItemAmount, evidence: result.evidence }
+              : { status: result.status, reason: result.reason, evidence: result.evidence },
         }),
       );
       // Re-evaluate at the current instant, but bind stable evidence and outcomes,
@@ -234,33 +284,43 @@ export function createBuyerOfferPolicyRuntime(
       }
     } else command = { type: request.type, audit };
     const events = decideBuyerOfferPolicy(current.state, command);
-    if (events.length === 0) return snapshot(current.state, current.version);
+    const next = await snapshot(events.reduce(evolveBuyerOfferPolicy, current.state), current.version + events.length);
+    const result = {
+      ...next,
+      offerVersions: {
+        ...next.offerVersions,
+        ...Object.fromEntries(
+          guards
+            .filter((guard) => guard.events.length > 0)
+            .map((guard) => [
+              guard.streamId.replace("marketplace.offer-", ""),
+              Number(guard.expectedVersion) + guard.events.length,
+            ]),
+        ),
+      },
+    };
     assertPolicy(deps.eventStore.appendToStreams, "Buyer Offer Policy commands require atomic append support.");
     try {
-      const results = await deps.eventStore.appendToStreams([
-        {
-          streamId: streamId(policyId),
-          expectedVersion: current.version,
-          events: events.map(buyerOfferPolicyCodec.encode),
-          context,
-        },
-        ...guards,
-      ]);
-      recordCommittedEvents(results.flatMap((result) => result.storedEvents));
+      return await attempt.commit(
+        [
+          {
+            streamId: streamId(policyId),
+            expectedVersion: current.version,
+            events: events.map(buyerOfferPolicyCodec.encode),
+            context,
+          },
+          ...guards,
+        ],
+        result,
+        { id: policyId, version: result.version },
+        context,
+      );
     } catch (error) {
       if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
-        const latest = await owned(policyId, buyerAccountId);
-        if (
-          latest.events.some(
-            (event) => event.data.operationId === request.operationId && event.data.requestHash === requestHash,
-          )
-        )
-          return snapshot(latest.state, latest.version);
         throw new BuyerOfferPolicyError("stale_preview", "Policy or selected Offers changed. Request a fresh preview.");
       }
       throw error;
     }
-    return snapshot(events.reduce(evolveBuyerOfferPolicy, current.state), current.version + events.length);
   }
   return {
     execute,

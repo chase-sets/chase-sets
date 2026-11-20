@@ -1,3 +1,5 @@
+import { ListingCommandForm as Form } from "./listing-command-form";
+import { ListingRecoveryNotice } from "./listing-batch-recovery";
 import {
   formatBpsPercent,
   formatDateTime,
@@ -8,7 +10,6 @@ import {
 import { useState } from "react";
 import {
   HiddenInput,
-  Form,
   AppliedFilterChips,
   Badge,
   BulkActionBar,
@@ -250,6 +251,7 @@ export function MarketplaceListingListPage({
 
   return (
     <Page>
+      <ListingRecoveryNotice />
       <PageHeader
         eyebrow={t("marketplace.features.listings.ui.listingListPage.seller")}
         title={t("marketplace.features.listings.ui.listingListPage.listings")}

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
 import type { BuyerOfferPolicyRequest } from "../domain/contracts";
 import { activate, context, fixture, preview, seedOffer, terms } from "../tests/fixtures";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
@@ -12,6 +13,32 @@ import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/
 import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
+  it("projects held Pricing results onto the Marketplace port before retaining the first preview", async () => {
+    const { store, db } = await fixture();
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db,
+      managedOfferPricing: {
+        evaluateTargets: async (requests) =>
+          requests.map(() => ({
+            status: "held" as const,
+            reason: "market-price-unavailable",
+            buyerCopy: "Pricing-owned display copy outside the Marketplace port.",
+            evidence: { marketPrice: null },
+          })),
+      },
+    });
+    const first = await preview(runtime);
+    expect(first.preview!.outcomes![0]!.result).toEqual({
+      status: "held",
+      reason: "market-price-unavailable",
+      evidence: { marketPrice: null },
+    });
+    const append = vi.spyOn(store, "appendToStreams");
+    expect(await preview(runtime)).toEqual(first);
+    expect(append).not.toHaveBeenCalled();
+  });
+
   it("records exactly the returned policy and every Authorize binding event, but not replay or empty decisions", async () => {
     const { runtime, store } = await fixture();
     await seedOffer(store, "off_two");
@@ -21,6 +48,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }],
     });
     const command = {
+      attemptId: String("receipt_authorize").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
       previewId: p.preview!.previewId,
@@ -35,6 +63,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
         "marketplace.offer-policy-bop_one",
         "marketplace.offer-off_one",
         "marketplace.offer-off_two",
+        expect.stringMatching(/^marketplace\.offer-attempt-v1-/),
       ]);
       const eventIds = returned.map((event) => String(event.eventId));
       const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
@@ -53,21 +82,33 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       expect(getEventCommitMetadata().eventIds).toEqual([]);
       const paused = await runtime.execute(
         "bop_one",
-        { type: "PauseBuyerOfferPolicy", expectedVersion: active.version, operationId: "receipt_pause" },
+        {
+          attemptId: String("receipt_pause").padEnd(22, "_"),
+          type: "PauseBuyerOfferPolicy",
+          expectedVersion: active.version,
+          operationId: "receipt_pause",
+        },
         context,
       );
       await runWithEventCommitMetadata(async () => {
         expect(
           await runtime.execute(
             "bop_one",
-            { type: "PauseBuyerOfferPolicy", expectedVersion: paused.version, operationId: "receipt_empty" },
+            {
+              attemptId: String("receipt_empty").padEnd(22, "_"),
+              type: "PauseBuyerOfferPolicy",
+              expectedVersion: paused.version,
+              operationId: "receipt_empty",
+            },
             context,
           ),
         ).toEqual(paused);
-        expect(getEventCommitMetadata().eventIds).toEqual([]);
+        expect(getEventCommitMetadata().committedEvents.map((event) => event.eventType)).toEqual([
+          "marketplace.mutation-attempt.completed",
+        ]);
       });
     });
-    expect(append).toHaveBeenCalledTimes(1);
+    expect(append).toHaveBeenCalledTimes(2);
   });
 
   it("records only returned policy events when Preview has empty Offer guards", async () => {
@@ -77,7 +118,10 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       await preview(runtime);
       const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
       const returned = results.flatMap((batch) => batch.storedEvents);
-      expect(returned.map((event) => event.streamId)).toEqual(["marketplace.offer-policy-bop_one"]);
+      expect(returned.map((event) => event.streamId)).toEqual([
+        "marketplace.offer-policy-bop_one",
+        expect.stringMatching(/^marketplace\.offer-attempt-v1-/),
+      ]);
       expect(getEventCommitMetadata().committedEvents).toEqual(returned);
     });
   });
@@ -99,6 +143,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       const action = runtime.execute(
         "bop_one",
         {
+          attemptId: String("receipt_race").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: p.version,
           previewId: p.preview!.previewId,
@@ -123,7 +168,12 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     const active = await activate(runtime);
     const paused = await runtime.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: active.version, operationId: "pause_lag" },
+      {
+        attemptId: String("pause_lag").padEnd(22, "_"),
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: active.version,
+        operationId: "pause_lag",
+      },
       context,
     );
     expect(await store.readStream({ streamId: "marketplace.offer-off_one" })).toHaveLength(2);
@@ -160,6 +210,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
         .map(buyerOfferPolicyCodec.decode)
         .reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState);
       const pause = {
+        attemptId: String("pause_snapshot").padEnd(22, "_"),
         type: "PauseBuyerOfferPolicy",
         expectedVersion: active.version,
         operationId: "pause_snapshot",
@@ -168,6 +219,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       const stopped = await runtime.execute(
         "bop_one",
         {
+          attemptId: String("stop_snapshot").padEnd(22, "_"),
           type: "StopBuyerOfferPolicy",
           expectedVersion: paused.version,
           operationId: "stop_snapshot",
@@ -176,12 +228,18 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       );
       await runtime.execute(
         "bop_two",
-        { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create_two" },
+        {
+          attemptId: String("create_two").padEnd(22, "_"),
+          type: "CreateBuyerOfferPolicy",
+          expectedVersion: 0,
+          operationId: "create_two",
+        },
         context,
       );
       const otherPreview = await runtime.execute(
         "bop_two",
         {
+          attemptId: String("preview_two").padEnd(22, "_"),
           type: "PreviewBuyerOfferPolicy",
           expectedVersion: 1,
           operationId: "preview_two",
@@ -192,6 +250,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       await runtime.execute(
         "bop_two",
         {
+          attemptId: String("authorize_two").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: otherPreview.version,
           operationId: "authorize_two",
@@ -230,7 +289,11 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       ]);
       expect(list.offerVersions).toEqual({ off_one: 2, off_two: 2 });
       expect(list.items[0]).toEqual(stopped);
-      expect(await runtime.execute("bop_one", pause, context)).toEqual(stopped);
+      expect(await runtime.execute("bop_one", pause, context)).toMatchObject({
+        status: "paused",
+        version: pause.expectedVersion + 1,
+      });
+      expect(await runtime.get("bop_one", "acc_buyer")).toEqual(stopped);
       const page = await runtime.list("acc_buyer", "bop_one", 1, ["off_one", "off_two"]);
       expect(page.items.map((item) => item.policyId)).toEqual(["bop_two"]);
       expect(page.nextCursor).toBe("bop_two");
@@ -242,6 +305,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     const paused = await runtime.execute(
       "bop_one",
       {
+        attemptId: String("pause_drift").padEnd(22, "_"),
         type: "PauseBuyerOfferPolicy",
         expectedVersion: active.version,
         operationId: "pause_drift",
@@ -308,6 +372,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
         await runtime.execute(
           "bop_one",
           {
+            attemptId: String("reordered").padEnd(22, "_"),
             type: "AuthorizeBuyerOfferPolicy",
             operationId: "reordered",
             expectedVersion: p.version,
@@ -366,6 +431,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     ]);
     expect(evaluateTargets).toHaveBeenCalledTimes(1);
     const command = {
+      attemptId: String("evidence_authorize").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
       previewId: p.preview!.previewId,
@@ -383,15 +449,24 @@ describe("Buyer Offer Policy authoritative runtime", () => {
   it("keeps owner reads free of retired limits across acceptance, pause, fresh consent, resume and stop", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     const accepted = await f.acceptance();
-    const outcome = await f.offers.acceptOffer(accepted, context);
+    const outcome = await f.offers.acceptOffer(accepted, {
+      ...context,
+      audit: { ...context.audit, forAccountId: accepted.sellerAccountId },
+    });
     const paused = await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
+      {
+        attemptId: String("pause").padEnd(22, "_"),
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "pause",
+      },
       context,
     );
     const fresh = await f.policies.execute(
       "bop_one",
       {
+        attemptId: String("resume_preview").padEnd(22, "_"),
         type: "PreviewBuyerOfferPolicy",
         expectedVersion: paused.version,
         operationId: "resume_preview",
@@ -405,6 +480,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     const resumed = await f.policies.execute(
       "bop_one",
       {
+        attemptId: String("resume").padEnd(22, "_"),
         type: "AuthorizeBuyerOfferPolicy",
         expectedVersion: fresh.version,
         operationId: "resume",
@@ -419,7 +495,12 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     });
     const stopped = await f.policies.execute(
       "bop_one",
-      { type: "StopBuyerOfferPolicy", expectedVersion: resumed.version, operationId: "stop" },
+      {
+        attemptId: String("stop").padEnd(22, "_"),
+        type: "StopBuyerOfferPolicy",
+        expectedVersion: resumed.version,
+        operationId: "stop",
+      },
       context,
     );
     expect(stopped).toMatchObject({ status: "stopped" });
@@ -428,7 +509,12 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       expect(owner).not.toHaveProperty("remainingItemAllowance");
       expect(owner.authority).not.toHaveProperty("itemCommitmentAllowance");
     }
-    expect(await f.offers.acceptOffer(accepted, context)).toEqual(outcome);
+    expect(
+      await f.offers.acceptOffer(accepted, {
+        ...context,
+        audit: { ...context.audit, forAccountId: accepted.sellerAccountId },
+      }),
+    ).toEqual(outcome);
   });
   it("authorizes the complete 100-Offer bound, including the last selection", async () => {
     const { runtime, store } = await fixture();
@@ -441,6 +527,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     const result = await runtime.execute(
       "bop_one",
       {
+        attemptId: String("authorize").padEnd(22, "_"),
         type: "AuthorizeBuyerOfferPolicy",
         expectedVersion: p.version,
         previewId: p.preview!.previewId,
@@ -501,6 +588,33 @@ describe("Buyer Offer Policy authoritative runtime", () => {
           eventType: "marketplace.offer.accepted",
           payload: {
             offerId: "off_one",
+            buyerAccountId: "acc_buyer",
+            sellerAccountId: "acc_seller",
+            listingId: "lst_one",
+            inventoryItemId: "inv_one",
+            listingVersion: 1,
+            catalogItemId: "cat_one",
+            productId: "cat_one::",
+            itemTitle: "Item",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            shippingDestinationSnapshot: {
+              name: "Buyer",
+              line1: "1 Main",
+              city: "Chicago",
+              state: "IL",
+              postalCode: "60601",
+              country: "US",
+            },
+            priceCurrencyCode: "USD",
+            marketplaceSalesFeeUnitAmount: "0.00",
+            sellerNetUnitAmount: "10.00",
+            shippingAllowancePercentageBps: 500,
+            listingEvidenceSnapshot: buildListingEvidenceSnapshot({
+              evidence: [],
+              createdAt: "2026-09-27T12:00:00.000Z",
+            }),
             acceptedAt: "2026-09-27T12:00:00.000Z",
             priceAmount: "10.00",
             quantityRequested: 2,
@@ -522,6 +636,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }],
     });
     const command: BuyerOfferPolicyRequest = {
+      attemptId: String("authorize").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
       previewId: p.preview!.previewId,
@@ -538,7 +653,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       expect(await store.readStream({ streamId: `marketplace.offer-${id}` })).toHaveLength(2);
     expect(await store.readStream({ streamId: "marketplace.offer-policy-bop_one" })).toHaveLength(3);
     await expect(runtime.execute("bop_one", { ...command, previewId: "f".repeat(64) }, context)).rejects.toMatchObject({
-      code: "operation_conflict",
+      code: "attempt_conflict",
     });
   });
   it("a failure at atomic append exposes no partial consent or membership and the same operation retries", async () => {
@@ -552,6 +667,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     }));
     const p = await preview(runtime);
     const command: BuyerOfferPolicyRequest = {
+      attemptId: String("authorize").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
       previewId: p.preview!.previewId,
@@ -598,6 +714,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       runtime.execute(
         "bop_one",
         {
+          attemptId: String("authorize").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: p.version,
           previewId: p.preview!.previewId,
@@ -621,6 +738,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       runtime.execute(
         "bop_one",
         {
+          attemptId: String("authorize").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: p.version,
           previewId: p.preview!.previewId,
@@ -634,6 +752,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       runtime.execute(
         "bop_one",
         {
+          attemptId: String("authorize").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: 3,
           previewId: p.preview!.previewId,
@@ -652,12 +771,23 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       const first = await preview(runtime);
       await runtime.execute(
         "bop_two",
-        { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+        {
+          attemptId: String("create").padEnd(22, "_"),
+          type: "CreateBuyerOfferPolicy",
+          expectedVersion: 0,
+          operationId: "create",
+        },
         context,
       );
       const second = await runtime.execute(
         "bop_two",
-        { type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview", terms },
+        {
+          attemptId: String("preview").padEnd(22, "_"),
+          type: "PreviewBuyerOfferPolicy",
+          expectedVersion: 1,
+          operationId: "preview",
+          terms,
+        },
         context,
       );
       const results = await Promise.allSettled(
@@ -665,6 +795,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
           runtime.execute(
             p.policyId!,
             {
+              attemptId: String("authorize").padEnd(22, "_"),
               type: "AuthorizeBuyerOfferPolicy",
               expectedVersion: p.version,
               previewId: p.preview!.previewId,
@@ -682,6 +813,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
         await runtime.execute(
           winner,
           {
+            attemptId: String(status).padEnd(22, "_"),
             type: status === "paused" ? "PauseBuyerOfferPolicy" : "StopBuyerOfferPolicy",
             expectedVersion: 3,
             operationId: status,
@@ -694,6 +826,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
         runtime.execute(
           loser,
           {
+            attemptId: String("new_preview").padEnd(22, "_"),
             type: "PreviewBuyerOfferPolicy",
             expectedVersion: 2,
             operationId: "new_preview",
@@ -709,7 +842,12 @@ describe("Buyer Offer Policy authoritative runtime", () => {
   it("pause/resume requires fresh preview, revisions require consent, and retries do not resurrect stopped policy", async () => {
     const { runtime } = await fixture();
     await activate(runtime);
-    const pause = { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" } as const;
+    const pause = {
+      attemptId: String("pause").padEnd(22, "_"),
+      type: "PauseBuyerOfferPolicy",
+      expectedVersion: 3,
+      operationId: "pause",
+    } as const;
     expect((await runtime.execute("bop_one", pause, context)).status).toBe("paused");
     expect((await runtime.execute("bop_one", pause, context)).version).toBe(4);
     const p = await preview(
@@ -720,6 +858,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     );
     expect(p.authority!.adjustmentBps).toBe(0);
     const resume = {
+      attemptId: String("resume").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
       previewId: p.preview!.previewId,
@@ -729,10 +868,16 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     expect((await runtime.execute("bop_one", resume, context)).revision).toBe(2);
     await runtime.execute(
       "bop_one",
-      { type: "StopBuyerOfferPolicy", expectedVersion: 6, operationId: "stop" },
+      {
+        attemptId: String("stop").padEnd(22, "_"),
+        type: "StopBuyerOfferPolicy",
+        expectedVersion: 6,
+        operationId: "stop",
+      },
       context,
     );
-    expect((await runtime.execute("bop_one", resume, context)).status).toBe("stopped");
+    expect((await runtime.execute("bop_one", resume, context)).status).toBe("active");
+    expect((await runtime.get("bop_one", "acc_buyer")).status).toBe("stopped");
   });
   it("account list is bounded keyset and owner-scoped without per-row totals", async () => {
     const { runtime, db } = await fixture();

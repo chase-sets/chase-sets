@@ -23,11 +23,7 @@ import {
   Stack,
   Surface,
   Text,
-  resolveEmbeddedSurfaceTheme,
-  observeEmbeddedSurfaceTheme,
-  embeddedSurfaceThemeSnapshot,
 } from "@chase-sets/design-system";
-import { createStripeElementsAppearance } from "@chase-sets/stripe-appearance";
 import { createPaymentsApiClient } from "../../../../client";
 import type { PaymentElementDefaultValues } from "./account-payment-contracts";
 
@@ -87,31 +83,11 @@ export function StripeConfirmationCard({
   // refused the defaultValues email; the confirm must then not resend it.
   const sessionOwnsEmailRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [appearanceVersion, setAppearanceVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
   const buyerEmail = defaultValues?.billingDetails.email.trim() || null;
   const defaultValuesKey = JSON.stringify(defaultValues);
   const missingBuyerEmail = payment.status === "pending-confirmation" && !buyerEmail;
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-
-    let currentSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
-
-    return observeEmbeddedSurfaceTheme({ scope: container }, () => {
-      const nextSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
-      if (nextSnapshot === currentSnapshot) {
-        return;
-      }
-
-      currentSnapshot = nextSnapshot;
-      setAppearanceVersion((version) => version + 1);
-    });
-  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -181,21 +157,11 @@ export function StripeConfirmationCard({
         }
 
         const clientSecret = payment.processor_client_secret!;
-        const stripeElementsAppearance = createStripeElementsAppearance({
-          theme: resolveEmbeddedSurfaceTheme({ scope: container }),
-        });
-        const checkoutElementsAppearance = createStripeElementsAppearance({
-          includeRules: false,
-          theme: resolveEmbeddedSurfaceTheme({ scope: container }),
-        });
         // Custom Checkout (Checkout Session client secrets, prefixed `cs_`) carries buyer
         // defaultValues on the SDK itself; the Payment Element path carries them per-element.
         let checkout = clientSecret.startsWith("cs_")
           ? stripe.initCheckoutElementsSdk({
               clientSecret,
-              elementsOptions: {
-                appearance: checkoutElementsAppearance,
-              },
               defaultValues: buyerEmail ? { email: buyerEmail } : undefined,
             })
           : null;
@@ -207,7 +173,6 @@ export function StripeConfirmationCard({
           ? null
           : stripe.elements({
               clientSecret,
-              appearance: stripeElementsAppearance,
             });
         const wallets: StripePaymentElementOptions["wallets"] = {
           applePay: "auto",
@@ -259,9 +224,6 @@ export function StripeConfirmationCard({
           destroyMountedElement();
           checkout = stripe.initCheckoutElementsSdk({
             clientSecret,
-            elementsOptions: {
-              appearance: checkoutElementsAppearance,
-            },
           });
           paymentElement = checkout.createPaymentElement({ wallets });
           paymentElement.mount(container);
@@ -329,33 +291,6 @@ export function StripeConfirmationCard({
     payment.processor_publishable_key,
     payment.status,
   ]);
-
-  // Theme changes restyle the mounted Payment Element in place. Remounting here
-  // would destroy whatever the buyer has already typed.
-  useEffect(() => {
-    if (appearanceVersion === 0 || !isReady) {
-      return;
-    }
-
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-
-    if (checkoutRef.current) {
-      checkoutRef.current.changeAppearance(
-        createStripeElementsAppearance({
-          includeRules: false,
-          theme: resolveEmbeddedSurfaceTheme({ scope: container }),
-        }),
-      );
-      return;
-    }
-
-    void elementsRef.current?.update({
-      appearance: createStripeElementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: container }) }),
-    });
-  }, [appearanceVersion, isReady]);
 
   useEffect(() => {
     if (payment.status !== "pending-confirmation") {

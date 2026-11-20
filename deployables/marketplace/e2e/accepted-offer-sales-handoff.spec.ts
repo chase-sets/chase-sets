@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./support/listing-attempt";
 import { expect, test, type APIResponse } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import {
@@ -87,7 +88,8 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     const { verification: _verification, ...shipFromAddress } = item.ship_from_address;
     const listing = await committed(
       await page.request.post("/api/marketplace/account/listings", {
-        data: {
+        data: listingTestCommand("listing.create", {
+          idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
           inventoryItemId: stock.id,
           priceAmount: "150.00",
           priceCurrencyCode: "USD",
@@ -106,20 +108,25 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
             availableQuantity: item.available_quantity,
             acquisitionCostAmount: item.acquisition_cost_amount,
           },
-        },
+        }),
       }),
       201,
     );
     listingId = listing.id;
     await committed(
       await page.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-        data: { feeQuoteFingerprint: listing.feeQuoteFingerprint },
+        data: listingTestCommand("listing.publish", {
+          idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
+          feeQuoteFingerprint: listing.feeQuoteFingerprint,
+          listingId,
+        }),
       }),
       200,
     );
     const offer = await committed(
       await buyer.request.post("/api/marketplace/account/offers/submitted", {
         data: {
+          attemptId: randomUUID(),
           catalogItemId,
           productId: `${catalogItemId}::`,
           itemTitle: "Surging Sparks Booster Box",
@@ -149,7 +156,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
       data: {
         listingId,
         feeQuoteFingerprint: quote.fee_quote_fingerprint,
-        sourceActionKey: `handoff:${unique}`,
+        sourceActionKey: randomUUID(),
       },
     });
     await committed(accepted, 201);
@@ -163,7 +170,12 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     expect(orders[0]).toMatchObject({ source_type: "offer-acceptance", source_reference_id: offer.id });
   } finally {
     if (listingId) {
-      const withdrawn = await page.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`);
+      const withdrawn = await page.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
+        data: listingTestCommand("listing.withdraw", {
+          idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}`,
+          listingId,
+        }),
+      });
       expect(withdrawn.status()).toBe(200);
     }
     await buyerContext.close();

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { MarketplaceListingServices } from "../../../support/request-support/marketplace-listings";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -93,33 +95,38 @@ export type RepricingSpiralBreakerTrip = Readonly<{
   frozenUntil: string;
 }>;
 
+type ListingPriceBatch = Parameters<MarketplaceListingServices["applyBulkListingPriceUpdates"]>[0];
+type RepricingPriceUpdate = ListingPriceBatch["updates"][number] &
+  Readonly<{
+    expectedVersion: number;
+    minimumChange: RepricingListingEvaluation["tolerance"];
+    idempotencyKey: string;
+  }>;
+
 export type RepricingMarketplaceGateway = Readonly<{
-  applyBulkListingPriceUpdates: (body: {
-    updates: readonly Readonly<{
-      listingId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      expectedVersion: number;
-      minimumChange: RepricingListingEvaluation["tolerance"];
-      idempotencyKey: string;
-    }>[];
-  }) => Promise<{
+  applyBulkListingPriceUpdates: (
+    body: Omit<ListingPriceBatch, "accountId" | "updates"> & Readonly<{ updates: readonly RepricingPriceUpdate[] }>,
+  ) => Promise<{
     items: readonly Readonly<{
       listingId: string;
-      outcome: "applied" | "no_op" | "conflict" | "error";
+      outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
       message?: string;
     }>[];
   }>;
   pauseListing: (
     listingId: string,
-    body: { reason: "policy-input-missing"; idempotencyKey: string },
+    body: Omit<Parameters<MarketplaceListingServices["pauseListing"]>[0], "accountId" | "listingId">,
   ) => Promise<unknown>;
-  publishListing: (listingId: string, body: { idempotencyKey: string }) => Promise<unknown>;
+  publishListing: (
+    listingId: string,
+    body: Omit<Parameters<MarketplaceListingServices["publishListing"]>[0], "accountId" | "listingId">,
+  ) => Promise<unknown>;
 }>;
 
 type RepricingEngineRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgTransactionalPool;
+  pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
   economics: Pick<EconomicsServices, "resolve">;
 }>;
 
@@ -227,6 +234,7 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
         cooldownMinutes: policy.productRoundCooldownMinutes,
       },
       new Date().toISOString(),
+      deps.pricingPredicateConsumerPool,
     );
     if (!reserved) {
       return false;
@@ -543,7 +551,7 @@ async function executeAdmittedProductRound(
 
   type CommandOutcome = Readonly<{
     listingId: string;
-    outcome: "applied" | "no_op" | "conflict" | "error";
+    outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
     message?: string;
   }>;
   const outcomesByListingId = new Map<string, CommandOutcome>();
@@ -783,7 +791,14 @@ async function executeAdmittedProductRound(
   const direction = netChange > 0n ? "up" : netChange < 0n ? "down" : null;
   const trip =
     !frozenUntil && (facts.length > 0 || (round.listings.length === 0 && productState !== null))
-      ? await recordProductRoundDirection(deps.db, job.payload, direction, policy, new Date().toISOString())
+      ? await recordProductRoundDirection(
+          deps.db,
+          job.payload,
+          direction,
+          policy,
+          new Date().toISOString(),
+          deps.pricingPredicateConsumerPool,
+        )
       : null;
   for (const { streamId, fact } of facts) {
     const retainedFact: RepricingPolicyEvaluatedEvent = trip
@@ -918,6 +933,10 @@ function buildMarketplaceMutationIdempotencyKey(
   listingId: string,
   action: "price" | "pause" | "publish",
 ): string {
+  if (action !== "price")
+    return createHash("sha256")
+      .update(JSON.stringify(["repricing", triggerEventId, productId, listingId, action]))
+      .digest("hex");
   return `repricing:${encodeURIComponent(triggerEventId)}:${encodeURIComponent(productId)}:${encodeURIComponent(
     listingId,
   )}:${action}`;

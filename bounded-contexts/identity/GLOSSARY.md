@@ -267,6 +267,9 @@ Notes:
 - Auth owns the provider redirect, callback verification, and session journey.
 - A provider identity must not be linked to more than one User.
 - Provider tokens and raw profile payloads are not Identity facts.
+- A **Social Login Ownership Claim** is the event-sourced fact that decides which User owns one provider identity. Its stream is keyed by a hash of the provider name and trimmed subject, so the raw subject never appears in stream or scope names. A link is appended only in the same transaction that claims the subject for that User; the link projections are views of those facts and never move a provider identity to another User.
+- Links recorded before the claim existed are folded into claims by a bounded catch-up over link history, so an existing link and a later competing link are decided the same way.
+- **`repair-required`** is the claim state when link history shows one provider identity linked to more than one User. The provider identity then signs in, registers, and links no one until it is repaired; Auth refuses it with `provider_link_repair_required`.
 
 ### API Key
 
@@ -384,7 +387,7 @@ Notes:
 - **Never-activated and inactive are different states.** A key that was activated and later deactivated is inactive; only a never-activated key can be first-activated. Deactivation does not return a key to never-activated.
 - **Activation is aggregate state, never presence.** An active policy document, a projection row, or a stream row for the key is not an activation. A document is the policy *value*; the authority is the *activation*.
 - Activation state, the active version, and the guard token are always read together from the authority's own event stream. A cached policy value must never be paired with a separately read authority revision.
-- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface and is the read-side consumer that exists today; the elimination sweep for consent-activation races and the write call sites that commit against a guard are owned elsewhere and do not exist yet.
+- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface and is the read-side consumer that exists today. Terms of Service acceptance and atomic registration are the write call sites that commit against a guard: each records its Consent in the same all-or-nothing append as the guard of every authority it read, so an authority that moved after that read fails the write and records nothing. The elimination sweep for consent-activation races is owned elsewhere and does not exist yet.
 
 ### Consent Bundle
 
@@ -392,7 +395,7 @@ A **Consent Bundle** is the ordered set of consent policies one surface asks a s
 
 A bundle has a **declared member** list and a **derived requirement** list, and they are different things. A declared member is a consent policy the surface is *allowed* to require. A derived requirement is a member bound to the exact version a [[Consent Activation Authority]] says is active right now, plus where that version is readable.
 
-Today the Consent Bundle is a domain and read-side capability: it resolves bundles, answers per-policy and per-bundle acceptance, and backs the Terms of Service acceptance gate. Binding Consent recording and atomic registration to a resolved bundle — including the ordered requirements a [[Registration Consent Resolution]] carries — is owned by a separate slice and is not part of this capability.
+Today the Consent Bundle is a domain and read-side capability: it resolves bundles, answers per-policy and per-bundle acceptance, and backs the Terms of Service acceptance gate. Consent recording is bound to a resolved bundle: Terms of Service acceptance records the exact version its resolved member requires, and atomic registration records the ordered requirements a [[Registration Consent Resolution]] carries, each guarded by the authorities it read. The registration surface does not yet render an affirmation of a non-empty requirement set, so registration fails closed rather than record an agreement nobody was shown.
 
 Notes:
 
@@ -624,6 +627,33 @@ A **Store Invitation** is the planned request for a User or email address to joi
 ### Agent Grant Revocation Operation
 
 An **Agent Grant Revocation Operation** is Identity's retained owner of one Account's withdrawal of an Agent Grant. It records the first revocation time, reason and provenance, then tracks Identity terminal authority, Payments cleanup, webhook exclusion and completion. Repeated token and Account requests resume that owner rather than creating another revocation. Adoption records system recovery of an already-revoked Grant; it does not invent historical user intent or cleanup completion.
+
+### Listing Activation Authority
+
+**Listing Activation Authority** is Identity's canonical capture of an active
+Account, an active User and their exact active owner or manager Membership.
+Each owner carries its stream-version seal and an installed class-C epoch grant
+for the registered consumer incarnation. Account Capability Assignments never
+grant `listings.manage`. A CLOSING key refuses capture until acknowledged closure
+and atomic installation complete; no per-Listing Identity promise is created.
+Linked-platform principals also require their canonical active Delegation,
+bound to the same User and Account with `listings:write`. Its epoch grant is
+bounded by token expiry. Grant creation, token rotation and both dormant and
+activated revocation writers participate in the same acknowledged closure.
+
+### Registration Completed
+
+**Registration Completed** is Identity's `identity.registration.completed` fact,
+published after the atomic registration commits its User, Account, Membership,
+and required consents. It carries the registered Account and User identifiers.
+
+### Onboarding Completed
+
+**Onboarding Completed** is Identity's `identity.onboarding.completed` fact for
+a granted guest-account Membership or an accepted Invitation. It carries the
+Account, User, and `guest-account` or `invitation` path; the invitation path also
+carries the Invitation identifier. Both invitation acceptance entrypoints publish
+the same fact identity for the same Invitation and User.
 
 ## Language Rules
 

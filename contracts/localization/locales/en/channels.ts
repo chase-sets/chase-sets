@@ -1,4 +1,28 @@
 export const channelsEnglishTranslations = {
+  "channels.ebay.title": "Connect eBay Sandbox",
+  "channels.ebay.description":
+    "Connect an eBay Sandbox seller account. This does not enable publication or connect a production account.",
+  "channels.ebay.state.connect": "Not connected",
+  "channels.ebay.state.consent": "Review access before continuing",
+  "channels.ebay.state.awaiting-callback": "Waiting for eBay",
+  "channels.ebay.state.declined": "Access was declined",
+  "channels.ebay.state.failed": "Connection could not be completed",
+  "channels.ebay.state.pending-setup": "Connected, but setup is incomplete",
+  "channels.ebay.state.connected": "Connected",
+  "channels.ebay.state.reauthorize": "Review access to your eBay account",
+  "channels.ebay.state.disconnected": "Disconnected from Chase Sets",
+  "channels.ebay.consent":
+    "Reauthorizing does not resume a paused connection. Continue to eBay to review and approve these permissions:",
+  "channels.ebay.connect": "Continue to eBay Sandbox",
+  "channels.ebay.reauthorize": "Reauthorize with eBay Sandbox",
+  "channels.ebay.disconnect": "Disconnect",
+  "channels.ebay.back": "Back to channels",
+  "channels.ebay.awaiting": "Complete consent on eBay. You will return here when you finish.",
+  "channels.ebay.tryAgain": "We could not confirm authorization. Review the permissions and try again.",
+  "channels.ebay.setupRequired":
+    "This connection is not active and cannot publish listings. Complete seller setup before activating it. Reauthorizing does not complete setup.",
+  "channels.ebay.unconfirmed":
+    "Chase Sets has removed the credentials for this connection. eBay revocation is unconfirmed. Remove Chase Sets access in your eBay account settings.",
   "channels.ebayDeletion.title": "eBay account-deletion lookup",
   "channels.ebayDeletion.description":
     "Look up one operator-held eBay user ID. Receipts do not confirm deletion of operator-held data.",
@@ -345,4 +369,24 @@ export const channelsEnglishTranslations = {
   "channels.connector.unpair": "Unpair connector",
   "channels.connector.pending": "Updating connector pairing...",
   "channels.connector.unavailable": "Pairing is available for active or paused connections.",
+  "channels.ebay.setup.title": "Seller policies and locations",
+  "channels.ebay.setup.loading": "Loading eBay seller setup...",
+  "channels.ebay.setup.error": "Seller setup could not be saved or loaded",
+  "channels.ebay.setup.retry": "Reload the current lists and try again. No partial selection is saved.",
+  "channels.ebay.setup.incomplete": "eBay returned an incomplete list",
+  "channels.ebay.setup.empty":
+    "Create the missing policies or inventory locations in eBay Seller Hub, and add an active Chase storage location before selecting setup.",
+  "channels.ebay.setup.sellerHub": "Open Sandbox Seller Hub",
+  "channels.ebay.setup.fulfillment": "Fulfillment policy",
+  "channels.ebay.setup.payment": "Payment policy",
+  "channels.ebay.setup.return": "Return policy",
+  "channels.ebay.setup.choose": "Choose a policy",
+  "channels.ebay.setup.unpaired": "Not paired",
+  "channels.ebay.setup.pairs": "Pair at least one Chase storage location with an eBay inventory location.",
+  "channels.ebay.setup.location": "eBay inventory location",
+  "channels.ebay.setup.addPair": "Add location pair",
+  "channels.ebay.setup.activate": "Save selection and activate",
+  "channels.ebay.setup.replace": "Replace selection",
+  "channels.ebay.setup.activated": "Sandbox connection activated",
+  "channels.ebay.setup.saved": "These policies and location pairs are the current selection.",
 } as const;

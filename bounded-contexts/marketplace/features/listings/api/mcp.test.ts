@@ -79,6 +79,48 @@ function services(): MarketplaceListingServices {
 }
 
 describe("marketplace listing MCP handlers", () => {
+  it.each([
+    "marketplace.create-listing",
+    "marketplace.update-listing-price",
+    "marketplace.publish-listing",
+    "marketplace.unpublish-listing",
+  ])("rejects missing, malformed or reserved identity fields for %s before calling the owner", async (tool) => {
+    const fake = services();
+    const handler = createMarketplaceListingMcpHandlers(fake).toolHandlers[tool]!;
+    const base = {
+      accountId: "acc_1",
+      inventoryItemId: "inv_1",
+      listingId: "lst_1",
+      priceAmount: "20.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 1,
+      idempotencyKey: "listing_mcp_attempt_0001",
+      requestHash: "a".repeat(64),
+    };
+    const { listingId: _id, ...create } = base;
+    const { inventoryItemId: _inventory, quantityCap: _quantity, ...edit } = base;
+    const valid = tool === "marketplace.create-listing" ? create : edit;
+    for (const invalid of [
+      { idempotencyKey: undefined },
+      { requestHash: undefined },
+      { idempotencyKey: "repricing:internal" },
+      { requestHash: "not-a-hash" },
+    ]) {
+      await expect(
+        handler({
+          actor,
+          tool: null as never,
+          arguments: { ...valid, ...invalid },
+          request: new Request("https://api.test/mcp"),
+          protocol: legacyMcpProtocol,
+        }),
+      ).rejects.toThrow();
+    }
+    expect(fake.createListing).not.toHaveBeenCalled();
+    expect(fake.updateListingPrice).not.toHaveBeenCalled();
+    expect(fake.publishListing).not.toHaveBeenCalled();
+    expect(fake.pauseListing).not.toHaveBeenCalled();
+  });
   it("lists seller listings through the Marketplace listing read model", async () => {
     const fakeServices = services();
     const handlers = createMarketplaceListingMcpHandlers(fakeServices);
@@ -86,7 +128,13 @@ describe("marketplace listing MCP handlers", () => {
     const result = await handlers.toolHandlers["marketplace.list-listings"]?.({
       actor,
       tool: null as never,
-      arguments: { accountId: "acc_1", limit: 10, offset: 5 },
+      arguments: {
+        idempotencyKey: "listing_mcp_attempt_0001",
+        requestHash: "a".repeat(64),
+        accountId: "acc_1",
+        limit: 10,
+        offset: 5,
+      },
       request: new Request("https://api.test/mcp"),
       protocol: legacyMcpProtocol,
     });
@@ -106,7 +154,13 @@ describe("marketplace listing MCP handlers", () => {
     const result = await handlers.toolHandlers["marketplace.get-seller-insights"]?.({
       actor,
       tool: null as never,
-      arguments: { accountId: "acc_1", catalogItemId: "cat_1", limit: 10 },
+      arguments: {
+        idempotencyKey: "listing_mcp_attempt_0001",
+        requestHash: "a".repeat(64),
+        accountId: "acc_1",
+        catalogItemId: "cat_1",
+        limit: 10,
+      },
       request: new Request("https://api.test/mcp"),
       protocol: legacyMcpProtocol,
     });
@@ -134,6 +188,8 @@ describe("marketplace listing MCP handlers", () => {
       actor,
       tool: null as never,
       arguments: {
+        idempotencyKey: "listing_mcp_attempt_0001",
+        requestHash: "a".repeat(64),
         accountId: "acc_1",
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
@@ -185,6 +241,8 @@ describe("marketplace listing MCP handlers", () => {
       actor,
       tool: null as never,
       arguments: {
+        idempotencyKey: "listing_mcp_attempt_0001",
+        requestHash: "a".repeat(64),
         accountId: "acc_1",
         listingId: "lst_1",
         priceAmount: "24.00",
@@ -198,6 +256,8 @@ describe("marketplace listing MCP handlers", () => {
     expect(result).toMatchObject({ listingId: "lst_1", version: 2, status: "price-updated" });
     expect(fakeServices.updateListingPrice).toHaveBeenCalledWith(
       {
+        idempotencyKey: "listing_mcp_attempt_0001",
+        requestHash: "a".repeat(64),
         accountId: "acc_1",
         listingId: "lst_1",
         priceAmount: "24.00",
@@ -249,7 +309,13 @@ describe("marketplace listing MCP handlers", () => {
       handlers.toolHandlers["marketplace.publish-listing"]?.({
         actor,
         tool: null as never,
-        arguments: { accountId: "acc_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+        arguments: {
+          idempotencyKey: "listing_mcp_attempt_0001",
+          requestHash: "a".repeat(64),
+          accountId: "acc_1",
+          listingId: "lst_1",
+          feeQuoteFingerprint: "quote_1",
+        },
         request: new Request("https://api.test/mcp"),
         protocol: legacyMcpProtocol,
       }),
@@ -258,18 +324,34 @@ describe("marketplace listing MCP handlers", () => {
       handlers.toolHandlers["marketplace.unpublish-listing"]?.({
         actor,
         tool: null as never,
-        arguments: { accountId: "acc_1", listingId: "lst_1" },
+        arguments: {
+          idempotencyKey: "listing_mcp_attempt_0001",
+          requestHash: "a".repeat(64),
+          accountId: "acc_1",
+          listingId: "lst_1",
+        },
         request: new Request("https://api.test/mcp"),
         protocol: legacyMcpProtocol,
       }),
     ).resolves.toMatchObject({ listingId: "lst_1", version: 4, status: "unpublished" });
 
     expect(fakeServices.publishListing).toHaveBeenCalledWith(
-      { accountId: "acc_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+      {
+        idempotencyKey: "listing_mcp_attempt_0001",
+        requestHash: "a".repeat(64),
+        accountId: "acc_1",
+        listingId: "lst_1",
+        feeQuoteFingerprint: "quote_1",
+      },
       expect.any(Object),
     );
     expect(fakeServices.pauseListing).toHaveBeenCalledWith(
-      { accountId: "acc_1", listingId: "lst_1" },
+      {
+        idempotencyKey: "listing_mcp_attempt_0001",
+        requestHash: "a".repeat(64),
+        accountId: "acc_1",
+        listingId: "lst_1",
+      },
       expect.any(Object),
     );
   });
@@ -282,7 +364,12 @@ describe("marketplace listing MCP handlers", () => {
       handlers.toolHandlers["marketplace.publish-listing"]?.({
         actor,
         tool: null as never,
-        arguments: { accountId: "acc_other", listingId: "lst_1" },
+        arguments: {
+          idempotencyKey: "listing_mcp_attempt_0001",
+          requestHash: "a".repeat(64),
+          accountId: "acc_other",
+          listingId: "lst_1",
+        },
         request: new Request("https://api.test/mcp"),
         protocol: legacyMcpProtocol,
       }),
@@ -291,7 +378,15 @@ describe("marketplace listing MCP handlers", () => {
       handlers.toolHandlers["marketplace.create-listing"]?.({
         actor,
         tool: null as never,
-        arguments: { accountId: "acc_1", inventoryItemId: "inv_1", priceAmount: "20.00", quantityCap: 1, dryRun: true },
+        arguments: {
+          idempotencyKey: "listing_mcp_attempt_0001",
+          requestHash: "a".repeat(64),
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          dryRun: true,
+        },
         request: new Request("https://api.test/mcp"),
         protocol: legacyMcpProtocol,
       }),

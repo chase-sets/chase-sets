@@ -138,6 +138,12 @@ export const inventoryAdjustmentReasons = [
 
 export type InventoryAdjustmentReason = (typeof inventoryAdjustmentReasons)[number];
 
+/** Reasons emitted by Inventory-owned pair writers, never accepted from a
+ * caller-authored adjustment command. */
+export const inventoryProducerAdjustmentReasons = ["sale-consumed"] as const;
+
+export type InventoryProducerAdjustmentReason = (typeof inventoryProducerAdjustmentReasons)[number];
+
 export function isInventoryAdjustmentReason(value: unknown): value is InventoryAdjustmentReason {
   return inventoryAdjustmentReasons.includes(value as InventoryAdjustmentReason);
 }
@@ -185,10 +191,11 @@ export type InventoryItemCreatedPayload = Readonly<{
 }>;
 
 export type InventoryItemAdjustedPayload = Readonly<{
+  requestIdempotencyKey?: string;
   itemId: string;
   quantityDelta: number;
   reason: string;
-  reasonCode?: InventoryAdjustmentReason;
+  reasonCode?: InventoryAdjustmentReason | InventoryProducerAdjustmentReason;
   note?: string | null;
   sourceRef?: InventoryAdjustmentSourceRef;
   acquisitionOccurrence?: AcquisitionOccurrence;

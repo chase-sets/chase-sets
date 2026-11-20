@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { action as listingsAction, loader as listingsLoader } from "../routes/account-listings";
+import { listingPreparationResponse } from "../features/listings/tests/listing-attempt-test-support";
+import { listingRecoveryResult } from "../features/listings/api/listing-recovery";
+import type { ListingRecoveryReference } from "../features/listings/ui/contracts";
 import {
   appendCompactPostWriteToken,
   appendFreshWriteToken,
@@ -114,13 +117,15 @@ function createTestPostWriteTokenStore() {
 }
 
 describe("marketplace listings workbench route", () => {
-  it("marks seller availability disable redirects with the pending availability action", async () => {
+  it("redirects seller availability changes with an opaque recovery identity and compact receipt", async () => {
     const store = createTestPostWriteTokenStore();
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith("/listings/batch/prepare"))
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
@@ -136,6 +141,7 @@ describe("marketplace listings workbench route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "disable-listing-availability");
     form.set("reasonCategory", "operations");
 
@@ -150,7 +156,15 @@ describe("marketplace listings workbench route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\?availabilityAction=disabled&postWriteToken=/);
+    const destination = new URL(location, "http://localhost");
+    expect(destination.pathname).toBe("/account/listings");
+    expect(JSON.parse(destination.searchParams.get("listingRecovery")!)).toMatchObject({
+      batchId: "test_form_attempt_10923_disableSellerListingAvailability",
+      mutationKind: "seller.availability",
+      bulk: false,
+    });
+    expect(location).not.toMatch(/targets|requestHash/);
+    expect(location).not.toMatch(/reasonCategory|operations|availabilityAction/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listings/);
     expect(location).not.toContain("afterWrite=");
     expect(store.storeCalls[0]?.payload.receipt.commitPosition).toBe("43");
@@ -298,31 +312,40 @@ describe("marketplace listings workbench route", () => {
     expect(pageReads).toBe(0);
   });
 
-  it("pauses selected listings in bulk and reports per-row outcomes", async () => {
+  it("pauses selected listings in bulk as one batch and reports per-row outcomes", async () => {
+    const batchBodies: unknown[] = [];
+    const preparedTargets: string[][] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
         }
 
-        if (url.includes("/account/listings/lst_1/pause")) {
-          return Promise.resolve(jsonResponse({ id: "lst_1", version: 2, status: "paused" }));
+        if (url.endsWith("/listings/batch/prepare")) {
+          preparedTargets.push(JSON.parse(String(init?.body)).listingIds);
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
+        }
+        if (url.endsWith("/listings/batch/retry")) {
+          const reference: ListingRecoveryReference = JSON.parse(String(init?.body));
+          batchBodies.push(reference);
+          const sent = [
+            { targetId: "lst_1", outcome: "succeeded" },
+            { targetId: "lst_2", outcome: "error" },
+          ] as const;
+          return Promise.resolve(jsonResponse({ recovery: listingRecoveryResult(reference, [...sent]), sent }));
         }
 
-        if (url.includes("/account/listings/lst_2/pause")) {
-          return Promise.resolve(
-            jsonResponse({ error: { code: "validation_failed", message: "Listing is withdrawn." } }, 400),
-          );
-        }
+        if (url.includes("/pause")) throw new Error("bulk pause must not send per-Listing commands");
 
         return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
       }),
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "bulk-pause-listings");
     form.append("listingIds", "lst_1");
     form.append("listingIds", "lst_2");
@@ -349,6 +372,15 @@ describe("marketplace listings workbench route", () => {
     expect(bulkResult.bulkActionOutcomes.find((outcome) => outcome.listingId === "lst_2")).toMatchObject({
       outcome: "error",
     });
+    // The mounted form's attempt plus intent identifies every retry of this submission.
+    expect(preparedTargets).toEqual([["lst_1", "lst_2"]]);
+    expect(batchBodies).toEqual([
+      {
+        batchId: "test_form_attempt_10923_bulk-pause-listings",
+        mutationKind: "listing.pause",
+        bulk: true,
+      },
+    ]);
   });
 
   it("keeps successful null-rate Seller Reliability as insufficient history", async () => {
@@ -379,19 +411,26 @@ describe("marketplace listings workbench route", () => {
 
   it("withdraws selected listings in bulk", async () => {
     const withdrawnIds: string[] = [];
+    const batchIds: string[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
         }
 
-        const match = url.match(/\/account\/listings\/([^/]+)\/withdraw/);
-        if (match) {
-          withdrawnIds.push(match[1]!);
-          return Promise.resolve(jsonResponse({ id: match[1], version: 2, status: "withdrawn" }));
+        if (url.endsWith("/listings/batch/prepare")) {
+          withdrawnIds.push(...JSON.parse(String(init?.body)).listingIds);
+          return Promise.resolve(listingPreparationResponse(init, sellerActor.accountId));
+        }
+        if (url.endsWith("/listings/batch/retry")) {
+          const reference: ListingRecoveryReference = JSON.parse(String(init?.body));
+          expect(reference).toEqual({ batchId: expect.any(String), mutationKind: "listing.withdraw", bulk: true });
+          batchIds.push(reference.batchId);
+          const sent = withdrawnIds.map((targetId) => ({ targetId, outcome: "succeeded" as const }));
+          return Promise.resolve(jsonResponse({ recovery: listingRecoveryResult(reference, sent), sent }));
         }
 
         return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
@@ -399,6 +438,7 @@ describe("marketplace listings workbench route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "bulk-withdraw-listings");
     form.append("listingIds", "lst_3");
 
@@ -413,6 +453,7 @@ describe("marketplace listings workbench route", () => {
     } as never);
 
     expect(withdrawnIds).toEqual(["lst_3"]);
+    expect(batchIds).toEqual(["test_form_attempt_10923_bulk-withdraw-listings"]);
     const bulkResult = result as { bulkActionOutcomes: Array<{ listingId: string; outcome: string }> };
     expect(bulkResult.bulkActionOutcomes).toEqual([
       { listingId: "lst_3", label: expect.any(String), outcome: "success", message: null },

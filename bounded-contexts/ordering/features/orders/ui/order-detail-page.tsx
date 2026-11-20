@@ -29,6 +29,7 @@ import {
 import { useRef, type ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
 import { OrderMoneyTimeline } from "./order-money-timeline";
+import { inventoryHoldStatusWords, orderStatusWords, shippingOptionWords } from "./order-words";
 
 function destinationLines(order: PurchaseDetail | SaleDetail) {
   const address = order.shipping_destination_snapshot;
@@ -47,8 +48,19 @@ function isPendingStatus(status: string) {
 }
 
 function canSelfServiceCancel(order: PurchaseDetail | SaleDetail) {
+  if (order.cancellation_unavailable_reason === "payment-unresolved") {
+    return false;
+  }
+
   return Boolean(order.self_service_cancellation_available) || isPendingStatus(order.status);
 }
+
+/**
+ * Whether this actor may cancel: `allowed` holds the cancel permission,
+ * `verify-email` has it withheld until their email is verified, and
+ * `unavailable` holds no cancel authority at all.
+ */
+export type OrderCancelAuthority = "allowed" | "verify-email" | "unavailable";
 
 function statusTone(status: string) {
   switch (status) {
@@ -86,6 +98,8 @@ export function OrderingOrderDetailPage({
   fulfillmentHref,
   order,
   errorMessage,
+  cancelAuthority = "allowed",
+  verifyEmailHref = null,
   supplementarySection,
   supplementarySectionTitle = t("ordering.features.orders.ui.orderDetailPage.next.steps"),
 }: {
@@ -96,6 +110,8 @@ export function OrderingOrderDetailPage({
   fulfillmentHref?: string | null;
   order: PurchaseDetail | SaleDetail;
   errorMessage?: string | null;
+  cancelAuthority?: OrderCancelAuthority;
+  verifyEmailHref?: string | null;
   supplementarySection?: ReactNode;
   supplementarySectionTitle?: string;
 }) {
@@ -110,7 +126,10 @@ export function OrderingOrderDetailPage({
     deliverySummary.shipment_count > 0 &&
     deliverySummary.delivered_count === deliverySummary.shipment_count,
   );
-  const canCancel = !fullyDelivered && canSelfServiceCancel(order);
+  const cancellable = !fullyDelivered && canSelfServiceCancel(order);
+  const canCancel = cancellable && cancelAuthority === "allowed";
+  const showVerifyEmailToCancel = cancellable && cancelAuthority === "verify-email" && Boolean(verifyEmailHref);
+  const paymentUnresolved = order.cancellation_unavailable_reason === "payment-unresolved";
   const sellerCancellationIntentRef = useRef<HTMLInputElement>(null);
   const projectionLabel =
     role === "buyer"
@@ -151,7 +170,7 @@ export function OrderingOrderDetailPage({
     label: t("ordering.features.orders.ui.orderDetailPage.status"),
     value: (
       <Badge tone={fullyDelivered ? "success" : statusTone(order.status)}>
-        {fullyDelivered ? t("ordering.features.orders.ui.orderDetailPage.delivered") : order.status}
+        {fullyDelivered ? t("ordering.features.orders.ui.orderDetailPage.delivered") : orderStatusWords(order.status)}
       </Badge>
     ),
   };
@@ -281,7 +300,7 @@ export function OrderingOrderDetailPage({
                 },
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.shipping.preference"),
-                  description: order.shipping_option,
+                  description: shippingOptionWords(order.shipping_option),
                 },
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.payment.state"),
@@ -289,7 +308,7 @@ export function OrderingOrderDetailPage({
                     ? t("ordering.features.orders.ui.orderDetailPage.payment.deadline.description", {
                         deadline: formatDateTime(paymentDeadlineAt),
                       })
-                    : order.status,
+                    : orderStatusWords(order.status),
                 },
               ]}
             />
@@ -338,6 +357,29 @@ export function OrderingOrderDetailPage({
                 />
               ) : null}
               {cancellationWindowStatus ? <MarketplaceNotice tone="info" title={cancellationWindowStatus} /> : null}
+              {paymentUnresolved ? (
+                <MarketplaceNotice
+                  tone="warning"
+                  title={t("ordering.features.orders.ui.orderDetailPage.payment.unresolved.title")}
+                  description={t("ordering.features.orders.ui.orderDetailPage.payment.unresolved.description", {
+                    projectionLabel: projectionLabel.toLowerCase(),
+                  })}
+                />
+              ) : null}
+              {showVerifyEmailToCancel ? (
+                <MarketplaceNotice
+                  tone="info"
+                  title={t("ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.title", {
+                    projectionLabel: projectionLabel.toLowerCase(),
+                  })}
+                  description={t("ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.description")}
+                  action={
+                    <LinkButton href={verifyEmailHref!} leadingIcon="message" tone="secondary">
+                      {t("ordering.features.orders.ui.orderDetailPage.verify.email")}
+                    </LinkButton>
+                  }
+                />
+              ) : null}
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
                 {canPay ? (
                   <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>
@@ -490,7 +532,7 @@ export function OrderingOrderDetailPage({
                         <Text size="sm" tone="secondary">
                           {t("ordering.features.orders.ui.orderDetailPage.status.2")}
                         </Text>
-                        <Badge tone="accent">{hold.status}</Badge>
+                        <Badge tone="accent">{inventoryHoldStatusWords(hold.status)}</Badge>
                       </Stack>
                     </Grid>
                   </Surface>

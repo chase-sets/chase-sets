@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sellListAttemptResult } from "../../checkout/features/command-attempts/api/sell-list-route.test-support";
 import {
   appendFreshWriteToken,
   appendPostWriteHandoff,
@@ -58,7 +59,10 @@ vi.mock("../support/request-support/anonymous-product-alert", () => ({
   readAnonymousProductAlertOwnerId: mockReadAnonymousProductAlertOwnerId,
 }));
 
-vi.mock("@chase-sets/marketplace/server", () => ({
+vi.mock("@chase-sets/marketplace/server", async () => ({
+  listingFormAttempt: (
+    await vi.importActual<typeof import("@chase-sets/marketplace/server")>("@chase-sets/marketplace/server")
+  ).listingFormAttempt,
   appendAnonymousListingDraftCookie: mockAppendAnonymousListingDraftCookie,
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
   ensureAnonymousListingDraftOwnerId: mockEnsureAnonymousListingDraftOwnerId,
@@ -73,6 +77,7 @@ vi.mock("@chase-sets/checkout/server", async () => {
     isCheckoutCommandAttemptId: actual.isCheckoutCommandAttemptId,
     mintCheckoutCommandAttemptId: actual.mintCheckoutCommandAttemptId,
     submitCheckoutCartAttempt: actual.submitCheckoutCartAttempt,
+    submitCheckoutSellListAdd: actual.submitCheckoutSellListAdd,
     ACCOUNT_CART_ADD_LINE_HANDOFF: {
       kind: "checkout.cart.add-line",
       expectation: "collection-non-empty",
@@ -122,6 +127,23 @@ function expectCompactPostWriteLocation(location: string | null, expectedPathnam
 }
 
 function commandResult<T extends { id?: string }>(value: T, sourceContextName = "inventory"): T {
+  if (sourceContextName === "checkout" && value.id?.startsWith("sll_"))
+    Object.assign(value, {
+      attempt: {
+        ...sellListAttemptResult(),
+        vector: [
+          {
+            index: 0,
+            command: "add",
+            outcome: "succeeded",
+            lineId: value.id,
+            status: "added",
+            version: 1,
+            message: null,
+          },
+        ],
+      },
+    });
   const id = value.id ?? "cmd_1";
   Object.defineProperty(value, "commandReceipt", {
     value: {
@@ -551,6 +573,7 @@ describe("item detail buy now validation and watch intents", () => {
     } as never)) as Response;
 
     expect(mockAddSellListLine).toHaveBeenCalledWith({
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "offer_charizard",
       buyerAccountId: null,
@@ -634,6 +657,7 @@ describe("item detail buy now validation and watch intents", () => {
     } as never)) as Response;
 
     expect(mockAddSellListLine).toHaveBeenCalledWith({
+      attemptId: expect.any(String),
       lineType: "selected-offer",
       offerId: "off_air_balloon",
       buyerAccountId: null,
@@ -756,6 +780,79 @@ describe("item detail buy now validation and watch intents", () => {
     });
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
     expect(mockCreateProductAlert).not.toHaveBeenCalled();
+  });
+
+  it("lands a signed-in Set alert on the Watch tab saying it was saved", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockCreateProductAlert.mockResolvedValueOnce({ id: "pal_1", version: 1 });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+      }),
+      createProductAlert: mockCreateProductAlert,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-product-alert");
+    form.set("marketSide", "listing");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("thresholdAmount", "20");
+
+    const result = (await action({
+      request: new Request("http://localhost/items/cat_charizard?market=watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(result.status).toBe(302);
+    const location = new URL(result.headers.get("Location") ?? "", "http://localhost");
+    expect(location.pathname).toBe("/items/charizard-base-set");
+    expect(location.searchParams.get("market")).toBe("watch");
+    expect(location.searchParams.get("productAlertCreated")).toBe("1");
+  });
+
+  it.each([
+    ["the form's attempt", "chkentry_01JZ0000000000000000000000", "chkentry_01JZ0000000000000000000000"],
+    ["no attempt for one the API would not take", "short", null],
+    ["no attempt for a post without one", undefined, null],
+  ])("sends a signed-in Set alert as %s", async (_case, presented, sent) => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["accounts.view"] });
+    mockCreateProductAlert.mockResolvedValueOnce({ id: "pal_1", version: 1 });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({ catalog_item_id: "cat_charizard", slug: "charizard-base-set" }),
+      createProductAlert: mockCreateProductAlert,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-product-alert");
+    form.set("marketSide", "listing");
+    form.set("productId", "cat_charizard::form:raw");
+    if (presented !== undefined) form.set("attemptId", presented);
+
+    await action({
+      request: new Request("http://localhost/items/cat_charizard?market=watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never);
+
+    expect(mockCreateProductAlert).toHaveBeenLastCalledWith(expect.objectContaining({ attemptId: sent }));
   });
 
   it("claims guest Watch intent for signed-in registration return", async () => {
@@ -1959,6 +2056,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
@@ -2065,6 +2163,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
@@ -2111,6 +2210,7 @@ describe("item detail buy now validation and watch intents", () => {
       quantity: 1,
     });
     expect(createListing).toHaveBeenCalledWith({
+      idempotencyKey: "discovery_listing_attempt_0001_create",
       inventoryItemId: "",
       priceAmount: "24.35",
       priceCurrencyCode: "USD",
@@ -2118,6 +2218,7 @@ describe("item detail buy now validation and watch intents", () => {
       inventorySnapshot: expect.anything(),
     });
     expect(publishListing).toHaveBeenCalledWith("lst_item_detail", {
+      idempotencyKey: "discovery_listing_attempt_0001_publishListing",
       feeQuoteFingerprint: "quote_1",
     });
   });
@@ -2167,6 +2268,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("listingId", "lst_item_detail");
     form.set("priceAmount", "26.75");
     form.set("priceCurrencyCode", "EUR");
@@ -2207,11 +2309,13 @@ describe("item detail buy now validation and watch intents", () => {
     });
     expect(previewListingTerms).toHaveBeenCalledWith({ priceAmount: "26.75" });
     expect(updateListingPrice).toHaveBeenCalledWith("lst_item_detail", {
+      idempotencyKey: "discovery_listing_attempt_0001_updateListingPrice",
       priceAmount: "26.75",
       priceCurrencyCode: "EUR",
       feeQuoteFingerprint: "quote_2",
     });
     expect(updateListingQuantityCap).toHaveBeenCalledWith("lst_item_detail", {
+      idempotencyKey: "discovery_listing_attempt_0001_updateListingQuantityCap",
       quantityCap: 2,
       feeQuoteFingerprint: "quote_2",
     });
@@ -2236,6 +2340,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("priceAmount", "0");
@@ -2277,6 +2382,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "list-at-price");
+    form.set("idempotencyKey", "discovery_listing_attempt_0001");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("priceAmount", "350.00");

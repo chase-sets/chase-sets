@@ -19,6 +19,9 @@ export type CheckoutCommitButtonProps = Readonly<{
   commitIntent: string;
   commitIcon: "refreshCcw" | "lock";
   isSubmitting: boolean;
+  confirmationAmbiguous?: boolean;
+  /** Pay now becomes this verification link while Auth withholds payment. */
+  verifyEmailHref?: string | null;
   submittingCtaLabel: string;
   primaryCtaLabel: string;
   form?: string;
@@ -37,6 +40,8 @@ export function checkoutCommitButton({
   commitIntent,
   commitIcon,
   isSubmitting,
+  confirmationAmbiguous = false,
+  verifyEmailHref = null,
   submittingCtaLabel,
   primaryCtaLabel,
   form,
@@ -58,7 +63,7 @@ export function checkoutCommitButton({
         value={reReserveIntent}
         leadingIcon="refreshCcw"
         loading={isSubmitting}
-        disabled={isSubmitting}
+        disabled={isSubmitting || confirmationAmbiguous}
         block
       >
         {isSubmitting
@@ -76,6 +81,14 @@ export function checkoutCommitButton({
     );
   }
 
+  if (verifyEmailHref && !isOfferIntent) {
+    return (
+      <LinkButton href={verifyEmailHref} leadingIcon="lock" block>
+        {t("checkout.features.sessions.ui.checkoutPage.verify.email.to.pay")}
+      </LinkButton>
+    );
+  }
+
   return (
     <Button
       type="submit"
@@ -84,7 +97,7 @@ export function checkoutCommitButton({
       value={commitIntent}
       leadingIcon={commitIcon}
       loading={isSubmitting}
-      disabled={isSubmitting || (!canConfirm && !isOfferIntent)}
+      disabled={isSubmitting || confirmationAmbiguous || (!canConfirm && !isOfferIntent)}
       block
     >
       {isSubmitting ? submittingCtaLabel : primaryCtaLabel}

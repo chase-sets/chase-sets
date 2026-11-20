@@ -258,10 +258,31 @@ describe("portable route manifest contract", () => {
 
     expect(violations).toEqual([]);
     expect(routeModules.map(({ route }) => route.routeId)).toContain("account-desk-pricing-health");
+    expect(routeModules.map(({ route }) => route.routeId)).toContain("seller-shipping-setup");
+    expect(routeModules).toContainEqual(
+      expect.objectContaining({
+        contextName: "auth",
+        route: expect.objectContaining({
+          routeId: "guest-payment-claim",
+          fileExport: "./routes/marketplace/guest-payment-claim",
+        }),
+      }),
+    );
+    expect(routeModules).toContainEqual(
+      expect.objectContaining({
+        contextName: "discovery",
+        route: expect.objectContaining({
+          routeId: "item-detail-rail-analytics",
+          fileExport: "./routes/item-detail-rail-analytics",
+          delivery: "web-resource-only",
+          unsupportedMobile: expect.objectContaining({ followUp: "#5238" }),
+        }),
+      }),
+    );
     expect({ routeCount, portableCount, webResourceOnlyCount }).toEqual({
-      routeCount: 88,
+      routeCount: 94,
       portableCount: 3,
-      webResourceOnlyCount: 2,
+      webResourceOnlyCount: 5,
     });
   });
 
@@ -270,7 +291,7 @@ describe("portable route manifest contract", () => {
       ({ route }) => route.delivery === "web-resource-only",
     );
 
-    expect(resourceModules).toHaveLength(2);
+    expect(resourceModules).toHaveLength(5);
     for (const { route, source, modulePath } of resourceModules) {
       expect(route.pageComponentExport).toBeUndefined();
       expect(validatePageComponentExport({ route, source, modulePath })).toEqual([]);

@@ -64,6 +64,9 @@ describe("membership role permission projection", () => {
       expect(permissions.filter((key) => key === "payout-review-holds.manage")).toEqual(
         roleKey === "platform-admin" ? ["payout-review-holds.manage"] : [],
       );
+      expect(permissions.includes("customer-feedback.privacy.export-sensitive-feedback")).toBe(
+        roleKey === "platform-admin",
+      );
     }
   });
 });

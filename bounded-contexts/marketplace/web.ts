@@ -1,4 +1,6 @@
 export {
+  OfferMatchDeclineAttemptProvider,
+  ReviewMutationForm,
   ReviewReportAction,
   ReviewScoringContext,
   type PublicReviewScoringContext,

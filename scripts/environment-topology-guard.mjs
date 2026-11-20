@@ -15,7 +15,7 @@ function normalizeSource(source) {
 }
 
 const appServingRecordNamesPattern =
-  /  app_serving_record_names = local\.is_staging \? toset\(\[\n(?<staging>(?:    "[a-z]+",\n)*)    \]\) : local\.is_production \? toset\(concat\(\n    \[(?<production>(?:"[a-z]+",? ?)*)\],\n    local\.marketplace_served \? \[(?<productionConditional>(?:"[a-z]+",? ?)*)\] : \[\],\n  \)\) : toset\(\[\]\)/;
+  /  app_serving_record_names = local\.is_staging \? toset\(\[\n(?<staging>(?:    "[a-z]+(?:-[a-z]+)*",\n)*)    \]\) : local\.is_production \? toset\(concat\(\n    \[(?<production>(?:"[a-z]+",? ?)*)\],\n    local\.marketplace_served \? \[(?<productionConditional>(?:"[a-z]+",? ?)*)\] : \[\],\n  \)\) : toset\(\[\]\)/;
 
 const authorityAnchors = [
   {
@@ -244,7 +244,7 @@ export function deriveEnvironmentHosts(root) {
   const hosts = [];
 
   const servingMatch = appServingRecordNamesPattern.exec(anchorSources.get("A2"));
-  const quotedNames = (text) => [...text.matchAll(/"([a-z]+)"/g)].map((match) => match[1]);
+  const quotedNames = (text) => [...text.matchAll(/"([a-z]+(?:-[a-z]+)*)"/g)].map((match) => match[1]);
   const servingNames = {
     staging: quotedNames(servingMatch.groups.staging),
     production: [

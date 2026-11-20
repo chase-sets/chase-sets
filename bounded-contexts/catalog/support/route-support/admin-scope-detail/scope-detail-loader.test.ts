@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
 import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../../features/source-observations/ui/primary-workbench-read-model";
+import {
+  controlPlaneOverview,
+  sourceObservationScope,
+} from "../../../features/source-observations/ui/primary-workbench-test-fixtures";
 
 const { mockCreateCatalogRequestApiClient, mockResolveActorFromAuthApi, mockLoadDailySurfaceForRequest } = vi.hoisted(
   () => ({
@@ -52,6 +57,62 @@ function runLoader(request: Request, id = "scope_expansion_paldean_fates") {
 }
 
 describe("Catalog scope-detail route loader", () => {
+  it.each(["absent", "ready", "blocked"] as const)(
+    "preserves %s journey health provenance without another read",
+    async (state) => {
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+        getScopeCoverageMatrix: vi.fn().mockResolvedValue(null),
+      });
+      const request = new Request(
+        "https://admin.example/catalog/scopes/scope_expansion_paldean_fates?scopeRecordId=scope_expansion_paldean_fates&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      );
+      const overview = controlPlaneOverview({ generatedAt: "2020-01-01T00:00:00.000Z" });
+      const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+        requestUrl: request.url,
+        scopes: { items: [sourceObservationScope()], count: 1, total: 1 },
+        profileReviews: { items: [], count: 0, total: 0 },
+        controlPlaneOverview:
+          state === "absent"
+            ? null
+            : {
+                ...overview,
+                readiness: {
+                  ...overview.readiness,
+                  units: overview.readiness.units.map((unit) => ({ ...unit, semanticReadiness: state })),
+                },
+              },
+        canManageCatalog: false,
+      });
+      const journey = { readModel, requestUrl: request.url };
+      mockLoadDailySurfaceForRequest.mockResolvedValue(journey);
+      const result = await runLoader(request);
+      expect(result.journey).toBe(journey);
+      expect(mockLoadDailySurfaceForRequest).toHaveBeenCalledExactlyOnceWith(request);
+      expect(result.journey.readModel.healthTriage.freshness).toBe(state === "absent" ? "partial" : "fresh");
+      if (state === "absent") {
+        expect(result.journey.readModel.healthTriage).toMatchObject({
+          status: "unavailable",
+          units: [],
+          providers: [],
+        });
+      } else {
+        expect(result.journey.readModel.healthTriage.generatedAt).toBe("2020-01-01T00:00:00.000Z");
+        expect(result.journey.readModel.healthTriage.units[0]?.status).toBe(state);
+      }
+    },
+  );
+  it("preserves typed evidence demand and the review window in the one journey request", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogScopeRecord: vi.fn().mockResolvedValue(paldeanFatesScope()),
+      getCatalogAliasReviewReadModel: vi.fn().mockResolvedValue({ candidates: [] }),
+    });
+    const request = new Request(
+      "https://admin.example/catalog/scopes/scope_expansion_paldean_fates?evidenceRef=candidate/cand-1&reviewOffset=25",
+    );
+    await runLoader(request);
+    expect(mockLoadDailySurfaceForRequest).toHaveBeenCalledExactlyOnceWith(request);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolveActorFromAuthApi.mockResolvedValue({ permissions: ["catalog.view", "catalog.manage"] });
@@ -117,8 +178,24 @@ describe("Catalog scope-detail route loader", () => {
     expect(query.get("targetId")).toBe("ref_expansion_paldean_fates");
     expect(getScopeCoverageMatrix).toHaveBeenCalledWith("scope_expansion_paldean_fates");
     expect(routeData.coverageMatrix?.scopeName).toBe("Paldean Fates");
-    const workbenchRequest = mockLoadDailySurfaceForRequest.mock.calls[0]?.[0] as Request;
-    expect(new URL(workbenchRequest.url).searchParams.get("expansionId")).toBe("scope_expansion_paldean_fates");
+  });
+
+  // https://github.com/chase-sets/chase-sets/issues/11131: the Catalog API derives the working set from the
+  // Scope Record, so the journey is read for this page's own address, not a rewritten daily workbench one.
+  it("reads the journey for the page's own address", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+      getScopeCoverageMatrix: vi.fn().mockResolvedValue(null),
+    });
+    const request = new Request(
+      "https://admin.example/catalog/scopes/scope_expansion_paldean_fates?languageCode=ja&jobId=sync_1",
+      { headers: { cookie: "session=test" } },
+    );
+
+    await runLoader(request);
+
+    expect(mockLoadDailySurfaceForRequest).toHaveBeenCalledTimes(1);
+    expect(mockLoadDailySurfaceForRequest.mock.calls[0]?.[0]).toBe(request);
   });
 
   it("skips the alias-review fetch for a single-edition scope", async () => {

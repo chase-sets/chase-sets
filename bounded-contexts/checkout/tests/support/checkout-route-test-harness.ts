@@ -1,4 +1,7 @@
+import { deriveSellListCompositeReview } from "../../features/sell-list/read-model/screen-review";
+import type { SellListReviewReadiness } from "../../features/sell-list/api/review-plan-contracts";
 import { expect, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 
 export class MockCheckoutApiError extends Error {
@@ -62,12 +65,14 @@ export const mockGetGuestCartCommandAttempt = vi.fn();
 export const mockGetGuestSellList = vi.fn();
 export const mockGetSellListCompositeReview = vi.fn();
 export const mockGetGuestSellListOfferReviews = vi.fn();
+export const mockGetGuestSellListCompositeReview = vi.fn();
 export const mockGetOfferMatch = vi.fn();
 export const mockGetPublicOffer = vi.fn();
 export const mockListOfferMatches = vi.fn();
 export const mockPreviewPublicStandardListingTerms = vi.fn();
 export const mockPreviewOfferAcceptanceTerms = vi.fn();
 export const mockAcceptOfferMatch = vi.fn();
+export const mockGetOfferAcceptanceAttempt = vi.fn();
 export const mockDeclineOfferMatch = vi.fn();
 export const mockCreateListing = vi.fn();
 export const mockPublishListing = vi.fn();
@@ -95,6 +100,23 @@ export function applyCheckoutRouteMockDefaults() {
     commandReceipt: checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
   }));
   mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
+  mockGetOfferAcceptanceAttempt.mockImplementation(async (offerId, body) => {
+    const actual = await vi.importActual<typeof import("@chase-sets/marketplace/server")>(
+      "@chase-sets/marketplace/server",
+    );
+    return {
+      schemaVersion: 1,
+      mutationKind: "offer.accept",
+      ownerStatus: "committed",
+      actorBinding: { accountId: "acc_seller" },
+      target: { kind: "offer", id: offerId },
+      attemptKeyFingerprint: createHash("sha256").update(body.sourceActionKey).digest("hex"),
+      canonicalRequestHash: actual.hashMarketplaceRequest(
+        actual.marketplaceOfferCanonicalRequest("offer.accept", { ...body, offerId }),
+      ),
+      ownerReceipt: { id: offerId, version: 2 },
+    };
+  });
   mockCreateListing.mockResolvedValue({
     id: "lst_slc_chk_sell_1_sll_1",
     status: "draft",
@@ -117,12 +139,22 @@ export function applyCheckoutRouteMockDefaults() {
   mockCreateIdentityRequestApiClient.mockReturnValue({
     listShippingAddresses: mockListShippingAddresses.mockResolvedValue({ items: [] }),
   });
-  mockGetSellListCompositeReview.mockResolvedValue({
-    offerReviews: [],
-    productOfferReviews: [],
-    inventoryItems: [],
-  });
+  mockGetSellListCompositeReview.mockResolvedValue(
+    deriveSellListCompositeReview({
+      lines: [],
+      isAccount: true,
+      payoutReadiness: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: null },
+      review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+    }),
+  );
   mockGetGuestSellListOfferReviews.mockResolvedValue({ offerReviews: [] });
+  mockGetGuestSellListCompositeReview.mockResolvedValue(
+    deriveSellListCompositeReview({
+      lines: [],
+      isAccount: false,
+      review: { offerReviews: [], productOfferReviews: [], inventoryItems: [] },
+    }),
+  );
   mockListSellListShipFromAddresses.mockResolvedValue({
     items: [
       {
@@ -212,8 +244,25 @@ export function readyCartReadinessResponse() {
   };
 }
 
-export function readySellListReadinessResponse() {
+export function readySellListReadinessResponse(): SellListReviewReadiness {
   return {
+    reviewPlan: {
+      version: 1,
+      lines: [
+        {
+          lineId: "sll_1",
+          lineType: "selected-offer",
+          itemTitle: "Mewtwo",
+          productId: "prod_1",
+          quantity: 1,
+          selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+          productOfferTargets: [],
+          fallbackListing: null,
+          skippedReasons: [],
+        },
+      ],
+    },
+    decisions: { lineActions: [{ lineId: "sll_1", action: "selected-offer" }], lineOutcomes: [] },
     readiness: {
       schemaVersion: "checkout.sell-list-readiness.v1",
       source: "sell-list",

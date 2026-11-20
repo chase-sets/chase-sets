@@ -8,6 +8,19 @@ export type RiskAlertStatus = "needs-review" | "manual-payout-review-requested" 
 
 export type RiskAlertAction = "request-manual-payout-review" | "acknowledge";
 
+/** Bounded reasons an operator action is refused before anything is appended. */
+export const riskAlertActionRejectionCodes = ["alert-not-found", "action-not-allowed"] as const;
+
+export type RiskAlertActionRejectionCode = (typeof riskAlertActionRejectionCodes)[number];
+
+/** A refused risk-alert action; it carries only its bounded code, never request text. */
+export class RiskAlertActionRejectedError extends Error {
+  constructor(readonly code: RiskAlertActionRejectionCode) {
+    super(`Risk alert action rejected: ${code}.`);
+    this.name = "RiskAlertActionRejectedError";
+  }
+}
+
 export type RiskAlertQueueItem = Readonly<{
   alert_id: string;
   account_id: string;

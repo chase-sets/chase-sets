@@ -134,10 +134,19 @@ describe("account cart attempt recovery through the data router", () => {
       items: [line],
       count: 1,
       readiness: {
-        loaded: { status: "ready", snapshotId: "loaded_api_value" },
+        loaded: {
+          status: "ready",
+          snapshotId: "loaded_api_value",
+          linePresentations: [
+            { lineId: line.line_id, reason: "ready", fulfillmentAvailable: true, listingId: null, price: null },
+          ],
+        },
         declined: {
           status: "ready",
           snapshotId: "declined_api_value",
+          linePresentations: [
+            { lineId: line.line_id, reason: "ready", fulfillmentAvailable: true, listingId: null, price: null },
+          ],
           optimization: {
             available: true,
             decision: "none",
@@ -165,10 +174,31 @@ describe("account cart attempt recovery through the data router", () => {
       items: [line],
       count: 1,
       readiness: {
-        loaded: { status: "needs-resolution", snapshotId: "loaded_api_value" },
+        loaded: {
+          status: "needs-resolution",
+          snapshotId: "loaded_api_value",
+          linePresentations: [
+            {
+              lineId: line.line_id,
+              reason: "unassigned-fulfillment",
+              fulfillmentAvailable: false,
+              listingId: null,
+              price: null,
+            },
+          ],
+        },
         declined: {
           status: "needs-resolution",
           snapshotId: "declined_api_value",
+          linePresentations: [
+            {
+              lineId: line.line_id,
+              reason: "unassigned-fulfillment",
+              fulfillmentAvailable: false,
+              listingId: null,
+              price: null,
+            },
+          ],
           unresolvedLineIds: ["a", "b", "c"],
           optimization: {
             available: false,

@@ -18,6 +18,8 @@ describe("evaluateWaveOneAdmissionBar", () => {
     });
 
     expect(status.admitted).toBe(true);
+    expect(status.goals).toBe(WAVE_ONE_ADMISSION_BAR);
+    expect(status.goals).toEqual({ minTotalSignups: 500, minQualifiedSellers: 50, minQualifiedSellersPerGame: 5 });
     expect(status.totalSignupsMet).toBe(true);
     expect(status.qualifiedSellersMet).toBe(true);
     expect(status.allGamesCovered).toBe(true);

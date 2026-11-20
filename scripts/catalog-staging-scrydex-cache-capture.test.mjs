@@ -109,13 +109,17 @@ function assertCaptureJobIsolated(document) {
   expect(run.run).toBe("pnpm exec tsx scripts/catalog-staging-scrydex-cache-capture.mjs capture");
   expect(validate.run).toBe("pnpm exec tsx scripts/catalog-staging-scrydex-cache-capture.mjs validate");
   expect(validate.if).toBe("${{ always() && steps.capture.outcome != 'skipped' }}");
-  for (const step of [run, validate]) {
-    expect(step.env).toEqual({
-      CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
-      CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
-      GH_TOKEN: "${{ github.token }}",
-    });
-  }
+  expect(run.env).toEqual({
+    CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
+    CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
+    GH_TOKEN: "${{ github.token }}",
+    PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/playwright-chromium",
+  });
+  expect(validate.env).toEqual({
+    CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
+    CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
+    GH_TOKEN: "${{ github.token }}",
+  });
   for (const step of job.steps.filter((candidate) => candidate !== run && candidate !== validate)) {
     for (const key of credentialKeys) expect(step.env?.[key], `${step.name ?? step.uses} holds ${key}`).toBeUndefined();
   }

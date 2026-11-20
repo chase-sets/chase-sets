@@ -46,6 +46,22 @@ Notes:
 
 **Stock Authority** is the Inventory Item stream's serialization boundary for quantity reductions and new hold commitments. Both operations claim it so concurrent requests resolve in commit order and can never commit the same unit twice.
 
+## Stock Reservation For Listing Activation
+
+A **Stock Reservation for Listing activation** is the Owner-Stream Reservation on
+`stock/<accountId>/<inventoryItemId>`. Inventory captures canonical Item and complete
+Hold history together with authoritative Channel Stock Allocation under the physical
+writer locks. Prepare binds both Item and allocation seals, Inventory incarnation,
+consumer request identity, target and command fingerprint.
+
+Every Item, allocation and Hold writer persists its invalidation intent in its own
+transaction before requesting abort outside owner locks. Unknown stays pending;
+business effects and mutation receipts are not applied early. Only the original
+COMMITTED or ABORTED terminal releases a reservation, never elapsed time. An owner
+transfer invalidates reservations for both account scopes on the physical streams.
+Inbound external sales are durably recorded before settlement. Their retained
+command can be settled after restart; sale effects and APPLIED commit together.
+
 ## Hold
 
 A **Hold** is a temporary block against available stock while checkout or another in-progress commerce flow completes.
@@ -127,6 +143,13 @@ Notes:
 - At most one `released`, `consumed`, or `expired` terminal may appear, and nothing may follow it.
 - Reading Hold Cleanup Authority never releases, consumes, or otherwise mutates the Hold.
 
+## Sale-Consumed
+
+**Sale-consumed** is the producer-only Inventory adjustment reason for the
+single stock reduction paired with an order Hold's terminal consumption. The
+consumed Hold ledger row is an audit detail with a null quantity delta; the
+paired Inventory Item adjustment is the only quantity-bearing movement.
+
 ## Hold Source Lookup
 
 A **Hold Source Lookup** is the reverse, exact-tenant query from an Ordering order id to the Hold streams whose Hold Source Reference carries it.
@@ -194,6 +217,13 @@ Values:
 - `return-restocked`: a seller restocked units from a returned order after reviewing the item.
 
 `written-off` is a Restock Decision Outcome, not an Inventory Adjustment Reason. A written-off decision changes no quantity and emits no adjustment.
+
+## Adjustment Request Idempotency Key
+
+An **Adjustment Request Idempotency Key** is the supplied request identity retained on
+an adjustment as `requestIdempotencyKey`, including offline-sale adjustments. It is not
+manufactured for unkeyed requests. Offline-sale recovery uses this native field when
+present; only absent historical fields fall back to the nested legacy CSAT key.
 
 ## Adjustment Note
 

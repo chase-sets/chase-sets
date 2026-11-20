@@ -25,6 +25,7 @@ import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../forecast-ledger/domai
 import { listForecastGrades } from "../../forecast-ledger/read-model/queries";
 import { loader } from "../../../routes/marketplace/account-desk-pricing-health";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
+import { createRepricingConfigurationWriter } from "../../repricing-policies/api/configuration";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -62,6 +63,7 @@ describeDb("Pricing Health real loader and grade queries", () => {
         repricingEngine: worker,
         forecastLedger: { listGoalAdoptions: async () => [] },
         repricingPolicies: createRepricingPolicyRuntime({
+          configuration: createRepricingConfigurationWriter({ pool: pools.pricing, eventStore }),
           eventStore,
           db: pools.pricing,
           goalAdoptions: async () => [],
@@ -95,6 +97,10 @@ describeDb("Pricing Health real loader and grade queries", () => {
       })),
     };
     const runtime = createRepricingPolicyRuntime({
+      configuration: createRepricingConfigurationWriter({
+        pool: pools.pricing,
+        eventStore: createPostgresEventStore({ pool: pools.pricing }),
+      }),
       eventStore: createPostgresEventStore({ pool: pools.pricing }),
       db: pools.pricing,
       goalAdoptions: async () => [],
@@ -188,6 +194,10 @@ describeDb("Pricing Health real loader and grade queries", () => {
       JSON.stringify(read.health),
     ]);
     const runtime = createRepricingPolicyRuntime({
+      configuration: createRepricingConfigurationWriter({
+        pool: pools.pricing,
+        eventStore: createPostgresEventStore({ pool: pools.pricing }),
+      }),
       eventStore: createPostgresEventStore({ pool: pools.pricing }),
       db: pools.pricing,
       goalAdoptions: async () => [],
@@ -277,6 +287,10 @@ describeDb("Pricing Health real loader and grade queries", () => {
     const { health } = services();
     expect((await health.getHealth("acc_7910", undefined, now))?.grades).toHaveLength(1);
     const runtime = createRepricingPolicyRuntime({
+      configuration: createRepricingConfigurationWriter({
+        pool: pools.pricing,
+        eventStore: createPostgresEventStore({ pool: pools.pricing }),
+      }),
       eventStore: createPostgresEventStore({ pool: pools.pricing }),
       db: pools.pricing,
       goalAdoptions: async () => [],

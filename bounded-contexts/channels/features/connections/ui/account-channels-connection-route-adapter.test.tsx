@@ -243,6 +243,7 @@ function connection() {
     environment: "production",
     status: "active",
     createdAt: "2026-10-11T11:00:00.000Z",
+    allowedActions: ["pause", "disconnect"],
   };
 }
 

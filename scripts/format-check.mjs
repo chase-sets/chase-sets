@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -206,12 +207,65 @@ export function changesFormattingControls(files) {
       basename === ".editorconfig" ||
       basename === ".gitignore" ||
       basename === ".prettierignore" ||
-      basename === "package.json" ||
+      (basename === "package.json" && normalized === "package.json") ||
       basename === "pnpm-lock.yaml" ||
       basename.startsWith(".prettierrc") ||
       basename.startsWith("prettier.config.")
     );
   });
+}
+
+function isNestedPackageJson(file) {
+  const normalized = file.replaceAll("\\", "/");
+  return path.posix.basename(normalized) === "package.json" && normalized !== "package.json";
+}
+
+function packageDeclaresPrettier(contents) {
+  const parsed = JSON.parse(contents);
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) && Object.hasOwn(parsed, "prettier");
+}
+
+function nestedPackageEscalationReason({ file, repoRoot, source, execGit }) {
+  const headPath = path.join(repoRoot, file);
+  let headContents;
+  try {
+    headContents = readFileSync(headPath, "utf8");
+  } catch {
+    if (source !== "git merge-base") return "nested package.json is absent or unreadable at HEAD";
+  }
+  if (headContents !== undefined) {
+    try {
+      if (packageDeclaresPrettier(headContents)) return "nested package.json declares a top-level prettier key at HEAD";
+    } catch {
+      return "nested package.json is unreadable at HEAD";
+    }
+  }
+
+  let mergeBase;
+  try {
+    mergeBase = execGit(["merge-base", "origin/main", "HEAD"]).trim();
+    if (!mergeBase) return source === "git merge-base" ? "could not derive merge-base for nested package.json" : null;
+  } catch {
+    return source === "git merge-base" ? "could not derive merge-base for nested package.json" : null;
+  }
+  let baseContents;
+  try {
+    execGit(["cat-file", "-e", `${mergeBase}:${file}`]);
+  } catch {
+    return null;
+  }
+  try {
+    baseContents = execGit(["show", `${mergeBase}:${file}`]);
+  } catch {
+    return "nested package.json is unreadable at merge-base";
+  }
+  try {
+    if (packageDeclaresPrettier(baseContents))
+      return "nested package.json declares a top-level prettier key at merge-base";
+  } catch {
+    return "nested package.json is unreadable at merge-base";
+  }
+  return null;
 }
 
 function parseMode(argv) {
@@ -239,6 +293,7 @@ export async function runFormatCheck({
     return runPrettier(fullTreeArgs());
   };
   const requestedMode = parseMode(argv);
+  const git = execGit ?? ((args) => defaultExecGit(args, repoRoot));
   if (requestedMode === "full" || env[FORMAT_CHECK_SCOPE_ENV] === FULL_TREE_SCOPE) {
     const reason = requestedMode === "full" ? "default" : `${FORMAT_CHECK_SCOPE_ENV}=${FULL_TREE_SCOPE}`;
     return runFullTree(() => stdout(`[FORMAT_CHECK_FULL_TREE] Running the full-tree format check (${reason}).`));
@@ -246,7 +301,7 @@ export async function runFormatCheck({
 
   let derived;
   try {
-    derived = deriveChangedFiles({ repoRoot, env, execGit });
+    derived = deriveChangedFiles({ repoRoot, env, execGit: git });
   } catch (error) {
     const code = error instanceof ChangedFilesDerivationError ? error.code : "FORMAT_CHECK_DERIVATION_FAILED";
     return runFullTree(() => stderr(`[${code}] ${error.message}. Running the full-tree format check.`));
@@ -259,6 +314,21 @@ export async function runFormatCheck({
           "running the full-tree format check.",
       ),
     );
+  }
+
+  const nestedControls = derived.files.filter((file) => isNestedPackageJson(file));
+  for (const nestedControl of nestedControls) {
+    const reason = nestedPackageEscalationReason({
+      file: nestedControl,
+      repoRoot,
+      source: derived.source,
+      execGit: git,
+    });
+    if (reason) {
+      return runFullTree(() =>
+        stdout(`[FORMAT_CHECK_CONTROL_FILE_CHANGED] ${nestedControl}: ${reason}; running the full-tree format check.`),
+      );
+    }
   }
 
   let filtered;

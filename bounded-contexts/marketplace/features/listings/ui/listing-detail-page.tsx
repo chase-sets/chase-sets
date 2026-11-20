@@ -1,7 +1,7 @@
+import { ListingCommandForm as Form } from "./listing-command-form";
 import { formatBpsPercent, formatDateTime, formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   Badge,
   Button,
   OrderProtectionModule,

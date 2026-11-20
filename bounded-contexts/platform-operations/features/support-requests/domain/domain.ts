@@ -1,4 +1,5 @@
 import type { AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { ParticipantReceipt } from "./participant-attempt";
 import type { AccountId, OrderId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { compareMoneyAmounts, sumMoneyAmounts } from "@chase-sets/primitives/money";
@@ -84,10 +85,124 @@ import {
   type RetrySupportRemedyEffectCommand,
   type SupportRemedyApprovalEvent,
 } from "./remedy-approval";
-import {
-  createSupportCsatOutcomeFact,
-  supportCsatOutcomeFactEventType,
-} from "../../../support/request-support/csat-outcome-fact";
+const supportCsatOutcomeFactEventType = "platform-operations.csat-outcome-fact.v1" as const;
+
+export type CustomerRemedyRole = "buyer" | "seller";
+export type CustomerRemedyState =
+  | "proposed-under-review"
+  | "awaiting-coverage-approval"
+  | "return-label-ready"
+  | "in-transit"
+  | "awaiting-intake"
+  | "refund-submitted"
+  | "refund-confirmed"
+  | "settlement-reconciliation-pending"
+  | "completed"
+  | "expired-deadline"
+  | "carrier-exception"
+  | "refund-failure"
+  | "manual-review"
+  | "resolution-in-progress";
+export type CustomerRemedyStatusProjection = Readonly<{
+  state: CustomerRemedyState;
+  terminal: boolean;
+  role: CustomerRemedyRole;
+  outcome: "underReview" | "fullRefund" | "partialRefund" | "sellerFunded" | "completedCovered" | "covered";
+  coverage: "full" | "partial" | null;
+  noFaultFinding: boolean;
+  returnDirective: RemedyExecution["returnDirective"];
+  refundTrigger: RemedyExecution["refundTrigger"];
+  nextAction: "ship" | "waitForLabel" | "followSupport" | "refundFailure" | "none" | null;
+  amount: string;
+  currencyCode: string;
+  sellerAmount: string;
+  platformAmount: string;
+  allocationCurrencyCode: string;
+}>;
+
+export function projectCustomerRemedyStatus(
+  request: Readonly<{ remedy: RemedyExecution | null; remedy_approval: RemedyApprovalWorkflow | null }>,
+  role: CustomerRemedyRole,
+): CustomerRemedyStatusProjection | null {
+  const remedy = request.remedy;
+  const workflow = request.remedy_approval;
+  const terms = remedy ?? workflow?.terms;
+  if (!terms) return null;
+  let state: CustomerRemedyState;
+  if (remedy) {
+    const effect = (name: RemedyExecution["effects"][number]["effect"]) =>
+      remedy.effects.find((item) => item.effect === name);
+    const succeeded = (name: RemedyExecution["effects"][number]["effect"]) =>
+      ["satisfied", "waived"].includes(effect(name)?.status ?? "");
+    const failed = remedy.effects.find(
+      (item) => item.status === "failed-retryable" || item.status === "failed-terminal",
+    );
+    if (remedy.status === "completed") state = "completed";
+    else if (failed?.effect === "refund-completion") state = "refund-failure";
+    else if (
+      failed &&
+      ["return-label-available", "carrier-accepted", "return-delivered", "facility-intake"].includes(failed.effect)
+    )
+      state = "carrier-exception";
+    else if (failed) state = "manual-review";
+    else if (succeeded("refund-completion"))
+      state = role === "buyer" ? "refund-confirmed" : "settlement-reconciliation-pending";
+    else if (remedy.refundReleasedAt) state = "refund-submitted";
+    else if (succeeded("return-delivered") && effect("facility-intake")?.status === "pending")
+      state = "awaiting-intake";
+    else if (succeeded("carrier-accepted") && effect("return-delivered")?.status === "pending") state = "in-transit";
+    else if (succeeded("return-label-available")) state = "return-label-ready";
+    else state = "resolution-in-progress";
+  } else if (workflow!.status === "reservation-pending") state = "awaiting-coverage-approval";
+  else if (workflow!.status === "expired") state = "expired-deadline";
+  else if (workflow!.status === "reservation-rejected" || workflow!.status === "correction-requested")
+    state = "manual-review";
+  else state = "proposed-under-review";
+  return {
+    state,
+    terminal: state === "completed",
+    role,
+    outcome: !remedy
+      ? "underReview"
+      : role === "buyer"
+        ? terms.remedy.kind === "full-refund"
+          ? "fullRefund"
+          : "partialRefund"
+        : terms.allocation.fundingKind === "seller-funded"
+          ? "sellerFunded"
+          : remedy.status === "completed"
+            ? "completedCovered"
+            : "covered",
+    coverage:
+      role !== "buyer" || !remedy
+        ? null
+        : terms.allocation.fundingKind === "platform-funded"
+          ? "full"
+          : terms.allocation.fundingKind === "split"
+            ? "partial"
+            : null,
+    noFaultFinding: role === "seller" && terms.allocation.fundingKind !== "seller-funded",
+    returnDirective: terms.returnDirective,
+    refundTrigger: terms.refundTrigger,
+    nextAction:
+      state === "completed"
+        ? null
+        : state === "return-label-ready" && role === "buyer"
+          ? "ship"
+          : state === "resolution-in-progress" && role === "buyer"
+            ? "waitForLabel"
+            : ["expired-deadline", "carrier-exception", "manual-review"].includes(state)
+              ? "followSupport"
+              : state === "refund-failure"
+                ? "refundFailure"
+                : "none",
+    amount: terms.remedy.amount,
+    currencyCode: terms.remedy.currencyCode,
+    sellerAmount: terms.allocation.sellerFundedAmount,
+    platformAmount: terms.allocation.platformFundedAmount,
+    allocationCurrencyCode: terms.allocation.currencyCode,
+  };
+}
 
 export type SupportRequestState = Readonly<{
   supportRequestId: SupportRequestId | null;
@@ -477,7 +592,7 @@ export type SupportRequestResolvedEvent = DomainEvent<
 
 export type SupportCsatOutcomeFactPublishedEvent = DomainEvent<
   typeof supportCsatOutcomeFactEventType,
-  ReturnType<typeof createSupportCsatOutcomeFact>
+  JsonObject & Readonly<{ subject: Readonly<{ entityType: string; entityId: string }> }>
 >;
 
 export type SupportRequestClosedEvent = DomainEvent<
@@ -841,25 +956,6 @@ function refundAmountForResolution(
   }
 
   return selected.amount ?? selected.capAmount;
-}
-
-function createSupportResolutionOutcomeFact(
-  input: Readonly<{
-    supportRequestId: SupportRequestId;
-    buyerAccountId: AccountId;
-    flowType: SupportFlowType;
-    resolution: SupportResolution;
-  }>,
-) {
-  return createSupportCsatOutcomeFact({
-    outcomeCode: input.flowType === "return-request" ? "return.resolved" : "support.request-resolved",
-    subjectAccountId: input.buyerAccountId,
-    subjectKind: "buyer",
-    subjectEntityType: input.flowType === "return-request" ? "return" : "support-request",
-    subjectEntityId: input.supportRequestId,
-    outcomeOccurredAt: input.resolution.resolvedAt,
-    idempotencyKey: `support-request:${input.supportRequestId}:resolved`,
-  });
 }
 
 function normalizeEvidence(command: SubmitSupportEvidenceCommand): SupportEvidence {
@@ -1272,19 +1368,7 @@ export const decideSupportRequest = (
             autoCloseDueAt: autoCloseDueAtFor(response.submittedAt),
           },
         };
-        return [
-          responseRecorded,
-          resolvedEvent,
-          {
-            type: supportCsatOutcomeFactEventType,
-            data: createSupportResolutionOutcomeFact({
-              supportRequestId: state.supportRequestId,
-              buyerAccountId: state.buyerAccountId!,
-              flowType: state.flowType,
-              resolution,
-            }),
-          },
-        ];
+        return [responseRecorded, resolvedEvent];
       }
 
       return [responseRecorded];
@@ -1335,15 +1419,6 @@ export const decideSupportRequest = (
             resolution,
             autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
           },
-        },
-        {
-          type: supportCsatOutcomeFactEventType,
-          data: createSupportResolutionOutcomeFact({
-            supportRequestId: state.supportRequestId,
-            buyerAccountId: state.buyerAccountId!,
-            flowType: state.flowType!,
-            resolution,
-          }),
         },
       ];
     }
@@ -1476,18 +1551,7 @@ export const decideSupportRequest = (
           autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
         },
       };
-      return [
-        resolvedEvent,
-        {
-          type: supportCsatOutcomeFactEventType,
-          data: createSupportResolutionOutcomeFact({
-            supportRequestId: state.supportRequestId,
-            buyerAccountId: state.buyerAccountId!,
-            flowType: state.flowType,
-            resolution,
-          }),
-        },
-      ];
+      return [resolvedEvent];
     }
     case "ProposeSupportRemedy": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
